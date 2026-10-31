@@ -64,27 +64,9 @@ def check_config_firehose_references(tmp_path):
         .replace("ConfigurationRecorder: Resource", "ConfigurationRecorder: recorder")
     )
     path.write_text(source, encoding="utf-8")
-    values = model_core.properties("""# Synthetic authoritative Model fixture.
-desired.service.config.serviceId=config
-desired.service.config.ownedCatalogResourceTypes=Config.ConfigurationRecorder
-desired.resource.001.resourceType=Config.ConfigurationRecorder
-desired.resource.001.logicalId=Config_ConfigurationRecorder_001
-desired.resource.001.anchor=resource-Config_ConfigurationRecorder_001
-desired.resource.001.cfn-logicalId=fixture-ConfigRecorder
-desired.service.identity.lastAllocated={"Config.ConfigurationRecorder":1}
-desired.row.001-001.property=Config.ConfigurationRecorder.Id
-desired.row.001-001.value=[Config_ConfigurationRecorder_001](config.md#resource-Config_ConfigurationRecorder_001)
-desired.row.001-001.comment=設定する属性
-observed.row.001-001.property=Config.ConfigurationRecorder.Id
-observed.row.001-001.value=`PENDING_DEPLOY`
-observed.row.001-001.comment=設定する属性
-desired.row.001-002.property=Config.ConfigurationRecorder.RoleARN
-desired.row.001-002.value=`AWSServiceRoleForConfig`
-desired.row.001-002.comment=設定する属性
-desired.row.001-003.property=Config.ConfigurationRecorder.Name
-desired.row.001-003.value=`recorder`
-desired.row.001-003.comment=記録するrecorderの名前
-""")
+    values = model_core.properties(
+        '# Synthetic authoritative Model fixture.\ndesired.service.config.serviceId=config\ndesired.service.config.ownedCatalogResourceTypes=Config.ConfigurationRecorder\ndesired.resource.001.resourceType=Config.ConfigurationRecorder\ndesired.resource.001.logicalId=Config_ConfigurationRecorder_001\ndesired.resource.001.anchor=resource-Config_ConfigurationRecorder_001\ndesired.resource.001.cfn-logicalId=fixture-ConfigRecorder\ndesired.service.identity.lastAllocated={"Config.ConfigurationRecorder":1}\ndesired.row.001-001.property=Config.ConfigurationRecorder.Id\ndesired.row.001-001.value=`{"$modelRef":{"logicalId":"Config_ConfigurationRecorder_001","attribute":"Name"}}`\ndesired.row.001-001.comment=設定する属性\nobserved.row.001-001.property=Config.ConfigurationRecorder.Id\nobserved.row.001-001.value=`PENDING_DEPLOY`\nobserved.row.001-001.comment=設定する属性\ndesired.row.001-002.property=Config.ConfigurationRecorder.RoleARN\ndesired.row.001-002.value=`AWSServiceRoleForConfig`\ndesired.row.001-002.comment=設定する属性\ndesired.row.001-003.property=Config.ConfigurationRecorder.Name\ndesired.row.001-003.value=`recorder`\ndesired.row.001-003.comment=記録するrecorderの名前\n'
+    )
     values.update(
         {
             "display.service.title": "# Config 詳細設計",

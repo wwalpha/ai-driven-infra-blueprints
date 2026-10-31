@@ -188,7 +188,18 @@ def check_config():
                 elif prop == "S3BucketName":
                     raw = bucket_value
                 elif prop == "Id":
-                    raw = f"[resource](#resource-{kind.replace('.', '_')}_001)"
+                    raw = (
+                        "`"
+                        + json.dumps(
+                            {
+                                "$modelRef": {
+                                    "logicalId": kind.replace(".", "_") + "_001",
+                                    "attribute": "Name",
+                                }
+                            }
+                        )
+                        + "`"
+                    )
                     values[f"observed.row.{number}-{index:03}.value"] = payload["name"]
                 values.update(
                     {

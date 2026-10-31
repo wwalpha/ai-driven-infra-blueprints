@@ -42,12 +42,11 @@ def check(root):
     write_model(producer, original)
     path = producer.with_name("cloudtrail.properties")
     values = {}
-    for rid, label, policy in [
+    for rid, label, _policy in [
         ("021", "app-preview-one", "display-name"),
         ("083", "PENDING_DEPLOY", "fixed"),
     ]:
-        key = f"desired.row.{rid}-001.value"
-        link = f"[{label}](lambda.md#lambda-app-preview-one)"
+        link = '`{"$modelRef":{"logicalId":"Lambda_Function_052","attribute":"Arn"}}`'
         values.update(
             resource(
                 rid,
@@ -56,18 +55,8 @@ def check(root):
                 [("EventSelectors[].DataResources[].Values", link)],
             )
         )
-        values.update(
-            reference(
-                "function-" + rid,
-                key,
-                link,
-                "lambda",
-                "052",
-                "Lambda.Function",
-                mode="link",
-                label=policy,
-            )
-        )
+
+        values[f"display.resource.{rid}.label"] = label
     values["desired.note.producerName.text"] = "app-preview-one"
     values.update(
         reference(
@@ -85,11 +74,11 @@ def check(root):
     assert not snapshot.warnings, snapshot.warnings
     assert (
         snapshot.authoritative["desired.row.021-001.value"]
-        == "[app-preview-one](lambda.md#lambda-app-preview-one)"
+        == '`{"$modelRef":{"logicalId":"Lambda_Function_052","attribute":"Arn"}}`'
     )
     assert (
         snapshot.authoritative["desired.row.083-001.value"]
-        == "[PENDING_DEPLOY](lambda.md#lambda-app-preview-one)"
+        == '`{"$modelRef":{"logicalId":"Lambda_Function_052","attribute":"Arn"}}`'
     )
     assert producer in source_inputs(path)
     assert affected(root, [producer.relative_to(root)]) == {

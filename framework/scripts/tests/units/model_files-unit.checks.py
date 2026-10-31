@@ -228,7 +228,7 @@ def check_resource_reading_inputs(tmp_path):
         ):
             result, count = invoke(source, command, selector)
             assert result[0] == 0 and not result[2], result
-            assert count == 1, (command, count)
+            assert count == 2, (command, count)
             answer = json.loads(result[1])
             if command == "trace":
                 assert answer == model_files.trace_model(source, selector)
@@ -260,7 +260,10 @@ def check_resource_reading_inputs(tmp_path):
                     == key + "=" + value
                 )
             assert "desired.resource.004." not in result.stdout
-            assert "config.md#config-recorder" in result.stdout
+            assert (
+                '"$modelRef"'
+                in json.loads(result.stdout)["desired.row.001-003.document"][2]
+            )
         result = cli("resource", "KMS_Key_060")
         assert (
             result.returncode == 0
@@ -312,7 +315,7 @@ def check_resource_reading_inputs(tmp_path):
             finally:
                 file.write_bytes(saved)
         result, count = invoke(source, command, "missing-key-or-resource")
-        assert result[0] == (0 if command == "find" else 1) and count == 1
+        assert result[0] == (0 if command == "find" else 1) and count == 2
         if command == "find":
             assert json.loads(result[1]) == {}
         else:
@@ -325,12 +328,17 @@ def check_resource_reading_inputs(tmp_path):
             "desired.resource.002.logicalId=KMS_Key_001",
         ),
         text.replace(
-            "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
-            "[KMS_Key_999](kms.md#resource-KMS_Key_999)",
+            '"logicalId": "KMS_Key_001"',
+            '"logicalId": "KMS_Key_999"',
         ),
         text.replace(
-            "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
-            "[KMS_Key_001](other.md#resource-KMS_Key_001)",
+            '"attribute": "KeyId"',
+            '"attribute": "MissingAttribute"',
+        ),
+        text.replace("desired.resource.002.parentProperty=KMS.Alias.TargetKeyId\n", ""),
+        text.replace(
+            '"logicalId": "KMS_Key_001"',
+            '"logicalId": "KMS_Alias_002"',
         ),
     ):
         try:
@@ -365,7 +373,8 @@ def check_resource_reading_inputs(tmp_path):
                 model_files.read_resource(source, "001")
                 model_files.trace_model(source, "desired.row.001-001.value")
                 assert load_model(source) is original
-            assert body.call_count == 1 and memo_table() is memo
+            # Typed reference lookup indexes both service Models once in this target.
+            assert body.call_count == 2 and memo_table() is memo, body.call_args_list
         with restrict(("dev", "123456789012", "kms")):
             with reference_reader(producer):
                 load_model(producer)

@@ -76,12 +76,21 @@ def resource_keys(text: str, selector: str, *, scope=None) -> set[str]:
         )
     logical = resource_identity.resource_index(values)
     neighbors = {identity: set() for identity in resources}
+    resolver = resource_identity.Resolver(scope.root) if scope is not None else None
     for identity, resource in resources.items():
         if "parentReference" not in resource:
             continue
         node = parse(resource["parentReference"])
         if node.logical_id not in logical:
             raise ValueError("grouped parent is absent: " + identity)
+        if resolver is None:
+            raise ValueError("grouped parent validation requires Model scope")
+        field = resource.get("parentProperty")
+        if not field:
+            raise ValueError("grouped parentProperty is absent: " + identity)
+        kind = logical[node.logical_id][1]["resourceType"]
+        resolver.validate_attribute(kind, node.attribute, field=field)
+        resolver.validate_reference_type(kind, node.attribute, field)
         parent = logical[node.logical_id][0]
         neighbors[identity].add(parent)
         neighbors[parent].add(identity)

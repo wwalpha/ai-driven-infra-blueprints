@@ -77,7 +77,10 @@ def check(root):
         "s3-one",
         [
             ("BucketName", "`fixture-role`"),
-            ("Producer", "[fixture-role](iam.md#iam-one)"),
+            (
+                "Producer",
+                '`{"$modelRef":{"logicalId":"IAM_Role_041","attribute":"RoleName"}}`',
+            ),
         ],
     )
     values.update(
@@ -91,18 +94,6 @@ def check(root):
             prop="IAM.Role.RoleName",
         )
     )
-    values.update(
-        reference(
-            "role-link",
-            "desired.row.041-002.value",
-            "[fixture-role](iam.md#iam-one)",
-            "iam",
-            "041",
-            "IAM.Role",
-            mode="link",
-            label="display-name",
-        )
-    )
     write_model(bucket, values)
     stack = entrance.with_name("cloudformation-stacks.properties")
     values = {
@@ -112,7 +103,7 @@ def check(root):
         "desired.stack.001.parameters": "fixture.json",
         "desired.stack.001.deployOrder": "1",
         "desired.deployment.templateKeyPrefix": "fixture/",
-        "desired.deployment.templateBucket": "[fixture-role](s3.md#s3-one)",
+        "desired.deployment.templateBucket": '{"$modelRef":{"logicalId":"S3_Bucket_041","attribute":"BucketName"}}',
     }
     values.update(
         reference(

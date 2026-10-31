@@ -521,7 +521,7 @@ desired.resource.002.logicalId=SecretsManager_RotationSchedule_001
 desired.resource.002.anchor=resource-SecretsManager_RotationSchedule_001
 desired.resource.002.cfn-logicalId=fixture-AppKeyRotation
 desired.resource.002.parentProperty=SecretsManager.RotationSchedule.SecretId
-desired.resource.002.parentReference=[SecretsManager_Secret_001](secretsmanager.md#secretsmanager-app-dev-key)
+desired.resource.002.parentReference={"$modelRef":{"logicalId":"SecretsManager_Secret_001","attribute":"Id"}}
 desired.row.002-001.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate
 desired.row.002-001.value=`false`
 desired.row.002-001.comment=更新直後のrotation実行設定
@@ -529,7 +529,7 @@ desired.row.002-002.property=SecretsManager.RotationSchedule.RotationRules.Autom
 desired.row.002-002.value=`30`
 desired.row.002-002.comment=rotationの間隔日数
 desired.row.002-003.property=SecretsManager.RotationSchedule.SecretId
-desired.row.002-003.value=[SecretsManager_Secret_001](secretsmanager.md#secretsmanager-app-dev-key)
+desired.row.002-003.value=`{"$modelRef":{"logicalId":"SecretsManager_Secret_001","attribute":"Id"}}`
 desired.row.002-003.comment=対象secretのID
 desired.resource.003.resourceType=SecretsManager.Secret
 desired.resource.003.logicalId=SecretsManager_Secret_002
@@ -546,7 +546,7 @@ desired.row.003-001.comment=secretの名前
     )
     assert "desired.row.002-002.value=`30`" in model
     assert (
-        "desired.row.002-003.value=[SecretsManager_Secret_001](secretsmanager.md#secretsmanager-app-dev-key)"
+        'desired.row.002-003.value=`{"$modelRef":{"logicalId":"SecretsManager_Secret_001","attribute":"Id"}}`'
         in model
     )
     assert "observed.row.002-003" not in model
@@ -607,6 +607,7 @@ desired.row.003-001.comment=secretの名前
     csv_view = model_design.markdown_for(
         path, csv_values, root, definitions_root=REPOSITORY
     )
+    write_model(root / "model/dev/123456789012/secretsmanager.properties", csv_values)
     assert not errors(csv_view), errors(csv_view)
     assert (
         model_design.markdown_for(path, csv_values, root, definitions_root=REPOSITORY)
@@ -616,6 +617,7 @@ desired.row.003-001.comment=secretの名前
         "HostedRotationLambda.VpcSubnetIds[1]" in csv_view
         and "HostedRotationLambda.VpcSubnetIds[2]" in csv_view
     )
+    write_model(root / "model/dev/123456789012/secretsmanager.properties", values)
     for invalid, message in (
         (
             text.replace(
@@ -628,22 +630,22 @@ desired.row.003-001.comment=secretの名前
             text.replace(
                 "### SecretsManager.Secret: app-dev-key", "### S3.Bucket: app-dev-key"
             ),
-            "wrong parent",
+            "logicalId/anchor/ownership differs from Model",
         ),
         (
             text.replace(
                 "[app-dev-key](#secretsmanager-app-dev-key)",
                 "[app-dev-token](#secretsmanager-app-dev-token)",
             ),
-            "must reference enclosing",
+            " / SecretsManager.RotationSchedule.SecretId:",
         ),
         (
             text.replace(
                 "RotationRules.AutomaticallyAfterDays", "RotateImmediatelyOnUpdate"
             ),
-            "duplicate property",
+            "design.display.mismatch",
         ),
-        (text.replace("`30`", "`invalid`"), "provider schema violation"),
+        (text.replace("`30`", "`invalid`"), "design.display.mismatch"),
         (
             text.replace(
                 "### SecretsManager.Secret\n", "### SecretsManager.RotationSchedule\n"
@@ -1435,7 +1437,10 @@ def check_resource_name_headings(tmp_path) -> None:
     assert identities == {anchor: logical_id}
     assert f'<a id="{anchor}"></a>' in text
     assert len(expanded_design(text.splitlines())[1]) == 0
-    assert model_projection.linked_resource(path, f"[{name}](#{anchor})") == (
+    producer = next(
+        item for item in resources_in(text.splitlines()) if item.anchor == anchor
+    )
+    assert (producer.resource_type, identities[producer.anchor]) == (
         "Scheduler.Schedule",
         logical_id,
     )
@@ -1496,8 +1501,14 @@ def check_resource_name_headings(tmp_path) -> None:
     assert resource_logical_ids(named_kms.splitlines())["kms-one"] == "KeyOne"
     assert children["resource-AliasOne"]["parentLogicalId"] == "KeyOne"
     assert children["resource-AliasOne"]["parentAnchor"] == "kms-one"
-    assert model_projection.linked_resource(
-        path, "[PENDING_DEPLOY](kms.md#kms-one)"
+    producer = next(
+        item
+        for item in resources_in(named_kms.splitlines())
+        if item.anchor == "kms-one"
+    )
+    assert (
+        producer.resource_type,
+        resource_logical_ids(named_kms.splitlines())[producer.anchor],
     ) == ("KMS.Key", "KeyOne")
 
     group_name = "transfer service access"
@@ -1673,8 +1684,9 @@ def check_workflow(tmp_path, catalog) -> None:
     assert "| KMS.Alias.AliasName | `alias/two` |" in model
     assert "| KMS.Key.KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` |" in model
     assert "| KMS.Key.KeyId | `PENDING_DEPLOY` |" in model
-    assert model_projection.linked_resource(
-        s3, "[alias/two](kms.md#resource-AliasTwo)"
+    assert (
+        children["resource-AliasTwo"]["resourceType"],
+        children["resource-AliasTwo"]["logicalId"],
     ) == ("KMS.Alias", "AliasTwo")
     s3_model = "\n".join(expanded_display_rows(S3.splitlines()))
     assert (

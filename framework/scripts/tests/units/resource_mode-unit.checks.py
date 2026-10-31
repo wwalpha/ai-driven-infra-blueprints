@@ -167,7 +167,9 @@ def check_resource_mode_conditions():
             "EC2.VPCEndpoint", "LEGACY_NAME_01", "IMPORT", "取得済みresource"
         )
         tagged["desired.row.001-003.value"] = "name"
-        tagged["desired.row.001-001.value"] = "[Endpoint](#ec2-service-endpoint)"
+        tagged["desired.row.001-001.value"] = json.dumps(
+            {"$modelRef": {"logicalId": "EC2_VPCEndpoint_001", "attribute": "Id"}}
+        ).join(("`", "`"))
         assert not (error := check(tagged)), error
         assert "| Tags[1].Key | name |" in path.read_text(encoding="utf-8")
 
@@ -239,7 +241,7 @@ def check_resource_mode_conditions():
             ),
             "desired.resource.001.resourceMode": "CREATE",
             "desired.row.001-001.property": "KMS.Key.KeyId",
-            "desired.row.001-001.value": "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
+            "desired.row.001-001.value": '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
             "desired.row.001-001.comment": "一意に識別するID",
             "observed.row.001-001.property": "KMS.Key.KeyId",
             "observed.row.001-001.value": "PENDING_DEPLOY",
@@ -249,7 +251,7 @@ def check_resource_mode_conditions():
             "desired.resource.002.anchor": "resource-KMS_Alias_001",
             "desired.resource.002.resourceMode": "IMPORT",
             "desired.resource.002.parentProperty": "KMS.Alias.TargetKeyId",
-            "desired.resource.002.parentReference": "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
+            "desired.resource.002.parentReference": '{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}',
             "desired.row.002-001.property": "KMS.Alias.AliasName",
             "desired.row.002-001.value": "alias/LEGACY_KEY",
             "desired.row.002-001.comment": "鍵を識別するalias",

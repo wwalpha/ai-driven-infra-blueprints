@@ -497,6 +497,7 @@ def check_lakeformation_arn_identifiers_are_not_collected(
                 {
                     "Stacks": [
                         {
+                            "StackId": "stack",
                             "StackStatus": "CREATE_COMPLETE",
                             "Outputs": [
                                 {"OutputKey": name, "OutputValue": arn}
@@ -511,6 +512,19 @@ def check_lakeformation_arn_identifiers_are_not_collected(
                             "LogicalResourceId": "Bucket",
                             "ResourceType": document["Resources"]["Bucket"]["Type"],
                             "PhysicalResourceId": arn,
+                            "ResourceStatus": "CREATE_COMPLETE",
+                        }
+                    ]
+                },
+                {
+                    "Stacks": [
+                        {
+                            "StackId": "stack",
+                            "StackStatus": "CREATE_COMPLETE",
+                            "Outputs": [
+                                {"OutputKey": name, "OutputValue": arn}
+                                for name in properties
+                            ],
                         }
                     ]
                 },
@@ -526,9 +540,10 @@ def check_lakeformation_arn_identifiers_are_not_collected(
             deploy_observed.collect_successful(
                 backend, [{"name": "First"}], {"First": {}}
             ),
-            ({}, [], None),
+            ({}, [source.stem], None),
         )
-    destinations.assert_not_called()
+    destinations.assert_called_once()
+    TestCase().assertEqual(destinations.call_args.args[4], {source: {}})
     assert source.read_bytes() == before
     if existing_rows:
         values = sources.load_model(source).authoritative

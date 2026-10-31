@@ -125,7 +125,8 @@ def check(root, alias, service):
         )
         assert statement["Resource"]["Fn::GetAtt"] == ["HulftRetrievalDetectDlq", "Arn"]
         assert any(
-            raw == "[fixture-one](#fixture-sqs-017)"
+            raw
+            == '`{"$modelRef":{"logicalId":"SQS_Queue_017","attribute":"QueueUrl"}}`'
             for raw in before.authoritative.values()
         )
         assert (

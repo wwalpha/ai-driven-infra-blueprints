@@ -31,6 +31,7 @@ from model.format import FORMAT, INDEX, parse, serialize
 from model.format import patch as patch_properties
 from model.render import stack_markdown
 from support.cloudformation_deploy_fixtures import advance_group
+from support.import_model_fixtures import resource_values
 from support.model_v2_fixtures import deploy_properties_fixture
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
@@ -417,7 +418,7 @@ def check_stack_metadata_defers_delivery_model(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, stack = deploy_properties_fixture(tmp_path)
     values = dict(sources.stack_snapshot(stack).authoritative)
-    reference = "[assets](missing.md#resource-S3_Bucket_001)"
+    reference = '{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}'
     values["display.stack.009.comment"] = "synthetic Stack"
     values.update(
         {
@@ -705,7 +706,8 @@ def check_index_corruption_and_related_model(
     cache = RunModels(tmp_path, {})
     with sources.model_session(cache):
         if loaded_first:
-            sources.load_model(scope.path)
+            with pytest.raises(ValueError, match="evidence|dependency index"):
+                sources.load_model(scope.path)
         with pytest.raises(ValueError, match="evidence|dependency index"):
             dependency_index.load(tmp_path)
             sources.load_model(scope.path)
@@ -782,7 +784,7 @@ def check_index_service_part_add_retarget_delete(tmp_path, monkeypatch):
             {
                 "desired.resource.007.cfn-logicalId": "fixture-AddedVpc",
                 "desired.row.007-002.property": "EC2.VPC.Name",
-                "desired.row.007-002.value": "[link](network.md#resource-EC2_VPC_001)",
+                "desired.row.007-002.value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
             },
         )
         part.write_text(text)
@@ -791,7 +793,9 @@ def check_index_service_part_add_retarget_delete(tmp_path, monkeypatch):
             tmp_path, scope.environment, scope.target, ["fixture-AddedVpc"]
         ) == [added]
         assert added in dependency_index.consumers(
-            tmp_path, {f"{scope.environment}/{scope.target}/network"}, set()
+            tmp_path,
+            {f"{scope.environment}/{scope.target}/network"},
+            {(scope.environment, scope.target, "EC2_VPC_001")},
         )
         assert (
             dependency_index.load(tmp_path)["models"][
@@ -1087,12 +1091,15 @@ def check_readiness_removal_and_ready_execution(tmp_path, monkeypatch):
 def check_readiness_and_collection_removal_scope(tmp_path, monkeypatch, policy):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, backend = readiness_fixture(tmp_path)
-    values = dict(parse(scope.path.read_text()).values)
-    values.pop("desired.resource.007.cfn-logicalId")
-    values["desired.resource.007.resourceMode"] = "IMPORT"
-    values["desired.row.007-001.value"] = "[vpc](network.md#network-existing)"
+    consumer_values = resource_values(
+        "007",
+        "EC2.Subnet",
+        "consumer",
+        "IMPORT",
+        [("VpcId", '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`')],
+    )
     consumer = scope.path.with_name("consumer.properties")
-    consumer.write_text(serialize(values))
+    consumer.write_text(serialize(consumer_values))
     dependency_index.rebuild(tmp_path)
     unit = {"name": "fixture"}
     # Static ownership/Model validation must not project unconfirmed changes.
@@ -1187,10 +1194,13 @@ def check_retained_and_updating_resources(tmp_path, monkeypatch, other_action):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, backend = readiness_fixture(tmp_path)
     values = dict(parse(scope.path.read_text()).values)
-    consumer_values = dict(values)
-    consumer_values.pop("desired.resource.007.cfn-logicalId")
-    consumer_values["desired.resource.007.resourceMode"] = "IMPORT"
-    consumer_values["desired.row.007-001.value"] = "[vpc](network.md#network-existing)"
+    consumer_values = resource_values(
+        "007",
+        "EC2.Subnet",
+        "consumer",
+        "IMPORT",
+        [("VpcId", '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`')],
+    )
     scope.path.with_name("consumer.properties").write_text(serialize(consumer_values))
     values.update(
         {

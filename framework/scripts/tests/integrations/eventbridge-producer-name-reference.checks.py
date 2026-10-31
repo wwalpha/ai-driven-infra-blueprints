@@ -47,16 +47,22 @@ def check(root, service, kind, property_name):
                 "Lambda.Permission",
                 "lambda-invoke-permission",
                 [
-                    ("FunctionName", "[Original-Case_01](lambda.md#lambda-original)"),
+                    (
+                        "FunctionName",
+                        '`{"$modelRef":{"logicalId":"Lambda_Function_052","attribute":"Arn"}}`',
+                    ),
                     ("Principal", "`events.amazonaws.com`"),
-                    ("SourceArn", "[Events_Rule_021](eventbridge.md#eventbridge-rule)"),
+                    (
+                        "SourceArn",
+                        '`{"$modelRef":{"logicalId":"Events_Rule_021","attribute":"Arn"}}`',
+                    ),
                 ],
             )
         )
         original.update(
             {
                 "desired.resource.053.parentProperty": "Lambda.Permission.FunctionName",
-                "desired.resource.053.parentReference": "[Original-Case_01](lambda.md#lambda-original)",
+                "desired.resource.053.parentReference": '`{"$modelRef":{"logicalId":"Lambda_Function_052","attribute":"Arn"}}`',
             }
         )
     original["desired.service.identity.lastAllocated"] = json.dumps(
@@ -78,12 +84,12 @@ def check(root, service, kind, property_name):
         reference(
             "link",
             "desired.note.link.text",
-            link,
+            "Original-Case_01",
             service,
             "052",
             kind,
-            mode="link",
-            label="fixed",
+            prop=kind + "." + property_name,
+            label="none",
         )
     )
     values.update(

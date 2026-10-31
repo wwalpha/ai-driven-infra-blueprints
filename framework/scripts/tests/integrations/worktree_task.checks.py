@@ -37,7 +37,6 @@ from support.import_model_fixtures import (
     exclusions,
     operation_fixture,
     publish_fixture,
-    reference_fields,
     resource_values,
     service_values,
     stage,
@@ -143,17 +142,12 @@ def _check_import_completion_and_approved_integration():
                     "EC2.VPCEndpoint",
                     "endpoint",
                     "IMPORT",
-                    [("VpcId", "[001](vpc.md#vpc-main)")],
-                )
-            )
-            consumer.update(
-                reference_fields(
-                    "vpc",
-                    "desired.row.001-001.value",
-                    "[001](vpc.md#vpc-main)",
-                    "dev/cde/vpc/001",
-                    kind="EC2.VPC",
-                    mode="link",
+                    [
+                        (
+                            "VpcId",
+                            '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                        )
+                    ],
                 )
             )
             write_model(root / "model/dev/cde/vpc-endpoint.properties", consumer)
@@ -211,7 +205,7 @@ def _check_import_completion_and_approved_integration():
                 values.update(
                     {
                         "desired.resource.009.anchor": "vpc-managed-009",
-                        "desired.row.009-001.value": "[009](#vpc-managed-009)",
+                        "desired.row.009-001.value": '`{"$modelRef":{"logicalId":"EC2_Subnet_009","attribute":"SubnetId"}}`',
                         "observed.row.009-001.value": identity,
                         "desired.row.009-003.value": "`10.11.0.0/26`",
                         "desired.row.009-004.value": "`audit-private-1a`",
@@ -1429,7 +1423,9 @@ def check_model_refactor_integration():
                 == "same-name-stg"
             )
             file = root / "model/stg/cde/service-a.properties"
-            file.write_text(file.read_text().replace("same-name-stg", "advanced-name"))
+            producer = dict(load_model(file).authoritative)
+            producer["desired.row.001-001.value"] = "advanced-name"
+            write_model(file, producer)
             git(root, "add", file)
             git(root, "commit", "-qm", "advance producer on base")
             latest = git(root, "rev-parse", "HEAD")

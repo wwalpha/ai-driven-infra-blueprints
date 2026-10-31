@@ -921,7 +921,10 @@ def check_association_values(tmp_path):
     text = model_text(
         "EC2.Instance",
         [
-            ("EC2.Instance.InstanceId", "[Instance](#fixture)"),
+            (
+                "EC2.Instance.InstanceId",
+                '`{"$modelRef":{"logicalId":"EC2_Instance_001","attribute":"InstanceId"}}`',
+            ),
             ("EC2.Instance.Tags[].Key", "`b`"),
             ("EC2.Instance.Tags[].Value", "`2`"),
             ("EC2.Instance.Tags[].Key", "`a`"),

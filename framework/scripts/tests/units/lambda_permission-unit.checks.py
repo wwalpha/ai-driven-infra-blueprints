@@ -6,10 +6,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import sys
 from pathlib import Path
+from unittest import TestCase
 
+import model.projection as model_projection
 import pytest
+from model.identity import address
+from model.sources import scope_for
 from support.lambda_permission_fixtures import (
     FUNCTION,
     PERMISSION,
@@ -21,14 +26,15 @@ from support.lambda_permission_fixtures import (
     json,
     layout_errors,
     markdown_for,
-    model_projection,
     re,
     rejects,
+    role_fixture,
     sync_views,
     sys,
     tempfile,
 )
 from support.model_design_fixtures import STACK_VALUES
+from support.model_reference_fixtures import reference
 from support.model_sources import write_model
 
 if not __debug__:
@@ -65,6 +71,7 @@ def check_permission_inputs():
         )
         path = root / "docs/designs/dev/123456789012/lambda.md"
         path.parent.mkdir(parents=True, exist_ok=True)
+        role_fixture(root)
         (path.parent / "iam.md").write_text(
             '# IAM\n\n- Design service ID: `iam`\n- Owned catalog resource types: `IAM.Role`\n\n<a id="iam-app-dev-worker-role"></a>\n### IAM.Role: app-dev-worker-role\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n| 1 | RoleName | `app-dev-worker-role` | ロールの名前 |\n',
             encoding="utf-8",
@@ -97,10 +104,26 @@ def check_permission_inputs():
                 output.count("| No. | Property | Value | Source / Comment |") == parents
             )
             if children:
-                assert model_projection.linked_resource(
-                    path,
+                source = root / "model/dev/123456789012/lambda.properties"
+                resolver = model_projection.reference_resolver(
+                    values, scope_for(source), root
+                )
+                snapshot, _, producer = resolver.resolve(
+                    reference("Lambda_Permission_001", "Id"), scope_for(source)
+                )
+                assert (producer["resourceType"], producer["logicalId"]) == (
+                    PERMISSION,
+                    "Lambda_Permission_001",
+                )
+                TestCase().assertEqual(
+                    address(
+                        snapshot.scope,
+                        producer,
+                        consumer_scope=snapshot.scope,
+                        label="permission-1-1",
+                    ),
                     "[permission-1-1](#" + values["desired.resource.002.anchor"] + ")",
-                ) == (PERMISSION, "Lambda_Permission_001")
+                )
 
         values = fixture(1, 2)
         output = markdown_for(path, values, root)
@@ -110,7 +133,9 @@ def check_permission_inputs():
             del bad[f"desired.resource.002.{field}"]
             rejects(lambda *, bad=bad: markdown_for(path, bad, root), field)
         bad = dict(values)
-        bad["desired.row.002-004.value"] = "[Wrong](#lambda-wrong)"
+        bad["desired.row.002-004.value"] = (
+            '`{"$modelRef":{"logicalId":"Lambda_Function_002","attribute":"FunctionName"}}`'
+        )
         rejects(
             lambda: markdown_for(path, bad, root),
             "grouped formal row does not match parentReference",

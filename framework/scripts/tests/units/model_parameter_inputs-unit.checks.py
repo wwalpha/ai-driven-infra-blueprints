@@ -9,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 from tempfile import TemporaryDirectory
 
-import model.identity as _imports_model_identity
 import pytest
 from design.catalog import DesignSchemaCatalog
 from design.services.codepipeline import pipeline_display_rows, pipeline_rows
@@ -21,7 +20,6 @@ from model.operations import CandidateReads
 from model.references import usages
 from model.sources import load_model
 from support.import_model_fixtures import (
-    reference_fields,
     resource_values,
     service_values,
 )
@@ -136,15 +134,8 @@ def check_reference_target_candidates(tmp_path, external, types, expected):
             ],
         )
     )
-    values.update(
-        reference_fields(
-            "fixed",
-            "desired.row.009-001.value",
-            values["desired.row.009-001.value"],
-            "preview/team/" + ("producer" if external else "consumer") + "/001",
-            kind="EC2.VPC",
-            mode="link",
-        )
+    values["desired.row.009-001.value"] = (
+        '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`'
     )
     state = {}
     for _, resource in entries(values, "desired.resource."):
@@ -159,13 +150,15 @@ def check_reference_target_candidates(tmp_path, external, types, expected):
         # An explicit fixed ID does not become ambiguous when another Resource has the same Type.
         assert not snapshot.warnings
         (record,) = usages(snapshot)
-        assert record.producer_id == "001" and record.metadata_id == "fixed"
+        assert record.producer_id == "001" and record.logical_id == "EC2_VPC_001"
         if external:
             assert producer in snapshot.dependencies
     else:
         assert (
             snapshot.warnings
-            and snapshot.authoritative["desired.reference.fixed.producerLogicalId"]
+            and json.loads(
+                literal(snapshot.authoritative["desired.row.009-001.value"])
+            )["$modelRef"]["logicalId"]
             == "EC2_VPC_001"
         )
         assert any(
@@ -447,15 +440,10 @@ def check_glue():
         key = property_key(before, "Glue.Job.SecurityConfiguration")
         name = property_key(before, "Glue.SecurityConfiguration.Name")
         logical = before.authoritative["desired.resource.002.logicalId"]
-        address = _imports_model_identity.address
         after = candidate(
             before,
             {
-                key: address(
-                    before.scope,
-                    dict(entries(before.authoritative, "desired.resource."))["002"],
-                    consumer_scope=before.scope,
-                ),
+                key: '`{"$modelRef":{"logicalId":"Glue_SecurityConfiguration_002","attribute":"Name"}}`',
                 name: "`glsc-a1b2c3`",
             },
         )

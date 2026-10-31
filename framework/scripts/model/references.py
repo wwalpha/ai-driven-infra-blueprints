@@ -25,6 +25,7 @@ from model.reference_nodes import (
     nodes,
     parse,
     receiving_property,
+    reference_document,
     resolve,
 )
 
@@ -84,6 +85,13 @@ def pointer_leaf(value, pointer):
 
 
 def _json(key, raw):
+    if (
+        key.endswith(".parentReference")
+        or key == "desired.deployment.templateBucket"
+        or key.startswith("desired.artifact.")
+        and key.endswith(".bucket")
+    ):
+        return reference_document(parse(raw)), True
     body, ticked = json_field(key, raw)
     if body is None:
         return raw, False
@@ -283,6 +291,7 @@ def usages(
     )
 
     resolver = _imports_model_identity.Resolver(snapshot.scope.root, reads)
+    cache.update(resolver.overrides)
     resolver.models = cache
     specs = declarations(values)
     for identity, spec in specs.items():

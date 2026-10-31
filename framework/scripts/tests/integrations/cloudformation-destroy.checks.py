@@ -90,7 +90,21 @@ def fixture(root, names, models=False):
             values.update(allocate(values, [identity]))
             rows = [
                 ("Name", f"`vpc-test-dev-{name.lower()}`"),
-                ("VpcId", f"[{identity}](#resource-EC2_VPC_{identity})"),
+                (
+                    "VpcId",
+                    "`"
+                    + json.dumps(
+                        {
+                            "$modelRef": {
+                                "logicalId": values[
+                                    f"desired.resource.{identity}.logicalId"
+                                ],
+                                "attribute": "VpcId",
+                            }
+                        }
+                    )
+                    + "`",
+                ),
                 ("CidrBlock", f"`10.{number}.0.0/16`"),
             ]
             for index, (prop, value) in enumerate(rows, 1):
@@ -119,8 +133,14 @@ def fixture(root, names, models=False):
         for index, (prop, value) in enumerate(
             [
                 ("Name", "`sbnt-test-dev-private-app-a-01`"),
-                ("VpcId", "[EC2_VPC_001](ec2.md#resource-EC2_VPC_001)"),
-                ("SubnetId", "[EC2_Subnet_001](ec2.md#resource-EC2_Subnet_001)"),
+                (
+                    "VpcId",
+                    '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                ),
+                (
+                    "SubnetId",
+                    '`{"$modelRef":{"logicalId":"EC2_Subnet_001","attribute":"SubnetId"}}`',
+                ),
                 ("CidrBlock", "`10.1.1.0/24`"),
             ],
             1,
@@ -502,7 +522,7 @@ def check_observed(managed_destroy_root):
             '{"EC2.VPC":4,"EC2.Subnet":1}'
         )
         values["desired.row.004-002.value"] = (
-            "[EC2_VPC_004](ec2.md#resource-EC2_VPC_004)"
+            '`{"$modelRef":{"logicalId":"EC2_VPC_004","attribute":"VpcId"}}`'
         )
         write_model(
             source, "\n".join(key + "=" + value for key, value in values.items()) + "\n"
@@ -565,7 +585,9 @@ def check_observed(managed_destroy_root):
             observed.sync_destroyed(backend, states, plan["observed"])
         after = properties(read_model(source))
         assert after["observed.row.001-002.value"] == "`PENDING_DEPLOY`"
-        assert after["observed.row.099-002.value"] == "PENDING_DEPLOY"
+        assert (
+            after["observed.row.099-002.value"] == before["observed.row.099-002.value"]
+        )
         assert (
             after["observed.row.002-002.value"] == before["observed.row.002-002.value"]
         )
@@ -578,9 +600,9 @@ def check_observed(managed_destroy_root):
         } == {key: value for key, value in after.items() if key.startswith("desired.")}
         assert states["A"]["observedSynced"] and not states["B"]["observedSynced"]
         assert (
-            "PENDING_DEPLOY" in design.read_text()
+            "[vpc-test-dev-a](#resource-EC2_VPC_001)" in design.read_text()
             and "vpc-old-A" not in design.read_text()
-        )
+        ), design.read_text()
         assert calls == [["ec2"]]
         assert M.local_plan(root, "dev", "123456789012", ["A", "B", "C"]) == plan
         batched = session({"A": 30, "B": 20, "C": 10})["states"]
@@ -624,8 +646,8 @@ def check_observed(managed_destroy_root):
             'desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.resource.001.anchor=resource-EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[EC2_VPC_001](../../dev/123456789012/ec2.md#resource-EC2_VPC_001)\ndesired.row.001-001.comment=参照\n',
         )
         rejects(
-            lambda: M.local_plan(root, "dev", "123456789012", ["A"]),
-            "task scope violation",
+            lambda: read_model(outside),
+            "Resource authority requires $modelRef",
         )
         model_parts = _imports_model_sources.model_parts
         for file in model_parts(outside):

@@ -176,6 +176,10 @@ def check_external_implement_round_trip(tmp_path, monkeypatch):
         assert accepted_changes(
             parent, (parent / "tasks/deploy.md").read_text(), {relative}
         ) == {relative}
+    # The independent retry observes rollback resource cleanup completed by AWS.
+    provider = json.loads(aws.read_text())
+    provider["knobs"]["rollback_settled"] = True
+    aws.write_text(json.dumps(provider))
     # Independent current-input Deploy is a separate invocation, with no result/session entrance.
     assert (drive_steps(parent, report, aws)) == 0
     assert not report.with_suffix(".operations.json").exists()

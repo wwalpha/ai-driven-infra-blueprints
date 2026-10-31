@@ -231,7 +231,7 @@ def check_save_delegates_without_full(project_workspace):
         ("plaintext-link", "PLAINTEXT"),
         ("dependent-plaintext", "PLAINTEXT"),
         ("json-reference", "modelRef"),
-        ("outside-link", "outside the Model tree"),
+        ("outside-link", "Resource authority requires"),
         ("missing-producer", "producer"),
         ("name", None),
         ("environment-pending", None),
@@ -262,15 +262,21 @@ def check_prepare_save_change_validation(project_workspace, action, case, error)
             resource("002", "CodeBuild.Project", "old", [("Name", "PENDING_DEPLOY")])
         )
     if case == "unrelated-reference":
-        before["desired.row.001-006.value"] = "[absent](iam.md#absent)"
+        before["desired.row.001-006.value"] = (
+            '`{"$modelRef":{"logicalId":"IAM_Role_999","attribute":"Arn"}}`'
+        )
     if case == "dependent-plaintext":
         before["desired.row.001-004.value"] = "PARAMETER_STORE"
-        before["desired.row.001-005.value"] = "[absent](ssm.md#absent)"
+        before["desired.row.001-005.value"] = (
+            '`{"$modelRef":{"logicalId":"SSM_Parameter_999","attribute":"Name"}}`'
+        )
     after = dict(before)
     if case == "name-pending":
         after["desired.row.001-001.value"] = "PENDING_DEPLOY"
     elif case == "plaintext-link":
-        after["desired.row.001-005.value"] = "[absent](ssm.md#absent)"
+        after["desired.row.001-005.value"] = (
+            '`{"$modelRef":{"logicalId":"SSM_Parameter_999","attribute":"Name"}}`'
+        )
     elif case == "dependent-plaintext":
         after["desired.row.001-004.value"] = "PLAINTEXT"
     elif case == "json-reference":
@@ -278,7 +284,9 @@ def check_prepare_save_change_validation(project_workspace, action, case, error)
     elif case == "outside-link":
         after["desired.row.001-006.value"] = "[text](/outside.md#unrelated)"
     elif case == "missing-producer":
-        after["desired.row.001-006.value"] = "[absent](iam.md#absent)"
+        after["desired.row.001-006.value"] = (
+            '`{"$modelRef":{"logicalId":"IAM_Role_999","attribute":"Arn"}}`'
+        )
     elif case == "environment-pending":
         after["desired.row.001-005.value"] = "PENDING_DEPLOY"
     elif case == "warning":
@@ -351,7 +359,12 @@ def check_prepare_save_resource_contracts(project_workspace, action, case):
             "001",
             "Lambda.Function",
             "consumer",
-            [("Code.S3Bucket", "[bucket](s3.md#bucket)")],
+            [
+                (
+                    "Code.S3Bucket",
+                    '`{"Fn::Join":["",[{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}]]}`',
+                )
+            ],
         ),
     )
     after = dict(before)
@@ -582,7 +595,7 @@ def check_new_link_missing_target(project_workspace, typed):
         "desired.row.001-002.property": "S3.Bucket.LoggingConfiguration.DestinationBucketName",
         "desired.row.001-002.value": '`{"$modelRef":{"logicalId":"S3_Bucket_999","attribute":"BucketName"}}`'
         if typed
-        else "[missing](s3.md#missing)",
+        else '`{"Fn::Join":["",[{"$modelRef":{"logicalId":"S3_Bucket_999","attribute":"BucketName"}}]]}`',
         "desired.row.001-002.comment": "出力先",
     }
     reads = sources.CandidateReads(sources.FileReads(), {path: serialize(candidate)})
@@ -1137,7 +1150,7 @@ def check_dependency_discovery_and_broken_consumer(
                 "Code.S3Bucket",
                 '`{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}`'
                 if typed
-                else "[bucket](s3.md#bucket)",
+                else '`{"Fn::Join":["",[{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}]]}`',
             )
         ],
     )
@@ -1315,13 +1328,13 @@ def check_unrelated_ambiguous_producer_reference(project_workspace, typed):
                 "Code.S3Bucket",
                 '`{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}`'
                 if typed
-                else "[bucket](s3.md#bucket)",
+                else '`{"Fn::Join":["",[{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}]]}`',
             ),
             (
                 "Environment.Variables",
                 '`{"old":{"$modelRef":{"logicalId":"S3_Bucket_002","attribute":"BucketName"}}}`'
                 if typed
-                else "[old](s3.md#old-bucket)",
+                else '`{"old":{"Fn::Join":["",[{"$modelRef":{"logicalId":"S3_Bucket_002","attribute":"BucketName"}}]]}}`',
             ),
         ],
     )
@@ -1357,8 +1370,11 @@ def check_unrelated_non_model_text_has_no_dependency_edges(project_workspace, te
     )
     result = change.validate_plan(root, plan)
     assert not result.errors, result.errors
-    broken.write_text("invalid [ref](logs.md#logs-001)\n", encoding="utf-8")
-    # The partial link proves retention is unrelated, but cannot authorize a rename.
+    broken.write_text(
+        '# model-format: 2\ndesired.resource.001.resourceType=Lambda.Function\ndesired.resource.001.logicalId=Lambda_Function_001\ndesired.row.001-001.property=Lambda.Function.Environment.Variables\ndesired.row.001-001.value=`{"$modelRef":{"logicalId":"Logs_LogGroup_001","attribute":"LogGroupName","unexpected":true}}`\nBROKEN\n',
+        encoding="utf-8",
+    )
+    # The malformed node proves retention is unrelated, but cannot authorize a rename.
     plan = change_plan.assemble(
         root, {("preview", "team", "logs")}, old, sources.FileReads()
     )
@@ -1398,7 +1414,12 @@ def check_pending_artifact_does_not_gate_model_save(project_workspace):
     )
     path = root / "model/preview/team/iam.properties"
     write_model(path, values)
-    producer = resource("001", "KMS.Key", "key", [("KeyId", "[self](#key)")])
+    producer = resource(
+        "001",
+        "KMS.Key",
+        "key",
+        [("KeyId", '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`')],
+    )
     producer["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
     write_model(path.with_name("kms.properties"), producer)
     name = "tasks/save.md"
@@ -1599,7 +1620,12 @@ def check_save_preparation_rejects_incoming_reference_break(
             "001",
             "Lambda.Function",
             "consumer",
-            [("Code.S3Bucket", "[bucket](s3.md#bucket)")],
+            [
+                (
+                    "Code.S3Bucket",
+                    '`{"Fn::Join":["",[{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}]]}`',
+                )
+            ],
         ),
     )
     old = sources.raw_model(path)
@@ -1617,7 +1643,7 @@ def check_save_preparation_rejects_incoming_reference_break(
             "check_model_inputs",
             side_effect=AssertionError("Full called"),
         ),
-        pytest.raises(ValueError, match="producer Resource is absent"),
+        pytest.raises(ValueError, match="producer logicalId is absent"),
     ):
         change.validate_save(old, sources.raw_model(path, reads), reads)
 
@@ -1765,7 +1791,7 @@ def check_producer_attribute_change_selects_and_breaks_consumer(
                     "Code.S3Bucket",
                     '`{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}`'
                     if typed
-                    else "[bucket](s3.md#bucket)",
+                    else '`{"Fn::Join":["",[{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}]]}`',
                 )
             ],
         ),
@@ -1804,7 +1830,10 @@ def check_structural_dependency_edges_and_diagnostics(project_workspace):
             "consumer",
             [
                 ("Description", "description of $modelRef format"),
-                ("Code.S3Bucket", "[bucket](s3.md#bucket)"),
+                (
+                    "Code.S3Bucket",
+                    '`{"Fn::Join":["",[{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}]]}`',
+                ),
                 (
                     "Environment.Variables",
                     '`{"good":{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"Arn"}},"bad":{"$modelRef":{"logicalId":"S3_Bucket_002"}}}`',
@@ -1816,7 +1845,7 @@ def check_structural_dependency_edges_and_diagnostics(project_workspace):
     errors = {}
     transient = dependency_index.snapshot_record(snapshot, quality=False, errors=errors)
     assert transient == dependency_index.snapshot_record(snapshot, quality=True)
-    assert transient["links"] == ["preview/team/s3"]
+    assert transient["links"] == []
     assert transient["typed"] == ["S3_Bucket_001"]
     assert set(errors) == {"desired.row.001-003.value"}
     assert errors["desired.row.001-003.value"][0]["targetLogicalId"] == "S3_Bucket_002"
@@ -1870,14 +1899,15 @@ def check_unrelated_reference_does_not_block_change(
         assert not change.validate_plan(root, plan).errors
     # Unchanged quality errors remain visible to independent quality validation.
     if reference.startswith("[text](/"):
-        assert _model_validation_full_inputs.check_model_inputs(
-            peer, sources.raw_model(peer).authoritative, root
-        ).errors
+        with pytest.raises(ValueError, match="Resource authority requires"):
+            _model_validation_full_inputs.check_model_inputs(
+                peer, sources.raw_model(peer).authoritative, root
+            )
 
 
 @pytest.mark.parametrize("index_state", ["missing", "current", "stale"])
 @pytest.mark.parametrize("unrelated_link", [False, True])
-def check_cross_environment_contract_is_selected(
+def check_cross_environment_logical_ids_are_isolated(
     project_workspace, index_state, unrelated_link
 ):
     root = project_workspace
@@ -1892,9 +1922,15 @@ def check_cross_environment_contract_is_selected(
             "001",
             "Lambda.Function",
             "consumer",
-            [("Code.S3Bucket", "[bucket](../../preview/team/s3.md#bucket)")],
+            [
+                (
+                    "Code.S3Bucket",
+                    '`{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}`',
+                )
+            ],
         ),
     )
+    write_model(peer.with_name("s3.properties"), before)
     if index_state != "missing":
         dependency_index.rebuild(root)
     if unrelated_link:
@@ -1931,10 +1967,7 @@ def check_cross_environment_contract_is_selected(
         reads=reads,
     )
     change_plan.collect_contracts(root, plan)
-    assert set(plan.contracts) == {("other", "team", "lambda")}
-    assert plan.contracts[("other", "team", "lambda")][1] == {
-        "desired.row.001-001.value"
-    }
+    assert not plan.contracts
     assert not change.validate_plan(root, plan).errors
     reads = sources.CandidateReads(sources.FileReads(), {path: None})
     plan = change_plan.ChangePlan(
@@ -1942,8 +1975,8 @@ def check_cross_environment_contract_is_selected(
         reads=reads,
     )
     change_plan.collect_contracts(root, plan)
-    assert set(plan.contracts) == {("other", "team", "lambda")}
-    assert change.validate_plan(root, plan).errors
+    assert not plan.contracts
+    assert not change.validate_plan(root, plan).errors
 
 
 @pytest.mark.parametrize("index_state", ["current", "stale", "missing"])
@@ -2182,8 +2215,8 @@ def check_outside_link_still_fails_quality(project_workspace, existing):
     )
     write_model(path, invalid if existing else valid)
     if existing:
-        result = _model_validation_full_inputs.check_model_inputs(path, invalid, root)
-        assert result.errors
+        with pytest.raises(ValueError, match="Resource authority requires"):
+            _model_validation_full_inputs.check_model_inputs(path, invalid, root)
     else:
         reads = sources.CandidateReads(sources.FileReads(), {path: serialize(invalid)})
         with (
@@ -2192,7 +2225,7 @@ def check_outside_link_still_fails_quality(project_workspace, existing):
                 "check_model_inputs",
                 side_effect=AssertionError("Full called"),
             ),
-            pytest.raises(ValueError, match="outside the Model tree"),
+            pytest.raises(ValueError, match="Resource authority requires"),
         ):
             change.validate_save(
                 sources.raw_model(path), sources.raw_model(path, reads), reads

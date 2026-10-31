@@ -384,7 +384,11 @@ def retarget_fixture(root):
                 f"desired.resource.{rid}.logicalId": "EC2_VPC_" + rid,
                 f"desired.resource.{rid}.anchor": "vpc-" + name,
                 f"desired.row.{rid}-001.property": "EC2.VPC.VpcId",
-                f"desired.row.{rid}-001.value": f"[vpc](#vpc-{name})",
+                f"desired.row.{rid}-001.value": "`"
+                + json.dumps(
+                    {"$modelRef": {"logicalId": "EC2_VPC_" + rid, "attribute": "VpcId"}}
+                )
+                + "`",
                 f"desired.row.{rid}-001.comment": "合成 ID",
                 f"observed.row.{rid}-001.value": "vpc-" + name,
             }

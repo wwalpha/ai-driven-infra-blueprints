@@ -11,6 +11,7 @@ import json
 import tempfile
 from unittest.mock import patch
 
+import pytest
 from issues.aggregate import aggregate, iac_actions
 from issues.artifact import detail_payload, summary
 from issues.records import identifier
@@ -129,7 +130,12 @@ def main_checks():
             "Log",
             "Logs.LogGroup",
             {"LogGroupName": "/fixture/log", "KmsKeyId": alias_arn},
-            [("KmsKeyId", "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)")],
+            [
+                (
+                    "KmsKeyId",
+                    '`{"$modelRef":{"logicalId":"KMS_Alias_001","attribute":"AliasArn"}}`',
+                )
+            ],
         )
         resource("codebuild", "Build", "CodeBuild.Project", {"Name": "fixture-build"})
         resource("eventbridge", "Rule", "Events.Rule", {"Name": "fixture-rule"})
@@ -159,7 +165,7 @@ def main_checks():
             [
                 (
                     "ArtifactStore.EncryptionKey.Id",
-                    "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)",
+                    '`{"$modelRef":{"logicalId":"KMS_Alias_001","attribute":"AliasArn"}}`',
                 )
             ],
         )
@@ -176,11 +182,11 @@ def main_checks():
             [
                 (
                     "EncryptionConfiguration.S3Encryptions[].KmsKeyArn",
-                    "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)",
+                    '`{"$modelRef":{"logicalId":"KMS_Alias_001","attribute":"AliasArn"}}`',
                 ),
                 (
                     "EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn",
-                    "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)",
+                    '`{"$modelRef":{"logicalId":"KMS_Alias_001","attribute":"AliasArn"}}`',
                 ),
             ],
         )
@@ -242,21 +248,21 @@ def main_checks():
             )
 
             current, _ = athena(
-                "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`',
                 {"Fn::GetAtt": ["Key", "Arn"]},
                 "matched",
             )
             assert (
                 current.desired_reference(
                     "athena",
-                    "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
+                    {"$modelRef": {"logicalId": "KMS_Key_001", "attribute": "Arn"}},
                     "Athena.WorkGroup",
                     path,
                 )["$attribute"]
                 == "Arn"
             )
             athena(
-                "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`',
                 {"Fn::GetAtt": ["OtherKey", "Arn"]},
                 "difference",
             )
@@ -280,20 +286,27 @@ def main_checks():
                     assert diagnostic["format"]["iac"] == (
                         "allowed" if iac == key_arn else "outside allowed forms"
                     )
-            _, record = athena(
-                "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)",
-                {"Fn::GetAtt": ["Key", "Arn"]},
+            with pytest.raises((ValueError, RuntimeError)) as invalid_target:
+                current.desired_reference(
+                    "athena",
+                    {
+                        "$modelRef": {
+                            "logicalId": "KMS_Alias_001",
+                            "attribute": "AliasArn",
+                        }
+                    },
+                    "Athena.WorkGroup",
+                    path,
+                )
+            assert "reference target must be KMS.Key" in str(invalid_target.value)
+            athena(
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`',
+                key_arn,
                 "uncompared",
-                property_name=path,
             )
-            assert (
-                record["reason"]
-                == f"reference target must be KMS.Key: Athena.WorkGroup.{path}"
-            ), record
-            athena("[KMS_Key_001](kms.md#resource-KMS_Key_001)", key_arn, "uncompared")
             athena("`" + key_arn + "`", "{{resolve:secretsmanager:key}}", "uncompared")
             athena(
-                "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`',
                 {"Fn::GetAtt": ["Key", "Arn"]},
                 "matched",
             )
@@ -332,17 +345,17 @@ def main_checks():
                 )
                 del template["Resources"][name]
             athena(
-                "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`',
                 {"Fn::ImportValue": "KeyArn"},
                 "matched",
             )
             athena(
-                "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`',
                 {"Fn::ImportValue": "OtherKeyArn"},
                 "difference",
             )
             athena(
-                "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`',
                 {"Fn::ImportValue": "MissingArn"},
                 "uncompared",
             )
@@ -357,7 +370,7 @@ def main_checks():
                     "Properties": {},
                 }
             athena(
-                "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`',
                 {"Fn::GetAtt": ["Key", "Arn"]},
                 "matched",
             )
@@ -438,7 +451,7 @@ def check_incomplete_setting_artifact():
                 ("Environment.EnvironmentVariables[1].Type", "`PLAINTEXT`"),
                 (
                     "Environment.EnvironmentVariables[1].Value",
-                    "[alias](kms.md#resource-KMS_Alias_001)",
+                    '`{"$modelRef":{"logicalId":"KMS_Alias_001","attribute":"AliasArn"}}`',
                 ),
                 ("Environment.EnvironmentVariables[2].Name", "`SECRET_TOKEN`"),
                 (
@@ -570,7 +583,7 @@ def check_iac_partial_error_artifact():
                 ("Environment.EnvironmentVariables[1].Type", "`PLAINTEXT`"),
                 (
                     "Environment.EnvironmentVariables[1].Value",
-                    "[alias](kms.md#resource-KMS_Alias_001)",
+                    '`{"$modelRef":{"logicalId":"KMS_Alias_001","attribute":"AliasArn"}}`',
                 ),
                 ("Environment.EnvironmentVariables[2].Name", "`SECRET_TOKEN`"),
                 (

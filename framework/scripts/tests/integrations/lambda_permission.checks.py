@@ -17,6 +17,7 @@ from support.lambda_permission_fixtures import (
     properties,
     read_model,
     rejects,
+    role_fixture,
     sys,
     tempfile,
     write_model,
@@ -49,6 +50,7 @@ def main():
         )
         path = root / "docs/designs/dev/123456789012/lambda.md"
         path.parent.mkdir(parents=True, exist_ok=True)
+        role_fixture(root)
         (path.parent / "iam.md").write_text(
             '# IAM\n\n- Design service ID: `iam`\n- Owned catalog resource types: `IAM.Role`\n\n<a id="iam-app-dev-worker-role"></a>\n### IAM.Role: app-dev-worker-role\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n| 1 | RoleName | `app-dev-worker-role` | ロールの名前 |\n',
             encoding="utf-8",

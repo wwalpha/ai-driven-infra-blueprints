@@ -5,6 +5,7 @@ import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -25,7 +26,9 @@ from model.display import display_rows
 from model.references import codebuild_reference_errors
 from model.render import generate_markdown, markdown_for
 from model.validations.full_inputs import check_model_inputs as _check_model_inputs
+from support.import_model_fixtures import resource_values, service_values
 from support.issues_scan_fixtures import fixture, task, write
+from support.model_reference_fixtures import reference
 from support.model_sources import write_model
 from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
@@ -41,6 +44,10 @@ FRAMEWORK = Path(__file__).resolve().parents[4]
 PREFIX = "CodeBuild.Project.Environment.EnvironmentVariables"
 REASON = "PLAINTEXTではResource linkは禁止"
 NODE = {"$modelRef": {"logicalId": "S3_Bucket_001", "attribute": "Arn"}}
+ROLE_VALUES = {
+    **service_values("iam", ["IAM.Role"]),
+    **resource_values("001", "IAM.Role", "role", "IMPORT", [("RoleName", "`role`")]),
+}
 
 
 @pytest.fixture(autouse=True)
@@ -72,7 +79,7 @@ def values_for(variables, mode="CREATE", indexed=False):
         ("Environment.Type", "`LINUX_CONTAINER`"),
         ("Environment.ComputeType", "`BUILD_GENERAL1_SMALL`"),
         ("Environment.Image", "`image`"),
-        ("ServiceRole", "[role](iam.md#role)"),
+        ("ServiceRole", "`" + json.dumps(reference("IAM_Role_001", "Arn")) + "`"),
         ("Source.Type", "`NO_SOURCE`"),
     ]
     for number, (name, variable_type, value) in enumerate(variables, 1):
@@ -116,6 +123,7 @@ def models(tmp_path):
         ),
         encoding="utf-8",
     )
+    write_model(tmp_path / "model/dev/team/iam.properties", ROLE_VALUES)
     with mapping_alias(FRAMEWORK, tmp_path):
         yield tmp_path
 
@@ -152,7 +160,9 @@ def dependency_projects(
             "desired.row.001-001.value": "`role`",
             "desired.row.001-001.comment": "合成Role",
             "desired.row.001-002.property": "IAM.Role.Arn",
-            "desired.row.001-002.value": "[role](#role)",
+            "desired.row.001-002.value": "`"
+            + json.dumps(reference("IAM_Role_001", "Arn"))
+            + "`",
             "desired.row.001-002.comment": "合成ARN",
         }
         if not pending:
@@ -164,6 +174,8 @@ def dependency_projects(
         values["desired.row.001-006.value"] = (
             '`{"$modelRef":{"logicalId":"IAM_Role_001","attribute":"Arn"}}`'
         )
+    if not typed:
+        write_model(root / "model/dev" / target / "iam.properties", ROLE_VALUES)
     original = dict(values)
     for identity, name in (("002", "second"), ("003", "third")):
         for key, value in original.items():
@@ -219,7 +231,7 @@ def assert_dependency_errors(findings):
 
 def test_model_reference_failure_keeps_independent_schema_and_valid_resource(models):
     path, view, values = dependency_projects(models, schema_error=True, typed=True)
-    values["desired.row.001-010.value"] = "[bucket](s3.md#bucket)"
+    values["desired.row.001-010.value"] = "`" + json.dumps(NODE) + "`"
     write_model(path, values)
     validator = Validator(
         models, {("dev", "team", "codebuild")}, definitions_root=FRAMEWORK
@@ -249,7 +261,7 @@ def test_model_reference_failure_keeps_independent_schema_and_valid_resource(mod
 @pytest.mark.parametrize("raw_error", [False, True])
 def test_scoped_generation_failure_keeps_saved_raw_and_schema(models, raw_error):
     path, view, values = dependency_projects(models, schema_error=True, typed=True)
-    values["desired.row.001-010.value"] = "[bucket](s3.md#bucket)"
+    values["desired.row.001-010.value"] = "`" + json.dumps(NODE) + "`"
     write_model(path, values)
     if raw_error:
         view.write_text(
@@ -286,7 +298,7 @@ def test_scoped_generation_failure_keeps_saved_raw_and_schema(models, raw_error)
 @pytest.mark.parametrize("missing", [False, True])
 def test_generation_failure_unreadable_raw_is_not_run(models, missing):
     path, view, values = dependency_projects(models)
-    values["desired.row.001-010.value"] = "[bucket](s3.md#bucket)"
+    values["desired.row.001-010.value"] = "`" + json.dumps(NODE) + "`"
     write_model(path, values)
     if missing:
         view.unlink()
@@ -296,16 +308,18 @@ def test_generation_failure_unreadable_raw_is_not_run(models, missing):
         models, {("dev", "team", "codebuild")}, definitions_root=FRAMEWORK, workers=1
     )
     validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
-    view_errors = {}
-    if not missing:
-        view_errors[view] = {"message": "invalid UTF-8"}
+    view_errors = {
+        view: {"message": "missing saved View" if missing else "invalid UTF-8"}
+    }
+    validator.check_project_topology()
     validator.check_scoped_designs(view_errors=view_errors)
     raw = validator.findings.result("design.tables.raw", validator.scope)
     assert raw.status == "FAIL"
-    assert (
-        raw.metadata["reason"] not in {"view-read", "unspecified", ""}
-        and raw.metadata["message"]
-    )
+    assert raw.metadata.get("reason") not in {
+        "view-read",
+        "unspecified",
+        "",
+    } and raw.metadata.get("message")
     assert not validator.findings.processing_errors, (
         validator.findings.processing_errors
     )
@@ -376,9 +390,7 @@ def test_issues_retains_mixed_causes_and_resource_dependencies(tmp_path):
         path, view, values = dependency_projects(
             tmp_path, schema_error=True, target="123456789012"
         )
-        values["desired.row.001-010.value"] = (
-            "[bucket-app-dev-data1](s3.md#s3-bucket-app-dev-data1)"
-        )
+        values["desired.row.001-010.value"] = "`" + json.dumps(NODE) + "`"
         write_model(path, values)
         view.write_text(
             view.read_text(encoding="utf-8") + "\n# 重複H1\n", encoding="utf-8"
@@ -419,7 +431,7 @@ def test_issues_retains_mixed_causes_and_resource_dependencies(tmp_path):
 
 def test_recovery_rejects_independent_markdown_tampering(models):
     path, view, values = dependency_projects(models, typed=True)
-    values["desired.row.001-010.value"] = "[bucket](s3.md#bucket)"
+    values["desired.row.001-010.value"] = "`" + json.dumps(NODE) + "`"
     write_model(path, values)
     view.write_text(
         view.read_text(encoding="utf-8").replace("`second`", "`tampered`"),
@@ -453,11 +465,11 @@ def test_recovery_rejects_independent_markdown_tampering(models):
         ("`hello:world`", False),
         ("`arn:aws:s3:::fixture`", False),
         ("`https://example.com/path#fragment`", False),
-        ("[bucket](s3.md#bucket)", True),
-        ("[secret](secretsmanager.md#secret)", True),
-        ("[key](kms.md#key)", True),
-        ("[other](vpc.md#vpc)", True),
-        ("[missing](missing.md#missing)", True),
+        ("`" + json.dumps(reference("S3_Bucket_001", "Arn")) + "`", True),
+        ("`" + json.dumps(reference("SecretsManager_Secret_001", "Arn")) + "`", True),
+        ("`" + json.dumps(reference("KMS_Key_001", "Arn")) + "`", True),
+        ("`" + json.dumps(reference("EC2_VPC_001", "VpcId")) + "`", True),
+        ("`" + json.dumps(reference("S3_Bucket_999", "Arn")) + "`", True),
         ("`" + json.dumps(NODE) + "`", True),
     ],
 )
@@ -489,10 +501,22 @@ def test_exact_sibling_type_and_continuation(models, indexed):
     path = models / "model/dev/team/codebuild.properties"
     values = values_for(
         [
-            ("SECRET", "SECRETS_MANAGER", "[secret](secretsmanager.md#secret)"),
-            ("BAD", "PLAINTEXT", "[missing](missing.md#missing)"),
+            (
+                "SECRET",
+                "SECRETS_MANAGER",
+                "`" + json.dumps(reference("SecretsManager_Secret_001", "Arn")) + "`",
+            ),
+            (
+                "BAD",
+                "PLAINTEXT",
+                "`" + json.dumps(reference("S3_Bucket_999", "Arn")) + "`",
+            ),
             ("TEXT", "PLAINTEXT", "`literal`"),
-            ("PARAMETER", "PARAMETER_STORE", "[parameter](ssm.md#parameter)"),
+            (
+                "PARAMETER",
+                "PARAMETER_STORE",
+                "`" + json.dumps(reference("SSM_Parameter_001", "Name")) + "`",
+            ),
             ("OTHER_BAD", "PLAINTEXT", "`" + json.dumps(NODE) + "`"),
         ],
         indexed=indexed,
@@ -514,7 +538,15 @@ def test_exact_sibling_type_and_continuation(models, indexed):
 
 def test_prohibited_link_preserves_resource_ownership_error(models):
     path = models / "model/dev/team/codebuild.properties"
-    values = values_for([("VALUE", "PLAINTEXT", "[missing](missing.md#missing)")])
+    values = values_for(
+        [
+            (
+                "VALUE",
+                "PLAINTEXT",
+                "`" + json.dumps(reference("S3_Bucket_999", "Arn")) + "`",
+            )
+        ]
+    )
     values["desired.service.codebuild.ownedCatalogResourceTypes"] = "S3.Bucket"
     write_model(path, values)
     findings = _check_model_inputs(path, values, models, definitions_root=FRAMEWORK)
@@ -526,7 +558,14 @@ def test_prohibited_link_preserves_resource_ownership_error(models):
 @pytest.mark.parametrize("indexed", [False, True])
 def test_policy_diagnostic_identity_preserves_model_ids(models, indexed):
     values = values_for(
-        [("VALUE", "PLAINTEXT", "[missing](missing.md#missing)")], indexed=indexed
+        [
+            (
+                "VALUE",
+                "PLAINTEXT",
+                "`" + json.dumps(reference("S3_Bucket_999", "Arn")) + "`",
+            )
+        ],
+        indexed=indexed,
     )
     path = models / "model/dev/team/codebuild.properties"
     original = next(iter(codebuild_reference_errors(path, values).values()))
@@ -559,7 +598,7 @@ def test_container_references_use_exact_context(models, document):
         {
             "Name": "BAD_LINK",
             "Type": "PLAINTEXT",
-            "Value": "[missing](missing.md#missing)",
+            "Value": reference("S3_Bucket_999", "Arn"),
         },
     ]
     values.update(
@@ -708,6 +747,8 @@ def test_scan_save_owns_codebuild_and_deduplicates(
             values[role_key] = (
                 '`{"$modelRef":{"logicalId":"IAM_Role_001","attribute":"Arn"}}`'
             )
+        if not typed:
+            write_model(path.with_name("iam.properties"), ROLE_VALUES)
         values["desired.resource.001.cfn-logicalId"] = "cfn-stack-app-dev-data1-Build"
         values.update(
             {
@@ -734,9 +775,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
             )
         if model_link:
             for rid in variable_ids:
-                values[f"desired.row.{rid}.value"] = (
-                    "[bucket-app-dev-data1](s3.md#s3-bucket-app-dev-data1)"
-                )
+                values[f"desired.row.{rid}.value"] = "`" + json.dumps(NODE) + "`"
         if ownership_error:
             values["desired.service.codebuild.ownedCatalogResourceTypes"] = "S3.Bucket"
         write_model(path, values)
@@ -771,9 +810,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
         )
         if unreadable_view:
             view.write_bytes(b"\xff")
-        services = ["s3", "codebuild", "cloudformation-stacks"] + (
-            ["iam"] if typed else []
-        )
+        services = ["s3", "codebuild", "cloudformation-stacks", "iam"]
         previous_markers = set()
         # One typed two-variable case owns stable IDs across repeated scan/save.
         repeats = 2 if typed and model_link and markdown_link and count == 2 else 1
@@ -1009,11 +1046,26 @@ def test_non_plaintext_model_links_pass(models, variable_type, service, kind):
     write_model(models / f"model/dev/team/{service}.properties", producer)
     path = models / "model/dev/team/codebuild.properties"
     values = values_for(
-        [("VALUE", variable_type, f"[fixture-name]({service}.md#reference)")]
+        [
+            (
+                "VALUE",
+                variable_type,
+                "`"
+                + json.dumps(reference(kind.replace(".", "_") + "_001", "Name"))
+                + "`",
+            )
+        ]
     )
     write_model(path, values)
     findings = _check_model_inputs(path, values, models, definitions_root=FRAMEWORK)
-    assert not findings.errors, findings.errors
+    if kind == "SSM.Parameter":
+        TestCase().assertEqual(len(findings.errors), 1, findings.errors)
+        TestCase().assertIn(
+            "Framework unsupported producer ResourceType: SSM.Parameter",
+            findings.errors[0],
+        )
+    else:
+        assert not findings.errors, findings.errors
 
 
 if __name__ == "__main__":

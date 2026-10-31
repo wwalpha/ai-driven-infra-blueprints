@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import aws_mapping_compare as _imports_aws_mapping_compare
 import support.check_model_aws_fixtures as _retained_fixture_offline_network
+from model.core import ModelNeedsFixError
 from support.check_model_aws_fixtures import (
     ACCOUNT,
     PATCHES,
@@ -551,11 +552,18 @@ def common_checks(root):
         ),
     )
     check(
-        resource.resolve_json("[fixture](iam.md#iam-fixture)", "arn").startswith("arn:")
-        is False,
-        "SDK synthetic ARN used, not constructed",
+        resource.resolve_json(
+            {"$modelRef": {"logicalId": "IAM_Role_001", "attribute": "Arn"}}, "arn"
+        )
+        == "arn:aws:iam::123456789012:role/fixture",
+        "formal Model reference resolves the declared RoleName and configured account",
     )
-    expect(m.Unresolved, lambda: resource.reference("[missing](iam.md#missing)"))
+    expect(
+        ModelNeedsFixError,
+        lambda: resource.reference(
+            {"$modelRef": {"logicalId": "IAM_Role_999", "attribute": "Arn"}}
+        ),
+    )
     # Ordered arrays remain ordered; tags keep Key/Value pairs together.
     check(
         m.normalize(ctx, "alias/fixture", "kms") == m.normalize(ctx, "fixture", "kms"),
@@ -591,7 +599,12 @@ def association_checks(root):
         alias,
         model_text(
             "KMS.Key",
-            [("KMS.Key.KeyId", "[Key](#key)")],
+            [
+                (
+                    "KMS.Key.KeyId",
+                    '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
+                )
+            ],
             number="001",
             anchor="key",
             allocation=False,
@@ -602,7 +615,7 @@ def association_checks(root):
             number="002",
             anchor="alias",
             allocation=False,
-            metadata="desired.resource.002.parentReference=[Key](#key)\n",
+            metadata='desired.resource.002.parentProperty=KMS.Alias.TargetKeyId\ndesired.resource.002.parentReference=`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`\n',
         )
         + 'observed.row.001-001.value=fixture\ndesired.service.identity.lastAllocated={"KMS.Key":1,"KMS.Alias":2}\n',
     )
@@ -660,7 +673,21 @@ def cfn_identity_checks(root):
         number = f"{index:03d}"
         content += model_text(
             "EC2.VPC",
-            [("EC2.VPC.VpcId", f"[{department}](#vpc-{department})")],
+            [
+                (
+                    "EC2.VPC.VpcId",
+                    "`"
+                    + json.dumps(
+                        {
+                            "$modelRef": {
+                                "logicalId": "EC2_VPC_" + number,
+                                "attribute": "VpcId",
+                            }
+                        }
+                    )
+                    + "`",
+                )
+            ],
             number=number,
             anchor="vpc-" + department,
             allocation=False,

@@ -53,7 +53,7 @@ def check(root):
             ("PolicyDocument", "[policy](s3/policy.json)"),
         ],
     )
-    link = "[audit-preview](cloudtrail.md#cloudtrail-audit)"
+    link = {"$modelRef": {"logicalId": "CloudTrail_Trail_017", "attribute": "Arn"}}
     values[key] = json.dumps(
         {
             "Statement": [
@@ -71,19 +71,6 @@ def check(root):
             "017",
             "CloudTrail.Trail",
             prop="CloudTrail.Trail.TrailName",
-        )
-    )
-    values.update(
-        reference(
-            "trail",
-            key,
-            link,
-            "cloudtrail",
-            "017",
-            "CloudTrail.Trail",
-            mode="link",
-            pointer="/Statement/0/Condition/StringEquals/aws:SourceArn",
-            label="display-name",
         )
     )
     write_model(path, values)
@@ -119,11 +106,7 @@ def check(root):
     write_model(producer, original)
     write_model(producer, original)
     explicit = dict(values)
-    explicit[key] = values[key].replace("[audit-preview]", "[existing-label]")
-    explicit["desired.reference.trail.text"] = (
-        "[existing-label](cloudtrail.md#cloudtrail-audit)"
-    )
-    explicit["desired.reference.trail.labelPolicy"] = "fixed"
+    explicit["display.resource.003.label"] = "existing-label"
     write_model(path, explicit)
     assert not load_model(path).warnings
     print(

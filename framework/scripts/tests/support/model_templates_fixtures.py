@@ -153,7 +153,7 @@ def config_model():
         "desired.row.007-005.value": "`AWSServiceRoleForConfig`",
         "desired.row.007-005.comment": "記録する権限",
         "desired.row.007-009.property": "Config.ConfigurationRecorder.Id",
-        "desired.row.007-009.value": "[Config_ConfigurationRecorder_001](config.md#resource-Config_ConfigurationRecorder_001)",
+        "desired.row.007-009.value": '`{"$modelRef":{"logicalId":"Config_ConfigurationRecorder_001","attribute":"Name"}}`',
         "desired.row.007-009.comment": "記録ID",
         "observed.row.007-009.value": "`default`",
     }

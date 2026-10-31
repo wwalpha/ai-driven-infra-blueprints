@@ -41,7 +41,10 @@ def check(root):
         [
             ("GroupName", "`app-preview-one`"),
             ("GroupDescription", "`QuickSight VPC connection`"),
-            ("VpcId", "[017](vpc.md#vpc-app-preview)"),
+            (
+                "VpcId",
+                '`{"$modelRef":{"logicalId":"EC2_VPC_017","attribute":"VpcId"}}`',
+            ),
         ],
     )
     write_model(producer, original)
@@ -51,12 +54,11 @@ def check(root):
     )
     path = producer.with_name("quicksight.properties")
     values = {}
-    for rid, label, policy in [
+    for rid, label, _policy in [
         ("021", "app-preview-one", "display-name"),
         ("083", "PENDING_DEPLOY", "fixed"),
     ]:
-        key = f"desired.row.{rid}-001.value"
-        link = f"[{label}](security-group.md#security-group-app-preview-one)"
+        link = '`{"$modelRef":{"logicalId":"EC2_SecurityGroup_052","attribute":"GroupId"}}`'
         values.update(
             resource(
                 rid,
@@ -65,18 +67,8 @@ def check(root):
                 [("SecurityGroupIds", link)],
             )
         )
-        values.update(
-            reference(
-                "security-group-" + rid,
-                key,
-                link,
-                "security-group",
-                "052",
-                "EC2.SecurityGroup",
-                mode="link",
-                label=policy,
-            )
-        )
+
+        values[f"display.resource.{rid}.label"] = label
     values["desired.note.producerName.text"] = "app-preview-one"
     values.update(
         reference(
@@ -94,11 +86,11 @@ def check(root):
     assert not snapshot.warnings, snapshot.warnings
     assert (
         snapshot.authoritative["desired.row.021-001.value"]
-        == "[app-preview-one](security-group.md#security-group-app-preview-one)"
+        == '`{"$modelRef":{"logicalId":"EC2_SecurityGroup_052","attribute":"GroupId"}}`'
     )
     assert (
         snapshot.authoritative["desired.row.083-001.value"]
-        == "[PENDING_DEPLOY](security-group.md#security-group-app-preview-one)"
+        == '`{"$modelRef":{"logicalId":"EC2_SecurityGroup_052","attribute":"GroupId"}}`'
     )
     assert producer in source_inputs(path)
     assert affected(root, [producer.relative_to(root)]) == {

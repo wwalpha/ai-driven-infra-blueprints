@@ -101,7 +101,7 @@ def check_resource_reading(root):
             result, count = invoke(source, command, selector)
             actual = cli(command, selector)
             assert result == (actual.returncode, actual.stdout, actual.stderr)
-            assert result[0] == 0 and not result[2] and count == 1, result
+            assert result[0] == 0 and not result[2] and count == 2, result
         assert all(path.read_bytes() == raw for path, raw in snapshot.items())
 
     tasks = root / "tasks"
@@ -128,7 +128,7 @@ def check_resource_reading(root):
                 )
             with patch.dict(os.environ, {"BLUEPRINT_TASK_FILE": "tasks/one.md"}):
                 result, count = invoke(source, command, selector)
-                assert result[0] == 0 and count == 1
+                assert result[0] == 0 and count == 2
     finally:
         for file in tasks.iterdir():
             file.unlink()

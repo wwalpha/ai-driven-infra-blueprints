@@ -255,7 +255,10 @@ def build_seed(root):
                 "vpc-main",
                 mode,
                 [
-                    ("VpcId", "[001](#vpc-main)"),
+                    (
+                        "VpcId",
+                        '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                    ),
                     ("CidrBlock", "`10.10.0.0/23`"),
                     ("Name", "`main-vpc`"),
                     ("EnableDnsHostnames", "`true`"),
@@ -274,8 +277,23 @@ def build_seed(root):
                     "vpc-" + name,
                     mode,
                     [
-                        ("SubnetId", f"[{rid}](#vpc-{name})"),
-                        ("VpcId", "[001](#vpc-main)"),
+                        (
+                            "SubnetId",
+                            "`"
+                            + json.dumps(
+                                {
+                                    "$modelRef": {
+                                        "logicalId": "EC2_Subnet_" + rid,
+                                        "attribute": "SubnetId",
+                                    }
+                                }
+                            )
+                            + "`",
+                        ),
+                        (
+                            "VpcId",
+                            '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                        ),
                         ("CidrBlock", m.model_literal(cidr)),
                         ("Name", m.model_literal(name)),
                         ("AvailabilityZone", m.model_literal(zone)),
@@ -718,7 +736,10 @@ def operation_fixture(root):
                 "vpc-main",
                 "CREATE" if env == "dev" else "IMPORT",
                 [
-                    ("VpcId", "[001](#vpc-main)"),
+                    (
+                        "VpcId",
+                        '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                    ),
                     ("CidrBlock", "`10.1.0.0/16`"),
                     ("EnableDnsSupport", "`false`"),
                 ],
@@ -735,7 +756,10 @@ def operation_fixture(root):
                     [
                         ("EnableDnsSupport", "`true`"),
                         ("CidrBlock", "`10.9.0.0/16`"),
-                        ("VpcId", "[009](#vpc-imported)"),
+                        (
+                            "VpcId",
+                            '`{"$modelRef":{"logicalId":"EC2_VPC_009","attribute":"VpcId"}}`',
+                        ),
                     ],
                 )
             )
@@ -774,8 +798,10 @@ def operation_candidate(before, after, action="import-merge"):
             )
             for field, raw in row.items():
                 if field != "comment" or prop not in destination:
-                    values[f"desired.row.{target_row}.{field}"] = raw.replace(
-                        "[009](#vpc-imported)", "[001](#vpc-main)"
+                    values[f"desired.row.{target_row}.{field}"] = (
+                        '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`'
+                        if prop == "EC2.VPC.VpcId" and field == "value"
+                        else raw
                     )
             old_observed, new_observed = (
                 f"observed.row.{rid}.value",
@@ -954,6 +980,17 @@ def batch_operation_fixture(before, after):
                 raw = raw.replace("[" + old_id + "]", "[" + new_id + "]")
                 if key.endswith(".anchor"):
                     raw += "-" + (destination if old_id == "001" else source)
+                if (
+                    value
+                    == '`{"$modelRef":{"logicalId":"EC2_VPC_'
+                    + old_id
+                    + '","attribute":"VpcId"}}`'
+                ):
+                    raw = (
+                        '`{"$modelRef":{"logicalId":"EC2_VPC_'
+                        + new_id
+                        + '","attribute":"VpcId"}}`'
+                    )
                 if key.endswith(".logicalId"):
                     raw = "EC2_VPC_" + new_id
                 expanded[new_key] = raw
@@ -969,9 +1006,12 @@ def batch_operation_fixture(before, after):
             target_id = target_rows[prop][0]
             for field, raw in row.items():
                 if field != "comment":
-                    changed[f"desired.row.{target_id}.{field}"] = raw.replace(
-                        "[" + source + "](#vpc-imported-" + source + ")",
-                        "[" + destination + "](#vpc-main-" + destination + ")",
+                    changed[f"desired.row.{target_id}.{field}"] = (
+                        '`{"$modelRef":{"logicalId":"EC2_VPC_'
+                        + destination
+                        + '","attribute":"VpcId"}}`'
+                        if prop == "EC2.VPC.VpcId" and field == "value"
+                        else raw
                     )
             observed = f"observed.row.{row_id}.value"
             if observed in expanded:

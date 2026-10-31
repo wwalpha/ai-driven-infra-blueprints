@@ -93,7 +93,11 @@ def check(root):
         "vpc-app-preview-main",
         [
             ("Name", "`vpc-app-preview-main`", "名前"),
-            ("VpcId", "[EC2_VPC_001](vpc.md#vpc-vpc-app-preview-main)", "識別子"),
+            (
+                "VpcId",
+                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                "識別子",
+            ),
             ("CidrBlock", "`10.10.0.0/24`", "アドレス範囲"),
         ],
         "PrimaryVpc",

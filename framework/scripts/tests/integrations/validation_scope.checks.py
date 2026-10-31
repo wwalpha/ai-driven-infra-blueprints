@@ -3,10 +3,12 @@
 
 import sys
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import model.sources as _imports_model_sources
 import sync_runtime as _imports_sync_runtime
 from support import model_templates_fixtures as source_checks
 from support.it_case_receipt import it_case
@@ -32,6 +34,7 @@ from support.validation_scope_fixtures import (
 )
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_context
+from utils.reference_contracts import reference_attribute
 
 from model import dependency_index
 
@@ -50,9 +53,20 @@ def _callback_check_single_target_cache_changed(model, original, saved, /, worke
         write_model(model, saved + "# input changed during validation\n")
 
 
+def _callback_check_single_target_cache_pending(
+    calls, expected_scope, original, worker
+):
+    if worker.scope != expected_scope:
+        raise AssertionError("resolved unchanged service reran")
+    calls.append(original.__name__)
+    return original(worker)
+
+
 def _callback_check_single_target_cache_validate(root, scope, /, workers=4, cache=None):
     validator = VALIDATOR.Validator(root, scope, workers=workers)
     validator.cache = cache
+    if cache:
+        cache.common = cache.common_key()
     validator.check_project_topology()
     with redirect_stdout(io.StringIO()):
         validator.check_scoped_designs()
@@ -93,10 +107,23 @@ def check_single_target_cache(root):
             values.update(
                 {
                     f"desired.{row}.property": output,
-                    f"desired.{row}.value": f"[resource](#{values['desired.resource.001.anchor']})",
+                    f"desired.{row}.value": "`"
+                    + json.dumps(
+                        {
+                            "$modelRef": {
+                                "logicalId": values["desired.resource.001.logicalId"],
+                                "attribute": reference_attribute(
+                                    kind, output.removeprefix(kind + ".")
+                                ),
+                            }
+                        }
+                    )
+                    + "`",
                     f"desired.{row}.comment": "生成される識別子",
                     f"observed.{row}.property": output,
-                    f"observed.{row}.value": "PENDING_DEPLOY",
+                    f"observed.{row}.value": "https://sqs.ap-northeast-1.amazonaws.com/123456789012/queue-app-dev-cde"
+                    if kind == "SQS.Queue"
+                    else "12345678-1234-1234-1234-123456789012",
                     f"observed.{row}.comment": "生成される識別子",
                 }
             )
@@ -104,6 +131,11 @@ def check_single_target_cache(root):
             models / f"{service}.properties",
             "".join(f"{key}={value}\n" for key, value in values.items()),
         )
+    instance = models / "ec2.properties"
+    instance_values = _imports_model_sources.load_model(instance).authoritative
+    instance_values = dict(instance_values)
+    instance_values["observed.row.001-001.value"] = "`i-0123456789abcdef0`"
+    write_model(instance, instance_values)
     scope = {("dev", "cde", service) for service in ["ec2", *services]}
     active = root / "tasks/example.md"
     saved_contract = active.read_text(encoding="utf-8")
@@ -150,20 +182,35 @@ def check_single_target_cache(root):
         shared_cache = PassCache(root, directory=directory)
         cold = validate(cache=shared_cache)
         assert not cold.errors, cold.errors
+        # Pending typed references rerun; the other three resolved services reuse their PASS.
+        calls = []
         with (
             patch.object(
                 VALIDATOR.Validator,
                 "check_generated_service_models",
-                side_effect=AssertionError("unchanged generation reran"),
+                _bind_framework_callback(
+                    _callback_check_single_target_cache_pending,
+                    calls,
+                    scope,
+                    VALIDATOR.Validator.check_generated_service_models,
+                ),
             ),
             patch.object(
                 VALIDATOR.Validator,
                 "check_designs",
-                side_effect=AssertionError("unchanged service reran"),
+                _bind_framework_callback(
+                    _callback_check_single_target_cache_pending,
+                    calls,
+                    {("dev", "cde", "ec2")},
+                    original,
+                ),
             ),
         ):
             warm = validate(cache=shared_cache)
         assert not warm.errors and cold.checks == warm.checks, warm.errors
+        TestCase().assertCountEqual(
+            calls, ["check_generated_service_models", "check_designs"]
+        )
         # An out-of-scope reference remains shallow, but changing its anchor invalidates its consumer.
         reference = docs / "vpc.md"
         saved = reference.read_text(encoding="utf-8")
@@ -395,6 +442,10 @@ invalid unrelated table alignment
                 write_model(
                     models / "vpc.properties",
                     {
+                        "display.service.title": "# 参照先VPC",
+                        "display.resource.001.comment": "参照するサブネット",
+                        "desired.service.vpc.serviceId": "vpc",
+                        "desired.service.vpc.ownedCatalogResourceTypes": "EC2.Subnet",
                         "desired.resource.001.resourceType": "EC2.Subnet",
                         "desired.resource.001.logicalId": "EC2_Subnet_001",
                         "desired.resource.001.anchor": "resource-EC2_Subnet_001",
@@ -406,6 +457,9 @@ invalid unrelated table alignment
                         + target
                         + "`",
                         "desired.row.001-001.comment": "参照先のみを読む合成値",
+                        "desired.row.001-002.property": "EC2.Subnet.SubnetId",
+                        "desired.row.001-002.value": "`subnet-0123456789abcdef0`",
+                        "desired.row.001-002.comment": "取得済み識別子",
                     },
                 )
                 name = f"{env}-app-{target}-01"
@@ -422,10 +476,16 @@ invalid unrelated table alignment
                 }
                 for index, (prop, value) in enumerate(
                     (
-                        ("InstanceId", "[Instance](#resource-EC2_Instance_001)"),
+                        (
+                            "InstanceId",
+                            '`{"$modelRef":{"logicalId":"EC2_Instance_001","attribute":"InstanceId"}}`',
+                        ),
                         ("ImageId", "`ami-0123456789abcdef0`"),
                         ("InstanceType", "`t3.micro`"),
-                        ("SubnetId", "[Subnet](vpc.md#resource-EC2_Subnet_001)"),
+                        (
+                            "SubnetId",
+                            '`{"$modelRef":{"logicalId":"EC2_Subnet_001","attribute":"SubnetId"}}`',
+                        ),
                         ("Tags[].Key", "`Name`"),
                         ("Tags[].Value", f"`{name}`"),
                     ),

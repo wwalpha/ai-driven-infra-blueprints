@@ -232,7 +232,21 @@ def fixture(root, stacks=1, services=("s3", "cloudwatch-logs", "sqs"), parts=Fal
                 ("Tags[].Value", "`fixture`"),
             ]
             if service == "sqs":
-                rows.append(("QueueUrl", f"[{name}](#{service}-{name})"))
+                rows.append(
+                    (
+                        "QueueUrl",
+                        "`"
+                        + json.dumps(
+                            {
+                                "$modelRef": {
+                                    "logicalId": "SQS_Queue_" + identity,
+                                    "attribute": "QueueUrl",
+                                }
+                            }
+                        )
+                        + "`",
+                    )
+                )
             for rownumber, (prop, value) in enumerate(rows, 1):
                 rid = f"{identity}-{rownumber:03d}"
                 values[service].update(

@@ -300,7 +300,9 @@ def check_cold_workers_share_one_read_parse_and_index(tmp_path, recorded, checke
 @pytest.mark.parametrize("warm", [False, True])
 def check_diagnosis_keeps_worker_warnings_private(tmp_path, warm):
     path, values = model_input(tmp_path)
-    values["desired.row.001-001.value"] = "[Absent](missing.md#absent)"
+    values["desired.row.001-001.value"] = (
+        '`{"$modelRef":{"logicalId":"Logs_LogGroup_999","attribute":"LogGroupName"}}`'
+    )
     write_model(path, values)
     with input_context(fresh=True, read_only=True):
         single = sources.load_model(path)
@@ -337,9 +339,16 @@ def check_diagnosis_keeps_worker_warnings_private(tmp_path, warm):
 def check_diagnosis_respects_change_context_and_candidate_producers(tmp_path):
     path, values = model_input(tmp_path)
     producer = path.with_name("producer.properties")
-    write_model(producer, values)
+    producer_values = {
+        **values,
+        "desired.resource.001.logicalId": "Logs_LogGroup_002",
+        "desired.service.identity.lastAllocated": '{"Logs.LogGroup":2}',
+    }
+    write_model(producer, producer_values)
     values = dict(values)
-    values["desired.row.001-001.value"] = "[Producer](producer.md#logs-group)"
+    values["desired.row.001-001.value"] = (
+        '`{"$modelRef":{"logicalId":"Logs_LogGroup_002","attribute":"LogGroupName"}}`'
+    )
     write_model(path, values)
     with (
         input_context(fresh=True, read_only=True),
@@ -354,6 +363,9 @@ def check_diagnosis_respects_change_context_and_candidate_producers(tmp_path):
         reads = sources._invocation_reads(tmp_path)
         candidate_values = dict(sources.raw_model(producer).authoritative)
         candidate_values["desired.resource.001.anchor"] = "candidate-anchor"
+        candidate_values["desired.resource.002.logicalId"] = "Logs_LogGroup_002"
+        candidate_values["desired.resource.002.resourceType"] = "Logs.LogGroup"
+        candidate_values["desired.resource.002.anchor"] = "duplicate-anchor"
         candidate = sources.raw_model(
             producer,
             sources.CandidateReads(reads, {producer: serialize(candidate_values)}),

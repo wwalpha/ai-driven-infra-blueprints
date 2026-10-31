@@ -107,7 +107,7 @@ def check_kms_alias(root):
             "KMS.Key",
             "kms-material-key",
             "CREATE",
-            [("KeyId", "[KMS_Key_011](kms.md#kms-material-key)")],
+            [("KeyId", "`" + json.dumps(reference("KMS_Key_011", "KeyId")) + "`")],
         )
     )
     values.update(
@@ -118,20 +118,23 @@ def check_kms_alias(root):
             "CREATE",
             [
                 ("AliasName", "`alias/app-preview-material-one`"),
-                ("TargetKeyId", "[KMS_Key_011](kms.md#kms-material-key)"),
+                (
+                    "TargetKeyId",
+                    "`" + json.dumps(reference("KMS_Key_011", "KeyId")) + "`",
+                ),
             ],
         )
     )
     values["desired.resource.012.parentProperty"] = "KMS.Alias.TargetKeyId"
     values["desired.resource.012.parentReference"] = (
-        "[KMS_Key_011](kms.md#kms-material-key)"
+        "`" + json.dumps(reference("KMS_Key_011", "KeyId")) + "`"
     )
     values["desired.service.identity.lastAllocated"] = json.dumps(
         {"KMS.Key": 11, "KMS.Alias": 12}
     )
     write_model(producer, values)
     path = producer.with_name("codecommit.properties")
-    link = "[KMS_Alias_012](kms.md#kms-alias-app-preview-material-one)"
+    link = "`" + json.dumps(reference("KMS_Alias_012", "AliasName")) + "`"
     consumer = service_values("codecommit", ["CodeCommit.Repository"])
     consumer.update(
         resource_values(
@@ -145,17 +148,6 @@ def check_kms_alias(root):
             ],
         )
     )
-    consumer.update(
-        reference_fields(
-            "link",
-            "desired.row.021-001.value",
-            link,
-            "preview/team/kms/012",
-            kind="KMS.Alias",
-            mode="link",
-        )
-    )
-    consumer["desired.reference.link.labelPolicy"] = "display-name"
     consumer.update(
         reference_fields(
             "raw-name",
@@ -418,7 +410,9 @@ def check_logical_secret_end_to_end(tmp_path):
             "SecretsManager.RotationSchedule",
             attribute="SecretId",
         )
-        rotation_values["desired.row.001-001.value"] = "[Secret](secrets.md#saved-001)"
+        rotation_values["desired.row.001-001.value"] = (
+            "`" + json.dumps(reference("SecretsManager_Secret_001", "Id")) + "`"
+        )
         save(rotation, rotation_values)
         linked_document = {
             "Statement": [

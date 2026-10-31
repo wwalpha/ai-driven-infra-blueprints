@@ -15,7 +15,7 @@ from unittest.mock import patch
 from support import issues_scan_fixtures as fixtures
 from support.it_case_receipt import it_case
 from support.validator import load as load
-from utils.iac_values import same
+from utils.iac_values import ResourceReference, same
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -90,9 +90,14 @@ def main_checks():
                     fixtures.expect_error(
                         lambda *, service=service: comparison.reference(
                             service,
-                            "[QuickSight_VPCConnection_001](quicksight.md#resource-QuickSight_VPCConnection_001)",
+                            ResourceReference(
+                                {
+                                    "$resource": ["quicksight", "001"],
+                                    "$attribute": "Ref",
+                                }
+                            ),
                         ),
-                        "reference attribute is unproven",
+                        "unsupported JSON Resource attribute: QuickSight.VPCConnection.Ref",
                     )
                     continue
                 expected = {"$resource": [service, "001"], "$attribute": attribute}
@@ -100,7 +105,9 @@ def main_checks():
                 assert direct == expected, direct
                 desired = comparison.reference(
                     service,
-                    f"[first]({service}.md#resource-{kind.replace('.', '_')}_001)",
+                    ResourceReference(
+                        {"$resource": [service, "001"], "$attribute": attribute}
+                    ),
                 )
                 assert same(desired, direct)
                 exported = comparison.evaluate(consumer, imported)
@@ -110,7 +117,9 @@ def main_checks():
                 }, exported
                 other = comparison.reference(
                     service,
-                    f"[second]({service}.md#resource-{kind.replace('.', '_')}_002)",
+                    ResourceReference(
+                        {"$resource": [service, "002"], "$attribute": attribute}
+                    ),
                 )
                 assert same(other, exported)
                 assert not same(desired, exported)

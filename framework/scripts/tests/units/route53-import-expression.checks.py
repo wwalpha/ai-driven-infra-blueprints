@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import json
 import sys
 from pathlib import Path
 
@@ -14,7 +15,9 @@ import pytest
 from model.projection import is_import_expression
 from model.render import markdown_for
 from model.validations.full_inputs import check_model_inputs as _check_model_inputs
+from support.import_model_fixtures import resource_values
 from support.model_design_fixtures import ROOT, model
+from support.model_sources import write_model
 from support.validator import schema_validator
 from utils.cloudformation.schema import CloudFormationSchemaCatalog
 
@@ -113,6 +116,43 @@ def check_route53_import_expression_validation(tmp_path):
             ("AliasTarget.EvaluateTargetHealth", "true", "ヘルス評価"),
         ],
     )
+    (tmp_path / "project.json").write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {
+                        "environment": "dev",
+                        "awsAccountId": "123456789012",
+                        "awsRegion": "ap-northeast-1",
+                        "iacEngine": "cloudformation",
+                    }
+                ]
+            }
+        )
+    )
+    values.update(
+        resource_values(
+            "002",
+            "Route53.HostedZone",
+            "endpoint",
+            "IMPORT",
+            [
+                ("Name", "`example.com`"),
+                (
+                    "Id",
+                    '`{"$modelRef":{"logicalId":"Route53_HostedZone_002","attribute":"Id"}}`',
+                ),
+            ],
+        )
+    )
+    values["desired.service.identity.lastAllocated"] = (
+        '{"Route53.RecordSet":1,"Route53.HostedZone":2}'
+    )
+    values["desired.service.route53.ownedCatalogResourceTypes"] = (
+        "Route53.RecordSet,Route53.HostedZone"
+    )
+    values["observed.row.002-002.value"] = "`Z123`"
+    write_model(source, values)
     document = markdown_for(path, values, tmp_path, definitions_root=ROOT)
     validator = schema_validator(tmp_path)
     catalog = validator.catalog_design_properties()
@@ -122,7 +162,11 @@ def check_route53_import_expression_validation(tmp_path):
         ("AliasTarget.HostedZoneId", expression, True),
         ("AliasTarget.HostedZoneId", "`" + expression + "`", True),
         ("AliasTarget.HostedZoneId", f"[{expression}](vpc-endpoint.md)", True),
-        ("AliasTarget.HostedZoneId", "[Z123](vpc-endpoint.md#endpoint)", True),
+        (
+            "AliasTarget.HostedZoneId",
+            '`{"$modelRef":{"logicalId":"Route53_HostedZone_002","attribute":"Id"}}`',
+            True,
+        ),
         ("AliasTarget.HostedZoneId", f"[{expression}](missing.md)", False),
         ("AliasTarget.HostedZoneId", f"[{expression}](../vpc-endpoint.md)", False),
         ("AliasTarget.HostedZoneId", "[Z123](vpc-endpoint.md)", False),
@@ -150,6 +194,7 @@ def check_route53_import_expression_validation(tmp_path):
         }[field]
         key = f"desired.row.001-{row}.value"
         selected[key] = value
+        write_model(source, selected)
         inputs = _check_model_inputs(source, selected, tmp_path, definitions_root=ROOT)
         errors = [
             error

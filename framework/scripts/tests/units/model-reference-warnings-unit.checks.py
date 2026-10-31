@@ -33,7 +33,7 @@ from model.projection import deployment_bucket, reference_display
 from model.references import Usage, diagnose, incoming
 from model.sources import Scope, _source_snapshot, load_model
 from model.validations.full_inputs import check_model_inputs as _check_model_inputs
-from support.import_model_fixtures import dependency_fixture
+from support.import_model_fixtures import dependency_fixture, resource_values
 from support.model_reference_fixtures import reference as model_ref
 from support.model_sources import write_model
 from support.model_v2_fixtures import logs_fixture
@@ -478,6 +478,13 @@ def check_bucket_missing_source_and_real_errors(tmp_path, monkeypatch):
         {
             "desired.service.s3.serviceId": "s3",
             "desired.service.s3.ownedCatalogResourceTypes": "S3.Bucket",
+            **resource_values(
+                "001",
+                "S3.Bucket",
+                "s3-bucket",
+                "IMPORT",
+                [("BucketName", "audit-bucket")],
+            ),
         },
     )
     saved = source.read_bytes()

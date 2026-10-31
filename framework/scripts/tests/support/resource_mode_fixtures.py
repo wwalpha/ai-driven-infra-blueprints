@@ -18,6 +18,7 @@ from model.core import properties
 from model.files import read_model
 from model.render import markdown_for
 from model.validations.naming import naming_errors
+from support.model_reference_fixtures import reference
 from support.model_sources import snapshot_model, write_model
 
 if not __debug__:
@@ -44,7 +45,7 @@ def model(kind="EC2.VPC", name="vpc-app-dev", mode="CREATE", label=None):
     if name and kind == "EC2.VPC":
         rows.append(("Name", name))
     logical = kind.replace(".", "_") + "_001"
-    rows.append((identifier, f"[{logical}](#{anchor})"))
+    rows.append((identifier, "`" + json.dumps(reference(logical, identifier)) + "`"))
     if kind == "EC2.VPC":
         rows.append(("CidrBlock", "10.1.0.0/16"))
     elif kind == "EC2.VPCEndpoint":

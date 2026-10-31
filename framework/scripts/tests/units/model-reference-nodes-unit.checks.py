@@ -318,7 +318,7 @@ def check_target_index_and_cache(tmp_path, models):
         for _ in range(10):
             result = resolve(parse(reference()), consumer, resolver)
             assert result[0].scope == producer and result[1] == "001"
-        assert reader.call_count == 2
+        assert reader.call_count == 1
     resource(tmp_path, "duplicate", "KMS.Key")
     with pytest.raises(ValueError, match="ambiguous"):
         resolve(parse(reference()), consumer, Resolver(tmp_path))

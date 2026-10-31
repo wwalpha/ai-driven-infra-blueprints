@@ -75,12 +75,12 @@ def fixture(root, service, other=None, *, derived=False):
             reference(
                 "Other",
                 "desired.note.link.text",
-                link,
+                other + "-original",
                 other,
                 "001",
                 producer_kind,
-                mode="link",
-                label="display-name",
+                prop=producer_kind + "." + producer_property,
+                label="none",
             )
         )
         values.update(
@@ -228,15 +228,16 @@ def check_fixed_label(root):
     values["desired.note.link.text"] = (
         "[cloudtrail-original](cloudtrail.md#cloudtrail-original)"
     )
-    values["desired.reference.Other.text"] = values["desired.note.link.text"]
-    values["desired.reference.Other.labelPolicy"] = "fixed"
+    values["desired.reference.Other.text"] = "cloudtrail-original"
+    values["desired.reference.Other.labelPolicy"] = "none"
     write_model(consumer, values)
     write_model(
         producer,
         {
             **original,
-            "desired.row.001-001.property": "CloudTrail.Trail.Tags[].Value",
-            "desired.row.001-001.value": "[s3-original](s3.md#s3-original)",
+            "desired.row.001-003.property": "CloudTrail.Trail.Tags[].Value",
+            "desired.row.001-003.value": '`{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}`',
+            "desired.row.001-003.comment": "保存済み参照",
         },
     )
     before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
@@ -258,12 +259,12 @@ def check_fixed_label(root):
         trace_model(consumer, "desired.note.link.text")["references"]["Other"][
             "labelPolicy"
         ]
-        == "fixed"
+        == "none"
     )
     write_model(
         consumer, {**values, "desired.reference.Other.labelPolicy": "display-name"}
     )
-    assert not load_model(consumer).warnings
+    rejected_read(root, lambda: load_model(consumer), "labelPolicy")
 
 
 def fixture_stack(root):
@@ -415,7 +416,7 @@ def check_producer_inputs():
                 )
                 if service in ("eventbridge", "cloudtrail"):
                     key = "desired.row.001-002.document"
-                    text = "[Function](lambda.md#lambda-fixture)"
+                    text = "fixture"
                     values.update(
                         {
                             "desired.row.001-002.property": kind + ".Target",
@@ -434,10 +435,10 @@ def check_producer_inputs():
                             "lambda",
                             "001",
                             "Lambda.Function",
-                            mode="link",
+                            prop="Lambda.Function.FunctionName",
                             pointer="/Target",
                             environment=environment,
-                            label="fixed",
+                            label="none",
                         )
                     )
                 write_model(path, values)

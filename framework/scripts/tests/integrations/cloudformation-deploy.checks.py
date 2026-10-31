@@ -184,7 +184,10 @@ def observed_collector_seed(root):
         "ec2-vpc-test-dev",
         [
             ("Name", "`vpc-test-dev`"),
-            ("VpcId", "[EC2_VPC_001](ec2.md#ec2-vpc-test-dev)"),
+            (
+                "VpcId",
+                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+            ),
             ("CidrBlock", "`10.1.0.0/16`"),
         ],
     )
@@ -195,8 +198,14 @@ def observed_collector_seed(root):
         "ec2-sbnt-test-dev-private-app-a-01",
         [
             ("Name", "`sbnt-test-dev-private-app-a-01`"),
-            ("VpcId", "[EC2_VPC_001](ec2.md#ec2-vpc-test-dev)"),
-            ("SubnetId", "[EC2_Subnet_001](ec2.md#ec2-sbnt-test-dev-private-app-a-01)"),
+            (
+                "VpcId",
+                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+            ),
+            (
+                "SubnetId",
+                '`{"$modelRef":{"logicalId":"EC2_Subnet_001","attribute":"SubnetId"}}`',
+            ),
             ("CidrBlock", "`10.1.1.0/24`"),
         ],
     )
@@ -377,7 +386,7 @@ def check_observed_collector(observed_collector_root):
     consumer = source.with_name("consumer.properties")
     write_model(
         consumer,
-        'desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.resource.001.anchor=resource-EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[EC2_VPC_001](ec2.md#ec2-vpc-test-dev)\ndesired.row.001-001.comment=接続先\n',
+        'desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_002\ndesired.resource.001.anchor=resource-EC2_Subnet_002\ndesired.service.identity.lastAllocated={"EC2.Subnet":2}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`\ndesired.row.001-001.comment=接続先\n',
     )
     rejects(
         lambda: publish_collected(backend, [unit], states([unit])),
@@ -690,7 +699,18 @@ def check_shared_stack_mapping(publication_workspace):
                 ("Name", "`" + name + "`"),
                 (
                     "VpcId",
-                    f"[{identity}](#{values[f'desired.resource.{identity}.anchor']})",
+                    "`"
+                    + json.dumps(
+                        {
+                            "$modelRef": {
+                                "logicalId": values[
+                                    f"desired.resource.{identity}.logicalId"
+                                ],
+                                "attribute": "VpcId",
+                            }
+                        }
+                    )
+                    + "`",
                 ),
                 ("CidrBlock", f"`10.{index}.0.0/16`"),
             ),
@@ -1019,7 +1039,7 @@ def check_shared_stack_mapping(publication_workspace):
         eip.update(
             {
                 f"desired.row.004-{number:03d}.property": "EC2.EIP." + prop,
-                f"desired.row.004-{number:03d}.value": "[EC2_EIP_001](ec2.md#resource-EC2_EIP_001)",
+                f"desired.row.004-{number:03d}.value": '`{"$modelRef":{"logicalId":"EC2_EIP_001","attribute":"AllocationId"}}`',
                 f"desired.row.004-{number:03d}.comment": "固定アドレスの識別子",
             }
         )
@@ -1324,7 +1344,20 @@ def check_integrated_child_mapping(project_workspace):
                     + logical,
                     f"desired.row.{identity}-001.property": parent_kind
                     + (".BucketName" if parent_kind == "S3.Bucket" else ".SubnetId"),
-                    f"desired.row.{identity}-001.value": f"[{identity}](#resource-{parent_kind.replace('.', '_')}_{number:03d})",
+                    f"desired.row.{identity}-001.value": "`"
+                    + json.dumps(
+                        {
+                            "$modelRef": {
+                                "logicalId": parent_kind.replace(".", "_")
+                                + "_"
+                                + identity,
+                                "attribute": "BucketName"
+                                if parent_kind == "S3.Bucket"
+                                else "SubnetId",
+                            }
+                        }
+                    )
+                    + "`",
                     f"desired.row.{identity}-001.comment": "親識別子",
                     f"desired.row.{identity}-002.property": kind + "." + setting,
                     f"desired.row.{identity}-002.value": "`設定値`",
@@ -1577,7 +1610,7 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
         secrets[f"desired.resource.{identity}.cfn-logicalId"] = "A-" + logical
     for field, value in {
         "property": "SecretsManager.Secret.KmsKeyId",
-        "value": "[KMS_Key_001](kms.md#kms-app-dev-key)",
+        "value": '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
         "comment": "secretの暗号化鍵",
     }.items():
         secrets[f"desired.row.001-002.{field}"] = value
@@ -1586,7 +1619,11 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
         "KMS.Key",
         "app-dev-key",
         [
-            ("KeyId", "[KMS_Key_001](kms.md#kms-app-dev-key)", "暗号化鍵のID"),
+            (
+                "KeyId",
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
+                "暗号化鍵のID",
+            ),
             ("KeyPolicy", "[KeyPolicy](kms/key-policy.json)", "鍵の権限"),
         ],
         "Key",
@@ -1654,11 +1691,15 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
             "LogicalResourceId": logical,
             "ResourceType": resource["Type"],
             "ResourceStatus": "CREATE_COMPLETE",
-            "PhysicalResourceId": "key-current" if logical == "Key" else arn,
+            "PhysicalResourceId": "12345678-1234-1234-1234-123456789abc"
+            if logical == "Key"
+            else arn,
         }
         for logical, resource in document["Resources"].items()
     ]
-    outputs = [{"OutputKey": "KeyId", "OutputValue": "key-current"}]
+    outputs = [
+        {"OutputKey": "KeyId", "OutputValue": "12345678-1234-1234-1234-123456789abc"}
+    ]
     aws = _bind_framework_callback(
         _callback_check_secretsmanager_arn_identifiers_aws, actual, outputs
     )
@@ -1684,11 +1725,10 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
     TestCase().assertNotIn("observed.row.001-002.value", current)
     TestCase().assertEqual(
         properties(read_model(model / "kms.properties"))["observed.row.001-001.value"],
-        "`key-current`",
+        "`12345678-1234-1234-1234-123456789abc`",
     )
-    assert (
-        current["desired.row.002-003.value"]
-        == secrets["desired.resource.002.parentReference"]
+    assert json.loads(current["desired.row.002-003.value"].strip("`")) == json.loads(
+        secrets["desired.resource.002.parentReference"].strip("`")
     )
     assert not any(
         value in {rotation.SECRET + ".Id", rotation.ROTATION + ".Id"}
@@ -1731,7 +1771,9 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
     TestCase().assertEqual(
         uncertain["A"]["observedCoverage"]["Key"]["status"], "UNCONFIRMED"
     )
-    outputs[0]["OutputValue"] = actual[2]["PhysicalResourceId"] = "key-current"
+    outputs[0]["OutputValue"] = actual[2]["PhysicalResourceId"] = (
+        "12345678-1234-1234-1234-123456789abc"
+    )
     TestCase().assertEqual(before, {path: path.read_bytes() for path in before})
     # Explicit advances and collection remain separate at the current controller boundary.
     session = {"states": states(selected)}
@@ -1805,7 +1847,7 @@ def check_deploy_preparation_separates_producer_reads_from_writes(
             parse(scope.path.read_text(encoding="utf-8")),
             {
                 "desired.row.007-002.property": "EC2.VPC.Name",
-                "desired.row.007-002.value": "[EC2_VPC_001](security.md#vpc-test-dev)",
+                "desired.row.007-002.value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
                 "desired.row.007-002.comment": "合成参照",
             },
         ),

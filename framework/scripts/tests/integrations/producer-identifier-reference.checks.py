@@ -50,7 +50,13 @@ def check(root):
         "001",
         "EC2.VPC",
         "vpc-one",
-        [("Name", "`vpc-one`"), ("VpcId", "[vpc-one](#vpc-one)")],
+        [
+            ("Name", "`vpc-one`"),
+            (
+                "VpcId",
+                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+            ),
+        ],
     )
     original["observed.row.001-002.value"] = "`vpc-fixture-one`"
     write_model(producer, original)
@@ -141,7 +147,10 @@ def check_reference_views(root):
             "EC2.SecurityGroup",
             "sg-one",
             [
-                ("Id", "[001](#sg-one)"),
+                (
+                    "Id",
+                    '`{"$modelRef":{"logicalId":"EC2_SecurityGroup_001","attribute":"GroupId"}}`',
+                ),
                 ("GroupDescription", "`fixture`"),
                 ("GroupName", "`sg-one`"),
                 ("VpcId", "`vpc-001`"),
@@ -160,7 +169,10 @@ def check_reference_views(root):
             "lambda-one",
             [
                 ("FunctionName", "`lambda-one`"),
-                ("VpcConfig.SecurityGroupIds", "[001](security-group.md#sg-one)"),
+                (
+                    "VpcConfig.SecurityGroupIds",
+                    '`[{"$modelRef":{"logicalId":"EC2_SecurityGroup_001","attribute":"GroupId"}}]`',
+                ),
             ],
         )
     )
@@ -212,7 +224,7 @@ def check_reference_views(root):
         )
         for path, model in zip(paths, (producer, consumer), strict=True):
             save_files(generate_files(path, load_model(model).values, root))
-        assert "[PENDING_DEPLOY](security-group.md#sg-one)" in paths[1].read_text(
+        assert "[sg-one](security-group.md#sg-one)" in paths[1].read_text(
             encoding="utf-8"
         )
         findings = Findings(root)
@@ -233,9 +245,14 @@ def check_reference_views(root):
             for item in findings.warnings
         ), findings.warnings
         assert (consumer.read_bytes(), producer.read_bytes()) == before
-        source["observed.row.001-002.value"] = "`sg-different`"
-        write_model(consumer, source)
-        save_files(generate_files(paths[1], load_model(consumer).values, root))
+        paths[1].write_text(
+            paths[1]
+            .read_text()
+            .replace(
+                "[sg-one](security-group.md#sg-one)",
+                "[sg-different](security-group.md#sg-one)",
+            )
+        )
         findings = Findings(root)
         check_design_links(
             identifier_outputs(FRAMEWORK),
@@ -245,13 +262,12 @@ def check_reference_views(root):
             scope=None,
             definitions_root=FRAMEWORK,
         )
-        assert not findings.errors and not findings.unverified, (
+        assert findings.errors and findings.unverified, (
             findings.errors,
             findings.unverified,
         )
         assert any(
-            "identifier reference does not match observed target" in str(item)
-            for item in findings.warnings
+            "design.display.mismatch" in str(item) for item in findings.errors
         ), findings.warnings
     assert producer.read_bytes() == before[1]
 

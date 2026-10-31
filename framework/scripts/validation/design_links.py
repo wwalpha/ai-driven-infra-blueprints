@@ -40,7 +40,8 @@ from model.core import (
     literal,
 )
 from model.files import resource_row_index
-from model.reference_nodes import nodes
+from model.reference_nodes import nodes, receiving_property
+from model.reference_presentation import Presentation
 from utils.input_cache import input_is_file, input_scope, input_select, input_text
 
 from .design import (
@@ -745,6 +746,17 @@ def check_design_links(
                     or cells[1] == "SecretsManager.Secret.Name"
                 ):
                     resources[current][1][cells[1]] = unquoted(cells[2])
+        values = source_values.get(path) or {}
+        for identity, resource in entries(values, "desired.resource."):
+            current = (path.resolve(), resource.get("anchor"))
+            if current not in resources:
+                continue
+            for row_id, row in resource_row_index(values).get(identity, ()):
+                observed = values.get(f"observed.row.{row_id}.value")
+                if observed is not None and row["property"] in identifier_outputs.get(
+                    resource["resourceType"], set()
+                ):
+                    resources[current][1][row["property"]] = literal(observed)
     for source in sources:
         check_local_links(
             source,
@@ -824,6 +836,25 @@ def check_design_links(
         observed_references = set()
         automatic_references = set()
         values = source_values[source] or {}
+        presentation = Presentation(values, source, root)
+        for position, reference in presentation.references.items():
+            link = LINK.fullmatch(reference.link or "")
+            if not link:
+                continue
+            identity = position.row_id.rpartition("-")[0]
+            prop = values[f"desired.row.{position.row_id}.property"]
+            target = (
+                source.parent / link.group(2) if link.group(2) else source
+            ).resolve()
+            automatic_references.add(
+                (
+                    values.get(f"desired.resource.{identity}.anchor"),
+                    receiving_property(prop, position.pointer),
+                    target,
+                    link.group(3),
+                    link.group(1),
+                )
+            )
         for identity, rows in resource_row_index(values).items():
             anchor = values.get(f"desired.resource.{identity}.anchor")
             for row_id, row in rows:

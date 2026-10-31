@@ -375,7 +375,12 @@ class Inputs:
                     index.setdefault(resource["logicalId"], []).append(
                         (self.models[producer], number, resource)
                     )
-            resolver.logical_indexes[self.environment, self.directory] = index
+            resolver.logical_indexes.update(
+                {
+                    (self.environment, self.directory, logical): {logical: matches}
+                    for logical, matches in index.items()
+                }
+            )
             scope = _imports_model_sources.Scope(
                 self.root, self.environment, self.directory, service
             )

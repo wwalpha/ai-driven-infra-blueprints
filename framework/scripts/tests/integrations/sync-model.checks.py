@@ -575,7 +575,7 @@ def check_pending_artifact_transaction(generated_policy, failure):
                     json.loads(candidate[artifact])["Statement"][0]["Resource"][1]
                     == "PENDING_DEPLOY"
                 )
-                assert "$modelRef" in candidate[design]
+                assert "[KMS.Key](kms.md#saved-001)" in candidate[design]
                 with ExitStack() as injections:
                     if failure:
                         injections.enter_context(
@@ -992,7 +992,10 @@ def check_required_property_parents(tmp_path) -> None:
     for number, (field, value) in enumerate(
         (
             ("ConnectionInput.Name", "`sample`"),
-            ("Name", "[Connection](#glue-sample)"),
+            (
+                "Name",
+                '`{"$modelRef":{"logicalId":"Glue_Connection_001","attribute":"Name"}}`',
+            ),
             ("CatalogId", "`123456789012`"),
             ("ConnectionInput.ConnectionType", "`JDBC`"),
             (

@@ -86,7 +86,7 @@ def seed(root, state_path, case="orders", *, same_group=False):
             values.update(
                 {
                     "desired.resource.003.cfn-logicalId": "cfn-stack-app-dev-first-VpcFirst",
-                    "desired.row.003-001.value": "[vpc](#resource-EC2_VPC_002)",
+                    "desired.row.003-001.value": '`{"$modelRef":{"logicalId":"EC2_VPC_002","attribute":"VpcId"}}`',
                     "desired.row.003-002.value": "`10.1.0.0/16`",
                     "desired.row.003-003.value": "`app-dev-observed-vpc`",
                 }
@@ -114,7 +114,7 @@ def seed(root, state_path, case="orders", *, same_group=False):
     if fixture["data"].get("delivery"):
         stack_values.update(
             {
-                "desired.deployment.templateBucket": "[assets](s3.md#resource-S3_Bucket_002)",
+                "desired.deployment.templateBucket": '{"$modelRef":{"logicalId":"S3_Bucket_002","attribute":"BucketName"}}',
                 "desired.deployment.templateKeyPrefix": "templates/",
             }
         )
@@ -350,6 +350,19 @@ def _callback_clients_request(
                         }
                     ]
                 }
+            elif operation == "list_change_sets":
+                change = state["changes"].get(name)
+                result = {
+                    "Summaries": [
+                        {
+                            "ChangeSetId": change["id"],
+                            "Status": "CREATE_COMPLETE",
+                            "ExecutionStatus": "AVAILABLE",
+                        }
+                    ]
+                    if change
+                    else []
+                }
             elif operation == "create_change_set":
                 if arguments.get("ChangeSetType") == "CREATE":
                     stack_id = (
@@ -403,6 +416,11 @@ def _callback_clients_request(
                         else {}
                     ),
                 }
+                if arguments.get("ChangeSetType") == "CREATE":
+                    state["stacks"][name] = {
+                        "id": stack_id,
+                        "status": "REVIEW_IN_PROGRESS",
+                    }
                 result = {"Id": change, "StackId": stack_id}
             elif operation == "describe_change_set":
                 change = state["changes"][name]
@@ -588,7 +606,17 @@ def _callback_clients_request(
                     ]
                 }
                 if stack and stack["status"] == "ROLLBACK_COMPLETE":
-                    result = {"StackResourceSummaries": []}
+                    result = {
+                        "StackResourceSummaries": [
+                            {
+                                "LogicalResourceId": "Vpc",
+                                "ResourceType": "AWS::EC2::VPC",
+                                "ResourceStatus": "CREATE_FAILED",
+                            }
+                        ]
+                        if knobs.get("repair") and not knobs.get("rollback_settled")
+                        else []
+                    }
                 if (
                     knobs.get("remove")
                     and name == "cfn-stack-app-dev-first"
@@ -681,6 +709,7 @@ def clients(root, state_path, aws_path):
             "describe_stacks",
             "create_change_set",
             "describe_change_set",
+            "list_change_sets",
             "execute_change_set",
             "describe_stack_events",
             "list_stack_resources",

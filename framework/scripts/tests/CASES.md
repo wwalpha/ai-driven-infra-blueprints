@@ -205,7 +205,7 @@ pytest/direct/module completionとreceipt形式は変更しない。下記7 IT�
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
 | `model-design-17::check_route53_endpoint_dns_roundtrip` | `check_route53_endpoint_dns_roundtrip` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L54) | pytest / 1 | Endpointのobserved ID・ServiceName・region・TypeとRoute53生成View参照の照合 | 接続保証を保持 |
-| `model-design-17::check_import_optional_name_label` | `check_import_optional_name_label` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L97) | pytest / 1 | Config IMPORT任意Nameなし/ありの生成View・保存anchor・linked_resource・正本不変 | 接続保証を保持 |
+| `model-design-17::check_import_optional_name_label` | `check_import_optional_name_label` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L97) | pytest / 1 | Config IMPORT任意Nameなし/ありの生成View・保存anchor・論理ID Resolver・正本不変 | 接続保証を保持 |
 | `model-design-17::check_kms_policy_execution_account` | `check_kms_policy_execution_account` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L131) | pytest / 1 | Execution AccountのKMS policy生成・不正accountの保存拒否とMarkdown/JSON保護 | 接続保証を保持 |
 | `model-design-17::check_config_typed_anchors` | `check_config_typed_anchors` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L184) | pytest / 1 | 同名の異型Config Resourceのtyped link・anchorと他serviceの参照 | 接続保証を保持 |
 | `model-design-17::check_stack_mapping_roundtrip` | `check_stack_mapping_roundtrip` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L247) | pytest / 1 | Model→Stack→View→再読込、独立番号のKMS子Resource・index/parts入力不変 | 接続保証を保持 |
@@ -4048,7 +4048,7 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | Case | Function | Layer | Location | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
 | `change-impact::unrelated-reference` | `check_unrelated_reference_does_not_block_change` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 24 | 同一/別環境、missing/current/stale indexの既存Modelツリー外・無関係anchor・不正modelRef非阻害、Full品質検出は維持 | Synthetic Models |
-| `change-impact::cross-environment` | `check_cross_environment_contract_is_selected` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 6 | 正当な環境間MarkdownのConsumer集合・変更契約を検証、Producer削除はERROR | Synthetic Models |
+| `change-impact::cross-environment` | `check_cross_environment_logical_ids_are_isolated` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 6 | 正当な環境間MarkdownのConsumer集合・変更契約を検証、Producer削除はERROR | Synthetic Models |
 | `change-impact::revision-selection` | `check_index_revision_and_consumer_selection` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 3 | 5サービスのcurrent/stale/missing比較、必要Consumer集合・読込回数・診断再利用・Arn破壊停止・永続書込0 | Synthetic Models |
 | `change-impact::snapshot-reuse` | `check_reference_metadata_reuses_immutable_snapshot` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | 同一Snapshot解析1回、新Snapshotは再解析 | Immutable synthetic snapshots |
 | `change-impact::sealed-diagnostics` | `check_index_corruption_and_related_model` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 16 | 署名・構造・membership・owner・診断の改変と旧schemaを拒否、Snapshot先読込/後読込の両方を検証 | Offline Deploy fixtures |
@@ -4358,6 +4358,7 @@ Task/approval/recovery cases retain their existing responsibilities.
 | Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
 | --- | --- | --- | --- | --- | --- | --- |
 | `deploy-worktree::check_start_creates_and_reuses_official_worktree` | `check_start_creates_and_reuses_official_worktree` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | start creates and reuses official worktree | Synthetic offline AWS / real managed Git lifecycle |
+| `deploy-worktree::check_create_review_execute_uses_one_atomic_request` | `check_create_review_execute_uses_one_atomic_request` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 3 | Create review and execute retain one atomic request across release and missing stack conditions | Synthetic offline AWS / isolated request state |
 | `deploy-worktree::check_controller_keeps_aws_success_after_rewrite_and_conflict` | `check_controller_keeps_aws_success_after_rewrite_and_conflict` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | controller keeps aws success after rewrite and conflict | Synthetic offline AWS / real managed Git lifecycle |
 
 ## Managed Deploy snapshot unit boundaries

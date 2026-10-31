@@ -484,7 +484,41 @@ def send(
                         and evidence.get("inputDigest")
                     )
                 ended = state.get("endedRequest")
-                if transition and ended and ended.get("request") != prior:
+                previous = ended.get("request", {}) if ended else {}
+                previous_evidence = ended.get("executionEvidence", {}) if ended else {}
+                completed_execution = (
+                    previous.get("operation") == "execute_change_set"
+                    and previous.get("settled")
+                    and previous.get("trackingReason")
+                    and ended.get("result") in {"SUCCESS", "FAIL"}
+                    and previous.get("result") == ended["result"]
+                    and previous.get("stackId")
+                    and previous.get("stackId") == previous_evidence.get("StackId")
+                    and previous.get("changeSetId")
+                    and previous.get("changeSetId")
+                    == previous_evidence.get("ChangeSetId")
+                    and previous.get("token")
+                    and previous.get("token") == previous_evidence.get("clientToken")
+                    and previous_evidence.get("inputDigest")
+                )
+                completed_cleanup = (
+                    previous.get("operation") == "delete_stack"
+                    and previous.get("settled") is True
+                    and previous.get("trackingReason") == "ORIGINAL_STACK_DELETED"
+                    and previous.get("result") == "SETTLED"
+                    and previous.get("name") == name
+                    and previous.get("stackId")
+                    and previous["stackId"] != state.get("stackId")
+                    and previous.get("token")
+                    and previous.get("originalStack", {}).get("StackStatus")
+                    in {"ABSENT", "DELETE_COMPLETE"}
+                )
+                if (
+                    transition
+                    and ended
+                    and ended.get("request") != prior
+                    and not (completed_execution or completed_cleanup)
+                ):
                     raise Blocked(
                         "cannot preserve both existing and current Create completion evidence"
                     )

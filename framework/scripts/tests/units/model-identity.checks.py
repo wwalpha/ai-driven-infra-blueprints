@@ -116,7 +116,7 @@ def check_snapshots():
             values.update(
                 {
                     "desired.row.000-001.property": "EC2.VPC.VpcId",
-                    "desired.row.000-001.value": "[existing](#anchor-0)",
+                    "desired.row.000-001.value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
                     "desired.row.000-001.comment": "unchanged",
                     "observed.row.000-001.value": "`vpc-fixed`",
                 }
@@ -127,7 +127,9 @@ def check_snapshots():
                 if not key.endswith(".logicalId")
             }
             after = allocate(after, [f"{i:03d}" for i in range(500)])
-            after["desired.row.000-001.value"] = "[existing](#anchor-0)"
+            after["desired.row.000-001.value"] = (
+                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`'
+            )
             for root, data in [(old, after), (new, after)]:
                 path = root / "model" / (scope + ".properties")
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -136,27 +138,36 @@ def check_snapshots():
         with patch.object(sources, "_read_model", wraps=sources._read_model) as read:
             for i in range(500):
                 snapshot, number, resource = resolver.resolve(
-                    "[existing](#anchor-" + str(i) + ")", Scope(new, "qa", "one", "vpc")
+                    json.dumps(
+                        {
+                            "$modelRef": {
+                                "logicalId": f"EC2_VPC_{i + 1:03d}",
+                                "attribute": "VpcId",
+                            }
+                        }
+                    ),
+                    Scope(new, "qa", "one", "vpc"),
                 )
                 assert number == f"{i:03d}"
             assert read.call_count == 1, read.call_count
         assert (
             resolver.resolve(
-                "[existing](../two/vpc.md#anchor-0)", Scope(new, "qa", "one", "vpc")
+                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                Scope(new, "qa", "two", "vpc"),
             )[0].scope.target
             == "two"
         )
         assert (
             resolver.resolve(
-                "[existing](../../live/one/vpc.md#anchor-0)",
-                Scope(new, "qa", "one", "vpc"),
+                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                Scope(new, "live", "one", "vpc"),
             )[0].scope.environment
             == "live"
         )
         rejects(
             lambda: resolver.resolve(
-                "[existing](../../unknown/one/vpc.md#anchor-0)",
-                Scope(new, "qa", "one", "vpc"),
+                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                Scope(new, "unknown", "one", "vpc"),
             )
         )
         print("baseline preservation and 500 indexed resolutions: PASS")

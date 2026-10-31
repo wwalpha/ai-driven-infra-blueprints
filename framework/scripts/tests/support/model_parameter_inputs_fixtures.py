@@ -79,11 +79,25 @@ def fixture(root):
                 ),
                 (
                     "VpcId" if kind == "EC2.VPC" else "SubnetId",
-                    f"[resource](#{anchor})",
+                    "`"
+                    + json.dumps(
+                        {
+                            "$modelRef": {
+                                "logicalId": kind.replace(".", "_") + "_" + rid,
+                                "attribute": "VpcId"
+                                if kind == "EC2.VPC"
+                                else "SubnetId",
+                            }
+                        }
+                    )
+                    + "`",
                 ),
                 ("EnableDnsSupport", "`true`")
                 if kind == "EC2.VPC"
-                else ("VpcId", f"[vpc](#vpc-vpc-app-{env}{suffix})"),
+                else (
+                    "VpcId",
+                    '`{"$modelRef":{"logicalId":"EC2_VPC_017","attribute":"VpcId"}}`',
+                ),
             ]
             values.update(resource_values(rid, kind, anchor, "IMPORT", fields))
             values[f"desired.row.{rid}-002.comment"] = "環境注記 " + env

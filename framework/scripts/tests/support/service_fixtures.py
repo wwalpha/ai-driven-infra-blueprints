@@ -136,7 +136,10 @@ TYPED_SERVICES = {
             [
                 ("Name", "`fixture-job`"),
                 ("Timeout", "`30`"),
-                ("SecurityConfiguration", "[glsc-one](#glue-glsc-one)"),
+                (
+                    "SecurityConfiguration",
+                    '`{"$modelRef":{"logicalId":"Glue_SecurityConfiguration_002","attribute":"Name"}}`',
+                ),
                 ("DefaultArguments", '`{"--job-language":"python"}`'),
             ],
         ),
@@ -392,7 +395,10 @@ def build_input_templates(root):
                     "SQS.QueuePolicy",
                     "fixture-sqs-034",
                     [
-                        ("Queues", "[fixture-one](#fixture-sqs-017)"),
+                        (
+                            "Queues",
+                            '`{"$modelRef":{"logicalId":"SQS_Queue_017","attribute":"QueueUrl"}}`',
+                        ),
                         (
                             "PolicyDocument",
                             "[policy](sqs/policy.json)",

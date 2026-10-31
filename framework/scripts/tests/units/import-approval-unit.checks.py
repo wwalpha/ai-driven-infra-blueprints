@@ -42,12 +42,15 @@ def proposal():
         "desired.resource.001.logicalId": "EC2_VPC_001",
         "desired.service.identity.lastAllocated": '{"EC2.VPC":1}',
         "desired.row.001-001.property": "EC2.VPC.VpcId",
-        "desired.row.001-001.value": "[vpc](vpc.md#vpc-one)",
+        "desired.row.001-001.value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
         "desired.row.001-001.comment": "合成ID",
         "observed.row.001-001.value": "`vpc-one`",
         "desired.row.001-002.property": "EC2.VPC.CidrBlock",
         "desired.row.001-002.value": "`10.0.0.0/16`",
         "desired.row.001-002.comment": "合成CIDR",
+        "desired.row.001-003.property": "EC2.VPC.Name",
+        "desired.row.001-003.value": "`main-vpc`",
+        "desired.row.001-003.comment": "合成Name",
     }
     new = {**old, "desired.row.001-002.value": "`10.1.0.0/16`"}
     record = {
@@ -58,6 +61,7 @@ def proposal():
         "properties": {
             "EC2.VPC.VpcId": {"status": "captured", "value": "vpc-one"},
             "EC2.VPC.CidrBlock": {"status": "captured", "value": "10.1.0.0/16"},
+            "EC2.VPC.Name": {"status": "captured", "value": "main-vpc"},
         },
     }
     acquisition = {
@@ -106,17 +110,23 @@ def check_complete_typed_before_after_and_digest():
         entry["matching"]["existingResources"] == ["001"]
         and entry["matching"]["status"] == "confirmed"
     )
-    cidr, identifier = entry["properties"]
+    cidr = next(
+        item for item in entry["properties"] if item["property"] == "EC2.VPC.CidrBlock"
+    )
+    identifier = next(
+        item for item in entry["properties"] if item["property"] == "EC2.VPC.VpcId"
+    )
     assert (
         cidr["before"][0]["desired"] == "10.0.0.0/16"
         and cidr["after"][0]["desired"] == "10.1.0.0/16"
     )
     assert cidr["after"][0]["nativeType"] == "string"
     assert (
-        identifier["after"][0]["reference"] == "[vpc](vpc.md#vpc-one)"
+        identifier["after"][0]["reference"]
+        == '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`'
         and identifier["after"][0]["observed"] == "vpc-one"
     )
-    assert entry["name"] == {"status": "not-acquired"}
+    assert entry["name"]["EC2.VPC.Name"] == "main-vpc"
     approval.verify_review(result, review(data))
     assert result["approvalBoundary"] == "llm-explicit-consent"
 
@@ -161,7 +171,7 @@ def check_changed_review_needs_new_review(change):
     elif change in {"property", "reference", "type"}:
         entry["properties"][0]["after"][0]["desired"] = {
             "property": "10.2.0.0/16",
-            "reference": "[vpc](vpc.md#vpc-two)",
+            "reference": '`{"$modelRef":{"logicalId":"EC2_VPC_002","attribute":"VpcId"}}`',
             "type": False,
         }[change]
     elif change == "risk":
@@ -193,7 +203,9 @@ def check_unknown_identity_risk_is_bound():
         },
     }
     new["desired.resource.009.logicalId"] = "EC2_VPC_002"
-    new["desired.row.009-001.value"] = "[vpc](vpc.md#vpc-two)"
+    new["desired.row.009-001.value"] = (
+        '`{"$modelRef":{"logicalId":"EC2_VPC_002","attribute":"VpcId"}}`'
+    )
     new["desired.service.identity.lastAllocated"] = '{"EC2.VPC":2}'
     data[1]["resources"][0].update(resource="009", action="add")
     result = review((*data[:3], new, data[4]))
@@ -254,7 +266,10 @@ def check_array_boolean_name_and_unreflected_values():
     assert props["EC2.VPC.Tags[].Value"]["after"][0]["valueShape"] == "projection"
     assert props["EC2.VPC.Tags[].Value"]["acquisition"]["valueShape"] == "projection"
     assert item["name"]["Tags[Name]"] == ["main"]
-    assert item["unreflected"][0]["property"] == "EC2.VPC.EnableDnsHostnames"
+    assert {item["property"] for item in item["unreflected"]} == {
+        "EC2.VPC.EnableDnsHostnames",
+        "EC2.VPC.Name",
+    }
 
 
 def check_composite_identity_and_secret_omission():
@@ -301,11 +316,17 @@ def check_configuration_is_not_observed(observed):
 
 def check_valid_observation_and_nonblocking_reference_warning():
     data = proposal()
-    data[3]["desired.row.001-001.value"] = "[vpc](vpc.md#vpc-two)"
+    data[3]["desired.row.001-001.value"] = (
+        '`{"$modelRef":{"logicalId":"EC2_VPC_002","attribute":"VpcId"}}`'
+    )
     result = review(data)
     assert (
         result["warnings"]
-        and result["dispositions"][0]["properties"][1]["after"][0]["observed"]
+        and next(
+            item
+            for item in result["dispositions"][0]["properties"]
+            if item["property"] == "EC2.VPC.VpcId"
+        )["after"][0]["observed"]
         == "vpc-one"
     )
     # An unrelated old literal observation is not a new gate on the selected change.
@@ -387,12 +408,14 @@ def check_unselected_reference_changes_are_not_reviewed_as_selected():
             "desired.resource.002.logicalId": "EC2_VPC_002",
             "desired.service.identity.lastAllocated": '{"EC2.VPC":2}',
             "desired.row.002-001.property": "EC2.VPC.VpcId",
-            "desired.row.002-001.value": "[vpc](vpc.md#vpc-two)",
+            "desired.row.002-001.value": '`{"$modelRef":{"logicalId":"EC2_VPC_002","attribute":"VpcId"}}`',
             "desired.row.002-001.comment": "未選択",
         }
     )
     data[3].update(data[2].authoritative)
-    data[3]["desired.row.002-001.value"] = "[Changed](#changed)"
+    data[3]["desired.row.002-001.value"] = (
+        '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`'
+    )
     with pytest.raises(ValueError, match="unselected Resource"):
         review(data)
 
@@ -830,15 +853,16 @@ def check_missing_review_rejected_before_candidate_load(tmp_path):
 
 def reference_trace(target="001"):
     return {
-        "consumerKey": "desired.row.001-001.value",
-        "text": "[vpc](vpc.md#vpc-one)",
+        "consumerKey": "desired.row.001-003.value",
+        "text": "main-vpc",
         "occurrence": "1",
         "producerKind": "resource",
         "producerScope": "dev/cde/vpc",
         "producerLogicalId": "EC2_VPC_" + target,
         "resourceType": "EC2.VPC",
-        "format": "link",
-        "labelPolicy": "fixed",
+        "format": "name",
+        "property": "EC2.VPC.Name",
+        "labelPolicy": "none",
     }
 
 
@@ -866,12 +890,24 @@ def check_same_value_reference_meaning_is_bound(change):
         changed["fixed"]["producerScope"] = "dev/cde/other"
     elif change == "property":
         changed["fixed"].update(
-            format="name", property="EC2.VPC.Name", labelPolicy="none"
+            format="name", property="EC2.VPC.CidrBlock", labelPolicy="none"
         )
     elif change == "resource-type":
         changed["fixed"]["resourceType"] = "EC2.Subnet"
     else:
         changed["fixed"]["labelPolicy"] = "resource-id"
+    if change == "label-policy":
+        with pytest.raises(ValueError, match="labelPolicy"):
+            approval.build_review(
+                acquisition,
+                selection,
+                before,
+                proposed,
+                risks,
+                schema,
+                proposed_references=changed,
+            )
+        return
     expected = approval.build_review(
         acquisition,
         selection,
@@ -959,15 +995,15 @@ def check_unselected_reference_selector_is_rejected():
         "desired.resource.002.resourceMode": "IMPORT",
         "desired.resource.002.logicalId": "EC2_VPC_002",
         "desired.service.identity.lastAllocated": '{"EC2.VPC":2}',
-        "desired.row.002-001.property": "EC2.VPC.VpcId",
-        "desired.row.002-001.value": "[vpc](vpc.md#vpc-two)",
+        "desired.row.002-001.property": "EC2.VPC.Name",
+        "desired.row.002-001.value": "main-vpc",
         "desired.row.002-001.comment": "unselected",
     }
     original = {
         "fixed": {
             **reference_trace("002"),
             "consumerKey": "desired.row.002-001.value",
-            "text": "[vpc](vpc.md#vpc-two)",
+            "text": "main-vpc",
         }
     }
     before = Expansion(
@@ -1018,6 +1054,7 @@ def check_real_loader_retains_unresolved_reference_declaration(tmp_path):
     state = {
         "fixed": {
             **reference_trace("002"),
+            "consumerKey": "desired.row.001-001.value",
             "text": "vpc-unobserved",
             "format": "identifier",
             "property": "EC2.VPC.VpcId",
@@ -1122,8 +1159,22 @@ def check_explicit_bind_preserves_identity(failure):
         assert entry["operation"] == "bind" and entry["targetResource"] == "001"
         assert entry["risks"] and "unknown" in entry["risks"][0]["reason"]
         assert entry["beforeResource"] == entry["afterResource"]
-        assert entry["properties"][1]["after"][0]["row"] == "001-001"
-        assert entry["properties"][1]["after"][0]["observed"] == "vpc-one"
+        assert (
+            next(
+                item
+                for item in entry["properties"]
+                if item["property"] == "EC2.VPC.VpcId"
+            )["after"][0]["row"]
+            == "001-001"
+        )
+        assert (
+            next(
+                item
+                for item in entry["properties"]
+                if item["property"] == "EC2.VPC.VpcId"
+            )["after"][0]["observed"]
+            == "vpc-one"
+        )
 
 
 def check_subnet_answers_correction_and_resume(tmp_path):

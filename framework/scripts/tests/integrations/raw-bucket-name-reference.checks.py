@@ -44,7 +44,6 @@ def check(root):
     values = {}
     for rid in ("003", "088"):
         key = f"desired.row.{rid}-001.document"
-        linkkey = f"desired.row.{rid}-002.value"
         document = {
             "bucketDefinitions": [
                 {
@@ -73,7 +72,10 @@ def check(root):
                 "macie-" + rid,
                 [
                     ("S3JobDefinition", f"[json](macie/job-{rid}.json)"),
-                    ("Name", "[S3_Bucket_017](s3.md#s3-raw-name)"),
+                    (
+                        "Name",
+                        '`{"$modelRef":{"logicalId":"S3_Bucket_017","attribute":"BucketName"}}`',
+                    ),
                 ],
             )
         )
@@ -90,18 +92,7 @@ def check(root):
                 pointer="/bucketDefinitions/0/buckets/0",
             )
         )
-        values.update(
-            reference(
-                "link-" + rid,
-                linkkey,
-                values[linkkey],
-                "s3",
-                "017",
-                "S3.Bucket",
-                mode="link",
-                label="fixed",
-            )
-        )
+
     write_model(path, values)
     key = "desired.row.003-001.document"
     snapshot = load_model(path)
@@ -114,7 +105,7 @@ def check(root):
     assert doc["bucketDefinitions"][0]["accountId"] == "111111111111"
     assert (
         snapshot.authoritative["desired.row.003-002.value"]
-        == "[S3_Bucket_017](s3.md#s3-raw-name)"
+        == '`{"$modelRef":{"logicalId":"S3_Bucket_017","attribute":"BucketName"}}`'
     )
     assert producer in source_inputs(path)
     assert affected(root, [producer.relative_to(root)]) == {

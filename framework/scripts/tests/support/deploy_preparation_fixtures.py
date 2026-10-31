@@ -78,7 +78,10 @@ def fixture(root):
             for i in range(1, 205)
             for field, value in (
                 ("property", "EC2.VPC.VpcId"),
-                ("value", "[VPC](#vpc-fixture)"),
+                (
+                    "value",
+                    '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                ),
                 ("comment", "識別子"),
             )
         )

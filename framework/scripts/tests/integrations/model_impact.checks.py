@@ -104,14 +104,17 @@ def consumer(
     }[kind]
     prop = "VpcId" if mode == "identifier" else name_property
     value = (
-        "[fixed-label]("
-        + producer_service
-        + ".md#"
-        + producer_service
-        + "-"
-        + target
-        + ")"
-        if mode == "link"
+        "`"
+        + json.dumps(
+            {
+                "$modelRef": {
+                    "logicalId": kind.replace(".", "_") + "_" + target,
+                    "attribute": "VpcId",
+                }
+            }
+        )
+        + "`"
+        if mode == "node"
         else "`vpc-first`"
         if mode == "identifier"
         else "`" + env + "-name" + str(int(target)) + "`"
@@ -128,36 +131,38 @@ def consumer(
                 "desired.row.005-002.value": value,
             }
         )
-        values.update(
-            reference(
-                "producer",
-                "desired.row.005-002.value",
-                value,
-                producer_service,
-                target,
-                kind,
-                mode=mode,
-                prop=kind + "." + prop if mode != "link" else None,
-                environment=env,
-                label="fixed" if mode == "link" else "none",
-            )
-        )
-        if not fixed:
-            values["desired.row.005-001.value"] = value
+        if mode != "node":
             values.update(
                 reference(
-                    "name",
-                    "desired.row.005-001.value",
+                    "producer",
+                    "desired.row.005-002.value",
                     value,
                     producer_service,
                     target,
                     kind,
                     mode=mode,
-                    prop=kind + "." + prop if mode != "link" else None,
+                    prop=kind + "." + prop if mode != "node" else None,
                     environment=env,
-                    label="fixed" if mode == "link" else "none",
+                    label="fixed" if mode == "node" else "none",
                 )
             )
+        if not fixed:
+            values["desired.row.005-001.value"] = value
+            if mode != "node":
+                values.update(
+                    reference(
+                        "name",
+                        "desired.row.005-001.value",
+                        value,
+                        producer_service,
+                        target,
+                        kind,
+                        mode=mode,
+                        prop=kind + "." + prop if mode != "node" else None,
+                        environment=env,
+                        label="fixed" if mode == "node" else "none",
+                    )
+                )
     return write_model(
         root / "model" / env / "team" / (service + ".properties"), values
     )
@@ -320,7 +325,11 @@ def check_identifiers(root):
             {
                 f"desired.row.{rid}-003.property": "EC2.VPC.VpcId",
                 f"desired.row.{rid}-003.comment": "識別子",
-                f"desired.row.{rid}-003.value": "PENDING_DEPLOY",
+                f"desired.row.{rid}-003.value": "`"
+                + json.dumps(
+                    {"$modelRef": {"logicalId": "EC2_VPC_" + rid, "attribute": "VpcId"}}
+                )
+                + "`",
                 f"observed.row.{rid}-003.value": "`vpc-" + identifier + "`",
             }
         )
@@ -328,7 +337,7 @@ def check_identifiers(root):
     paths = [
         consumer(root, "by-id", "vpc", "EC2.VPC", mode="identifier"),
         consumer(root, "by-name", "vpc", "EC2.VPC"),
-        consumer(root, "by-anchor", "vpc", "EC2.VPC", mode="link"),
+        consumer(root, "by-anchor", "vpc", "EC2.VPC", mode="node"),
     ]
     saved = [path.read_bytes() for path in paths]
     digest, hashes = design_source_digest(source), dependency_hashes(paths[0])

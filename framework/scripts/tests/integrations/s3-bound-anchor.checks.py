@@ -20,7 +20,6 @@ from support.producer_identifier_reference_fixtures import (
     Path,
     json,
     load_model,
-    reference,
     resource,
     tempfile,
     write_model,
@@ -84,21 +83,9 @@ def check(root):
         ("S3.Bucket", "S3_Bucket_003"): "s3-archive-original"
     }
     consumer = path.with_name("cloudtrail.properties")
-    linked = "[S3_Bucket_003](s3.md#s3-archive-original)"
+    linked = '`{"$modelRef":{"logicalId":"S3_Bucket_003","attribute":"BucketName"}}`'
     candidate = resource(
         "087", "CloudTrail.Trail", "cloudtrail-job", [("S3BucketName", linked)]
-    )
-    candidate.update(
-        reference(
-            "bucket",
-            "desired.row.087-001.value",
-            linked,
-            "s3",
-            "003",
-            "S3.Bucket",
-            mode="link",
-            label="display-name",
-        )
     )
     write_model(consumer, candidate)
     before = consumer.read_bytes()
@@ -122,7 +109,6 @@ def check(root):
     explicit = {
         **candidate,
         "desired.row.087-001.value": new_link,
-        "desired.reference.bucket.text": new_link,
     }
     write_model(consumer, explicit)
     current = load_model(consumer)

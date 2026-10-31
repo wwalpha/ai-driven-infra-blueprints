@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -26,6 +27,8 @@ from model.files import (
 )
 from model.format import INDEX as INDEX_HEADER
 from model.render import markdown_for
+from support.import_model_fixtures import resource_values, service_values
+from support.model_reference_fixtures import reference
 from support.model_sources import write_model
 from support.validator import load
 from validation import runner as validation_runner
@@ -100,8 +103,8 @@ def resource_reading_fixture(root):
             }
         )
         if number in (2, 3):
-            values[f"desired.resource.{identity}.parentReference"] = (
-                "[KMS_Key_001](kms.md#resource-KMS_Key_001)"
+            values[f"desired.resource.{identity}.parentReference"] = json.dumps(
+                reference("KMS_Key_001", "KeyId")
             )
             values[f"desired.resource.{identity}.parentProperty"] = (
                 "KMS.Alias.TargetKeyId"
@@ -111,15 +114,37 @@ def resource_reading_fixture(root):
                 {
                     "desired.row.001-002.property": "KMS.Key.KeyId",
                     "desired.row.001-002.comment": "識別子",
-                    "desired.row.001-002.value": "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
+                    "desired.row.001-002.value": "`"
+                    + json.dumps(reference("KMS_Key_001", "KeyId"))
+                    + "`",
                     "observed.row.001-002.property": "KMS.Key.KeyId",
                     "observed.row.001-002.value": "12345678-current-key-id",
                     "desired.row.001-003.property": "KMS.Key.KeyPolicy",
                     "desired.row.001-003.comment": "Policy",
                     "desired.row.001-003.value": "[Policy](kms/key-policy.json)",
-                    "desired.row.001-003.document": '{"Statement": [{"Sid": "保持=値", "Resource": "[Recorder](config.md#config-recorder)"}]}',
+                    "desired.row.001-003.document": json.dumps(
+                        {
+                            "Statement": [
+                                {
+                                    "Sid": "保持=値",
+                                    "Resource": reference("IAM_Role_001", "Arn"),
+                                }
+                            ]
+                        }
+                    ),
                 }
             )
 
+    producer = service_values("iam", ["IAM.Role"])
+    producer.update(
+        resource_values(
+            "001",
+            "IAM.Role",
+            "resource-IAM_Role_001",
+            "CREATE",
+            [("RoleName", "`shared-role`")],
+        )
+    )
+    write_model(source.with_name("iam.properties"), producer)
     write_model(source, values)
     return source, values

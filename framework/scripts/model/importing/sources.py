@@ -664,7 +664,11 @@ def verify_values(
                 previous = property_values(
                     before.values, rid, prop, schema, rows=old_index
                 )
-                if previous is not None and type(previous) is not type(actual):
+                if (
+                    previous is not None
+                    and not is_reference(previous)
+                    and type(previous) is not type(actual)
+                ):
                     raise ValueError(
                         "IMPORT existing Property native type/array structure must be preserved: "
                         + prop

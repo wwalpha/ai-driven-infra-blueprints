@@ -359,10 +359,12 @@ def check_codebuild_plaintext_link_still_rejected(models):
         models,
         "CodeBuild.Project",
         "Environment.EnvironmentVariables[].Value",
-        "[key](kms.md#saved-001)",
+        '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`',
         "CREATE",
     )
-    values["desired.row.001-001.value"] = "[key](kms.md#saved-001)"
+    values["desired.row.001-001.value"] = (
+        '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`'
+    )
     assert codebuild_reference_errors(scope.path, values)
     findings = model_inputs(scope.path, values, models)
     assert any("PLAINTEXT" in error for error in findings.errors)

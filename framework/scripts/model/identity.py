@@ -165,7 +165,8 @@ class Resolver:
             {},
             {},
         )
-        self.overrides = dict(change_plan.inputs_for(root)[2])
+        self.overrides = dict((change_plan.metadata() or {}).get("snapshots", {}))
+        self.overrides.update(change_plan.inputs_for(root)[2])
         self.models.update(self.overrides)
         self.reference_revision = getattr(self.reads, "reference_revision", None)
         self.logical_indexes = {}
@@ -198,11 +199,7 @@ class Resolver:
     def resolve_logical(self, logical_id, scope):
         """Index exactly one environment/target snapshot once, retaining ambiguity."""
         sources = _imports_model_sources
-        key = (
-            (scope.environment, scope.target, logical_id)
-            if sources.session_reads(self.root) is not None or change_plan.active()
-            else (scope.environment, scope.target)
-        )
+        key = (scope.environment, scope.target, logical_id)
         if key not in self.logical_indexes:
             index = {}
             scopes = {
@@ -245,6 +242,12 @@ class Resolver:
                         with _imports_model_importing_scope.reference_reader(
                             producer.path
                         ):
+                            raw = sources.raw_model(producer, self.reads)
+                        if not resource_groups(raw.authoritative).get(logical_id):
+                            continue
+                        with _imports_model_importing_scope.reference_reader(
+                            producer.path
+                        ):
                             self.models[producer.path] = (
                                 dependency_index.change_snapshot(
                                     producer.path, self.reads
@@ -257,11 +260,17 @@ class Resolver:
                         raise FrameworkUnsupportedError(
                             "producer Model is unreadable", targetLogicalId=logical_id
                         )
-                    resources = (
-                        resource_groups(snapshot.authoritative).get(logical_id, ())
-                        if change_plan.active()
-                        else resource_index(snapshot.authoritative).values()
-                    )
+                    if change_plan.active():
+                        resources = resource_groups(snapshot.authoritative).get(
+                            logical_id, ()
+                        )
+                    else:
+                        if producer.path not in self.indexes:
+                            self.indexes[producer.path] = resource_index(
+                                snapshot.authoritative
+                            )
+                        found = self.indexes[producer.path].get(logical_id)
+                        resources = (found,) if found else ()
                 except ModelNeedsFixError as error:
                     error.diagnostic.update(
                         producerModel=str(producer.path),

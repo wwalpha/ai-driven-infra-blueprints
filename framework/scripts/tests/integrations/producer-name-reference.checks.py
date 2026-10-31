@@ -68,7 +68,7 @@ def check(root):
                         "desired.row.008-002.value": "`AWS_REGION`",
                         "desired.row.008-002.comment": "入れ子Nameは名前参照に使わない",
                         "desired.row.008-003.property": "CodeBuild.Project.LogsConfig.CloudWatchLogs.GroupName",
-                        "desired.row.008-003.value": "[logs](cloudwatch-logs.md#cloudwatch-logs-original)",
+                        "desired.row.008-003.value": '`{"$modelRef":{"logicalId":"Logs_LogGroup_002","attribute":"LogGroupName"}}`',
                         "desired.row.008-003.comment": "循環する保存リンク",
                     }
                 )
@@ -138,7 +138,7 @@ def check(root):
                     )
                 )
         for name in ("Project", "Repository", "ExecutionRole"):
-            service, rid, kind, _ = specs[name]
+            service, rid, kind, prop = specs[name]
             _ = "existing-role-label" if name == "ExecutionRole" else names[name]
             link = f"[{names[name]}]({service}.md#{service}-original)"
             consumer = "desired.note." + name + "Link.text"
@@ -147,12 +147,12 @@ def check(root):
                 reference(
                     name + "Link",
                     consumer,
-                    link,
+                    names[name],
                     service,
                     rid,
                     kind,
-                    mode="link",
-                    label="fixed" if name == "ExecutionRole" else "display-name",
+                    prop=kind + "." + prop,
+                    label="none",
                     environment=env,
                 )
             )

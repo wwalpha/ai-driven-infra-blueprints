@@ -305,7 +305,15 @@ def check_step_diagnostics_do_not_expose_unknown_error_values():
 def check_every_identifier_is_confirmed(tmp_path, missing, already_matches):
     source = tmp_path / "model/dev/app/ec2.properties"
     resource = {"resourceType": "EC2.VPC", "logicalId": "EC2_VPC_001"}
-    rows = [("001-001", {"property": "EC2.VPC.VpcId", "value": "[self](#vpc)"})]
+    rows = [
+        (
+            "001-001",
+            {
+                "property": "EC2.VPC.VpcId",
+                "value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+            },
+        )
+    ]
     mapped = {"A": {"Vpc": (source, "001", resource, rows, {"EC2.VPC.VpcId"})}}
     state = {
         "A": {"status": "SUCCESS", "stackId": "stack", "stackStatus": "CREATE_COMPLETE"}
@@ -1791,11 +1799,11 @@ class TestCurrentState(TestCase):
     def test_unknown_identifier_does_not_render_an_old_id(self):
         row = {
             "property": "EC2.VPC.VpcId",
-            "value": "[vpc-old](ec2.md#resource-EC2_VPC_001)",
+            "value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
         }
         rendered = observed_value("001-001", row, None, {row["property"]})
         self.assertNotIn("vpc-old", rendered)
-        self.assertIn("UNOBSERVED", rendered)
+        self.assertEqual(rendered, row["value"])
 
     def test_stack_observations_are_rejected(self):
         before = "# model-format: 2\ndesired.stack.001.name=Example\ndesired.stack.001.template=example.yaml\ndesired.stack.001.parameters=example.json\ndesired.stack.001.deployOrder=10\n"
@@ -2571,6 +2579,8 @@ def check_current_guidance_preserves_safe_recovery_and_final_choices(condition):
         "partition",
         "input",
         "ended",
+        "ended-missing-identity",
+        "ended-delete-unconfirmed",
     ],
 )
 def check_create_handoff_rejects_mismatched_evidence(tmp_path, problem):
@@ -2636,6 +2646,31 @@ def check_create_handoff_rejects_mismatched_evidence(tmp_path, problem):
         observed["ExecutionStatus"] = "OBSOLETE"
     if problem == "input":
         state["executionEvidence"].pop("inputDigest")
+    if problem == "ended-missing-identity":
+        state["endedRequest"] = {
+            "request": {
+                "operation": "execute_change_set",
+                "settled": True,
+                "trackingReason": "TOKEN_ROOT_EVENT",
+                "result": "FAIL",
+            },
+            "executionEvidence": {"inputDigest": "earlier-input"},
+            "result": "FAIL",
+        }
+    if problem == "ended-delete-unconfirmed":
+        state["endedRequest"] = {
+            "request": {
+                "operation": "delete_stack",
+                "name": "A",
+                "stackId": stack + "-previous",
+                "token": "previous",
+                "settled": True,
+                "trackingReason": "ORIGINAL_STACK_DELETED",
+                "result": "SETTLED",
+                "originalStack": {"StackStatus": "ROLLBACK_COMPLETE"},
+            },
+            "result": "UNKNOWN",
+        }
     if problem == "ended":
         state["endedRequest"] = {"request": {"token": "earlier"}, "result": "UNKNOWN"}
     if problem == "partition":
@@ -2694,7 +2729,8 @@ def handoff_test_replace_file(boundary, replace, *args, **kwargs):
 
 
 @pytest.mark.parametrize("boundary", ["save", "replace", "after_replace", "transport"])
-def check_create_handoff_interruption_preserves_evidence(tmp_path, boundary):
+@pytest.mark.parametrize("previous", [None, "SUCCESS", "FAIL", "DELETED"])
+def check_create_handoff_interruption_preserves_evidence(tmp_path, boundary, previous):
     stack = "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/stack-id"
     change = "arn:aws:cloudformation:ap-northeast-1:123456789012:changeSet/change/id"
     digest = fingerprint([])
@@ -2721,6 +2757,39 @@ def check_create_handoff_interruption_preserves_evidence(tmp_path, boundary):
             "inputDigest": "input",
         },
     }
+    if previous:
+        state["endedRequest"] = {
+            "request": {
+                "operation": "execute_change_set",
+                "stackId": stack,
+                "changeSetId": change + "-previous",
+                "token": "previous",
+                "settled": True,
+                "trackingReason": "TOKEN_ROOT_EVENT",
+                "result": previous,
+            },
+            "executionEvidence": {
+                "StackId": stack,
+                "ChangeSetId": change + "-previous",
+                "clientToken": "previous",
+                "inputDigest": "earlier-input",
+            },
+            "result": previous,
+        }
+    if previous == "DELETED":
+        state["endedRequest"] = {
+            "request": {
+                "operation": "delete_stack",
+                "name": "A",
+                "stackId": stack.replace("stack-id", "previous-stack"),
+                "token": "previous",
+                "settled": True,
+                "trackingReason": "ORIGINAL_STACK_DELETED",
+                "result": "SETTLED",
+                "originalStack": {"StackStatus": "ABSENT"},
+            },
+            "result": "UNKNOWN",
+        }
     observed = {
         "Status": "CREATE_COMPLETE",
         "ExecutionStatus": "AVAILABLE",
@@ -2769,10 +2838,9 @@ def check_create_handoff_interruption_preserves_evidence(tmp_path, boundary):
     )
     assert transport.call_count == (1 if boundary == "transport" else 0)
     if boundary != "save":
-        assert (
-            worktree.read_sealed(tmp_path, progress)["endedRequest"]["request"]["token"]
-            == "create"
-        )
+        assert worktree.read_sealed(tmp_path, progress)["endedRequest"]["request"][
+            "token"
+        ] == ("previous" if previous else "create")
     if boundary in {"after_replace", "transport"}:
         assert saved_request["submission"] == "SENDING"
         with (

@@ -11,7 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import sys
 import tempfile
 from pathlib import Path
+from unittest import TestCase
 
+import model.projection as model_projection
 import model.render as model_design
 import support.model_design_fixtures as _exports_support_model_design_fixtures
 import sync_runtime
@@ -35,9 +37,10 @@ from design.layout import (
 from design.layout_schema import resource_anchor as resource_anchor
 from model.core import entries, stack_model, validate_model_keys
 from model.format import parse, serialize
-from model.identity import resource_index
+from model.identity import address, resource_index
 from model.projection import resource_rows
 from model.render import markdown_for
+from model.sources import scope_for
 from model.validations.identity import validate_resource_identities
 from model.validations.policies import validate_kms_policy_accounts
 from model.validations.schema import validate_required_properties
@@ -70,6 +73,7 @@ from support.model_design_fixtures import (
     sys,
 )
 from support.model_design_fixtures import pytestmark as pytestmark
+from support.model_reference_fixtures import reference as model_reference
 from support.model_sources import write_model
 from support.rotation_schedule_fixtures import fixture as rotation_fixture
 from utils.iac_values import cfn_resource_identity
@@ -78,8 +82,6 @@ from validation import runner as validation_runner
 from validation.design_links import check_design_links as validate_design_links
 from validation.diagnostics import InputValidationError
 from validation.findings import Findings
-
-from model import projection as model_projection
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -588,7 +590,7 @@ def check_pending_reference_is_required_input():
         "desired.resource.001.resourceMode": "IMPORT",
         "desired.service.identity.lastAllocated": '{"EC2.Subnet":1}',
         "desired.row.001-001.property": "EC2.Subnet.VpcId",
-        "desired.row.001-001.value": "[vpc](vpc.md#network)",
+        "desired.row.001-001.value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
         "desired.row.001-001.comment": "所属するVPC",
         "desired.row.001-002.property": "EC2.Subnet.CidrBlock",
         "desired.row.001-002.value": "`10.0.0.0/24`",
@@ -947,7 +949,11 @@ def check_catalog_display_order():
             ("Tags[].Key", '"owner"', "タグ名"),
             ("Tags[].Value", '"second"', "次の用途"),
             ("CidrBlock", "`10.0.0.0/16`", "アドレス範囲"),
-            ("VpcId", "[EC2_VPC_001](vpc.md#vpc-vpc-app-dev)", "ネットワークID"),
+            (
+                "VpcId",
+                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                "ネットワークID",
+            ),
             ("EnableDnsHostnames", "`true`", "DNS名"),
         ],
         logical_id="Vpc",
@@ -1660,7 +1666,7 @@ def check_desired_only_identifier_reference():
         [
             (
                 "Permissions[].Principal",
-                "[gr-dev-finance](quicksight.md#quicksight-gr-dev-finance)",
+                '`{"$modelRef":{"logicalId":"QuickSight_Group_001","attribute":"Arn"}}`',
                 "分析グループへの権限",
             )
         ],
@@ -1693,7 +1699,13 @@ def check_authoritative_display_identity(tmp_path):
         "guardduty",
         "GuardDuty.Detector",
         "guardduty.detector",
-        [("Id", "[GuardDuty.Detector](#detector)", "識別子")],
+        [
+            (
+                "Id",
+                '`{"$modelRef":{"logicalId":"GuardDuty_Detector_001","attribute":"Id"}}`',
+                "識別子",
+            )
+        ],
     )
     detector["observed.row.001-001.value"] = "`0123456789abcdef0123456789abcdef`"
     before = dict(detector)
@@ -2203,7 +2215,11 @@ def check_implicit_grouped_required_property():
 def check_required_property_parents(tmp_path, missing):
     fields = [
         ("ConnectionInput.Name", "`sample`", "接続名"),
-        ("Name", "[Glue_Connection_001](#glue-sample)", "一意に識別するID"),
+        (
+            "Name",
+            '`{"$modelRef":{"logicalId":"Glue_Connection_001","attribute":"Name"}}`',
+            "一意に識別するID",
+        ),
         ("CatalogId", "`123456789012`", "CatalogのID"),
         ("ConnectionInput.ConnectionType", "`JDBC`", "接続方式"),
         (
@@ -2242,16 +2258,8 @@ def check_required_property_parents(tmp_path, missing):
         ]
     elif missing == "boolean":
         rows[-1][2] = "`not-a-boolean`"
-    document = "\n".join(
-        [
-            "# Glue 詳細設計",
-            "## リソース詳細",
-            "<!-- resource-logical-id: Glue_Connection_001 -->",
-            '<a id="glue-sample"></a>',
-            "### Glue.Connection: sample",
-            *row_table(rows),
-        ]
-    )
+        values["desired.row.001-006.value"] = "`not-a-boolean`"
+    document = markdown_for(path, values, ROOT)
     validator = validation_runner.Validator(tmp_path, definitions_root=ROOT)
     validator.design_sources = {path: values}
     validator.schema_catalog = DesignSchemaCatalog(ROOT)
@@ -2401,11 +2409,26 @@ def check_rotation_inputs():
             assert "### SecretsManager.RotationSchedule" not in output
             assert "app-dev-secret-1_rotate：属性の設定値" in output
             sync_views.validate_views(root, root, [path], {path: values})
-            assert model_projection.linked_resource(
-                path, "[PENDING_DEPLOY](#" + values["desired.resource.002.anchor"] + ")"
-            ) == (
+            source = root / "model/dev/123456789012/secretsmanager.properties"
+            resolver = model_projection.reference_resolver(
+                values, scope_for(source), root
+            )
+            snapshot, _, producer = resolver.resolve(
+                model_reference("SecretsManager_RotationSchedule_001", "Id"),
+                scope_for(source),
+            )
+            assert (producer["resourceType"], producer["logicalId"]) == (
                 "SecretsManager.RotationSchedule",
                 "SecretsManager_RotationSchedule_001",
+            )
+            TestCase().assertEqual(
+                address(
+                    snapshot.scope,
+                    producer,
+                    consumer_scope=snapshot.scope,
+                    label="PENDING_DEPLOY",
+                ),
+                "[PENDING_DEPLOY](#" + values["desired.resource.002.anchor"] + ")",
             )
 
         comments = dict(values)
@@ -2459,13 +2482,26 @@ def check_rotation_inputs():
                 field,
                 "SecretsManager.RotationSchedule" + ".SecretId",
             )
-        for reference in (
-            "[Missing](#missing)",
-            "[Secret1](elsewhere.md#secretsmanager-app-dev-secret-1)",
-            "[SecretsManager_RotationSchedule_001](#resource-SecretsManager_RotationSchedule_001)",
+        for target, attribute, diagnostic in (
+            ("SecretsManager_Secret_999", "Id", "producer logicalId is absent"),
+            (
+                "SecretsManager_Secret_001",
+                "Missing",
+                "unsupported JSON Resource attribute",
+            ),
+            (
+                "SecretsManager_RotationSchedule_001",
+                "Id",
+                "JSON Resource reference type differs",
+            ),
         ):
-            bad = {**values, "desired.resource.002.parentReference": reference}
-            rejects(lambda *, bad=bad: markdown_for(path, bad, root), "parentReference")
+            bad = {
+                **values,
+                "desired.resource.002.parentReference": json.dumps(
+                    model_reference(target, attribute)
+                ),
+            }
+            rejects(lambda *, bad=bad: markdown_for(path, bad, root), diagnostic)
         for key, value in (
             (
                 "desired.resource.002.parentProperty",
@@ -2473,7 +2509,7 @@ def check_rotation_inputs():
             ),
             (
                 "desired.row.002-003.value",
-                "[Secret2](#secretsmanager-app-dev-secret-2)",
+                '`{"$modelRef":{"logicalId":"SecretsManager_Secret_002","attribute":"Id"}}`',
             ),
         ):
             bad = {**values, key: value}
@@ -2586,7 +2622,7 @@ def check_rotation_inputs():
         path.write_text(output)
         mismatch = {
             **values,
-            "desired.resource.002.parentReference": "[Secret2](#secretsmanager-app-dev-secret-2)",
+            "desired.resource.002.parentReference": '`{"$modelRef":{"logicalId":"SecretsManager_Secret_002","attribute":"Id"}}`',
         }
         rejects(
             lambda: markdown_for(path, mismatch, root),

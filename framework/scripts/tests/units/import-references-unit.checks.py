@@ -524,9 +524,9 @@ def check_selected_new_import_can_resolve_only_its_declared_producer(tmp_path):
         ),
     }
     fields["desired.row.009-001.value"] = (
-        "`" + json.dumps(model_ref("EC2_VPC_001", "VpcId")) + "`"
+        "`" + json.dumps([model_ref("EC2_Subnet_001", "SubnetId")]) + "`"
     )
-    fields["observed.row.009-001.value"] = "subnet-11111111"
+    fields["observed.row.009-001.value"] = '["subnet-11111111"]'
     with (
         restrict(("dev", "cde", "codebuild")),
         read_consumers({("dev", "cde", "codebuild")}),
@@ -536,18 +536,18 @@ def check_selected_new_import_can_resolve_only_its_declared_producer(tmp_path):
         )
         assert json.loads(
             literal(candidate.authoritative["desired.row.009-001.value"])
-        ) == model_ref("EC2_VPC_001", "VpcId")
+        ) == [model_ref("EC2_Subnet_001", "SubnetId")]
         assert producer_path in candidate.dependencies
         with pytest.raises(ValueError, match="outside selected"):
             load_for_edit(producer_path)
         external = dict(fields)
-        external["desired.row.009-001.value"] = "subnet-22222222"
+        external["desired.row.009-001.value"] = '`["subnet-22222222"]`'
         del external["observed.row.009-001.value"]
         assert (
             load_for_edit(
                 path, CandidateReads(FileReads(), {path: serialize(external)})
             ).authoritative["desired.row.009-001.value"]
-            == "subnet-22222222"
+            == '`["subnet-22222222"]`'
         )
         directory = tmp_path.parent / (tmp_path.name + "-candidate")
         own = directory / path.relative_to(tmp_path)

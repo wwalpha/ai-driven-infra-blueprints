@@ -78,7 +78,7 @@ base:
       desired.resource.001.resourceType: EC2.VPC
       desired.resource.001.cfn-logicalId: cfn-stack-app-dev-second-Vpc
       desired.row.001-001.property: EC2.VPC.VpcId
-      desired.row.001-001.value: '[vpc](#resource-EC2_VPC_001)'
+      desired.row.001-001.value: '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`'
       desired.row.001-001.comment: 識別子
       desired.row.001-002.property: EC2.VPC.CidrBlock
       desired.row.001-002.value: '`10.0.0.0/16`'
@@ -89,7 +89,7 @@ base:
       desired.resource.002.resourceType: EC2.Subnet
       desired.resource.002.cfn-logicalId: cfn-stack-app-dev-first-Subnet
       desired.row.002-001.property: EC2.Subnet.SubnetId
-      desired.row.002-001.value: '[subnet](#resource-EC2_Subnet_001)'
+      desired.row.002-001.value: '`{"$modelRef":{"logicalId":"EC2_Subnet_001","attribute":"SubnetId"}}`'
       desired.row.002-001.comment: 識別子
       desired.row.002-002.property: EC2.SubnetRouteTableAssociation.RouteTableId
       desired.row.002-002.value: '`rtb-existing`'

@@ -27,8 +27,11 @@ import support.repository_fixtures as _imports_support_repository_fixtures
 import task_contract_core as _imports_task_contract
 import utils.input_cache as _imports_input_cache
 import validation.scenario as _imports_validation_scenario
+from model.core import entries
+from model.sources import Scope, load_model
 from support.it_case_receipt import it_case
 from support.model_sources import write_model
+from utils.aws_mappings import mapping_alias
 from utils.input_cache import input_scope
 from utils.script_loader import module
 from validation.findings import Findings
@@ -103,6 +106,55 @@ POLICY = {
 
 
 def runtime(data):
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        target = data["target"]
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "targets": [
+                        {
+                            **target,
+                            "environment": environment,
+                            "alias": alias,
+                            "iacEngine": target.get("iacEngine", "cloudformation"),
+                        }
+                        for environment, alias in sorted(
+                            {
+                                tuple(address.split("/")[:2])
+                                for address in data["models"]
+                            }
+                        )
+                    ]
+                }
+            )
+        )
+        for address, values in data["models"].items():
+            resources = dict(entries(values, "desired.resource."))
+            authority = {
+                **values,
+                "desired.service.identity.lastAllocated": json.dumps(
+                    {
+                        kind: max(
+                            int(resource["logicalId"].rsplit("_", 1)[1])
+                            for resource in resources.values()
+                            if resource["resourceType"] == kind
+                        )
+                        for kind in {
+                            resource["resourceType"] for resource in resources.values()
+                        }
+                    }
+                ),
+            }
+            write_model(root / "model" / (address + ".properties"), authority)
+        with mapping_alias(ROOT, root):
+            data["referenceRows"] = generator.reference_rows(
+                root,
+                {
+                    address: load_model(Scope(root, *address.split("/")))
+                    for address in data["models"]
+                },
+            )
     namespace = {
         "__name__": "audit_fixture",
         "__file__": "/offline/tests/dev/cde/vpc.py",
@@ -478,14 +530,24 @@ def check():
                     "subnet",
                     [
                         ("Name", "`fixture-subnet`", None),
-                        ("VpcId", "[VPC](#main-vpc)", None),
+                        (
+                            "VpcId",
+                            '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                            None,
+                        ),
                     ],
                 ),
                 (
                     "003",
                     "EC2.FlowLog",
                     "flowlog",
-                    [("DeliverLogsPermissionArn", "[Role](iam.md#role)", None)],
+                    [
+                        (
+                            "DeliverLogsPermissionArn",
+                            '`{"$modelRef":{"logicalId":"IAM_Role_001","attribute":"Arn"}}`',
+                            None,
+                        )
+                    ],
                 ),
             ],
         )
@@ -522,13 +584,27 @@ def check():
                     "001",
                     "EC2.VPC",
                     "vpc-one",
-                    [("Name", "`duplicate`", None), ("VpcId", "[VPC](#vpc-one)", None)],
+                    [
+                        ("Name", "`duplicate`", None),
+                        (
+                            "VpcId",
+                            '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                            None,
+                        ),
+                    ],
                 ),
                 (
                     "002",
                     "EC2.VPC",
                     "vpc-two",
-                    [("Name", "`duplicate`", None), ("VpcId", "[VPC](#vpc-two)", None)],
+                    [
+                        ("Name", "`duplicate`", None),
+                        (
+                            "VpcId",
+                            '`{"$modelRef":{"logicalId":"EC2_VPC_002","attribute":"VpcId"}}`',
+                            None,
+                        ),
+                    ],
                 ),
                 (
                     "007",
@@ -536,11 +612,37 @@ def check():
                     "vpc-seven",
                     [
                         ("Name", "`duplicate`", None),
-                        ("VpcId", "[VPC](#vpc-seven)", None),
+                        (
+                            "VpcId",
+                            '`{"$modelRef":{"logicalId":"EC2_VPC_007","attribute":"VpcId"}}`',
+                            None,
+                        ),
                     ],
                 ),
-                ("003", "EC2.VPC", "vpc-three", [("VpcId", "[VPC](#vpc-three)", None)]),
-                ("004", "EC2.VPC", "vpc-four", [("VpcId", "[VPC](#vpc-four)", None)]),
+                (
+                    "003",
+                    "EC2.VPC",
+                    "vpc-three",
+                    [
+                        (
+                            "VpcId",
+                            '`{"$modelRef":{"logicalId":"EC2_VPC_003","attribute":"VpcId"}}`',
+                            None,
+                        )
+                    ],
+                ),
+                (
+                    "004",
+                    "EC2.VPC",
+                    "vpc-four",
+                    [
+                        (
+                            "VpcId",
+                            '`{"$modelRef":{"logicalId":"EC2_VPC_004","attribute":"VpcId"}}`',
+                            None,
+                        )
+                    ],
+                ),
                 (
                     "005",
                     "EC2.EIP",
@@ -548,8 +650,16 @@ def check():
                     [
                         ("Tags[].Key", "`Name`", None),
                         ("Tags[].Value", "`duplicate`", None),
-                        ("AllocationId", "[EIP](#eip-one)", None),
-                        ("PublicIp", "[EIP](#eip-one)", None),
+                        (
+                            "AllocationId",
+                            '`{"$modelRef":{"logicalId":"EC2_EIP_005","attribute":"AllocationId"}}`',
+                            None,
+                        ),
+                        (
+                            "PublicIp",
+                            '`{"$modelRef":{"logicalId":"EC2_EIP_005","attribute":"PublicIp"}}`',
+                            None,
+                        ),
                     ],
                 ),
                 (
@@ -559,8 +669,16 @@ def check():
                     [
                         ("Tags[].Key", "`Name`", None),
                         ("Tags[].Value", "`duplicate`", None),
-                        ("AllocationId", "[EIP](#eip-two)", None),
-                        ("PublicIp", "[EIP](#eip-two)", None),
+                        (
+                            "AllocationId",
+                            '`{"$modelRef":{"logicalId":"EC2_EIP_006","attribute":"AllocationId"}}`',
+                            None,
+                        ),
+                        (
+                            "PublicIp",
+                            '`{"$modelRef":{"logicalId":"EC2_EIP_006","attribute":"PublicIp"}}`',
+                            None,
+                        ),
                     ],
                 ),
                 (
@@ -570,8 +688,16 @@ def check():
                     [
                         ("Tags[].Key", "`Name`", None),
                         ("Tags[].Value", "`duplicate`", None),
-                        ("AllocationId", "[EIP](#eip-three)", None),
-                        ("PublicIp", "[EIP](#eip-three)", None),
+                        (
+                            "AllocationId",
+                            '`{"$modelRef":{"logicalId":"EC2_EIP_008","attribute":"AllocationId"}}`',
+                            None,
+                        ),
+                        (
+                            "PublicIp",
+                            '`{"$modelRef":{"logicalId":"EC2_EIP_008","attribute":"PublicIp"}}`',
+                            None,
+                        ),
                     ],
                 ),
             ],
@@ -701,24 +827,22 @@ def check():
                 gateway["models"]["dev/cde/ec2"],
             )
         cross_values = dict(vpc["models"]["dev/cde/vpc"])
-        cross_values["desired.row.002-002.value"] = "[VPC](../other/vpc.md#main-vpc)"
-        cross_values.update(
-            {
-                "desired.row.002-003.property": "EC2.Subnet.Tags",
-                "desired.row.002-003.value": '`["[VPC](../../prod/cde/vpc.md#main-vpc)"]`',
-                "desired.row.002-003.comment": "cross environment",
-                "desired.row.002-005.property": "EC2.Subnet.Tags",
-                "desired.row.002-005.value": '`["[Gateway](../other/ec2.md#gateway)","[Gateway](../../prod/cde/ec2.md#gateway)"]`',
-                "desired.row.002-005.comment": "Cloud Control references",
-            }
-        )
         write_model(crossroot / "model/dev/cde/vpc.properties", cross_values)
         input_context = _imports_input_cache.input_context
         with input_context():
             cross = snapshot(generator.generate(crossroot, "dev", "cde", "vpc")[0])
-        assert {"dev/cde/vpc", "dev/other/vpc", "prod/cde/vpc"} <= cross[
-            "models"
-        ].keys()
+        assert {"dev/other/vpc", "prod/cde/vpc"}.isdisjoint(cross["models"])
+        # Embedded independent scopes still cannot expand the authorized AWS retrieval scope.
+        for env, alias in (("dev", "other"), ("prod", "cde")):
+            for service, data in (("vpc", vpc), ("ec2", gateway)):
+                cross["models"][env + "/" + alias + "/" + service] = data["models"][
+                    "dev/cde/" + service
+                ]
+        gateway_snapshot = snapshot(
+            generator.generate(crossroot, "dev", "other", "ec2")[0]
+        )
+        for field in ("mappings", "schemas", "outputs", "adapters"):
+            cross[field].update(gateway_snapshot[field])
         with patch.dict(sys.modules):
             m = runtime(cross)["engine"](cross)
             ctx = m.Context(
@@ -729,18 +853,24 @@ def check():
                 ),
             )
             consumer = ctx.model(m.ROOT / "model/dev/cde/vpc.properties").resources[1]
-            for link, address in [
-                ("[VPC](../other/vpc.md#main-vpc)", "dev/other/vpc"),
-                ("[VPC](../../prod/cde/vpc.md#main-vpc)", "prod/cde/vpc"),
-            ]:
-                producer = consumer.reference(link)
+            for address in ("dev/other/vpc", "prod/cde/vpc"):
+                producer = ctx.model(
+                    m.ROOT / "model" / (address + ".properties")
+                ).resources[0]
                 assert producer.model.path == m.ROOT / "model" / (
                     address + ".properties"
                 )
-                gateway_link = link.replace("vpc.md#main-vpc", "ec2.md#gateway")
-                gateway = consumer.reference(gateway_link)
-                assert gateway.kind == "EC2.TransitGateway"
-                for selected in (producer, gateway):
+                gateway_resource = ctx.model(
+                    m.ROOT / "model" / (address.removesuffix("vpc") + "ec2.properties")
+                ).resources[0]
+                assert gateway_resource.kind == "EC2.TransitGateway"
+                local = consumer.reference(
+                    {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}}
+                )
+                TestCase().assertEqual(
+                    local.model.path, m.ROOT / "model/dev/cde/vpc.properties"
+                )
+                for selected in (producer, gateway_resource):
                     key = (selected.model.path, selected.number, "base")
                     ctx.fetch_cache[key], ctx.fetch_trace[key] = {"id": "cached"}, []
                     for acquire in (
@@ -759,9 +889,11 @@ def check():
                                 "cross-scope reference expanded AWS authorization"
                             )
             try:
-                consumer.reference("[Missing](../other/missing.md#missing)")
+                consumer.reference(
+                    {"$modelRef": {"logicalId": "EC2_VPC_999", "attribute": "VpcId"}}
+                )
             except m.Unresolved as error:
-                assert "producer Model is absent" in str(error)
+                assert "no unique producer" in str(error)
             else:
                 raise AssertionError("absent producer used another scope")
         contract = _imports_support_repository_fixtures.contract
@@ -823,9 +955,10 @@ def check():
             prompt.unlink()
             assert generator.main() == 2 and output.read_bytes() == before
     snapshots = {service: snapshot(source) for service, source in sources.items()}
-    assert "dev/cde/iam" in snapshots["vpc"]["models"], (
-        "VPC flow-log IAM reference dependency"
-    )
+    assert (
+        snapshots["vpc"]["referenceRows"]["dev/cde/vpc"]["003-001"]["value"]
+        == "arn:aws:iam::123456789012:role/fixture-role"
+    ), "VPC flow-log IAM reference is resolved during generation"
     assert set(snapshots["vpc"]["models"]) != set(
         generator.module("model/adapters/aws.py", "model.adapters.aws").SERVICES
     )
@@ -841,7 +974,11 @@ def check():
                     ("Name", "`test-vpc`", None),
                     ("CidrBlock", "`10.10.0.0/23`", None),
                     ("EnableDnsSupport", "`true`", None),
-                    ("VpcId", "`vpc-observed`", None),
+                    (
+                        "VpcId",
+                        '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                        None,
+                    ),
                 ],
             )
         ],
@@ -888,7 +1025,7 @@ def check():
             candidate["models"]["dev/cde/vpc"].pop("observed.row.001-004.value")
         else:
             candidate["models"]["dev/cde/vpc"]["observed.row.001-004.value"] = observed
-        result = rt["audit"](candidate, None, CLI(responses))[2]
+        result = runtime(candidate)["audit"](candidate, None, CLI(responses))[2]
         selected = [item for item in result if item["propertiesKey"] == "EC2.VPC.VpcId"]
         TestCase().assertEqual(selected[0]["status"], expected, selected)
     subnet = fixture(
@@ -901,7 +1038,11 @@ def check():
                 "subnet",
                 [
                     ("Name", "`test-subnet`", None),
-                    ("SubnetId", "[Subnet](#subnet)", None),
+                    (
+                        "SubnetId",
+                        '`{"$modelRef":{"logicalId":"EC2_Subnet_002","attribute":"SubnetId"}}`',
+                        None,
+                    ),
                 ],
             )
         ],
@@ -918,7 +1059,7 @@ def check():
             ]
         }
     }
-    subnet_records = rt["audit"](subnet, None, CLI(subnet_response))[2]
+    subnet_records = runtime(subnet)["audit"](subnet, None, CLI(subnet_response))[2]
     selected = [
         item
         for item in subnet_records
@@ -948,9 +1089,9 @@ def check():
     assert any(r["status"] == "acquisition_failed" for r in failed)
     failed_link = copy.deepcopy(vpc)
     failed_link["models"]["dev/cde/vpc"]["desired.row.001-004.value"] = (
-        "[VPC](#main-vpc)"
+        '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`'
     )
-    failed_records = rt["audit"](
+    failed_records = runtime(failed_link)["audit"](
         failed_link, None, CLI(responses, fail=("ec2", "describe-vpcs"))
     )[2]
     failed_id = [
@@ -967,7 +1108,7 @@ def check():
     cli = CLI(responses)
     assert all(
         r["status"] == "acquisition_failed"
-        for r in rt["audit"](configured, "wrong", cli)[2]
+        for r in runtime(configured)["audit"](configured, "wrong", cli)[2]
     )
     assert not cli.calls
     cli = CLI(responses)
@@ -983,9 +1124,9 @@ def check():
     # Unresolved references remain visible, independent of the other attributes.
     unresolved = copy.deepcopy(vpc)
     unresolved["models"]["dev/cde/vpc"]["desired.row.001-002.value"] = (
-        "[Missing](#missing)"
+        '`{"$modelRef":{"logicalId":"EC2_VPC_999","attribute":"VpcId"}}`'
     )
-    result = rt["audit"](unresolved, None, CLI(responses))[2]
+    result = runtime(unresolved)["audit"](unresolved, None, CLI(responses))[2]
     assert any(
         r["propertiesKey"] == "EC2.VPC.CidrBlock" and r["status"] == "design_unresolved"
         for r in result
@@ -1005,9 +1146,24 @@ def check():
                 "002",
                 "EC2.Subnet",
                 "subnet",
-                [("Name", "`test-subnet`", None), ("VpcId", "[VPC](#main-vpc)", None)],
+                [
+                    ("Name", "`test-subnet`", None),
+                    (
+                        "VpcId",
+                        '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                        None,
+                    ),
+                ],
             ),
         ],
+    )
+    referenced["models"]["dev/cde/vpc"].update(
+        {
+            "desired.row.001-003.property": "EC2.VPC.VpcId",
+            "desired.row.001-003.value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+            "desired.row.001-003.comment": "取得済み親識別子",
+            "observed.row.001-003.value": "`vpc-observed`",
+        }
     )
     membership = {
         **responses,
@@ -1021,7 +1177,7 @@ def check():
             ]
         },
     }
-    resolved = rt["audit"](referenced, None, CLI(membership))[2]
+    resolved = runtime(referenced)["audit"](referenced, None, CLI(membership))[2]
     assert any(
         r["propertiesKey"] == "EC2.Subnet.VpcId"
         and r["status"] == "difference"
@@ -1143,7 +1299,7 @@ def check():
         symbolic["models"]["dev/cde/iam"]["desired.row.001-002.document"] = json.dumps(
             document
         )
-        result = irt["audit"](symbolic, None, CLI(symbolic_responses))[2]
+        result = runtime(symbolic)["audit"](symbolic, None, CLI(symbolic_responses))[2]
         (item,) = [
             r
             for r in result
@@ -1160,7 +1316,7 @@ def check():
         ("comment", "fixture"),
     ]:
         unsupported["models"]["dev/cde/iam"]["desired.row.001-007." + key] = value
-    result = irt["audit"](unsupported, None, CLI(iam_responses))[2]
+    result = runtime(unsupported)["audit"](unsupported, None, CLI(iam_responses))[2]
     assert any(
         r["propertiesKey"] == "IAM.Role.MaxSessionDuration"
         and r["status"] == "sdk_unavailable"

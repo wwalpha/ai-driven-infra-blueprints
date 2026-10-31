@@ -3,6 +3,7 @@
 
 import sys
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -12,8 +13,9 @@ from design.document import DesignIndex
 from model.format import FORMAT
 from model.format import INDEX as INDEX_HEADER
 from model.format import PART as PART_PREFIX
+from model.identity import Resolver
 from model.render import generate_markdown
-from model.sources import source_inputs
+from model.sources import scope_for, source_inputs
 from support.model_design_fixtures import (
     ROOT,
     SYNC,
@@ -22,7 +24,6 @@ from support.model_design_fixtures import (
     main,
     markdown_for,
     model,
-    model_projection,
     patch,
     properties,
     pytest,
@@ -35,10 +36,12 @@ from support.model_design_fixtures import (
     write_model,
 )
 from support.model_design_fixtures import pytestmark as pytestmark
+from support.model_reference_fixtures import reference
 from support.validator import diagnostics
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.iac_values import cfn_resource_identity
 from validation import runner as validation_runner
+from validation.design_links import endpoint_dns_reference
 
 from model import dependency_index
 
@@ -67,7 +70,7 @@ def check_route53_endpoint_dns_roundtrip(root, project):
         [
             (
                 "Id",
-                "[EC2_VPCEndpoint_001](vpc-endpoint.md#vpc-endpoint-vpce-app-dev-snowflake)",
+                "`" + json.dumps(reference("EC2_VPCEndpoint_001", "Id")) + "`",
                 "一意に識別するID",
             ),
             (
@@ -98,7 +101,7 @@ def check_route53_endpoint_dns_roundtrip(root, project):
             ("Name", "`snow.example.com`", "レコード名"),
             (
                 "ResourceRecords",
-                "[EC2_VPCEndpoint_001](vpc-endpoint.md#vpc-endpoint-vpce-app-dev-snowflake)",
+                "`" + json.dumps(reference("EC2_VPCEndpoint_001", "DnsEntries")) + "`",
                 "CNAMEの接続先DNS",
             ),
             ("TTL", "`300`", "キャッシュ時間"),
@@ -122,35 +125,57 @@ def check_route53_endpoint_dns_roundtrip(root, project):
         root,
         validator_module,
     )
-    assert not errors(valid)
+    initial_errors = errors(valid)
+    assert not initial_errors, initial_errors
+    endpoint_path = directory / "vpc-endpoint.md"
+    dns_reference = _bind_framework_callback(
+        endpoint_dns_reference,
+        path,
+        "Route53.RecordSet.ResourceRecords",
+        target=endpoint_path,
+        resource=("EC2.VPCEndpoint", {"EC2.VPCEndpoint.Id": "vpce-014d2843ef114f19d"}),
+        configuration={
+            "EC2.VPCEndpoint.VpcEndpointType": "Interface",
+            "EC2.VPCEndpoint.ServiceName": "com.amazonaws.vpce.ap-northeast-1.vpce-svc-04feb508c997b211e",
+        },
+        record_type="CNAME",
+    )
+    TestCase().assertTrue(dns_reference(dns))
     for bad in (
-        valid.replace(dns, dns.replace("014d2843ef114f19d", "014d2843ef114f190")),
-        valid.replace("vpce-svc-04feb508c997b211e", "vpce-svc-04feb508c997b2110"),
-        valid.replace(
+        dns.replace("014d2843ef114f19d", "014d2843ef114f190"),
+        dns.replace("vpce-svc-04feb508c997b211e", "vpce-svc-04feb508c997b2110"),
+        dns.replace(
             "ap-northeast-1.vpce.amazonaws.com", "us-east-1.vpce.amazonaws.com"
         ),
-        valid.replace(
-            "vpc-endpoint.md#vpc-endpoint-vpce-app-dev-snowflake",
-            "route53.md#route53-snow.example.com",
-        ),
     ):
-        assert errors(bad)
-    assert errors(valid.replace("`CNAME`", "`A`"))
-    # Endpoint configuration never becomes an observed identifier.
-    ordinary = valid.replace("ResourceRecords", "HostedZoneId")
+        assert not dns_reference(bad)
+    TestCase().assertTrue(
+        errors(
+            valid.replace(
+                "vpc-endpoint.md#vpc-endpoint-vpce-app-dev-snowflake",
+                "route53.md#route53-snow.example.com",
+            )
+        )
+    )
+    assert not dns_reference(dns, record_type="A")
     for label in (
         dns,
         "Interface",
         "com.amazonaws.vpce.ap-northeast-1.vpce-svc-04feb508c997b211e",
     ):
-        assert errors(ordinary.replace(dns, label))
-    endpoint_path = directory / "vpc-endpoint.md"
-    original_endpoint = endpoint_path.read_text(encoding="utf-8")
-    endpoint_path.write_text(
-        original_endpoint.replace("`Interface`", "`Gateway`"), encoding="utf-8"
+        assert not endpoint_dns_reference(
+            path,
+            "HostedZoneId",
+            label,
+            endpoint_path,
+            ("EC2.VPCEndpoint", {}),
+            {},
+            "CNAME",
+        )
+    assert not dns_reference(
+        dns, configuration={"EC2.VPCEndpoint.VpcEndpointType": "Gateway"}
     )
-    assert errors(valid)
-    endpoint_path.write_text(original_endpoint, encoding="utf-8")
+    path.write_text(valid, encoding="utf-8")
 
 
 def check_import_optional_name_label(root, project):
@@ -167,7 +192,11 @@ def check_import_optional_name_label(root, project):
         kind,
         label,
         [
-            ("Id", f"[{logical_id}](#{anchor})", "一意に識別するID"),
+            (
+                "Id",
+                "`" + json.dumps(reference(logical_id, "Name")) + "`",
+                "一意に識別するID",
+            ),
             (
                 "RoleARN",
                 "`arn:aws:iam::123456789012:role/ConfigRecorderRole`",
@@ -193,10 +222,10 @@ def check_import_optional_name_label(root, project):
     sync_views.validate_views(root, root, [path], {path: values})
     assert snapshot_model(source) == before and values == original
     assert path.read_text(encoding="utf-8") == valid
-    assert model_projection.linked_resource(path, f"[{label}](#{anchor})") == (
-        kind,
-        logical_id,
+    _, _, producer = Resolver(root).resolve(
+        reference(logical_id, "Name"), scope_for(source)
     )
+    assert (producer["resourceType"], producer["logicalId"]) == (kind, logical_id)
 
     named = {
         **values,
@@ -209,10 +238,10 @@ def check_import_optional_name_label(root, project):
     named_before = snapshot_model(source)
     sync_views.validate_views(root, root, [path], {path: named})
     assert f"### {kind}: default" in output and f'<a id="{anchor}"></a>' in output
-    assert model_projection.linked_resource(path, f"[default](#{anchor})") == (
-        kind,
-        logical_id,
+    _, _, producer = Resolver(root).resolve(
+        reference(logical_id, "Name"), scope_for(source)
     )
+    assert (producer["resourceType"], producer["logicalId"]) == (kind, logical_id)
     assert snapshot_model(source) == named_before
 
 
@@ -253,7 +282,11 @@ def check_kms_policy_execution_account(root):
         "KMS.Key",
         "test-key",
         [
-            ("KeyId", "[Key](#kms-test-key)", "キーを識別するID"),
+            (
+                "KeyId",
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
+                "キーを識別するID",
+            ),
             ("KeyPolicy", "[Policy](kms/test-key-policy.json)", "キーの利用権限"),
         ],
         "Key",
@@ -374,7 +407,7 @@ def check_config_typed_anchors(root):
             ("Name", "`default`", "構成情報を記録するrecorderの名前"),
             (
                 "Id",
-                "[Config_ConfigurationRecorder_001](config.md#config-configuration-recorder-default)",
+                '`{"$modelRef":{"logicalId":"Config_ConfigurationRecorder_001","attribute":"Name"}}`',
                 "recorderを識別するID",
             ),
             (
@@ -417,10 +450,11 @@ def check_config_typed_anchors(root):
     ):
         assert f"### {kind}: default" in output
         assert f"| 1 | [default](#{anchor}) |" in output
-        assert model_projection.linked_resource(path, f"[default](#{anchor})") == (
-            kind,
-            logical_id,
+        _, _, producer = Resolver(root).resolve(
+            reference(logical_id, "Name"),
+            scope_for(root / "model/dev/cde/config.properties"),
         )
+        assert (producer["resourceType"], producer["logicalId"]) == (kind, logical_id)
     metadata = {path: ("config", (recorder, channel))}
     catalog = sync_views.view_validator(root, root).catalog_design_properties()
 
@@ -471,7 +505,11 @@ def check_stack_mapping_roundtrip(root):
         "vpc-app-dev-data",
         [
             ("Name", "`vpc-app-dev-data`", "ネットワークの名称"),
-            ("VpcId", "[001](#ec2-vpc-app-dev-data)", "ネットワークのID"),
+            (
+                "VpcId",
+                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                "ネットワークのID",
+            ),
             ("CidrBlock", "`10.0.0.0/16`", "ネットワークの範囲"),
         ],
     )
@@ -547,7 +585,13 @@ def check_stack_mapping_roundtrip(root):
         "kms",
         "KMS.Key",
         "app-dev-data",
-        [("KeyId", "[KMS_Key_001](kms.md#kms-app-dev-data)", "一意に識別するID")],
+        [
+            (
+                "KeyId",
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
+                "一意に識別するID",
+            )
+        ],
         label="app-dev-data",
     )
     kms = {key.replace(".001", ".007"): value for key, value in kms.items()}
@@ -564,7 +608,7 @@ def check_stack_mapping_roundtrip(root):
             "desired.service.identity.lastAllocated": '{"KMS.Key":1,"KMS.Alias":1}',
             "desired.resource.021.cfn-logicalId": "cfn-stack-app-dev-key-Alias",
             "desired.resource.021.parentProperty": "KMS.Alias.TargetKeyId",
-            "desired.resource.021.parentReference": "[KMS_Key_001](kms.md#kms-app-dev-data)",
+            "desired.resource.021.parentReference": '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
             "desired.row.021-001.property": "KMS.Alias.AliasName",
             "desired.row.021-001.value": "`alias/app-dev-data`",
             "desired.row.021-001.comment": "keyを識別するalias",
@@ -615,7 +659,11 @@ def check_service_failure_protection(root, project):
         "vpc-net-dev",
         [
             ("Name", "`vpc-net-dev`", "識別するNameタグ"),
-            ("VpcId", "[Vpc](#vpc-vpc-net-dev)", "一意に識別するID"),
+            (
+                "VpcId",
+                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+                "一意に識別するID",
+            ),
             ("CidrBlock", "`10.1.0.0/16`", "IPv4のアドレス範囲"),
         ],
         "Vpc",
@@ -672,7 +720,9 @@ def check_service_failure_protection(root, project):
     }
     docs = root / "docs/designs/dev/123456789012"
     assert "Version" in (docs / "iam.md").read_text(encoding="utf-8")
-    assert "PENDING_DEPLOY" in (docs / "vpc.md").read_text(encoding="utf-8")
+    assert "$modelRef" not in (docs / "vpc.md").read_text(
+        encoding="utf-8"
+    ) and "](#vpc-vpc-net-dev)" in (docs / "vpc.md").read_text(encoding="utf-8")
     saved_views = {
         path: path.read_bytes() for path in docs.rglob("*") if path.is_file()
     }

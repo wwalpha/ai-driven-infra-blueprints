@@ -11,6 +11,7 @@ import json
 
 import pytest
 from model.adapters.observed import propagate_references, resolve_resources
+from model.files import read_model
 from support.cloudformation_deploy_fixtures import TARGET
 from support.model_sources import allocate_fixture, write_model
 
@@ -43,7 +44,18 @@ def seed(root, kind, child_kind, setting):
                 f"desired.resource.{identity}.cfn-logicalId": "Stack-" + logical,
                 f"desired.row.{identity}-001.property": kind
                 + (".BucketName" if kind == "S3.Bucket" else ".SubnetId"),
-                f"desired.row.{identity}-001.value": f"[self](#resource-{kind.replace('.', '_')}_{identity})",
+                f"desired.row.{identity}-001.value": "`"
+                + json.dumps(
+                    {
+                        "$modelRef": {
+                            "logicalId": kind.replace(".", "_") + "_" + identity,
+                            "attribute": "BucketName"
+                            if kind == "S3.Bucket"
+                            else "SubnetId",
+                        }
+                    }
+                )
+                + "`",
                 f"desired.row.{identity}-001.comment": "識別子",
                 f"desired.row.{identity}-002.property": child_kind + "." + setting,
                 f"desired.row.{identity}-002.value": "`setting`",
@@ -214,11 +226,11 @@ def check_discovery_defers_semantics(project_workspace):
             "[owner](../../dev/123456789012/s3.md#resource-S3_Bucket_001)",
         ),
     )
-    with pytest.raises(ValueError):
-        propagate_references(root, loaded, {}, identifiers)
+    with pytest.raises(ValueError, match="Resource authority requires"):
+        read_model(other)
     other.write_text("broken syntax\n")
-    with pytest.raises(ValueError):
-        propagate_references(root, loaded, {}, identifiers)
+    with pytest.raises(ValueError, match="unsupported Model format"):
+        read_model(other)
 
 
 if __name__ == "__main__":

@@ -242,6 +242,7 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         root=root,
         target=TARGET,
         workdir=current_directory,
+        states={},
         task=task,
         run_context={"states": {}},
         aws=Mock(),
@@ -263,6 +264,12 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         patch.object(
             run_context, "new_context", return_value={"states": {}, "inputDigests": {}}
         ),
+        patch.object(
+            steps.inputs,
+            "stack_snapshot",
+            return_value=SimpleNamespace(authoritative={}),
+        ),
+        patch.object(steps.inputs, "check_stack_markdown"),
         patch.object(steps, "refresh_requests"),
         patch.object(steps, "checkpoint_receipts"),
         patch.object(steps, "describe", report),

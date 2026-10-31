@@ -130,7 +130,19 @@ def resource(
     }
     for n, (prop, value) in enumerate(
         [
-            ("VpcId", f"[vpc](vpc.md#vpc-{number})"),
+            (
+                "VpcId",
+                "`"
+                + json.dumps(
+                    {
+                        "$modelRef": {
+                            "logicalId": values[f"desired.resource.{number}.logicalId"],
+                            "attribute": "VpcId",
+                        }
+                    }
+                )
+                + "`",
+            ),
             ("CidrBlock", "`" + cidr + "`"),
             ("Name", "`main-vpc`"),
         ],
@@ -410,7 +422,10 @@ def check_new_resource_and_explicit_dispositions():
             chosen,
             schema_for,
         )
-    invalid = {**new, "desired.row.009-001.value": "[vpc](vpc.md#vpc-001)"}
+    invalid = {
+        **new,
+        "desired.row.009-001.value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
+    }
     warnings = []
     verify_values(
         expansion(old), expansion(invalid), chosen, schema_for, warnings=warnings
@@ -982,7 +997,9 @@ def check_authored_vpc_append_candidate(tmp_path, unknown):
     state = json.loads(before.authoritative[COUNTERS])
     state["EC2.VPC"] += 1
     addition[COUNTERS] = json.dumps(state)
-    addition["desired.row.009-001.value"] = "[vpc](vpc.md#vpc-009)"
+    addition["desired.row.009-001.value"] = (
+        '`{"$modelRef":{"logicalId":"EC2_VPC_002","attribute":"VpcId"}}`'
+    )
     for index, prop in enumerate(("EnableDnsHostnames", "EnableDnsSupport"), 4):
         addition.update(
             {
@@ -1018,7 +1035,10 @@ def check_authored_vpc_append_candidate(tmp_path, unknown):
         if key != COUNTERS
     )
     assert after.authoritative["observed.row.009-001.value"] == "`vpc-new`"
-    assert after.authoritative["desired.row.009-001.value"] == "[vpc](vpc.md#vpc-009)"
+    assert (
+        after.authoritative["desired.row.009-001.value"]
+        == '`{"$modelRef":{"logicalId":"EC2_VPC_002","attribute":"VpcId"}}`'
+    )
     assert after.authoritative["desired.resource.009.resourceMode"] == "IMPORT"
     assert all(p.read_bytes() == raw for p, raw in original_bytes.items())
 
@@ -2062,7 +2082,7 @@ def check_tgw_compare_provider_evaluation():
                 "001-001",
                 {
                     "property": "EC2.TransitGateway.Id",
-                    "value": "[gateway](ec2.md#gateway)",
+                    "value": '`{"$modelRef":{"logicalId":"EC2_TransitGateway_001","attribute":"Id"}}`',
                 },
             )
         ],
@@ -2345,7 +2365,7 @@ def check_explicit_reference_operation(tmp_path, field):
         if field == "reevaluation"
         else "source-name"
         if external
-        else "[009](#vpc-imported)"
+        else '`{"$modelRef":{"logicalId":"EC2_VPC_009","attribute":"VpcId"}}`'
     )
     allocation_state = json.loads(values["desired.service.identity.lastAllocated"])
     values.update(
@@ -2369,34 +2389,26 @@ def check_explicit_reference_operation(tmp_path, field):
     if field == "document":
         values[key] = json.dumps({"Vpc": raw, "Sibling": True})
     mode = "identifier" if field == "identifier" else "name" if external else "link"
-    values.update(
-        reference_fields(
-            "vpc",
-            key,
-            raw,
-            "stg/cde/vpc/" + source,
-            kind="EC2.VPC",
-            mode=mode,
-            prop="EC2.VPC.VpcId" if field == "identifier" else "EC2.VPC.Name",
-            pointer="/Vpc" if field == "document" else None,
+    if external:
+        values.update(
+            reference_fields(
+                "vpc",
+                key,
+                raw,
+                "stg/cde/vpc/" + source,
+                kind="EC2.VPC",
+                mode=mode,
+                prop="EC2.VPC.VpcId" if field == "identifier" else "EC2.VPC.Name",
+            )
         )
-    )
+    if field == "document":
+        values[key] = json.dumps({"Vpc": json.loads(raw.strip("`")), "Sibling": True})
     if field == "parentReference":
         values["desired.resource.020.parentReference"] = raw
         values["desired.resource.020.parentProperty"] = "EC2.Subnet.VpcId"
-        values.update(
-            reference_fields(
-                "parent",
-                "desired.resource.020.parentReference",
-                raw,
-                "stg/cde/vpc/009",
-                kind="EC2.VPC",
-                mode="link",
-            )
-        )
     write_model(file, values)
     assert any(
-        usage.metadata_id == "vpc" and usage.producer_id == source
+        usage.consumer_key == key and usage.producer_id == source
         for usage in usages(load_model(file))
     )
     sources = operation_candidate(before, after)
@@ -2407,19 +2419,19 @@ def check_explicit_reference_operation(tmp_path, field):
         if field == "identifier"
         else "source-name"
         if external
-        else "[001](#vpc-main)"
+        else '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`'
     )
     values[key] = (
-        json.dumps({"Vpc": updated, "Sibling": True})
+        json.dumps({"Vpc": json.loads(updated.strip("`")), "Sibling": True})
         if field == "document"
         else updated
     )
-    values["desired.reference.vpc.producerLogicalId"] = "EC2_VPC_001"
-    values["desired.reference.vpc.text"] = updated
+    if external:
+        values["desired.reference.vpc.producerLogicalId"] = "EC2_VPC_001"
+        values["desired.reference.vpc.text"] = updated
     if field == "parentReference":
         values["desired.resource.020.parentReference"] = updated
-        values["desired.reference.parent.producerLogicalId"] = "EC2_VPC_001"
-        values["desired.reference.parent.text"] = updated
+
     write_model(file, values)
     contract = (
         operation_contract()
@@ -2460,7 +2472,9 @@ def check_explicit_reference_operation(tmp_path, field):
         else "prefix-" + updated
     )
     write_model(file, values)
-    with pytest.raises(ValueError, match="affix|literal|changed"):
+    with pytest.raises(
+        ValueError, match="affix|literal|changed|MODEL_REF_INVALID_SYNTAX"
+    ):
         verify_model_operation(before, after, model_operation(full_contract), sources)
 
 
@@ -2496,20 +2510,35 @@ def check_effective_reference_identity(tmp_path, selection, monkeypatch):
 
 
 def check_local_reference_effective_identity(tmp_path):
-    dependency_fixture(tmp_path)
-    file = tmp_path / "model/stg/cde/service-a.properties"
+    operation_fixture(tmp_path)
+    file = tmp_path / "model/stg/cde/vpc.properties"
     values = dict(load_model(file).authoritative)
-    values["desired.row.001-002.value"] = "[other](service-a.md#other-producer)"
+    values.update(
+        resource_values(
+            "020",
+            "EC2.Subnet",
+            "consumer",
+            "IMPORT",
+            [
+                (
+                    "VpcId",
+                    '`{"$modelRef":{"logicalId":"EC2_VPC_009","attribute":"VpcId"}}`',
+                )
+            ],
+        )
+    )
+    values["desired.service.identity.lastAllocated"] = '{"EC2.VPC":9,"EC2.Subnet":20}'
     write_model(file, values)
     model = load_model(file)
-    (record,) = usages(model)
+    (record,) = [
+        usage
+        for usage in usages(model)
+        if usage.consumer_key == "desired.row.020-001.value"
+    ]
+    assert record.producer_scope == "stg/cde/vpc" and record.logical_id == "EC2_VPC_009"
     assert (
-        record.producer_scope == "stg/cde/service-a"
-        and record.logical_id == "ServiceA_Resource_003"
-    )
-    assert (
-        model.values["desired.row.001-002.value"]
-        == "[other](service-a.md#other-producer)"
+        model.authoritative["desired.row.020-001.value"]
+        == values["desired.row.020-001.value"]
     )
 
 
@@ -2996,23 +3025,37 @@ def check_issues_never_waive_delete_reference_safety(tmp_path, broken_type):
 
 def check_reference_structural_and_remaining_delete(tmp_path):
     before, after = tmp_path / "before", tmp_path / "after"
-    dependency_fixture(before)
-    file = before / "model/stg/cde/service-a.properties"
-    values = dict(load_model(file).authoritative)
-    values["desired.resource.001.parentReference"] = (
-        "[other](service-a.md#other-producer)"
+    operation_fixture(before)
+    file = before / "model/stg/cde/kms.properties"
+    values = resource_values(
+        "001", "KMS.Alias", "alias", "IMPORT", [("AliasName", "`alias/existing`")]
     )
-    values["desired.resource.001.parentProperty"] = "ServiceA.Resource.Peer"
+    values.update(
+        resource_values(
+            "003",
+            "KMS.Key",
+            "key",
+            "IMPORT",
+            [
+                (
+                    "KeyId",
+                    '`{"$modelRef":{"logicalId":"KMS_Key_003","attribute":"KeyId"}}`',
+                )
+            ],
+        )
+    )
+    values["desired.service.identity.lastAllocated"] = '{"KMS.Alias":1,"KMS.Key":3}'
+    values["desired.resource.001.parentReference"] = (
+        '{"$modelRef":{"logicalId":"KMS_Key_003","attribute":"KeyId"}}'
+    )
+    values["desired.resource.001.parentProperty"] = "KMS.Alias.TargetKeyId"
     write_model(file, values)
     (record,) = [
         record
         for record in usages(load_model(file))
         if record.consumer_key.endswith(".parentReference")
     ]
-    assert (
-        record.producer_scope == "stg/cde/service-a"
-        and record.logical_id == "ServiceA_Resource_003"
-    )
+    assert record.producer_scope == "stg/cde/kms" and record.logical_id == "KMS_Key_003"
     shutil.copytree(before, after)
     candidate = after / file.relative_to(before)
     changed = {
@@ -3022,8 +3065,8 @@ def check_reference_structural_and_remaining_delete(tmp_path):
     }
     write_model(candidate, changed)
     declaration = {
-        "consumer": "stg/cde/service-a/001",
-        "producer": "stg/cde/service-a/003",
+        "consumer": "stg/cde/kms/001",
+        "producer": "stg/cde/kms/003",
         "key": "desired.resource.001.parentReference",
     }
     contract = (
@@ -3038,7 +3081,7 @@ def check_reference_structural_and_remaining_delete(tmp_path):
             after,
             model_refactor(contract),
             {candidate.relative_to(after).as_posix()},
-            {("stg", "cde", "service-a")},
+            {("stg", "cde", "kms")},
         )
     write_model(
         candidate,
@@ -3048,14 +3091,13 @@ def check_reference_structural_and_remaining_delete(tmp_path):
             if owner(key, values) != ("resource", "001")
         },
     )
-    assert verify_model_operation(
+    warnings = verify_model_operation(
         before,
         after,
-        model_operation(
-            operation_contract("model-delete", source="stg/cde/service-a/001")
-        ),
+        model_operation(operation_contract("model-delete", source="stg/cde/kms/001")),
         {candidate.relative_to(after).as_posix()},
     )
+    assert warnings == []
 
 
 def check_dependency_json_types_and_exact_detach(tmp_path):
@@ -3333,7 +3375,7 @@ def check_overwrite_reference_permission_is_property_scoped():
         "occurrence": "1",
         "producerKind": "resource",
         "producerScope": "dev/cde/vpc",
-        "producerId": "002",
+        "producerLogicalId": "EC2_VPC_002",
         "resourceType": "EC2.VPC",
         "format": "name",
         "property": "EC2.VPC.Name",

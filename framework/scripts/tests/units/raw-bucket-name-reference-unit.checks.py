@@ -39,7 +39,7 @@ def check_reference_schema():
     assert declarations(values)["fixed"]["format"] == "name"
     for fields, phrase in [
         ({"format": "unknown"}, "format/scope"),
-        ({"labelPolicy": "fixed"}, "non-link"),
+        ({"labelPolicy": "fixed"}, "labelPolicy none"),
         ({"contextProperty": "environment"}, "forbidden"),
         ({"producerScope": "../team/vpc"}, "unsafe"),
         ({"selector": "first"}, "fields"),

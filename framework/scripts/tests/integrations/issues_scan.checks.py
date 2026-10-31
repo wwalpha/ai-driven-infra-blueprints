@@ -278,7 +278,7 @@ def check_cross_service_reference(tmp_path):
     model.update(
         {
             "desired.row.001-010.property": "Logs.LogGroup.KmsKeyId",
-            "desired.row.001-010.value": "[Key](kms.md#resource-KMS_Key_001)",
+            "desired.row.001-010.value": '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`',
             "desired.row.001-010.comment": "暗号化に使用するKMS Key",
         }
     )
@@ -315,7 +315,9 @@ def check_cross_service_reference(tmp_path):
     assert comparison.evaluate(
         "cfn-stack-app-dev-data1", {"Fn::ImportValue": "app-dev-data2-KeyArn"}
     ) == comparison.reference(
-        "cloudwatch-logs", model["desired.row.001-010.value"], "Arn"
+        "cloudwatch-logs",
+        json.loads(model["desired.row.001-010.value"].strip("`")),
+        "Arn",
     )
     assert (
         comparison.metrics["template_decodes"] == 1

@@ -14,7 +14,6 @@ from support.producer_identifier_reference_fixtures import (
     design_source_digest,
     json,
     load_model,
-    reference,
     resource,
     setup,
     source_inputs,
@@ -47,7 +46,7 @@ def check(root, service, kind, name_property):
         original.update(
             {
                 "desired.row.052-002.property": "IAM.InstanceProfile.Roles",
-                "desired.row.052-002.value": "[IAM_Role_075](iam.md#iam-app-role)",
+                "desired.row.052-002.value": '`{"$modelRef":{"logicalId":"IAM_Role_075","attribute":"RoleName"}}`',
                 "desired.row.052-002.comment": "ロール",
             }
         )
@@ -57,7 +56,7 @@ def check(root, service, kind, name_property):
     write_model(producer, original)
     path = producer.with_name("ec2.properties")
     values = {}
-    for rid, label, policy in [
+    for rid, label, _policy in [
         (
             "021",
             "app-preview-one" if name_property else "052",
@@ -65,8 +64,18 @@ def check(root, service, kind, name_property):
         ),
         ("083", "original-label", "fixed"),
     ]:
-        key = f"desired.row.{rid}-001.value"
-        link = f"[{label}]({service}.md#{service}-app-preview-one)"
+        link = (
+            "`"
+            + json.dumps(
+                {
+                    "$modelRef": {
+                        "logicalId": kind.replace(".", "_") + "_052",
+                        "attribute": "InstanceProfileName" if name_property else "Arn",
+                    }
+                }
+            )
+            + "`"
+        )
         values.update(
             resource(
                 rid,
@@ -82,18 +91,8 @@ def check(root, service, kind, name_property):
                 ],
             )
         )
-        values.update(
-            reference(
-                "producer-" + rid,
-                key,
-                link,
-                service,
-                "052",
-                kind,
-                mode="link",
-                label=policy,
-            )
-        )
+
+        values[f"display.resource.{rid}.label"] = label
     write_model(path, values)
     snapshot = load_model(path)
     assert not snapshot.warnings, snapshot.warnings
@@ -121,9 +120,6 @@ def check(root, service, kind, name_property):
     assert load_model(path).authoritative == snapshot.authoritative
     changed_label = dict(values)
     changed_label["display.resource.083.label"] = "changed-label"
-    changed_label["desired.reference.producer-083.text"] = changed_label[
-        "desired.row.083-001.value"
-    ]
     write_model(producer, original)
     write_model(path, changed_label)
     assert not load_model(path).warnings and design_source_digest(path) != digest

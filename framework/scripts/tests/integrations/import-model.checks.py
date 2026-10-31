@@ -248,7 +248,9 @@ def check_managed_resource_addition(tmp_path):
     del values["desired.resource.009.logicalId"]
     values = allocate(values, ["009"])
     values["desired.resource.009.anchor"] = "vpc-managed-009"
-    values["desired.row.009-001.value"] = "[009](#vpc-managed-009)"
+    values["desired.row.009-001.value"] = (
+        '`{"$modelRef":{"logicalId":"EC2_Subnet_009","attribute":"SubnetId"}}`'
+    )
     values["observed.row.009-001.value"] = identity
     values["desired.row.009-003.value"] = m.model_literal("10.11.0.0/26")
     values["desired.row.009-004.value"] = m.model_literal(name)
@@ -276,9 +278,13 @@ def check_managed_resource_addition(tmp_path):
     )
     assert current.authoritative["observed.row.009-001.value"] == identity
     assert (
-        current.authoritative["desired.row.009-001.value"] == "[009](#vpc-managed-009)"
+        current.authoritative["desired.row.009-001.value"]
+        == '`{"$modelRef":{"logicalId":"EC2_Subnet_009","attribute":"SubnetId"}}`'
     )
-    assert current.authoritative["desired.row.009-002.value"] == "[001](#vpc-main)"
+    assert (
+        current.authoritative["desired.row.009-002.value"]
+        == '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`'
+    )
     assert all(p.read_bytes() == data for p, data in foreign.items())
 
 
@@ -1032,7 +1038,7 @@ def check_reference_publication(tmp_path, race, review_race):
     del values["desired.resource.009.logicalId"]
     values = allocate(values, ["009"])
     values["desired.resource.009.anchor"] = "vpc-managed-009"
-    link = "[S3_Bucket_001](s3.md#s3-audit-bucket)"
+    link = '`{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}`'
     for index, (prop, actual) in enumerate(captured.items(), 1):
         key = f"desired.row.009-{index:03d}.value"
         values[f"desired.row.009-{index:03d}.valueShape"] = record["properties"][prop][
@@ -1041,18 +1047,6 @@ def check_reference_publication(tmp_path, race, review_race):
         if prop == "CloudTrail.Trail.S3BucketName":
             values[key] = link
             values[f"observed.row.009-{index:03d}.value"] = m.model_literal(actual)
-            values.update(
-                reference_fields(
-                    "bucket",
-                    key,
-                    link,
-                    "dev/cde/s3/001",
-                    kind="S3.Bucket",
-                    mode="link",
-                    prop=None,
-                )
-            )
-            values["desired.reference.bucket.labelPolicy"] = "display-name"
         elif prop == "CloudTrail.Trail.EventSelectors[].DataResources[].Values":
             values.update(
                 reference_fields(

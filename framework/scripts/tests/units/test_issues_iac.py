@@ -87,7 +87,7 @@ class ModelDependencyTests(unittest.TestCase):
                     "desired.resource.001.resourceType": "S3.Bucket",
                     "desired.resource.001.logicalId": "S3_Bucket_001",
                     "desired.row.001-001.property": "S3.Bucket.KmsMasterKeyId",
-                    "desired.row.001-001.value": "[key](kms.md#key)",
+                    "desired.row.001-001.value": '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
                     "desired.row.001-001.comment": "合成参照",
                 }
             ),
@@ -112,9 +112,15 @@ class ModelDependencyTests(unittest.TestCase):
                 with patch("comparison.inputs.hashlib", wraps=hashlib) as hashing:
                     comparison = comparison_type(root, "fixture", "team", ["s3"])
                     assert not comparison.load_errors
-                    assert comparison.models["s3"].dependencies[producer] is None
+                    assert "kms" not in comparison.models["s3"].dependencies
+                    self.assertTrue(
+                        any(
+                            w.get("code") == "MODEL_REF_TARGET_MISSING"
+                            for w in comparison.models["s3"].warnings
+                        )
+                    )
                     assert producer not in comparison.model_reads.contents
-                    assert producer in comparison.inputs
+                    assert producer not in comparison.inputs
                     producer.write_bytes(raw)
                     if comparison_type is IssueComparison:
                         assert comparison.model("kms").dependencies[producer] == raw
@@ -124,13 +130,12 @@ class ModelDependencyTests(unittest.TestCase):
                         )
                         assert not getattr(comparison, "stale_inputs", False)
                     else:
-                        assert comparison.read_hashes[producer] is None
+                        assert producer not in comparison.read_hashes
                         with pytest.raises(
-                            ValueError,
-                            match="stale scan: contradictory input observations: model/fixture/team/kms.properties",
+                            ValueError, match="Model file set changed during read"
                         ):
-                            comparison.model("kms")
-                        assert comparison.stale_inputs
+                            comparison.model_reads.verify()
+                        assert "kms" not in comparison.models
 
     def test_existing_producer_dependency(self):
         for comparison_type in (issues_iac.Comparison, IssueComparison):
@@ -1761,7 +1766,16 @@ def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attri
     service = {"Bucket": "s3", "Vpc": "vpc", "Secret": "secrets-manager"}.get(
         logical, "kms"
     )
-    link = f"[resource]({service}.md#existing-{logical})"
+    identity = {"Alias": "002", "OtherKey": "003", "Missing": "999"}.get(logical, "001")
+    kind = comparison.resources[service].get(identity, {"resourceType": "KMS.Key"})[
+        "resourceType"
+    ]
+    link = ResourceReference(
+        {
+            "$resource": [service, identity],
+            "$attribute": attribute or REF_ATTRIBUTES[kind],
+        }
+    )
     return comparison.desired_reference(
         "codebuild",
         link,
@@ -1778,8 +1792,19 @@ def _callback_resource_attribute_symbol(
     service = {"Bucket": "s3", "Vpc": "vpc", "Secret": "secrets-manager"}.get(
         logical, "kms"
     )
+    identity = {"Alias": "002", "OtherKey": "003", "Missing": "999"}.get(logical, "001")
+    kind = comparison.resources[service].get(identity, {"resourceType": "KMS.Key"})[
+        "resourceType"
+    ]
     return comparison.reference(
-        "codebuild", f"[resource]({service}.md#existing-{logical})", attribute
+        "codebuild",
+        ResourceReference(
+            {
+                "$resource": [service, identity],
+                "$attribute": attribute or REF_ATTRIBUTES[kind],
+            }
+        ),
+        attribute,
     )
 
 
@@ -1813,21 +1838,22 @@ class ImportValueResolutionTests(unittest.TestCase):
             }
             comparison.stack_inputs = {"stack0": (document, {"Prefix": "fixture"}, {})}
             path = "Stages[].Actions[].Configuration.RepositoryName"
-            with patch("comparison.inputs.catalog_outputs", return_value=set()):
-                desired = comparison.desired_reference(
-                    "service-0",
-                    "[repository](service-0.md#repository)",
-                    "CodePipeline.Pipeline",
-                    path,
-                    context={
-                        "ActionTypeId": dict(
-                            Category="Source",
-                            Owner="AWS",
-                            Provider="CodeCommit",
-                            Version="1",
-                        )
-                    },
-                )
+            desired = comparison.desired_reference(
+                "service-0",
+                ResourceReference(
+                    {"$resource": ["service-0", "0000"], "$attribute": "Name"}
+                ),
+                "CodePipeline.Pipeline",
+                path,
+                context={
+                    "ActionTypeId": dict(
+                        Category="Source",
+                        Owner="AWS",
+                        Provider="CodeCommit",
+                        Version="1",
+                    )
+                },
+            )
             equal = _bind_framework_callback(
                 _callback_ImportValueResolutionTests_test_codecommit_name_uses_only_explicit_repository_name_equal,
                 comparison,
@@ -1956,7 +1982,9 @@ class ImportValueResolutionTests(unittest.TestCase):
                     "cfn-logicalId": "producer-" + logical,
                 }
                 if kind == "KMS.Alias":
-                    resource["parentReference"] = "[key](kms.md#existing-Key)"
+                    resource["parentReference"] = (
+                        '{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}'
+                    )
                 comparison.resources[service][identity] = resource
                 comparison.rows[service][identity] = []
                 definitions[logical] = {
@@ -2023,207 +2051,190 @@ class ImportValueResolutionTests(unittest.TestCase):
                 comparison,
                 prop,
             )
-            with patch("comparison.inputs.catalog_outputs", return_value=set()):
-                bucket = comparison.evaluate("producer", {"Ref": "Bucket"})
-                imported = comparison.evaluate(
-                    "build", {"Fn::ImportValue": "bucket-export"}
-                )
-                for source in (bucket, imported):
-                    for literal, expected in [
-                        ("fixture-bucket", True),
-                        ("other", False),
-                    ]:
-                        with self.subTest(source=source, literal=literal):
-                            result = comparison.reference_decision(
-                                literal,
-                                source,
-                                "CodeBuild.Project",
-                                prop,
-                                context={"Type": "PLAINTEXT"},
-                            )
-                            self.assertEqual(result.equal, expected)
-                            self.assertEqual(
-                                result.diagnostics[0]["evidence_type"],
-                                "local_evaluation",
-                            )
-                            self.assertFalse(
-                                result.diagnostics[0]["current_aws_verified"]
-                            )
-                definitions["Bucket"]["Properties"].clear()
-                result = comparison.reference_decision(
-                    "fixture-bucket",
-                    bucket,
-                    "CodeBuild.Project",
-                    prop,
-                    context={"Type": "PLAINTEXT"},
-                )
-                self.assertIsNone(result.equal)
-                self.assertEqual(
-                    result.diagnostics[0]["local_comparison"], "uncompared"
-                )
-                self.assertTrue(result.diagnostics[0]["reason"])
-                definitions["Bucket"]["Properties"]["BucketName"] = "fixture-bucket"
-                for literal, source, expected in [
-                    ("alias/fixture", {"Ref": "Alias"}, True),
-                    ("other", {"Ref": "Alias"}, False),
-                    ("12345678-1234-1234-1234-123456789012", {"Ref": "Key"}, None),
-                    (
-                        "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
-                        {"Fn::GetAtt": ["Key", "Arn"]},
-                        None,
-                    ),
+            bucket = comparison.evaluate("producer", {"Ref": "Bucket"})
+            imported = comparison.evaluate(
+                "build", {"Fn::ImportValue": "bucket-export"}
+            )
+            for source in (bucket, imported):
+                for literal, expected in [
+                    ("fixture-bucket", True),
+                    ("other", False),
                 ]:
-                    with self.subTest(source=source):
-                        value = comparison.evaluate("producer", source)
+                    with self.subTest(source=source, literal=literal):
                         result = comparison.reference_decision(
                             literal,
-                            value,
+                            source,
                             "CodeBuild.Project",
                             prop,
                             context={"Type": "PLAINTEXT"},
                         )
-                        self.assertIs(result.equal, expected)
-                bucket.saved_literal = "fixture-bucket"
-                self.assertIsNone(
-                    comparison.reference_decision(
-                        bucket,
-                        "fixture-bucket",
-                        "CodeBuild.Project",
-                        prop,
-                        context={"Type": "PLAINTEXT"},
-                    ).equal
-                )
-                nested = Expression("Join", ["", [bucket]])
-                self.assertIsNone(
-                    comparison.reference_decision(
-                        nested,
-                        "fixture-bucket",
-                        "CodeBuild.Project",
-                        prop,
-                        context={"Type": "PLAINTEXT"},
-                    ).equal
-                )
-                del bucket.saved_literal
-                for variable_type in ("SECRETS_MANAGER", "PARAMETER_STORE"):
-                    self.assertIsNone(
-                        comparison.reference_decision(
-                            "fixture-bucket",
-                            bucket,
-                            "CodeBuild.Project",
-                            prop,
-                            context={"Type": variable_type},
-                        ).equal
-                    )
-                for logical in [
-                    "Key",
-                    "Alias",
-                    "OtherKey",
-                    "Bucket",
-                    "Vpc",
-                    "Secret",
-                    "Missing",
-                ]:
-                    for attribute in [None, "Arn", "Name", "BucketName"]:
-                        with self.subTest(logical=logical, attribute=attribute):
-                            with self.assertRaisesRegex(Blocked, "PLAINTEXT"):
-                                codebuild_desired(logical, attribute)
-                key, alias = desired("Key", "Arn"), desired("Alias", "AliasArn")
-                for model, actual, exported in [
-                    (key, {"Fn::GetAtt": ["Key", "Arn"]}, "key-export"),
-                    (alias, alias_value, "alias-export"),
-                ]:
-                    self.assertTrue(
-                        equal(model, comparison.evaluate("producer", actual))
-                    )
-                    self.assertTrue(
-                        equal(
-                            model,
-                            comparison.evaluate("build", {"Fn::ImportValue": exported}),
+                        self.assertEqual(result.equal, expected)
+                        self.assertEqual(
+                            result.diagnostics[0]["evidence_type"],
+                            "local_evaluation",
                         )
+                        self.assertFalse(result.diagnostics[0]["current_aws_verified"])
+            definitions["Bucket"]["Properties"].clear()
+            result = comparison.reference_decision(
+                "fixture-bucket",
+                bucket,
+                "CodeBuild.Project",
+                prop,
+                context={"Type": "PLAINTEXT"},
+            )
+            self.assertIsNone(result.equal)
+            self.assertEqual(result.diagnostics[0]["local_comparison"], "uncompared")
+            self.assertTrue(result.diagnostics[0]["reason"])
+            definitions["Bucket"]["Properties"]["BucketName"] = "fixture-bucket"
+            for literal, source, expected in [
+                ("alias/fixture", {"Ref": "Alias"}, True),
+                ("other", {"Ref": "Alias"}, False),
+                ("12345678-1234-1234-1234-123456789012", {"Ref": "Key"}, None),
+                (
+                    "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+                    {"Fn::GetAtt": ["Key", "Arn"]},
+                    None,
+                ),
+            ]:
+                with self.subTest(source=source):
+                    value = comparison.evaluate("producer", source)
+                    result = comparison.reference_decision(
+                        literal,
+                        value,
+                        "CodeBuild.Project",
+                        prop,
+                        context={"Type": "PLAINTEXT"},
                     )
-                    self.assertIsNot(equal(model, exported), True)
-                self.assertFalse(equal(key, alias))
-                self.assertFalse(
-                    equal(key, comparison.evaluate("producer", alias_value))
-                )
-                self.assertFalse(equal(key, desired("OtherKey", "Arn")))
-                self.assertFalse(equal(key, desired("Key", "KeyId")))
-                self.assertFalse(equal(alias, desired("Alias", "AliasName")))
-                with self.assertRaises((Blocked, KeyError)):
-                    comparison.evaluate(
-                        "producer", {"Fn::GetAtt": ["Alias", "AliasArn"]}
-                    )
-                self.assertFalse(
-                    equal(alias, comparison.evaluate("producer", {"Ref": "Alias"}))
-                )
+                    self.assertIs(result.equal, expected)
+            bucket.saved_literal = "fixture-bucket"
+            self.assertIsNone(
+                comparison.reference_decision(
+                    bucket,
+                    "fixture-bucket",
+                    "CodeBuild.Project",
+                    prop,
+                    context={"Type": "PLAINTEXT"},
+                ).equal
+            )
+            nested = Expression("Join", ["", [bucket]])
+            self.assertIsNone(
+                comparison.reference_decision(
+                    nested,
+                    "fixture-bucket",
+                    "CodeBuild.Project",
+                    prop,
+                    context={"Type": "PLAINTEXT"},
+                ).equal
+            )
+            del bucket.saved_literal
+            for variable_type in ("SECRETS_MANAGER", "PARAMETER_STORE"):
                 self.assertIsNone(
-                    equal(
-                        key,
-                        "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
-                    )
+                    comparison.reference_decision(
+                        "fixture-bucket",
+                        bucket,
+                        "CodeBuild.Project",
+                        prop,
+                        context={"Type": variable_type},
+                    ).equal
                 )
+            for logical in [
+                "Key",
+                "Alias",
+                "OtherKey",
+                "Bucket",
+                "Vpc",
+                "Secret",
+                "Missing",
+            ]:
+                for attribute in [None, "Arn", "Name", "BucketName"]:
+                    with self.subTest(logical=logical, attribute=attribute):
+                        with self.assertRaisesRegex(Blocked, "PLAINTEXT"):
+                            codebuild_desired(logical, attribute)
+            key, alias = desired("Key", "Arn"), desired("Alias", "AliasArn")
+            for model, actual, exported in [
+                (key, {"Fn::GetAtt": ["Key", "Arn"]}, "key-export"),
+                (alias, alias_value, "alias-export"),
+            ]:
+                self.assertTrue(equal(model, comparison.evaluate("producer", actual)))
                 self.assertTrue(
                     equal(
-                        alias, "arn:aws:kms:ap-northeast-1:123456789012:alias/fixture"
+                        model,
+                        comparison.evaluate("build", {"Fn::ImportValue": exported}),
                     )
                 )
-                definitions["Alias"]["Properties"].pop("AliasName")
-                self.assertIsNone(
-                    equal(
-                        alias, "arn:aws:kms:ap-northeast-1:123456789012:alias/fixture"
-                    )
+                self.assertIsNot(equal(model, exported), True)
+            self.assertFalse(equal(key, alias))
+            self.assertFalse(equal(key, comparison.evaluate("producer", alias_value)))
+            self.assertFalse(equal(key, desired("OtherKey", "Arn")))
+            self.assertFalse(equal(key, desired("Key", "KeyId")))
+            self.assertFalse(equal(alias, desired("Alias", "AliasName")))
+            with self.assertRaises((Blocked, KeyError)):
+                comparison.evaluate("producer", {"Fn::GetAtt": ["Alias", "AliasArn"]})
+            self.assertFalse(
+                equal(alias, comparison.evaluate("producer", {"Ref": "Alias"}))
+            )
+            self.assertIsNone(
+                equal(
+                    key,
+                    "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
                 )
-                definitions["Alias"]["Properties"]["AliasName"] = "alias/fixture"
-                self.assertTrue(
-                    equal(
-                        desired("Bucket"),
-                        comparison.evaluate("producer", {"Ref": "Bucket"}),
-                    )
+            )
+            self.assertTrue(
+                equal(alias, "arn:aws:kms:ap-northeast-1:123456789012:alias/fixture")
+            )
+            definitions["Alias"]["Properties"].pop("AliasName")
+            self.assertIsNone(
+                equal(alias, "arn:aws:kms:ap-northeast-1:123456789012:alias/fixture")
+            )
+            definitions["Alias"]["Properties"]["AliasName"] = "alias/fixture"
+            self.assertTrue(
+                equal(
+                    desired("Bucket"),
+                    comparison.evaluate("producer", {"Ref": "Bucket"}),
                 )
-                self.assertEqual(
-                    desired("Key", "KeyId", name="KEY_ARN")["$attribute"], "KeyId"
-                )
-                self.assertEqual(
-                    codebuild_desired("Secret", variable_type="SECRETS_MANAGER"),
-                    comparison.evaluate("producer", {"Ref": "Secret"}),
-                )
-                for variable_type in [None, "INVALID"]:
-                    with (
-                        self.subTest(variable_type=variable_type),
-                        self.assertRaisesRegex(
-                            Blocked,
-                            "reference context or receiving property contract unproven",
-                        ),
-                    ):
-                        codebuild_desired("Bucket", variable_type=variable_type)
-                with self.assertRaisesRegex(
-                    Blocked, "reference attribute not confirmed: Name"
+            )
+            self.assertEqual(
+                desired("Key", "KeyId", name="KEY_ARN")["$attribute"], "KeyId"
+            )
+            self.assertEqual(
+                codebuild_desired("Secret", variable_type="SECRETS_MANAGER"),
+                comparison.evaluate("producer", {"Ref": "Secret"}),
+            )
+            for variable_type in [None, "INVALID"]:
+                with (
+                    self.subTest(variable_type=variable_type),
+                    self.assertRaisesRegex(
+                        Blocked,
+                        "reference context or receiving property contract unproven",
+                    ),
                 ):
-                    codebuild_desired("Bucket", variable_type="PARAMETER_STORE")
-                comparison.resources["kms"]["001"]["resourceMode"] = "IMPORT"
-                comparison.models["kms"].values["desired.resource.001.resourceMode"] = (
-                    "IMPORT"
-                )
-                comparison.reference_anchor_indexes.pop("kms")
-                with self.assertRaisesRegex(Blocked, "approved handoff"):
-                    desired("Key", "Arn")
-                comparison.resources["kms"]["001"].pop("resourceMode")
-                comparison.models["kms"].values.pop("desired.resource.001.resourceMode")
-                comparison.reference_anchor_indexes.pop("kms")
-                for logical, attribute in [
-                    ("Missing", "Arn"),
-                    ("Key", "AliasArn"),
-                ]:
-                    with (
-                        self.subTest(logical=logical, attribute=attribute),
-                        self.assertRaises((Blocked, KeyError)),
-                    ):
-                        desired(logical, attribute)
-                with self.assertRaises(Blocked):
-                    comparison.evaluate("build", {"Fn::ImportValue": "unknown-export"})
-                self.assertIsNone(equal(key, Expression("Sub", ["${Unknown}", {}])))
-                unknown = Expression("Sub", ["${Unknown}", {}])
-                self.assertIsNone(equal(unknown, unknown))
+                    codebuild_desired("Bucket", variable_type=variable_type)
+            with self.assertRaisesRegex(
+                Blocked, "reference target must be SSM.Parameter"
+            ):
+                codebuild_desired("Bucket", variable_type="PARAMETER_STORE")
+            comparison.resources["kms"]["001"]["resourceMode"] = "IMPORT"
+            comparison.models["kms"].values["desired.resource.001.resourceMode"] = (
+                "IMPORT"
+            )
+            with self.assertRaisesRegex(Blocked, "approved handoff"):
+                desired("Key", "Arn")
+            comparison.resources["kms"]["001"].pop("resourceMode")
+            comparison.models["kms"].values.pop("desired.resource.001.resourceMode")
+            for logical, attribute in [
+                ("Missing", "Arn"),
+                ("Key", "AliasArn"),
+            ]:
+                with (
+                    self.subTest(logical=logical, attribute=attribute),
+                    self.assertRaises((Blocked, KeyError)),
+                ):
+                    desired(logical, attribute)
+            with self.assertRaises(Blocked):
+                comparison.evaluate("build", {"Fn::ImportValue": "unknown-export"})
+            self.assertIsNone(equal(key, Expression("Sub", ["${Unknown}", {}])))
+            unknown = Expression("Sub", ["${Unknown}", {}])
+            self.assertIsNone(equal(unknown, unknown))
 
     def test_formal_pipeline_membership_and_configuration_context(self):
         comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
@@ -2506,7 +2517,7 @@ class ImportValueResolutionTests(unittest.TestCase):
             "kms": {
                 "002": {
                     "resourceType": "KMS.Alias",
-                    "parentReference": "[LogKey](#kms-log)",
+                    "parentReference": '{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}',
                 },
                 "001": {"resourceType": "KMS.Key", "anchor": "kms-log"},
             }
@@ -2691,7 +2702,10 @@ class ReferenceValueTests(unittest.TestCase):
             key = comparison.evaluate(stack, {"Ref": "Key"})
             arn = comparison.evaluate(stack, {"Fn::GetAtt": ["Key", "Arn"]})
             alias = comparison.reference(
-                "kms", "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)"
+                "kms",
+                ResourceReference(
+                    {"$resource": ["kms", "002"], "$attribute": "AliasName"}
+                ),
             )
             for prop, allowed in KMS_COMPARISON_FORMS.items():
                 kind, path = (
@@ -2732,14 +2746,18 @@ class ReferenceValueTests(unittest.TestCase):
                     ):
                         comparison.desired_reference(
                             "kms",
-                            "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)",
+                            ResourceReference(
+                                {"$resource": ["kms", "002"], "$attribute": "AliasArn"}
+                            ),
                             kind,
                             path,
                         )
                 elif allowed <= {"KeyArn", "AliasArn"}:
                     symbolic = comparison.desired_reference(
                         "kms",
-                        "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)",
+                        ResourceReference(
+                            {"$resource": ["kms", "002"], "$attribute": "AliasArn"}
+                        ),
                         kind,
                         path,
                     )
@@ -2773,7 +2791,9 @@ class ReferenceValueTests(unittest.TestCase):
                     assert same(symbolic, alias, reference=callback, path=path) is False
                     other = comparison.desired_reference(
                         "kms",
-                        "[KMS_Alias_002](kms.md#resource-KMS_Alias_002)",
+                        ResourceReference(
+                            {"$resource": ["kms", "003"], "$attribute": "AliasArn"}
+                        ),
                         kind,
                         path,
                     )

@@ -642,11 +642,12 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
         fields = {"display.resource.007.label": "explicit display"}
         if change in {"create", "import-config"}:
             fields = {
-                "desired.row.007-001.value": "[corrected](network.md#network-existing)"
+                "desired.row.007-001.value": '`{ "$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"} }`'
             }
         elif change == "fixed-id":
             fields = {
                 "desired.resource.007.logicalId": "EC2_VPC_002",
+                "desired.row.007-001.value": '`{"$modelRef":{"logicalId":"EC2_VPC_002","attribute":"VpcId"}}`',
                 "desired.service.identity.lastAllocated": '{"EC2.VPC":2}',
             }
         if change == "missing-task":

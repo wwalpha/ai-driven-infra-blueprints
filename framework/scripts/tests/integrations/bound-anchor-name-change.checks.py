@@ -71,7 +71,7 @@ def check(root):
             ("Source.Type", "`NO_SOURCE`", "入力"),
             (
                 "Id",
-                "[CodeBuild_Project_001](codebuild.md#codebuild-cbld-app-preview-build)",
+                '`{"$modelRef":{"logicalId":"CodeBuild_Project_001","attribute":"Name"}}`',
                 "識別子",
             ),
         ],
@@ -82,7 +82,13 @@ def check(root):
         "kms",
         "KMS.Key",
         "app-preview-data",
-        [("KeyId", "[KMS_Key_001](kms.md#kms-app-preview-data)", "識別子")],
+        [
+            (
+                "KeyId",
+                '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
+                "識別子",
+            )
+        ],
         "Key",
     )
     kms.update(
@@ -94,7 +100,7 @@ def check(root):
             "desired.service.identity.lastAllocated": '{"KMS.Key":1,"KMS.Alias":1}',
             "desired.resource.002.cfn-logicalId": "fixture-Alias",
             "desired.resource.002.parentProperty": "KMS.Alias.TargetKeyId",
-            "desired.resource.002.parentReference": "[KMS_Key_001](kms.md#kms-app-preview-data)",
+            "desired.resource.002.parentReference": '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
             "desired.row.002-001.property": "KMS.Alias.AliasName",
             "desired.row.002-001.value": "`alias/app-preview-data`",
             "desired.row.002-001.comment": "キーの別名",

@@ -18,6 +18,7 @@ from design.layout_schema import resource_anchor
 from model.core import properties
 from model.files import read_model
 from model.render import markdown_for
+from support.import_model_fixtures import resource_values, service_values
 from support.model_sources import write_model
 from support.validator import load
 
@@ -147,6 +148,20 @@ def fixture(parents=1, children=1, deployed=False):
                         }
                     )
     return values
+
+
+def role_fixture(root):
+    values = service_values("iam", ["IAM.Role"])
+    values.update(
+        resource_values(
+            "001",
+            "IAM.Role",
+            "iam-app-dev-worker-role",
+            "CREATE",
+            [("RoleName", "`app-dev-worker-role`")],
+        )
+    )
+    write_model(root / "model/dev/123456789012/iam.properties", values)
 
 
 def rejects(action, message):
