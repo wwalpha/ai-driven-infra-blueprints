@@ -784,6 +784,35 @@ def check_human_approved_validation_failure():
             "cleaned"
         ]  # Stored approval survives cleanup retry.
         assert not wt.branch_exists(root, state["branch"])
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("task\n")
+        tasks.suspend(target, state["task_file"], "Local loop failed: fixture")
+        (root / "file.txt").write_text("base\n")
+        git(root, "add", "file.txt")
+        git(root, "commit", "-qm", "base update")
+        latest = git(root, "rev-parse", "HEAD")
+        result = cli(root, "finalize", success=False, approval=approval)
+        assert "aborted" in result["error"]
+        old = result["commit"]
+        contract = (target / state["task_file"]).read_text()
+        with _imports_pytest.raises(wt.Blocked, match="aborted"):
+            wt.recover(root, "example", old, latest)
+        assert (target / state["task_file"]).read_text() == contract
+        assert wt.git(target, "rebase", latest, check=False).returncode
+        (target / "file.txt").write_text("base\ntask\n")
+        git(target, "add", "file.txt")
+        git(target, "rebase", "--continue")
+        (target / state["task_file"]).write_text(contract + "\nchanged\n")
+        with _imports_pytest.raises(wt.Blocked, match="dirty"):
+            wt.recover(root, "example", old, latest, finish=True)
+        (target / state["task_file"]).write_text(contract)
+        recovered = wt.recover(root, "example", old, latest, finish=True)
+        assert recovered["validation_failure_approval"] == approval
+        assert tasks.status(contract) == "suspend" and "Local loop failed" in contract
+        assert cli(root, "finalize")["cleaned"]
+        assert (root / "file.txt").read_text() == "base\ntask\n"
+        assert approval in git(root, "log", "-1", "--format=%b")
 
 
 @it_case

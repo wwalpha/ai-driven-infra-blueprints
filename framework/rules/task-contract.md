@@ -387,7 +387,14 @@ The verified recovery base becomes the Task validation baseline; retain the orig
 lifecycle start separately, excluding inherited base changes from this Task scope.
 No hand-written lifecycle metadata is permitted. Recovery never merges or grants a
 validation PASS. Run the required IT and Full checks, complete the contract, and use
-normal finalize/cleanup. Model tasks and approved-validation-failure tasks are excluded.
+normal finalize/cleanup. Model tasks are excluded. A governance task with a recorded
+Human validation-failure approval may use this recovery only after Human review of the
+concrete conflict resolution. Start from its clean verified commit; preserve the exact
+suspended contract, reason and approval throughout recovery and re-pinning. The receipt
+checks those bytes and approval, scope, base and history before registering the candidate.
+The accepted failures remain FAIL; recovery grants no Validation PASS or completion.
+After the reviewed resolution, use the recorded approval for normal finalize/cleanup.
+Any further change beyond the reviewed resolution requires renewed Human review and approval.
 
 ## Task Acceptance exclusions
 

@@ -221,8 +221,7 @@ commit/base hashes. It reopens only that contract, pins the recovery, and retain
 normal finalize guards. After its aborted rebase, the authorized manual rebase may
 resolve the reviewed conflicts; `--finish-recovery` registers the clean exact-base
 candidate through the helper. Do not hand-edit metadata. Then execute the required
-IT/Full validation before completing and finalizing. This is not a failed-validation
-integration exception and does not apply to Model tasks.
+IT/Full validation before completing and finalizing. This does not apply to Model tasks.
 
 If the base advances during recovery, resume a suspended contract and review the
 clean candidate first. Run `recover --repin-recovery` with the full current candidate
@@ -231,6 +230,13 @@ retains the old receipt and checks the old-base history/count/scope plus descend
 base before re-pinning. Manually rebase onto that pinned base, then use those new
 commit/base arguments for `--finish-recovery`. Re-pinning grants no validation PASS;
 rerun IT/Full on the final candidate before normal completion/finalize/cleanup.
+
+For a governance task with a recorded Human validation-failure approval, the same
+reviewed recovery accepts only a clean verified task and preserves its suspended
+contract, reason and approval. Human review must identify the conflict resolution.
+After `--finish-recovery`, use normal finalize with the recorded approval; do not
+complete the Task or report the accepted failures as PASS. Any further change beyond
+the reviewed resolution requires renewed Human review and approval.
 
 Standalone `import-retarget` uses the existing running-parent final-candidate path.
 Require successful latest-base reference/preservation validation; failed-validation

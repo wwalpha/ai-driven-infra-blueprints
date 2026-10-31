@@ -752,7 +752,11 @@ def _recovery_candidate(target, state, text, recovery):
     head = output(target, "rev-parse", "HEAD")
     if (
         changed_paths(target)
-        or tasks.status(text) != "running"
+        or tasks.status(text) != ("suspend" if state.get("validation_failure_approval") else "running")
+        or ("approval" in recovery and (
+            recovery["approval"] != state.get("validation_failure_approval")
+            or recovery["contract"] != hashlib.sha256(text.encode("utf-8")).hexdigest()
+        ))
         or git(
             target, "merge-base", "--is-ancestor", base, head, check=False
         ).returncode
@@ -787,14 +791,11 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
             for value in (expected_commit, expected_base)
         ):
             raise Blocked("recovery requires full expected commit/base hashes")
-        if (
-            state["merged"]
-            or state.get("validation_failure_approval")
-            or not state["verified"]
-        ):
+        if state["merged"] or not state["verified"]:
             raise Blocked(
-                "recovery requires an unmerged verified task without failure approval"
+                "recovery requires an unmerged verified task"
             )
+        approval = state.get("validation_failure_approval")
         if output(base, "rev-parse", "HEAD") != expected_base:
             raise Blocked("recovery base changed")
         text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
@@ -823,6 +824,7 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
                     "recovery re-pin requires a descendant of its previous base"
                 )
             state["recovery"] = dict(
+                **{k: v for k, v in recovery.items() if k in {"approval", "contract"}},
                 commit=head,
                 base=expected_base,
                 count=recovery["count"],
@@ -851,7 +853,9 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
             or output(target, "rev-parse", "HEAD") != expected_commit
         ):
             raise Blocked("recovery task commit changed or recovery already started")
-        if tasks.status(text) not in {"completed", "running"}:
+        if approval and (not isinstance(approval, str) or not approval.strip()):
+            raise Blocked("invalid recorded validation failure approval")
+        if tasks.status(text) not in ({"suspend"} if approval else {"completed", "running"}):
             raise Blocked("resume suspended tasks before recovery")
         if git(
             target,
@@ -868,18 +872,25 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
             )
         )
         changed = bool(changed_paths(target))
+        if approval and changed:
+            raise Blocked("approved failure recovery requires a clean reviewed task")
         state["recovery"] = dict(
             commit=expected_commit, base=expected_base, count=str(count + changed)
         )
-        tasks.atomic_files(
-            {target / state["task_file"]: tasks.set_status(text, "running")},
-            staging_directory=target,
-        )
+        if approval:
+            state["recovery"].update(
+                approval=approval, contract=hashlib.sha256(text.encode("utf-8")).hexdigest()
+            )
+        else:
+            tasks.atomic_files(
+                {target / state["task_file"]: tasks.set_status(text, "running")},
+                staging_directory=target,
+            )
         # Permit only this explicitly pinned correction commit; normal finalize guards stay closed.
         if changed:
             state["commit"] = None
         try:
-            _prepare_commit(root, path, state, target, None)
+            _prepare_commit(root, path, state, target, approval)
         except Blocked as error:
             if str(error).startswith("rebase failed and was aborted"):
                 save(path, state)
