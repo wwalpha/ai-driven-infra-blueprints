@@ -80,6 +80,13 @@ def check_service_adapters(tmp_path):
             ctx.egress = False
             ctx.verify()
             resource = FakeResource(ctx, service, owner)
+            if kind in {"QuickSight.DataSource", "QuickSight.VPCConnection"}:
+                resource.rows.append(
+                    (
+                        "001-001",
+                        {"property": kind + ".AwsAccountId", "value": "fixture"},
+                    )
+                )
             for prop, field in relevant.items():
                 value = m.select(ctx.fetch(resource, field.getter), field.path)
                 check(
@@ -156,7 +163,7 @@ def check_service_adapters(tmp_path):
                 any(item["status"] == wanted for item in results),
                 service + ": " + state + ": " + repr(results),
             )
-    check(type_count == 52, "all adapter types exercised")
+    check(type_count == 53, "all adapter types exercised")
     print(
         f"Service acquisition/field extraction: {type_count} resource types, {field_count} supported mappings, {len(REPRESENTATIVES)} × 4 comparison cases"
     )

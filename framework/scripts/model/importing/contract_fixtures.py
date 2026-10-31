@@ -105,6 +105,18 @@ def set_path(tree, path, value):
 
 
 PATCHES = {
+    ("quicksight", "describe_group"): {
+        "Group.Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:group/default/fixture"
+    },
+    ("quicksight", "describe_data_source"): {
+        "DataSource.Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:datasource/fixture"
+    },
+    ("quicksight", "describe_data_source_permissions"): {
+        "DataSourceArn": "arn:aws:quicksight:ap-northeast-1:123456789012:datasource/fixture"
+    },
+    ("quicksight", "describe_vpc_connection"): {
+        "VPCConnection.Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:vpcConnection/fixture"
+    },
     ("sts", "get_caller_identity"): {
         "Account": ACCOUNT,
         "Arn": "arn:aws:iam::" + ACCOUNT + ":user/offline",

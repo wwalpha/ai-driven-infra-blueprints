@@ -185,7 +185,7 @@ class FakeResource:
             return [
                 ("001-001", {"property": self.kind + ".Queues[]", "value": "fixture"})
             ]
-        return []
+        return [row for row in self.rows if row[1]["property"].endswith("." + prop)]
 
     def optional(self, prop, default=None, norm="typed"):
         if self.kind == "Route53.RecordSet" and prop == "SetIdentifier":

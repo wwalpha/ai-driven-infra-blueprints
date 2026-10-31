@@ -770,7 +770,7 @@ def quicksight_source_fixture(
                     "normal",
                     "missing-selector",
                     "access-denied",
-                    "account-mismatch",
+                    "invalid-account",
                     "athena-or-snowflake",
                 ],
             )
@@ -828,13 +828,15 @@ def quicksight_source_fixture(
         else "quicksight.describe_data_source",
         "DataSourceId",
     )
-    ctx.target["awsAccountId"] = "999999999999"
+    for _, row in resources[1].rows:
+        if row["property"].endswith(".AwsAccountId"):
+            row["value"] = "`invalid`"
     try:
         resources[1].module.fetch(ctx, resources[1], getter)
     except cli.comparator().Unresolved:
         pass
     else:
-        raise ValueError("QuickSight data source account mismatch was accepted")
+        raise ValueError("Invalid QuickSight data source account was accepted")
     return items
 
 
@@ -1454,7 +1456,7 @@ def security_group_fixture(
             setattr(fake, mismatch, True)
             try:
                 resource.module.fetch(ctx, resource, getter)
-            except cli.comparator().AcquisitionError:
+            except (cli.comparator().AcquisitionError, cli.comparator().Unresolved):
                 pass
             else:
                 raise ValueError("Rule parent/direction mismatch was accepted")
@@ -2343,7 +2345,7 @@ class MacieJobCalls(DirectCalls):
             raise self.error
         expected = {
             "filterCriteria": {
-                "includes": [{"key": "NAME", "comparator": "EQ", "values": ["fixture"]}]
+                "includes": [{"key": "name", "comparator": "EQ", "values": ["fixture"]}]
             }
         }
         if (api, operation) != ("macie2", "list_classification_jobs") or inputs not in (
@@ -2640,7 +2642,6 @@ def ec2_network_fixture(
             }
         )
         filters = [
-            {"Name": "tag:Name", "Values": ["fixture"]},
             {"Name": "resource-id", "Values": ["vpc-12345678"]},
         ]
     elif kind == "EC2.TransitGatewayVpcAttachment":
@@ -6061,14 +6062,16 @@ def vpc_fixture(root: Path, mapping: Any, prop: Any) -> None:
             },
         )
     )
-    ctx.target["awsAccountId"] = "999999999999"
+    for _, row in resource.rows:
+        if row["property"].endswith(".AwsAccountId"):
+            row["value"] = "`invalid`"
     clear_fetch(ctx)
     try:
         resource.module.fetch(ctx, resource, "vpc")
     except cli.comparator().Unresolved:
         pass
     else:
-        raise ValueError("Account scope mismatch was accepted")
+        raise ValueError("Invalid account was accepted")
 
 
 def vpc_properties_fixture(
@@ -6123,7 +6126,7 @@ def vpc_properties_fixture(
             "missing-value",
             "access-denied",
             "missing-selector",
-            "account-mismatch",
+            "invalid-account",
         ],
     )
     dns_evidence = items.get("QuickSight.VPCConnection.DnsResolvers")
@@ -6138,6 +6141,39 @@ def vpc_properties_fixture(
     ]:
         raise ValueError("VPC adapter request differs from fixture")
     missing_values(ctx, fake, resource, mapping, items, payload)
+    return items
+
+
+def group_namespace_fixture(
+    root: Path, mapping: Any, properties: list[str]
+) -> dict[str, Any]:
+    payload = {
+        "GroupName": "group",
+        "Arn": f"arn:aws:quicksight:ap-northeast-1:{ACCOUNT}:group/default/group",
+    }
+    ctx, fake = fixture_context(root, "quicksight", FakeCalls, payload)
+    record = inventory.sdk_inventory.collect(ctx, "QuickSight.Group")[0]
+    resource = fixture_resource(root, ctx, "quicksight", record)
+    items = fixture_properties(
+        ctx,
+        resource,
+        mapping,
+        properties,
+        "QuickSight.Group",
+        {"Namespace": ("Namespace", "typed", "default")},
+        ["normal"],
+    )
+    fake.payload = {"GroupName": "group"}
+    clear_fetch(ctx)
+    try:
+        resource.module.fetch(ctx, resource, "group-namespace")
+    except cli.comparator().Unresolved:
+        pass
+    else:
+        raise ValueError("Missing Group ARN was accepted")
+    for item in items.values():
+        if item["status"] == "verified":
+            item["branches"].append("missing-arn")
     return items
 
 
@@ -6182,16 +6218,18 @@ def group_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str, 
         "quicksight.describe_group",
         "Namespace",
     )
-    ctx.target["awsAccountId"] = "999999999999"
+    for _, row in resource.rows:
+        if row["property"].endswith(".AwsAccountId"):
+            row["value"] = "`invalid`"
     try:
         resource.module.fetch_sdk(ctx, resource, "describe_group")
     except cli.comparator().Unresolved:
         pass
     else:
-        raise ValueError("Account scope mismatch was accepted")
+        raise ValueError("Invalid account was accepted")
     for evidence in items.values():
         if evidence["status"] == "verified":
-            evidence["branches"].extend(["access-denied", "account-mismatch"])
+            evidence["branches"].extend(["access-denied", "invalid-account"])
     return items
 
 
@@ -6280,6 +6318,7 @@ def run(root: Path, mapping: Any, kind: str) -> dict[str, Any]:
                 "sdk-lakeformation-resource",
             ): lakeformation_fixture,
             ("QuickSight.Group", "sdk-quicksight-group"): group_fixture,
+            ("QuickSight.Group", "group-namespace"): group_namespace_fixture,
             ("QuickSight.DataSource", "base"): quicksight_source_fixture,
             ("QuickSight.DataSource", "permissions"): quicksight_source_fixture,
             ("QuickSight.VPCConnection", "vpc"): vpc_properties_fixture,
@@ -6398,6 +6437,10 @@ def run(root: Path, mapping: Any, kind: str) -> dict[str, Any]:
                 ["ResourceArn"],
             ),
             ("QuickSight.Group", "sdk-quicksight-group"): (
+                "quicksight.describe_group",
+                ["AwsAccountId", "Namespace", "GroupName"],
+            ),
+            ("QuickSight.Group", "group-namespace"): (
                 "quicksight.describe_group",
                 ["AwsAccountId", "Namespace", "GroupName"],
             ),

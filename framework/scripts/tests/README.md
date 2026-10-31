@@ -295,7 +295,7 @@ Design共通処理は `../design/`、サービス固有処理は `../design/serv
 
 ## check-model-aws の責務 (Issue #20)
 
-全52 Adapter Resource Type、全supported field、ID/ARN/NameとAPI trace/cache、
+全53 Adapter Resource Type、全supported field、ID/ARN/NameとAPI trace/cache、
 27サービス×4比較状態は `units/check-model-aws-adapter-unit.checks.py` が実Adapterと比較関数で検証する。
 `SchemaOffline` はBotocore Service Modelを実行内再利用し、API名・入力・応答をSDK Schemaで検証する。
 応答はSchemaと既存PATCHESから生成し、MappingのField Pathは生成入力に使わない。

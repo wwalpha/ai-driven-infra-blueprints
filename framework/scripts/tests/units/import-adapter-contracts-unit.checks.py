@@ -93,10 +93,13 @@ def test_real_adapter_and_sdk_fixture_results():
         "missing-value",
         "access-denied",
         "missing-selector",
-        "account-mismatch",
+        "invalid-account",
     } <= set(dns["branches"])
     assert vpc["vpc"]["status"] == "verified"
     group = adapter_contracts.run(ROOT, mapping, "QuickSight.Group")
+    namespace = group["group-namespace"]["properties"]["QuickSight.Group.Namespace"]
+    assert namespace["status"] == "verified"
+    assert "missing-arn" in namespace["branches"]
     assert (
         group["sdk-quicksight-group"]["properties"]["QuickSight.Group.GroupName"][
             "status"

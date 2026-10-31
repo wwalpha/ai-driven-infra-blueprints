@@ -763,8 +763,8 @@ def fixture_coverage(root):
         "all current services mechanically enumerated with fixed logicalIds",
     )
     check(
-        sum(map(len, report["adapterResourceTypes"].values())) == 52,
-        "52 actual adapter types",
+        sum(map(len, report["adapterResourceTypes"].values())) == 53,
+        "53 actual adapter types",
     )
     check(
         sum(
