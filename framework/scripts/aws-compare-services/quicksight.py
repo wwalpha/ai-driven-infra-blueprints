@@ -17,7 +17,20 @@ def sensitive(prop):
 
 
 def fetch(ctx, r, getter):
-    account = r.value("AwsAccountId")
+    omitted = (
+        r.kind == "QuickSight.DataSource"
+        and getter == "base"
+        and not r.rows_for("AwsAccountId")
+    )
+    if omitted:
+        account = ctx.target["awsAccountId"]
+        if (
+            not ctx.verified
+            or ctx.target.get("awsExecutionAccountId", account) != account
+        ):
+            raise Unresolved("QuickSight execution account conflicts with target")
+    else:
+        account = r.value("AwsAccountId")
     if account != ctx.target["awsAccountId"]:
         raise Unresolved("QuickSight AwsAccountId conflicts with target")
     if getter == "vpc":
@@ -43,7 +56,7 @@ def fetch(ctx, r, getter):
         )["DataSource"]
     else:
         raise Unresolved("QuickSight resource has no matching adapter getter")
-    return dict(result, AwsAccountId=account)
+    return result if omitted else dict(result, AwsAccountId=account)
 
 
 SDK_OPERATIONS = {"QuickSight.Group": "describe_group"}

@@ -1331,3 +1331,111 @@ def check_lakeformation_resource_comparison(tmp_path):
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+@pytest.mark.parametrize(
+    "accounts,execution,verified,identifier,works",
+    [
+        ([], ACCOUNT, True, "fixture", True),
+        ([ACCOUNT], ACCOUNT, True, "fixture", True),
+        (["999999999999"], ACCOUNT, True, "fixture", False),
+        ([ACCOUNT, ACCOUNT], ACCOUNT, True, "fixture", False),
+        (["PENDING_DEPLOY"], ACCOUNT, True, "fixture", False),
+        ([], "999999999999", True, "fixture", False),
+        ([], ACCOUNT, False, "fixture", False),
+        ([], ACCOUNT, True, None, False),
+    ],
+)
+def test_quicksight_datasource_selector(
+    tmp_path, accounts, execution, verified, identifier, works
+):
+    ctx = SchemaOffline(tmp_path)
+    ctx.target["awsExecutionAccountId"] = execution
+    ctx.verified = verified
+    kind = "QuickSight.DataSource"
+    rows = [
+        (str(i), {"property": kind + ".AwsAccountId", "value": f"`{value}`"})
+        for i, value in enumerate(accounts)
+    ]
+    if identifier is not None:
+        rows.append(
+            ("id", {"property": kind + ".DataSourceId", "value": f"`{identifier}`"})
+        )
+    model = SimpleNamespace(
+        ctx=ctx,
+        service="quicksight",
+        values={},
+        locations={},
+        path=tmp_path / "model/dev" / ACCOUNT / "quicksight.properties",
+    )
+    resource = m.Resource(
+        model,
+        "001",
+        {"resourceType": kind, "logicalId": "QuickSight_DataSource_001"},
+        rows,
+    )
+    with patch.object(
+        ctx, "call", return_value={"DataSource": {"Type": "ATHENA"}}
+    ) as call:
+        if works:
+            result = resource.module.fetch(ctx, resource, "base")
+            check(result["Type"] == "ATHENA", "actual type retained")
+            check(
+                bool(accounts) or "AwsAccountId" not in result,
+                "omitted account is not response data",
+            )
+            call.assert_called_once_with(
+                "quicksight",
+                "describe_data_source",
+                AwsAccountId=ACCOUNT,
+                DataSourceId="fixture",
+            )
+        else:
+            with pytest.raises(m.Unresolved):
+                resource.module.fetch(ctx, resource, "base")
+            call.assert_not_called()
+
+
+def test_quicksight_other_getters_unchanged(tmp_path):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    module = m.service_module("quicksight")
+    resource = Mock()
+    resource.kind = "QuickSight.VPCConnection"
+    resource.value.side_effect = lambda prop: {
+        "AwsAccountId": ACCOUNT,
+        "VPCConnectionId": "vpc-id",
+        "Namespace": "default",
+        "GroupName": "readers",
+    }[prop]
+    with patch.object(
+        ctx, "call", return_value={"VPCConnection": {"Name": "vpc"}}
+    ) as call:
+        module.fetch(ctx, resource, "vpc")
+        call.assert_called_once_with(
+            "quicksight",
+            "describe_vpc_connection",
+            AwsAccountId=ACCOUNT,
+            VPCConnectionId="vpc-id",
+        )
+    resource.kind = "QuickSight.DataSource"
+    resource.value.side_effect = m.Unresolved("missing account")
+    with patch.object(ctx, "call") as call:
+        with pytest.raises(m.Unresolved):
+            module.fetch(ctx, resource, "permissions")
+        call.assert_not_called()
+    resource.kind = "QuickSight.Group"
+    resource.value.side_effect = lambda prop: {
+        "AwsAccountId": ACCOUNT,
+        "Namespace": "default",
+        "GroupName": "readers",
+    }[prop]
+    with patch.object(ctx, "call", return_value={"Group": {}}) as call:
+        module.fetch_sdk(ctx, resource, "describe_group")
+        call.assert_called_once_with(
+            "quicksight",
+            "describe_group",
+            AwsAccountId=ACCOUNT,
+            Namespace="default",
+            GroupName="readers",
+        )

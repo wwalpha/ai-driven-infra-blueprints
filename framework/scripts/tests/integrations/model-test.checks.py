@@ -1755,3 +1755,68 @@ def check():
 if __name__ == "__main__":
     with patch.dict(sys.modules):
         check()
+
+
+def test_quicksight_generated_standalone():
+    case = TestCase()
+    with tempfile.TemporaryDirectory(prefix="audit-quicksight-") as directory:
+        root = Path(directory)
+        target = {
+            "environment": "dev",
+            "alias": "cde",
+            "awsAccountId": "123456789012",
+            "awsRegion": "ap-northeast-1",
+            "iacEngine": "cloudformation",
+        }
+        (root / "project.json").write_text(
+            json.dumps({"projectName": "fixture", "targets": [target]})
+        )
+        data = fixture(
+            {},
+            "quicksight",
+            [
+                (
+                    "001",
+                    "QuickSight.DataSource",
+                    "source",
+                    [("Type", "`ATHENA`", None), ("DataSourceId", "`source-id`", None)],
+                )
+            ],
+        )
+        write_model(
+            root / "model/dev/cde/quicksight.properties",
+            data["models"]["dev/cde/quicksight"],
+        )
+        source = generator.generate(root, "dev", "cde", "quicksight")[0]
+        script = root / "quicksight.py"
+        script.write_text(source)
+        fake = root / "aws"
+        fake.write_text(
+            "#!"
+            + sys.executable
+            + "\n"
+            + """import json, os, sys
+api = sys.argv[1:3]
+args = json.loads(sys.argv[sys.argv.index("--cli-input-json") + 1])
+if api == ["sts", "get-caller-identity"]:
+ value = {"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/offline"}
+elif api == ["quicksight", "describe-data-source"] and args == {"AwsAccountId": "123456789012", "DataSourceId": "source-id"}:
+ value = {"DataSource": {"Type": os.environ["ACTUAL_TYPE"], "DataSourceId": "source-id"}}
+else:
+ raise RuntimeError(str((api, args)))
+print(json.dumps(value))
+"""
+        )
+        fake.chmod(0o700)
+        for actual, marker in [("ATHENA", "[OK]"), ("REDSHIFT", "[NG]")]:
+            process = subprocess.run(
+                [sys.executable, "-I", "-B", str(script)],
+                cwd=root,
+                env={**os.environ, "PATH": str(root), "ACTUAL_TYPE": actual},
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            case.assertIn(marker, process.stdout, process.stdout + process.stderr)
+            case.assertIn("Type", process.stdout)
+            case.assertIn(actual, process.stdout)
