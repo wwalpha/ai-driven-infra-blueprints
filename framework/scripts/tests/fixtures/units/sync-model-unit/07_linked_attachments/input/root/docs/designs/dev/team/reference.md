@@ -1,1 +1,0 @@
-[attachment](reference/attachment.bin)

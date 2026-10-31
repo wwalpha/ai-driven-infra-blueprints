@@ -27,10 +27,12 @@ import utils.aws_schemas as aws_schemas
 import utils.input_cache as _imports_input_cache
 import validation.design_links as _imports_validation_design_links
 from design.catalog import property_paths_with_parents
-from model.core import SnapshotValues, properties
+from model.core import SnapshotValues
+from model.format import serialize
+from model.identity import COUNTERS
 from model.sources import runtime_values
+from support.issues_scan_fixtures import task as issue_task
 from support.pytest_cli import run
-from support.ut_file_fixtures import load_workspace
 from sync_files import changed_files, markdown_newlines
 from task_contract_core import selected_task
 from utils.aws_mappings import definition_root, mapping_alias
@@ -78,17 +80,16 @@ def check_property_path_parents():
 @pytest.mark.parametrize("final", [False, True])
 def check_markdown_newlines(tmp_path, newline, final):
     path = tmp_path / "design.md"
-    ending = "lf" if newline == "\n" else "crlf"
-    load_workspace(__file__, f"02_markdown_{ending}_{str(final).lower()}", tmp_path)
     expected = ("# 日本語" + newline + "value" + (newline if final else "")).encode(
         "utf-8"
     )
+    path.write_bytes(expected)
     assert markdown_newlines(path, "# 日本語\nvalue\n").encode() == expected
     assert changed_files({path: "# 日本語\nvalue\n"}) == {}
     assert set(changed_files({path: "# 日本語\nchanged\n"})) == {path}
-    path = tmp_path / "mixed.md"
+    path.write_bytes(b"one\r\ntwo\n")
     assert markdown_newlines(path, "one\ntwo\n") == "one\ntwo\n"
-    path = tmp_path / "cr.md"
+    path.write_bytes(b"one\rtwo")
     assert markdown_newlines(path, "one\ntwo\n") == "one\ntwo\n"
 
 
@@ -146,7 +147,10 @@ def check_internal_sync_concurrent_output(tmp_path, capsys):
 )
 def check_internal_sync_arguments(tmp_path, arguments, code, diagnostic, capsys):
     runner = module("sync-model.py", "blueprint_sync_model")
-    load_workspace(__file__, "01_internal_sync_arguments", tmp_path)
+    (tmp_path / "tasks").mkdir()
+    (tmp_path / "tasks/example.md").write_text(
+        "## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n## Validation scope\n- `all`\n"
+    )
     result, text = runner.run(arguments, repository_root=tmp_path)
     assert result == code and diagnostic in text, text
     assert progress._current.get() is None and progress._output.get() is None
@@ -264,10 +268,15 @@ def check_snapshot_conflict(tmp_path, filename, mutation):
         "task": "tasks/concurrent.md",
     }
     target = tmp_path / paths[filename]
+    target.parent.mkdir(parents=True, exist_ok=True)
     if mutation != "add":
-        load_workspace(__file__, "03_snapshot_" + filename.replace("-", "_"), tmp_path)
-    else:
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(
+            b"## Task contract\n- Task type: `governance`\n- Task status: `running`\n"
+            b"## Modified files\n- `tasks/concurrent.md`\n"
+            b"## Allowed paths\n- `tasks/concurrent.md`\n## Validation scope\n- `framework`\n"
+            if filename == "task"
+            else b"original\r\n"
+        )
     snapshot = sync_runtime.GenerationInputs(tmp_path)
     try:
         if filename == "task" and mutation != "add":
@@ -306,9 +315,14 @@ def check_snapshot_conflict(tmp_path, filename, mutation):
 def check_snapshot_project_common_inputs(tmp_path, mutation):
     root, definitions = tmp_path / "repo", tmp_path / "definitions"
     project = root / "project.json"
-    load_workspace(__file__, "04_snapshot_common", tmp_path)
+    project.parent.mkdir()
+    project.write_bytes(b"{}")
     distributed = definitions / "README.md"
+    distributed.parent.mkdir()
+    distributed.write_bytes(b"distributed")
     framework = definitions / "framework/mapping.json"
+    framework.parent.mkdir()
+    framework.write_bytes(b"{}")
     snapshot = sync_runtime.GenerationInputs(root, definitions)
     cache = PassCache(root, definitions_root=definitions)
     with patch.object(snapshot, "live_select", wraps=snapshot.live_select) as select:
@@ -338,7 +352,7 @@ def check_snapshot_project_common_inputs(tmp_path, mutation):
 
 def check_planned_outputs_and_boundary(tmp_path):
     path, created = tmp_path / "view.md", tmp_path / "new.json"
-    load_workspace(__file__, "05_planned_outputs", tmp_path)
+    path.write_bytes(b"original\r\n")
     snapshot = sync_runtime.GenerationInputs(tmp_path)
     expected = {path: markdown_newlines(path, "original\n"), created: "{}\n"}
     plan = SimpleNamespace(expected_outputs={path: expected}, snapshot=snapshot)
@@ -377,18 +391,21 @@ def _callback_check_stage_dependency_selection_loaded(
 def check_stage_dependency_selection(tmp_path, write):
     root, stage = tmp_path / "root", tmp_path / "stage"
     _ = root / "docs/designs/dev/team/iam.md"
-    load_workspace(__file__, "06_stage_dependencies", tmp_path)
     files = {
-        "docs/designs/dev/team/iam.md",
-        "docs/designs/dev/team/iam/policy.json",
-        "docs/designs/dev/team/other.md",
-        "docs/designs/dev/team/out.md",
-        "docs/designs/dev/team/in.md",
-        "model/dev/team/iam.properties",
-        "model/dev/team/unrelated.properties",
-        "project.json",
-        "tests/results/unrelated.log",
+        "docs/designs/dev/team/iam.md": "# selected\n",
+        "docs/designs/dev/team/iam/policy.json": "{}\n",
+        "docs/designs/dev/team/other.md": "# unrelated\n",
+        "docs/designs/dev/team/out.md": "# reference\n",
+        "docs/designs/dev/team/in.md": "<!-- reference-rows: obsolete -->\n[incoming](iam.md#id)\n",
+        "model/dev/team/iam.properties": "# model-format: 2\n# required\n",
+        "model/dev/team/unrelated.properties": "# model-format: 2\n# unused\n",
+        "project.json": "{}\n",
+        "tests/results/unrelated.log": "unrelated\n",
     }
+    for relative, text in files.items():
+        file = root / relative
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(text)
     model = root / "model/dev/team/iam.properties"
     authority = root / "model/dev/team/iam.properties"
     inputs = sync_runtime.GenerationInputs(root)
@@ -442,24 +459,26 @@ def check_linked_attachments(tmp_path, write):
     check_design_links = _imports_validation_design_links.check_design_links
     root, stage = tmp_path / "root", tmp_path / "stage"
     design = root / "docs/designs/dev/team/service.md"
-    load_workspace(__file__, "07_linked_attachments", tmp_path)
+    reference = design.with_name("reference.md")
     payloads = {
-        path: path.read_bytes()
-        for relative in (
-            "service/code.zip",
-            "service/nested/requirements.txt",
-            "shared/opaque",
-            "reference/attachment.bin",
-            "service/extra.json",
-        )
-        for path in [design.parent / relative]
+        design.parent / "service/code.zip": b"PK\x03\x04\x00\xff\x80",
+        design.parent / "service/nested/requirements.txt": b"package==1\r\n",
+        design.parent / "shared/opaque": b"\x00\xfe",
+        design.parent / "reference/attachment.bin": b"\x81\x00",
+        design.parent / "service/extra.json": b"{}\n",
     }
-    saved = design.read_text(encoding="utf-8")
+    for path, data in payloads.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    saved = "[zip](service/code.zip) [txt](service/nested/requirements.txt)\n"
+    design.write_text(saved, encoding="utf-8")
+    reference.write_text("[attachment](reference/attachment.bin)\n", encoding="utf-8")
     values = {
         "note": saved + "[opaque](shared/opaque) [reference](reference.md) "
         "[missing](service/missing.txt) [web](https://example.com/file.zip)"
     }
     unrelated = design.parent / "service/unreferenced.bin"
+    unrelated.write_bytes(b"unused")
     snapshot = sync_runtime.GenerationInputs(root) if write else None
     if snapshot:
         snapshot.stage = stage
@@ -554,7 +573,7 @@ def check_final_git_paths(tmp_path, baseline, final, index, committed):
     task = TaskValidation(tmp_path, Findings(tmp_path))
     task.baseline, task.baseline_fixed = baseline, True
     if baseline is None:
-        load_workspace(__file__, "09_final_paths", tmp_path)
+        (tmp_path / "new.md").write_bytes(b"exists")
     calls = []
     git_paths = _bind_framework_callback(
         _callback_check_final_git_paths_git_paths,
@@ -632,7 +651,7 @@ def check_scope_git_collection(tmp_path, mode, count, final, permission):
     task = TaskValidation(tmp_path, Findings(tmp_path), final_candidate=candidate)
     task.baseline, task.baseline_fixed = ("start" if mode == "baseline" else None), True
     task.issues_only = mode == "issues"
-    load_workspace(__file__, "10_scope_git", tmp_path)
+    (tmp_path / "present.txt").write_text("exists")
     with (
         patch.object(task, "git_paths", side_effect=_scope_git_paths) as paths,
         patch.object(
@@ -673,9 +692,20 @@ def check_issue_task_ignores_other_task_git_changes(tmp_path):
         ["git", "-C", str(tmp_path), "commit", "--allow-empty", "-qm", "initial"],
         check=True,
     )
-    load_workspace(__file__, "11_issue_task", tmp_path)
-    with selected_task(tmp_path, "tasks/save.md"):
+    with issue_task(tmp_path, ["s3"]):
         contract = tmp_path / "tasks/save.md"
+        contract.write_text(
+            contract.read_text() + "\n## Required changes\n- [R1] Save reports\n"
+            "\n## Acceptance checks\n- [R1] `exists:issues/dev/123456789012/issues.md`\n- [R1] `exists:issues/dev/123456789012/iac-issues.md`\n"
+        )
+        report = tmp_path / "issues/dev/123456789012/issues.md"
+        report.parent.mkdir(parents=True)
+        report.write_text("未解決issueなし")
+        report.with_name("iac-issues.md").write_text("未解決IaC issueなし")
+        for relative in ("model/dev/123456789012/s3.properties", "infra/app.yaml"):
+            path = tmp_path / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("other Task input")
         subprocess.run(
             ["git", "-C", str(tmp_path), "add", "model", "infra"], check=True
         )
@@ -719,8 +749,15 @@ def add_other_issue_task(root):
 
 
 def check_issue_validation_ignores_contract_catalog_changes(tmp_path):
-    load_workspace(__file__, "12_issue_validation", tmp_path)
-    with selected_task(tmp_path, "tasks/save.md"):
+    with issue_task(tmp_path, ["s3"]):
+        contract = tmp_path / "tasks/save.md"
+        contract.write_text(
+            contract.read_text() + "\n## Required changes\n- [R1] Save report\n"
+            "\n## Acceptance checks\n- [R1] `exists:issues/dev/123456789012/issues.md`\n"
+        )
+        report = tmp_path / "issues/dev/123456789012/issues.md"
+        report.parent.mkdir(parents=True)
+        report.write_text("未解決issueなし")
         validator = validation_runner.Validator(tmp_path, set(), cache=True)
         methods = (
             "check_structure",
@@ -792,20 +829,22 @@ def check_integrated_generation_with_issues(
 ):
     good = tmp_path / "docs/designs/dev/123456789012/iam.md"
     rejected = good.with_name("kms.md")
-    case = (
-        "13_integrated_issues" if inventory.startswith("###") else "13_integrated_empty"
-    )
-    load_workspace(__file__, case, tmp_path)
+    good.parent.mkdir(parents=True)
+    good.write_bytes(b"old IAM\n")
+    rejected.write_bytes(b"old KMS\n")
     issue = tmp_path / "issues/dev/123456789012/issues.md"
+    issue.parent.mkdir(parents=True)
+    issue.write_text(inventory, encoding="utf-8")
     scope = {("dev", "123456789012", service) for service in ("iam", "kms")}
     outputs = [path.relative_to(tmp_path).as_posix() for path in (good, rejected)]
     with (
-        selected_task(tmp_path, "tasks/save.md"),
+        issue_task(tmp_path, ["iam", "kms"], allowed=outputs),
         closing(sync_runtime.GenerationInputs(tmp_path)) as snapshot,
     ):
         stage = snapshot.open_stage()
         staged = stage / good.relative_to(tmp_path)
-        load_workspace(__file__, "14_integrated_stage", stage)
+        staged.parent.mkdir(parents=True)
+        staged.write_bytes(b"new IAM\n")
         plan = sync_runtime.Generation(
             tmp_path, stage, scope, [], [good, rejected], snapshot, ExitStack()
         )
@@ -816,7 +855,7 @@ def check_integrated_generation_with_issues(
         snapshot.read(rejected)
         if outcome == "success":
             second = stage / rejected.relative_to(tmp_path)
-            load_workspace(__file__, "15_integrated_success", stage)
+            second.write_bytes(b"new KMS\n")
             plan.generated[rejected] = [second]
             plan.expected_outputs[rejected] = {rejected: "new KMS\n"}
         elif outcome == "partial":
@@ -1175,12 +1214,40 @@ def check_resource_row_scope_restoration():
 
 def check_generate_views_missing_authoritative_json(tmp_path, shared_framework):
     root, stage = tmp_path / "root", tmp_path / "stage"
-    load_workspace(__file__, "16_missing_authoritative_json", tmp_path)
+    root.mkdir()
+    (root / "project.json").write_text(
+        '{"targets":[{"environment":"dev","alias":"team","awsAccountId":"111111111111",'
+        '"awsRegion":"ap-northeast-1","iacEngine":"cloudformation"}]}',
+        encoding="utf-8",
+    )
+    values = {
+        COUNTERS: '{"IAM.ManagedPolicy":1}',
+        "desired.service.iam.serviceId": "iam",
+        "desired.service.iam.ownedCatalogResourceTypes": "IAM.ManagedPolicy",
+        "display.service.title": "# Policy",
+        "desired.resource.009.resourceType": "IAM.ManagedPolicy",
+        "desired.resource.009.logicalId": "IAM_ManagedPolicy_001",
+        "desired.resource.009.resourceMode": "IMPORT",
+        "desired.resource.009.anchor": "saved-policy",
+        "display.resource.009.comment": "Policy",
+        "desired.row.009-001.property": "IAM.ManagedPolicy.ManagedPolicyName",
+        "desired.row.009-001.value": "`confirmed-policy`",
+        "desired.row.009-001.comment": "Policy name",
+        "desired.row.009-002.property": "IAM.ManagedPolicy.PolicyDocument",
+        "desired.row.009-002.value": "[Policy](iam/policy.json)",
+        "desired.row.009-002.comment": "Policy document",
+        "desired.row.009-002.document": '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:ListBucket","Resource":"*"}]}',
+    }
     design = root / "docs/designs/dev/team/iam.md"
     artifact = design.with_suffix("") / "policy.json"
-    source = root / "model/dev/team/iam.properties"
-    values = properties(source.read_text(encoding="utf-8"))
+    artifact.parent.mkdir(parents=True)
+    design.write_text("# Saved policy\n[Policy](iam/policy.json)\n", encoding="utf-8")
+    artifact.write_text(values["desired.row.009-002.document"] + "\n", encoding="utf-8")
+    del values["desired.row.009-002.document"]
     assert values["desired.row.009-002.value"] == "[Policy](iam/policy.json)"
+    source = root / "model/dev/team/iam.properties"
+    source.parent.mkdir(parents=True)
+    source.write_text(serialize(values), encoding="utf-8")
     original = dict(values)
     before = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
     failures = []
@@ -1209,23 +1276,29 @@ def check_generate_views_missing_authoritative_json(tmp_path, shared_framework):
 
 @pytest.mark.parametrize("kind", ["Markdown", "JSON"])
 def check_readonly_stale_views(tmp_path, kind):
+    path = tmp_path / "docs/designs/dev/team/logs.md"
+    source = tmp_path / "model/dev/team/logs.properties"
+    target = path if kind == "Markdown" else path.with_suffix("") / "policy.json"
+    target.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"authoritative source")
     expected = (
         "| RetentionInDays | `14` | 保持日数 |\n"
         if kind == "Markdown"
         else '{"RetentionInDays":14}\n'
     )
-    for variant in range(5):
-        workspace = tmp_path / str(variant)
-        workspace.mkdir()
-        load_workspace(__file__, f"17_stale_{kind.lower()}_{variant}", workspace)
-        path = workspace / "docs/designs/dev/team/logs.md"
-        source = workspace / "model/dev/team/logs.properties"
-        target = path if kind == "Markdown" else path.with_suffix("") / "policy.json"
-        content = target.read_text(encoding="utf-8")
+    for content in (
+        expected,
+        expected.replace("14", "31"),
+        "",
+        expected.replace("RetentionInDays", "UnknownField"),
+        "<!-- reference-rows: obsolete -->\n" + expected,
+    ):
+        target.write_text(content, encoding="utf-8")
         before = {file: file.read_bytes() for file in (target, source)}
         plan = SimpleNamespace(
-            root=workspace,
-            snapshot=sync_runtime.GenerationInputs(workspace, read_only=True),
+            root=tmp_path,
+            snapshot=sync_runtime.GenerationInputs(tmp_path, read_only=True),
             expected_outputs={path: {target: expected}},
             failure_records=[],
             saved={},
@@ -1235,14 +1308,14 @@ def check_readonly_stale_views(tmp_path, kind):
             assert plan.saved == {path: {}} and not plan.failure_records
         else:
             assert [d.message for d in plan.failure_records] == [
-                f"generated {kind} is stale or missing: {target.relative_to(workspace).as_posix()}"
+                f"generated {kind} is stale or missing: {target.relative_to(tmp_path).as_posix()}"
             ]
             assert not plan.saved
         assert {file: file.read_bytes() for file in before} == before
     target.unlink()
     plan = SimpleNamespace(
-        root=workspace,
-        snapshot=sync_runtime.GenerationInputs(workspace, read_only=True),
+        root=tmp_path,
+        snapshot=sync_runtime.GenerationInputs(tmp_path, read_only=True),
         expected_outputs={path: {target: expected}},
         failure_records=[],
         saved={},
@@ -1255,7 +1328,13 @@ def check_saved_link_snapshot_and_new_warnings(tmp_path, capsys):
     root = tmp_path / "root"
     source = root / "docs/designs/dev/team/codepipeline.md"
     target = source.with_name("kms.md")
-    load_workspace(__file__, "18_saved_links", tmp_path)
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "<!-- reference-rows: obsolete -->\n[old](kms.md#missing)\n"
+        "[new](kms.md#key)\n<!-- [hidden](absent.md#hidden) -->\n",
+        encoding="utf-8",
+    )
+    target.write_text('<a id="key"></a>\n', encoding="utf-8")
     before = source.read_bytes()
     with patch.object(
         sync_views,
@@ -1303,19 +1382,29 @@ def check_publication_failure_preserves_success(tmp_path, reject_saved):
     good = root / "docs/designs/dev/123456789012/kms.md"
     failed = good.with_name("iam.md")
     artifact = failed.with_suffix("") / "policy.json"
-    load_workspace(__file__, "19_publication", tmp_path)
     original = {
-        path: path.read_text(encoding="utf-8") for path in (good, failed, artifact)
+        good: '<a id="old-key"></a>\n',
+        failed: "<!-- reference-rows: obsolete -->\n[old](kms.md#old-key)\n",
+        artifact: '{"old":true}\n',
     }
     expected = {
-        good: {good: (stage / good.relative_to(root)).read_text(encoding="utf-8")},
-        failed: {
-            path: (stage / path.relative_to(root)).read_text(encoding="utf-8")
-            for path in (failed, artifact)
-        },
+        good: {good: '<a id="new-key"></a>\n'},
+        failed: {failed: "# candidate\n", artifact: '{"new":true}\n'},
     }
+    for path, text in original.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        staged = stage / path.relative_to(root)
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text(
+            expected[failed].get(path, expected[good].get(path)), encoding="utf-8"
+        )
     with (
-        selected_task(root, "tasks/save.md"),
+        issue_task(
+            root,
+            ["iam", "kms"],
+            allowed=[path.relative_to(root).as_posix() for path in original],
+        ),
         closing(sync_runtime.GenerationInputs(root)) as snapshot,
     ):
         for path in original:
@@ -1373,7 +1462,8 @@ def check_publication_failure_preserves_success(tmp_path, reject_saved):
 @pytest.mark.parametrize("location", ["file", "parent"])
 def check_snapshot_symlink_safety(tmp_path, location):
     external = tmp_path / "external"
-    load_workspace(__file__, "20_snapshot_symlink", tmp_path)
+    external.mkdir()
+    (external / "policy.json").write_bytes(b"{}\n")
     directory = tmp_path / "iam"
     if location == "parent":
         directory.symlink_to(external, target_is_directory=True)
@@ -1510,8 +1600,10 @@ def _snapshot_archive(root, base, paths, destination):
 
 def check_guard_snapshot_candidates(tmp_path):
     project = tmp_path / "project.json"
-    load_workspace(__file__, "21_guard_candidates", tmp_path)
+    project.write_bytes(b"live project")
     source = tmp_path / "model/dev/team/service.properties"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"live Model")
     with patch.object(
         import_guard, "archive_sources", side_effect=_snapshot_archive
     ) as archive:
@@ -1588,7 +1680,9 @@ def check_definition_read_errors(tmp_path, definition):
 @pytest.mark.parametrize("state", ["stale", "missing"])
 def check_sidecar_output_difference(tmp_path, state):
     view, artifact = tmp_path / "iam.md", tmp_path / "policy.json"
-    load_workspace(__file__, f"22_sidecar_{state}", tmp_path)
+    view.write_bytes(b"unchanged\n")
+    if state == "stale":
+        artifact.write_bytes(b"{}\n")
     snapshot = sync_runtime.GenerationInputs(tmp_path)
     try:
         plan = SimpleNamespace(
@@ -1603,8 +1697,23 @@ def check_sidecar_output_difference(tmp_path, state):
 
 @pytest.mark.parametrize("missing", ["model", "view"])
 def check_missing_validation_inputs(tmp_path, missing):
-    load_workspace(__file__, f"23_missing_{missing}", tmp_path)
+    (tmp_path / "project.json").write_text(
+        '{"projectName":"test","targets":[{"environment":"dev",'
+        '"awsAccountId":"123456789012","awsRegion":"ap-northeast-1",'
+        '"iacEngine":"cloudformation"}]}\n'
+    )
     source = tmp_path / "model/dev/123456789012/iam.properties"
+    if missing == "view":
+        source.parent.mkdir(parents=True)
+        source.write_text(
+            serialize(
+                {
+                    "desired.service.iam.serviceId": "iam",
+                    "desired.service.iam.ownedCatalogResourceTypes": "IAM.Role",
+                }
+            ),
+            encoding="utf-8",
+        )
     original = source.read_bytes() if source.exists() else None
     validator = validation_runner.Validator(tmp_path, {("dev", "123456789012", "iam")})
     validator.check_project_topology()
@@ -1623,7 +1732,16 @@ def check_missing_validation_inputs(tmp_path, missing):
 def check_generation_input_failures(tmp_path, fault):
     view = tmp_path / "docs/designs/dev/123456789012/iam.md"
     source = tmp_path / "model/dev/123456789012/iam.properties"
-    load_workspace(__file__, f"24_generation_{fault}", tmp_path)
+    view.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True)
+    view.write_bytes(b"saved Markdown\n")
+    (tmp_path / "project.json").write_text(
+        '{"projectName":"test","targets":[{"environment":"dev",'
+        '"awsAccountId":"123456789012","awsRegion":"ap-northeast-1",'
+        '"iacEngine":"cloudformation"}]}\n'
+    )
+    if fault == "model":
+        source.write_bytes(b"malformed Model\n")
     with (
         patch.object(sync_runtime, "stage_inputs", return_value=([view], {})),
         patch.object(sync_runtime, "generate_views", return_value={}) as generate,
@@ -1666,7 +1784,8 @@ def check_candidate_completion_matches_executed_view_checks(tmp_path, check, sta
     path = tmp_path / "docs/designs/dev/team/logs.md"
     stage = tmp_path / "stage"
     staged = stage / path.relative_to(tmp_path)
-    load_workspace(__file__, "25_candidate_completion", tmp_path)
+    staged.parent.mkdir(parents=True)
+    staged.write_text("# 候補\n", encoding="utf-8")
     checked = Findings(tmp_path)
     result = checked.result(check, {("dev", "team", "logs")})
     if status is not None:
