@@ -578,7 +578,7 @@ def test_common_markdown_projection_and_restoration(
             values["desired.resource.001.logicalId"]
         ].reference_ids,
     )
-    if observed in {None, "PENDING_DEPLOY"}:
+    if observed is None or (observed == "PENDING_DEPLOY" and kind == "Glue.Job"):
         assert "$modelRef" in str(rendered) and expected not in str(rendered)
     else:
         rendered_expected = secret_observed if kind == "CodeBuild.Project" else expected

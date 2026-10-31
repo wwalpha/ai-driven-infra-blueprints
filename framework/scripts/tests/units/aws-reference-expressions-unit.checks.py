@@ -1388,7 +1388,7 @@ def test_export_retains_symbolic_dns_expression_and_transform(models, transform)
     right = inputs.evaluate("consumer", payload)
     for a, b in [(left, right), (right, left)]:
         decision = inputs.reference_decision(
-            a, b, "Route53.RecordSet", "AliasTarget.DNSName"
+            a, b, "Route53.RecordSet", "ResourceRecords[]"
         )
         assert decision.equal is (
             True if transform in {"identity", "SubJoin", "same-select"} else None
@@ -1405,13 +1405,13 @@ def test_export_retains_symbolic_dns_expression_and_transform(models, transform)
                 copy.deepcopy(a),
                 copy.deepcopy(b),
                 "Route53.RecordSet",
-                "AliasTarget.DNSName",
+                "ResourceRecords[]",
             ).equal
             is decision.equal
         )
     assert (
         inputs.reference_same(
-            left, "historical-dns.example", "Route53.RecordSet", "AliasTarget.DNSName"
+            left, "historical-dns.example", "Route53.RecordSet", "ResourceRecords[]"
         )
         is None
     )
