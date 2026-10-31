@@ -19,6 +19,7 @@ import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.file_operations as _imports_utils_file_operations
 import utils.iac_values as _imports_iac_values
 import utils.input_cache as _imports_input_cache
+from aws_mapping_catalog import under
 from aws_mapping_compare import comparison
 from comparison.rules.cloud_trail import cloudtrail_rows
 from comparison.rules.code_pipeline import prepare_rows as pipeline_rows
@@ -580,16 +581,20 @@ def generate(root, environment, selector, service):
                         reason="",
                     ),
                 )
-        key = "KMS.Key.PendingWindowInDays"
-        if name == "kms" and key in props:
-            prop = props[key]
-            schema = catalog.schema("KMS.Key")
+        for row in selected_rows:
+            key = row["property"]
+            prop = props.get(key)
+            kind = ".".join(key.split(".")[:2])
+            property_path = definition_path(key[len(kind) + 1 :])
             if (
-                prop.source == "model"
+                prop
+                and prop.source == "model"
                 and prop.constraint
                 and prop.field.classification == "sdk_unavailable"
-                and "/properties/PendingWindowInDays"
-                in schema.get("writeOnlyProperties", [])
+                and not prop.field.getter
+                and under(
+                    property_path, catalog.schema(kind).get("writeOnlyProperties", [])
+                )
             ):
                 exclusions[key] = (
                     "CloudFormation write-only property; " + prop.constraint

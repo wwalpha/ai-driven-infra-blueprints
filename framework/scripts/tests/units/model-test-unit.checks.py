@@ -1115,9 +1115,9 @@ class IdentifierTests(unittest.TestCase):
                 snapshot, None, "account", records, datetime.now(timezone.utc)
             )
             self.assertEqual(actual, code)
-            self.assertIn("[EXCLUDED]", text)
-            self.assertIn("AWS:    (not observable)", text)
-            self.assertIn("EXCLUDED: 1", text)
+            self.assertIn("[INFO]", text)
+            self.assertIn("Verification: NOT_VERIFIABLE", text)
+            self.assertIn("INFO: 1", text)
 
     def test_report_translates_fixed_producer_diagnostic_only(self):
         snapshot = {

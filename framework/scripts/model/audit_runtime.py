@@ -617,7 +617,7 @@ def report(snapshot, profile, account, records, timestamp):
     line()
     counts = Counter()
     for item in records:
-        state = {"match": "OK", "difference": "NG", "excluded": "EXCLUDED"}.get(
+        state = {"match": "OK", "difference": "NG", "excluded": "INFO"}.get(
             item["status"], "ERROR"
         )
         counts[state] += 1
@@ -630,12 +630,9 @@ def report(snapshot, profile, account, records, timestamp):
         actual = masked(item.get("awsValue"), prop)
         line("  Design: " + json.dumps(expected, ensure_ascii=False, sort_keys=True))
         line(
-            "  AWS:    "
-            + (
-                "(not observable)"
-                if state == "EXCLUDED"
-                else json.dumps(actual, ensure_ascii=False, sort_keys=True)
-            )
+            "  Verification: NOT_VERIFIABLE"
+            if state == "INFO"
+            else "  AWS:    " + json.dumps(actual, ensure_ascii=False, sort_keys=True)
         )
         if state != "OK":
             line(
@@ -659,7 +656,7 @@ def report(snapshot, profile, account, records, timestamp):
         line("[ERROR] No selected desired attributes")
     line("--------------------------------")
     line(f"Total: {sum(counts.values())}")
-    for state in ("OK", "NG", "ERROR", "EXCLUDED"):
+    for state in ("OK", "NG", "ERROR", "INFO"):
         line(f"{state}: {counts[state]}")
     code = (
         2

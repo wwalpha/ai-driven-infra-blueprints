@@ -792,7 +792,135 @@ def codebuild_boolean_standalone():
             )
 
 
+def glue_write_only():
+    case = TestCase()
+    with tempfile.TemporaryDirectory(prefix="audit-glue-") as directory:
+        root = Path(directory)
+        target = {
+            "environment": "dev",
+            "alias": "cde",
+            "awsAccountId": "123456789012",
+            "awsRegion": "ap-northeast-1",
+            "iacEngine": "cloudformation",
+        }
+        (root / "project.json").write_text(
+            json.dumps({"projectName": "fixture", "targets": [target]})
+        )
+        data = fixture(
+            {},
+            "glue",
+            [
+                (
+                    "001",
+                    "Glue.Connection",
+                    "connection",
+                    [
+                        ("ConnectionInput.Name", "`fixture-connection`", None),
+                        ("ConnectionInput.ConnectionType", "`JDBC`", None),
+                        ("CatalogId", "`123456789012`", None),
+                        (
+                            "ConnectionInput.ValidateForComputeEnvironments",
+                            '`["SPARK"]`',
+                            None,
+                        ),
+                    ],
+                )
+            ],
+        )
+        write_model(
+            root / "model/dev/cde/glue.properties", data["models"]["dev/cde/glue"]
+        )
+        source = generator.generate(root, "dev", "cde", "glue")[0]
+        snap = snapshot(source)
+        key = "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments"
+        case.assertIn(key, snap["exclusions"])
+        responses = {
+            ("glue", "get-connection"): {
+                "Connection": {"Name": "fixture-connection", "ConnectionType": "JDBC"}
+            }
+        }
+        engine = runtime(snap)
+        records = engine["audit"](snap, None, CLI(responses))[2]
+        text, code = engine["report"](
+            snap, None, "123456789012", records, datetime.now(timezone.utc)
+        )
+        case.assertEqual(code, 0, text)
+        case.assertIn("[INFO] Glue.Connection", text)
+        case.assertIn("Verification: NOT_VERIFIABLE", text)
+        case.assertIn("INFO: 1", text)
+        case.assertIn("[OK] Glue.Connection", text)
+        case.assertNotIn("[ERROR]", text)
+        bad = copy.deepcopy(responses)
+        bad[("glue", "get-connection")]["Connection"]["ConnectionType"] = "NETWORK"
+        records = engine["audit"](snap, None, CLI(bad))[2]
+        case.assertEqual(
+            engine["report"](
+                snap, None, "123456789012", records, datetime.now(timezone.utc)
+            )[1],
+            1,
+        )
+        records = engine["audit"](
+            snap, None, CLI(responses, fail=("glue", "get-connection"))
+        )[2]
+        case.assertEqual(
+            engine["report"](
+                snap, None, "123456789012", records, datetime.now(timezone.utc)
+            )[1],
+            2,
+        )
+        changed = copy.deepcopy(snap)
+        changed["models"]["dev/cde/glue"]["desired.row.001-004.value"] = (
+            '`{"$modelRef":{"logicalId":"Missing","attribute":"Arn"}}`'
+        )
+        records = runtime(changed)["audit"](changed, None, CLI(responses))[2]
+        case.assertEqual(
+            next(item for item in records if item["propertiesKey"] == key)["status"],
+            "design_unresolved",
+        )
+        changed = copy.deepcopy(snap)
+        observable = "Glue.Connection.ConnectionInput.ConnectionType"
+        field = changed["mappings"]["glue"]["properties"][observable]["field"]
+        field.update(classification="sdk_unavailable", reason="no confirmed getter")
+        case.assertNotIn(observable, changed["exclusions"])
+        records = runtime(changed)["audit"](changed, None, CLI(responses))[2]
+        case.assertEqual(
+            next(item for item in records if item["propertiesKey"] == observable)[
+                "status"
+            ],
+            "sdk_unavailable",
+        )
+        case.assertEqual(
+            engine["report"](
+                changed, None, "123456789012", records, datetime.now(timezone.utc)
+            )[1],
+            2,
+        )
+        script = root / "glue.py"
+        script.write_text(source)
+        fake = root / "aws"
+        fake.write_text(
+            "#!"
+            + sys.executable
+            + "\nimport json, sys\nprint(json.dumps("
+            + repr(responses[("glue", "get-connection")])
+            + " if sys.argv[1] == 'glue' else {'Account':'123456789012'}))\n"
+        )
+        fake.chmod(0o700)
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", str(script)],
+            cwd=root,
+            env={**os.environ, "PATH": str(root)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        case.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        case.assertIn("Verification: NOT_VERIFIABLE", result.stdout)
+        case.assertIn("Result: PASS", result.stdout)
+
+
 def check():
+    glue_write_only()
     macie_job_standalone()
     codebuild_boolean_standalone()
     standalone_service_imports()
@@ -1073,10 +1201,7 @@ def check():
                 timeout=30,
             )
             assert result.returncode == 0, (result.stdout, result.stderr)
-            assert (
-                "[EXCLUDED] KMS.Key" in result.stdout
-                and "Result: PASS" in result.stdout
-            )
+            assert "[INFO] KMS.Key" in result.stdout and "Result: PASS" in result.stdout
         sources = {
             service: generator.generate(root, "dev", "cde", service)[0]
             for service in ("vpc", "iam")
