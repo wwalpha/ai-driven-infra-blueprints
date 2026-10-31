@@ -83,11 +83,13 @@ def owns(state, record):
             state.get("changeSetId"), record.get("changeSetId")
         )
         and (
-            not state.get("executionEvidence", {}).get("clientToken")
+            operation == "create_change_set"
+            or not state.get("executionEvidence", {}).get("clientToken")
             or state["executionEvidence"]["clientToken"] == record.get("token")
         )
         and (
-            not state.get("executionEvidence", {}).get("ChangeSetId")
+            operation == "create_change_set"
+            or not state.get("executionEvidence", {}).get("ChangeSetId")
             or current_state.same_change_set(
                 state["changeSetId"], state["executionEvidence"]["ChangeSetId"]
             )
@@ -413,11 +415,18 @@ def send(
                     raise Blocked(
                         "settled request needs durable progress before release"
                     )
+                requires_fresh_change_set = operation == "execute_change_set" and (
+                    prior["operation"] != "create_change_set"
+                    or not owns(runtime.states[name], prior)
+                    or not current_state.same_change_set(
+                        arguments.get("ChangeSetName"), prior["changeSetId"]
+                    )
+                )
                 end_tracking(runtime.states[name], prior)
                 runtime.save()
                 path.unlink()
                 prior = None
-                if operation == "execute_change_set":
+                if requires_fresh_change_set:
                     raise Blocked(
                         "execution tracking ended; prepare a fresh current ChangeSet before executing"
                     )

@@ -2947,6 +2947,7 @@ through os.replace, without depending on temporary filenames.
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
+| `deploy-model-view::direct_start_boundary` | `check_direct_controller_start_boundary` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 8 | Stack一致/欠落/不一致とサービスView非依存を直接Controller入口で確認 | 接続境界 |
 | `deploy-reduction::ordered_delivery_and_observed` | `check_ordered_delivery_and_observed` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py#L103) | pytest / 1 | 同Order配送、実Observed barrier、3Stack単一実行と最終Model/文書/JSON | 接続境界 |
 | `deploy-reduction::delivery_failure_stops_execution` | `check_delivery_failure_stops_execution` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py#L125) | pytest / 1 | SDK client境界のAccessDeniedが後段実行を停止 | 接続境界 |
 | `deploy-reduction::approved_remove_resumes_without_duplicate_execute` | `check_approved_remove_recovers_without_duplicate_execute` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py#L139) | pytest / 1 | 承認保持、Execute受理中断と別process再開、削除証拠とPENDING_DEPLOY | 接続境界 |

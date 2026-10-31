@@ -9,10 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from contextlib import chdir
+from unittest import TestCase
 
 import model.files as _imports_model_files
 import model.format as _imports_model_format
 import model.sources as _imports_model_sources
+from deploy.inputs import check_stack_markdown
 from support.deploy_preparation_fixtures import (
     ROOT,
     STACKS,
@@ -110,7 +112,9 @@ def check_preparation():
             )
         }
         assert plan["generatedViews"] == sorted(generated)
-        assert generated <= plan["inputIdentities"].keys() and generated <= declared
+        TestCase().assertFalse(generated & plan["inputIdentities"].keys())
+        TestCase().assertFalse(generated & plan["inputs"].keys())
+        TestCase().assertLessEqual(generated, declared)
         for relative, digest in plan["inputs"].items():
             assert (
                 digest
@@ -365,17 +369,23 @@ def check_stale_and_conflicts():
                 result = invoke(
                     ["--repository-root", str(root), "--register", str(path)]
                 )
-                assert result == 1, reason
-            assert (
+                TestCase().assertEqual(
+                    result,
+                    0 if reason.startswith(("markdown-", "json-")) else 1,
+                    reason,
+                )
+            TestCase().assertEqual(
                 json.loads((run / "timing.jsonl").read_text().splitlines()[-1])[
                     "result"
-                ]
-                == "FAIL"
+                ],
+                "PASS" if reason.startswith(("markdown-", "json-")) else "FAIL",
             )
 
 
-def _callback_check_generated_boundaries_load_with_artifacts(real_load, /, *args):
-    limit, units = real_load(*args)
+def _callback_check_generated_boundaries_load_with_artifacts(
+    real_load, /, *args, **kwargs
+):
+    limit, units = real_load(*args, **kwargs)
     units[0]["artifacts"] = [
         {
             "source": "infra/cloudformation/artifacts/execution.json",
@@ -396,9 +406,9 @@ def check_generated_boundaries():
         serialize = _imports_model_format.serialize
         load_model = _imports_model_sources.load_model
         original = serialize(load_model(source).authoritative)
-        # Service body/schema validation is deferred to its actual use.
+        # Exact generation authority requires readable Model rows, never saved View content.
         source.write_text("invalid unrelated service body", encoding="utf-8")
-        with patch.object(M, "stack_snapshot", wraps=M.stack_snapshot) as read_stack:
+        with TestCase().assertRaises(ValueError):
             M.candidate(
                 root,
                 "tasks/deploy-offline.md",
@@ -407,9 +417,6 @@ def check_generated_boundaries():
                 TARGET,
                 STACKS,
                 ["iam"],
-            )
-            assert (
-                read_stack.call_args.args[0].name == "cloudformation-stacks.properties"
             )
         source.write_text(original, encoding="utf-8")
         real_load = M.load_units
@@ -466,12 +473,14 @@ def check_generated_boundaries():
         view = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
         original_view = view.read_text(encoding="utf-8")
         view.write_text(original_view + "changed", encoding="utf-8")
-        try:
-            real_load(root, "dev", "123456789012", STACKS)
-        except Exception as error:
-            assert "stack model/generated design mismatch" in str(error)
-        else:
-            raise AssertionError("stack mismatch accepted")
+        real_load(root, "dev", "123456789012", STACKS)
+        with TestCase().assertRaisesRegex(ValueError, "sync-model"):
+            check_stack_markdown(
+                root,
+                M.stack_snapshot(
+                    root / "model/dev/123456789012/cloudformation-stacks.properties"
+                ),
+            )
         view.write_text(original_view, encoding="utf-8")
         parameter = root / "infra/cloudformation/parameters/dev/123456789012/1.json"
         parameter.unlink()

@@ -244,23 +244,23 @@ def load_inputs(runtime: SimpleNamespace, unit: StackUnit) -> None:
             )
     if not unit.get("artifacts") and template.stat().st_size > 1024 * 1024:
         raise Blocked("template exceeds the 1 MiB CloudFormation limit")
-    design = (
+    source = (
         runtime.root
-        / "docs/designs"
+        / "model"
         / runtime.environment
         / runtime.directory
-        / "cloudformation-stacks.md"
+        / "cloudformation-stacks.properties"
     )
     if (template.stat().st_size > 51200 or unit.get("artifacts")) and resource_link(
         unit.get("templateBucket", "")
     ):
         unit["templateBucket"] = deployment_bucket(
-            unit["templateBucket"], design, runtime.root
+            unit["templateBucket"], source, runtime.root
         )
     for artifact in unit.get("artifacts", []):
         if resource_link(artifact["bucket"]):
             artifact["bucket"] = deployment_bucket(
-                artifact["bucket"], design, runtime.root
+                artifact["bucket"], source, runtime.root
             )
     if hasattr(runtime, "states") and unit["name"] in runtime.states:
         runtime.states[unit["name"]].setdefault("successfulPreparationOperations", {})[

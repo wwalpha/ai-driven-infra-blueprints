@@ -40,6 +40,9 @@ from support.deploy_controller_fixtures import (
 from support.deploy_controller_fixtures import (
     drive as invoke,
 )
+from support.deploy_controller_fixtures import (
+    invoke as invoke_step,
+)
 from support.pytest_cli import run
 from task_contract_core import selected_task, status
 from task_contract_runtime import complete
@@ -231,6 +234,97 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
     assert inventory.read_text(encoding="utf-8") == original
 
 
+def restore_with_foreign_request(restore, backend, task):
+    restore(backend, task)
+    backend.states[FIRST]["endedRequest"] = {
+        "request": {"token": "external"},
+        "result": "UNKNOWN",
+    }
+
+
+@pytest.mark.parametrize(
+    "view",
+    [
+        "stack-equal",
+        "stack-mismatch",
+        "stack-missing",
+        "status-before-mismatch",
+        "foreign-before-mismatch",
+        "service-markdown",
+        "service-json",
+        "legacy-json",
+    ],
+)
+def check_direct_controller_start_boundary(tmp_path, monkeypatch, capsys, view):
+    session, aws = tmp_path / "session.json", tmp_path / "aws.json"
+    root = seed(tmp_path / "project", session, "ordered-delivery")
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    design = root / f"docs/designs/dev/{ACCOUNT}"
+    aws_state(aws, delivery=True)
+    if view in {"status-before-mismatch", "foreign-before-mismatch"}:
+        with patch.object(controller.inputs, "check_stack_markdown") as compare:
+            TestCase().assertEqual(
+                invoke_step(root, session, aws, ["--action", "status"]), 0
+            )
+            compare.assert_not_called()
+    if view == "stack-missing":
+        (design / "cloudformation-stacks.md").unlink()
+    elif view.endswith("mismatch"):
+        (design / "cloudformation-stacks.md").write_bytes(b"stale stack")
+    elif view == "service-markdown":
+        (design / "s3.md").write_bytes(b"stale service")
+    elif view == "service-json":
+        (design / "s3/s3-bucket-001-bucket-policy.json").write_bytes(b"stale JSON")
+    elif view == "legacy-json":
+        legacy = design / "s3/legacy.json"
+        legacy.parent.mkdir(exist_ok=True)
+        legacy.write_bytes(b"unowned JSON")
+    with (
+        patch.object(
+            controller.inputs,
+            "check_stack_markdown",
+            wraps=controller.inputs.check_stack_markdown,
+        ) as compare,
+        patch.object(
+            steps, "restore", partial(restore_with_foreign_request, steps.restore)
+        )
+        if view == "foreign-before-mismatch"
+        else patch.object(steps, "restore", wraps=steps.restore),
+    ):
+        result = invoke_step(root, session, aws, ["--action", "advance"])
+        compare.assert_called_once()
+    calls = json.loads(aws.read_text())["calls"]
+    mutations = [
+        operation
+        for _, operation, _ in calls
+        if operation
+        in {"create_change_set", "execute_change_set", "put_object", "delete_stack"}
+    ]
+    if view == "stack-missing" or view.endswith("mismatch"):
+        TestCase().assertEqual(result, 2)
+        TestCase().assertEqual(mutations, [])
+        TestCase().assertIn("sync-model", capsys.readouterr().out)
+    else:
+        TestCase().assertEqual(result, 0)
+        TestCase().assertIn("create_change_set", mutations)
+        with patch.object(
+            controller.inputs,
+            "check_stack_markdown",
+            side_effect=AssertionError("repeated start check"),
+        ) as compare:
+            TestCase().assertEqual(
+                invoke_step(root, session, aws, ["--action", "status"]), 0
+            )
+            TestCase().assertEqual(
+                invoke_step(root, session, aws, ["--action", "checkpoint"]), 0
+            )
+            invoke_step(root, session, aws, ["--action", "sync", "--sync-stack", FIRST])
+            compare.assert_not_called()
+        if view == "legacy-json":
+            TestCase().assertEqual(legacy.read_bytes(), b"unowned JSON")
+
+
 def check_delivery_failure_stops_execution(tmp_path, monkeypatch):
     session, aws = tmp_path / "session.json", tmp_path / "aws.json"
     root = seed(tmp_path / "project", session, "delivery")
@@ -279,7 +373,10 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
     child = child_run(root, report, aws, ["--approve-change-set", change_id])
     assert child.returncode == 73, child.stdout + child.stderr
     interrupted = json.loads(report.read_text())
-    evidence = interrupted["states"][FIRST]["executionEvidence"]
+    evidence = interrupted["states"][FIRST].get(
+        "executionEvidence",
+        interrupted["states"][FIRST].get("endedRequest", {}).get("executionEvidence"),
+    )
     recover_owned_lock(root, child)
     recovered = child_run(root, report, aws)
     assert recovered.returncode == 0, recovered.stdout + recovered.stderr
@@ -373,7 +470,7 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
             and request.exists()
         )
         assert saved["runContext"]["states"]["A"]["attemptResult"] == "UNKNOWN"
-        backend.states = saved["states"]
+        backend.states = saved["runContext"]["states"]
         backend.run_context["states"] = backend.states
         steps.refresh_requests(backend)
         assert not request.exists()
@@ -394,7 +491,10 @@ def check_pending_observed_recovers_before_model_load(tmp_path):
     interrupted = json.loads(report.read_text())
     plan = interrupted["pendingObserved"]
     assert plan["stage"] == "PREPARED" and len(plan["outputs"]) >= 2
-    evidence = interrupted["states"][FIRST]["executionEvidence"]
+    evidence = interrupted["states"][FIRST].get(
+        "executionEvidence",
+        interrupted["states"][FIRST].get("endedRequest", {}).get("executionEvidence"),
+    )
     recover_owned_lock(root, child)
     recovered = child_run(root, report, aws)
     assert recovered.returncode == 0, recovered.stdout + recovered.stderr

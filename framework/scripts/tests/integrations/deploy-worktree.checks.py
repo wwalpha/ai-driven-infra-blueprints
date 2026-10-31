@@ -141,7 +141,7 @@ def assert_request_lock_survives_process_exit(path):
     try:
         assert process.stdout.readline().strip() == "READY"
         inode = path.with_suffix(".lock").stat().st_ino
-        with pytest.raises(ValueError, match="lock busy"):
+        with pytest.raises(operation_journal.Blocked, match="lock busy"):
             with operation_journal.locked(path):
                 raise AssertionError("concurrent request lock acquired")
         process.kill()
@@ -186,7 +186,7 @@ def check_current_request_is_shared_without_history_or_duplicate_execute(tmp_pat
                     one, "execute_change_set", dict(arguments), probe.send
                 )
             case.assertIsNotNone(current_request.reconcile(two, {"name": "Example"}))
-            with pytest.raises(ValueError, match="unconfirmed"):
+            with pytest.raises(current_request.Blocked, match="unconfirmed"):
                 current_request.send(
                     two,
                     "execute_change_set",

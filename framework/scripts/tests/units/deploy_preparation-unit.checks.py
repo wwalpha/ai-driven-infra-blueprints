@@ -6,12 +6,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from functools import partial
 from types import SimpleNamespace
+from unittest import TestCase
 
 import pytest
 from support.deploy_preparation_fixtures import (
     ROOT,
     STACKS,
+    TARGET,
     M,
     Path,
     fixture,
@@ -159,6 +162,51 @@ def check_unsupported_preparation_field_rejected_before_changes(tmp_path, operat
                 M.run_controller(tmp_path, path)
         execute.assert_not_called()
     assert json.loads(path.read_text()) == {"documents": []}
+
+
+def guard_view_access(design, original, path, *args, **kwargs):
+    if path.is_relative_to(design):
+        raise AssertionError("preparation read or scanned View: " + str(path))
+    return original(path, *args, **kwargs)
+
+
+def check_candidate_paths_come_from_model_without_reading_views(tmp_path):
+    root = tmp_path / "repo"
+    fixture(root)
+    design = root / "docs/designs/dev/123456789012"
+    legacy = design / "iam/legacy.json"
+    legacy.write_bytes(b"keep legacy")
+    (design / "ec2.md").unlink()
+    (design / "iam.md").write_bytes(b"stale Markdown")
+    (design / "iam/worker-role-trust-policy.json").write_bytes(b"stale JSON")
+    with (
+        patch.object(
+            Path, "read_bytes", partial(guard_view_access, design, Path.read_bytes)
+        ),
+        patch.object(
+            Path, "read_text", partial(guard_view_access, design, Path.read_text)
+        ),
+        patch.object(Path, "rglob", partial(guard_view_access, design, Path.rglob)),
+    ):
+        text, _, _, views = M.candidate(
+            root,
+            "tasks/deploy.md",
+            "dev",
+            "123456789012",
+            TARGET,
+            STACKS,
+            ["ec2", "iam"],
+        )
+    TestCase().assertEqual(
+        views,
+        {
+            design / "ec2.md",
+            design / "iam.md",
+            design / "iam/worker-role-trust-policy.json",
+        },
+    )
+    TestCase().assertNotIn(legacy.relative_to(root).as_posix(), text)
+    TestCase().assertEqual(legacy.read_bytes(), b"keep legacy")
 
 
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")

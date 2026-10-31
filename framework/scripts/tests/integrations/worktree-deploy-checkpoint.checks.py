@@ -268,8 +268,8 @@ def check_generation_wait_and_resume(tmp_path, monkeypatch):
     assert saved["pendingGeneration"]
     assert step(target, report, aws, "checkpoint", [FIRST]) == 2
     finish_peer(aws)
-    assert step(target, report, aws, "advance") == 0
-    assert step(target, report, aws, "sync", [SECOND]) == 0
+    TestCase().assertEqual(step(target, report, aws, "status"), 0)
+    TestCase().assertEqual(step(target, report, aws, "sync", [FIRST, SECOND]), 0)
     assert step(target, report, aws, "checkpoint", [FIRST, SECOND]) == 0
     assert not report.with_suffix(".operations.json").exists()
 

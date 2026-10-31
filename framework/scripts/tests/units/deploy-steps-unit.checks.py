@@ -2228,6 +2228,133 @@ def check_final_cli_rejected_before_action(action):
     run_step.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "owner,change",
+    [("original", "change"), ("foreign", "change"), ("original", "other")],
+)
+def check_completed_create_only_allows_its_own_execute(tmp_path, owner, change):
+    request = tmp_path / "request.json"
+    request.write_text(
+        json.dumps(
+            {
+                "operation": "create_change_set",
+                "name": "A",
+                "stackId": "stack",
+                "changeSetId": "change",
+                "token": "original",
+            }
+        ),
+        encoding="utf-8",
+    )
+    request.chmod(0o600)
+    runtime = SimpleNamespace(
+        target={},
+        states={
+            "A": {
+                "preparationId": owner,
+                "changeSetId": "change",
+                "clientToken": "execute",
+                "executionEvidence": {
+                    "StackId": "stack",
+                    "ChangeSetId": "change",
+                    "clientToken": "execute",
+                },
+            }
+        },
+        save=Mock(),
+        aws=Mock(
+            return_value={
+                "StackId": "stack",
+                "ChangeSetId": "change",
+                "Status": "CREATE_COMPLETE",
+                "ExecutionStatus": "AVAILABLE",
+            }
+        ),
+    )
+    arguments = {
+        "StackName": "A",
+        "ChangeSetName": change,
+        "ClientRequestToken": "execute",
+    }
+    transport = Mock(return_value={})
+    with (
+        patch.object(current_request, "location", return_value=request),
+        patch.object(
+            current_state,
+            "read",
+            return_value={"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"},
+        ),
+    ):
+        if owner == "original" and change == "change":
+            current_request.send(runtime, "execute_change_set", arguments, transport)
+            transport.assert_called_once_with(
+                runtime, "cloudformation", "execute_change_set", arguments
+            )
+            TestCase().assertEqual(
+                json.loads(request.read_text(encoding="utf-8"))["operation"],
+                "execute_change_set",
+            )
+        else:
+            with pytest.raises(Blocked, match="fresh current ChangeSet"):
+                current_request.send(
+                    runtime, "execute_change_set", arguments, transport
+                )
+            transport.assert_not_called()
+    runtime.save.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "generation,after,names,final",
+    [
+        (True, None, ["A", "B"], False),
+        (True, {}, ["A", "B"], False),
+        (True, {"model": "changed"}, ["A", "B"], False),
+        (False, None, ["A", "B"], False),
+        (True, None, ["B"], False),
+        (True, None, ["A"], False),
+        (True, None, ["A", "B"], True),
+    ],
+)
+def check_pending_generation_sync_preserves_candidate_scope(
+    tmp_path, generation, after, names, final
+):
+    pending = {"stacks": ["A"], "before": {}, "after": after}
+    if final:
+        pending["final"] = {"taskAfter": "completed"}
+    backend = SimpleNamespace(
+        root=tmp_path,
+        phase="update",
+        units=[{"name": "A"}, {"name": "B"}],
+        states={"A": {}, "B": {}},
+        guard=Mock(),
+        claim_inputs=Mock(),
+        save=Mock(side_effect=RuntimeError("selected snapshot")),
+        run_context={
+            "inputDigests": {"A": "a", "B": "b"},
+            "checkpointPending": pending,
+        },
+    )
+    if generation:
+        backend.run_context["pendingGeneration"] = {"view": {}}
+    with (
+        patch.object(steps, "task_snapshot"),
+        patch.object(steps.contracts, "validation_snapshot", return_value={}),
+    ):
+        if generation and after in (None, {}) and "A" in names and not final:
+            with pytest.raises(RuntimeError, match="selected snapshot"):
+                steps.sync(backend, names)
+            TestCase().assertEqual(pending["stacks"], sorted(names))
+            backend.save.assert_called_once()
+        else:
+            with pytest.raises(
+                steps.Blocked, match="Stack scope|synchronized candidate changed"
+            ):
+                steps.sync(backend, names)
+            TestCase().assertEqual(pending["stacks"], ["A"])
+            backend.save.assert_not_called()
+    backend.claim_inputs.assert_not_called()
+
+
 def check_final_cli_accepts_saved_observations_without_sync_stack():
     with patch.object(steps, "run", return_value=0) as run_step:
         assert (

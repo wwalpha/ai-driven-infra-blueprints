@@ -26,6 +26,7 @@ from deploy import (
     generation_resume,
     git_publication,
     handoff,
+    inputs,
     observed,
     observed_resume,
     operation_journal,
@@ -394,7 +395,13 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
         context["checkpointPending"] = pending
         for unit in units:
             backend.states[unit["name"]].pop("observedSynced", None)
-    elif bool(pending.get("final")) != final or set(names) != set(pending["stacks"]):
+    elif bool(pending.get("final")) != final or (
+        set(names) != set(pending["stacks"])
+        and (
+            not context.get("pendingGeneration")
+            or not set(pending["stacks"]) <= set(names)
+        )
+    ):
         raise Blocked(
             "resume the saved checkpoint without changing its final intent or Stack scope"
         )
@@ -657,7 +664,7 @@ def run(
     root: Path,
     timing: Timing,
     backend_type: Callable[..., SimpleNamespace],
-    load_units: Callable[[Path, str, str, list[str]], tuple[int, list[StackUnit]]],
+    load_units: Callable[..., tuple[int, list[StackUnit]]],
 ) -> int:
     backend = None
     try:
@@ -746,7 +753,16 @@ def run(
             backend.task_status = task.status
             if task.status != "completed":
                 recover_local_publication(backend, task)
-            limit, units = load_units(root, args.environment, directory, args.stack)
+            snapshot = inputs.stack_snapshot(
+                root
+                / "model"
+                / args.environment
+                / directory
+                / "cloudformation-stacks.properties"
+            )
+            limit, units = load_units(
+                root, args.environment, directory, args.stack, snapshot=snapshot
+            )
             if args.sequential:
                 limit = 1
             backend.units = units
@@ -756,6 +772,14 @@ def run(
             backend.run_context.update(stepUnits=copy.deepcopy(units))
             backend.states = backend.run_context["states"]
             restore(backend, task)
+            # Status/sync can save a Snapshot without starting an AWS preparation.
+            if args.action == "advance" and not any(
+                state.get("preparationId")
+                or state.get("executionEvidence")
+                or state.get("endedRequest", {}).get("executionEvidence")
+                for state in backend.states.values()
+            ):
+                inputs.check_stack_markdown(root, snapshot)
             run = backend.run_context
             backend.save = partial(save, backend)
             backend.guard = partial(

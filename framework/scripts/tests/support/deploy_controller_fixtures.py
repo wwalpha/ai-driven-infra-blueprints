@@ -761,6 +761,23 @@ def save_step_diagnostics(real_save, report, backend):
     report.write_text(json.dumps(backend.run_context), encoding="utf-8")
 
 
+def complete_domain_checkpoint(backend, names):
+    # Domain suites replace Git publication; managed Worktree suites keep the real checkpoint.
+    pending = backend.run_context["checkpointPending"]
+    if pending["after"] is None or set(names) != set(pending["stacks"]):
+        raise AssertionError("fixture checkpoint has no saved snapshot")
+    changed = sorted(
+        path
+        for path, digest in pending["after"].items()
+        if pending["before"].get(path) != digest
+    )
+    if changed:
+        git(backend.root, "add", "--", *changed)
+        git(backend.root, "commit", "-qm", "Fixture domain publication")
+    backend.run_context.pop("checkpointPending")
+    backend.save()
+
+
 def invoke(root, state_path, aws_path, options=(), fault=None):
     journal = (
         Path(tempfile.gettempdir())
@@ -778,6 +795,10 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
         [],
     )
     with ExitStack() as stack:
+        if not (root / ".git").is_file():
+            stack.enter_context(
+                patch.object(steps, "publish_snapshot", complete_domain_checkpoint)
+            )
         stack.enter_context(
             patch.object(
                 operation_journal,

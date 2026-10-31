@@ -16,22 +16,37 @@ from task_contract_core import (
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint as fingerprint
 
+from deploy.cli_guidance import DeployStepBlocked
 
-def load_units(root, environment, directory, scope):
+
+def check_stack_markdown(root, snapshot):
+    """New execution precondition; publication guards own subsequent View changes."""
+    design = (
+        root
+        / "docs/designs"
+        / snapshot.scope.environment
+        / snapshot.scope.target
+        / "cloudformation-stacks.md"
+    )
+    expected = stack_markdown(
+        design, snapshot.values, root, validate_delivery=False
+    ).encode("utf-8")
+    if (
+        not design.is_file()
+        or hashlib.sha256(design.read_bytes()).digest()
+        != hashlib.sha256(expected).digest()
+    ):
+        raise DeployStepBlocked(
+            "stack model/generated design missing or mismatch; run sync-model before deploy"
+        )
+
+
+def load_units(root, environment, directory, scope, *, snapshot=None):
     source = (
         root / "model" / environment / directory / "cloudformation-stacks.properties"
     )
-    values = dict(stack_snapshot(source).values)
+    values = (snapshot or stack_snapshot(source)).values
     limit, stacks = stack_model(values)
-    design = (
-        root / "docs/designs" / environment / directory / "cloudformation-stacks.md"
-    )
-    if design.read_text(encoding="utf-8") != stack_markdown(
-        design, values, root, validate_delivery=False
-    ):
-        raise Blocked(
-            "stack model/generated design mismatch; run sync-model before deploy"
-        )
     by_name = {stack["name"]: stack for _, stack in stacks}
     if not scope or len(set(scope)) != len(scope) or set(scope) - by_name.keys():
         raise Blocked("Deployment scope must contain unique designed StackName values")

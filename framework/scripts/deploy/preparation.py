@@ -20,7 +20,8 @@ import task_contract_core as _imports_task_contract
 import worktree_python
 import worktree_state
 from model.dependency_index import revision as file_revision
-from model.sources import stack_snapshot
+from model.render import owned_artifacts
+from model.sources import load_model, stack_snapshot
 from utils.aws.identity import execution_account, select_profile
 from utils.aws_mappings import definition_root
 from utils.file_operations import sha
@@ -68,15 +69,17 @@ def environment(root):
     return {"python": sys.executable, "versions": versions, "tools": tools}
 
 
-def candidate(root, task, env, directory, target, stacks, services):
+def candidate(root, task, env, directory, target, stacks, services, *, snapshot=None):
     safe_path = _imports_task_contract.safe_path
     files, generated_views = {task}, set()
     stack_source = root / "model" / env / directory / "cloudformation-stacks.properties"
-    sources = set(stack_snapshot(stack_source).dependencies)
+    sources = set((snapshot or stack_snapshot(stack_source)).dependencies)
     for service in services:
         design = root / "docs/designs" / env / directory / (service + ".md")
         files.update(model_input_paths(root, [f"{env}/{directory}/{service}"]))
-        views = {design, *design.with_suffix("").rglob("*.json")}
+        source = root / "model" / env / directory / (service + ".properties")
+        snapshot_values = load_model(source).values
+        views = {design, *owned_artifacts(design, snapshot_values)}
         generated_views.update(views)
         files.update(path.relative_to(root).as_posix() for path in views)
     for path in files:
@@ -155,7 +158,16 @@ def prepare(root, args, run, timing):
             )
         profile = select_profile(target, args.profile)
         directory = args.alias or target["awsAccountId"]
-        limit, units = load_units(root, args.environment, directory, args.stack)
+        snapshot = stack_snapshot(
+            root
+            / "model"
+            / args.environment
+            / directory
+            / "cloudformation-stacks.properties"
+        )
+        limit, units = load_units(
+            root, args.environment, directory, args.stack, snapshot=snapshot
+        )
         services = sorted(set(args.service))
         text, sources, scope, generated_views = candidate(
             root,
@@ -165,6 +177,7 @@ def prepare(root, args, run, timing):
             target,
             args.stack,
             services,
+            snapshot=snapshot,
         )
         execution_inputs = set(
             deployment_input_paths(root, args.environment, directory, target, units)
@@ -201,9 +214,7 @@ def prepare(root, args, run, timing):
         if generated_views & sources:
             raise ValueError("generated view conflicts with execution/required input")
         deferred = (
-            execution_inputs
-            | generated_views
-            | {root / p for p in model_input_paths(root, scope)}
+            execution_inputs | {root / p for p in model_input_paths(root, scope)}
         ) - sources
         identities = {}
         for path in deferred:
