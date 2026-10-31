@@ -96,7 +96,7 @@ def pipeline_indexed_rows(rows):
         else:
             stages.setdefault(stage, []).append(field)
         paths[rid] = prop
-    if paths.keys() != dict(stage_rows).keys() or not actions:
+    if list(paths) != [rid for rid, _ in stage_rows] or not actions:
         return {}
     if any(fields.count("Name") != 1 for fields in stages.values()) or set(stages) != {
         stage for stage, _ in actions
@@ -132,12 +132,22 @@ def pipeline_indexed_rows(rows):
         return {}
     if not (
         all(fields[0] == "Name" for fields in signatures)
-        or all(
-            fields[0] == "ActionTypeId.Category" and fields[-1] == "Name"
-            for fields in signatures
-        )
+        or all(fields[0] == "ActionTypeId.Category" for fields in signatures)
     ):
         return {}
+    for stage in stages:
+        stage_actions = [
+            fields for (owner, _), fields in actions.items() if owner == stage
+        ]
+        # Either boundary row moving across must collide with an existing field.
+        for left, right in zip(stage_actions, stage_actions[1:], strict=False):
+            if (
+                "[]" in definition_path(left[-1])
+                or "[]" in definition_path(right[0])
+                or left[-1] not in right
+                or right[0] not in left
+            ):
+                return {}
     return paths
 
 

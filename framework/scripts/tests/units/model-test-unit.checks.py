@@ -24,9 +24,10 @@ from model.audit import (
     disambiguate_names,
     embed_adapter,
     generate,
+    pipeline_indexed_rows,
     reference_rows,
 )
-from model.projection import resource_display_rows
+from model.projection import resource_display_rows, validate_json_documents
 from model.reference_values import ReferenceValue, confirmed
 from model.render import display_name
 from model.sources import load_model
@@ -1549,7 +1550,13 @@ class PipelineMembershipTests(unittest.TestCase):
     ref = staticmethod(ReferenceTests.ref)
 
     def build(
-        self, stages=2, actions=2, reference=False, ambiguous=False, varied=False
+        self,
+        stages=2,
+        actions=2,
+        reference=False,
+        ambiguous=False,
+        varied=False,
+        order="last",
     ):
         values = self.model(
             "CodePipeline.Pipeline", "CodePipeline_Pipeline_001", {"Name": "fixture"}
@@ -1591,6 +1598,10 @@ class PipelineMembershipTests(unittest.TestCase):
                         ("Stages[].Actions[].Name", name, "fixture"),
                     ]
                 )
+                if order == "middle":
+                    rows[-2], rows[-1] = rows[-1], rows[-2]
+                elif order == "first":
+                    rows.insert(len(rows) - 6, rows.pop())
                 if varied and stage == 1 and action == 1:
                     rows.insert(
                         -1, ("Stages[].Actions[].Namespace", "optional", "fixture")
@@ -1628,6 +1639,8 @@ class PipelineMembershipTests(unittest.TestCase):
                 "CodeBuild.Project", "CodeBuild_Project_001", {"Name": "build-project"}
             )
             write_model(self.root / "model/dev/cde/codebuild.properties", producer)
+        model_path = self.root / "model/dev/cde/codepipeline.properties"
+        validate_json_documents(load_model(model_path).authoritative, model_path)
         source = generate(self.root, "dev", "cde", "codepipeline")[0]
         snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
         return snapshot, response, source
@@ -1675,6 +1688,40 @@ class PipelineMembershipTests(unittest.TestCase):
                 self.assertEqual(config["status"], "difference", config)
                 self.assertEqual(category["status"], "match", category)
 
+    def test_name_before_configuration(self):
+        for stages, actions in [(1, 1), (2, 2)]:
+            for order in ("first", "last", "middle"):
+                with self.subTest(stages=stages, actions=actions, order=order):
+                    snapshot, response, source = self.build(
+                        stages, actions, reference=True, order=order
+                    )
+                    compile(source, "generated-audit.py", "exec")
+                    records = self.records(snapshot, response)
+                    selected = [r for r in records if "Stages[]" in r["propertiesKey"]]
+                    self.assertTrue(
+                        all(r["status"] == "match" for r in selected), selected
+                    )
+                    response[-1]["actions"][-1]["configuration"]["ProjectName"] = (
+                        "wrong"
+                    )
+                    records = self.records(snapshot, response)
+                    self.assertEqual(
+                        next(
+                            r
+                            for r in records
+                            if r["propertiesKey"].endswith(".Configuration")
+                        )["status"],
+                        "difference",
+                    )
+                    self.assertEqual(
+                        next(
+                            r
+                            for r in records
+                            if r["propertiesKey"].endswith(".Category")
+                        )["status"],
+                        "match",
+                    )
+
     def test_varied_optional_fields(self):
         snapshot, response, _ = self.build(varied=True)
         records = self.records(snapshot, response)
@@ -1685,6 +1732,39 @@ class PipelineMembershipTests(unittest.TestCase):
             and not r["propertiesKey"].endswith(".Namespace")
         ]
         self.assertTrue(all(r["status"] == "match" for r in selected), selected)
+
+    def test_unsafe_boundaries(self):
+        prefix = "CodePipeline.Pipeline.Stages[].Actions[]."
+        stage = "CodePipeline.Pipeline.Stages[].Name"
+        category = prefix + "ActionTypeId.Category"
+        name = prefix + "Name"
+        config = prefix + "Configuration"
+        cases = [
+            [category, config, stage],
+            [category, name, name, stage],
+            [name, config, stage],
+            [category, category, name, stage],
+            [category, name, config, category, name, stage],
+            [stage, category, name, stage, stage, category, name],
+        ]
+        for fields in cases:
+            with self.subTest(fields=fields):
+                rows = [
+                    (
+                        f"001-{i:03d}",
+                        {
+                            "property": field,
+                            "value": '`{"ProjectName":"p"}`'
+                            if field == config
+                            else "`x`",
+                            "comment": "ProjectName: project"
+                            if field == config
+                            else "fixture",
+                        },
+                    )
+                    for i, field in enumerate(fields, 1)
+                ]
+                self.assertFalse(pipeline_indexed_rows(rows))
 
     def test_ambiguous_membership(self):
         snapshot, response, _ = self.build(2, 2, ambiguous=True)
@@ -1700,7 +1780,7 @@ class PipelineMembershipTests(unittest.TestCase):
         )
 
     def test_standalone(self):
-        snapshot, response, source = self.build(reference=True)
+        snapshot, response, source = self.build(reference=True, order="middle")
         with tempfile.TemporaryDirectory(prefix="pipeline-standalone-") as directory:
             folder = Path(directory)
             script = folder / "audit.py"
@@ -1734,6 +1814,23 @@ class PipelineMembershipTests(unittest.TestCase):
             self.assertIn("[OK] CodePipeline.Pipeline", process.stdout)
             self.assertNotIn("Design reference projection failed", process.stdout)
             self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+            response[0]["actions"][0]["configuration"]["ProjectName"] = "wrong"
+            contents = fake.read_text(encoding="utf-8").replace(
+                "build-project", "wrong"
+            )
+            fake.write_text(contents, encoding="utf-8")
+            process = subprocess.run(
+                [sys.executable, "-I", "-B", str(script)],
+                cwd=folder,
+                env={**os.environ, "PATH": str(folder)},
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
+            self.assertIn("[NG] CodePipeline.Pipeline", process.stdout)
+            self.assertNotIn("ModuleNotFoundError", process.stderr)
+            self.assertNotIn("Design reference projection failed", process.stdout)
 
     def test_reference(self):
         snapshot, response, _ = self.build(reference=True)
