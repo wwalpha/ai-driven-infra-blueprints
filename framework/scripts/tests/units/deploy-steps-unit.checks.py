@@ -983,7 +983,7 @@ class TestCurrentState(TestCase):
 
     def test_settled_execution_is_not_sent_again_before_save(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "request.json"
+            path = Path(directory).resolve() / "request.json"
             record = {
                 "name": "A",
                 "operation": "execute_change_set",
@@ -994,7 +994,7 @@ class TestCurrentState(TestCase):
             path.write_text(json.dumps(record), encoding="utf-8")
             path.chmod(0o600)
             transport = Mock()
-            runtime = SimpleNamespace(target={}, aws=Mock())
+            runtime = SimpleNamespace(target={}, aws=Mock(), states={})
             with (
                 patch.object(current_request, "location", return_value=path),
                 patch.object(
@@ -1004,7 +1004,7 @@ class TestCurrentState(TestCase):
                 ),
                 patch.object(current_request, "settled", return_value=True),
             ):
-                with self.assertRaises(Blocked):
+                with self.assertRaisesRegex(Blocked, "settled request needs durable progress"):
                     current_request.send(
                         runtime,
                         "execute_change_set",
