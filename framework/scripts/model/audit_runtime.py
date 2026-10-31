@@ -235,6 +235,8 @@ def engine(snapshot):
 
 
 def reference_result(m, snapshot, resource, item):
+    if item["propertiesKey"] == "SQS.QueuePolicy.Id" and item["status"] == "sdk_unavailable":
+        return item
     rows = resource.rows_for(item["propertiesKey"])
     if resource.kind == "CodePipeline.Pipeline" and ".Stages[]." in item["propertiesKey"]:
         paths = snapshot.get("pipelineIndexedRows", {}).get(resource.number, {})
@@ -490,6 +492,8 @@ def identifier_result(m, ctx, resource, item):
 
 def classify_exclusion(m, snapshot, resource, item, *, resource_confirmed=False):
     prop = item["propertiesKey"]
+    if prop == "SQS.QueuePolicy.Id" and item["status"] == "sdk_unavailable":
+        return {**item, "status": "excluded"}
     reason = snapshot.get("exclusions", {}).get(prop)
     if (
         prop == "Lambda.Function.Code.S3Bucket"

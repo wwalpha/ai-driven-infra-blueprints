@@ -13,13 +13,22 @@ import json
 import pytest
 from deploy.observed import security_group_rule_id
 from model.adapters.aws import Unresolved, service_module
-from model.adapters.observed import propagate_references, resolve_resources
+from model.adapters.observed import identifier_source, propagate_references, resolve_resources
 from model.files import read_model
 from support.cloudformation_deploy_fixtures import TARGET
 from support.model_sources import allocate_fixture, write_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+def test_queue_policy_id_requires_getatt_output():
+    catalog = SimpleNamespace(schema=lambda kind: {"primaryIdentifier": ["/properties/Id"]})
+    resource = {"resourceType": "SQS.QueuePolicy"}
+    outputs = {"Id"}
+    declarations = {"id": {"Fn::GetAtt": ["Policy", "Id"]}, "ref": {"Ref": "Policy"}}
+    assert identifier_source(catalog, resource, outputs, "Policy", "SQS.QueuePolicy.Id", declarations) == (False, ["id"])
+    assert identifier_source(catalog, resource, outputs, "Policy", "SQS.QueuePolicy.Id", {"ref": {"Ref": "Policy"}}) == (False, [])
 
 
 def seed(root, kind, child_kind, setting):

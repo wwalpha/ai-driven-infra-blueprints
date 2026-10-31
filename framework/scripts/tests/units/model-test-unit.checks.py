@@ -107,6 +107,13 @@ class WriteOnlyArrayValidationTests(unittest.TestCase):
 
 
 class ExclusionClassificationTests(unittest.TestCase):
+    def test_queue_policy_id_is_unverifiable_only_when_sdk_unavailable(self):
+        item = {"propertiesKey": "SQS.QueuePolicy.Id", "status": "sdk_unavailable", "reason": "no independent ID"}
+        self.assertEqual(audit.classify_exclusion(None, {}, None, item), {**item, "status": "excluded"})
+        for status in ("acquisition_failed", "resource_missing", "difference", "design_unresolved"):
+            failure = {**item, "status": status}
+            self.assertEqual(audit.classify_exclusion(None, {}, None, failure), failure)
+
     def test_exclusion_requires_candidate_and_valid_input(self):
         m = SimpleNamespace(Unresolved=Unresolved, redacted=lambda value: value)
         resource = Mock()

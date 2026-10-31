@@ -445,6 +445,7 @@ def standalone_service_imports():
                     "SQS.QueuePolicy",
                     "policy",
                     [
+                        ("Id", '`{"$modelRef":{"logicalId":"SQS_QueuePolicy_002","attribute":"Id"}}`', None),
                         ("Queues[]", "`https://queue/one`", None),
                         ("Queues[]", "`https://queue/two`", None),
                         ("PolicyDocument", "[policy](sqs/policy.json)", policy),
@@ -479,8 +480,10 @@ elif api == ["route53", "list-resource-record-sets"]:
  else: value = {"ResourceRecordSets": [{"Name": "www.example.com.", "Type": "A", "TTL": 301 if case == "different" else 300}], "IsTruncated": False}
 elif api == ["sqs", "get-queue-url"]: value = {"QueueUrl": "https://queue/one"}
 elif api == ["sqs", "get-queue-attributes"]:
+ if case == "sqs_denied": sys.stderr.write("An error occurred (AccessDenied) when calling GetQueueAttributes: denied"); sys.exit(1)
  policy = {"Statement": [{"Resource": "*", "Action": ["sqs:SendMessage"], "Effect": "Allow"}], "Version": "2012-10-17"}
  if case == "different" and args["QueueUrl"].endswith("two"): policy["Statement"][0]["Effect"] = "Deny"
+ if case == "policy_difference": policy["Statement"][0]["Effect"] = "Deny"
  value = {"Attributes": {"Policy": json.dumps(policy)}}
 else: raise RuntimeError(str(api))
 print(json.dumps(value))
@@ -496,11 +499,14 @@ print(json.dumps(value))
                 ), name
             script = root / (service + ".py")
             script.write_text(source, encoding="utf-8")
-            for case, code in [
+            cases = [
                 ("match", 0),
                 ("different", 1 if service == "route53" else 2),
                 ("auth", 2),
-            ]:
+            ]
+            if service == "sqs":
+                cases += [("policy_difference", 1), ("sqs_denied", 2)]
+            for case, code in cases:
                 calls = root / "calls"
                 calls.unlink(missing_ok=True)
                 process = subprocess.run(
@@ -540,6 +546,17 @@ print(json.dumps(value))
                             "associated queues have missing or different policies"
                             in process.stdout
                         )
+                if service == "sqs" and case == "match":
+                    assert "[INFO] SQS.QueuePolicy" in process.stdout
+                    assert "Verification: NOT_VERIFIABLE" in process.stdout
+                    assert "[OK] SQS.QueuePolicy" in process.stdout
+                if service == "sqs" and case == "policy_difference":
+                    assert "[NG] SQS.QueuePolicy" in process.stdout
+                    assert "PolicyDocument" in process.stdout
+                    assert "Verification: NOT_VERIFIABLE" in process.stdout
+                if service == "sqs" and case == "sqs_denied":
+                    assert "[ERROR] SQS.QueuePolicy" in process.stdout
+                    assert "AccessDenied" in process.stdout
                 if service == "route53" and case != "auth":
                     assert entries.count("route53/list-resource-record-sets") >= 2
 

@@ -424,6 +424,21 @@ def check_every_identifier_is_confirmed(tmp_path, missing, already_matches):
         )
 
 
+@pytest.mark.parametrize("output,expected", [("policy-id", "`policy-id`"), (None, None)])
+def test_queue_policy_getatt_observation(tmp_path, output, expected):
+    source = tmp_path / "model/dev/app/sqs.properties"
+    resource = {"resourceType": "SQS.QueuePolicy", "logicalId": "SQS_QueuePolicy_001"}
+    rows = [("001-001", {"property": "SQS.QueuePolicy.Id", "value": "ref"})]
+    mapped = {"A": {"Policy": (source, "001", resource, rows, {"SQS.QueuePolicy.Id"})}}
+    stack = {"StackId": "stack", "StackStatus": "CREATE_COMPLETE", "Outputs": [] if output is None else [{"OutputKey": "PolicyId", "OutputValue": output}]}
+    backend = SimpleNamespace(run_context={}, root=tmp_path, environment="dev", directory="app", target={"awsRegion": "region", "awsAccountId": "account"}, templates={"A": ({"Resources": {"Policy": {"Type": "AWS::SQS::QueuePolicy"}}, "Outputs": {"PolicyId": {"Value": {"Fn::GetAtt": ["Policy", "Id"]}}}}, {})}, aws=Mock(side_effect=[{"Stacks": [stack]}, {"StackResourceSummaries": [{"LogicalResourceId": "Policy", "ResourceType": "AWS::SQS::QueuePolicy", "ResourceStatus": "CREATE_COMPLETE", "PhysicalResourceId": "unproven-physical-id"}]}, {"Stacks": [stack]}]))
+    state = {"A": {"status": "SUCCESS", "stackId": "stack", "stackStatus": "CREATE_COMPLETE"}}
+    with (patch.object(observed, "DesignSchemaCatalog"), patch.object(observed, "resolve_resources", return_value=({source: {"observed.row.001-001.value": "`PENDING_DEPLOY`"}}, mapped)), patch.object(observed, "own_key", return_value="self"), patch.object(observed, "propagate_references"), patch.object(observed, "observed_destinations", return_value=({}, [], None)) as destinations):
+        observed.sync_successful(backend, [{"name": "A"}], state)
+    assert destinations.call_args.args[4][source]["observed.row.001-001.value"] == expected
+    assert state["A"]["observedCoverage"]["Policy"]["status"] == ("UPDATED" if output else "UNCONFIRMED")
+
+
 def missing_changeset_aws(event, operation, **arguments):
     if operation == "describe_stacks":
         return {"Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}]}

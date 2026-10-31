@@ -131,7 +131,7 @@ resourceTypes:
         source:
           kind: provider-output
           location: provider SQS.QueuePolicy Id
-          constraint: SQS has no independent QueuePolicy resource ID; GetQueueAttributes returns only the queue policy document.
+          constraint: CloudFormation Fn::GetAtt Id is a provider-assigned ID; SQS GetQueueAttributes returns the policy document but cannot independently verify this ID.
           classification: sdk_unavailable
       PolicyDocument:
         model: {include: true}
