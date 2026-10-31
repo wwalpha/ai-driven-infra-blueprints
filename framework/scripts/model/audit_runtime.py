@@ -466,17 +466,25 @@ def identifier_result(m, ctx, resource, item):
 def classify_exclusion(m, snapshot, resource, item):
     prop = item["propertiesKey"]
     reason = snapshot.get("exclusions", {}).get(prop)
-    if item["status"] != "sdk_unavailable" or not reason:
+    if item["status"] not in {"sdk_unavailable", "local_metadata"} or not reason:
         return item
     try:
         values = [resource.parse(row) for _, row in resource.rows_for(prop)]
     except (m.Unresolved, ValueError, TypeError, KeyError) as error:
-        return {**item, "status": "design_unresolved", "reason": str(error)}
+        return {
+            **item,
+            "status": "design_unresolved",
+            "reason": "invalid sensitive design value"
+            if resource.module.sensitive(prop)
+            else str(error),
+        }
     return {
         **item,
         "status": "excluded",
         "reason": reason,
-        "designValue": m.redacted(values[0] if len(values) == 1 else values),
+        "designValue": "[REDACTED]"
+        if resource.module.sensitive(prop)
+        else m.redacted(values[0] if len(values) == 1 else values),
     }
 
 
@@ -546,16 +554,8 @@ def audit(snapshot, profile=None, cli_runner=None):
     )
     for resource in model.resources:
         try:
-            records.extend(
-                classify_exclusion(
-                    m,
-                    snapshot,
-                    resource,
-                    reference_result(
-                        m, snapshot, resource, identifier_result(m, ctx, resource, item)
-                    ),
-                )
-                for item in attributes(
+            items = list(
+                attributes(
                     m.compare_resource(
                         ctx,
                         resource,
@@ -571,6 +571,17 @@ def audit(snapshot, profile=None, cli_runner=None):
                     )
                 )
             )
+            failed = any(
+                item["status"] in {"acquisition_failed", "resource_missing"}
+                for item in items
+            )
+            for item in items:
+                item = reference_result(
+                    m, snapshot, resource, identifier_result(m, ctx, resource, item)
+                )
+                records.append(
+                    item if failed else classify_exclusion(m, snapshot, resource, item)
+                )
         except Exception as error:
             # Never turn a new upstream dependency or malformed response into a silent skip.
             for prop in dict.fromkeys(row["property"] for _, row in resource.rows):

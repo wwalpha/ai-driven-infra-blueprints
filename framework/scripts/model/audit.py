@@ -600,7 +600,11 @@ def generate(root, environment, selector, service):
                 prop
                 and prop.source == "model"
                 and prop.constraint
-                and prop.field.classification == "sdk_unavailable"
+                and (
+                    prop.field.classification == "sdk_unavailable"
+                    or prop.field.classification == "local_metadata"
+                    and "provider read cannot confirm" in prop.constraint.lower()
+                )
                 and not prop.field.getter
                 and under(
                     property_path, catalog.schema(kind).get("writeOnlyProperties", [])

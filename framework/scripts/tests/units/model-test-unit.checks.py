@@ -68,6 +68,35 @@ class WriteOnlyArrayValidationTests(unittest.TestCase):
                         audit.validate_design_value(m, snapshot, row, value)
 
 
+class ExclusionClassificationTests(unittest.TestCase):
+    def test_exclusion_requires_candidate_and_valid_input(self):
+        m = SimpleNamespace(Unresolved=Unresolved, redacted=lambda value: value)
+        resource = Mock()
+        resource.module.sensitive.return_value = True
+        resource.rows_for.return_value = [("001", {"value": "secret"})]
+        resource.parse.return_value = "secret"
+        item = {"propertiesKey": "credential", "status": "local_metadata"}
+        snapshot = {"exclusions": {"credential": "write-only"}}
+        result = audit.classify_exclusion(m, snapshot, resource, item)
+        self.assertEqual(result["status"], "excluded")
+        self.assertEqual(result["designValue"], "[REDACTED]")
+        self.assertEqual(audit.classify_exclusion(m, {}, resource, item), item)
+        for status in (
+            "acquisition_failed",
+            "resource_missing",
+            "design_unresolved",
+            "difference",
+        ):
+            failure = {**item, "status": status}
+            self.assertEqual(
+                audit.classify_exclusion(m, snapshot, resource, failure), failure
+            )
+        resource.parse.side_effect = Unresolved("secret")
+        result = audit.classify_exclusion(m, snapshot, resource, item)
+        self.assertEqual(result["status"], "design_unresolved")
+        self.assertNotIn("secret", str(result))
+
+
 class MacieLookupTests(unittest.TestCase):
     def test_job_lookup(self):
         adapter = service_module("macie")

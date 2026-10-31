@@ -2218,6 +2218,12 @@ def test_quicksight_generated_standalone():
                     "source",
                     [
                         ("Type", "`ATHENA`", None),
+                        ("Credentials.CredentialPair.Username", "`private-user`", None),
+                        (
+                            "Credentials.CredentialPair.Password",
+                            "`private-password`",
+                            None,
+                        ),
                         ("DataSourceId", "`source-id`", None),
                         ("Permissions[].Principal", "`principal`", None),
                         ("Permissions[].Actions", '`["ActionA"]`', None),
@@ -2230,6 +2236,13 @@ def test_quicksight_generated_standalone():
             data["models"]["dev/cde/quicksight"],
         )
         source = generator.generate(root, "dev", "cde", "quicksight")[0]
+        snap = snapshot(source)
+        keys = [
+            "QuickSight.DataSource.Credentials.CredentialPair." + name
+            for name in ("Username", "Password")
+        ]
+        for key in keys:
+            case.assertIn(key, snap["exclusions"])
         script = root / "quicksight.py"
         script.write_text(source)
         fake = root / "aws"
@@ -2240,6 +2253,8 @@ def test_quicksight_generated_standalone():
             + """import json, os, sys
 api = sys.argv[1:3]
 args = json.loads(sys.argv[sys.argv.index("--cli-input-json") + 1])
+if os.environ.get("FAIL_API") == ":".join(api):
+ sys.exit(1)
 if api == ["sts", "get-caller-identity"]:
  value = {"Account": os.environ["ACCOUNT"], "Arn": "arn:aws:iam::123456789012:user/offline"}
 elif api == ["quicksight", "describe-data-source"] and args == {"AwsAccountId": "123456789012", "DataSourceId": "source-id"}:
@@ -2270,10 +2285,97 @@ print(json.dumps(value))
                 timeout=30,
             )
             case.assertIn(marker, process.stdout, process.stdout + process.stderr)
+            for name in ("Username", "Password"):
+                case.assertRegex(
+                    process.stdout, r"\[INFO\].*Credentials\.CredentialPair\." + name
+                )
+            case.assertIn("Verification: NOT_VERIFIABLE", process.stdout)
+            case.assertNotIn("private-user", process.stdout + process.stderr)
+            case.assertNotIn("private-password", process.stdout + process.stderr)
+            case.assertEqual(process.returncode, 0 if actual == "ATHENA" else 1)
             case.assertIn("Type", process.stdout)
             case.assertIn(actual, process.stdout)
             case.assertRegex(process.stdout, r"\[OK\].*Permissions\[\]\.Actions")
             case.assertRegex(process.stdout, r"\[OK\].*Permissions\[\]\.Principal")
+        responses = {
+            ("quicksight", "describe-data-source"): {
+                "DataSource": {"Type": "ATHENA", "DataSourceId": "source-id"}
+            },
+            ("quicksight", "describe-data-source-permissions"): {
+                "Permissions": [{"Principal": "principal", "Actions": ["ActionA"]}]
+            },
+        }
+        engine = runtime(snap)
+        for fail in [("quicksight", "describe-data-source")]:
+            records = engine["audit"](snap, None, CLI(responses, fail=fail))[2]
+            text, code = engine["report"](
+                snap, None, "unverified", records, datetime.now(timezone.utc)
+            )
+            case.assertEqual(code, 2, text)
+            case.assertNotIn("[INFO] QuickSight.DataSource", text)
+            case.assertNotIn("private-user", text)
+            case.assertNotIn("private-password", text)
+        changed = copy.deepcopy(snap)
+        changed["models"]["dev/cde/quicksight"]["desired.row.001-002.value"] = (
+            '`{"$modelRef":{"logicalId":"Missing","attribute":"Arn"}}`'
+        )
+        records = runtime(changed)["audit"](changed, None, CLI(responses))[2]
+        case.assertEqual(
+            next(item for item in records if item["propertiesKey"] == keys[0])[
+                "status"
+            ],
+            "design_unresolved",
+        )
+        case.assertNotIn(
+            "QuickSight.DataSource.Credentials.SecretArn", snap["exclusions"]
+        )
+        for status in ("sdk_unavailable", "local_metadata"):
+            changed = copy.deepcopy(snap)
+            observable = "QuickSight.DataSource.Type"
+            changed["mappings"]["quicksight"]["properties"][observable]["field"].update(
+                classification=status, reason="unavailable"
+            )
+            records = runtime(changed)["audit"](changed, None, CLI(responses))[2]
+            case.assertEqual(
+                next(item for item in records if item["propertiesKey"] == observable)[
+                    "status"
+                ],
+                status,
+            )
+            case.assertEqual(
+                engine["report"](
+                    changed, None, "123456789012", records, datetime.now(timezone.utc)
+                )[1],
+                2,
+            )
+        records = engine["audit"](snap, None, CLI(responses))[2]
+        records = [item for item in records if item["propertiesKey"] in keys]
+        case.assertEqual(
+            engine["report"](
+                snap, None, "123456789012", records, datetime.now(timezone.utc)
+            )[1],
+            2,
+        )
+        process = subprocess.run(
+            [sys.executable, "-I", "-B", str(script)],
+            cwd=root,
+            env={
+                **os.environ,
+                "PATH": str(root),
+                "ACTUAL_TYPE": "ATHENA",
+                "ACCOUNT": "123456789012",
+                "CALLS": str(root / "calls"),
+                "FAIL_API": "sts:get-caller-identity",
+            },
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        case.assertEqual(process.returncode, 2, process.stdout + process.stderr)
+        case.assertIn("[ERROR]", process.stdout)
+        case.assertNotIn("[INFO]", process.stdout)
+        case.assertNotIn("private-user", process.stdout + process.stderr)
+        case.assertNotIn("private-password", process.stdout + process.stderr)
         (root / "calls").unlink()
         process = subprocess.run(
             [sys.executable, "-I", "-B", str(script)],
@@ -2290,6 +2392,9 @@ print(json.dumps(value))
             timeout=30,
         )
         case.assertIn("[ERROR]", process.stdout, process.stdout + process.stderr)
+        case.assertNotIn("[INFO]", process.stdout)
+        case.assertNotIn("private-user", process.stdout + process.stderr)
+        case.assertNotIn("private-password", process.stdout + process.stderr)
         case.assertFalse((root / "calls").exists())
 
 
