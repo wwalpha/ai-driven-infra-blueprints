@@ -167,7 +167,7 @@ invoked validation remain separate purposes. Follow
 
 Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, Change Validation for changed inputs and required Views within Validation scope, task type checks, task Acceptance checks, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type. Blocking failure at any layer is FAIL. Existing checks retain their scan scope and record discovered failures as ordinary errors. `--all`, scope `all`, and `--repository-wide-iac` retain their existing scan-scope behavior.
 
-Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). Before successful final validation under [Validation policy](#validation-policy) and `--complete`, finish all requested work under [Task transition](task-contract.md#task-transition).
+Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). Before successful final validation under [Validation policy](#validation-policy) and `--complete`, finish all requested work under [Task transition](task-contract.md#task-transition) (including its required common and conditional reads).
 
 For a selected report-only issues Task, `--mode local` without `--write`, `--all`
 or `--staged` uses the existing `issues_save_only()` predicate and explicitly selects

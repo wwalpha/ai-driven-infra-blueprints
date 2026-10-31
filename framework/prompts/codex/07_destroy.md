@@ -9,7 +9,7 @@ Resolve environment and alias (or 12-digit awsAccountId) from human input and `p
 ## Read before changing files
 
 1. `AGENTS.md` and this prompt in full.
-2. [Task transition](../../rules/task-contract.md#task-transition), [Task boundary](../../rules/task-contract.md#task-boundary), [Acceptance contract](../../rules/task-contract.md#acceptance-contract), [Retry and stop](../../rules/task-contract.md#retry-and-stop).
+2. [Task transition](../../rules/task-contract.md#task-transition) (including its required common and conditional reads), [Task boundary](../../rules/task-contract.md#task-boundary), [Acceptance contract](../../rules/task-contract.md#acceptance-contract), [Retry and stop](../../rules/task-contract.md#retry-and-stop).
 3. The selected `tasks/<task-name>.md` when present.
 4. Selected target in `project.json`, and `model/<environment>/<target-directory>/cloudformation-stacks.properties` (logical runtime selector; delegate source/StackName/DeployOrder resolution to local-plan).
 5. [Topology](../../rules/project-configuration.md#topology), [Credentials and account](../../rules/project-configuration.md#credentials-and-account).

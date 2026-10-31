@@ -173,7 +173,7 @@ def check_implementation_preflight_prompt() -> None:
 
     root = SCRIPT.parents[2]
     transition = (root / "framework/rules/task-contract.md").read_text(encoding="utf-8")
-    routing = transition.split("### Workflow selection\n", 1)[1].split("\n### ", 1)[0]
+    routing = transition.split("## Workflow selection\n", 1)[1].split("\n## ", 1)[0]
     assert "IaC-only work loads implement without reading `05_update.md`" in routing
     for request, skill in (
         ("Implement IaC from approved Model", "implement"),
@@ -468,7 +468,201 @@ def check_design_handoff_prompt() -> None:
         assert invalid.errors, required
 
 
+def _check_task_transition_routes(text, entrypoints):
+    sections = _imports_utils_markdown_format.markdown_sections(text)
+    common = {
+        "selection-and-publication": (
+            "publication lock",
+            "per-service rollback",
+            "stop all saves",
+            "without automatic retry",
+            "even for unchanged outputs",
+            "selected contract",
+        ),
+        "workflow-selection": (
+            "IaC-only work loads implement",
+            "Model design changes cannot be performed by implement",
+        ),
+        "task-registration": (
+            "first repository change",
+            "Preserve other contracts",
+            "No globs, directories or other Task contracts",
+            "--source <external-contract-file>",
+        ),
+        "common-transitions": (
+            "successful final validation",
+            "all Requirement ID Acceptance checks",
+            "--complete",
+            "--suspend-reason",
+            "--resume",
+            "only the explicitly selected Task",
+            "Staged status changes apply only to the snapshot",
+            "do not repair unrelated failures",
+            "While suspended, do not run generation, deploy or loops",
+        ),
+        "conditional-transitions": ("If applicability is unknown",),
+        "task-boundary": (
+            "AWS acquisition and acquired add/refresh/bind/replace remain exclusive to /import",
+            "Do not proceed to IaC, AWS mutation or scenarios",
+        ),
+        "acceptance-contract": (
+            "Only `changed:`, `exists:`, `absent:`",
+            "validator-registered `check:`",
+        ),
+    }
+    conditions = {
+        "issues-report-publication": (
+            "Any Issues report save",
+            "read-only Human confirmations",
+            "without updating or deleting it",
+            "Do not collect/compare HEAD",
+            "Acceptance",
+            "whole-target Snapshot/Review integrity",
+            "no stop, rescan or renewed review",
+        ),
+        "deploy-task-transitions": (
+            "Independent Deploy or CloudFormation completion",
+            "worktree_task.py deploy-start",
+            "preserve AWS FAIL",
+            "Active/uncertain AWS requests retain tracking",
+            "No additional Human failure approval or force",
+        ),
+        "framework-final-candidates": (
+            "Framework-only governance/catalog-maintenance/migration with `framework` Validation scope",
+            "invoke finalize while running",
+            "required dependency-selected UTs",
+            "necessary IT",
+            "no Consumer service tuple",
+        ),
+        "human-approved-validation-failures": (
+            "Human-approved concrete validation failures for isolated Git integration",
+            "--human-approved-validation-failure",
+            "Keep `suspend`",
+            "do not use `--complete`",
+            "All requested work/inputs must otherwise be finished",
+            "Git safety blocks and AWS permission boundaries still stop",
+        ),
+        "dedicated-import-boundary": (
+            "IMPORT acquisition/publication/completion",
+            "replaces the design validation/completion rules below",
+            "issues runs only when explicitly requested",
+        ),
+        "self-recovery": (
+            "Operation/check failure, retry or resume",
+            "--check-resume-scope",
+            "never discard Human or other Task changes",
+            "all stopping causes were the LLM's own safely repairable operation errors",
+        ),
+        "retry-and-stop": (
+            "Operation/check failure, retry or resume",
+            "limited to 3 iterations",
+            "same error occurs twice consecutively",
+            "Do not suppress failing checks",
+        ),
+    }
+    transition = sections["task-transition"]
+    for anchor, required in common.items():
+        assert f"](#{anchor})" in transition, anchor
+        assert sections[anchor].startswith("## "), anchor
+        for literal in required:
+            assert literal in sections[anchor], (anchor, literal)
+    for anchor, (condition, *required) in conditions.items():
+        routing = sections["conditional-transitions"]
+        row = next(line for line in routing.splitlines() if condition in line)
+        assert f"](#{anchor})" in row, (condition, anchor)
+        for literal in required:
+            assert literal in sections[anchor], (anchor, literal)
+
+    # Each real entrypoint reaches common rules; conditional reads are selected per route.
+    routes = {
+        "ordinary": (".agents/skills/worktree/SKILL.md", "read-before-execution", ()),
+        "model": (
+            "framework/prompts/codex/05_update.md",
+            "common-update-authority",
+            (),
+        ),
+        "issues": (
+            ".agents/skills/issues/SKILL.md",
+            "",
+            ("issues-report-publication",),
+        ),
+        "deploy": (
+            "framework/prompts/codex/04_deploy.md",
+            "read-before-changing-files",
+            ("deploy-task-transitions",),
+        ),
+        "import": (
+            "framework/prompts/codex/08_import.md",
+            "read-first",
+            ("dedicated-import-boundary",),
+        ),
+        "recovery": (
+            ".agents/skills/worktree/SKILL.md",
+            "read-before-execution",
+            ("self-recovery", "retry-and-stop"),
+        ),
+    }
+    for route, (source, read_section, extra) in routes.items():
+        entry = entrypoints[source]
+        if read_section:
+            entry = _imports_utils_markdown_format.markdown_sections(entry)[
+                read_section
+            ]
+        assert re.search(r"task-contract\.md(?:#task-transition)?\)", entry), route
+        if "task-contract.md#task-transition)" in entry:
+            assert "including its required common and conditional reads" in entry, route
+        reached = set(re.findall(r"task-contract\.md#([a-z-]+)\)", entry))
+        if "task-contract.md)" in entry:
+            reached.update(sections)
+        if "task-transition" in reached:
+            reached.update(re.findall(r"\]\(#([a-z-]+)\)", transition))
+        for anchor in extra:
+            assert f"](#{anchor})" in sections["conditional-transitions"], route
+            reached.add(anchor)
+        assert set(common) | set(extra) <= reached, route
+
+
+def check_task_transition_readings():
+    root = SCRIPT.parents[2]
+    text = (root / "framework/rules/task-contract.md").read_text(encoding="utf-8")
+    sources = [
+        root / "AGENTS.md",
+        root / "README.md",
+        *sorted((root / "framework/prompts").rglob("*.md")),
+        *sorted((root / "framework/rules").glob("*.md")),
+        *sorted((root / ".agents/skills").glob("*/SKILL.md")),
+    ]
+    entrypoints = {
+        p.relative_to(root).as_posix(): p.read_text(encoding="utf-8") for p in sources
+    }
+    for source, entry in entrypoints.items():
+        if "task-contract.md#task-transition)" in entry:
+            assert "including its required common and conditional reads" in entry, (
+                source
+            )
+    _check_task_transition_routes(text, entrypoints)
+    # Losing a formerly nested rule or a condition must fail, not silently shorten Read.
+    for required in (
+        "[Task registration](#task-registration)",
+        "[Common transitions](#common-transitions)",
+        "[Conditional transitions](#conditional-transitions)",
+        "[Deploy task transitions](#deploy-task-transitions)",
+        "--suspend-reason",
+        "--human-approved-validation-failure",
+        "If applicability is unknown",
+        "preserve AWS FAIL",
+    ):
+        assert required in text
+        try:
+            _check_task_transition_routes(text.replace(required, ""), entrypoints)
+        except (AssertionError, StopIteration):
+            pass
+        else:
+            raise AssertionError(f"Lost Task reading contract was accepted: {required}")
+
+
 def check_rule_reading_contract() -> None:
+    check_task_transition_readings()
     validator = MODULE.Validator(SCRIPT.parents[2])
     validator.check_framework_rule_readings()
     assert not validator.errors, validator.errors

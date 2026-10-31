@@ -9,36 +9,31 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 ## Task transition
 
-### Selection and publication
+Before choosing a prompt, read [Workflow selection](#workflow-selection).
+For changes, also read [Selection and publication](#selection-and-publication),
+[Task registration](#task-registration), [Common transitions](#common-transitions),
+[Conditional transitions](#conditional-transitions), [Task boundary](#task-boundary)
+and [Acceptance contract](#acceptance-contract), even when linked only here.
+Read-only investigation/chat-only consultation needs no contract. Execute only the
+selected workflow and active Human scope.
 
-Humans select the worktree for concurrent tasks and IMPORT. Select a contract with
-`BLUEPRINT_TASK_FILE` or `--task-file`; ordinary task status and declared scope apply.
-Modified files describes planned work. Model publication retains its publication lock
-and each service's rollback-protected output transaction.
+## Selection and publication
 
-Independent `/deploy` automatically selects/creates its managed Worktree through
-`worktree_task.py deploy-start`; the Human need not also invoke `/worktree`.
-Its fixed-snapshot execution and separate Git publication follow
-[Managed Deploy snapshot and Git publication](cloudformation.md#managed-deploy-snapshot-and-git-publication).
-Other Task baseline and integration rules remain unchanged.
+Humans select worktrees for concurrent tasks and IMPORT. Use the selected Task status, scope and Modified files.
+Finish edits before generation/validation; resume only after it exits. No concurrent
+input, contract or output edits in that worktree, except the command's planned saves.
+Read-only review is allowed; parallel edits need a separate Human-selected worktree.
 
-Finish editing before running generation/validation; start the next edit only after
-that command exits. While it runs, another LLM, sub-agent or command must not edit,
-add or delete its inputs or generation destinations in the same worktree. The running
-command's planned saves are permitted. Concurrent read-only investigation is allowed.
-For parallel editing, use a separate worktree selected by the Human.
+Use guarded publication APIs with the publication lock and per-service rollback.
+For ordinary generation, the final all-target comparison must confirm unchanged consumed
+inputs, required file sets and selected contract before any save, even for unchanged outputs. On change,
+report paths, preserve external edits and stop all saves without automatic retry.
+Publish only changed generated outputs. IMPORT/other authority writers retain their
+own publication checks; this is no continuous concurrent-edit guarantee.
 
-Ordinary generation projects all selected candidates in one stage and
-compares the consumed input bytes, required file sets and selected contract once,
-inside the publication lock before the first output save. On any input change, report
-the paths and stop without saving any output or retrying automatically; preserve the
-external edits. Even unchanged outputs require this comparison. This boundary and the
-operating rule do not guarantee continuous detection of every concurrent edit.
-IMPORT and other authority writers retain their dedicated publication checks and callbacks.
+## Workflow selection
 
-### Workflow selection
-
-Select from the Human's requested change using this table before loading a workflow prompt. IaC-only work loads implement without reading `05_update.md`. Model design changes cannot be performed by implement. Existing update branches and the one-shot repair/AWS authority boundaries remain unchanged.
+Select from the Human's request before loading a prompt. IaC-only work loads implement without reading `05_update.md`. Model design changes cannot be performed by implement. Retain update branches and one-shot repair/AWS boundaries.
 
 | Request | Skill |
 | --- | --- |
@@ -49,35 +44,74 @@ Select from the Human's requested change using this table before loading a workf
 | Deploy only | deploy |
 | Approved IaC repair after Deploy failure | implement through the existing repair handoff |
 
-### Task registration
+## Task registration
 
-- Task typeはinitialization/design/infrastructure/scenario-test/governance/catalog-maintenance/migrationのみ。active promptが今回の変更契約であり永続設計正本ではない。
-- 変更前にtasks/<task-name>.mdのtype/target/Goalを最新依頼と一致させ、新Taskの最初の変更として別契約を登録する。他契約/未commit変更は保持する。cleanかつ契約なしはidle。read-only調査/chat-only相談は登録不要。
-- Task statusはrunning/suspend/completed。## Modified filesに自契約・新規file・生成物・parts・削除先を含む正確なfile pathを列挙し、Allowed paths内に制限する。glob/directory/他Task契約は禁止。
-- task_contract.py --task-file tasks/<task-name>.md --source <repository外の契約候補file>で登録する。各processはBLUEPRINT_TASK_FILEまたは--task-fileで選択し、複数running時は明示必須。予定file変更前にModified files/Allowed pathsを更新し、同--task-fileでrefreshする。
+- Types: `initialization`, `design`, `infrastructure`, `scenario-test`, `governance`, `catalog-maintenance`, `migration`. The active prompt is the change contract, not permanent design authority.
+- Register `tasks/<task-name>.md` as the first repository change with the requested type/target/Goal. Preserve other contracts and uncommitted changes; clean without a contract is idle.
+- Status: `running`/`suspend`/`completed`. `## Modified files` lists exact paths within Allowed paths for this contract, new files, generated outputs, parts and deletions. No globs, directories or other Task contracts.
+- Register with `task_contract.py --task-file tasks/<task-name>.md --source <external-contract-file>`. Select per process with `BLUEPRINT_TASK_FILE` or `--task-file`; selection is mandatory with multiple running Tasks. Before changing a necessary new path, update Modified files/Allowed paths and refresh with the same selector.
 
-### Common transitions
+## Common transitions
 
-- Issues saves retain Scope checks and indivisible atomic publication/rollback. Saving ignores existing `iac-issues.state.json` without updating or deleting it.
-- The explicit service-scoped, report-only issues `migration` described in [Snapshot and publication](issues-investigation.md#snapshot-and-publication) runs without a worktree. Identify it with `issues_save_only()`; do not collect or compare HEAD/commit, worktree, index or untracked changes for its validation/completion or attribute other Tasks' changes to it. Retain contract/scope/Acceptance, actual report destination Allowed paths, whole-target Snapshot/Review integrity and atomic publication/rollback. Human confirmations are read-only; only issues.md and iac-issues.md join the report transaction. Input changes during or after a scan do not stop execution or require rescan/review. Ordinary Tasks and worktree integration retain their Git and input safety rules.
+- Finish requested work, successful final validation under [Validation policy](loop-engineering.md#validation-policy), all Requirement ID Acceptance checks and workflow completion conditions before `task_contract.py --task-file tasks/<task-name>.md --complete`. IMPORT retains its evidence check; contract retention follows Task boundary.
+- On a stopping check error, suspend only the explicitly selected Task, regardless of cause/ownership. `## Suspension reason` must name the check, file, concrete error and necessary external log path; keep only the current reason. The loop suspends after all checks finish or children stop, including precheck failures. Staged status changes apply only to the snapshot.
+- Outside the loop, suspend unresolved stopping errors with `task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<concrete problem>'`. Preserve other contracts/changes; do not repair unrelated failures. Safely resolved operation errors may continue under [Self recovery](#self-recovery).
+- While suspended, do not run generation, deploy or loops. `task_contract.py --task-file tasks/<task-name>.md --resume` performs read-only Scope preflight; success sets running/clears the reason, failure retains status/reason. Autonomous resume requires [Self recovery](#self-recovery); other Human approval boundaries remain. It also refreshes a running Task.
+- Read-only calls may select no contract; updates need a selected current contract. Different type/target/Goal means a new Task; saving a chat-only design needs a new `design` Task before writing.
+- Do not change type/phase during retry, start another Task after success, automatically proceed to scenarios after infrastructure changes, or repair failed tests by changing design/IaC or redeploying. Follow [Retry and stop](#retry-and-stop).
 
-- Generated views whose publication bytes are unchanged are excluded from publication. Retain technical projection/ownership safety and the single all-target input comparison in Selection and publication; publish only the projected changed bytes.
-- For isolated worktree Git integration only, explicit human approval of concrete validation failures may permit commit/rebase/merge/cleanup through `worktree_task.py finalize --human-approved-validation-failure "<approval and accepted failures>"`. Keep the task `suspend` and its current Suspension reason; do not use `--complete` or claim validation PASS. All requested work/inputs must otherwise be finished; scope errors, Git safety blocks, and AWS permission boundaries remain in force. See [worktree skill](../../.agents/skills/worktree/SKILL.md).
-- Framework-only governance/catalog-maintenance/migration tasks with explicit `framework` Validation scope use the same running-parent final-candidate sequence as Model-only tasks: private commit, latest-local-base rebase, classified validation, then completed and exact-HEAD ff-only merge. Their existing Framework scoped validator requires no Consumer service tuple. Dependency-selected UTs, necessary IT and static checks remain mandatory under Validation policy. Other Task kinds and explicit suspended-failure approval keep their existing completion order.
-- CloudFormation Deploy completion concerns the current result Snapshot: preserve AWS FAIL, validate Model/reference/scope/View and the latest-base candidate, and include completed before the same candidate commit/merge. No additional Human failure approval or force is required. Active/uncertain AWS requests retain tracking; other Workflow completion conditions are unchanged.
-- Complete only after successful final validation under [Validation policy](loop-engineering.md#validation-policy) and all requested work is finished. Use `task_contract.py --task-file tasks/<task-name>.md --complete`; IMPORT completion retains its evidence check. Delete completed contracts when the diff disappears; do not retain task history or evidence.
-- When stopping for a check error, set only this task's Task status to `suspend`, whether the cause is this task, another task, unregistered changes, or the baseline. `## Suspension reason` is mandatory and must name the failed check, target file, concrete error, and any necessary log path outside the repository. Retain only the current stop reason; do not add execution history or evidence. The local loop automatically suspends after all checks finish or child processes stop, including precheck failures. Do not infer which of multiple running tasks to suspend without an explicit selector. Staged validation status changes apply only within the snapshot.
-- When an unresolved error requires stopping outside the local loop, suspend this contract with `task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<具体的な問題>'`. Preserve other tasks' contracts and uncommitted changes; do not repair unrelated failures within this task. A safely resolved operation error does not itself require stopping or suspension; follow Self recovery below.
-- Reject generation, deploy, and loops while suspended. Resume with `task_contract.py --task-file tasks/<task-name>.md --resume` to return to running and clear the stop reason. Before a suspended Task resumes, this command repeats the read-only Scope preflight and retains the status and reason on failure. The LLM may invoke it without additional Human instruction only under Self recovery below; other resume requirements and Human approval boundaries remain in force. The same command can refresh a running task.
-- Read-only calls may explicitly select no contract; updates require a selected current contract.
-- Do not create or execute another task after the loop succeeds.
-- Do not change task type or work phase during retry.
-- Do not proceed to scenario tests because infrastructure behavior changed.
-- Do not automatically fix test failures by changing design, changing IaC, or redeploying.
+## Conditional transitions
 
-- A change with a different task type, target, or Goal is a new task.
-- A request to save a chat-only design in the repository is a new `design` task; switch the active task before saving.
-- Do not treat a task as complete if an Acceptance check for a Requirement ID or a task-type-specific check is unimplemented, unexecuted, or failing.
+Before operating, read applicable rows in addition to Common transitions.
+If applicability is unknown, read the section before omitting it.
+
+| Condition | Required read |
+| --- | --- |
+| Any Issues report save | [Issues report publication](#issues-report-publication) |
+| Independent Deploy or CloudFormation completion | [Deploy task transitions](#deploy-task-transitions) |
+| Framework-only governance/catalog-maintenance/migration with `framework` Validation scope | [Framework final candidates](#framework-final-candidates) |
+| Human-approved concrete validation failures for isolated Git integration | [Human-approved validation failures](#human-approved-validation-failures) |
+| IMPORT acquisition/publication/completion | [Dedicated import boundary](#dedicated-import-boundary) |
+| Operation/check failure, retry or resume | [Self recovery](#self-recovery) and [Retry and stop](#retry-and-stop) |
+
+## Issues report publication
+
+Retain Scope checks, atomic publication/rollback and read-only Human confirmations.
+Save only issues.md/iac-issues.md; ignore `iac-issues.state.json` without updating or deleting it.
+
+Service-scoped report-only issues `migration` follows [Snapshot and publication](issues-investigation.md#snapshot-and-publication)
+without a worktree. Do not collect/compare HEAD, commits, worktree, index or untracked
+changes for validation/completion or attribute other Tasks' changes to it. Retain
+contract/scope/Acceptance, report destination Allowed paths and whole-target Snapshot/Review integrity.
+Input changes during/after scanning require no stop, rescan or renewed review.
+Ordinary Tasks/worktree integration retain Git/input safety rules.
+
+## Deploy task transitions
+
+Independent `/deploy` uses `worktree_task.py deploy-start`, without extra Human `/worktree`;
+follow [Managed Deploy snapshot and Git publication](cloudformation.md#managed-deploy-snapshot-and-git-publication).
+CloudFormation completion concerns the current Snapshot: preserve AWS FAIL; validate
+Model/reference/scope/View and the latest-base candidate; include completed in its publication.
+No additional Human failure approval or force is required. Active/uncertain AWS requests retain tracking.
+Other Task baseline/integration/completion rules remain.
+
+## Framework final candidates
+
+For Framework-only governance/catalog-maintenance/migration with `framework` Validation scope,
+finish edits, required dependency-selected UTs, necessary IT and static checks under
+[Validation policy](loop-engineering.md#validation-policy), then invoke finalize while running.
+[Complete and integrate](../../.agents/skills/worktree/SKILL.md#complete-and-integrate) owns latest-base
+candidate validation/completion and exact-HEAD ff-only integration; no Consumer service tuple
+is required. Other Task types/approved suspended failures keep their completion order.
+
+## Human-approved validation failures
+
+Only explicit Human approval of concrete failures permits isolated Git integration with
+`worktree_task.py finalize --human-approved-validation-failure "<approval and accepted failures>"`.
+Keep `suspend` and its current Suspension reason; do not use `--complete` or claim validation PASS.
+All requested work/inputs must otherwise be finished. Scope errors,
+Git safety blocks and AWS permission boundaries still stop integration.
+Follow [Complete and integrate](../../.agents/skills/worktree/SKILL.md#complete-and-integrate).
 
 ## Task boundary
 

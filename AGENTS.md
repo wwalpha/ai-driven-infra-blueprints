@@ -21,7 +21,7 @@ Select the Skill using [Workflow selection](framework/rules/task-contract.md#wor
 
 Follow [Selection and publication](framework/rules/task-contract.md#selection-and-publication) for same-worktree editing and generation/validation.
 
-For changes, register `tasks/<task-name>.md` according to the [task contract](framework/rules/task-contract.md). Read-only investigation and chat-only consultation require no contract.
+For changes, read [Task transition](framework/rules/task-contract.md#task-transition), including its required common and conditional reads, and register `tasks/<task-name>.md` under [Task registration](framework/rules/task-contract.md#task-registration). Read-only investigation and chat-only consultation require no contract.
 
 ## How to read required rules
 

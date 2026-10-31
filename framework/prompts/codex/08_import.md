@@ -25,7 +25,7 @@ Never edit generated Markdown/JSON directly, including during display recovery.
 
 ## Read first
 
-Read AGENTS.md, [Task transition](../../rules/task-contract.md#task-transition),
+Read AGENTS.md, [Task transition](../../rules/task-contract.md#task-transition) (including its required common and conditional reads),
 [project-configuration](../../rules/project-configuration.md),
 [IMPORT configuration authority](../../rules/model-information.md#import-configuration-authority),
 [Model sources](../../rules/model-templates.md), and

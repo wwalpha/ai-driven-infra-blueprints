@@ -69,7 +69,7 @@ Do not use aliases when an environment has only one target. For multiple logical
 
 ## Task transition
 
-For repository changes, register `tasks/<task-name>.md` before writing. **Read and follow [Task transition](framework/rules/task-contract.md#task-transition)** for selection, completion, suspension and resume. Read-only investigation/chat-only consultation require no contract. Use the selected workflow for its inputs, execution order and phase-specific completion conditions.
+For repository changes, register `tasks/<task-name>.md` before writing. **Read and follow [Task transition](framework/rules/task-contract.md#task-transition) (including its required common and conditional reads)** for selection, completion, suspension and resume. Read-only investigation/chat-only consultation require no contract. Use the selected workflow for its inputs, execution order and phase-specific completion conditions.
 
 ### Isolated change tasks
 
