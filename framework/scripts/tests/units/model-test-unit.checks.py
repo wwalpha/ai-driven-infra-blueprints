@@ -2815,3 +2815,41 @@ class Route53AliasProducerTests(unittest.TestCase):
                 ctx.pages.assert_called_once_with(
                     "ec2", "describe_vpc_endpoints", VpcEndpointIds=["vpce-123"]
                 )
+
+
+class GuardDutyReportTests(unittest.TestCase):
+    def test_json_string_preserves_type_and_masks_secrets(self):
+        value = '["build-artifact/"]'
+        self.assertEqual(audit.masked(value), value)
+        self.assertEqual(audit.different_paths([value], ["build-artifact/"]), ["$[0]"])
+        secret = '{"password":"hidden","nested":[{"Key":"token","Value":"hidden"}]}'
+        masked = audit.masked(secret)
+        self.assertIsInstance(masked, str)
+        self.assertNotIn("hidden", masked)
+        self.assertEqual(json.loads(masked)["password"], "[REDACTED]")
+
+
+class GuardDutyPlanAdapterTests(unittest.TestCase):
+    def test_tags_normalization_and_invalid_types(self):
+        adapter = service_module("guardduty")
+        resource = SimpleNamespace(current=Mock(return_value="plan-1"))
+        context = SimpleNamespace(call=Mock())
+        for tags in (
+            {"Name": "example"},
+            {"Name": "example", "Environment": "dev"},
+            {},
+        ):
+            with self.subTest(tags=tags):
+                context.call.return_value = {"Tags": tags}
+                record = adapter.fetch(context, resource, "plan")
+                self.assertEqual(
+                    record["Tags"], [{"Key": k, "Value": v} for k, v in tags.items()]
+                )
+                self.assertEqual(record["MalwareProtectionPlanId"], "plan-1")
+        context.call.return_value = {}
+        self.assertEqual(adapter.fetch(context, resource, "plan")["Tags"], [])
+        for tags in (None, [], "invalid", {"Name": None}):
+            context.call.return_value = {"Tags": tags}
+            with self.subTest(tags=tags), self.assertRaises(ValueError):
+                adapter.fetch(context, resource, "plan")
+        self.assertNotIn(("cloudcontrol", "get_resource"), adapter.APIS)

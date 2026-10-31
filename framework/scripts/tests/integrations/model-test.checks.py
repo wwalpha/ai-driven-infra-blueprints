@@ -3569,3 +3569,262 @@ def test_route53_alias_producer_observation():
 if __name__ == "__main__":
     with patch.dict(sys.modules):
         check()
+
+
+def test_guardduty_plan_generated_comparison(tmp_path):
+    root = tmp_path
+    (root / "project.json").write_text(
+        json.dumps(
+            {
+                "projectName": "fixture",
+                "targets": [
+                    {
+                        "environment": "dev",
+                        "alias": "cde",
+                        "awsAccountId": "123456789012",
+                        "awsRegion": "ap-northeast-1",
+                        "iacEngine": "cloudformation",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    rows = [
+        ("ProtectedResource.S3Bucket.BucketName", "`bucket`", None),
+        ("ProtectedResource.S3Bucket.ObjectPrefixes[]", '`["a/","b/"]`', None),
+        ("Tags[].Key", '`["Name","Environment"]`', None),
+        ("Tags[].Value", '`["example","dev"]`', None),
+    ]
+    values = fixture(
+        {}, "guardduty", [("001", "GuardDuty.MalwareProtectionPlan", "plan", rows)]
+    )["models"]["dev/cde/guardduty"]
+    for index in (2, 3, 4):
+        values[f"desired.row.001-{index:03d}.valueShape"] = "projection"
+    write_model(root / "model/dev/cde/guardduty.properties", values)
+    source = generator.generate(root, "dev", "cde", "guardduty")[0]
+    generated = {"__name__": "guardduty_fixture", "__file__": str(root / "audit.py")}
+    exec(compile(source, "audit.py", "exec"), generated)
+    response = {
+        "Tags": {"Environment": "dev", "Name": "example"},
+        "ProtectedResource": {
+            "S3Bucket": {"BucketName": "bucket", "ObjectPrefixes": ["a/", "b/"]}
+        },
+    }
+    cli = CLI(
+        {
+            ("guardduty", "get-malware-protection-plan"): response,
+            ("guardduty", "list-malware-protection-plans"): {
+                "MalwareProtectionPlans": [{"MalwareProtectionPlanId": "plan-1"}]
+            },
+        }
+    )
+    records = generated["audit"](generated["SNAPSHOT"], None, cli)[2]
+    selected = [
+        r
+        for r in records
+        if r.get("propertiesKey", "").endswith(
+            ("ObjectPrefixes[]", "Tags[].Key", "Tags[].Value")
+        )
+    ]
+    assert len(selected) == 3 and all(r["status"] == "match" for r in selected), (
+        selected
+    )
+    calls = [(api, args) for api, args, _ in cli.calls if api[0] == "guardduty"]
+    assert calls == [
+        (("guardduty", "list-malware-protection-plans"), {}),
+        (
+            ("guardduty", "get-malware-protection-plan"),
+            {"MalwareProtectionPlanId": "plan-1"},
+        ),
+    ]
+    for tags, status in [
+        ({"Name": "example", "Environment": "wrong"}, "difference"),
+        ({}, "difference"),
+        ([], "design_unresolved"),
+    ]:
+        response["Tags"] = tags
+        records = generated["audit"](
+            generated["SNAPSHOT"],
+            None,
+            CLI(
+                {
+                    ("guardduty", "get-malware-protection-plan"): response,
+                    ("guardduty", "list-malware-protection-plans"): {
+                        "MalwareProtectionPlans": [
+                            {"MalwareProtectionPlanId": "plan-1"}
+                        ]
+                    },
+                }
+            ),
+        )[2]
+        assert any(
+            r["status"] == status
+            and r.get("propertiesKey", "").endswith("Tags[].Value")
+            for r in records
+        ), records
+    response["ProtectedResource"]["S3Bucket"]["ObjectPrefixes"] = ["wrong/"]
+    response["Tags"] = {"Name": "example", "Environment": "dev"}
+    records = generated["audit"](
+        generated["SNAPSHOT"],
+        None,
+        CLI(
+            {
+                ("guardduty", "get-malware-protection-plan"): response,
+                ("guardduty", "list-malware-protection-plans"): {
+                    "MalwareProtectionPlans": [{"MalwareProtectionPlanId": "plan-1"}]
+                },
+            }
+        ),
+    )[2]
+    assert any(
+        r["status"] == "difference"
+        and r.get("propertiesKey", "").endswith("ObjectPrefixes[]")
+        for r in records
+    )
+    response["ProtectedResource"]["S3Bucket"]["ObjectPrefixes"] = ["a/", "b/"]
+    response["Tags"] = {"Environment": "example", "Name": "dev"}
+    records = generated["audit"](
+        generated["SNAPSHOT"],
+        None,
+        CLI(
+            {
+                ("guardduty", "get-malware-protection-plan"): response,
+                ("guardduty", "list-malware-protection-plans"): {
+                    "MalwareProtectionPlans": [{"MalwareProtectionPlanId": "plan-1"}]
+                },
+            }
+        ),
+    )[2]
+    assert any(
+        r["status"] == "difference"
+        and r.get("propertiesKey", "").endswith("Tags[].Value")
+        for r in records
+    )
+    text, _ = generated["report"](
+        generated["SNAPSHOT"], None, "123456789012", records, datetime.now(timezone.utc)
+    )
+    assert "[NG] GuardDuty.MalwareProtectionPlan" in text and "Diff paths:" in text
+
+    values["desired.row.001-003.value"] = '`["Name"]`'
+    values["desired.row.001-004.value"] = '`["example"]`'
+    write_model(root / "model/dev/cde/guardduty.properties", values)
+    source = generator.generate(root, "dev", "cde", "guardduty")[0]
+    generated = {
+        "__name__": "guardduty_single_fixture",
+        "__file__": str(root / "audit.py"),
+    }
+    exec(compile(source, "audit.py", "exec"), generated)
+    response["Tags"] = {"Name": "example"}
+    records = generated["audit"](
+        generated["SNAPSHOT"],
+        None,
+        CLI(
+            {
+                ("guardduty", "get-malware-protection-plan"): response,
+                ("guardduty", "list-malware-protection-plans"): {
+                    "MalwareProtectionPlans": [{"MalwareProtectionPlanId": "plan-1"}]
+                },
+            }
+        ),
+    )[2]
+    tag_results = [
+        r
+        for r in records
+        if r.get("propertiesKey", "").endswith(("Tags[].Key", "Tags[].Value"))
+    ]
+    assert len(tag_results) == 2 and all(r["status"] == "match" for r in tag_results), (
+        tag_results
+    )
+
+
+def test_guardduty_prefix_shapes_generated(tmp_path):
+    root = tmp_path
+    (root / "project.json").write_text(
+        json.dumps(
+            {
+                "projectName": "fixture",
+                "targets": [
+                    {
+                        "environment": "dev",
+                        "alias": "cde",
+                        "awsAccountId": "123456789012",
+                        "awsRegion": "ap-northeast-1",
+                        "iacEngine": "cloudformation",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cases = [
+        ("`a/`", "leaf", ["a/"], "match"),
+        ('`["a/"]`', "projection", ["a/"], "match"),
+        ('`["a/","b/"]`', "projection", ["a/", "b/"], "match"),
+        ("`[]`", "projection", [], "match"),
+        ('`["a/"]`', "leaf", ["a/"], "difference"),
+        ("`a/`", "leaf", ["b/"], "difference"),
+    ]
+    for raw, shape, prefixes, status in cases:
+        rows = [
+            ("ProtectedResource.S3Bucket.BucketName", "`bucket`", None),
+            ("ProtectedResource.S3Bucket.ObjectPrefixes[]", raw, None),
+        ]
+        values = fixture(
+            {}, "guardduty", [("001", "GuardDuty.MalwareProtectionPlan", "plan", rows)]
+        )["models"]["dev/cde/guardduty"]
+        values["desired.row.001-002.valueShape"] = shape
+        write_model(root / "model/dev/cde/guardduty.properties", values)
+        source = generator.generate(root, "dev", "cde", "guardduty")[0]
+        generated = {
+            "__name__": "guardduty_shape_fixture",
+            "__file__": str(root / "audit.py"),
+        }
+        exec(compile(source, "audit.py", "exec"), generated)
+        responses = {
+            ("guardduty", "list-malware-protection-plans"): {
+                "MalwareProtectionPlans": [{"MalwareProtectionPlanId": "plan-1"}]
+            },
+            ("guardduty", "get-malware-protection-plan"): {
+                "ProtectedResource": {
+                    "S3Bucket": {"BucketName": "bucket", "ObjectPrefixes": prefixes}
+                }
+            },
+        }
+        records = generated["audit"](generated["SNAPSHOT"], None, CLI(responses))[2]
+        item = next(
+            r
+            for r in records
+            if r.get("propertiesKey", "").endswith("ObjectPrefixes[]")
+        )
+        assert item["status"] == status, (raw, item)
+        if raw == '`["a/"]`' and shape == "leaf":
+            assert item["designValue"] == ['["a/"]']
+            text, _ = generated["report"](
+                generated["SNAPSHOT"],
+                None,
+                "123456789012",
+                records,
+                datetime.now(timezone.utc),
+            )
+            assert 'Design: ["[\\"a/\\"]"]' in text and "Diff paths: $[0]" in text
+
+    values["desired.row.001-002.value"] = '`["a/"]`'
+    values["desired.row.001-002.valueShape"] = "projection"
+    values["desired.row.001-003.property"] = (
+        "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]"
+    )
+    values["desired.row.001-003.value"] = "`b/`"
+    values["desired.row.001-003.comment"] = "fixture"
+    write_model(root / "model/dev/cde/guardduty.properties", values)
+    source = generator.generate(root, "dev", "cde", "guardduty")[0]
+    generated = {
+        "__name__": "guardduty_mixed_fixture",
+        "__file__": str(root / "audit.py"),
+    }
+    exec(compile(source, "audit.py", "exec"), generated)
+    records = generated["audit"](generated["SNAPSHOT"], None, CLI(responses))[2]
+    item = next(
+        r for r in records if r.get("propertiesKey", "").endswith("ObjectPrefixes[]")
+    )
+    assert item["status"] == "design_unresolved", item

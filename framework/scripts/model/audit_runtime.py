@@ -358,7 +358,10 @@ def masked(value, key=""):
         raw = value.strip("`")
         if raw.startswith(("{", "[")):
             try:
-                return masked(json.loads(raw))
+                parsed = json.loads(raw)
+                safe = masked(parsed)
+                if safe != parsed:
+                    return json.dumps(safe, ensure_ascii=False, sort_keys=True)
             except ValueError:
                 pass
     return value

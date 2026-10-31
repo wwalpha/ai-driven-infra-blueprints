@@ -16,6 +16,20 @@ def sensitive(prop):
     return False
 
 
+def plan_record(record, ident):
+    tags = record.get("Tags", {})
+    if not isinstance(tags, dict) or any(
+        not isinstance(key, str) or not isinstance(value, str)
+        for key, value in tags.items()
+    ):
+        raise ValueError("invalid GuardDuty plan Tags")
+    return dict(
+        record,
+        MalwareProtectionPlanId=ident,
+        Tags=[{"Key": key, "Value": value} for key, value in tags.items()],
+    )
+
+
 def fetch(ctx, r, getter):
     if getter == "detector":
         current = r.current("Id")
@@ -68,11 +82,11 @@ def fetch(ctx, r, getter):
                 v.get("ProtectedResource", {}).get("S3Bucket", {}).get("BucketName")
                 == bucket
             ):
-                candidates.append(dict(v, MalwareProtectionPlanId=ident))
+                candidates.append(plan_record(v, ident))
         return one(candidates, "guardduty.list_malware_protection_plans")
-    return dict(
+    return plan_record(
         ctx.call(
             "guardduty", "get_malware_protection_plan", MalwareProtectionPlanId=current
         ),
-        MalwareProtectionPlanId=current,
+        current,
     )
