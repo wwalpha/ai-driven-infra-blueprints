@@ -104,6 +104,10 @@ def validate_design_value(m, snapshot, row, value):
                         raise m.Unresolved(
                             f"candidate Property item {index} " + errors[0]
                         )
+                    if "enum" in schema["items"] and item not in schema["items"]["enum"]:
+                        raise m.Unresolved(
+                            f"candidate Property item {index} has invalid value"
+                        )
             if isinstance(element, (int, float)) and not isinstance(element, bool):
                 if "minimum" in schema and element < schema["minimum"]:
                     raise m.Unresolved("candidate Property below minimum")

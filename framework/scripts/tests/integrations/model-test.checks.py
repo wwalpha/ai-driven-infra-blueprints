@@ -1028,10 +1028,16 @@ def glue_write_only():
         snap = snapshot(source)
         key = "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments"
         case.assertIn(key, snap["exclusions"])
-        case.assertEqual(snap["schemas"][key]["items"], {"type": "string"})
+        case.assertEqual(
+            snap["schemas"][key]["items"],
+            {"type": "string", "enum": ["SPARK", "ATHENA", "PYTHON"]},
+        )
         responses = {
             ("glue", "get-connection"): {
-                "Connection": {"Name": "fixture-connection", "ConnectionType": "JDBC"}
+                "Connection": {
+                    "Name": "fixture-connection", "ConnectionType": "JDBC",
+                    "CompatibleComputeEnvironments": ["ATHENA"],
+                }
             }
         }
         engine = runtime(snap)
@@ -1046,6 +1052,21 @@ def glue_write_only():
         case.assertIn("INFO: 1", text)
         case.assertIn("[OK] Glue.Connection", text)
         case.assertNotIn("[ERROR]", text)
+        multiple = copy.deepcopy(snap)
+        multiple["models"]["dev/cde/glue"]["desired.row.001-004.value"] = (
+            '`["SPARK", "ATHENA", "PYTHON"]`'
+        )
+        records = runtime(multiple)["audit"](multiple, None, CLI(responses))[2]
+        case.assertEqual(
+            next(item for item in records if item["propertiesKey"] == key)["status"],
+            "excluded",
+        )
+        records = engine["audit"](snap, None, CLI(responses, account="999999999999"))[2]
+        case.assertTrue(all(item["status"] == "acquisition_failed" for item in records))
+        case.assertEqual(
+            engine["report"](snap, None, "999999999999", records, datetime.now(timezone.utc))[1],
+            2,
+        )
         bad = copy.deepcopy(responses)
         bad[("glue", "get-connection")]["Connection"]["ConnectionType"] = "NETWORK"
         records = engine["audit"](snap, None, CLI(bad))[2]
@@ -1119,7 +1140,7 @@ def glue_write_only():
         case.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         case.assertIn("Verification: NOT_VERIFIABLE", result.stdout)
         case.assertIn("Result: PASS", result.stdout)
-        for value in ([123], ["SPARK", 123], "SPARK"):
+        for value in ([123], ["SPARK", 123], "SPARK", ["INVALID"], ["SPARK", "INVALID"]):
             with case.subTest(value=value):
                 data["models"]["dev/cde/glue"]["desired.row.001-004.value"] = (
                     "`" + json.dumps(value) + "`"

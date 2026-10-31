@@ -744,6 +744,8 @@ def generate(root, environment, selector, service):
                     item_type = schema["items"].get("type")
                     if item_type:
                         schemas[prop]["items"] = {"type": item_type}
+                    if item_type and prop == "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments":
+                        schemas[prop]["items"]["enum"] = ["SPARK", "ATHENA", "PYTHON"]
             except KeyError:
                 pass  # Existing Resource.parse treats design-only properties as strings.
             outputs[kind] = sorted(catalog_outputs(ROOT, kind))
