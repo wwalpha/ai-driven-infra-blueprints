@@ -1274,26 +1274,32 @@ def check_generate_views_missing_authoritative_json(tmp_path, shared_framework):
     assert values == original
 
 
-def check_readonly_stale_views(tmp_path):
+@pytest.mark.parametrize("kind", ["Markdown", "JSON"])
+def check_readonly_stale_views(tmp_path, kind):
     path = tmp_path / "docs/designs/dev/team/logs.md"
     source = tmp_path / "model/dev/team/logs.properties"
-    path.parent.mkdir(parents=True)
+    target = path if kind == "Markdown" else path.with_suffix("") / "policy.json"
+    target.parent.mkdir(parents=True)
     source.parent.mkdir(parents=True)
     source.write_bytes(b"authoritative source")
-    expected = "| RetentionInDays | `14` | 保持日数 |\n"
+    expected = (
+        "| RetentionInDays | `14` | 保持日数 |\n"
+        if kind == "Markdown"
+        else '{"RetentionInDays":14}\n'
+    )
     for content in (
         expected,
-        expected.replace("`14`", "`31`"),
+        expected.replace("14", "31"),
         "",
         expected.replace("RetentionInDays", "UnknownField"),
         "<!-- reference-rows: obsolete -->\n" + expected,
     ):
-        path.write_text(content, encoding="utf-8")
-        before = {file: file.read_bytes() for file in (path, source)}
+        target.write_text(content, encoding="utf-8")
+        before = {file: file.read_bytes() for file in (target, source)}
         plan = SimpleNamespace(
             root=tmp_path,
             snapshot=sync_runtime.GenerationInputs(tmp_path, read_only=True),
-            expected_outputs={path: {path: expected}},
+            expected_outputs={path: {target: expected}},
             failure_records=[],
             saved={},
         )
@@ -1302,20 +1308,20 @@ def check_readonly_stale_views(tmp_path):
             assert plan.saved == {path: {}} and not plan.failure_records
         else:
             assert [d.message for d in plan.failure_records] == [
-                "generated Markdown is stale or missing: docs/designs/dev/team/logs.md"
+                f"generated {kind} is stale or missing: {target.relative_to(tmp_path).as_posix()}"
             ]
             assert not plan.saved
         assert {file: file.read_bytes() for file in before} == before
-    path.unlink()
+    target.unlink()
     plan = SimpleNamespace(
         root=tmp_path,
         snapshot=sync_runtime.GenerationInputs(tmp_path, read_only=True),
-        expected_outputs={path: {path: expected}},
+        expected_outputs={path: {target: expected}},
         failure_records=[],
         saved={},
     )
     sync_runtime._compare_generation(plan)
-    assert plan.failure_records and not path.exists()
+    assert plan.failure_records and not target.exists()
 
 
 def check_saved_link_snapshot_and_new_warnings(tmp_path, capsys):

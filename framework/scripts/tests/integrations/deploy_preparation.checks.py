@@ -11,10 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from contextlib import chdir
 from unittest import TestCase
 
-import model.files as _imports_model_files
 import model.format as _imports_model_format
 import model.sources as _imports_model_sources
-from deploy.inputs import check_stack_markdown
 from support.deploy_preparation_fixtures import (
     ROOT,
     STACKS,
@@ -32,8 +30,6 @@ from support.deploy_preparation_fixtures import (
     paths_in,
     read_model,
     redirect_stderr,
-    redirect_stdout,
-    start,
     subprocess,
     sys,
     tempfile,
@@ -310,7 +306,7 @@ def check_preparation():
 
 
 @it_case
-def check_stale_and_conflicts():
+def check_registration_input_changes():
     for reason in (
         "runtime",
         "project",
@@ -470,18 +466,6 @@ def check_generated_boundaries():
                 "generated view conflicts with execution/required input"
                 in output.getvalue()
             )
-        view = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
-        original_view = view.read_text(encoding="utf-8")
-        view.write_text(original_view + "changed", encoding="utf-8")
-        real_load(root, "dev", "123456789012", STACKS)
-        with TestCase().assertRaisesRegex(ValueError, "sync-model"):
-            check_stack_markdown(
-                root,
-                M.stack_snapshot(
-                    root / "model/dev/123456789012/cloudformation-stacks.properties"
-                ),
-            )
-        view.write_text(original_view, encoding="utf-8")
         parameter = root / "infra/cloudformation/parameters/dev/123456789012/1.json"
         parameter.unlink()
         parameter.symlink_to(parameter.with_name("2.json"))
@@ -491,66 +475,11 @@ def check_generated_boundaries():
         assert "task path must not use symlinks" in output.getvalue()
 
 
-@it_case
-def check_service_generated_equality():
-    # Only the valid IAM model/view is used for schema/generated equality evidence.
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory).resolve() / "repo"
-        fixture(root)
-        load_model = _imports_model_files.load_model
-        source = root / "model/dev/123456789012/iam.properties"
-        values = dict(load_model(source).authoritative)
-        values["desired.resource.001.cfn-logicalId"] = STACKS[0] + "-WorkerRole"
-        values["desired.row.001-002.value"] = (
-            "[Trust](iam/iam-role-001-trust-policy.json)"
-        )
-        write_model(source, values)
-        (
-            root / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json"
-        ).rename(
-            root / "docs/designs/dev/123456789012/iam/iam-role-001-trust-policy.json"
-        )
-        sync = __import__("sync_runtime")
-        contract, _, _, _ = M.candidate(
-            root,
-            "tasks/deploy-offline.md",
-            "dev",
-            "123456789012",
-            TARGET,
-            STACKS,
-            ["iam"],
-        )
-        contract = contract.replace(
-            "## Acceptance checks\n",
-            "## Acceptance checks\n- [R1] `exists:model/dev/123456789012/iam.properties`\n",
-        )
-        start(root, "tasks/deploy-offline.md", contract)
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            assert sync.sync(root, True, "dev", "123456789012", services=["iam"]) == 0
-            assert sync.sync(root, False, "dev", "123456789012", services=["iam"]) == 0
-            for relative in ("iam.md", "iam/iam-role-001-trust-policy.json"):
-                path = root / "docs/designs/dev/123456789012" / relative
-                original = path.read_text(encoding="utf-8")
-                path.write_text(original + "\nchanged\n", encoding="utf-8")
-                try:
-                    sync.sync(root, False, "dev", "123456789012", services=["iam"])
-                except ValueError as error:
-                    kind = "Markdown" if path.suffix == ".md" else "JSON"
-                    assert (
-                        f"generated {kind} is stale or missing: {path.relative_to(root)}"
-                        in str(error)
-                    ), error
-                else:
-                    raise AssertionError("service generated mismatch accepted")
-                path.write_text(original, encoding="utf-8")
-
-
 if __name__ == "__main__":
     from support.model_sources import catalog_display
 
     with catalog_display():
         check_preparation()
-        check_stale_and_conflicts()
+        check_registration_input_changes()
         check_generated_boundaries()
-        check_service_generated_equality()
         print("Deployment preparation checks: PASS")

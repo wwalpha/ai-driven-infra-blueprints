@@ -230,7 +230,7 @@ pytest/direct/module completionとreceipt形式は変更しない。下記7 IT�
 | `model-design-17::check_authoritative_display_identity` | `check_authoritative_display_identity` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#L906) | pytest / 1 | 合成入力による直接判定（対応は上表） | 不足分だけ移管 |
 | `model-design-17::check_navigation_display_labels` | `check_navigation_display_labels` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#L966) | pytest / 4 | 合成入力による直接判定（対応は上表） | 不足分だけ移管 |
 | `model-design-17::check_cfn_identity_inputs` | `check_cfn_identity_inputs` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#L1005) | pytest / 1 | TerraformのCFn ID禁止/なし許可、CFn形式と未宣言Stack拒否の直接判定 | 不足分だけ移管 |
-| `model-design-17::check_readonly_stale_views` | `check_readonly_stale_views` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L771) | pytest / 1 | 合成入力による直接判定（対応は上表） | 不足分だけ移管 |
+| `model-design-17::check_readonly_stale_views` | `check_readonly_stale_views` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L1278) | pytest / 2 | Markdown/JSONの一致・不一致・欠落とView/Model非書込 | 不足分だけ移管 |
 | `model-design-17::check_generate_views_missing_authoritative_json` | `check_generate_views_missing_authoritative_json` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L720) | pytest / 1 | JSONリンクを保持してdocumentだけを削除、実欠落判定・生成結果なし・新規不正Viewなし・既存Markdown/JSONとModel正本不変 | Issue #17 回帰保証の復元 |
 | `function-wrapper::callback` | `check_callback_binding` | UT | [units/function_wrapper-unit.checks.py](units/function_wrapper-unit.checks.py#L54) | pytest / 1 | 既存BoundCallback descriptorのinstance/class/直接呼出し | 既存登録の補完 |
 | `model-design-17::check_path_write_text_binding` | `check_path_write_text_binding` | UT | [units/function_wrapper-unit.checks.py](units/function_wrapper-unit.checks.py#L71) | pytest / 1 | 合成入力による直接判定（対応は上表） | 不足分だけ移管 |
@@ -382,7 +382,7 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 | design_catalog `main` のMapping・命名規則・Schema書換え依存経路 | 現行QuickSight表示・Macie Schema正常値と異常値23件、S3リンクlabel・bucketCriteria/JSON競合 |
 | design_layout `check_workflow` の架空Resource/Layout変更 | 現行layout、正常/異常文書、group child・参照・親移動 |
 | blueprint-loop のRule変更・移動シナリオ | Model/Task/IaCのscope、空白検証、Frameworkコード変更の回帰選択 |
-| deploy_preparation `check_stale_and_conflicts[input]` | runtime/契約候補/Model/生成物の変更・削除は拒否 |
+| deploy_preparation `check_registration_input_changes[input]` | runtime/契約候補/Model/IaCの変更は拒否。生成Markdown/JSONの変更・欠落は登録を妨げない |
 | cloudformation-deploy `check_session_cli` のRule変更条件 | IaC/Model/契約/コード・project変更、resume・保存保護 |
 | aws_mapping `check_runtime_cache`、`check_runtime_failures[parse]` | root/scopeの再利用、独立したread/runtime例外 |
 | aws_mapping `check_readonly_defaults` のMapping default差替え | Field.copy_defaultのstandalone埋込互換性 |
@@ -793,7 +793,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `units/sync-model-unit.checks.py::check_resource_row_legacy_and_invalid_entries` | L614: 3 (('legacy-001', 'legacy-child-001', 'legacyish-001'))<br>L616: 動的 (dict(property='IAM.Role.Description', value=identity, comment='fixture').items())<br>L619: 動的 (rows) |
 | `units/sync-model-unit.checks.py::check_resource_row_scope_restoration` | 1（内部パラメータ化なし） |
 | `units/sync-model-unit.checks.py::check_generate_views_missing_authoritative_json` | L692: 動的 (root.rglob('*'))<br>L701: 動的 (stage.rglob('*'))<br>L702: 動的 ((design, artifact))<br>L703: 動的 (root.rglob('*')) |
-| `units/sync-model-unit.checks.py::check_readonly_stale_views` | L714: 動的 ((expected, expected.replace('`14`', '`31`'), '', expected.replace('RetentionInDays', 'UnknownField')))<br>L716: 動的 ((path, source))<br>L724: 動的 (before) |
+| `units/sync-model-unit.checks.py::check_readonly_stale_views` | Markdown/JSON × 一致・値差分・空・未知Property・旧メタデータ・欠落。View/Model非書込 |
 | `units/sync-model-unit.checks.py::check_snapshot_symlink_safety` | 1（内部パラメータ化なし） |
 | `units/sync-model-unit.checks.py::check_internal_sync_selection` | L779: 動的 (sync.call_args_list)<br>L781: 動的 (sync.call_args_list) |
 | `units/sync-model-unit.checks.py::check_failure_counts` | L788: 動的 (range(17))<br>L789: 動的 (paths[9:])<br>L790: 動的 (paths[:9])<br>L791: 動的 (paths)<br>L796: 動的 (range(5))<br>L810: 動的 (failures[-2:]) |
@@ -932,10 +932,9 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `unknown/cloudformation-naming.checks.py:172` | `check` | IT | [integrations/cloudformation-naming.checks.py](integrations/cloudformation-naming.checks.py#L208) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/cloudformation-naming.checks.py:180` | `check_fixtures` | IT | [integrations/cloudformation-naming.checks.py](integrations/cloudformation-naming.checks.py#L217) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `integrations/cloudtrail-input-reference.checks.py:20` | `check` | IT | [integrations/cloudtrail-input-reference.checks.py](integrations/cloudtrail-input-reference.checks.py#L30) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
-| `unknown/deploy_preparation.checks.py:105` | `check_preparation` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L48) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/deploy_preparation.checks.py:184` | `check_stale_and_conflicts` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L140) | direct / 1 | runtime/契約候補/Model/生成Markdown・JSONの変更と削除を拒否 | 配置/共有fixture分離 |
-| `unknown/deploy_preparation.checks.py:233` | `check_generated_boundaries` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L181) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/deploy_preparation.checks.py:309` | `check_service_generated_equality` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L250) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/deploy_preparation.checks.py:105` | `check_preparation` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L46) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/deploy_preparation.checks.py:184` | `check_registration_input_changes` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L309) | direct / 1 | runtime/契約候補/Model/IaCの変更を拒否し、生成Markdown/JSONの変更・欠落を許可 | 配置/共有fixture分離 |
+| `unknown/deploy_preparation.checks.py:233` | `check_generated_boundaries` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L396) | direct / 1 | Model由来の出力権限、実行入力との衝突、symlink拒否 | 配置/共有fixture分離 |
 | `unknown/design_document.checks.py:96` | `check_snapshot` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py#L93) | module / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/design_document.checks.py:145` | `check_links` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py#L171) | module / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/design_layout.checks.py:149` | `check_secret_rotation_display` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py#L252) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
@@ -1126,9 +1125,8 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `integrations/cloudformation-naming.checks.py::check_fixtures` | L185: 動的 (paths)<br>L?: 動的 (model_paths(ROOT)) |
 | `integrations/cloudtrail-input-reference.checks.py::check` | L68: 2 ([original + '# annotation\n', original.replace('audit-preview', 'audit-next')])<br>L72: 5 ([(original.replace('resourceType=CloudTrail.Trail', 'resourceType=S3.Bucket'), 'type-mismatched'), (original.replace('017', '018'), 'type-mismatched'), (original.replace('CloudTrail.Trail.TrailName', 'CloudTrail.Trail.Description'), 'exactly one name'), (original.replace('`audit-preview`', '``'), 'exactly one name'), (original + 'desired.row.017-004.property=CloudTrail.Trail.TrailName\ndesired.row.017-004.value=`duplicate`\n', 'exactly one name')])<br>L?: 動的 (values.items()) |
 | `integrations/deploy_preparation.checks.py::check_preparation` | 単一/複数Stack、alias/account、Model parts、JSON、契約/要約と登録・Controller境界 |
-| `integrations/deploy_preparation.checks.py::check_stale_and_conflicts` | L95: 8 (('issue', 'runtime', 'candidate', 'model', 'markdown-change', 'markdown-delete', 'json-change', 'json-delete')) |
-| `integrations/deploy_preparation.checks.py::check_generated_boundaries` | 実行入力・生成物の衝突と既存入力識別 |
-| `integrations/deploy_preparation.checks.py::check_service_generated_equality` | L223: 2 (('iam.md', 'iam/iam-role-001-trust-policy.json')) |
+| `integrations/deploy_preparation.checks.py::check_registration_input_changes` | runtime/project/Stack Model/IaC/Parameters/契約候補/サービスModelの変更を拒否、生成Markdown/JSONの変更・欠落を許可（11条件） |
+| `integrations/deploy_preparation.checks.py::check_generated_boundaries` | Model由来の出力権限、実行入力と生成先の衝突、symlink拒否 |
 | `integrations/design_document.checks.py::check_snapshot` | L55: 2 (('CREATE', 'IMPORT'))<br>L?: 動的 (reads.call_args_list) |
 | `integrations/design_document.checks.py::check_links` | L90: 動的 (cases)<br>L107: 3 ([(alias_text, []), (alias_text.replace(observed, 'different'), ['different']), (alias_text.replace(f'[{observed}](kms.md#kms-aliastwo)', f'[{observed}](kms.md#kms-aliasthree)'), [observed])])<br>L?: 80 (range(80))<br>L?: 動的 (zip(expected, validator.errors))<br>L?: 動的 (reads.call_args_list) |
 | `integrations/design_layout.checks.py::check_secret_rotation_display` | L118: 動的 (values.items())<br>L132: 動的 (((text.replace('### SecretsManager.Secret: app-dev-key', '### SecretsManager.RotationSchedule: app-dev-key'), 'independent heading'), (text.replace('### SecretsManager.Secret: app-dev-key', '### S3.Bucket: app-dev-key'), 'wrong parent'), (text.replace('[app-dev-key](#secretsmanager-app-dev-key)', '[app-dev-token](#secretsmanager-app-dev-token)'), 'must reference enclosing'), (text.replace('RotationRules.AutomaticallyAfterDays', 'RotateImmediatelyOnUpdate'), 'duplicate property'), (text.replace('`30`', '`invalid`'), 'provider schema violation'), (text.replace('### SecretsManager.Secret\\n', '### SecretsManager.RotationSchedule\\n'), 'resource overview types')))<br>L141: 動的 (failures) |
