@@ -4125,11 +4125,17 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
         payload = {
             "CatalogId": "fixture",
             "Name": "fixture",
-            "FederatedCatalog": {"ConnectionName": "fixture-connection"},
+            "FederatedCatalog": {
+                "ConnectionName": "fixture-connection",
+                "Identifier": "fixture-id",
+            },
         }
         cases = {
             "CatalogId": ("CatalogId", "typed", "fixture"),
             "Name": ("Name", "typed", "fixture"),
+            "FederatedCatalog.Identifier": (
+                "FederatedCatalog.Identifier", "typed", "fixture-id"
+            ),
             "FederatedCatalog.ConnectionName": (
                 "FederatedCatalog.ConnectionName",
                 "typed",

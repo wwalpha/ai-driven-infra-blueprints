@@ -483,6 +483,7 @@ def check_scheduler_compare():
         )
 
 
+@it_case
 def check_glue_catalog_compare():
     kind = "Glue.Catalog"
     permissions = [

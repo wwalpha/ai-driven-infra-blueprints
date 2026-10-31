@@ -656,7 +656,7 @@ def _callback_check_partial_acquisition_cannot_complete_cli(
             command,
             1,
             "",
-            "An error occurred (AccessDeniedException) when calling fixture: denied",
+            json.dumps({"Code": "AccessDeniedException", "Message": "denied"}),
         )
     return original(command, **kwargs)
 

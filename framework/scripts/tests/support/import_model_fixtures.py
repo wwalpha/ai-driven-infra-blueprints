@@ -865,7 +865,7 @@ class CloudControlCli:
                 command,
                 1,
                 "",
-                "An error occurred (" + failure + ") when calling fixture: denied",
+                json.dumps({"Code": failure, "Message": "denied"}),
             )
         if service == "sts":
             response = {"Account": self.account}
