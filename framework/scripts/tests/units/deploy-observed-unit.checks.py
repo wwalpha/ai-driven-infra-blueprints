@@ -13,13 +13,33 @@ import json
 import pytest
 from deploy.observed import security_group_rule_id
 from model.adapters.aws import Unresolved, service_module
-from model.adapters.observed import identifier_source, propagate_references, resolve_resources
+from model.adapters.observed import (
+    identifier_source,
+    propagate_references,
+    resolve_resources,
+)
 from model.files import read_model
 from support.cloudformation_deploy_fixtures import TARGET
 from support.model_sources import allocate_fixture, write_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+def _sg_rule_aws(document, records, stack, operation, **kwargs):
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    if operation == "describe_security_group_rules":
+        return {"SecurityGroupRules": records}
+    if operation == "describe_stacks":
+        return {"Stacks": [stack]}
+    raise AssertionError(operation)
+
+
+def _sg_rule_result(backend, stack, document, actual, output="sgr-12345678"):
+    return security_group_rule_id(
+        backend, stack, document, {}, {}, [], "Rule", actual, output
+    )
 
 
 def test_queue_policy_id_requires_getatt_output():
@@ -284,21 +304,11 @@ def check_ingress_rule_confirmation():
     }
     records = [rule]
 
-    def aws(operation, **kwargs):
-        if operation == "get_template":
-            return {"TemplateBody": document}
-        if operation == "describe_security_group_rules":
-            return {"SecurityGroupRules": records}
-        if operation == "describe_stacks":
-            return {"Stacks": [stack]}
-        raise AssertionError(operation)
+    aws = _bind_framework_callback(_sg_rule_aws, document, records, stack)
 
     backend = SimpleNamespace(aws=aws)
 
-    def result(output="sgr-12345678"):
-        return security_group_rule_id(
-            backend, stack, document, {}, {}, [], "Rule", actual, output
-        )
+    result = _bind_framework_callback(_sg_rule_result, backend, stack, document, actual)
 
     assert result() == "sgr-12345678"
     assert result("sgr-99999999") is None

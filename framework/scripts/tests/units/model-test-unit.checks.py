@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -41,6 +42,25 @@ from model import audit_runtime as audit
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+def _flow_log_cli(response, command, **kwargs):
+    if command[1] == "sts":
+        return subprocess.CompletedProcess(command, 0, json.dumps({"Account": "123456789012"}), "")
+    if response is None:
+        return subprocess.CompletedProcess(command, 1, "", "An error occurred (AccessDenied) when calling Mock: denied")
+    return subprocess.CompletedProcess(command, 0, json.dumps({"FlowLogs": response}), "")
+
+
+def _flow_log_id_cli(records, command, **kwargs):
+    value = {"Account": "123456789012"} if command[1] == "sts" else {"FlowLogs": records}
+    return subprocess.CompletedProcess(command, 0, json.dumps(value), "")
+
+
+def _sg_sdk_error(code):
+    error = Exception()
+    error.response = {"Error": {"Code": code}}
+    return sdk_error("ec2.describe_security_group_rules", error, {})
 
 
 class SdkErrorTests(unittest.TestCase):
@@ -479,12 +499,7 @@ class ReferenceTests(unittest.TestCase):
             ("denied", None, "acquisition_failed"),
         ):
             with self.subTest(case=case):
-                def cli(command, **kwargs):
-                    if command[1] == "sts":
-                        return subprocess.CompletedProcess(command, 0, json.dumps({"Account": "123456789012"}), "")
-                    if response is None:
-                        return subprocess.CompletedProcess(command, 1, "", "An error occurred (AccessDenied) when calling Mock: denied")
-                    return subprocess.CompletedProcess(command, 0, json.dumps({"FlowLogs": response}), "")
+                cli = _bind_framework_callback(_flow_log_cli, response)
                 item = next(item for item in audit.audit(snapshot, cli_runner=cli)[2]
                             if item["propertiesKey"] == "EC2.FlowLog.TrafficType")
                 self.assertEqual(item["status"], status, item)
@@ -507,9 +522,7 @@ class ReferenceTests(unittest.TestCase):
             with self.subTest(observed=observed, records=records):
                 self.consumer["observed.row.001-001.value"] = f"`{observed}`"
                 self.save()
-                def cli(command, records=records, **kwargs):
-                    value = {"Account": "123456789012"} if command[1] == "sts" else {"FlowLogs": records}
-                    return subprocess.CompletedProcess(command, 0, json.dumps(value), "")
+                cli = _bind_framework_callback(_flow_log_id_cli, records)
                 item = next(item for item in audit.audit(self.snapshot(), cli_runner=cli)[2]
                             if item["propertiesKey"] == "EC2.FlowLog.Id")
                 self.assertEqual(item["status"], status, item)
@@ -1590,7 +1603,7 @@ class IdentifierTests(unittest.TestCase):
         item = {"propertiesKey": prop, "status": "sdk_unavailable", "reason": "request input"}
         for desired in (True, False):
             self.resource.rows_for.return_value = [("001-001", {"value": str(desired)})]
-            self.resource.parse = lambda row: desired
+            self.resource.parse = lambda row, desired=desired: desired
             result = audit.classify_exclusion(self.m, {}, self.resource, item, resource_confirmed=True)
             self.assertEqual(result["status"], "excluded")
             self.assertIs(result["designValue"], desired)
@@ -2329,10 +2342,7 @@ class SecurityGroupRuleRecoveryTests(unittest.TestCase):
         ]
         resource.parse.side_effect = lambda row, norm: row["value"]
 
-        def sdk(code):
-            error = Exception()
-            error.response = {"Error": {"Code": code}}
-            return sdk_error("ec2.describe_security_group_rules", error, {})
+        sdk = _sg_sdk_error
 
         missing = sdk("InvalidSecurityGroupRuleId.NotFound")
         self.assertEqual(missing.status, "resource_missing")

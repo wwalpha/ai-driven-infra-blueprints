@@ -27,6 +27,7 @@ import support.repository_fixtures as _imports_support_repository_fixtures
 import task_contract_core as _imports_task_contract
 import utils.input_cache as _imports_input_cache
 import validation.scenario as _imports_validation_scenario
+from model.adapters.aws import AcquisitionError, Context, service_module
 from model.core import entries
 from model.sources import Scope, load_model
 from support.it_case_receipt import it_case
@@ -41,6 +42,67 @@ if not __debug__:
 
 ROOT = Path(__file__).resolve().parents[4]
 generator = module("model/audit.py", "model.audit")
+
+
+def _iam_inline_runner(case, calls, command, **kwargs):
+    operation = command[2]
+    calls.append(operation)
+    if operation == "list-role-policies":
+        if case == "missing_role":
+            code = "NoSuchEntity"
+        else:
+            names = [] if case == "missing_policy" or (case == "changed" and calls.count(operation) > 1) else ["policy"]
+            return subprocess.CompletedProcess(command, 0, json.dumps({"PolicyNames": names}), "")
+    elif case in {"deleted", "denied"}:
+        code = "NoSuchEntity" if case == "deleted" else "AccessDenied"
+    else:
+        return subprocess.CompletedProcess(command, 0, json.dumps({"PolicyDocument": {}}), "")
+    return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({code}) when calling Mock: denied")
+
+
+def _iam_report_runner(case, calls, command, **kwargs):
+    operation = command[2]
+    calls.append(operation)
+    if operation == "get-caller-identity":
+        value = {"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/offline"}
+    elif operation == "get-role":
+        value = {"Role": {"RoleName": "test-role"}}
+    elif operation == "list-role-policies":
+        if case == "missing_role":
+            return subprocess.CompletedProcess(command, 1, "", "An error occurred (NoSuchEntity) when calling Mock: missing")
+        value = {"PolicyNames": [] if case == "missing_policy" or (case == "changed" and calls.count(operation) > 1) else ["policy"]}
+    elif case in {"deleted", "denied"}:
+        code = "NoSuchEntity" if case == "deleted" else "AccessDenied"
+        return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({code}) when calling Mock: denied")
+    else:
+        value = {"PolicyDocument": {}}
+    return subprocess.CompletedProcess(command, 0, json.dumps(value), "")
+
+
+def _lambda_error_cli(error, command, **kwargs):
+    if command[1:3] == ["lambda", "get-function"]:
+        return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({error}) when calling GetFunction: failed")
+    return CLI({})(command, **kwargs)
+
+
+def _endpoint_responses(dns, endpoints):
+    return {
+        ("ec2", "describe-vpc-endpoints"): {"VpcEndpoints": endpoints},
+        ("route53", "list-resource-record-sets"): {
+            "ResourceRecordSets": [
+                {
+                    "Name": "www.example.com.",
+                    "Type": "A",
+                    "AliasTarget": {
+                        "DNSName": dns,
+                        "HostedZoneId": "Z",
+                        "EvaluateTargetHealth": False,
+                    },
+                }
+            ],
+            "IsTruncated": False,
+        },
+    }
 
 
 def snapshot(source):
@@ -276,27 +338,12 @@ def runtime(data):
 
 
 def test_iam_inline_fresh_recheck():
-    from model.adapters.aws import AcquisitionError, Context, service_module
-
     resource = _CallbackState(kind="IAM.Role", value=lambda key: "test-role")
     target = {"awsRegion": "ap-northeast-1"}
     adapter = service_module("iam")
     for case in ("present", "missing_policy", "missing_role", "deleted", "denied", "changed"):
         calls = []
-        def runner(command, **kwargs):
-            operation = command[2]
-            calls.append(operation)
-            if operation == "list-role-policies":
-                if case == "missing_role":
-                    code = "NoSuchEntity"
-                else:
-                    names = [] if case == "missing_policy" or (case == "changed" and calls.count(operation) > 1) else ["policy"]
-                    return subprocess.CompletedProcess(command, 0, json.dumps({"PolicyNames": names}), "")
-            elif case in {"deleted", "denied"}:
-                code = "NoSuchEntity" if case == "deleted" else "AccessDenied"
-            else:
-                return subprocess.CompletedProcess(command, 0, json.dumps({"PolicyDocument": {}}), "")
-            return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({code}) when calling Mock: denied")
+        runner = _bind_framework_callback(_iam_inline_runner, case, calls)
         ctx = Context(ROOT, target, cli_runner=runner, services=["iam"])
         ctx.verified = True
         if case in {"present", "missing_policy"}:
@@ -304,7 +351,7 @@ def test_iam_inline_fresh_recheck():
         else:
             try:
                 adapter.fetch(ctx, resource, "inline")
-                assert False, case
+                raise AssertionError(case)
             except AcquisitionError as error:
                 assert error.status == ("resource_missing" if case == "missing_role" else "acquisition_failed"), case
         assert calls.count("list-role-policies") == (1 if case == "missing_role" else 3 if case == "deleted" else 2)
@@ -321,23 +368,7 @@ def test_iam_inline_generated_report():
         exec(compile(source, "audit.py", "exec"), generated)
         for case in ("present", "missing_policy", "missing_role", "deleted", "denied", "changed"):
             calls = []
-            def runner(command, **kwargs):
-                operation = command[2]
-                calls.append(operation)
-                if operation == "get-caller-identity":
-                    value = {"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/offline"}
-                elif operation == "get-role":
-                    value = {"Role": {"RoleName": "test-role"}}
-                elif operation == "list-role-policies":
-                    if case == "missing_role":
-                        return subprocess.CompletedProcess(command, 1, "", "An error occurred (NoSuchEntity) when calling Mock: missing")
-                    value = {"PolicyNames": [] if case == "missing_policy" or (case == "changed" and calls.count(operation) > 1) else ["policy"]}
-                elif case in {"deleted", "denied"}:
-                    code = "NoSuchEntity" if case == "deleted" else "AccessDenied"
-                    return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({code}) when calling Mock: denied")
-                else:
-                    value = {"PolicyDocument": {}}
-                return subprocess.CompletedProcess(command, 0, json.dumps(value), "")
+            runner = _bind_framework_callback(_iam_report_runner, case, calls)
             _, account, records = generated["audit"](generated["SNAPSHOT"], None, runner)
             report, code = generated["report"](generated["SNAPSHOT"], None, account, records, datetime.now(timezone.utc))
             expected = {"present": "OK", "missing_policy": "NG", "missing_role": "NG", "deleted": "ERROR", "denied": "ERROR", "changed": "ERROR"}[case]
@@ -1027,10 +1058,7 @@ def lambda_bucket_audit():
         case.assertTrue(any(item["status"] == "acquisition_failed" for item in records), records)
         case.assertFalse(any(item["status"] == "excluded" for item in records), records)
         for error, expected in [("ResourceNotFoundException", "resource_missing"), ("AccessDenied", "acquisition_failed")]:
-            def cli(command, **kwargs):
-                if command[1:3] == ["lambda", "get-function"]:
-                    return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({error}) when calling GetFunction: failed")
-                return CLI({})(command, **kwargs)
+            cli = _bind_framework_callback(_lambda_error_cli, error)
             records = engine["audit"](snap, None, cli)[2]
             case.assertTrue(any(item["status"] == expected for item in records), records)
             case.assertFalse(any(item["status"] == "excluded" for item in records), records)
@@ -2985,24 +3013,7 @@ def test_route53_alias_producer_observation():
         namespace = {"__name__": "audit_fixture", "SNAPSHOT": snap}
         exec(compile(source, "<generated-audit>", "exec"), namespace)
 
-        def responses(dns, endpoints):
-            return {
-                ("ec2", "describe-vpc-endpoints"): {"VpcEndpoints": endpoints},
-                ("route53", "list-resource-record-sets"): {
-                    "ResourceRecordSets": [
-                        {
-                            "Name": "www.example.com.",
-                            "Type": "A",
-                            "AliasTarget": {
-                                "DNSName": dns,
-                                "HostedZoneId": "Z",
-                                "EvaluateTargetHealth": False,
-                            },
-                        }
-                    ],
-                    "IsTruncated": False,
-                },
-            }
+        responses = _endpoint_responses
 
         endpoint_record = {
             "VpcEndpointId": "vpce-123",

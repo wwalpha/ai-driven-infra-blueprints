@@ -3,12 +3,17 @@
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import aws_mapping_compare as _imports_aws_mapping_compare
 import support.check_model_aws_fixtures as _retained_fixture_offline_network
+from model.identity import Resolver
+from model.reference_nodes import parse
+from model.reference_values import reference_value
 from support.check_model_aws_fixtures import (
     REPRESENTATIVES,
     FakeResource,
@@ -24,6 +29,8 @@ from support.check_model_aws_fixtures import (
     run,
     sys,
 )
+from support.model_reference_fixtures import FRAMEWORK, project, reference, resource
+from utils.aws_mappings import mapping_alias
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -180,8 +187,6 @@ if __name__ == "__main__":
 
 @pytest.mark.parametrize("case", ["found", "missing", "ambiguous", "denied", "known"])
 def test_datazone_domain_selector(tmp_path, case):
-    from types import SimpleNamespace
-    from unittest.mock import Mock
 
     module = m.service_module("datazone")
     account = "123456789012"
@@ -221,8 +226,6 @@ def test_datazone_domain_selector(tmp_path, case):
 
 
 def test_datazone_pagination(tmp_path):
-    from types import SimpleNamespace
-    from unittest.mock import Mock
 
     target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
     ctx = m.Context(tmp_path, target, services=["datazone"], import_mode=True)
@@ -251,13 +254,6 @@ def test_datazone_pagination(tmp_path):
 
 
 def test_datazone_pending_producer_remains_unresolved(tmp_path):
-    from types import SimpleNamespace
-    from unittest.mock import Mock
-    from model.identity import Resolver
-    from model.reference_nodes import parse
-    from model.reference_values import reference_value
-    from support.model_reference_fixtures import FRAMEWORK, project, reference, resource
-    from utils.aws_mappings import mapping_alias
 
     with mapping_alias(FRAMEWORK, tmp_path):
         _, _, consumer, _ = project(tmp_path)
@@ -295,7 +291,6 @@ def test_datazone_pending_producer_remains_unresolved(tmp_path):
 
 
 def test_datazone_id_mapping_uses_get_domain(tmp_path):
-    from unittest.mock import Mock
 
     ctx = m.Context(
         tmp_path,

@@ -81,6 +81,30 @@ publication_workspace = _fixture_publication_workspace.publication_workspace
 _CALLBACK_DEFAULT = object()
 
 
+def _sg_ingress_aws(stack, actual, rule, document, operation, **kwargs):
+    if operation == "describe_stacks":
+        return {"Stacks": [stack]}
+    if operation == "list_stack_resources":
+        return {"StackResourceSummaries": [actual]}
+    if operation == "describe_security_group_rules":
+        return {"SecurityGroupRules": [rule]}
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    raise AssertionError(operation)
+
+
+def _sg_egress_aws(stack, actual, rule, document, case, operation, **kwargs):
+    if operation == "describe_stacks":
+        return {"Stacks": [stack]}
+    if operation == "list_stack_resources":
+        return {"StackResourceSummaries": [actual]}
+    if operation == "describe_security_group_rules":
+        return {"SecurityGroupRules": [rule, rule] if case == "ambiguous" else [rule]}
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    raise AssertionError(operation)
+
+
 def check_inputs(tmp_path):
     values = {"desired.deployment.maxConcurrentStacks": "2"}
     for i, unit in enumerate(units(20, 10, 10), 1):
@@ -1943,16 +1967,7 @@ def check_ingress_observed_publication(project_workspace):
         ],
     }
 
-    def aws(operation, **kwargs):
-        if operation == "describe_stacks":
-            return {"Stacks": [stack]}
-        if operation == "list_stack_resources":
-            return {"StackResourceSummaries": [actual]}
-        if operation == "describe_security_group_rules":
-            return {"SecurityGroupRules": [rule]}
-        if operation == "get_template":
-            return {"TemplateBody": document}
-        raise AssertionError(operation)
+    aws = _bind_framework_callback(_sg_ingress_aws, stack, actual, rule, document)
 
     backend = SimpleNamespace(
         root=root,
@@ -2012,16 +2027,7 @@ def check_egress_observed_publication(project_workspace, case):
     actual = {"LogicalResourceId": "Rule", "ResourceType": "AWS::EC2::SecurityGroupEgress", "ResourceStatus": "CREATE_COMPLETE", "PhysicalResourceId": group}
     rule = {"GroupId": group, "IsEgress": True, "IpProtocol": "-1", "ReferencedGroupInfo": {"GroupId": group}, "SecurityGroupRuleId": "sgr-00000002"}
     stack = {"StackId": "stack-A", "StackStatus": "CREATE_COMPLETE", "Parameters": [], "Outputs": [] if case == "pending" else [{"OutputKey": "RuleId", "OutputValue": rule["SecurityGroupRuleId"]}]}
-    def aws(operation, **kwargs):
-        if operation == "describe_stacks":
-            return {"Stacks": [stack]}
-        if operation == "list_stack_resources":
-            return {"StackResourceSummaries": [actual]}
-        if operation == "describe_security_group_rules":
-            return {"SecurityGroupRules": [rule, rule] if case == "ambiguous" else [rule]}
-        if operation == "get_template":
-            return {"TemplateBody": document}
-        raise AssertionError(operation)
+    aws = _bind_framework_callback(_sg_egress_aws, stack, actual, rule, document, case)
     backend = SimpleNamespace(root=root, environment="dev", directory="123456789012", target=TARGET, templates={"A": (document, {})}, aws=aws)
     mapping = {"A": {"Rule": (source, "005", resource, [("005-001", row)], {"EC2.SecurityGroupEgress.Id"})}}
     state = {"A": {}}
