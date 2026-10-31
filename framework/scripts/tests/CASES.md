@@ -978,6 +978,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `integrations/lambda-input-reference.checks.py:29` | `check` | IT | [integrations/lambda-input-reference.checks.py](integrations/lambda-input-reference.checks.py#L29) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `unknown/model-input-context-digest.checks.py:30` | `check` | IT | [integrations/model-input-context-digest.checks.py](integrations/model-input-context-digest.checks.py#L33) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `quicksight-group-namespace` | `test_quicksight_group_namespace` | IT | [integrations/model-test.checks.py](integrations/model-test.checks.py) | direct / 1 | standalone Namespace ARN と既存比較 | 合成 Model、Fake AWS |
+| `codebuild-boolean-standalone` | `codebuild_boolean_standalone` | IT | [integrations/model-test.checks.py](integrations/model-test.checks.py) | direct / 1 | standalone CodeBuild boolean comparison | Synthetic Model, Fake AWS |
 | `unknown/model-test.checks.py:89` | `check` | IT | [integrations/model-test.checks.py](integrations/model-test.checks.py#L112) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/model_files.checks.py:38` | `check_resource_reading` | IT | [integrations/model_files.checks.py](integrations/model_files.checks.py#L66) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/model_impact.checks.py:115` | `check_precision` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py#L118) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
