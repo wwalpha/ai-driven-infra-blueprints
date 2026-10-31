@@ -226,6 +226,22 @@ class ReferenceTests(unittest.TestCase):
                 resolved["value"] = value
                 self.assertEqual(resource.parse(row), value)
 
+    def test_valid_containers_survive_acquisition_failure(self):
+        snapshot = self.snapshot()
+        resolved = snapshot["referenceRows"]["dev/cde/vpc"]["001-002"]
+        for kind, value in (("array", ["value"]), ("object", {"key": "value"})):
+            with self.subTest(kind=kind):
+                snapshot["schemas"]["EC2.FlowLog.LogGroupName"] = {"type": kind}
+                resolved["value"] = value
+                self.missing, self.actual = True, None
+                item = next(
+                    item
+                    for item in audit.audit(snapshot, cli_runner=self.cli)[2]
+                    if item["propertiesKey"].endswith("LogGroupName")
+                )
+                self.assertEqual(item["status"], "resource_missing", item)
+                self.assertEqual(item["designValue"], value)
+
     def test_boolean_is_not_an_integer(self):
         for reference in (True, False):
             with self.subTest(reference=reference):
@@ -281,6 +297,15 @@ class ReferenceTests(unittest.TestCase):
                 )
                 self.assertEqual(item["status"], "match", item)
                 self.assertEqual(item["designValue"], ["/aws/vpc/flowlogs/fixture"])
+                if reference:
+                    self.missing = True
+                    item = next(
+                        item
+                        for item in audit.audit(snapshot, cli_runner=self.cli)[2]
+                        if item["propertiesKey"].endswith("Tags[].Key")
+                    )
+                    self.assertEqual(item["status"], "resource_missing", item)
+                    self.assertEqual(item["designValue"], ["/aws/vpc/flowlogs/fixture"])
 
     def test_acquisition_failure_keeps_resolved_scalar(self):
         snapshot = self.snapshot()
@@ -293,6 +318,49 @@ class ReferenceTests(unittest.TestCase):
         self.assertEqual(item["reason"], "ResourceNotFound")
         self.assertEqual(item["status"], "resource_missing")
         self.assertEqual(item["designValue"], "/aws/vpc/flowlogs/fixture")
+
+    def test_invalid_resolved_values_preserve_acquisition_failure(self):
+        snapshot = self.snapshot()
+        resolved = snapshot["referenceRows"]["dev/cde/vpc"]["001-002"]
+        for value, failure in (
+            (["/aws/vpc/flowlogs/fixture"], "ResourceNotFound"),
+            ({"name": "fixture"}, "AccessDenied"),
+        ):
+            with self.subTest(value=value, failure=failure):
+                resolved["value"] = value
+                self.missing, self.actual = True, None
+                calls = Mock(side_effect=self.cli)
+                if failure == "AccessDenied":
+                    calls.side_effect = [
+                        self.cli(["aws", "sts"]),
+                        subprocess.CompletedProcess(
+                            [],
+                            1,
+                            "",
+                            "An error occurred (AccessDenied) when calling Mock: hidden",
+                        ),
+                    ]
+                item = next(
+                    item
+                    for item in audit.audit(snapshot, cli_runner=calls)[2]
+                    if item["propertiesKey"].endswith("LogGroupName")
+                )
+                self.assertEqual(
+                    item["status"],
+                    "resource_missing"
+                    if failure == "ResourceNotFound"
+                    else "acquisition_failed",
+                )
+                self.assertIn("must be string", item["reason"])
+                self.assertIn(failure, item["reason"])
+                self.assertIsNone(item["designValue"])
+                self.assertEqual(
+                    sum(
+                        call.args[0][1:3] == ["ec2", "describe-flow-logs"]
+                        for call in calls.call_args_list
+                    ),
+                    1,
+                )
 
     def test_difference_and_account_failure(self):
         snapshot = self.snapshot()
@@ -702,8 +770,31 @@ class IdentifierTests(unittest.TestCase):
                 self.assertIn('  Design: "vpc-123"', text)
                 self.assertIn('  AWS:    "vpc-123"', text)
                 self.assertNotIn("  Model:", text)
+                self.assertIn("Design SHA256: hash", text)
+                self.assertNotIn("Model SHA256", text)
                 if reason:
                     self.assertIn(reason, text)
+
+    def test_report_translates_fixed_producer_diagnostic_only(self):
+        snapshot = {
+            "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
+            "service": "vpc",
+            "modelHash": "hash",
+            "names": {},
+        }
+        item = {
+            **self.item,
+            "resource": "ModelResource",
+            "status": "design_unresolved",
+            "reason": "producer Model is absent",
+            "designValue": "ModelValue",
+        }
+        text, _ = audit.report(
+            snapshot, None, "account", [item], datetime.now(timezone.utc)
+        )
+        self.assertIn("producer Design is absent", text)
+        self.assertIn("ModelValue", text)
+        self.assertNotIn("producer Model is absent", text)
 
     def test_report_does_not_include_internal_id_or_api(self):
         snapshot = {

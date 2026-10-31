@@ -16,7 +16,7 @@ from types import ModuleType, SimpleNamespace
 def _callback_engine_load_model(m, snapshot, /, path):
     address = path.relative_to(m.ROOT / "model").with_suffix("").as_posix()
     if address not in snapshot["models"]:
-        raise m.Unresolved("producer Model is absent from audit snapshot: " + address)
+        raise m.Unresolved("producer Design is absent from audit snapshot: " + address)
     values = snapshot["models"][address]
     return SimpleNamespace(
         values=values,
@@ -82,6 +82,16 @@ def _callback_engine_resource_init(self, original_init, /, *args):
     self.rows = [(rid, {**row, "auditRowId": rid}) for rid, row in self.rows]
 
 
+def validate_design_value(m, snapshot, row, value):
+    schema = snapshot["schemas"].get(row["property"])
+    if schema:
+        values = m.normalize_literals(row["property"], value, m.value_shape(row)).values
+        for element in values:
+            errors = m.native_type_errors(schema, element)
+            if errors:
+                raise m.Unresolved("candidate Property " + errors[0])
+
+
 def _callback_engine_parse(self, snapshot, m, original_parse, /, row, norm="typed"):
     resolved = row_resolution(snapshot, self, row)
     if resolved is not None:
@@ -90,15 +100,7 @@ def _callback_engine_parse(self, snapshot, m, original_parse, /, row, norm="type
             raise m.Unresolved("Design reference unresolved: " + reason)
         value = resolved["value"]
         materialized = dict(row)
-        schema = snapshot["schemas"].get(row["property"])
-        if schema:
-            values = m.normalize_literals(
-                row["property"], value, m.value_shape(row)
-            ).values
-            for element in values:
-                errors = m.native_type_errors(schema, element)
-                if errors:
-                    raise m.Unresolved("candidate Property " + errors[0])
+        validate_design_value(m, snapshot, row, value)
         if "document" in row:
             materialized["document"] = json.dumps(value, ensure_ascii=False)
         else:
@@ -115,15 +117,7 @@ def _callback_engine_parse(self, snapshot, m, original_parse, /, row, norm="type
     else:
         materialized = row
     parsed = original_parse(self, materialized, norm)
-    schema = snapshot["schemas"].get(row["property"])
-    if schema:
-        values = m.normalize_literals(
-            row["property"], parsed, m.value_shape(row)
-        ).values
-        for value in values:
-            errors = m.native_type_errors(schema, value)
-            if errors:
-                raise m.Unresolved("candidate Property " + errors[0])
+    validate_design_value(m, snapshot, row, parsed)
     return parsed
 
 
@@ -262,6 +256,7 @@ def reference_result(m, snapshot, resource, item):
                 if resolved
                 else m.typed_value(row, row["value"], snapshot["schemas"].get(prop, {}))
             )
+            validate_design_value(m, snapshot, row, value)
             (m.project if m.value_shape(row) == "projection" else m.put_row)(
                 expected, prop, value
             )
@@ -573,7 +568,7 @@ def report(snapshot, profile, account, records, timestamp):
         ("Profile", profile or "(default credential chain)"),
         ("Region", target["awsRegion"]),
         ("Account", account),
-        ("Model SHA256", snapshot["modelHash"]),
+        ("Design SHA256", snapshot["modelHash"]),
     ]:
         line(f"{label}: {value}")
     line()
@@ -595,7 +590,9 @@ def report(snapshot, profile, account, records, timestamp):
                 "  Reason: "
                 + item.get(
                     "reason", "value differs" if state == "NG" else item["status"]
-                ).replace("Model reference", "Design reference")
+                )
+                .replace("Model reference", "Design reference")
+                .replace("producer Model is absent", "producer Design is absent")
             )
         if state == "NG":
             line(
@@ -620,7 +617,7 @@ def report(snapshot, profile, account, records, timestamp):
 def main(argv=None, cli_runner=None, script_path=None):
     SNAPSHOT = globals()["SNAPSHOT"]
     parser = argparse.ArgumentParser(
-        description="Read-only audit against embedded Model expectations"
+        description="Read-only audit against embedded Design expectations"
     )
     parser.add_argument("--profile")
     args = parser.parse_args(argv)

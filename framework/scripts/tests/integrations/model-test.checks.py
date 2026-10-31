@@ -387,6 +387,9 @@ def typed_reference_round_trip():
                 assert "never-print" not in process.stdout + process.stderr
                 assert "  Model:" not in process.stdout + process.stderr
                 assert "  Design:" in process.stdout
+                assert "  AWS:" in process.stdout
+                assert "Design SHA256:" in process.stdout
+                assert "Model SHA256:" not in process.stdout
                 logs = list((root / "tests/results/dev/cde").glob(service + "-*.log"))
                 assert logs and process.stdout in [
                     path.read_text(encoding="utf-8") for path in logs
@@ -419,18 +422,26 @@ def typed_reference_round_trip():
             source = generator.generate(root, "dev", "cde", "vpc")[0]
             script = root / "vpc-invalid.py"
             script.write_text(source, encoding="utf-8")
-            process = subprocess.run(
-                [sys.executable, "-I", "-B", str(script)],
-                cwd=root,
-                env={**os.environ, "PATH": str(root)},
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            assert process.returncode == 2, (process.stdout, process.stderr)
-            assert "[ERROR] EC2.FlowLog" in process.stdout
-            assert reason in process.stdout
-            assert "  Design:" in process.stdout and "  Model:" not in process.stdout
+            for case in ("match", "missing", "denied"):
+                process = subprocess.run(
+                    [sys.executable, "-I", "-B", str(script)],
+                    cwd=root,
+                    env={**os.environ, "PATH": str(root), "AUDIT_CASE": case},
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                assert process.returncode == 2, (process.stdout, process.stderr)
+                assert "[ERROR] EC2.FlowLog" in process.stdout
+                assert reason in process.stdout
+                assert (
+                    "  Design:" in process.stdout and "  Model:" not in process.stdout
+                )
+                if case != "match":
+                    assert (
+                        "ResourceNotFound" if case == "missing" else "AccessDenied"
+                    ) in process.stdout
+                    assert "Design: null" in process.stdout
 
 
 @it_case
@@ -1076,7 +1087,7 @@ def check():
     TestCase().assertNotIn("  API:", _state_check_106.text)
     TestCase().assertIn("Diff paths: $", _state_check_106.text)
     assert (
-        "Model SHA256:" in _state_check_106.text
+        "Design SHA256:" in _state_check_106.text
         and "Executed:" in _state_check_106.text
     )
     ordinary = copy.deepcopy(records)
