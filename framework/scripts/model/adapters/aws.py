@@ -122,7 +122,7 @@ def sdk_error(api, error, request):
     detail = getattr(error, "response", {}).get("Error", {})
     if isinstance(error, subprocess.CalledProcessError):
         match = re.search(
-            r"An error occurred \(([^)]+)\) when calling [^:]+: (.*)",
+            r"An error occurred \(([^)]+)\) when calling [^:\n]+(?: \(reached max retries: \d+\))?: (.*)",
             error.stderr or "",
         )
         detail = (

@@ -1103,8 +1103,69 @@ print(json.dumps(value))
                 case.assertEqual(calls.read_text().count("called"), 1, output)
 
 
+def lambda_missing_standalone():
+    with tempfile.TemporaryDirectory(prefix="audit-lambda-") as directory:
+        root = Path(directory)
+        target = {
+            "environment": "dev", "alias": "cde", "awsAccountId": "123456789012",
+            "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation",
+        }
+        (root / "project.json").write_text(json.dumps({"projectName": "fixture", "targets": [target]}), encoding="utf-8")
+        data = fixture({}, "lambda", [("001", "Lambda.Function", "function", [
+            ("FunctionName", "`fixture-function`", None), ("Timeout", "`30`", None),
+        ])])
+        path = root / "model/dev/cde/lambda.properties"
+        fake = root / "aws"
+        fake.write_text("#!" + sys.executable + "\n" + """
+import json, os, sys
+api = sys.argv[1:3]
+if api == ["sts", "get-caller-identity"]:
+ print(json.dumps({"Account": "999999999999" if os.environ["CASE"] == "account" else "123456789012", "Arn": "arn:aws:iam::123456789012:user/offline"}))
+elif api == ["lambda", "get-function"]:
+ open(os.environ["CALLS"], "a").write("called\\n")
+ if os.environ["CASE"] in ("missing", "denied"):
+  code = "ResourceNotFoundException" if os.environ["CASE"] == "missing" else "AccessDeniedException"
+  print(f"An error occurred ({code}) when calling the GetFunction operation (reached max retries: 2): details", file=sys.stderr)
+  sys.exit(254)
+ print(json.dumps({"Configuration": {"FunctionName": "fixture-function", "Timeout": 30}}))
+else:
+ raise RuntimeError(str(api))
+""", encoding="utf-8")
+        fake.chmod(0o700)
+        for scenario, status, code in [("success", "OK", 0), ("missing", "NG", 1), ("denied", "ERROR", 2), ("unresolved", "ERROR", 2), ("ambiguous", "ERROR", 2), ("account", "ERROR", 2)]:
+            values = dict(data["models"]["dev/cde/lambda"])
+            if scenario == "unresolved":
+                values["desired.row.001-001.value"] = "`PENDING_DEPLOY`"
+            if scenario == "ambiguous":
+                values.update({
+                    "desired.row.001-003.property": "Lambda.Function.FunctionName",
+                    "desired.row.001-003.value": "`other-function`",
+                    "desired.row.001-003.comment": "fixture",
+                })
+            write_model(path, values)
+            script = root / "lambda.py"
+            script.write_text(generator.generate(root, "dev", "cde", "lambda")[0], encoding="utf-8")
+            calls = root / "calls"
+            calls.unlink(missing_ok=True)
+            result = subprocess.run([sys.executable, "-I", "-B", str(script)], cwd=root, env={
+                **os.environ, "PATH": str(root), "CASE": scenario, "CALLS": str(calls),
+            }, capture_output=True, text=True, timeout=30)
+            output = result.stdout + result.stderr
+            assert result.returncode == code, output
+            assert "[" + status + "] Lambda.Function" in output, output
+            if scenario == "success":
+                assert "[OK] Lambda.Function | fixture-function | Timeout" in output, output
+            if scenario == "missing":
+                assert output.count("[NG] Lambda.Function | fixture-function | (resource missing)") == 2, output
+                assert output.count("AWS:    null") == 2, output
+                assert "ResourceNotFoundException" in output and "Diff paths:" not in output, output
+            if scenario in ("unresolved", "ambiguous", "account"):
+                assert not calls.exists(), output
+
+
 @it_case
 def check():
+    lambda_missing_standalone()
     test_quicksight_generated_standalone()
     glue_write_only()
     macie_job_standalone()

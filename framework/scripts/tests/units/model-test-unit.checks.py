@@ -42,6 +42,18 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+class SdkErrorTests(unittest.TestCase):
+    def test_lambda_cli_errors_with_retry_metadata(self):
+        for code, expected in [("ResourceNotFoundException", "resource_missing"), ("AccessDeniedException", "acquisition_failed")]:
+            for suffix in ("", " (reached max retries: 2)"):
+                with self.subTest(code=code, suffix=suffix):
+                    error = subprocess.CalledProcessError(
+                        254, "aws", stderr=f"An error occurred ({code}) when calling the GetFunction operation{suffix}: details"
+                    )
+                    result = sdk_error("lambda.get_function", error, ("request",))
+                    self.assertEqual((result.code, result.status), (code, expected))
+
+
 class WriteOnlyArrayValidationTests(unittest.TestCase):
     def test_array_item_types(self):
         m = SimpleNamespace(
