@@ -8,6 +8,7 @@ from functools import partial
 
 import json_intrinsics
 from design.services import reference_labels
+from design.services.definitions.registry import POLICY_FORMATS
 from utils.reference_contracts import ARN_SHAPES
 
 import model.files as files
@@ -171,7 +172,21 @@ class Presentation:
                 snapshot.scope == self.scope
                 and number == position.row_id.rpartition("-")[0]
             ):
-                return None
+                terminal = next(
+                    (
+                        part
+                        for part in reversed(node.pointer.split("/"))
+                        if not part.isdigit()
+                    ),
+                    "",
+                )
+                if not (
+                    position.source_field == "document"
+                    and POLICY_FORMATS.get(contract.get("property_name"))
+                    in {"statement", "wrapped-statement"}
+                    and terminal in {"Resource", "NotResource"}
+                ):
+                    return None
             name, _, _ = render.resource_presentation(
                 snapshot.authoritative,
                 number,

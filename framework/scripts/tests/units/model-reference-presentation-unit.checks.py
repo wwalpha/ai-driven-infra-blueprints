@@ -1124,6 +1124,43 @@ def test_route53_endpoint_alias_expression_display(models, observed, index):
     assert values == before
 
 
+def test_s3_bucket_policy_self_reference_links_only_bucket_arn(models):
+    scope = Scope(models, "qa", "team", "s3")
+    values = dict(load_model(scope).authoritative)
+    path = models / "docs/designs/qa/team/s3.md"
+    document = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "DenyInsecureTransport",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:*",
+                "Resource": [
+                    reference("S3_Bucket_001", "Arn"),
+                    "arn:aws:s3:::shared-name/*",
+                ],
+                "Condition": {"Bool": {"aws:SecureTransport": "false"}},
+            }
+        ],
+    }
+    rid = add(values, "S3.BucketPolicy", "PolicyDocument", "placeholder")
+    values[f"desired.row.{rid}.value"] = "[Policy](s3/policy.json)"
+    values[f"desired.row.{rid}.document"] = json.dumps(document)
+    save(scope, values)
+    before = copy.deepcopy(values)
+    files = generate_files(path, values, models)
+    artifact = path.with_suffix("") / "policy.json"
+    assert json.loads(files[artifact])["Statement"][0]["Resource"] == [
+        "arn:aws:s3:::shared-name",
+        "arn:aws:s3:::shared-name/*",
+    ]
+    assert "[shared-name](#s3-saved-anchor)" in files[path]
+    assert "`arn:aws:s3:::shared-name/*`" in files[path]
+    assert values == before
+    restore(path, files[path], values)
+
+
 def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     scope, values, path = consumer(models, "iam", "IAM.ManagedPolicy")
     values["desired.row.001-001.property"] = "IAM.ManagedPolicy.ManagedPolicyName"
