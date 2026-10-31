@@ -200,13 +200,15 @@ UTは合成入力と既存関数を直接使用し、Sync/実CLI/Git/全Framewor
 
 Path.write_textの差替えは既存BoundCallback descriptorを再利用する。汎用descriptorは既存check_callback_binding、実Path/データ/encoding・instance/class呼出し・OSError伝播と旧file保持だけをcheck_path_write_text_bindingに追加する。
 Fixtureのmodel/text/roundtrip/project/root/mainの公開APIは維持。projectのStack View初期化は1回、roundtripは同一Stack Viewの再書込と末尾の再読込を省略する。
-pytest/direct/module completionとreceipt形式は変更しない。下記7 ITのpytest receiptは各1件を要求する。
+pytest/direct/module completionとreceipt形式は変更しない。下記の各ITのpytest receiptは1件を要求する。
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
 | `model-design-17::check_route53_endpoint_dns_roundtrip` | `check_route53_endpoint_dns_roundtrip` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L54) | pytest / 1 | Endpointのobserved ID・ServiceName・region・TypeとRoute53生成View参照の照合 | 接続保証を保持 |
 | `model-design-17::check_import_optional_name_label` | `check_import_optional_name_label` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L97) | pytest / 1 | Config IMPORT任意Nameなし/ありの生成View・保存anchor・論理ID Resolver・正本不変 | 接続保証を保持 |
 | `model-design-17::check_kms_policy_execution_account` | `check_kms_policy_execution_account` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L131) | pytest / 1 | Execution AccountのKMS policy生成・不正accountの保存拒否とMarkdown/JSON保護 | 接続保証を保持 |
+| `model-design-reference::check_route53_typed_expression_roundtrip` | `check_route53_typed_expression_roundtrip` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L182) | pytest / 1 | Route53 typed expressionのModel保存と参照View生成 | 参照を保持 |
+| `model-design-reference::check_s3_policy_kms_reference_roundtrip` | `check_s3_policy_kms_reference_roundtrip` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L232) | pytest / 1 | S3 policyのKMS参照のModel保存とView生成 | 参照を保持 |
 | `model-design-17::check_config_typed_anchors` | `check_config_typed_anchors` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L184) | pytest / 1 | 同名の異型Config Resourceのtyped link・anchorと他serviceの参照 | 接続保証を保持 |
 | `model-design-17::check_stack_mapping_roundtrip` | `check_stack_mapping_roundtrip` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L247) | pytest / 1 | Model→Stack→View→再読込、独立番号のKMS子Resource・index/parts入力不変 | 接続保証を保持 |
 | `model-design-17::check_service_failure_protection` | `check_service_failure_protection` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py#L315) | pytest / 1 | VPC/Logs/IAM正常生成後のIAM書込失敗、旧Markdown/JSON保護・Logs部分成功・VPC/全正本不変 | 接続保証を保持 |
