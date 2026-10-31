@@ -148,9 +148,7 @@ def engine(snapshot):
     adapters = {}
     for name, source in snapshot["adapters"].items():
         adapter = ModuleType("audit_" + name.replace("-", "_"))
-        source = source.replace(
-            "from model.adapters.aws import", "from audit_comparison import"
-        )
+        adapter.__dict__["_audit_comparison"] = m
         exec(compile(source, "<adapter:" + name + ">", "exec"), adapter.__dict__)
         adapters[name] = adapter
     m.service_module = adapters.__getitem__

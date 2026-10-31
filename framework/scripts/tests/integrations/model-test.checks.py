@@ -220,6 +220,157 @@ def _callback_check_change(_state_check_106, prompt, /, *args):
     return "changed source", {}, []
 
 
+def standalone_service_imports():
+    with tempfile.TemporaryDirectory(prefix="audit-services-") as directory:
+        root = Path(directory)
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "projectName": "fixture",
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "alias": "cde",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Effect": "Allow", "Action": "sqs:SendMessage", "Resource": "*"}
+            ],
+        }
+        models = {
+            "route53": [
+                (
+                    "001",
+                    "Route53.HostedZone",
+                    "zone",
+                    [("Name", "`example.com.`", None)],
+                ),
+                (
+                    "002",
+                    "Route53.RecordSet",
+                    "record",
+                    [
+                        ("HostedZoneId", "`Z123`", None),
+                        ("Name", "`www.example.com.`", None),
+                        ("Type", "`A`", None),
+                        ("TTL", "`300`", None),
+                    ],
+                ),
+            ],
+            "sqs": [
+                ("001", "SQS.Queue", "queue", [("QueueName", "`queue-one`", None)]),
+                (
+                    "002",
+                    "SQS.QueuePolicy",
+                    "policy",
+                    [
+                        ("Queues[]", "`https://queue/one`", None),
+                        ("Queues[]", "`https://queue/two`", None),
+                        ("PolicyDocument", "[policy](sqs/policy.json)", policy),
+                    ],
+                ),
+            ],
+        }
+        sources = {}
+        for service, resources in models.items():
+            write_model(
+                root / "model/dev/cde" / (service + ".properties"),
+                fixture({}, service, resources)["models"]["dev/cde/" + service],
+            )
+            sources[service] = generator.generate(root, "dev", "cde", service)[0]
+        fake = root / "aws"
+        fake.write_text(
+            "#!"
+            + sys.executable
+            + "\n"
+            + """import json, os, sys
+api = sys.argv[1:3]
+args = json.loads(sys.argv[sys.argv.index("--cli-input-json") + 1])
+with open(os.environ["AUDIT_CALLS"], "a", encoding="utf-8") as f: f.write("/".join(api) + "\\n")
+case = os.environ.get("AUDIT_CASE", "match")
+if api == ["sts", "get-caller-identity"]:
+ if case == "auth": sys.stderr.write("Unable to locate credentials"); sys.exit(1)
+ value = {"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/offline"}
+elif api == ["route53", "list-hosted-zones"]: value = {"HostedZones": [{"Id": "/hostedzone/Z123", "Name": "example.com."}]}
+elif api == ["route53", "get-hosted-zone"]: value = {"HostedZone": {"Id": "/hostedzone/Z123", "Name": "example.com."}}
+elif api == ["route53", "list-resource-record-sets"]:
+ if "StartRecordName" not in args: value = {"ResourceRecordSets": [], "IsTruncated": True, "NextRecordName": "www.example.com.", "NextRecordType": "A"}
+ else: value = {"ResourceRecordSets": [{"Name": "www.example.com.", "Type": "A", "TTL": 301 if case == "different" else 300}], "IsTruncated": False}
+elif api == ["sqs", "get-queue-url"]: value = {"QueueUrl": "https://queue/one"}
+elif api == ["sqs", "get-queue-attributes"]:
+ policy = {"Statement": [{"Resource": "*", "Action": ["sqs:SendMessage"], "Effect": "Allow"}], "Version": "2012-10-17"}
+ if case == "different" and args["QueueUrl"].endswith("two"): policy["Statement"][0]["Effect"] = "Deny"
+ value = {"Attributes": {"Policy": json.dumps(policy)}}
+else: raise RuntimeError(str(api))
+print(json.dumps(value))
+""",
+            encoding="utf-8",
+        )
+        fake.chmod(0o700)
+        for service, source in sources.items():
+            for name, adapter in snapshot(source)["adapters"].items():
+                assert (
+                    "model.adapters.aws" not in adapter
+                    and "model.importing.sdk_inventory" not in adapter
+                ), name
+            script = root / (service + ".py")
+            script.write_text(source, encoding="utf-8")
+            for case, code in [
+                ("match", 0),
+                ("different", 1 if service == "route53" else 2),
+                ("auth", 2),
+            ]:
+                calls = root / "calls"
+                calls.unlink(missing_ok=True)
+                process = subprocess.run(
+                    [sys.executable, "-I", "-B", str(script)],
+                    cwd=root,
+                    env={
+                        **os.environ,
+                        "PATH": str(root),
+                        "AUDIT_CASE": case,
+                        "AUDIT_CALLS": str(calls),
+                    },
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                assert process.returncode == code, (
+                    service,
+                    case,
+                    process.stdout,
+                    process.stderr,
+                )
+                assert "ModuleNotFoundError" not in process.stdout + process.stderr
+                entries = calls.read_text(encoding="utf-8").splitlines()
+                assert entries[0] == "sts/get-caller-identity"
+                if case == "auth":
+                    assert (
+                        entries == ["sts/get-caller-identity"]
+                        and "[ERROR]" in process.stdout
+                    )
+                if case == "different":
+                    assert (
+                        "[NG]" if service == "route53" else "[ERROR]"
+                    ) in process.stdout
+                    if service == "sqs":
+                        assert (
+                            "associated queues have missing or different policies"
+                            in process.stdout
+                        )
+                if service == "route53" and case != "auth":
+                    assert entries.count("route53/list-resource-record-sets") >= 2
+
+
 def typed_reference_round_trip():
     with tempfile.TemporaryDirectory(prefix="audit-typed-reference-") as directory:
         root = Path(directory)
@@ -447,6 +598,7 @@ def typed_reference_round_trip():
 @it_case
 @input_scope
 def check():
+    standalone_service_imports()
     typed_reference_round_trip()
     # Generation uses authored authorities; the framework checkout has no consumer data.
     _state_check_106 = _CallbackState()

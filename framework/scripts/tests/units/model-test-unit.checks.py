@@ -16,7 +16,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from design.layout import confirmed_display_name
-from model.audit import dependencies, disambiguate_names, generate, reference_rows
+from model.audit import (
+    definitions,
+    dependencies,
+    disambiguate_names,
+    embed_adapter,
+    generate,
+    reference_rows,
+)
 from model.projection import resource_display_rows
 from model.reference_values import ReferenceValue, confirmed
 from model.render import display_name
@@ -28,6 +35,49 @@ from model import audit_runtime as audit
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+class EmbeddedImportTests(unittest.TestCase):
+    def test_imports_and_aliases(self):
+        engine = "def policy(value): return value\nMISSING = 3\n"
+        source = "from model.adapters.aws import policy as normalize, MISSING\nimport model.adapters.aws as aws\nresult = (normalize(aws.MISSING), MISSING)\n"
+        transformed = embed_adapter(source, "sqs", engine)
+        comparison = SimpleNamespace(policy=lambda value: value, MISSING=3)
+        with patch.dict(sys.modules, {"audit_comparison": comparison}):
+            namespace = {"_audit_comparison": comparison}
+            exec(transformed, namespace)
+        self.assertEqual(namespace["result"], (3, 3))
+        self.assertIs(namespace["aws"], comparison)
+
+    def test_unknown_dependencies_fail(self):
+        for source in (
+            "import model.unknown as x",
+            "from model.adapters.aws import absent",
+            "from model.importing.sdk_inventory import absent",
+        ):
+            with (
+                self.subTest(source=source),
+                self.assertRaisesRegex(ValueError, "sqs: model.*unresolved dependency"),
+            ):
+                embed_adapter(source, "sqs", "MISSING = 1")
+
+    def test_route53_definitions_copied(self):
+        path = Path(__file__).resolve().parents[2] / "model/importing/sdk_inventory.py"
+        source = definitions(
+            path, ["identifier", "route53_pages", "route53_projection"]
+        )
+        self.assertEqual(
+            {node.name for node in ast.parse(source).body},
+            {"identifier", "route53_pages", "route53_projection"},
+        )
+        self.assertIn(
+            "from audit_comparison import route53_pages as pages",
+            embed_adapter(
+                "from model.importing.sdk_inventory import route53_pages as pages\n",
+                "route53",
+                source,
+            ),
+        )
 
 
 class ReferenceTests(unittest.TestCase):

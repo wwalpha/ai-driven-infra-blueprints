@@ -6,6 +6,7 @@ import ast
 import hashlib
 import json
 import re
+import sys
 from collections import Counter
 from dataclasses import asdict, replace
 from functools import partial as _bind_framework_callback
@@ -88,6 +89,100 @@ def definitions(path, names):
             dependency for dependency in dependencies if dependency not in selected
         )
     return "\n\n".join(found[name] for name in selected) + "\n"
+
+
+def embed_adapter(source, service, engine_source):
+    """Resolve adapter imports before embedding and reject unknown dependencies."""
+    engine_tree = ast.parse(engine_source)
+    available = set()
+    for node in engine_tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            available.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            ):
+                if isinstance(target, ast.Name):
+                    available.add(target.id)
+    lines = source.splitlines(keepends=True)
+    replacements = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        modules = (
+            [node.module or ""]
+            if isinstance(node, ast.ImportFrom)
+            else [item.name for item in node.names]
+        )
+        for imported_module in modules:
+            if (
+                imported_module == "model.adapters.aws"
+                and isinstance(node, ast.ImportFrom)
+                and not node.level
+            ):
+                missing = [
+                    item.name for item in node.names if item.name not in available
+                ]
+                if missing:
+                    raise ValueError(
+                        f"{service}: {imported_module}: unresolved dependency {', '.join(missing)}"
+                    )
+                replacement = ast.unparse(
+                    ast.ImportFrom(module="audit_comparison", names=node.names, level=0)
+                )
+            elif (
+                imported_module == "model.importing.sdk_inventory"
+                and isinstance(node, ast.ImportFrom)
+                and not node.level
+            ):
+                missing = [
+                    item.name
+                    for item in node.names
+                    if item.name not in {"route53_pages", "route53_projection"}
+                ]
+                if missing:
+                    raise ValueError(
+                        f"{service}: {imported_module}: unresolved dependency {', '.join(missing)}"
+                    )
+                replacement = ast.unparse(
+                    ast.ImportFrom(module="audit_comparison", names=node.names, level=0)
+                )
+            elif (
+                imported_module == "model.adapters.aws"
+                and isinstance(node, ast.Import)
+                and len(node.names) == 1
+                and node.names[0].asname
+            ):
+                replacement = node.names[0].asname + " = _audit_comparison"
+            elif imported_module.split(".")[
+                0
+            ] in sys.stdlib_module_names and not getattr(node, "level", 0):
+                continue
+            else:
+                raise ValueError(
+                    f"{service}: {imported_module}: unresolved dependency {ast.unparse(node)}"
+                )
+            if len(node.names) != 1 and isinstance(node, ast.Import):
+                raise ValueError(
+                    f"{service}: {imported_module}: unresolved dependency {ast.unparse(node)}"
+                )
+            if (
+                lines[node.lineno - 1][: node.col_offset].strip()
+                or lines[node.end_lineno - 1][node.end_col_offset :].strip()
+            ):
+                raise ValueError(
+                    f"{service}: {imported_module}: unresolved dependency {ast.unparse(node)}"
+                )
+            replacements.append(
+                (
+                    node.lineno - 1,
+                    node.end_lineno,
+                    " " * node.col_offset + replacement + "\n",
+                )
+            )
+    for start, end, replacement in sorted(replacements, reverse=True):
+        lines[start:end] = [replacement]
+    return "".join(lines)
 
 
 def _callback_dependencies_model_identity(root, /, path):
@@ -551,6 +646,10 @@ def generate(root, environment, selector, service):
             "compare_resource",
         ],
     )
+    engine += definitions(
+        scripts / "model/importing/sdk_inventory.py",
+        ["identifier", "route53_pages", "route53_projection"],
+    )
     projection = definitions(scripts / "aws_mapping_catalog.py", ["project"])
     mapped = definitions(scripts / "aws_mapping_compare.py", ["value"])
     adapters = {
@@ -559,6 +658,29 @@ def generate(root, environment, selector, service):
         )
         for name in sorted(set(mappings) | {"iam", "kms"})
     }
+    adapters = {
+        name: embed_adapter(source, name, engine) for name, source in adapters.items()
+    }
+    for label, source in [
+        ("engine", engine),
+        ("projection", projection),
+        ("mapped", mapped),
+    ]:
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                modules = (
+                    [node.module or ""]
+                    if isinstance(node, ast.ImportFrom)
+                    else [item.name for item in node.names]
+                )
+                for imported in modules:
+                    if (
+                        getattr(node, "level", 0)
+                        or imported.split(".")[0] not in sys.stdlib_module_names
+                    ):
+                        raise ValueError(
+                            f"{service}: {label}: unresolved dependency {imported}"
+                        )
     selected_model = load_model(path)
     names = {}
     identities = {}
@@ -636,6 +758,21 @@ def generate(root, environment, selector, service):
         + ")\n"
         + runtime
     )
+    for node in ast.walk(ast.parse(result)):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            modules = (
+                [node.module or ""]
+                if isinstance(node, ast.ImportFrom)
+                else [item.name for item in node.names]
+            )
+            for imported in modules:
+                if (
+                    getattr(node, "level", 0)
+                    or imported.split(".")[0] not in sys.stdlib_module_names
+                ):
+                    raise ValueError(
+                        f"{service}: generated runtime: unresolved dependency {imported}"
+                    )
     compile(result, f"{service}.py", "exec")
     unsupported = []
     for _, row in entries(
