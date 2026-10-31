@@ -21,7 +21,12 @@ from design.policy_tables import (
     policy_lines,
     rendered_design,
 )
-from model.core import ModelNeedsFixError, literal, validate_authority
+from model.core import (
+    ModelNeedsFixError,
+    ReferenceResolutionError,
+    literal,
+    validate_authority,
+)
 from model.identity import COUNTERS
 from model.projection import (
     deployment_bucket,
@@ -110,7 +115,7 @@ def restore(path, markdown, values):
             "FunctionName",
             "AWS::Lambda::Function",
             "Lambda_Function_001",
-            "arn:aws:lambda:ap-northeast-1:123456789012:function:function-name",
+            "function-name",
         ),
     ],
 )
@@ -163,6 +168,7 @@ def test_cloudtrail_reference_array_roundtrip(
         [],
         [reference("S3_Bucket_001", "ObjectArn")] * 2,
         [reference("CodeBuild_Project_001", "Arn")],
+        [reference("S3_Bucket_001", "InvalidAttribute")],
     ],
 )
 def test_cloudtrail_invalid_reference_array_is_not_silently_accepted(models, value):
@@ -185,6 +191,78 @@ def test_cloudtrail_invalid_reference_array_is_not_silently_accepted(models, val
     with pytest.raises(ValueError):
         markdown = generate_markdown(path, values, FRAMEWORK)
         restore(path, markdown, values)
+
+
+def test_cloudtrail_pending_reference_is_not_invalid_model(models):
+    target, target_values = resource(
+        models, "lambda", "Lambda.Function", attribute="FunctionName"
+    )
+    target_values["desired.row.001-001.value"] = "`function-name`"
+    save(target, target_values)
+    scope, values, path = consumer(models, "cloudtrail", "CloudTrail.Trail")
+    values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
+    add(
+        values,
+        "CloudTrail.Trail",
+        "EventSelectors[].DataResources[].Type",
+        "AWS::Lambda::Function",
+    )
+    ref = reference("Lambda_Function_001", "Arn")
+    add(
+        values,
+        "CloudTrail.Trail",
+        "EventSelectors[].DataResources[].Values",
+        [ref],
+        number=3,
+    )
+    save(scope, values)
+    diagnostic = {
+        "category": "REFERENCE_PENDING_DEPLOY",
+        "code": "REFERENCE_PENDING_DEPLOY",
+        "status": "FAIL",
+        "message": "pending",
+    }
+    pending = ReferenceValue("pending_deploy", diagnostic=diagnostic)
+    with patch(
+        "model.reference_presentation.projection.document_references",
+        return_value=({parse(ref, "/0"): pending}, [diagnostic]),
+    ):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+    assert "[function-name](lambda.md#saved-001)" in markdown
+    assert "$modelRef" not in markdown
+    target_values["desired.row.001-001.value"] = (
+        "`" + json.dumps(reference("Lambda_Function_001", "FunctionName")) + "`"
+    )
+    target_values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
+    save(target, target_values)
+    with pytest.raises(ReferenceResolutionError) as exc:
+        generate_markdown(path, values, FRAMEWORK)
+    assert exc.value.category == "REFERENCE_UNRESOLVED"
+
+
+@pytest.mark.parametrize("fault", ["missing", "duplicate"])
+def test_cloudtrail_invalid_target_rejected_during_generation(models, fault):
+    logical_id = "S3_Bucket_999" if fault == "missing" else "S3_Bucket_001"
+    if fault == "duplicate":
+        resource(models, "duplicate", "S3.Bucket", attribute="BucketName")
+    scope, values, path = consumer(models, "cloudtrail", "CloudTrail.Trail")
+    values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
+    add(
+        values,
+        "CloudTrail.Trail",
+        "EventSelectors[].DataResources[].Type",
+        "AWS::S3::Object",
+    )
+    add(
+        values,
+        "CloudTrail.Trail",
+        "EventSelectors[].DataResources[].Values",
+        [reference(logical_id, "ObjectArn")],
+        number=3,
+    )
+    save(scope, values)
+    with pytest.raises(ModelNeedsFixError):
+        generate_markdown(path, values, FRAMEWORK)
 
 
 def test_positions_glue_equal_names_escaping_and_roundtrip(models):
@@ -431,10 +509,14 @@ def test_same_file_and_existing_link(models):
     assert "$modelRef" in restore(path, markdown, values)
 
 
-@pytest.mark.parametrize("case", ["single", "multiple", "literal", "empty", "empty_spaces", "split"])
+@pytest.mark.parametrize(
+    "case", ["single", "multiple", "literal", "empty", "empty_spaces", "split"]
+)
 @pytest.mark.parametrize("observed", ["subnet-11111111", "PENDING_DEPLOY"])
 def test_linked_array_uses_model_rows_without_metadata(models, case, observed):
-    producer, subnet = resource(models, "subnet", "EC2.Subnet", attribute="SubnetId", observed=observed)
+    producer, subnet = resource(
+        models, "subnet", "EC2.Subnet", attribute="SubnetId", observed=observed
+    )
     subnet["desired.resource.001.resourceMode"] = "IMPORT"
     save(producer, subnet)
     scope, values, path = consumer(models, "lambda", "Lambda.Function")
@@ -452,7 +534,14 @@ def test_linked_array_uses_model_rows_without_metadata(models, case, observed):
     if case == "empty_spaces":
         values["desired.row.001-002.value"] = "`[ ]`"
     if case == "split":
-        add(values, "Lambda.Function", "VpcConfig.SubnetIds", [ref], number=3, comment="追加先")
+        add(
+            values,
+            "Lambda.Function",
+            "VpcConfig.SubnetIds",
+            [ref],
+            number=3,
+            comment="追加先",
+        )
     save(scope, values)
     before = scope.path.read_bytes()
     saved_values = copy.deepcopy(values)
@@ -460,9 +549,14 @@ def test_linked_array_uses_model_rows_without_metadata(models, case, observed):
     markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
     assert "subnet-list-source" not in markdown
     lines = [line for line in markdown.splitlines() if "| VpcConfig.SubnetIds" in line]
-    assert len(lines) == (3 if case in {"multiple", "split"} else 2 if case == "literal" else 1)
+    assert len(lines) == (
+        3 if case in {"multiple", "split"} else 2 if case == "literal" else 1
+    )
     if case in {"empty", "empty_spaces"}:
-        assert "| VpcConfig.SubnetIds | " + values["desired.row.001-002.value"] + " |" in lines[0]
+        assert (
+            "| VpcConfig.SubnetIds | " + values["desired.row.001-002.value"] + " |"
+            in lines[0]
+        )
     else:
         assert all(f"SubnetIds[{i}]" in line for i, line in enumerate(lines, 1))
     semantic = restore(path, markdown, values)
@@ -478,18 +572,27 @@ def test_linked_array_uses_model_rows_without_metadata(models, case, observed):
         markdown.replace("配置先", "変更", 1),
     ]
     if case not in {"empty", "empty_spaces"}:
-        changes.extend([
-            markdown.replace("SubnetIds[1]", "SubnetIds[2]", 1),
-            markdown.replace(lines[0], lines[0].replace("subnet", "changed", 1), 1),
-        ])
+        changes.extend(
+            [
+                markdown.replace("SubnetIds[1]", "SubnetIds[2]", 1),
+                markdown.replace(lines[0], lines[0].replace("subnet", "changed", 1), 1),
+            ]
+        )
     if len(lines) > 1:
-        changes.append(markdown.replace(lines[0] + "\n" + lines[1], lines[1] + "\n" + lines[0], 1))
+        changes.append(
+            markdown.replace(lines[0] + "\n" + lines[1], lines[1] + "\n" + lines[0], 1)
+        )
     for changed in changes:
         assert changed != markdown
         with pytest.raises(ValueError):
-            expanded_display_rows(changed.splitlines(), FRAMEWORK, reference_tables=tables)
+            expanded_display_rows(
+                changed.splitlines(), FRAMEWORK, reference_tables=tables
+            )
     for changed in (
-        markdown.replace("resource-logical-id: Lambda_Function_001", "resource-logical-id: Lambda_Function_002"),
+        markdown.replace(
+            "resource-logical-id: Lambda_Function_001",
+            "resource-logical-id: Lambda_Function_002",
+        ),
         markdown.replace('id="saved-001"', 'id="changed-anchor"'),
         markdown.replace("配置先", '<!-- subnet-list-source: "[]" --> 配置先', 1),
     ):

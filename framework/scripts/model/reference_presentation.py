@@ -14,7 +14,12 @@ import model.projection as projection
 import model.references as references
 import model.render as render
 import model.sources as sources
-from model.core import LINK, literal, require_reference_diagnostics
+from model.core import (
+    LINK,
+    ReferenceResolutionError,
+    literal,
+    require_reference_diagnostics,
+)
 from model.reference_nodes import (
     context_at,
     nodes,
@@ -109,10 +114,10 @@ class Presentation:
                             [
                                 d
                                 for d in diagnostics
-                                if d.get("code")
-                                in {
-                                    "MODEL_REF_TYPE_MISMATCH",
-                                    "MODEL_REF_INVALID_ATTRIBUTE",
+                                if d.get("category")
+                                not in {
+                                    "REFERENCE_PENDING_DEPLOY",
+                                    "REFERENCE_UNRESOLVED",
                                 }
                             ]
                         )
@@ -140,6 +145,16 @@ class Presentation:
                                 result=result,
                             ),
                         )
+                        if (
+                            field == "value"
+                            and prop
+                            == "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
+                            and self.references[position].link is None
+                        ):
+                            require_reference_diagnostics(diagnostics)
+                            raise ReferenceResolutionError(
+                                "CloudTrail DataResources reference has no display link"
+                            )
 
         inputs = tuple(input_strings(values)) + tuple(
             ref.link for ref in self.references.values() if ref.link
@@ -202,8 +217,23 @@ class Presentation:
                             "pending": "PENDING_DEPLOY",
                             "unobserved": "未観測",
                         }[state]
-            if isinstance(displayed, str):
+            if (
+                isinstance(displayed, str)
+                and contract.get("property_name")
+                != "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
+            ):
                 name = displayed
+            if (
+                contract.get("property_name")
+                == "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
+                and isinstance(name, str)
+                and literal(name).lstrip().startswith("{")
+            ):
+                try:
+                    if any(nodes(json.loads(literal(name)), errors=[])):
+                        return None
+                except ValueError:
+                    pass
             if (
                 not name
                 or literal(name).lower()
