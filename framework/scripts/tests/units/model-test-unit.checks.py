@@ -109,6 +109,48 @@ class ExclusionClassificationTests(unittest.TestCase):
         self.assertNotIn("secret", str(result))
 
 
+class FlowLogLookupTests(unittest.TestCase):
+    def test_flow_log_selection(self):
+        adapter = service_module("vpc")
+        resource = Mock(kind="EC2.FlowLog")
+        resource.current.return_value = None
+        resource.value.return_value = "vpc-123"
+        resource.rows_for.return_value = []
+        ctx = Mock()
+        record = {"FlowLogId": "fl-123", "TrafficType": "ALL"}
+        ctx.pages.return_value = {"FlowLogs": [record]}
+        self.assertEqual(adapter.fetch(ctx, resource, "base")["TrafficType"], "ALL")
+        ctx.pages.assert_called_with("ec2", "describe_flow_logs", Filter=[{"Name": "resource-id", "Values": ["vpc-123"]}])
+        resource.current.return_value = "fl-123"
+        adapter.fetch(ctx, resource, "base")
+        ctx.pages.assert_called_with("ec2", "describe_flow_logs", FlowLogIds=["fl-123"])
+        resource.current.return_value = None
+        ctx.pages.return_value = {"FlowLogs": []}
+        with self.assertRaises(AcquisitionError) as missing:
+            adapter.fetch(ctx, resource, "base")
+        self.assertEqual(missing.exception.status, "resource_missing")
+        ctx.pages.return_value = {"FlowLogs": [record, {**record, "LogGroupName": "other"}]}
+        resource.rows_for.side_effect = lambda prop: [1] if prop == "LogGroupName" else []
+        resource.value.side_effect = lambda prop, *args: "wanted" if prop == "LogGroupName" else "vpc-123"
+        ctx.pages.return_value["FlowLogs"][0]["LogGroupName"] = "wanted"
+        self.assertEqual(adapter.fetch(ctx, resource, "base")["LogGroupName"], "wanted")
+        resource.rows_for.side_effect = None
+        resource.rows_for.return_value = []
+        resource.value.side_effect = None
+        ctx.pages.return_value = {"FlowLogs": [record, record]}
+        with self.assertRaises(Unresolved):
+            adapter.fetch(ctx, resource, "base")
+        ctx.pages.side_effect = AcquisitionError("ec2.describe_flow_logs", "AccessDenied", "acquisition_failed")
+        with self.assertRaises(AcquisitionError) as denied:
+            adapter.fetch(ctx, resource, "base")
+        self.assertEqual(denied.exception.status, "acquisition_failed")
+        ctx.pages.reset_mock(side_effect=True)
+        resource.value.side_effect = Unresolved("ResourceId unresolved")
+        with self.assertRaises(Unresolved):
+            adapter.fetch(ctx, resource, "base")
+        ctx.pages.assert_not_called()
+
+
 class MacieLookupTests(unittest.TestCase):
     def test_job_lookup(self):
         adapter = service_module("macie")

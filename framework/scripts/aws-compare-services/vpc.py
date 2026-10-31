@@ -65,18 +65,26 @@ def fetch(ctx, r, getter):
     current = r.current(prop)
     if current:
         inputs = {argument: [current]}
+    elif r.kind == "EC2.FlowLog":
+        inputs = {"Filter": [{"Name": "resource-id", "Values": [r.value("ResourceId", "id")]}]}
     else:
         inputs = {"Filters": [{"Name": "tag:Name", "Values": [r.value("Name")]}]}
-        if r.kind == "EC2.FlowLog":
-            inputs["Filters"].append(
-                {"Name": "resource-id", "Values": [r.value("ResourceId", "id")]}
-            )
-            inputs["Filter"] = inputs.pop("Filters")
-        elif r.kind != "EC2.VPC" and r.rows_for("VpcId"):
+        if r.kind != "EC2.VPC" and r.rows_for("VpcId"):
             inputs["Filters"].append(
                 {"Name": "vpc-id", "Values": [r.value("VpcId", "id")]}
             )
-    record = dict(one(ctx.pages("ec2", op, **inputs).get(collection, []), "ec2." + op))
+    records = ctx.pages("ec2", op, **inputs).get(collection, [])
+    if r.kind == "EC2.FlowLog" and not current and len(records) > 1:
+        for prop in ("LogDestinationType", "LogDestination", "LogGroupName"):
+            if r.rows_for(prop):
+                value = r.value(prop)
+                matches = [record for record in records if record.get(prop) == value]
+                if not matches:
+                    raise Unresolved("resource selector is ambiguous")
+                records = matches
+        if len(records) != 1:
+            raise Unresolved("resource selector is ambiguous")
+    record = dict(one(records, "ec2." + op))
     record["NameTag"] = (
         one(
             [v["Value"] for v in record.get("Tags", []) if v["Key"] == "Name"],
