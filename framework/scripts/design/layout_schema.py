@@ -58,9 +58,6 @@ HEADER = "| No. | Property | Value | Source / Comment |"
 ALIGNMENT = "| ---: | --- | --- | --- |"
 
 
-SUBNET_LIST_SOURCE = re.compile(r'^<!-- subnet-list-source: ("(?:[^"\\]|\\.)*") --> ')
-
-
 STACK_DESIGN = "cloudformation-stacks.md"
 
 STACK_HEADER = "| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |"

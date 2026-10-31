@@ -15,7 +15,7 @@ import design.policy_tables as _dependency_policy_tables
 import design.policy_tables as _imports_policy_tables
 import design.services.ec2.security_groups as _ec2_security_groups
 from design.catalog import DesignSchemaCatalog as DesignSchemaCatalog
-from design.layout_schema import GROUPED, SUBNET_LIST_SOURCE
+from design.layout_schema import GROUPED
 from design.layout_schema import resource_anchor as resource_anchor
 from design.services.definitions.lambda_permission import LAMBDA_PERMISSION
 from design.services.definitions.registry import HIDDEN_PROPERTIES
@@ -481,13 +481,7 @@ def resource_table_lines(
                 and child["resourceType"] == LAMBDA_PERMISSION
             ):
                 prefix += child_name + "："
-            comment = child_display[0][3]
-            source = SUBNET_LIST_SOURCE.match(comment)
-            child_display[0][3] = (
-                (source.group(0) if source else "")
-                + prefix
-                + (comment[source.end() :] if source else comment)
-            )
+            child_display[0][3] = prefix + child_display[0][3]
             display += child_display
         if not formal and indexed:
             display = _dependency_array_display.indexed_rows(display, kind, root)

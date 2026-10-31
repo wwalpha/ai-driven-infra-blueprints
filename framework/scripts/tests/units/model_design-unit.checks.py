@@ -36,6 +36,7 @@ from design.layout import (
 )
 from design.layout_schema import resource_anchor as resource_anchor
 from model.core import entries, stack_model, validate_model_keys
+from model.display import ReferenceTable
 from model.format import parse, serialize
 from model.identity import address, resource_index
 from model.projection import resource_rows
@@ -279,8 +280,11 @@ def check_subnet_list_display():
                 prop,
                 shown,
             )
-            document = [f"### {kind}: list-owner", "", *row_table(shown)]
-            restored = expanded_display_rows(document)
+            document = ['<a id="list-owner"></a>', f"### {kind}: list-owner", "", *row_table(shown)]
+            table = ReferenceTable("list-owner", (), tuple(row_table(shown)), tuple(row_table(rows)), tuple(row_table(shown)))
+            with pytest.raises(ValueError, match="requires Model source rows"):
+                expanded_display_rows(document)
+            restored = expanded_display_rows(document, reference_tables=(table,))
             formal = [
                 line
                 for line in restored
@@ -298,11 +302,8 @@ def check_subnet_list_display():
                 [line.replace(field + "[1]", field + "[0]") for line in document],
                 [line.replace(field + "[1]", field) for line in document],
             ):
-                # A shortened link-only list is valid; saved-array markers require all elements.
-                if bad == document[:-1] and len(rows) == 2:
-                    continue
                 with pytest.raises(ValueError):
-                    expanded_display_rows(bad)
+                    expanded_display_rows(bad, reference_tables=(table,))
             if len(rows) == 1:
                 for bad in (
                     [
@@ -312,9 +313,9 @@ def check_subnet_list_display():
                     [*document[:-1], document[-1].replace(shown[-1][3], "別の説明")],
                 ):
                     with pytest.raises(ValueError):
-                        expanded_display_rows(bad)
+                        expanded_display_rows(bad, reference_tables=(table,))
         if prop not in CODEBUILD_VPC_PROPERTIES:
-            bad_values = ["[]", "[1]", "[null]", '[""]', "{}", '["a|b"]']
+            bad_values = ["[1]", "[null]", '[""]', "{}", '["a|b"]']
             if kind == "SecretsManager.RotationSchedule":
                 bad_values = ["`subnet-a,,subnet-b`", "` `"]
             for value in bad_values:

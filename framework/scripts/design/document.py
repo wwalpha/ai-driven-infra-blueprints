@@ -177,17 +177,14 @@ def model_reference_tables(path, text, values, root, *, check_document=True):
         (check_document and item.references)
         or item.kind != "EC2.SecurityGroup"
         and any(
-            re.search(
-                r"\[(?:[1-9]\d*)?\]",
-                _array_display.array_template(row[1], item.kind, root),
-            )
-            and (
-                check_document
-                or not (
-                    row[1].startswith(CODEBUILD_FORMAL_VARIABLE)
-                    or row[1] in _dependency_design_layout.LINKED_LIST_PROPERTIES
+            (
+                row[1] in _dependency_design_layout.LINKED_LIST_PROPERTIES
+                or re.search(
+                    r"\[(?:[1-9]\d*)?\]",
+                    _array_display.array_template(row[1], item.kind, root),
                 )
             )
+            and (check_document or not row[1].startswith(CODEBUILD_FORMAL_VARIABLE))
             for row in item.rows
         )
         for item in snapshots

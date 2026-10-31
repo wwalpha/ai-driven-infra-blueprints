@@ -431,6 +431,84 @@ def test_same_file_and_existing_link(models):
     assert "$modelRef" in restore(path, markdown, values)
 
 
+@pytest.mark.parametrize("case", ["single", "multiple", "literal", "empty", "empty_spaces", "split"])
+@pytest.mark.parametrize("observed", ["subnet-11111111", "PENDING_DEPLOY"])
+def test_linked_array_uses_model_rows_without_metadata(models, case, observed):
+    producer, subnet = resource(models, "subnet", "EC2.Subnet", attribute="SubnetId", observed=observed)
+    subnet["desired.resource.001.resourceMode"] = "IMPORT"
+    save(producer, subnet)
+    scope, values, path = consumer(models, "lambda", "Lambda.Function")
+    values["desired.row.001-001.property"] = "Lambda.Function.FunctionName"
+    ref = reference("EC2_Subnet_001", "SubnetId")
+    items = {
+        "single": [ref],
+        "multiple": [ref, "subnet-literal", ref],
+        "literal": ["subnet-a", "subnet-b"],
+        "empty": [],
+        "empty_spaces": [],
+        "split": [ref, "subnet-literal"],
+    }[case]
+    add(values, "Lambda.Function", "VpcConfig.SubnetIds", items, comment="配置先")
+    if case == "empty_spaces":
+        values["desired.row.001-002.value"] = "`[ ]`"
+    if case == "split":
+        add(values, "Lambda.Function", "VpcConfig.SubnetIds", [ref], number=3, comment="追加先")
+    save(scope, values)
+    before = scope.path.read_bytes()
+    saved_values = copy.deepcopy(values)
+    tables = []
+    markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
+    assert "subnet-list-source" not in markdown
+    lines = [line for line in markdown.splitlines() if "| VpcConfig.SubnetIds" in line]
+    assert len(lines) == (3 if case in {"multiple", "split"} else 2 if case == "literal" else 1)
+    if case in {"empty", "empty_spaces"}:
+        assert "| VpcConfig.SubnetIds | " + values["desired.row.001-002.value"] + " |" in lines[0]
+    else:
+        assert all(f"SubnetIds[{i}]" in line for i, line in enumerate(lines, 1))
+    semantic = restore(path, markdown, values)
+    assert values["desired.row.001-002.value"] in semantic
+    if case == "split":
+        assert values["desired.row.001-003.value"] in semantic
+        assert "追加先" in semantic
+    assert generate_markdown(path, values, FRAMEWORK) == markdown
+    assert values == saved_values and scope.path.read_bytes() == before
+    changes = [
+        markdown.replace(lines[0], "", 1),
+        markdown.replace(lines[0], lines[0] + "\n" + lines[0], 1),
+        markdown.replace("配置先", "変更", 1),
+    ]
+    if case not in {"empty", "empty_spaces"}:
+        changes.extend([
+            markdown.replace("SubnetIds[1]", "SubnetIds[2]", 1),
+            markdown.replace(lines[0], lines[0].replace("subnet", "changed", 1), 1),
+        ])
+    if len(lines) > 1:
+        changes.append(markdown.replace(lines[0] + "\n" + lines[1], lines[1] + "\n" + lines[0], 1))
+    for changed in changes:
+        assert changed != markdown
+        with pytest.raises(ValueError):
+            expanded_display_rows(changed.splitlines(), FRAMEWORK, reference_tables=tables)
+    for changed in (
+        markdown.replace("resource-logical-id: Lambda_Function_001", "resource-logical-id: Lambda_Function_002"),
+        markdown.replace('id="saved-001"', 'id="changed-anchor"'),
+        markdown.replace("配置先", '<!-- subnet-list-source: "[]" --> 配置先', 1),
+    ):
+        assert changed != markdown
+        with pytest.raises(ValueError):
+            restore(path, changed, values)
+
+
+def test_codebuild_empty_linked_array_uses_model(models):
+    scope, values, path = consumer(models, "codebuild", "CodeBuild.Project")
+    add(values, "CodeBuild.Project", "VpcConfig.Subnets", [])
+    before = copy.deepcopy(values)
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    assert "| VpcConfig.Subnets | `[]` |" in markdown
+    assert "subnet-list-source" not in markdown
+    assert values["desired.row.001-002.value"] in restore(path, markdown, values)
+    assert values == before
+
+
 @pytest.mark.parametrize("observed", [None, "PENDING_DEPLOY", "vpc-12345678"])
 def test_vpc_self_and_other_reference_display(models, observed):
     scope, values = resource(

@@ -18,11 +18,13 @@ import design.layout as _imports_design_layout
 import pytest as _imports_pytest
 import support.design_layout_fixtures as _exports_support_design_layout_fixtures
 import validation.design_tables as design_tables
+from design.document import DesignDocument
 from design.layout import (
     is_import_pending_reference,
     resource_display_selection,
     resource_has_name_property,
 )
+from model.display import ReferenceTable
 from support.design_layout_fixtures import (
     CODEBUILD,
     GUARDDUTY,
@@ -790,17 +792,21 @@ def check_codebuild_variable_display(tmp_path, catalog) -> None:
 
 
 def _callback_check_codebuild_vpc_display_errors(
-    catalog, design, path, root, /, content: str
+    catalog, design, path, root, table, /, content: str
 ):
     path.write_text(content, encoding="utf-8")
     validator = VALIDATOR.Validator(root)
     validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
     validator.design_files = lambda: [path]
-    validator.check_design_tables(
-        {path: ("codebuild", ("CodeBuild.Project",))}, *catalog
-    )
-    validator.design_files = lambda: sorted(design.glob("*.md"))
-    validator.check_design_links(catalog[2])
+    with (
+        patch.object(DesignDocument, "reference_tables", property(lambda self: (table,) if self.path == path else ())),
+        patch("design.document.model_reference_tables", return_value=(table,)),
+    ):
+        validator.check_design_tables(
+            {path: ("codebuild", ("CodeBuild.Project",))}, *catalog
+        )
+        validator.design_files = lambda: sorted(design.glob("*.md"))
+        validator.check_design_links(catalog[2])
     return diagnostics(validator)
 
 
@@ -810,6 +816,17 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
 | 13 | VpcConfig.SecurityGroupIds[1] | [PENDING_DEPLOY](security-group.md#security-group-codebuild-sg) | buildに適用するSecurity Group |
 """
     design_text = CODEBUILD + vpc_rows
+    lines = design_text.splitlines()
+    start = lines.index("| No. | Property | Value | Source / Comment |")
+    baseline = tuple(lines[start:])
+    other = expanded_display_rows(CODEBUILD.splitlines())
+    semantic = other[other.index("| No. | Property | Value | Source / Comment |") :]
+    semantic += [
+        "| 11 | CodeBuild.Project.VpcConfig.Subnets | [subnet-00000000000000001](vpc.md#vpc-sbnt-one) | 1つ目のprivate subnet |",
+        "| 12 | CodeBuild.Project.VpcConfig.Subnets | [subnet-00000000000000002](vpc.md#vpc-sbnt-two) | 2つ目のprivate subnet |",
+        "| 13 | CodeBuild.Project.VpcConfig.SecurityGroupIds | [PENDING_DEPLOY](security-group.md#security-group-codebuild-sg) | buildに適用するSecurity Group |",
+    ]
+    table = ReferenceTable("codebuild-buildproject", (), baseline, tuple(semantic), baseline)
     root = tmp_path
     design = root / "docs/designs/dev/123456789012"
     design.mkdir(parents=True)
@@ -864,11 +881,11 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
     )
 
     errors = _bind_framework_callback(
-        _callback_check_codebuild_vpc_display_errors, catalog, design, path, root
+        _callback_check_codebuild_vpc_display_errors, catalog, design, path, root, table
     )
 
     assert not errors(design_text), errors(design_text)
-    model = "\n".join(expanded_display_rows(design_text.splitlines()))
+    model = "\n".join(expanded_display_rows(design_text.splitlines(), reference_tables=(table,)))
     assert model.count("| CodeBuild.Project.VpcConfig.Subnets |") == 2
     assert "[subnet-00000000000000001](vpc.md#vpc-sbnt-one)" in model
     assert "[subnet-00000000000000002](vpc.md#vpc-sbnt-two)" in model
@@ -937,11 +954,26 @@ def _callback_check_subnet_list_links_content(kind, prop, /, value):
     )
 
 
-def _callback_check_subnet_list_links_errors(content, outputs, path, root, /, value):
-    path.write_text(content(value), encoding="utf-8")
+def _callback_check_subnet_list_links_errors(content, outputs, path, root, prop, /, value):
+    text = content(value)
+    path.write_text(text, encoding="utf-8")
+    kind = ".".join(prop.split(".")[:2])
+    anchor = "secretsmanager-key" if kind == "SecretsManager.RotationSchedule" else "owner"
+    formal = [["1", prop, value, "配置先Subnet"]]
+    if kind == "SecretsManager.RotationSchedule":
+        formal = [
+            ["1", "SecretsManager.Secret.Name", "`key`", "secretの名称"],
+            ["2", "SecretsManager.RotationSchedule.SecretId", "[key](#secretsmanager-key)", '<a id="resource-KeyRotation"></a><!-- logical-id: KeyRotation --> key-rotation：対象secret'],
+            ["3", prop, value, "配置先Subnet"],
+        ]
+    lines = text.splitlines()
+    start = lines.index("| No. | Property | Value | Source / Comment |")
+    expected = tuple(lines[start:])
+    table = ReferenceTable(anchor, (), expected, tuple(row_table(formal)), expected)
     validator = VALIDATOR.Validator(root)
     validator.design_files = lambda: [path]
-    validator.check_design_links(outputs)
+    with patch.object(DesignDocument, "reference_tables", property(lambda self: (table,) if self.path == path else ())):
+        validator.check_design_links(outputs)
     return diagnostics(validator)
 
 
@@ -972,7 +1004,7 @@ def check_subnet_list_links(prop, tmp_path, catalog):
     )
 
     errors = _bind_framework_callback(
-        _callback_check_subnet_list_links_errors, content, outputs, path, root
+        _callback_check_subnet_list_links_errors, content, outputs, path, root, prop
     )
 
     assert not errors("[subnet-00000000000000001](vpc.md#subnet-a)"), (
@@ -2004,7 +2036,9 @@ def check_expansion_failure_preserves_raw_and_independent_resources(tmp_path, ca
     assert not good.findings.unverified
     body = CODEBUILD[CODEBUILD.index("<a id=") :]
     broken = CODEBUILD.replace("`hello:world`", "[bucket](s3.md#bucket)")
-    broken += "| 11 | VpcConfig.Subnets[1] | [subnet](subnet.md#subnet) | 配置先 |\n"
+    missing_source = broken + "| 11 | VpcConfig.Subnets[1] | [subnet](subnet.md#subnet) | 配置先 |\n"
+    with pytest.raises(ValueError, match="requires Model source rows"):
+        expanded_display_rows(missing_source.splitlines())
     broken = broken.replace("projectの名前", "English comment").replace(
         "# CodeBuild 詳細設計", "# CodeBuild 詳細設計\n# 重複タイトル"
     )

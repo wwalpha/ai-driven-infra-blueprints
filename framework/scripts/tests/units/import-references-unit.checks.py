@@ -25,7 +25,7 @@ from import_guard import require_import_changes
 from model.configuration import resource_configuration
 from model.core import entries as entries
 from model.core import literal, resource_row_index
-from model.display import display_rows
+from model.display import ReferenceTable, display_rows
 from model.format import serialize
 from model.importing.approval import build_review
 from model.importing.cli import replacement_inputs
@@ -635,7 +635,14 @@ def check_import_compact_display_and_create_guards():
         "| " + " | ".join([str(i), *row[1:]]) + " |"
         for i, row in enumerate(rendered, 1)
     ]
-    restored = expanded_display_rows(lines, ROOT, modes={"codebuild-new": "IMPORT"})
+    table = ReferenceTable(
+        "codebuild-new", (), tuple(lines[2:]),
+        (HEADER, ALIGNMENT, "| 1 | " + " | ".join(rows[0][1:]) + " |"),
+        tuple(lines[2:]),
+    )
+    with pytest.raises(ValueError, match="requires Model source rows"):
+        expanded_display_rows(lines, ROOT, modes={"codebuild-new": "IMPORT"})
+    restored = expanded_display_rows(lines, ROOT, modes={"codebuild-new": "IMPORT"}, reference_tables=(table,))
     assert any(raw in line for line in restored)
     with pytest.raises(ValueError, match="must be a resource link"):
         display_rows("CodeBuild.Project", rows, ROOT)
@@ -715,13 +722,14 @@ def check_markdown_roundtrip_keeps_physical_values(
     path.parent.mkdir(parents=True)
     if isinstance(desired, dict):
         producer(tmp_path, "S3.Bucket", {"BucketName": "audit-bucket"})
-    first = generate_markdown(path, source, ROOT)
+    tables = []
+    first = generate_markdown(path, source, ROOT, reference_tables=tables)
     path.write_text(first)
     normalized = expanded_display_rows(
-        first.splitlines(), ROOT, modes={service + "-audit": "IMPORT"}
+        first.splitlines(), ROOT, modes={service + "-audit": "IMPORT"}, reference_tables=tables
     )
     if isinstance(desired, dict):
-        expected = "[audit-bucket](s3.md#producer)"
+        expected = "$modelRef"
     else:
         expected = "subnet-11111111"
     assert any(expected in line for line in normalized), normalized

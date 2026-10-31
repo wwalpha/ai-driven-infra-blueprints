@@ -212,31 +212,32 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
                 and mode != "IMPORT"
                 and identity not in references
             ):
-                if literal(value).lstrip().startswith(("[", "{")):
+                raw = literal(value).lstrip()
+                items = (
                     _display_common.subnet_list_items(prop, value)
-                raise ReferenceResolutionError(
-                    "CodeBuild VpcConfig value must be a resource link",
-                    property=prop,
-                    reference=value,
+                    if raw.startswith(("[", "{"))
+                    else None
                 )
-            items = (
-                [value] if linked else _display_common.subnet_list_items(prop, value)
-            )
-            source = ""
-            if not linked:
-                encoded = json.dumps(value, ensure_ascii=True)
-                for char in "|<>[]":
-                    encoded = encoded.replace(char, f"\\u{ord(char):04x}")
-                source = "<!-- subnet-list-source: " + encoded + " --> "
+                if items is None or items:
+                    raise ReferenceResolutionError(
+                        "CodeBuild VpcConfig value must be a resource link",
+                        property=prop,
+                        reference=value,
+                    )
+            else:
+                items = (
+                    [value] if linked else _display_common.subnet_list_items(prop, value)
+                )
             field = prop.removesuffix("[]").removeprefix(kind + ".")
-            for offset, item in enumerate(items):
-                counts[prop] = counts.get(prop, 0) + 1
+            for item in items or [value]:
+                if items:
+                    counts[prop] = counts.get(prop, 0) + 1
                 result.append(
                     [
                         identity,
-                        f"{field}[{counts[prop]}]",
+                        f"{field}[{counts[prop]}]" if items else field,
                         item,
-                        (source if offset == 0 else "") + comment,
+                        comment,
                     ]
                 )
             processed.extend(row[0] for row in rows[start : index + 1])

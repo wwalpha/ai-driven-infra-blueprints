@@ -524,7 +524,8 @@ def check_link_display_and_readback_classification(tmp_path):
         "display", None, lambda: expanded_display_rows(document, definitions)
     )
     assert result.status == "FAIL"
-    assert result.warnings and not result.errors
+    assert result.errors and not result.warnings
+    assert "requires Model source rows" in str(result.errors)
     with pytest.raises(ValueError) as caught:
         display_rows("CodeBuild.Project", [["1", prop, "[1]", "配置先"]], definitions)
     assert not isinstance(caught.value, ReferenceResolutionError)

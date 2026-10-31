@@ -48,7 +48,6 @@ def subnet_list_items(prop: str, value: str) -> list[str]:
         items = json.loads(raw)
     if (
         not isinstance(items, list)
-        or not items
         or any(
             not isinstance(item, str)
             or not item.strip()

@@ -51,7 +51,6 @@ from design.layout_schema import (
 )
 from design.layout_schema import STACK_DESIGN as STACK_DESIGN
 from design.layout_schema import STACK_HEADER as STACK_HEADER
-from design.layout_schema import SUBNET_LIST_SOURCE as SUBNET_LIST_SOURCE
 from design.layout_schema import resource_anchor as resource_anchor
 from design.services.cloudtrail import formal_rows as cloudtrail_formal_rows
 from design.services.config import config_role_arn as config_role_arn
@@ -618,6 +617,7 @@ def expanded_display_rows(
     root = root or ROOT
     if any(
         "<!-- reference-rows:" in line or "<!-- reference-value:" in line
+        or "<!-- subnet-list-source:" in line
         for line in lines
     ):
         raise ValueError("obsolete Model reference metadata; regenerate Markdown")
@@ -777,12 +777,6 @@ def expanded_display_rows(
                     "Lambda Permission Id and FunctionName must not be displayed"
                 )
             prop = formal_property(cells[1], resource_type, root)
-            if "<!-- subnet-list-source:" in cells[3] and not linked_list_property(
-                display_property, resource_type, root
-            ):
-                raise ValueError(
-                    "Subnet list source marker requires an indexed Subnet row"
-                )
             if prop == "Config.ConfigurationRecorder.RoleARN" and display_property != (
                 "RoleARN"
                 if config_role_arn(prop, cells[2])
@@ -838,7 +832,9 @@ def expanded_display_rows(
                 raise ValueError(
                     "CodeBuild environment variables must use Variables.<Name> display rows"
                 )
-            if prop in LINKED_LIST_PROPERTIES:
+            if prop in LINKED_LIST_PROPERTIES and not (
+                _verified_reference and re.fullmatch(r"\[\s*\]", literal(cells[2]).strip())
+            ):
                 raise ValueError(
                     f"{prop} must use indexed one-resource-per-row display"
                 )
@@ -881,6 +877,8 @@ def expanded_display_rows(
                     ) from error
             elif item := linked_list_property(display_property, resource_type, root):
                 list_prop, first_index = item
+                if not _verified_reference:
+                    raise ValueError("indexed array display requires Model source rows")
                 expected = linked_list_counts.get(list_prop, 0) + 1
                 if (
                     not re.fullmatch(r"[1-9][0-9]*", first_index)
@@ -889,79 +887,11 @@ def expanded_display_rows(
                     raise ValueError(
                         "Subnet/Security Group display indexes must start at 1 and be sequential per property"
                     )
-                marker = SUBNET_LIST_SOURCE.match(cells[3])
-                if "<!-- subnet-list-source:" in cells[3] and not marker:
-                    raise ValueError("invalid Subnet list source marker")
-                source = json.loads(marker.group(1)) if marker else None
-                items = (
-                    subnet_list_items(list_prop, source)
-                    if source is not None
-                    else [cells[2]]
-                )
-                if (
-                    source is not None
-                    and list_prop in CODEBUILD_VPC_PROPERTIES
-                    and mode != "IMPORT"
-                    and not _verified_reference
-                ):
-                    raise ReferenceResolutionError(
-                        "CodeBuild VpcConfig value must be a resource link",
-                        property=prop,
-                        reference=cells[2],
-                    )
-                comment = cells[3][marker.end() :] if marker else cells[3]
-                child = CHILD.match(comment)
-                label = CHILD_NAME.match(comment[child.end() :]) if child else None
-                # Rotation identity metadata occurs only on the first displayed Subnet.
-                continuation_comment = (
-                    comment[child.end() + label.end() :]
-                    if label and list_prop.startswith(ROTATION_SCHEDULE + ".")
-                    else comment
-                )
-                if (
-                    source is None
-                    and mode != "IMPORT"
-                    and not _verified_reference
-                    and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2])
-                ):
-                    raise ReferenceResolutionError(
-                        "Subnet/Security Group value must be a resource link",
-                        property=prop,
-                        reference=cells[2],
-                    )
-                for offset, value in enumerate(items):
-                    row = cells
-                    if offset:
-                        row = (
-                            [
-                                cell.strip()
-                                for cell in lines[index + offset].strip("|").split("|")
-                            ]
-                            if index + offset < len(lines)
-                            else []
-                        )
-                    if (
-                        len(row) != 4
-                        or linked_list_property(row[1], resource_type, root)
-                        != (list_prop, str(expected + offset))
-                        or row[2] != value
-                        or (offset and row[3] != continuation_comment)
-                    ):
-                        raise ValueError(
-                            "Subnet list display differs from its saved source value or comment"
-                        )
-                    if offset:
-                        row_numbers.append(row[0])
-                linked_list_counts[list_prop] = expected + len(items) - 1
+                linked_list_counts[list_prop] = expected
                 changed = True
                 kind = "Subnet/Security Group list"
-                cells[1], cells[2], cells[3] = (
-                    list_prop,
-                    source if source is not None else cells[2],
-                    comment,
-                )
+                cells[1] = list_prop
                 rows.append(cells)
-                index += len(items) - 1
             elif prop.startswith(GUARDDUTY_FEATURE):
                 changed = True
                 kind = "GuardDuty Feature"
