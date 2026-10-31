@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 from contextlib import closing, contextmanager
+from unittest import TestCase
 from unittest.mock import patch
 
 import design.services.codebuild as _imports_codebuild
@@ -26,7 +27,6 @@ from model.core import entries as entries
 from model.core import literal, resource_row_index
 from model.display import display_rows
 from model.format import serialize
-from model.identity import resource_link
 from model.importing.approval import build_review
 from model.importing.cli import replacement_inputs
 from model.importing.references import Resolver
@@ -43,14 +43,19 @@ from model.references import declarations, incoming
 from model.render import generate_markdown
 from model.sources import Scope, candidate_sources, json_text
 from model.sources import load_model as load_for_edit
+from support.model_reference_fixtures import reference as model_ref
 from support.model_sources import write_model
 from support.model_v2_fixtures import value_snapshot as Expansion
 from support.producer_identifier_reference_fixtures import reference
 from task_contract_core import start
-from utils.aws_mappings import owners
+from utils.aws_mappings import mapping_alias, owners
 from utils.input_cache import input_context
 from utils.json_format import document_sha256
-from utils.reference_contracts import contract
+from utils.reference_contracts import (
+    RETURN_ATTRIBUTE_PROPERTIES,
+    contract,
+    reference_attribute,
+)
 from utils.source_reads import FileReads
 from validation.design_links import check_design_links as _check_design_links
 from validation.findings import Findings
@@ -90,6 +95,9 @@ def project(tmp_path):
         )
     )
 
+    with mapping_alias(ROOT, tmp_path):
+        yield
+
 
 def values(kind, attributes, rid="001", mode="IMPORT", anchor="producer"):
     serial = (
@@ -109,7 +117,9 @@ def values(kind, attributes, rid="001", mode="IMPORT", anchor="producer"):
         result.update(
             {
                 prefix + "property": kind + "." + prop,
-                prefix + "value": "`" + raw + "`",
+                prefix + "value": "`"
+                + (raw if isinstance(raw, str) else json.dumps(raw))
+                + "`",
                 prefix + "comment": "合成入力",
             }
         )
@@ -135,9 +145,22 @@ def producer(
     service = owners(ROOT)[kind]
     path = root / "model" / env / "cde" / (service + ".properties")
     fields = {**(previous or {}), **values(kind, attributes, rid, mode, anchor)}
-    for index, raw in enumerate(attributes.values(), 1):
-        if resource_link(raw):
-            fields[f"desired.row.{rid}-{index:03d}.value"] = raw
+    for n, (prop, raw) in enumerate(attributes.items(), 1):
+        attribute = reference_attribute(kind, prop)
+        field = RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute)
+        row = f"desired.row.{rid}-{n:03d}."
+        fields[row + "property"] = kind + "." + field
+        if kind + "." + field in identifier_outputs(ROOT).get(
+            kind, ()
+        ) and not isinstance(raw, dict):
+            fields[row + "value"] = (
+                "`"
+                + json.dumps(
+                    model_ref(kind.replace(".", "_") + f"_{int(rid):03d}", attribute)
+                )
+                + "`"
+            )
+            fields[f"observed.row.{rid}-{n:03d}.value"] = raw
     write_model(path, fields)
     return service, path
 
@@ -161,24 +184,24 @@ CASES = [
         {"BucketName": "audit-bucket"},
         "arn:aws:s3:::audit-bucket",
     ),
-    ("EC2.SecurityGroup.VpcId", "EC2.VPC", {"VpcId": "vpc-confirmed"}, "vpc-confirmed"),
+    ("EC2.SecurityGroup.VpcId", "EC2.VPC", {"VpcId": "vpc-11111111"}, "vpc-11111111"),
     (
         "EC2.TransitGatewayVpcAttachment.VpcId",
         "EC2.VPC",
-        {"VpcId": "vpc-confirmed"},
-        "vpc-confirmed",
+        {"VpcId": "vpc-11111111"},
+        "vpc-11111111",
     ),
     (
         "CodeBuild.Project.VpcConfig.Subnets[]",
         "EC2.Subnet",
-        {"SubnetId": "subnet-confirmed"},
-        "subnet-confirmed",
+        {"SubnetId": "subnet-11111111"},
+        "subnet-11111111",
     ),
     (
         "Lambda.Function.VpcConfig.SecurityGroupIds[]",
         "EC2.SecurityGroup",
-        {"GroupId": "sg-confirmed"},
-        "sg-confirmed",
+        {"GroupId": "sg-11111111"},
+        "sg-11111111",
     ),
     ("Glue.Job.Role", "IAM.Role", {"RoleName": "glue-role"}, "glue-role"),
     (
@@ -219,13 +242,32 @@ def check_exact_reference(tmp_path, prop, kind, attrs, raw, mode, present):
         assert bool(result) == present
         if present:
             assert result["service"] == service and result["id"] == "001"
-            resolver.verify(prop, "[target](" + service + ".md#producer)", raw)
+            resolver.verify(
+                prop,
+                model_ref(
+                    kind.replace(".", "_") + "_001",
+                    "Arn"
+                    if raw.startswith("arn:")
+                    else next(
+                        form for form in contract(prop)[kind] if attrs.get(form) == raw
+                    ),
+                ),
+                raw,
+            )
             with warned(resolver, "requires a Resource reference"):
-                resolver.verify(prop, "`" + raw + "`", raw)
+                resolver.verify(
+                    prop,
+                    "`" + (raw if isinstance(raw, str) else json.dumps(raw)) + "`",
+                    raw,
+                )
         else:
-            resolver.verify(prop, "`" + raw + "`", raw)
-            with warned(resolver, "differs from acquired"):
-                resolver.verify(prop, "[target](s3.md#producer)", raw)
+            resolver.verify(
+                prop,
+                "`" + (raw if isinstance(raw, str) else json.dumps(raw)) + "`",
+                raw,
+            )
+            with warned(resolver, "producer logicalId is absent"):
+                resolver.verify(prop, model_ref("S3_Bucket_001", "BucketName"), raw)
 
 
 def check_guardduty_bucket_reference_contract(tmp_path):
@@ -247,7 +289,9 @@ def check_guardduty_bucket_reference_contract(tmp_path):
         {"ProtectedResource.S3Bucket.BucketName": "unused"},
         rid="009",
     )
-    source["desired.row.009-001.value"] = "[target](s3.md#producer)"
+    source["desired.row.009-001.value"] = (
+        "`" + json.dumps(model_ref("S3_Bucket_001", "BucketName")) + "`"
+    )
     source["observed.row.009-001.value"] = "audit-bucket"
     record = {
         "record": "synthetic",
@@ -268,7 +312,9 @@ def check_guardduty_bucket_reference_contract(tmp_path):
         )
         resolver.verify_resource(source, "009", require_links=False, observed_only=True)
         assert not resolver.warnings
-        source["desired.row.009-001.value"] = "[target](s3.md#other)"
+        source["desired.row.009-001.value"] = (
+            "`" + json.dumps(model_ref("S3_Bucket_002", "BucketName")) + "`"
+        )
         with warned(resolver, "differs from acquired physical reference"):
             verify_values(
                 before,
@@ -277,7 +323,9 @@ def check_guardduty_bucket_reference_contract(tmp_path):
                 lambda _: {"type": "string"},
                 resolver,
             )
-        source["desired.row.009-001.value"] = "[target](s3.md#producer)"
+        source["desired.row.009-001.value"] = (
+            "`" + json.dumps(model_ref("S3_Bucket_001", "BucketName")) + "`"
+        )
         source["observed.row.009-001.value"] = "other-bucket"
         with pytest.raises(ValueError, match="differs from the acquired Property"):
             verify_values(
@@ -295,51 +343,51 @@ def check_guardduty_bucket_reference_contract(tmp_path):
 
 def check_no_guessed_or_foreign_identity(tmp_path):
     prop = "EC2.SecurityGroup.VpcId"
-    producer(tmp_path, "EC2.VPC", {"VpcId": "vpc-confirmed"}, env="stg")
-    producer(tmp_path, "EC2.VPC", {"VpcId": "vpc-other", "Name": "vpc-confirmed"})
+    producer(tmp_path, "EC2.VPC", {"VpcId": "vpc-11111111"}, env="stg")
+    producer(tmp_path, "EC2.VPC", {"VpcId": "vpc-22222222", "Name": "vpc-11111111"})
     resolver = Resolver(tmp_path, "dev", "cde", definitions_root=ROOT)
-    assert resolver.match(prop, "vpc-confirmed") is None
-    assert resolver.match("Unregistered.Resource.VpcId", "vpc-other") is None
+    assert resolver.match(prop, "vpc-11111111") is None
+    assert resolver.match("Unregistered.Resource.VpcId", "vpc-22222222") is None
     assert resolver.match(prop, "UNSET") is None
     assert resolver.match(prop, "PENDING_DEPLOY") is None
 
 
 def check_ambiguous_and_wrong_explicit_link(tmp_path):
-    first = values("EC2.VPC", {"VpcId": "vpc-confirmed"})
+    first = values("EC2.VPC", {"VpcId": "vpc-11111111"})
     producer(
         tmp_path,
         "EC2.VPC",
-        {"VpcId": "vpc-confirmed"},
+        {"VpcId": "vpc-11111111"},
         rid="002",
         anchor="other",
         previous=first,
     )
     resolver = Resolver(tmp_path, "dev", "cde", definitions_root=ROOT)
     with pytest.raises(ValueError, match="ambiguous physical reference"):
-        resolver.match("EC2.SecurityGroup.VpcId", "vpc-confirmed")
-    producer(tmp_path, "EC2.VPC", {"VpcId": "vpc-confirmed"})
+        resolver.match("EC2.SecurityGroup.VpcId", "vpc-11111111")
+    producer(tmp_path, "EC2.VPC", {"VpcId": "vpc-11111111"})
     resolver = Resolver(tmp_path, "dev", "cde", definitions_root=ROOT)
-    with warned(resolver, "differs from acquired"):
+    with warned(resolver, "producer logicalId is absent"):
         resolver.verify(
-            "EC2.SecurityGroup.VpcId", "[target](vpc.md#other)", "vpc-confirmed"
+            "EC2.SecurityGroup.VpcId", model_ref("EC2_VPC_002", "VpcId"), "vpc-11111111"
         )
-    with warned(resolver, "differs from acquired"):
+    with warned(resolver, "producer logicalId is absent"):
         resolver.verify(
             "EC2.SecurityGroup.VpcId",
-            "[target](../other/vpc.md#producer)",
-            "vpc-confirmed",
+            model_ref("EC2_VPC_999", "VpcId"),
+            "vpc-11111111",
         )
 
 
 def check_publication_mixed_array_and_physical_value(tmp_path):
-    service, _ = producer(tmp_path, "EC2.Subnet", {"SubnetId": "subnet-confirmed"})
+    service, _ = producer(tmp_path, "EC2.Subnet", {"SubnetId": "subnet-11111111"})
     prop = "CodeBuild.Project.VpcConfig.Subnets[]"
-    raw = json.dumps(["[target](" + service + ".md#producer)", "subnet-external"])
+    raw = json.dumps([model_ref("EC2_Subnet_001", "SubnetId"), "subnet-22222222"])
     new = values(
         "CodeBuild.Project", {"VpcConfig.Subnets[]": raw}, rid="009", anchor="consumer"
     )
     new["desired.row.009-001.valueShape"] = "projection"
-    new["observed.row.009-001.value"] = '["subnet-confirmed","subnet-external"]'
+    new["observed.row.009-001.value"] = '["subnet-11111111","subnet-22222222"]'
     after, before = Expansion(new, {}, {}), Expansion({}, {}, {})
     record = {
         "record": "synthetic",
@@ -348,7 +396,7 @@ def check_publication_mixed_array_and_physical_value(tmp_path):
         "properties": {
             prop: {
                 "status": "captured",
-                "value": ["subnet-confirmed", "subnet-external"],
+                "value": ["subnet-11111111", "subnet-22222222"],
             }
         },
     }
@@ -358,7 +406,7 @@ def check_publication_mixed_array_and_physical_value(tmp_path):
     )
     wrong = {
         **new,
-        "observed.row.009-001.value": '["subnet-external","subnet-external"]',
+        "observed.row.009-001.value": '["subnet-22222222","subnet-22222222"]',
     }
     with pytest.raises(ValueError, match="differs from the acquired Property"):
         verify_values(
@@ -376,8 +424,10 @@ def check_publication_mixed_array_and_physical_value(tmp_path):
 
 def check_observed_and_reused_index(tmp_path):
     observed = values("EC2.VPC", {"VpcId": "PENDING_DEPLOY"})
-    observed["desired.row.001-001.value"] = "[target](vpc.md#producer)"
-    observed["observed.row.001-001.value"] = "vpc-confirmed"
+    observed["desired.row.001-001.value"] = (
+        "`" + json.dumps(model_ref("EC2_VPC_001", "VpcId")) + "`"
+    )
+    observed["observed.row.001-001.value"] = "vpc-11111111"
     write_model(tmp_path / "model/dev/cde/vpc.properties", observed)
     resolver = Resolver(tmp_path, "dev", "cde", definitions_root=ROOT)
     with (
@@ -387,51 +437,42 @@ def check_observed_and_reused_index(tmp_path):
         ) as read,
     ):
         for _ in range(20):
-            assert resolver.match("EC2.SecurityGroup.VpcId", "vpc-confirmed")
+            assert resolver.match("EC2.SecurityGroup.VpcId", "vpc-11111111")
         assert read.call_count == 1
         assert resolver.metrics["referenceModelReads"] == 1
     assert resolver.match("EC2.SecurityGroup.VpcId", "PENDING_DEPLOY") is None
 
 
-@pytest.mark.parametrize("physical", ["PENDING_DEPLOY", "vpc-confirmed", "UNSET"])
-@pytest.mark.parametrize("local", [None, "vpc", "ec2"])
-def check_pending_explicit_reference_after_destroy(tmp_path, physical, local):
-    source = values("EC2.VPC", {"VpcId": physical})
-    source["desired.row.001-001.value"] = "[target](vpc.md#producer)"
-    source["observed.row.001-001.value"] = physical
-    write_model(tmp_path / "model/dev/cde/vpc.properties", source)
-    resolver = Resolver(
-        tmp_path,
-        "dev",
-        "cde",
-        definitions_root=ROOT,
-        local={local: local_snapshot(source, tmp_path, local)} if local else None,
-    )
-    prop = "EC2.Subnet.VpcId"
-    reference = "[target](" + (local or "vpc") + ".md#producer)"
-    assert resolver.match(prop, "PENDING_DEPLOY") is None
-    if physical == "PENDING_DEPLOY":
-        resolver.verify(prop, reference, "PENDING_DEPLOY", require_links=False)
+@pytest.mark.parametrize("physical", ["PENDING_DEPLOY", "vpc-11111111", "UNSET"])
+def check_pending_explicit_reference_after_destroy(tmp_path, physical):
+    producer(tmp_path, "EC2.VPC", {"VpcId": physical})
+    resolver = Resolver(tmp_path, "dev", "cde", definitions_root=ROOT)
+    reference = model_ref("EC2_VPC_001", "VpcId")
+    if physical == "vpc-11111111":
+        with warned(resolver, "differs from acquired"):
+            resolver.verify(
+                "EC2.Subnet.VpcId", reference, "PENDING_DEPLOY", require_links=False
+            )
     else:
-        with warned(resolver, "differs from acquired"):
-            resolver.verify(prop, reference, "PENDING_DEPLOY", require_links=False)
-    for wrong in (
-        "[target](vpc.md#missing)",
-        "[target](../other/vpc.md#producer)",
-        "[target](subnet.md#producer)",
-    ):
-        with warned(resolver, "differs from acquired"):
-            resolver.verify(prop, wrong, "PENDING_DEPLOY", require_links=False)
-    with warned(resolver, "differs from acquired"):
-        resolver.verify(prop, reference, "PENDING_DEPLOY")
-    with warned(resolver, "differs from acquired"):
         resolver.verify(
-            "Unknown.Resource.Value",
-            reference,
+            "EC2.Subnet.VpcId", reference, "PENDING_DEPLOY", require_links=False
+        )
+    with warned(resolver, "producer logicalId is absent"):
+        resolver.verify(
+            "EC2.Subnet.VpcId",
+            model_ref("EC2_VPC_999", "VpcId"),
             "PENDING_DEPLOY",
-            contracts={},
             require_links=False,
         )
+    with warned(
+        resolver,
+        "unconfirmed"
+        if physical == "UNSET"
+        else "PENDING_DEPLOY"
+        if physical == "PENDING_DEPLOY"
+        else "differs from acquired",
+    ):
+        resolver.verify("EC2.Subnet.VpcId", reference, "PENDING_DEPLOY")
 
 
 def check_append_only_and_later_import(tmp_path):
@@ -444,7 +485,12 @@ def check_append_only_and_later_import(tmp_path):
         verify_values(expansion, expansion, {}, lambda _: {"type": "string"}, resolver)
         == []
     )
-    changed = {**old, "desired.row.001-001.value": "[target](s3.md#producer)"}
+    changed = {
+        **old,
+        "desired.row.001-001.value": "`"
+        + json.dumps(model_ref("S3_Bucket_001", "BucketName"))
+        + "`",
+    }
     warnings = []
     with pytest.raises(ValueError, match="unselected Resource"):
         verify_values(
@@ -462,7 +508,7 @@ def check_selected_new_import_can_resolve_only_its_declared_producer(tmp_path):
     _, producer_path = producer(
         tmp_path,
         "EC2.Subnet",
-        {"SubnetId": "subnet-confirmed", "Name": "private-subnet"},
+        {"SubnetId": "subnet-11111111", "Name": "private-subnet"},
     )
     producer_before = producer_path.read_bytes()
     path = tmp_path / "model/dev/cde/codebuild.properties"
@@ -477,8 +523,10 @@ def check_selected_new_import_can_resolve_only_its_declared_producer(tmp_path):
             anchor="codebuild-new",
         ),
     }
-    fields["desired.row.009-001.value"] = "[target](vpc.md#producer)"
-    fields["observed.row.009-001.value"] = "subnet-confirmed"
+    fields["desired.row.009-001.value"] = (
+        "`" + json.dumps(model_ref("EC2_VPC_001", "VpcId")) + "`"
+    )
+    fields["observed.row.009-001.value"] = "subnet-11111111"
     with (
         restrict(("dev", "cde", "codebuild")),
         read_consumers({("dev", "cde", "codebuild")}),
@@ -486,21 +534,20 @@ def check_selected_new_import_can_resolve_only_its_declared_producer(tmp_path):
         candidate = load_for_edit(
             path, CandidateReads(FileReads(), {path: serialize(fields)})
         )
-        assert (
-            candidate.authoritative["desired.row.009-001.value"]
-            == "[target](vpc.md#producer)"
-        )
+        assert json.loads(
+            literal(candidate.authoritative["desired.row.009-001.value"])
+        ) == model_ref("EC2_VPC_001", "VpcId")
         assert producer_path in candidate.dependencies
         with pytest.raises(ValueError, match="outside selected"):
             load_for_edit(producer_path)
         external = dict(fields)
-        external["desired.row.009-001.value"] = "subnet-external"
+        external["desired.row.009-001.value"] = "subnet-22222222"
         del external["observed.row.009-001.value"]
         assert (
             load_for_edit(
                 path, CandidateReads(FileReads(), {path: serialize(external)})
             ).authoritative["desired.row.009-001.value"]
-            == "subnet-external"
+            == "subnet-22222222"
         )
         directory = tmp_path.parent / (tmp_path.name + "-candidate")
         own = directory / path.relative_to(tmp_path)
@@ -571,12 +618,12 @@ def check_import_compact_display_and_create_guards():
     codebuild_display_row = _imports_codebuild.codebuild_display_row
     codebuild_formal_rows = _imports_codebuild.codebuild_formal_rows
     prop = "CodeBuild.Project.VpcConfig.Subnets"
-    raw = '`["[private](vpc.md#resource-EC2_Subnet_001)","subnet-external"]`'
+    raw = '`["[private](vpc.md#resource-EC2_Subnet_001)","subnet-22222222"]`'
     rows = [["001-001", prop, raw, "合成入力"]]
     rendered = display_rows("CodeBuild.Project", rows, ROOT, mode="IMPORT")
     assert [r[2] for r in rendered] == [
         "[private](vpc.md#resource-EC2_Subnet_001)",
-        "`subnet-external`",
+        "`subnet-22222222`",
     ]
     lines = [
         '<a id="codebuild-new"></a>',
@@ -624,22 +671,22 @@ def check_import_compact_display_and_create_guards():
             "KinesisFirehose.DeliveryStream",
             "DeliveryStreamName",
             "S3DestinationConfiguration.BucketARN",
-            "[target](s3.md#producer)",
+            model_ref("S3_Bucket_001", "Arn"),
             "`arn:aws:s3:::audit-bucket`",
         ),
         (
             "CloudTrail.Trail",
             "TrailName",
             "S3BucketName",
-            "[target](s3.md#producer)",
+            model_ref("S3_Bucket_001", "BucketName"),
             "`audit-bucket`",
         ),
         (
             "CodeBuild.Project",
             "Name",
             "VpcConfig.Subnets",
-            '`["subnet-confirmed","subnet-external"]`',
-            '["subnet-confirmed","subnet-external"]',
+            '`["subnet-11111111","subnet-22222222"]`',
+            '["subnet-11111111","subnet-22222222"]',
         ),
     ],
 )
@@ -656,7 +703,9 @@ def check_markdown_roundtrip_keeps_physical_values(
             "desired.service." + service + ".ownedCatalogResourceTypes": kind,
             "display.service.title": "# 合成詳細設計",
             "display.resource.009.comment": "合成設定",
-            "desired.row.009-002.value": desired,
+            "desired.row.009-002.value": "`" + json.dumps(desired) + "`"
+            if isinstance(desired, dict)
+            else desired,
             "observed.row.009-002.value": observed,
         }
     )
@@ -664,29 +713,35 @@ def check_markdown_roundtrip_keeps_physical_values(
         del source["observed.row.009-002.value"]
     path = tmp_path / "docs/designs/dev/cde" / (service + ".md")
     path.parent.mkdir(parents=True)
+    if isinstance(desired, dict):
+        producer(tmp_path, "S3.Bucket", {"BucketName": "audit-bucket"})
     first = generate_markdown(path, source, ROOT)
     path.write_text(first)
     normalized = expanded_display_rows(
         first.splitlines(), ROOT, modes={service + "-audit": "IMPORT"}
     )
-    if resource_link(desired):
-        expected = "[" + literal(observed) + "](s3.md#producer)"
+    if isinstance(desired, dict):
+        expected = "[audit-bucket](s3.md#producer)"
     else:
-        expected = "subnet-confirmed"
+        expected = "subnet-11111111"
     assert any(expected in line for line in normalized), normalized
-    assert source["desired.row.009-002.value"] == desired
+    assert (
+        json.loads(literal(source["desired.row.009-002.value"]))
+        if isinstance(desired, dict)
+        else source["desired.row.009-002.value"]
+    ) == desired
     if kind != "CodeBuild.Project":
         assert source["observed.row.009-002.value"] == observed
     assert path.read_text() == first
 
 
 def check_mixed_literals_cannot_hide_behind_observations(tmp_path):
-    producer(tmp_path, "EC2.Subnet", {"SubnetId": "subnet-confirmed"})
+    producer(tmp_path, "EC2.Subnet", {"SubnetId": "subnet-11111111"})
     source = values("CodeBuild.Project", {"VpcConfig.Subnets": "unused"}, rid="009")
     source["desired.row.009-001.value"] = (
         '`["[target](vpc.md#producer)","subnet-wrong"]`'
     )
-    source["observed.row.009-001.value"] = '["subnet-confirmed","subnet-external"]'
+    source["observed.row.009-001.value"] = '["subnet-11111111","subnet-22222222"]'
     resolver = Resolver(tmp_path, "dev", "cde", definitions_root=ROOT)
     with pytest.raises(ValueError, match="literal differs"):
         resolver.verify_resource(source, "009")
@@ -724,7 +779,9 @@ def check_guardduty_role_acquired_value_consistency(tmp_path):
     source["desired.service.identity.lastAllocated"] = json.dumps(
         {"GuardDuty.MalwareProtectionPlan": 1}
     )
-    source["desired.row.002-001.value"] = "[target](" + service + ".md#producer)"
+    source["desired.row.002-001.value"] = (
+        "`" + json.dumps(model_ref("IAM_Role_001", "Arn")) + "`"
+    )
     source["observed.row.002-001.value"] = physical
     record = {
         "record": "synthetic",
@@ -746,8 +803,13 @@ def check_guardduty_role_acquired_value_consistency(tmp_path):
         )
         resolver.verify_resource(source, "002", require_links=False, observed_only=True)
         assert not resolver.warnings
-        wrong = {**source, "desired.row.002-001.value": "[target](s3.md#producer)"}
-        with warned(resolver, "differs from acquired physical reference"):
+        wrong = {
+            **source,
+            "desired.row.002-001.value": "`"
+            + json.dumps(model_ref("S3_Bucket_001", "BucketName"))
+            + "`",
+        }
+        with warned(resolver, "producer logicalId is absent"):
             verify_values(
                 before,
                 Expansion(wrong, {}, {}),
@@ -774,11 +836,13 @@ def check_guardduty_role_acquired_value_consistency(tmp_path):
 
 
 def check_import_reference_observation_sync_remains_guarded(tmp_path):
-    producer(tmp_path, "EC2.VPC", {"VpcId": "vpc-confirmed"})
+    producer(tmp_path, "EC2.VPC", {"VpcId": "vpc-11111111"})
     source = values("EC2.TransitGatewayVpcAttachment", {"VpcId": "unused"})
-    source["desired.row.001-001.value"] = "[target](vpc.md#producer)"
+    source["desired.row.001-001.value"] = (
+        "`" + json.dumps(model_ref("EC2_VPC_001", "VpcId")) + "`"
+    )
     source["observed.row.001-001.value"] = "PENDING_DEPLOY"
-    updated = {**source, "observed.row.001-001.value": "vpc-confirmed"}
+    updated = {**source, "observed.row.001-001.value": "vpc-11111111"}
     resolver = Resolver(tmp_path, "dev", "cde", definitions_root=ROOT)
     with warned(resolver, "differs from acquired physical reference"):
         resolver.verify_resource(source, "001", require_links=False, observed_only=True)
@@ -824,7 +888,9 @@ def check_design_link_validation_uses_physical_identity(tmp_path, wrong, observe
             "desired.service.data-firehose.ownedCatalogResourceTypes": "KinesisFirehose.DeliveryStream",
             "display.service.title": "# Firehose",
             "display.resource.009.comment": "合成入力",
-            "desired.row.009-002.value": "[target](s3.md#producer)",
+            "desired.row.009-002.value": "`"
+            + json.dumps(model_ref("S3_Bucket_001", "Arn"))
+            + "`",
             "observed.row.009-002.value": "`arn:aws:s3:::audit-bucket`",
         }
     )
@@ -1041,11 +1107,9 @@ def check_native_array_literals_cannot_evade_matching_model(tmp_path):
 @pytest.mark.parametrize(
     "reference",
     [
-        "[target](cloudwatch-logs.md#producer)",
-        "[target](cloudwatch-logs.md#missing)",
-        "[target](s3.md#producer)",
-        "[target](missing.md#producer)",
-        "[target](../other/cloudwatch-logs.md#producer)",
+        model_ref("Logs_LogGroup_001", "Arn"),
+        model_ref("Logs_LogGroup_999", "Arn"),
+        model_ref("S3_Bucket_001", "BucketName"),
     ],
 )
 def check_unobserved_link_requires_typed_target(tmp_path, reference):
@@ -1053,15 +1117,17 @@ def check_unobserved_link_requires_typed_target(tmp_path, reference):
     producer(
         tmp_path,
         "Logs.LogGroup",
-        {"LogGroupName": "[target](cloudwatch-logs.md#producer)"},
+        {"LogGroupName": model_ref("Logs_LogGroup_001", "LogGroupName")},
     )
     producer(tmp_path, "S3.Bucket", {"BucketName": "audit-bucket"})
     source = values(
         "CloudTrail.Trail", {"CloudWatchLogsLogGroupArn": "unused"}, rid="009"
     )
-    source["desired.row.009-001.value"] = reference
+    source["desired.row.009-001.value"] = (
+        "`" + json.dumps(reference) + "`" if isinstance(reference, dict) else reference
+    )
     resolver = Resolver(tmp_path, "dev", "cde", definitions_root=ROOT)
-    if reference == "[target](cloudwatch-logs.md#producer)":
+    if reference == model_ref("Logs_LogGroup_001", "Arn"):
         with patch.object(
             resolver,
             "match",
@@ -1071,13 +1137,15 @@ def check_unobserved_link_requires_typed_target(tmp_path, reference):
                 source, "009", require_links=False, observed_only=True
             )
     else:
-        with warned(resolver, "no unique producer"):
+        with warned(
+            resolver,
+            "type differs"
+            if reference["$modelRef"]["logicalId"].startswith("S3_")
+            else "producer logicalId is absent",
+        ):
             resolver.verify_resource(
                 source, "009", require_links=False, observed_only=True
             )
-    source["desired.row.009-001.property"] = "CloudTrail.Trail.Unknown"
-    with warned(resolver, "no unique producer"):
-        resolver.verify_resource(source, "009", require_links=False, observed_only=True)
 
 
 @pytest.mark.parametrize("shape", ["scalar", "array", "document", "configuration"])
@@ -1087,10 +1155,12 @@ def check_unobserved_structured_links_and_strict_import(tmp_path, shape):
         source = values(
             "CloudTrail.Trail", {"CloudWatchLogsLogGroupArn": "unused"}, rid="009"
         )
-        source["desired.row.009-001.value"] = "[target](cloudwatch-logs.md#producer)"
+        source["desired.row.009-001.value"] = (
+            "`" + json.dumps(model_ref("Logs_LogGroup_001", "Arn")) + "`"
+        )
     elif shape in {"array", "document"}:
-        producer(tmp_path, "EC2.Subnet", {"SubnetId": "subnet-confirmed"})
-        raw = ["[target](vpc.md#producer)", "subnet-external"]
+        producer(tmp_path, "EC2.Subnet", {"SubnetId": "subnet-11111111"})
+        raw = [model_ref("EC2_Subnet_001", "SubnetId"), "subnet-22222222"]
         prop = "VpcConfig.Subnets" if shape == "array" else "VpcConfig"
         source = values(
             "CodeBuild.Project",
@@ -1105,7 +1175,12 @@ def check_unobserved_structured_links_and_strict_import(tmp_path, shape):
             "CodePipeline.Pipeline",
             {
                 "Stages[].Actions[].ActionTypeId.Provider": '[["CodeBuild"]]',
-                "Stages[].Actions[].Configuration": '[[{"ProjectName":"[audit-build](codebuild.md#producer)"}]]',
+                "Stages[].Actions[].ActionTypeId.Category": '[["Build"]]',
+                "Stages[].Actions[].ActionTypeId.Owner": '[["AWS"]]',
+                "Stages[].Actions[].ActionTypeId.Version": '[["1"]]',
+                "Stages[].Actions[].Configuration": json.dumps(
+                    [[{"ProjectName": model_ref("CodeBuild_Project_001", "Name")}]]
+                ),
             },
             rid="009",
         )
@@ -1114,9 +1189,12 @@ def check_unobserved_structured_links_and_strict_import(tmp_path, shape):
     resolver.verify_resource(source, "009", require_links=False, observed_only=True)
     assert source == snapshot
     invalid = {
-        key: value.replace("#producer)", "#missing)") for key, value in source.items()
+        key: value.replace("_001", "_999")
+        if key.endswith((".value", ".document"))
+        else value
+        for key, value in source.items()
     }
-    with warned(resolver, "no unique producer"):
+    with warned(resolver, "producer logicalId is absent"):
         resolver.verify_resource(
             invalid, "009", require_links=False, observed_only=True
         )
@@ -1141,7 +1219,7 @@ def check_unobserved_structured_links_and_strict_import(tmp_path, shape):
         if (
             key.startswith("desired.row.")
             and key.endswith(".value")
-            and any(token in source[key] for token in ("[target](", "[audit-build]("))
+            and "$modelRef" in source[key]
         ):
             source["observed." + key.removeprefix("desired.")] = "null"
     if shape == "scalar":
@@ -1162,7 +1240,9 @@ def check_unobserved_structured_links_and_strict_import(tmp_path, shape):
 def check_observed_comparison_in_design_and_import(tmp_path, physical):
     producer(tmp_path, "S3.Bucket", {"BucketName": "audit-bucket"})
     source = values("CloudTrail.Trail", {"S3BucketName": "unused"}, rid="009")
-    source["desired.row.009-001.value"] = "[target](s3.md#producer)"
+    source["desired.row.009-001.value"] = (
+        "`" + json.dumps(model_ref("S3_Bucket_001", "BucketName")) + "`"
+    )
     source["observed.row.009-001.value"] = physical
     resolver = Resolver(tmp_path, "dev", "cde", definitions_root=ROOT)
     for kwargs in (
@@ -1179,14 +1259,18 @@ def check_observed_comparison_in_design_and_import(tmp_path, physical):
 
 def check_unobserved_local_and_identity_self_links(tmp_path):
     source = values("EC2.VPC", {"VpcId": "unused"})
-    source["desired.row.001-001.value"] = "[target](vpc.md#producer)"
+    source["desired.row.001-001.value"] = (
+        "`" + json.dumps(model_ref("EC2_VPC_001", "VpcId")) + "`"
+    )
     source.update(
         values("EC2.Subnet", {"VpcId": "unused"}, rid="009", anchor="consumer")
     )
     source["desired.service.identity.lastAllocated"] = json.dumps(
         {"EC2.VPC": 1, "EC2.Subnet": 1}
     )
-    source["desired.row.009-001.value"] = "[target](vpc.md#producer)"
+    source["desired.row.009-001.value"] = (
+        "`" + json.dumps(model_ref("EC2_VPC_001", "VpcId")) + "`"
+    )
     resolver = Resolver(
         tmp_path,
         "dev",
@@ -1196,32 +1280,43 @@ def check_unobserved_local_and_identity_self_links(tmp_path):
     )
     resolver.verify_resource(source, "001", require_links=False, observed_only=True)
     resolver.verify_resource(source, "009", require_links=False, observed_only=True)
-    source["desired.row.009-001.value"] = "[target](vpc.md#missing)"
-    with warned(resolver, "no unique producer"):
+    source["desired.row.009-001.value"] = (
+        "`" + json.dumps(model_ref("EC2_VPC_999", "VpcId")) + "`"
+    )
+    with warned(resolver, "producer logicalId is absent"):
         resolver.verify_resource(source, "009", require_links=False, observed_only=True)
 
 
-@pytest.mark.parametrize("physical", ["PENDING_DEPLOY", "vpc-confirmed", "UNSET"])
+@pytest.mark.parametrize("physical", ["PENDING_DEPLOY", "vpc-11111111", "UNSET"])
 def check_design_pending_observation_retains_target_guard(tmp_path, physical):
     producer(tmp_path, "EC2.VPC", {"VpcId": physical})
     source = values("EC2.Subnet", {"VpcId": "unused"}, rid="009")
-    source["desired.row.009-001.value"] = "[target](vpc.md#producer)"
+    source["desired.row.009-001.value"] = (
+        "`" + json.dumps(model_ref("EC2_VPC_001", "VpcId")) + "`"
+    )
     source["observed.row.009-001.value"] = "PENDING_DEPLOY"
     resolver = Resolver(tmp_path, "dev", "cde", definitions_root=ROOT)
-    if physical == "PENDING_DEPLOY":
+    if physical in {"PENDING_DEPLOY", "UNSET"}:
         resolver.verify_resource(source, "009", require_links=False, observed_only=True)
     else:
         with warned(resolver, "differs from acquired physical reference"):
             resolver.verify_resource(
                 source, "009", require_links=False, observed_only=True
             )
-    with warned(resolver, "differs from acquired physical reference"):
+    with warned(
+        resolver,
+        "PENDING_DEPLOY"
+        if physical == "PENDING_DEPLOY"
+        else "unconfirmed"
+        if physical == "UNSET"
+        else "differs from acquired physical reference",
+    ):
         resolver.verify_resource(source, "009")
 
 
 def impact_fixture(root):
     producer(
-        root, "EC2.Subnet", {"SubnetId": "subnet-confirmed", "Name": "private-subnet"}
+        root, "EC2.Subnet", {"SubnetId": "subnet-11111111", "Name": "private-subnet"}
     )
     path = root / "model/dev/cde/codebuild.properties"
     source = values(
@@ -1230,26 +1325,41 @@ def impact_fixture(root):
     source.update(
         values("CodeBuild.Project", {"Name": "sibling"}, rid="010", anchor="sibling")
     )
-    source["desired.row.009-001.value"] = "[target](vpc.md#producer)"
-    source["observed.row.009-001.value"] = "subnet-confirmed"
-    source["desired.row.010-001.value"] = "[audit-build](codebuild.md#build)"
+    source["desired.row.009-001.value"] = (
+        "`" + json.dumps([model_ref("EC2_Subnet_001", "SubnetId")]) + "`"
+    )
+    source["observed.row.009-001.value"] = '`["subnet-11111111"]`'
+    source["desired.row.010-001.value"] = (
+        "`" + json.dumps(model_ref("CodeBuild_Project_001", "Name")) + "`"
+    )
+    source.update(
+        {
+            "desired.row.009-002.property": "CodeBuild.Project.Description",
+            "desired.row.009-002.value": "subnet-11111111",
+            "desired.row.009-002.comment": "identifier provenance",
+        }
+    )
     for key, value in {
-        "consumerKey": "desired.row.009-001.value",
-        "text": source["desired.row.009-001.value"],
+        "consumerKey": "desired.row.009-002.value",
+        "text": "subnet-11111111",
         "occurrence": "1",
         "producerKind": "resource",
         "producerScope": "dev/cde/vpc",
         "producerLogicalId": "EC2_Subnet_001",
         "resourceType": "EC2.Subnet",
-        "format": "link",
-        "labelPolicy": "fixed",
+        "format": "identifier",
+        "property": "EC2.Subnet.SubnetId",
+        "labelPolicy": "none",
     }.items():
         source["desired.reference.subnet." + key] = value
     write_model(path, source)
     consumer = values(
         "CodePipeline.Pipeline", {"RoleArn": "unused"}, rid="003", anchor="pipeline"
     )
-    consumer["desired.row.003-001.value"] = "[audit-build](codebuild.md#build)"
+    consumer["desired.row.003-001.property"] = "CodePipeline.Pipeline.Name"
+    consumer["desired.row.003-001.value"] = (
+        "`" + json.dumps(model_ref("CodeBuild_Project_001", "Name")) + "`"
+    )
     write_model(root / "model/dev/cde/codepipeline.properties", consumer)
     dependency_index.rebuild(root)
     return path
@@ -1304,10 +1414,9 @@ def check_preserved_analysis_cache_boundary(tmp_path, permission_first):
             assert not first.warnings
             assert load_for_edit(producer_path) is first
         assert load_for_edit(path) is before
-        assert (
-            before.authoritative["desired.row.009-001.value"]
-            == "[target](vpc.md#producer)"
-        )
+        assert json.loads(
+            literal(before.authoritative["desired.row.009-001.value"])
+        ) == [model_ref("EC2_Subnet_001", "SubnetId")]
         with pytest.raises(ValueError, match="outside selected"):
             load_for_edit(producer_path)
 
@@ -1423,22 +1532,21 @@ def check_configuration_index_reuses_scans_and_keeps_raw_fields():
     }
     del source["desired.resource.001.logicalId"]
     source["observed.row.001-001.value"] = "first"
-    source["desired.row.002-001.document"] = (
-        '{"items":[1,true,"[first](logs.md#producer)"]}'
-    )
+    source["desired.row.002-001.document"] = '{"items":[1,true,"first"]}'
     del source["desired.row.002-001.value"]
-    source["desired.row.001-001.value"] = "[first](logs.md#producer)"
+    source["desired.row.001-001.value"] = "first"
     for identity in ("z-last", "a-first"):
         for field, value in {
             "consumerKey": "desired.row.001-001.value",
-            "text": "[first](logs.md#producer)",
+            "text": "first",
             "occurrence": "1",
             "producerKind": "resource",
             "producerScope": "dev/cde/logs",
             "producerLogicalId": "Logs_LogGroup_002",
             "resourceType": "Logs.LogGroup",
-            "format": "link",
-            "labelPolicy": "fixed",
+            "format": "name",
+            "property": "Logs.LogGroup.LogGroupName",
+            "labelPolicy": "none",
         }.items():
             source[f"desired.reference.{identity}.{field}"] = value
     index = ConfigurationIndex(source)
@@ -1461,15 +1569,15 @@ def check_configuration_index_reuses_scans_and_keeps_raw_fields():
                 "array": [
                     {"int": 1},
                     {"bool": True},
-                    {"string": "[first](logs.md#producer)"},
+                    {"string": "first"},
                 ]
             }
         }
     }
     assert actual == [resource_configuration(source, rid) for rid in ("001", "002")]
-    source["desired.row.001-001.value"] = "changed [first](logs.md#producer)"
+    source["desired.row.001-001.value"] = "changed first"
     assert resource_configuration(source, "001")["rows"][0][2] == {
-        "string": "changed [first](logs.md#producer)"
+        "string": "changed first"
     }
 
 
@@ -1517,6 +1625,20 @@ def check_observation_index_keeps_every_legacy_prefix():
         assert all(
             call.args[1] == "legacy-child-001" for call in require.call_args_list
         )
+
+
+def check_producer_output_self_reference_keeps_attribute_contract(tmp_path):
+    source = values("KMS.Key", {"KeyId": model_ref("KMS_Key_001", "Arn")})
+    source["desired.service.kms.serviceId"] = "kms"
+    source["observed.row.001-001.value"] = "12345678-1234-1234-1234-123456789012"
+    before = dict(source)
+    resolver = Resolver(tmp_path, "dev", "cde", definitions_root=ROOT)
+    resolver.verify_resource(source, "001", require_links=False, observed_only=True)
+    TestCase().assertTrue(
+        any(warning.get("code") == "MODEL_REF_CYCLE" for warning in resolver.warnings),
+        resolver.warnings,
+    )
+    TestCase().assertEqual(source, before)
 
 
 if __name__ == "__main__":

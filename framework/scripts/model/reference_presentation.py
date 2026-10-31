@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from functools import partial
 
 import json_intrinsics
+from utils.reference_contracts import RETURN_ATTRIBUTE_PROPERTIES, reference_attribute
 
 import model.files as files
 import model.identity as identity
@@ -15,7 +16,15 @@ import model.references as references
 import model.render as render
 import model.sources as sources
 from model.core import LINK, literal
-from model.reference_nodes import project, reference_document
+from model.reference_nodes import (
+    context_at,
+    nodes,
+    project,
+    receiving_property,
+    reference_document,
+    resolve,
+)
+from model.reference_values import confirmed
 
 
 @dataclass(frozen=True)
@@ -87,14 +96,28 @@ class Presentation:
                             values, rid, row, raw, "", root
                         ),
                     )
-                    for node, result in resolutions.items():
+                    for node in nodes(raw, errors=[]):
+                        result = resolutions.get(node)
                         position = Position(rid, field, node.pointer)
                         self.references[position] = Reference(
                             position,
                             result.value
-                            if result.status == "resolved"
+                            if result is not None and result.status == "resolved"
                             else reference_document(node),
-                            self.link(node) if result.status == "resolved" else None,
+                            self.link(
+                                node,
+                                field=receiving_property(prop, node.pointer),
+                                property_name=prop,
+                                context=context_at(
+                                    raw,
+                                    prop,
+                                    node.pointer,
+                                    projection.reference_context_for(
+                                        values, rid, row, raw, "", root
+                                    ),
+                                ),
+                                result=result,
+                            ),
                         )
 
         inputs = tuple(input_strings(values)) + tuple(
@@ -119,10 +142,10 @@ class Presentation:
             for variant in (marker, html.escape(marker, quote=False))
         }
 
-    def link(self, node):
+    def link(self, node, *, result=None, **contract):
         try:
-            snapshot, number, resource = self.resolver.resolve_logical(
-                node.logical_id, self.scope
+            snapshot, number, resource, attribute = resolve(
+                node, self.scope, self.resolver, **contract
             )
             name, _, _ = render.resource_presentation(
                 snapshot.authoritative,
@@ -132,6 +155,28 @@ class Presentation:
                 scope=snapshot.scope,
                 projection=True,
             )
+            kind = resource["resourceType"]
+            field = RETURN_ATTRIBUTE_PROPERTIES.get(
+                (kind, reference_attribute(kind, attribute)),
+                reference_attribute(kind, attribute),
+            )
+            if (
+                kind + "." + field
+                in projection.identifier_outputs(self.root).get(kind, ())
+                and result is not None
+                and result.status == "resolved"
+            ):
+                observed = [
+                    snapshot.authoritative.get(f"observed.row.{rid}.value")
+                    for rid, row in files.resource_row_index(snapshot.authoritative)[
+                        number
+                    ]
+                    if row["property"] == kind + "." + field
+                ]
+                if len(observed) == 1 and observed[0] is not None:
+                    physical = confirmed(literal(observed[0]))
+                    if isinstance(physical, str) and not physical.startswith("arn:"):
+                        name = physical
             if (
                 not name
                 or literal(name).lower()
@@ -143,8 +188,9 @@ class Presentation:
             link = identity.address(
                 snapshot.scope, resource, consumer_scope=self.scope, label=literal(name)
             )
-            # Reuse the saved-anchor resolver to reject an ambiguous destination.
-            self.resolver.resolve(link, self.scope)
+            identity.select_anchor(
+                identity.anchor_index(snapshot.authoritative), resource["anchor"], node
+            )
             return link
         except (ValueError, KeyError):
             return None

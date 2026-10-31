@@ -29,6 +29,7 @@ from model.core import resource_index as resource_index
 from model.core import resource_link as resource_link
 from model.core import sequence as sequence
 from model.format import LINKS, link_scope
+from model.reference_nodes import parse
 
 
 def allocate(values, resource_ids):
@@ -154,7 +155,7 @@ def select_anchor(index, anchor, reference):
 
 
 class Resolver:
-    """One anchor index per immutable service snapshot, shared across references."""
+    """One logical identity index per immutable target snapshot."""
 
     def __init__(self, root, reads=None):
         FileReads = _imports_model_sources.FileReads
@@ -189,36 +190,10 @@ class Resolver:
         return target
 
     def resolve(self, value, scope):
-        Scope = _imports_model_sources.Scope
-        _source_snapshot = _imports_model_sources._source_snapshot
-        target_for = _imports_model_sources.target_for
-        environment, target, service, anchor = parse_reference(value, scope)
-        producer = Scope(self.root, environment, target, service)
-        if producer.path not in self.models:
-            target_for(producer, self.reads)
-            reference_reader = _imports_model_importing_scope.reference_reader
-            if self.reads.kind(producer.path) == "missing":
-                self.reads.read(producer.path)
-                raise ReferenceResolutionError(
-                    "producer Model is absent", reference=value
-                )
-            with reference_reader(producer.path):
-                snapshot = (
-                    dependency_index.change_snapshot(producer.path, self.reads)
-                    if change_plan.active()
-                    else _source_snapshot(producer, self.reads)
-                )
-            if not change_plan.active():
-                resource_index(snapshot.authoritative)
-            self.models[producer.path] = snapshot
-            self.indexes[producer.path] = anchor_index(snapshot.authoritative)
-        if producer.path not in self.indexes:
-            self.indexes[producer.path] = anchor_index(
-                self.models[producer.path].authoritative
-            )
-        return self.models[producer.path], *select_anchor(
-            self.indexes[producer.path], anchor, value
-        )
+        node = parse(value)
+        snapshot, number, resource = self.resolve_logical(node.logical_id, scope)
+        self.validate_attribute(resource["resourceType"], node.attribute)
+        return snapshot, number, resource
 
     def resolve_logical(self, logical_id, scope):
         """Index exactly one environment/target snapshot once, retaining ambiguity."""
@@ -385,7 +360,7 @@ class Resolver:
             )
 
     def validate_reference_type(self, kind, attribute, field):
-        """Typed nodes occupy one complete value; legacy links may select array elements."""
+        """Typed nodes occupy one complete value under the receiving schema."""
         returned = reference_attribute(kind, attribute)
         try:
             actual = self.catalog.property_schema(kind, returned).get("type")
@@ -430,19 +405,3 @@ class Resolver:
                 if actual is None or expected is None
                 else "MODEL_REF_TYPE_MISMATCH",
             )
-
-    def operand(self, value, scope, *, attribute=None, field=None):
-        """Validate a JSON reference without requiring its physical identifier."""
-        snapshot, number, resource = self.resolve(value, scope)
-        kind = resource["resourceType"]
-        declared = _imports_reference_contracts.contract(field) if field else {}
-        if attribute is None:
-            forms = declared.get(kind, ())
-            if len(forms) != 1:
-                raise ReferenceResolutionError(
-                    "JSON Resource reference requires an explicit attribute",
-                    reference=value,
-                )
-            (attribute,) = forms
-        self.validate_attribute(kind, attribute, field=field)
-        return snapshot, number, resource, attribute

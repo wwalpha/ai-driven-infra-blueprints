@@ -26,6 +26,7 @@ import model.render as _model_render
 import model.sources as _imports_model_sources
 import validation_scope as _dependency_validation_scope
 from model.core import SnapshotValues
+from model.reference_nodes import parse
 from task_contract_core import task_read_scope
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text, memoized
@@ -335,25 +336,19 @@ def model_resource_groups(path, source):
         if anchor in anchors:
             raise ValueError("duplicate Model Resource anchor: " + anchor)
         anchors[anchor] = identity
-    scope = _imports_model_sources.scope_for(
-        (
-            path.parents[4]
-            / "model"
-            / path.relative_to(path.parents[4] / "docs/designs")
-        ).with_suffix(".properties")
-    )
     parents = {}
     for identity, resource in resources.items():
         if resource["resourceType"] not in GROUPED:
             continue
-        address = _model_identity.parse_reference(
-            resource.get("parentReference"), scope
-        )
-        if address[:3] != (scope.environment, scope.target, scope.service):
-            raise ValueError("grouped parent is outside this Model: " + identity)
-        if address[3] not in anchors:
+        parent = parse(resource.get("parentReference"))
+        candidates = [
+            rid
+            for rid, item in resources.items()
+            if item["logicalId"] == parent.logical_id
+        ]
+        if len(candidates) != 1:
             raise ValueError("grouped parent ownership unavailable: " + identity)
-        parents[identity] = anchors[address[3]]
+        parents[identity] = candidates[0]
     groups = {}
     for identity in resources:
         parent = identity

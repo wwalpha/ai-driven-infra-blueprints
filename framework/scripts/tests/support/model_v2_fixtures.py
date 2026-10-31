@@ -63,7 +63,10 @@ def logs_fixture(root):
     }
     for index, (prop, value) in enumerate(
         [
-            ("LogGroupName", "[logs](#logs-existing)"),
+            (
+                "LogGroupName",
+                '`{"$modelRef":{"logicalId":"Logs_LogGroup_001","attribute":"LogGroupName"}}`',
+            ),
             ("RetentionInDays", "`30`"),
             ("DeletionProtectionEnabled", "`false`"),
             ("LogGroupClass", "`STANDARD`"),
@@ -178,7 +181,7 @@ def format_fixture(root, *, target="one", environment="qa-custom", service="netw
         "desired.service.identity.lastAllocated": '{"EC2.VPC":1}',
         "desired.resource.007.resourceMode": "IMPORT",
         "desired.row.007-001.property": "EC2.VPC.VpcId",
-        "desired.row.007-001.value": "[vpc](#network-existing)",
+        "desired.row.007-001.value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
         "desired.row.007-001.comment": "合成 ID",
         "observed.row.007-001.value": "",
         "desired.row.007-002.property": "EC2.VPC.CidrBlock",
@@ -307,7 +310,16 @@ def role_operation_fixture(root):
                 f"desired.resource.{rid}.anchor": "role-" + name,
                 f"display.resource.{rid}.comment": name,
                 f"desired.row.{rid}-001.property": "IAM.Role.RoleName",
-                f"desired.row.{rid}-001.value": f"[role](#role-{name})",
+                f"desired.row.{rid}-001.value": "`"
+                + json.dumps(
+                    {
+                        "$modelRef": {
+                            "logicalId": "IAM_Role_" + rid,
+                            "attribute": "RoleName",
+                        }
+                    }
+                )
+                + "`",
                 f"desired.row.{rid}-001.comment": name + " identity",
                 f"observed.row.{rid}-001.value": "`role-" + name + "`",
                 f"desired.row.{rid}-002.property": "IAM.Role.AssumeRolePolicyDocument",
@@ -320,7 +332,14 @@ def role_operation_fixture(root):
                             {
                                 "Effect": "Allow",
                                 "Action": "sts:AssumeRole",
-                                "Principal": {"AWS": f"[role](#role-{name})"},
+                                "Principal": {
+                                    "AWS": {
+                                        "$modelRef": {
+                                            "logicalId": "IAM_Role_" + rid,
+                                            "attribute": "Arn",
+                                        }
+                                    }
+                                },
                                 "Condition": {"Bool": {"aws:SecureTransport": True}},
                                 "fixture-order": [1, "1", False],
                             }
@@ -698,7 +717,7 @@ def properties_fixture(root):
                 "desired.service.identity.lastAllocated": '{"EC2.VPC":1}',
                 "desired.resource.007.resourceMode": "IMPORT",
                 "desired.row.007-001.property": "EC2.VPC.VpcId",
-                "desired.row.007-001.value": "[vpc](#network-existing)",
+                "desired.row.007-001.value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
                 "desired.row.007-001.comment": "合成 ID",
                 "observed.row.007-001.value": "vpc-original",
             }

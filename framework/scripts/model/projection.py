@@ -10,16 +10,14 @@ from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
 import design.array_display as _imports_array_display
-import design.document as _dependency_design_document
 import design.services.codepipeline as _imports_codepipeline
 import json_intrinsics as _imports_json_intrinsics
 import utils.json_format as _imports_utils_json_format
 from design.catalog import design_material_files
-from design.layout_schema import RESOURCE
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
 from utils.input_cache import input_is_file, input_text, memo_table, memoized
-from utils.reference_contracts import action_contexts, contract, row_contexts
+from utils.reference_contracts import action_contexts, row_contexts
 from utils.reference_contracts import reference_attribute as reference_attribute
 
 import model.environment_values as environment_values
@@ -43,6 +41,7 @@ from model.format import RESOURCE_LINK as RESOURCE_LINK
 from model.reference_nodes import (
     context_at,
     nodes,
+    parse,
     project,
     receiving_property,
     reference_document,
@@ -96,39 +95,6 @@ def bound_resource_anchors(path):
         (resource["resourceType"], resource["logicalId"]): display_anchor(resource)
         for _, resource in entries(load_model(path).authoritative, "desired.resource.")
     }
-
-
-def linked_resource(
-    path: Path,
-    value: str,
-    *,
-    design_index: "_dependency_design_document.DesignIndex | None" = None,
-) -> tuple[str, str] | None:
-    match = RESOURCE_LINK.fullmatch(value)
-    if not match:
-        return None
-    _, target_text, fragment = match.groups()
-    target = path if not target_text else path.parent / target_text
-    if not input_is_file(target):
-        return None
-    pending_anchor = ""
-    view = (
-        (design_index or _dependency_design_document.DesignIndex())
-        .get(target)
-        .view(frozenset({fragment}))
-    )
-    identities = view.logical_ids
-    lines, _ = view.expanded
-    for line in lines:
-        if anchor := ANCHOR.fullmatch(line):
-            pending_anchor = anchor.group(1)
-        elif resource := RESOURCE.fullmatch(line):
-            if pending_anchor == fragment:
-                return resource.group(1), identities.get(
-                    pending_anchor, resource.group(2)
-                )
-            pending_anchor = ""
-    return None
 
 
 def is_import_expression(prop: str, raw_value: str, design: Path) -> bool:
@@ -185,43 +151,30 @@ def deployment_bucket(reference: str, path: Path, root: Path) -> str:
     )
     if resource["resourceType"] != "S3.Bucket":
         raise ReferenceResolutionError("deployment bucket must identify one S3.Bucket")
-    rows = entries(snapshot.authoritative, "desired.row.")
-    names = [
-        literal(row.get("value", ""))
-        for rid, row in rows
-        if rid.rpartition("-")[0] == identity
-        and row.get("property") == "S3.Bucket.BucketName"
-    ]
-    if len(names) != 1 or not re.fullmatch(
-        r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", names[0]
+    result = reference_value(
+        reference_resolver(snapshot.authoritative, snapshot.scope, root),
+        snapshot.scope,
+        parse(reference),
+        field="S3.BucketPolicy.Bucket",
+    )
+    if result.status != "resolved" or not re.fullmatch(
+        r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", str(result.value)
     ):
         raise ReferenceResolutionError(
             "deployment bucket requires one confirmed BucketName"
         )
-    return names[0]
+    return result.value
 
 
 def observed_value(row_id, row, observed, outputs):
-    has_reference = _imports_model_references.has_reference
-    LINKS = _imports_model_references.LINKS
     value = row["value"]
-    if observed is None and row["property"] in outputs:
-        link = LINK.fullmatch(value)
-        if link:
-            return f"[UNOBSERVED]({link.group(2)}#{link.group(3)})"
     if observed is not None:
-        if link := LINK.fullmatch(value):
-            value = (
-                observed
-                if row["property"] in outputs
-                else f"[{literal(observed)}]({link.group(2)}#{link.group(3)})"
-            )
-        elif has_reference(value) or LINKS.search(value):
-            pass  # Structured link labels retain their native string/list shape.
-        else:
+        if not _imports_model_references.has_reference(value):
             raise ValueError(
                 f"observed value requires a desired logical reference: {row_id}"
             )
+        if row["property"] in outputs:
+            return observed
     return value
 
 
@@ -316,86 +269,13 @@ def resource_display_rows(
     rows = resource_rows(values, identity, resource["resourceType"], root)
     if resource["resourceType"] == "KMS.Key":
         for child_id, child in entries(values, "desired.resource."):
-            parse_reference = _imports_model_identity.parse_reference
-            parent = child.get("parentReference", "")
-            link = LINK.fullmatch(parent)
+            parent = child.get("parentReference")
             same = (
-                link is not None
-                and link[3] == resource["anchor"]
-                and (
-                    not link[2]
-                    or scope is not None
-                    and parse_reference(parent, scope)[:3]
-                    == (scope.environment, scope.target, scope.service)
-                )
+                parent is not None and parse(parent).logical_id == resource["logicalId"]
             )
             if child["resourceType"] == "KMS.Alias" and same:
                 rows += resource_rows(values, child_id, child["resourceType"], root)
     return rows
-
-
-def _display_identifier_link(resolver, scope, root, row, warnings, match):
-    forms = contract(row["property"])
-    if not forms:
-        return match[0]
-    try:
-        snapshot, number, resource = resolver.resolve(match[0], scope)
-        kind = resource["resourceType"]
-        attributes = forms.get(kind, ())
-        if not attributes:
-            return match[0]
-        mapping = environment_values.mapping_for(root, kind)
-        outputs = [
-            prop
-            for prop in catalog_outputs(root, kind)
-            if prop.removeprefix(kind + ".") in attributes
-            or prop in mapping
-            and mapping[prop].field.path in attributes
-        ]
-        if not outputs:
-            return match[0]
-        candidates = [
-            rid
-            for rid, item in entries(snapshot.authoritative, "desired.row.")
-            if rid.rpartition("-")[0] == number and item.get("property") in outputs
-        ]
-        if len(outputs) != 1 or len(candidates) != 1:
-            raise ReferenceResolutionError("identifier output is absent or ambiguous")
-        observed = snapshot.authoritative.get(f"observed.row.{candidates[0]}.value")
-        pending = (
-            literal(observed) == "PENDING_DEPLOY" if observed is not None else False
-        )
-        if (observed is None or pending) and warnings is not None:
-            diagnostic = {
-                **ReferenceResolutionError(
-                    "identifier output is pending deployment"
-                    if pending
-                    else "identifier output is unconfirmed",
-                    category="REFERENCE_PENDING_DEPLOY"
-                    if pending
-                    else "REFERENCE_UNRESOLVED",
-                    code="REFERENCE_PENDING_DEPLOY"
-                    if pending
-                    else "reference.unresolved",
-                ).diagnostic,
-                "model": str(scope.path),
-                "property": row["property"],
-                "reference": match[0],
-            }
-            if diagnostic not in warnings:
-                warnings.append(diagnostic)
-        return f"[{literal(observed) if observed is not None else 'UNOBSERVED'}]({match[2]}#{match[3]})"
-    except ReferenceResolutionError as error:
-        if warnings is not None:
-            diagnostic = {
-                **error.diagnostic,
-                "model": str(scope.path),
-                "property": row["property"],
-                "reference": match[0],
-            }
-            if diagnostic not in warnings:
-                warnings.append(diagnostic)
-        return match[0]
 
 
 def reference_display(
@@ -416,12 +296,6 @@ def reference_display(
         values if reference_values is None else reference_values, scope, root
     )
     rows = dict(entries(values, "desired.row."))
-    for row_id, row in rows.items():
-        if f"observed.row.{row_id}.value" not in values and "value" in row:
-            result[f"desired.row.{row_id}.value"] = _imports_model_references.LINKS.sub(
-                partial(_display_identifier_link, resolver, scope, root, row, warnings),
-                row["value"],
-            )
     for key, value in values.items():
         if key.startswith("desired.row.") and key.endswith((".document", ".value")):
             raw, structured = _imports_model_references._json(key, value)
@@ -447,6 +321,8 @@ def reference_display(
                 ),
             )
             result[key] = json.dumps(displayed, ensure_ascii=False)
+            if key.endswith(".value"):
+                result.pop("observed.row." + key.split(".")[2] + ".value", None)
             if key.endswith(".value") and isinstance(displayed, str):
                 result[key] = "`" + displayed + "`"
             elif key.endswith(".value") and value.startswith("`"):

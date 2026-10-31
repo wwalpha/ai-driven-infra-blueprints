@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -13,7 +14,7 @@ from model.projection import generated_document, reference_resolver
 from model.render import generate_files, generate_markdown
 from model.sources import load_model
 from support.it_case_receipt import it_case
-from support.model_reference_fixtures import FRAMEWORK, project, save
+from support.model_reference_fixtures import FRAMEWORK, project, reference, save
 from sync_files import save_files
 from utils.aws_mappings import mapping_alias
 from utils.json_format import validate_aws_document
@@ -41,6 +42,9 @@ def main():
             ]:
                 if observed is not None:
                     values["desired.row.001-001.property"] = "KMS.Key.KeyId"
+                    values["desired.row.001-001.value"] = (
+                        "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`"
+                    )
                     values["observed.row.001-001.value"] = "`" + observed + "`"
                     save(producer, values)
                 if observed not in (None, "PENDING_DEPLOY"):
@@ -54,11 +58,8 @@ def main():
                     )
                 snapshot = load_model(consumer)
                 markdown = generate_markdown(view, snapshot.values, root)
-                if observed in (None, "PENDING_DEPLOY"):
-                    assert "$modelRef" in markdown and "KMS_Key_001" in markdown
-                else:
-                    assert "$modelRef" not in markdown
-                    assert "](kms.md#saved-001)" in markdown
+                TestCase().assertNotIn("$modelRef", markdown)
+                TestCase().assertIn("](kms.md#saved-001)", markdown)
                 files = generate_files(view, snapshot.values, root)
                 save_files(files)
                 display = rendered_design(view, definitions_root=FRAMEWORK)

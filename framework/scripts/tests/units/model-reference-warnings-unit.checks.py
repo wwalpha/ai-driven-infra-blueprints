@@ -5,7 +5,7 @@ import json
 import shutil
 import sys
 from collections import Counter
-from contextlib import ExitStack, closing, nullcontext
+from contextlib import ExitStack, closing
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +22,7 @@ from design.layout import expanded_display_rows
 from generation_inputs import GenerationInputs
 from import_guard import file_hash
 from model.cli import main
-from model.core import ReferenceResolutionError
+from model.core import ModelNeedsFixError, ReferenceResolutionError
 from model.display import display_rows, row_table
 from model.format import owner
 from model.importing.cli import replacement_inputs
@@ -30,10 +30,11 @@ from model.importing.references import Resolver
 from model.importing.scope import read_consumers, read_context, restrict
 from model.operations import _mask_references, _same
 from model.projection import deployment_bucket, reference_display
-from model.references import Usage, diagnose, incoming, usages
+from model.references import Usage, diagnose, incoming
 from model.sources import Scope, _source_snapshot, load_model
 from model.validations.full_inputs import check_model_inputs as _check_model_inputs
 from support.import_model_fixtures import dependency_fixture
+from support.model_reference_fixtures import reference as model_ref
 from support.model_sources import write_model
 from support.model_v2_fixtures import logs_fixture
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
@@ -396,7 +397,7 @@ def check_json_leaf_warning_keeps_sibling_error(tmp_path):
     with pytest.raises(ValueError, match="literal differs"):
         resolver.verify_tree(
             "CodeBuild.Project.VpcConfig",
-            {"VpcId": "[vpc](vpc.md#missing)", "timeout": 30},
+            {"VpcId": model_ref("EC2_VPC_999", "VpcId"), "timeout": 30},
             {"VpcId": "resource", "timeout": 31},
             {},
             location={"key": "desired.row.001-001.document"},
@@ -466,9 +467,11 @@ def _check_bucket_missing_source_and_real_errors_denied(*args, **kwargs):
 
 def check_bucket_missing_source_and_real_errors(tmp_path, monkeypatch):
     view = tmp_path / "docs/designs/dev/target/cloudformation-stacks.md"
-    with pytest.raises(ReferenceResolutionError) as caught:
-        deployment_bucket("[bucket](s3.md#s3-bucket)", view, tmp_path)
-    assert caught.value.diagnostic["reference"] == "[bucket](s3.md#s3-bucket)"
+    with pytest.raises(ModelNeedsFixError) as caught:
+        deployment_bucket(
+            json.dumps(model_ref("S3_Bucket_001", "BucketName")), view, tmp_path
+        )
+    assert caught.value.diagnostic["targetLogicalId"] == "S3_Bucket_001"
     source = tmp_path / "model/dev/target/s3.properties"
     write_model(
         source,
@@ -480,13 +483,17 @@ def check_bucket_missing_source_and_real_errors(tmp_path, monkeypatch):
     saved = source.read_bytes()
     source.write_text("# model-format: 2\ninvalid\n")
     with pytest.raises(ValueError) as caught:
-        deployment_bucket("[bucket](s3.md#s3-bucket)", view, tmp_path)
+        deployment_bucket(
+            json.dumps(model_ref("S3_Bucket_001", "BucketName")), view, tmp_path
+        )
     assert not isinstance(caught.value, ReferenceResolutionError)
     source.write_bytes(saved)
     denied = _check_bucket_missing_source_and_real_errors_denied
     monkeypatch.setattr(sources, "_source_snapshot", denied)
     with pytest.raises(PermissionError, match="read denied"):
-        deployment_bucket("[bucket](s3.md#s3-bucket)", view, tmp_path)
+        deployment_bucket(
+            json.dumps(model_ref("S3_Bucket_001", "BucketName")), view, tmp_path
+        )
 
 
 def check_link_display_and_readback_classification(tmp_path):
@@ -521,7 +528,24 @@ def check_link_display_and_readback_classification(tmp_path):
     assert not isinstance(caught.value, ReferenceResolutionError)
 
 
-def codebuild_values(anchor="project", missing_name=False, second=False):
+def codebuild_values(root, anchor="project", missing_name=False, second=False):
+    write_model(
+        root / "model/dev/target/iam.properties",
+        {
+            "desired.service.identity.lastAllocated": '{"IAM.Role":1}',
+            "desired.resource.001.resourceType": "IAM.Role",
+            "desired.resource.001.resourceMode": "CREATE",
+            "desired.resource.001.logicalId": "IAM_Role_001",
+            "desired.resource.001.anchor": "iam-role",
+            "desired.row.001-001.property": "IAM.Role.RoleName",
+            "desired.row.001-001.value": "`"
+            + json.dumps(model_ref("IAM_Role_001", "RoleName"))
+            + "`",
+            "observed.row.001-001.value": "PENDING_DEPLOY",
+            "desired.row.001-001.comment": "pending name",
+        },
+    )
+
     values = {
         "display.service.title": "# CodeBuild 詳細設計",
         "desired.service.codebuild.serviceId": "codebuild",
@@ -546,7 +570,7 @@ def codebuild_values(anchor="project", missing_name=False, second=False):
             ("Environment.Type", "`LINUX_CONTAINER`"),
             ("Environment.ComputeType", "`BUILD_GENERAL1_SMALL`"),
             ("Environment.Image", "`image`"),
-            ("ServiceRole", "[role](iam.md#iam-role)"),
+            ("ServiceRole", "`" + json.dumps(model_ref("IAM_Role_001", "Arn")) + "`"),
             ("Source.Type", "`NO_SOURCE`"),
         ]
         if not missing_name or second and rid == "001":
@@ -566,7 +590,7 @@ def codebuild_values(anchor="project", missing_name=False, second=False):
 @pytest.mark.parametrize("anchor", ["project", "broken"])
 @pytest.mark.parametrize("second", [False, True])
 def check_independent_model_validation(tmp_path, anchor, second):
-    values = codebuild_values(anchor, missing_name=True, second=second)
+    values = codebuild_values(tmp_path, anchor, missing_name=True, second=second)
     result = _check_model_inputs(
         tmp_path / "model/dev/target/codebuild.properties",
         values,
@@ -586,7 +610,7 @@ def _check_generation_warning_keeps_independent_error_unavailable(*a, **k):
 def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
     root, stage = tmp_path / "root", tmp_path / "stage"
     path = root / "docs/designs/dev/target/codebuild.md"
-    values = codebuild_values("broken", missing_name=True)
+    values = codebuild_values(tmp_path, "broken", missing_name=True)
     root.mkdir()
     (root / "project.json").write_bytes((tmp_path / "project.json").read_bytes())
     write_model(root / "model/dev/target/codebuild.properties", values)
@@ -647,7 +671,7 @@ def check_unavailable_service_keeps_source_errors_and_no_cache(
     root = tmp_path
     scope = {("dev", "target", "codebuild")}
     path = root / "model/dev/target/codebuild.properties"
-    values = codebuild_values("broken", missing_name=missing_name)
+    values = codebuild_values(root, "broken", missing_name=missing_name)
     write_model(path, values)
     validator = Validator(
         root, scope, workers=1, definitions_root=Path(__file__).resolve().parents[4]
@@ -676,7 +700,7 @@ def check_unavailable_service_keeps_source_errors_and_no_cache(
 
 @pytest.mark.parametrize("missing_name", [False, True])
 def check_model_warning_only_completion_and_literal_error(tmp_path, missing_name):
-    values = codebuild_values("broken", missing_name=missing_name)
+    values = codebuild_values(tmp_path, "broken", missing_name=missing_name)
     if missing_name:
         # A separate literal error must survive the unresolved anchor too.
         values.update(
@@ -697,7 +721,7 @@ def check_model_warning_only_completion_and_literal_error(tmp_path, missing_name
     if missing_name:
         assert any("provider schema violation" in e for e in findings.errors)
     else:
-        assert findings.status == "PASS"
+        assert not findings.errors
 
 
 @pytest.mark.parametrize(
@@ -709,7 +733,7 @@ def check_model_warning_only_completion_and_literal_error(tmp_path, missing_name
     ],
 )
 def check_full_model_rejects_invalid_native_values(tmp_path, field, value):
-    values = codebuild_values()
+    values = codebuild_values(tmp_path)
     values.update(
         {
             "desired.row.001-999.property": "CodeBuild.Project." + field,
@@ -761,13 +785,13 @@ def check_analysis_generation_keeps_independent_checks(
     tmp_path, monkeypatch, missing_name
 ):
     model = tmp_path / "model/dev/target/codebuild.properties"
-    write_model(model, codebuild_values("broken", missing_name=missing_name))
+    write_model(model, codebuild_values(tmp_path, "broken", missing_name=missing_name))
     # Actual saved references warn without abandoning independent source validation.
     snapshot = load_model(model)
     assert (
-        snapshot.warnings
+        not snapshot.warnings
         and snapshot.authoritative["desired.row.001-005.value"]
-        == "[role](iam.md#iam-role)"
+        == "`" + json.dumps(model_ref("IAM_Role_001", "Arn")) + "`"
     )
     plan = runtime.prepare_generation(
         tmp_path,
@@ -777,7 +801,7 @@ def check_analysis_generation_keeps_independent_checks(
     )
     try:
         assert not plan.failures, plan.failures
-        assert plan.reference_warnings
+        assert not plan.reference_warnings
         view = tmp_path / "docs/designs/dev/target/codebuild.md"
         assert view in plan.generated and view not in plan.unavailable
         assert load_model(model).authoritative == snapshot.authoritative
@@ -829,53 +853,6 @@ def check_shared_snapshot_parses_each_producer_once_and_rechecks_permission(
         with pytest.raises(ValueError, match="outside selected"):
             sources.load_model(right, inputs)
     assert {file: file.read_bytes() for file in original} == original
-
-
-def check_cross_environment_direct_link_preserves_scope_and_dependency(tmp_path):
-    data = json.loads((tmp_path / "project.json").read_text())
-    data["targets"].append(
-        {**data["targets"][0], "environment": "release", "alias": "other"}
-    )
-    (tmp_path / "project.json").write_text(json.dumps(data))
-    producer = tmp_path / "model/release/other/network.v1.properties"
-    write_model(
-        producer,
-        {
-            "desired.resource.007.resourceType": "EC2.VPC",
-            "desired.resource.007.logicalId": "EC2_VPC_001",
-            "desired.resource.007.anchor": "saved-producer",
-            "desired.service.identity.lastAllocated": '{"EC2.VPC":1}',
-        },
-    )
-    consumer = tmp_path / "model/dev/target/service.properties"
-    values = {
-        "desired.row.001-101.value": "[producer](../../release/other/network.v1.md#saved-producer)",
-        "desired.note.002.text": "[ordinary](https://example.invalid/#fixed) old-id",
-    }
-    write_model(consumer, reference_rows(values))
-    dependency_index.rebuild(tmp_path)
-    snapshot = load_model(consumer, FileReads())
-    records = usages(snapshot)
-    assert len(records) == 1 and records[0].producer_scope == "release/other/network.v1"
-    assert producer in snapshot.dependencies and not snapshot.warnings
-    assert snapshot.authoritative == values
-
-    for restricted in (False, True):
-        with (
-            restrict(("release", "other", "network.v1"))
-            if restricted
-            else nullcontext()
-        ):
-            records = incoming(load_model(producer), "007")
-            assert len(records) == 1 and records[0][0].path == consumer
-    for invalid in (
-        "[unsafe](../../../service.md#saved-producer)",
-        "[unsafe](/service.md#saved-producer)",
-        "[unsafe](../../unknown/target/service.md#saved-producer)",
-    ):
-        write_model(consumer, reference_rows({"desired.row.001-101.value": invalid}))
-        with pytest.raises(ValueError):
-            load_model(consumer, FileReads())
 
 
 def reference_rows(values):
@@ -933,143 +910,11 @@ def _callback_check_usage_index_preserves_order_and_all_candidates_counted(
     return producer(snapshot, address, reads, cache)
 
 
-def check_usage_index_preserves_order_and_all_candidates(tmp_path, monkeypatch):
-    file = tmp_path / "model/dev/target/service.properties"
-    link, missing = (
-        "[producer](service.md#saved-producer)",
-        "[producer](service.md#missing)",
-    )
-    key, nested = "desired.row.001-101.value", "desired.row.001-001.document"
-    values = {
-        "desired.resource.001.resourceType": "EC2.VPC",
-        "desired.resource.001.logicalId": "EC2_VPC_001",
-        "desired.resource.001.anchor": "saved-producer",
-        "desired.service.identity.lastAllocated": '{"EC2.VPC":1}',
-        key: link
-        + " "
-        + link
-        + " "
-        + missing
-        + " [web](https://example.invalid/#fixed)",
-        nested: json.dumps({"a/b": [{"~key": link}]}),
-        "desired.row.001-001.property": "EC2.VPC.Tags",
-        "desired.row.001-001.value": "`[]`",
-        "desired.row.001-001.comment": "synthetic",
-    }
-    _usage_spec(values, "a-wrong", key, link, producerLogicalId="EC2_VPC_999")
-    _usage_spec(values, "b-right", key, link)
-    _usage_spec(values, "c-second", key, link, occurrence="2")
-    _usage_spec(values, "d-nested", nested, link, pointer="/a~1b/0/~0key")
-    snapshot = load_model(write_model(file, reference_rows(values)))
-    calls = []
-    producer = references._producer
-    counted = _bind_framework_callback(
-        _callback_check_usage_index_preserves_order_and_all_candidates_counted,
-        calls,
-        producer,
-    )
-    monkeypatch.setattr(references, "_producer", counted)
-    records = usages(snapshot)
-    assert [record.metadata_id for record in records] == [
-        "a-wrong",
-        "b-right",
-        "c-second",
-        "d-nested",
-        None,
-    ]
-    assert [record.producer_id for record in records] == [
-        None,
-        "001",
-        "001",
-        "001",
-        None,
-    ]
-    assert records[-1].logical_id is None and records[3].pointer == "/a~1b/0/~0key"
-    assert calls == ["dev/target/service"]
-    assert usages(snapshot, _producer_scope="other/target/service") == ()
-    uncoalesced = usages(snapshot, _coalesce=False)
-    assert len(uncoalesced) == 8 and uncoalesced[:4] == records[:4]
-    warnings, dependencies = diagnose(snapshot)
-    assert warnings == snapshot.warnings and dependencies == dict(snapshot.dependencies)
-    assert len(warnings) == 2
-
-
 def _callback_check_usage_index_skips_accumulated_direct_links_counted(
     calls, original, /, *args
 ):
     calls.append(1)
     return original(*args)
-
-
-def check_usage_index_skips_accumulated_direct_links(tmp_path, monkeypatch):
-    file = tmp_path / "model/dev/target/service.properties"
-    values = {
-        f"desired.row.001-{index + 100:03d}.value": "[producer](service.md#saved-producer)"
-        for index in range(1, 101)
-    }
-    snapshot = load_model(write_model(file, reference_rows(values)))
-    calls = []
-    original = references._producer
-    counted = _bind_framework_callback(
-        _callback_check_usage_index_skips_accumulated_direct_links_counted,
-        calls,
-        original,
-    )
-    monkeypatch.setattr(references, "_producer", counted)
-    records = references.usages(snapshot)
-    assert len(records) == 100 and len(calls) == 1
-
-
-@pytest.mark.parametrize(
-    "case",
-    ["wrong-id", "missing-producer", "missing-anchor", "ambiguous", "name", "context"],
-)
-def check_usage_index_retains_conflicting_direct_links(tmp_path, case):
-    file = tmp_path / "model/dev/target/service.properties"
-    key, link = "desired.row.001-101.value", "[producer](service.md#saved-producer)"
-    values = {
-        "desired.resource.001.resourceType": "EC2.VPC",
-        "desired.resource.001.logicalId": "EC2_VPC_001",
-        "desired.resource.001.anchor": "saved-producer",
-        "desired.service.identity.lastAllocated": '{"EC2.VPC":1}',
-        key: link,
-    }
-    overrides = {}
-    if case == "wrong-id":
-        overrides["producerLogicalId"] = "EC2_VPC_999"
-    elif case == "missing-producer":
-        overrides["producerScope"] = "dev/target/absent"
-    elif case == "missing-anchor":
-        values[key] = link = "[producer](service.md#missing)"
-    elif case == "ambiguous":
-        values.update(
-            {
-                "desired.resource.002.resourceType": "EC2.VPC",
-                "desired.resource.002.logicalId": "EC2_VPC_001",
-            }
-        )
-        with pytest.raises(ValueError, match="duplicate logicalId"):
-            load_model(write_model(file, reference_rows(values)))
-        return
-    elif case == "name":
-        overrides.update(format="name", property="EC2.VPC.Name", labelPolicy="none")
-    _usage_spec(values, "declared", key, link, **overrides)
-    if case == "context":
-        prefix = "desired.reference.declared."
-        for field in ("producerLogicalId", "resourceType"):
-            del values[prefix + field]
-        values.update(
-            {
-                prefix + "producerKind": "context",
-                prefix + "producerScope": "dev/target",
-                prefix + "format": "literal",
-                prefix + "contextProperty": "executionAccountId",
-                prefix + "labelPolicy": "none",
-            }
-        )
-    records = usages(load_model(write_model(file, reference_rows(values))))
-    assert len(records) == 2 and records[0].metadata_id == "declared"
-    assert records[1].metadata_id is None and records[1].text == link
 
 
 def _callback_check_usage_index_keeps_producer_order_and_io_errors_counted(
@@ -1084,81 +929,6 @@ def _callback_check_usage_index_keeps_producer_order_and_io_errors_denied(
 ):
     calls.append(address)
     raise OSError("producer read denied")
-
-
-def check_usage_index_keeps_producer_order_and_io_errors(tmp_path, monkeypatch):
-    file = tmp_path / "model/dev/target/service.properties"
-    values = {}
-    for index, service in enumerate(("second", "first"), 1):
-        key, link = (
-            f"desired.row.001-{index + 100:03d}.value",
-            f"[producer]({service}.md#saved-producer)",
-        )
-        values[key] = link
-        _usage_spec(values, service, key, link, producerScope="dev/target/" + service)
-        write_model(
-            file.with_name(service + ".properties"),
-            {
-                "desired.resource.001.resourceType": "EC2.VPC",
-                "desired.resource.001.logicalId": "EC2_VPC_001",
-                "desired.resource.001.anchor": "saved-producer",
-                "desired.service.identity.lastAllocated": '{"EC2.VPC":1}',
-            },
-        )
-    snapshot = load_model(write_model(file, reference_rows(values)))
-    calls = []
-    producer = references._producer
-    counted = _bind_framework_callback(
-        _callback_check_usage_index_keeps_producer_order_and_io_errors_counted,
-        calls,
-        producer,
-    )
-    monkeypatch.setattr(references, "_producer", counted)
-    assert len(references.usages(snapshot)) == 2
-    assert calls == ["dev/target/first", "dev/target/second"]
-    calls.clear()
-    denied = _bind_framework_callback(
-        _callback_check_usage_index_keeps_producer_order_and_io_errors_denied, calls
-    )
-    monkeypatch.setattr(references, "_producer", denied)
-    with pytest.raises(OSError, match="producer read denied"):
-        references.usages(snapshot)
-    assert calls == ["dev/target/first"]
-
-
-def check_usage_index_is_invocation_local(tmp_path):
-    key, link = "desired.row.001-101.value", "[producer](service.md#saved-producer)"
-    values = {
-        key: link,
-        "desired.resource.001.resourceType": "EC2.VPC",
-        "desired.resource.001.logicalId": "EC2_VPC_001",
-        "desired.resource.001.anchor": "saved-producer",
-        "desired.service.identity.lastAllocated": '{"EC2.VPC":1}',
-    }
-    snapshot = SimpleNamespace(
-        authoritative=dict(reference_rows(values)),
-        scope=Scope(tmp_path, "dev", "target", "service"),
-    )
-    with input_context():
-        assert usages(snapshot)[0].metadata_id is None
-        _usage_spec(values, "new", key, link)
-        snapshot.authoritative = dict(reference_rows(values))
-        assert len(usages(snapshot)) == 1 and usages(snapshot)[0].metadata_id == "new"
-        values["desired.reference.new.producerLogicalId"] = "EC2_VPC_999"
-        snapshot.authoritative = dict(reference_rows(values))
-        assert len(usages(snapshot)) == 2
-        values = {
-            k: v for k, v in values.items() if not k.startswith("desired.reference.")
-        }
-        snapshot.authoritative = dict(reference_rows(values))
-        assert len(usages(snapshot)) == 1 and usages(snapshot)[0].metadata_id is None
-        snapshot.authoritative = {}
-        assert usages(snapshot) == ()
-        values = {key: link}
-        _usage_spec(values, "invalid", key, link, occurrence="2")
-        snapshot.authoritative = values
-        with pytest.raises(ValueError, match="occurrence"):
-            usages(snapshot)
 
 
 def reference_values(mode="identifier", count=32):

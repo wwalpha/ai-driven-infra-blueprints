@@ -14,9 +14,11 @@ from utils.reference_contracts import (
     ARN_FORMS,
     CONFIGURATION_PROPERTIES,
     CONTEXT_PROPERTIES,
+    RETURN_ATTRIBUTE_PROPERTIES,
     VALUE_IDENTITIES,
     attributes_for,
     contract,
+    reference_attribute,
 )
 
 import model.core as _imports_model_core
@@ -26,7 +28,14 @@ import model.importing.sources as _imports_model_importing_sources
 import model.projection as _imports_model_projection
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
-from model.core import LINK, ReferenceResolutionError, entries, literal
+from model.core import (
+    ReferenceDiagnosticError,
+    ReferenceResolutionError,
+    entries,
+    literal,
+)
+from model.reference_nodes import is_reference, nodes
+from model.reference_values import reference_value
 
 _UNOBSERVED = object()
 
@@ -36,14 +45,21 @@ def known(value):
         isinstance(value, str)
         and bool(value)
         and value not in {"UNSET", "PENDING_DEPLOY", "Pending", "TBD", "TODO", "未確定"}
-        and not _dependency_model_identity.resource_link(value)
+        and not any(nodes(value))
         and not any(text in value for text in ("${", "{{resolve:"))
     )
 
 
+def native_reference_value(raw):
+    value = literal(raw)
+    if value.startswith(("{", "[")):
+        return json.loads(value)
+    return value
+
+
 def elements(raw):
     value = literal(raw)
-    if value.startswith("[") and not _dependency_model_identity.resource_link(value):
+    if value.startswith("["):
         try:
             result = json.loads(value)
         except ValueError:
@@ -74,7 +90,12 @@ def _recursive_verify_resource_verify_config(
         for i, left in enumerate(desired):
             _recursive_verify_resource_verify_config(
                 choices,
-                context,
+                {
+                    key: value[i]
+                    if isinstance(value, list) and i < len(value)
+                    else value
+                    for key, value in context.items()
+                },
                 location,
                 prop,
                 require_links,
@@ -99,7 +120,15 @@ def _recursive_verify_resource_verify_config(
                 prop + "." + key,
                 value,
                 _UNOBSERVED if actual is _UNOBSERVED else actual[key],
-                context,
+                {
+                    **context,
+                    "ActionTypeId": {
+                        key: context.get(
+                            prop.rsplit(".", 1)[0] + ".ActionTypeId." + key
+                        )
+                        for key in ("Category", "Owner", "Provider", "Version")
+                    },
+                },
                 contracts=contracts,
                 require_links=require_links,
                 location={
@@ -157,14 +186,24 @@ class Resolver:
         if service is None:
             return result
         properties = attributes_for(kind)
+        returned_properties = {
+            prop: kind
+            + "."
+            + RETURN_ATTRIBUTE_PROPERTIES.get(
+                (kind, reference_attribute(kind, prop.removeprefix(kind + "."))),
+                prop.removeprefix(kind + "."),
+            )
+            for prop in properties
+        }
         self.reads.read(mapping_path(self.definitions_root, service))
         mapping = mappings_for(self.definitions_root).get(service)
         aliases = {
-            prop: {prop}
+            prop: {prop, returned_properties[prop]}
             | {
                 key
                 for key, item in mapping.properties.items()
-                if key.startswith(kind + ".")
+                if prop in mapping.properties
+                and key.startswith(kind + ".")
                 and item.field.getter
                 and item.field.path
                 and (item.field.getter, item.field.path)
@@ -175,7 +214,6 @@ class Resolver:
                 and item.transform == mapping.properties[prop].transform
             }
             for prop in properties
-            if prop in mapping.properties
         }
         selected_properties = tuple(
             sorted(
@@ -384,7 +422,7 @@ class Resolver:
                 contracts=contracts,
                 require_links=require_links,
             )
-        except ReferenceResolutionError as error:
+        except ReferenceDiagnosticError as error:
             self.warnings.append(
                 {
                     **error.diagnostic,
@@ -399,44 +437,44 @@ class Resolver:
                 }
             )
 
-    def candidate_matches(self, candidate, text):
-        scope = getattr(self, "consumer_scope", None)
-        environment, target, service, anchor = (
-            _dependency_model_identity.parse_reference(text, scope)
-        )
-        producer = candidate["scope"]
-        return (environment, target, service, anchor) == (
-            producer.environment,
-            producer.target,
-            producer.service,
-            candidate["anchor"],
-        )
-
     def _verify(
         self, prop, raw, physical, context=None, *, contracts=None, require_links=True
     ):
-        declared = contract(prop, context) if contracts is None else contracts
-        reference = (
-            _dependency_model_identity.resource_link(raw)
-            if declared or contracts is not None or physical is _UNOBSERVED
-            else None
+        reference = next(
+            iter(nodes(literal(raw) if isinstance(raw, str) else raw)), None
         )
-        if not require_links and reference is None:
+        if reference is not None:
+            resolver = getattr(
+                self, "current_resolver", None
+            ) or _dependency_model_identity.Resolver(self.root, self.reads)
+            resolver.models.update(
+                {
+                    model.scope.path: model
+                    for model in self.local.values()
+                    if model.scope.path not in resolver.overrides
+                }
+            )
+            resolver.models.update(resolver.overrides)
+            result = reference_value(
+                resolver, self.consumer_scope, reference, field=prop, context=context
+            )
+            if physical is _UNOBSERVED:
+                return
+            if result.status == "resolved":
+                if str(result.value) != str(physical):
+                    raise ReferenceResolutionError(
+                        "IMPORT reference differs from acquired physical reference: "
+                        + prop
+                    )
+                return
+            if physical == "PENDING_DEPLOY" and not require_links:
+                return
+            if result.diagnostic:
+                raise ReferenceResolutionError(**result.diagnostic)
+            raise ReferenceResolutionError("IMPORT reference is unconfirmed")
+        if not require_links:
             return
         if physical is _UNOBSERVED:
-            if reference:
-                candidates = []
-                for kind in declared:
-                    self.index(kind)
-                    candidates.extend(
-                        candidate
-                        for candidate in self.targets[kind].values()
-                        if self.candidate_matches(candidate, raw)
-                    )
-                if len(candidates) != 1:
-                    raise ReferenceResolutionError(
-                        "IMPORT reference has no unique producer: " + prop
-                    )
             return
         if reference is None:
             typed_equal = _imports_model_importing_sources.typed_equal
@@ -445,24 +483,7 @@ class Resolver:
                     "IMPORT literal differs from acquired physical value: " + prop
                 )
         expected = self.match(prop, physical, context, contracts=contracts)
-        if reference and physical == "PENDING_DEPLOY" and not require_links:
-            candidates = {
-                identity: candidate
-                for kind, forms in declared.items()
-                for form in forms
-                for identity, candidate in self.index(kind)
-                .get((form, physical), {})
-                .items()
-                if self.candidate_matches(candidate, raw)
-            }
-            if len(candidates) == 1:
-                expected = next(iter(candidates.values()))
-        if reference:
-            if expected is None or not self.candidate_matches(expected, raw):
-                raise ReferenceResolutionError(
-                    "IMPORT reference differs from acquired physical reference: " + prop
-                )
-        elif expected is not None:
+        if expected is not None:
             raise ReferenceResolutionError(
                 "IMPORT matching Model requires a Resource reference: " + prop
             )
@@ -470,7 +491,16 @@ class Resolver:
     def verify_tree(
         self, prop, desired, actual, context, *, require_links=True, location=None
     ):
-        if isinstance(desired, (list, dict)):
+        if is_reference(desired):
+            self.verify(
+                prop,
+                desired,
+                actual,
+                context,
+                require_links=require_links,
+                location=location,
+            )
+        elif isinstance(desired, (list, dict)):
             if actual is not _UNOBSERVED and (
                 type(desired) is not type(actual)
                 or (
@@ -492,7 +522,11 @@ class Resolver:
                     for prop, value in context.items()
                 }
                 self.verify_tree(
-                    prop + "." + key if isinstance(desired, dict) else prop,
+                    prop + "." + key
+                    if isinstance(desired, dict)
+                    else prop
+                    if prop.endswith("[]")
+                    else prop + "[]",
                     desired[key],
                     _UNOBSERVED if actual is _UNOBSERVED else actual[key],
                     child_context,
@@ -540,6 +574,9 @@ class Resolver:
             self.target,
             services[0] if len(services) == 1 else "",
         )
+        self.current_resolver = _imports_model_projection.reference_resolver(
+            values, self.consumer_scope, self.root
+        )
         self.literal_references = {
             ((spec["consumerKey"], spec["pointer"]), spec["text"])
             for spec in declarations(values).values()
@@ -564,18 +601,39 @@ class Resolver:
                 + (".document" if "document" in row else ".value"),
             }
             location["key"] = location["consumerKey"]
-            if prop.endswith((".Type", ".Provider")):
+            if prop.endswith((".Type", ".Provider", ".Category", ".Owner", ".Version")):
                 try:
                     context[prop] = json.loads(literal(raw))
                 except ValueError:
                     context[prop] = literal(raw)
             if properties is not None and prop not in properties:
                 continue
+            refs = tuple(nodes(literal(raw)))
+            if (
+                prop in identity_properties
+                and len(refs) == 1
+                and refs[0].pointer == ""
+                and refs[0].logical_id
+                == values.get(f"desired.resource.{rid}.logicalId")
+                and reference_attribute(
+                    values[f"desired.resource.{rid}.resourceType"], refs[0].attribute
+                )
+                == reference_attribute(
+                    values[f"desired.resource.{rid}.resourceType"],
+                    prop.removeprefix(
+                        values[f"desired.resource.{rid}.resourceType"] + "."
+                    ),
+                )
+            ):
+                self.current_resolver.validate_attribute(
+                    values[f"desired.resource.{rid}.resourceType"], refs[0].attribute
+                )
+                continue
             if prop in CONFIGURATION_PROPERTIES:
                 selector, choices = CONFIGURATION_PROPERTIES[prop]
                 desired = json.loads(row.get("document", literal(raw)))
                 actual = (
-                    json.loads(literal(observed))
+                    native_reference_value(observed)
                     if observed is not None
                     else _UNOBSERVED
                     if observed_only
@@ -593,18 +651,14 @@ class Resolver:
                 verify_config(desired, actual, context.get(selector))
                 continue
             has_reference = _imports_model_importing_sources.has_reference
-            if (
-                not LINK.fullmatch(raw)
-                and literal(raw).startswith(("[", "{"))
-                and (
-                    has_reference(row.get("document", raw))
-                    or contract(prop, context)
-                    or prop in CONTEXT_PROPERTIES
-                )
+            if literal(raw).startswith(("[", "{")) and (
+                has_reference(row.get("document", raw))
+                or contract(prop, context)
+                or prop in CONTEXT_PROPERTIES
             ):
                 desired = json.loads(row.get("document", literal(raw)))
                 actual = (
-                    json.loads(literal(observed))
+                    native_reference_value(observed)
                     if observed is not None
                     else _UNOBSERVED
                     if observed_only
@@ -619,7 +673,7 @@ class Resolver:
                     location=location,
                 )
                 continue
-            # Identity outputs/self links and parentReference keep their own guards.
+            # Scalar values retain their native comparison and identity guards.
             links = elements(raw)
             physical = (
                 [_UNOBSERVED] * len(links)
@@ -630,28 +684,9 @@ class Resolver:
                 raise ValueError(
                     "IMPORT reference/observation element count differs: " + prop
                 )
-            if not contract(prop, context) and not any(
-                isinstance(value, str)
-                and _dependency_model_identity.resource_link(value)
-                for value in links
-            ):
+            if not contract(prop, context) and not has_reference(raw):
                 continue
-            for value, actual in zip(links, physical, strict=False):
-                link = _dependency_model_identity.resource_link(value)
-                if (
-                    link
-                    and prop in identity_properties
-                    and _dependency_model_identity.parse_reference(
-                        value, self.consumer_scope
-                    )
-                    == (
-                        self.environment,
-                        self.target,
-                        self.consumer_scope.service,
-                        values.get(f"desired.resource.{rid}.anchor"),
-                    )
-                ):
-                    continue
+            for value, actual in zip(links, physical, strict=True):
                 self.verify(
                     prop,
                     value,

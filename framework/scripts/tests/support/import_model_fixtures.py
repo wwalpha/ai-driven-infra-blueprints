@@ -1063,12 +1063,22 @@ def dependency_fixture(root):
                 "ServiceA.Resource",
                 "producer",
                 "IMPORT",
-                [("Name", name), ("Peer", "[002](service-b.md#consumer)")],
+                [("Name", name), ("Peer", name)],
             )
         )
         a.update(
             resource_values(
                 "003", "ServiceA.Resource", "other-producer", "IMPORT", [("Name", name)]
+            )
+        )
+        a.update(
+            reference_fields(
+                "peer",
+                "desired.row.001-002.value",
+                name,
+                env + "/cde/service-b/002",
+                kind="ServiceB.Resource",
+                prop="ServiceB.Resource.Name",
             )
         )
         b = service_values("service-b", ["ServiceB.Resource"])

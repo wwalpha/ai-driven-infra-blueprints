@@ -18,7 +18,6 @@ from utils.reference_contracts import (
     row_contexts,
 )
 
-import model.identity as model_identity
 import model.impact_changes as impact_changes
 import model.projection as _model_validation_projection
 import model.references as references
@@ -332,19 +331,8 @@ def incomplete_reference_affected(snapshot, error, changes):
         for target in change.resources | change.deleted:
             if logical and logical != target:
                 continue
-            anchor = error.get("anchor")
-            if anchor and not any(
-                resource.get("anchor", name) == anchor
-                for values in (old, new)
-                for name, (_, resource) in resource_map(values).items()
-                if name == target
-            ):
-                continue
-            if (
-                not attribute
-                and error.get("kind") != "link"
-                or signature(old, target, attribute)
-                != signature(new, target, attribute)
+            if not attribute or signature(old, target, attribute) != signature(
+                new, target, attribute
             ):
                 return True
     return False
@@ -400,28 +388,6 @@ def incoming_keys(snapshot, changes):
                     new, node.logical_id, node.attribute
                 ):
                     result.add(key)
-        for token in model_identity.reference_tokens(raw):
-            try:
-                address = model_identity.parse_reference(token[0], snapshot.scope)
-            except ValueError:
-                continue  # Incomplete link metadata was checked above.
-            change = changes.get(address[:3])
-            if change is None:
-                continue
-            old = {} if change.before is None else change.before.authoritative
-            new = {} if change.after is None else change.after.authoritative
-            logicals = {
-                logical
-                for source in (old, new)
-                for logical, (_, resource) in resource_map(source).items()
-                if logical in change.resources
-                and resource.get("anchor", logical) == address[3]
-            }
-            if any(
-                signature(old, logical) != signature(new, logical)
-                for logical in logicals
-            ):
-                result.add(key)
     return result
 
 

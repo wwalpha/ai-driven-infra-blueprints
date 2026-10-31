@@ -257,10 +257,26 @@ def preflight_files(project_workspace, monkeypatch):
             "desired.resource.001.resourceType": "EC2.VPC",
             "desired.resource.001.cfn-logicalId": name + "-Bucket",
             "desired.row.001-001.property": "EC2.VPC.VpcId",
-            "desired.row.001-001.value": "[self](#resource-EC2_VPC_001)",
+            "desired.row.001-001.value": '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
             "desired.row.001-001.comment": "識別子",
         }
         values.update(allocate_fixture(values, ["001"]))
+        values["desired.resource.001.logicalId"] = f"EC2_VPC_{number:03d}"
+        values["desired.service.identity.lastAllocated"] = json.dumps(
+            {"EC2.VPC": number}
+        )
+        values["desired.row.001-001.value"] = (
+            "`"
+            + json.dumps(
+                {
+                    "$modelRef": {
+                        "logicalId": f"EC2_VPC_{number:03d}",
+                        "attribute": "VpcId",
+                    }
+                }
+            )
+            + "`"
+        )
         write_model(path, values)
         paths.append(path)
         unit = {
@@ -383,7 +399,13 @@ def check_preflight_indexed_mapping_errors(preflight_files, fault):
         write_model(paths[0], text + "desired.resource.001.resourceMode=IMPORT\n")
     elif fault == "identifier":
         write_model(
-            paths[0], text.replace("[self](#resource-EC2_VPC_001)", "`literal`")
+            paths[0],
+            text.replace(
+                json.dumps(
+                    {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}}
+                ),
+                "literal",
+            ),
         )
     elif fault == "condition":
         documents["First"]["Resources"]["Bucket"]["Condition"] = "Missing"
@@ -434,6 +456,7 @@ def check_lakeformation_arn_identifiers_are_not_collected(
     text = source.read_text(encoding="utf-8")
     text = text.replace("EC2.VPC", kind).replace("EC2_VPC", kind.replace(".", "_"))
     text = text.replace(kind + ".VpcId", kind + "." + properties[0])
+    text = text.replace('"attribute": "VpcId"', '"attribute": "' + properties[0] + '"')
     if not existing_rows:
         text = (
             "\n".join(
@@ -446,7 +469,15 @@ def check_lakeformation_arn_identifiers_are_not_collected(
     else:
         text += "observed.row.001-001.value=`PENDING_DEPLOY`\n"
         if len(properties) > 1:
-            text += f"desired.row.001-002.property={kind}.{properties[1]}\ndesired.row.001-002.value=[self](#resource-{kind.replace('.', '_')}_001)\ndesired.row.001-002.comment=identifier\n"
+            node = json.dumps(
+                {
+                    "$modelRef": {
+                        "logicalId": kind.replace(".", "_") + "_001",
+                        "attribute": properties[1].rsplit(".", 1)[-1],
+                    }
+                }
+            )
+            text += f"desired.row.001-002.property={kind}.{properties[1]}\ndesired.row.001-002.value=`{node}`\ndesired.row.001-002.comment=identifier\n"
     write_model(source, text)
     document = documents["First"]
     document["Resources"]["Bucket"]["Type"] = "AWS::" + kind.replace(".", "::")

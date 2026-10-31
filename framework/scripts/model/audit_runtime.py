@@ -123,6 +123,23 @@ def _callback_engine_parse(self, snapshot, m, original_parse, /, row, norm="type
     return parsed
 
 
+def _callback_engine_reference(self, m, snapshot, /, value):
+    node = m.parse_model_reference(value)
+    address = self.model.path.relative_to(m.ROOT / "model").parts[:2]
+    matches = [
+        resource
+        for name in snapshot["models"]
+        if Path(name).parts[:2] == address
+        for resource in self.ctx.model(
+            m.ROOT / "model" / (name + ".properties")
+        ).resources
+        if resource.spec["logicalId"] == node.logical_id
+    ]
+    if len(matches) != 1:
+        raise m.Unresolved("Model reference has no unique producer in audit snapshot")
+    return matches[0]
+
+
 def engine(snapshot):
     """Bind copied comparison code to immutable, embedded Model/Mapping inputs."""
     m = ModuleType("audit_comparison")
@@ -154,6 +171,7 @@ def engine(snapshot):
     m.Resource.__init__ = partialmethod(
         _callback_engine_resource_init, m.Resource.__init__
     )
+    m.Resource.reference = partialmethod(_callback_engine_reference, m, snapshot)
     m.Resource.parse = partialmethod(
         _callback_engine_parse, snapshot, m, m.Resource.parse
     )

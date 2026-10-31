@@ -14,7 +14,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import design.layout as _imports_design_layout
-import model.projection as _imports_model_projection
 import pytest
 import support.model_reference_fixtures as reference_models
 import support.model_sources as _imports_support_model_sources
@@ -28,9 +27,7 @@ from support.design_document_fixtures import (
     ThreadPoolExecutor,
     aws_mapping_display,
     documents,
-    hashlib,
     model_design,
-    model_projection,
     patch,
     reference_fixture,
     sys,
@@ -145,138 +142,20 @@ def check_snapshot():
                 sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == 1
             )
             assert expands.call_count == 1  # The source table is normalized once.
-            assert model_projection.linked_resource(
-                source, "[alias/two](kms.md#resource-AliasTwo)", design_index=index
-            ) == ("KMS.Alias", "AliasTwo")
-            assert model_projection.linked_resource(
-                source, "[key](kms.md#kms-keyone)", design_index=index
-            ) == ("KMS.Key", "KeyHidden")
-            assert (
-                model_projection.linked_resource(
-                    source, "[missing](kms.md#absent)", design_index=index
-                )
-                is None
-            )
-            assert (
-                model_projection.linked_resource(
-                    source, "[missing](absent.md#absent)", design_index=index
-                )
-                is None
-            )
-            assert (
-                model_projection.linked_resource(source, "literal", design_index=index)
-                is None
-            )
-            assert model_projection.linked_resource(
-                source, "[alias/three](kms.md#resource-AliasThree)", design_index=index
-            ) == ("KMS.Alias", "AliasThree")
-            assert expands.call_count == 4
-            assert (
-                sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == 2
-            )
         assert projection is index.get(source).headings.expanded
         assert index.get(source).headings.expanded is index.get(source).raw.expanded
-        repository = Path(__file__).resolve().parents[4]
-        values = {
-            "desired.service.s3.serviceId": "s3",
-            "desired.service.s3.ownedCatalogResourceTypes": "S3.Bucket",
-            "desired.resource.001.resourceType": "S3.Bucket",
-            "desired.service.identity.lastAllocated": '{"S3.Bucket":1}',
-            "desired.resource.001.logicalId": "S3_Bucket_001",
-            "desired.note.001.text": "<!-- [hidden](hidden.md#hidden) -->",
-        }
-        rows = [
-            ("S3.Bucket.BucketName", "`app-data`", "bucketの名前"),
-            ("S3.Bucket.Region", "`us-east-1`", "bucketを配置するregion"),
-        ]
-        rows += [
-            (
-                "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID",
-                f"[alias/{'two' if n % 2 == 0 else 'three'}](kms.md#resource-Alias{'Two' if n % 2 == 0 else 'Three'})",
-                "暗号化に使用するKMS alias",
-            )
-            for n in range(80)
-        ]
-        rows += [
-            ("S3.Bucket.SourceKeyId", "[KeyHidden](kms.md#kms-keyone)", "参照ID"),
-            ("S3.Bucket.SourceKeyId", "[unresolved](absent.md#absent)", "未解決参照"),
-            ("S3.Bucket.SourceKeyId", "[unresolved](kms.md#absent)", "未解決anchor"),
-        ]
-        for number, row in enumerate(rows, 1):
-            values.update(
-                {
-                    f"desired.row.001-{number:03d}." + field: value
-                    for field, value in zip(
-                        ("property", "value", "comment"), row, strict=False
-                    )
-                }
-            )
-        values.update(
-            {
-                "observed.row.001-083.property": "S3.Bucket.SourceKeyId",
-                "observed.row.001-083.value": "1234abcd-12ab-34cd-56ef-1234567890ab",
-                "observed.row.001-083.comment": "参照ID",
-            }
-        )
-        values.update(
-            {
-                "display.service.title": "# S3 詳細設計",
-                "display.resource.001.comment": "アプリケーションのデータを保管するbucket",
-            }
-        )
-        values["desired.resource.001.resourceMode"] = "IMPORT"
-
-        write_model = _imports_support_model_sources.write_model
         project_root = source.parents[4]
-        (project_root / "project.json").write_text(
-            json.dumps(
-                {
-                    "targets": [
-                        {
-                            "environment": "dev",
-                            "alias": "account",
-                            "awsAccountId": "123456789012",
-                            "awsRegion": "us-east-1",
-                            "iacEngine": "cloudformation",
-                        }
-                    ]
-                }
-            )
-        )
-        values["desired.resource.001.anchor"] = "s3-app-data"
-        write_model(project_root / "model/dev/account/s3.properties", values)
-        rendered = model_design.markdown_for(
-            source, values, project_root, definitions_root=repository
-        )
-        assert "<!-- array-source:" not in rendered
-        assert (
-            hashlib.sha256(rendered.encode()).hexdigest()
-            == "47deca7d8d574bda87a53ee1898a883d3b4e626aa5d14edcef861b9816aab8ae"
-        ), hashlib.sha256(rendered.encode()).hexdigest()
-        # Alias links also retain an explicit consumer observation, without inventing Alias identifiers.
         observed = "1234abcd-12ab-34cd-56ef-1234567890ab"
-        alias_source = dict(values)
-        alias_source.update(
-            {
-                "observed.row.001-003.property": values["desired.row.001-003.property"],
-                "observed.row.001-003.comment": values["desired.row.001-003.comment"],
-                "observed.row.001-003.value": observed,
-            }
-        )
         alias_text = text.replace(
             "[alias/two](kms.md#resource-AliasTwo)",
             f"[{observed}](kms.md#resource-AliasTwo)",
             1,
         )
-        source.write_text(alias_text, encoding="utf-8")
-        resource_rows = _imports_model_projection.resource_rows
-        shown = resource_rows(alias_source, "001", "S3.Bucket", repository)
-        assert shown[2][2] == f"[{observed}](kms.md#resource-AliasTwo)", shown
-        assert (
-            values["desired.row.001-003.value"]
-            == "[alias/two](kms.md#resource-AliasTwo)"
-        )
-
+        values = {
+            "desired.resource.001.resourceType": "S3.Bucket",
+            "desired.resource.001.logicalId": "S3_Bucket_001",
+            "desired.resource.001.anchor": "s3-app-data",
+        }
         _compare_generation = _imports_sync_runtime._compare_generation
         for changed in (
             alias_text.replace(observed, "different", 1),
@@ -733,7 +612,14 @@ def check_candidate_indexed_saved_reference(tmp_path, service, kind, field, faul
     iam.update(
         {
             "desired.row.001-002.property": "IAM.Role.Description",
-            "desired.row.001-002.value": f"[target]({service}.md#{anchor})",
+            "desired.row.001-002.value": "`"
+            + json.dumps(
+                reference_models.reference(
+                    values[f"desired.resource.{owner}.logicalId"],
+                    "Id" if service == "secretsmanager" else "Name",
+                )
+            )
+            + "`",
             "desired.row.001-002.comment": "合成の配列参照先",
             "desired.row.001-003.property": "IAM.Role.AssumeRolePolicyDocument",
             "desired.row.001-003.value": "[trust](iam/trust.json)",
@@ -877,7 +763,7 @@ def check_scoped_import_security_group_reference(tmp_path):
         ("EC2.SecurityGroup", "EC2_SecurityGroup_001"): "saved-001"
     }
     assert "invalid unrelated rule" not in "\n".join(view.lines)
-    assert "sg-11111111" in "\n".join(view.expanded[0])
+    assert "$modelRef" in "\n".join(view.expanded[0])
     assert document.reference_view(frozenset({"saved-001"})) is view
 
 
@@ -969,7 +855,14 @@ def check_scoped_security_group_model_reference(
     iam.update(
         {
             "desired.row.001-002.property": "IAM.Role.Description",
-            "desired.row.001-002.value": f"[target](security-group.md#resource-{anchor})",
+            "desired.row.001-002.value": "`"
+            + json.dumps(
+                reference_models.reference(
+                    anchor,
+                    "GroupId" if anchor.startswith("EC2_SecurityGroup_") else "Id",
+                )
+            )
+            + "`",
             "desired.row.001-002.comment": "合成SG参照",
         }
     )

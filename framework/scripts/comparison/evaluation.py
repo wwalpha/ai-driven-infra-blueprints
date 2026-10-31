@@ -15,6 +15,11 @@ from .references import ReferenceDecision
 from .values import PreparedValue
 
 
+def model_select(stack, value, reason, *, direct=False):
+    # A Model expression declares intent; it cannot prove IaC provenance or bounds.
+    return Expression(value.operation, value.operands)
+
+
 def evaluator(
     stack_inputs,
     resources,

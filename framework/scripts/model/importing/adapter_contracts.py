@@ -5,6 +5,7 @@ from collections import Counter
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -21,6 +22,7 @@ from model.importing.contract_fixtures import (
     service_model,
 )
 from model.importing.discovery import ADAPTER_INVENTORIES, resolve
+from model.reference_nodes import parse
 
 ACCOUNT = "123456789012"
 TARGET = {
@@ -53,6 +55,21 @@ def fixture_resource(root: Path, ctx: Any, service: str, record: Any, number="fi
         resources=[],
     )
     return cli.selector_resource(model, number, record, mapped)
+
+
+def fixture_parent(parent, attribute, value):
+    node = parse(value)
+    if (node.logical_id, node.attribute) != (parent.spec["logicalId"], attribute):
+        raise ValueError("fixture parent reference differs")
+    return parent
+
+
+def bind_fixture_parent(child, parent, attribute):
+    parent.spec["logicalId"] = parent.kind.replace(".", "_") + "_001"
+    child.spec["parentReference"] = json.dumps(
+        {"$modelRef": {"logicalId": parent.spec["logicalId"], "attribute": attribute}}
+    )
+    child.reference = partial(fixture_parent, parent, attribute)
 
 
 def clear_fetch(ctx: Any) -> None:
@@ -1008,7 +1025,7 @@ def kms_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str, An
             {"kind": "KMS.Alias", "getters": {"alias": {"AliasName": name}}},
             mapped,
         )
-        alias.spec["parentReference"] = "[key](#key)"
+        bind_fixture_parent(alias, key, "KeyId")
         aliases.append(alias)
     key.model.resources = [key, *aliases[:1]]
     resource = aliases[0] if kind == "KMS.Alias" else key
@@ -1275,7 +1292,7 @@ def security_group_fixture(
             {"kind": "EC2.SecurityGroup", "getters": {"group": group}},
             mapped,
         )
-        resource.spec["parentReference"] = "[parent](#parent)"
+        bind_fixture_parent(resource, parent, "GroupId")
         resource.model._anchor_resources = {
             "parent": [("parent", {"anchor": "parent"})]
         }
@@ -1996,7 +2013,7 @@ def grouped_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str
         },
         mapped,
     )
-    resource.spec["parentReference"] = "[parent](#parent)"
+    bind_fixture_parent(resource, parent, parent_prop)
     resource.model._anchor_resources = {"parent": [("parent", {"anchor": "parent"})]}
     resource.model.resources = [parent, resource]
     ctx.models[resource.model.path.resolve()] = resource.model

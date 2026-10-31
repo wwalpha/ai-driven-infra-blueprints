@@ -27,7 +27,7 @@ def foreign_observation(snapshot, row, *, outputs=catalog_outputs):
     own_scope = "/".join(
         (snapshot.scope.environment, snapshot.scope.target, snapshot.scope.service)
     )
-    uses = [use for use in usages(snapshot, _coalesce=False) if use.consumer_key == key]
+    uses = [use for use in usages(snapshot) if use.consumer_key == key]
     if not uses or any(
         use.producer_kind != "resource"
         or use.producer_scope == own_scope
@@ -139,12 +139,7 @@ def resource_configuration(values, number, path=None, expansion=None, *, index=N
             and consumer.endswith((".value", ".document"))
         ):
             continue
-        references[identity] = {
-            field: native(value)
-            if field == "text" and spec["format"] == "link"
-            else value
-            for field, value in spec.items()
-        }
+        references[identity] = dict(spec)
     observed = index.resource_observed(number)
     if (
         observed

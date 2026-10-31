@@ -946,7 +946,9 @@ def check_delivery(tmp_path):
     # Model -> generated view -> projection retains settings and explicit file bindings.
     values = {f"desired.stack.001.{field}": value for field, value in unit.items()}
     values["display.stack.001.comment"] = "アプリケーションを配置するstack"
-    reference = "[S3_Bucket_001](s3.md#resource-S3_Bucket_001)"
+    reference = json.dumps(
+        {"$modelRef": {"logicalId": "S3_Bucket_001", "attribute": "BucketName"}}
+    )
     values.update(
         {
             "desired.deployment.templateBucket": reference,
@@ -1007,15 +1009,19 @@ def check_delivery(tmp_path):
     )
     rejects(
         lambda: deployment_bucket(
-            "[S3_Bucket_999](s3.md#resource-S3_Bucket_999)", design, root
+            json.dumps(
+                {"$modelRef": {"logicalId": "S3_Bucket_999", "attribute": "BucketName"}}
+            ),
+            design,
+            root,
         ),
-        "Resource anchor is absent or ambiguous",
+        "producer logicalId is absent",
     )
     rejects(
         lambda: deployment_settings(
             values | {"desired.deployment.templateBucket": "guessed-bucket"}
         ),
-        "Markdown Resource reference",
+        "requires $modelRef",
     )
     missing = dict(values)
     del missing["desired.deployment.templateKeyPrefix"]
@@ -1354,13 +1360,13 @@ def check_delivery_encryption(tmp_path):
                 "desired.resource.001.anchor=kms-app-dev-key",
                 'desired.service.identity.lastAllocated={"KMS.Key":1,"KMS.Alias":1}',
                 "desired.row.001-001.property=KMS.Key.KeyId",
-                "desired.row.001-001.value=[KMS_Key_001](kms.md#kms-app-dev-key)",
+                'desired.row.001-001.value={"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}',
                 "desired.row.001-001.comment=固定Key ID",
                 "observed.row.001-001.value=test-key",
                 "desired.resource.002.resourceType=KMS.Alias",
                 "desired.resource.002.logicalId=KMS_Alias_001",
                 "desired.resource.002.anchor=resource-KMS_Alias_001",
-                "desired.resource.002.parentReference=[KMS_Key_001](kms.md#kms-app-dev-key)",
+                'desired.resource.002.parentReference={"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}',
                 "desired.row.002-001.property=KMS.Alias.AliasName",
                 "desired.row.002-001.value=alias/test",
                 "desired.row.002-001.comment=固定Alias",
@@ -1368,8 +1374,10 @@ def check_delivery_encryption(tmp_path):
         ),
     )
     for reference in (
-        "[KMS_Key_001](kms.md#kms-app-dev-key)",
-        "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)",
+        json.dumps({"$modelRef": {"logicalId": "KMS_Key_001", "attribute": "Arn"}}),
+        json.dumps(
+            {"$modelRef": {"logicalId": "KMS_Alias_001", "attribute": "AliasName"}}
+        ),
     ):
         backend.add_bucket(bucket, "aws:kms", reference)
         before = snapshot_model(path)
@@ -1391,13 +1399,16 @@ def check_delivery_encryption(tmp_path):
     topology = json.loads(project.read_text())
     topology["targets"].append({"environment": "dev", "alias": "other", **TARGET})
     project.write_text(json.dumps(topology), encoding="utf-8")
+    path.unlink()
     backend.add_bucket(
-        bucket, "aws:kms", "[KMS_Key_001](../other/kms.md#kms-app-dev-key)"
+        bucket,
+        "aws:kms",
+        json.dumps({"$modelRef": {"logicalId": "KMS_Key_001", "attribute": "Arn"}}),
     )
     calls = len(backend.calls)
     rejects(
         lambda: model_conditions(backend, bucket),
-        "outside authorized S3 placement retrieval scope",
+        "logicalId",
     )
     assert len(backend.calls) == calls
     # Approval is explicit; default delegation omits both headers, including for KMS defaults.

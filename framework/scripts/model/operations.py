@@ -26,7 +26,6 @@ from utils.type_contracts import JsonValue as JsonValue
 import model.adapters.task as _task_adapter
 import model.core as _imports_model_core
 import model.dependency_index as dependency_index
-import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity
 import model.observed as _imports_model_observed
 import model.references as _dependency_model_references
@@ -36,7 +35,6 @@ from model.change_scope import change_reads, index_stage
 from model.configuration import ConfigurationIndex as ConfigurationIndex
 from model.configuration import _observed_index
 from model.configuration import resource_configuration as resource_configuration
-from model.core import ReferenceResolutionError
 from model.core import entries as entries
 from model.format import owner
 from model.reference_nodes import is_reference, parse
@@ -473,30 +471,15 @@ _REFERENCE = object()
 
 
 def _self_value(value, reference):
+    if is_reference(value):
+        node = parse(value)
+        if node.logical_id == reference[1]["logicalId"]:
+            return (_SELF, node.attribute)
+        return value
     if isinstance(value, dict):
         return {key: _self_value(child, reference) for key, child in value.items()}
     if isinstance(value, list):
         return [_self_value(child, reference) for child in value]
-    if isinstance(value, str) and _dependency_model_identity.resource_link(value):
-        anchor_index = _imports_model_identity.anchor_index
-        parse_reference = _imports_model_identity.parse_reference
-        select_anchor = _imports_model_identity.select_anchor
-        snapshot, resource = reference
-        environment, target, service, anchor = parse_reference(value, snapshot.scope)
-        scope = snapshot.scope
-        if (environment, target, service) == (
-            scope.environment,
-            scope.target,
-            scope.service,
-        ):
-            try:
-                _, producer = select_anchor(
-                    anchor_index(snapshot.authoritative), anchor, value
-                )
-            except ReferenceResolutionError:
-                return value
-            if producer["logicalId"] == resource["logicalId"]:
-                return _SELF
     return value
 
 
@@ -589,6 +572,8 @@ def _compare_field(
     left, right = copy.deepcopy(left), copy.deepcopy(right)
     for declaration in references:
         pointer = declaration.pointer
+        if pointer is None and is_reference(left) and is_reference(right):
+            pointer = ""
         if structured_left != (pointer is not None):
             raise ValueError(
                 "Model reference edit requires an explicit JSON string-leaf pointer"
@@ -648,14 +633,13 @@ def _compare_field(
                 )
             )
         if not previous_ids:
-            specs = declarations(after.authoritative)
             if any(
-                specs[usage.metadata_id]["format"] != "link"
+                usage.metadata_id is not None
                 for usage in current
                 if usage.metadata_id is not None
             ):
                 raise ValueError(
-                    "retarget cannot change a direct link into another reference format"
+                    "retarget must retain the typed Resource reference format"
                 )
         addresses = usages_by_path["addresses"]
         old_addresses = addresses.get((before.scope.path, old_key, pointer), set())

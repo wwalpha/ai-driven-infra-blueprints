@@ -3,6 +3,7 @@
 import json
 
 from support import model_design_fixtures as HELPERS
+from support.model_reference_fixtures import reference
 
 ROTATION = "SecretsManager.RotationSchedule"
 SECRET = "SecretsManager.Secret"
@@ -53,7 +54,9 @@ def fixture(count=1):
                 f"display.resource.{parent}.comment": "アプリケーション用secret",
                 f"display.resource.{child}.label": child_name,
                 f"desired.resource.{child}.parentProperty": ROTATION + ".SecretId",
-                f"desired.resource.{child}.parentReference": f"[{name}](#{HELPERS.resource_anchor('secretsmanager', name, SECRET)})",
+                f"desired.resource.{child}.parentReference": json.dumps(
+                    reference(logical, "Id")
+                ),
             }
         )
         for identity, kind, rows in (
@@ -66,7 +69,7 @@ def fixture(count=1):
                     ("RotationRules.AutomaticallyAfterDays", "`30`", None),
                     (
                         "SecretId",
-                        f"[{name}](#{HELPERS.resource_anchor('secretsmanager', name, SECRET)})",
+                        "`" + json.dumps(reference(logical, "Id")) + "`",
                         None,
                     ),
                 ],

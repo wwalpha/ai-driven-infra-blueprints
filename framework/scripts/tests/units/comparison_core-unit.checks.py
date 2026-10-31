@@ -22,6 +22,7 @@ from utils.iac_values import (
     safe_value,
     same,
 )
+from utils.reference_contracts import contract, reference_attribute
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -411,6 +412,21 @@ def _reference_contract_check(
     kind, path, context, producer, attribute=None, value="link"
 ):
     protect = Mock(side_effect=lambda symbol, prop: symbol)
+    if value == "link":
+        forms = contract(kind + "." + path, context).get(producer, ())
+        selected = (
+            attribute
+            if attribute is not None
+            else forms[0]
+            if len(forms) == 1
+            else "Unknown"
+        )
+        value = ResourceReference(
+            {
+                "$resource": ["producer", "001"],
+                "$attribute": reference_attribute(producer, selected),
+            }
+        )
     result = desired_reference(
         "consumer",
         value,
@@ -486,8 +502,8 @@ for _kind, _path, _context, _producer, _expected in (
         "Name",
     ),
 ):
-    _symbol = _reference_contract_check(_kind, _path, _context, _producer)
-    assert _symbol["$attribute"] == _expected
+    _symbol = _reference_contract_check(_kind, _path, _context, _producer, _expected)
+    assert _symbol["$attribute"] == reference_attribute(_producer, _expected)
     try:
         _reference_contract_check(_kind, _path, _context, "wrong")
     except Blocked:
@@ -503,20 +519,9 @@ except Blocked:
 else:
     raise AssertionError("unknown context accepted")
 
-# The existing string-link defaulting behavior is deliberately retained.
-assert (
-    _reference_contract_check(
-        "CodeBuild.Project",
-        _build_path,
-        {"Type": "SECRETS_MANAGER"},
-        "SecretsManager.Secret",
-        "wrong",
-    )["$attribute"]
-    == "Id"
-)
 _trail = "EventSelectors[].DataResources[].Values[]"
 _s3 = _reference_contract_check(
-    "CloudTrail.Trail", _trail, {"Type": "AWS::S3::Object"}, "S3.Bucket", "wrong"
+    "CloudTrail.Trail", _trail, {"Type": "AWS::S3::Object"}, "S3.Bucket", "ObjectArn"
 )
 assert isinstance(_s3, Expression) and _s3.operation == "Join"
 for _kind, _path, _context, _producer in (
@@ -551,7 +556,7 @@ for _producer, _reason in (
     try:
         desired_reference(
             "consumer",
-            "link",
+            ResourceReference({"$resource": ["producer", "001"], "$attribute": "Name"}),
             "CodeBuild.Project",
             _build_path,
             context={"Type": "PARAMETER_STORE"},

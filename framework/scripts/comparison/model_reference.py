@@ -13,7 +13,11 @@ from model.reference_nodes import (
 from model.references import declarations, usages
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
-from utils.reference_contracts import reference_attribute, reference_context
+from utils.reference_contracts import (
+    reference_attribute,
+    reference_context,
+    reference_error,
+)
 
 from . import registry
 from .deferral import ImportReferenceDeferred
@@ -60,12 +64,7 @@ class ModelReferences:
                 snapshot, inputs.model_reads, _cache=cache, _typed=False
             ):
                 spec = specs.get(usage.metadata_id)
-                if (
-                    not spec
-                    or spec["producerKind"] != "resource"
-                    or spec["format"] == "link"
-                    and "valueSelector" not in spec
-                ):
+                if not spec or spec["producerKind"] != "resource":
                     continue
                 self.positions.setdefault(usage.consumer_key, {}).setdefault(
                     usage.pointer, []
@@ -73,15 +72,31 @@ class ModelReferences:
         finally:
             inputs.retain_reads()
 
-    def normalize(self, inputs, key, value, pointer=None, context=None, failures=None):
+    def normalize(
+        self,
+        inputs,
+        key,
+        value,
+        pointer=None,
+        context=None,
+        failures=None,
+        property_name=None,
+    ):
         if is_reference(value):
+            row = key.rsplit(".", 1)[0]
+            prop = inputs.model(self.scope.service).authoritative.get(
+                row + ".property", property_name
+            )
+            if prop is None:
+                raise Blocked("receiving property is unavailable: " + key)
+            kind = ".".join(prop.split(".")[:2])
+            field = receiving_property(prop, pointer or "")
+            path = field.removeprefix(kind + ".")
+            policy_error = reference_error(field, context)
             try:
+                if policy_error:
+                    raise Blocked(policy_error)
                 node = parse(value, pointer or "")
-                row = key.rsplit(".", 1)[0]
-                prop = inputs.model(self.scope.service).authoritative[row + ".property"]
-                kind = ".".join(prop.split(".")[:2])
-                field = receiving_property(prop, pointer or "")
-                path = field.removeprefix(kind + ".")
                 producer, number, resource, attribute = resolve(
                     node,
                     self.scope,
@@ -106,7 +121,15 @@ class ModelReferences:
                     )
                     and resource_mode(resource) != "IMPORT"
                 ):
-                    return inputs.reference(self.scope.service, symbol)
+                    symbol = inputs.reference(self.scope.service, symbol)
+                    project = registry.property_rule(
+                        kind, prop.removeprefix(kind + ".")
+                    ).selected_reference
+                    return (
+                        project(inputs, self.scope.service, key, symbol)
+                        if project
+                        else symbol
+                    )
                 return inputs.desired_reference(
                     self.scope.service,
                     symbol,
@@ -128,6 +151,9 @@ class ModelReferences:
                     else Expression("Unverified", [])
                 )
             except (Blocked, KeyError, OSError, ValueError, TypeError) as error:
+                if failures is not None and policy_error:
+                    failures.append((path, pointer or "", error))
+                    return Expression("Unverified", [])
                 return Expression(
                     "Unverified",
                     [value, f"JSON Pointer={pointer or ''!r}; {key}: {error}"],
@@ -138,7 +164,7 @@ class ModelReferences:
             return value
         if isinstance(value, dict):
             prop = inputs.model(self.scope.service).authoritative.get(
-                key.rsplit(".", 1)[0] + ".property", ""
+                key.rsplit(".", 1)[0] + ".property", property_name or ""
             )
             context = reference_context(
                 receiving_property(prop, pointer or ""), value, context
@@ -151,6 +177,7 @@ class ModelReferences:
                     (pointer or "") + "/" + name.replace("~", "~0").replace("/", "~1"),
                     context,
                     failures,
+                    property_name,
                 )
                 for name, child in value.items()
             }
@@ -163,6 +190,7 @@ class ModelReferences:
                     (pointer or "") + "/" + str(index),
                     context,
                     failures,
+                    property_name,
                 )
                 for index, child in enumerate(value)
             ]
@@ -248,21 +276,6 @@ class ModelReferences:
         resource = inputs.resources[service].get(usage.producer_id)
         if not resource or resource["resourceType"] != spec["resourceType"]:
             raise Blocked("attribute_format_unproven: producer Resource Type differs")
-        if "valueSelector" in spec:
-            prop = inputs.model(self.scope.service).authoritative[
-                key.rsplit(".", 1)[0] + ".property"
-            ]
-            kind = ".".join(prop.split(".")[:2])
-            project = registry.property_rule(
-                kind, prop.removeprefix(kind + ".")
-            ).selected_reference
-            if project is None:
-                raise Blocked(
-                    "reference valueSelector has no receiving property contract"
-                )
-            return project(
-                inputs, self.scope.service, key, value, spec, usage.producer_id
-            )
         prefix = resource["resourceType"] + "."
         if not spec["property"].startswith(prefix):
             raise Blocked("attribute_format_unproven: producer Property differs")

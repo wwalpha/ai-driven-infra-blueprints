@@ -12,7 +12,7 @@ import model.display as _imports_model_display
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 import utils.aws_mappings as _imports_utils_aws_mappings
-from model.core import ReferenceResolutionError, positive_integer
+from model.core import ReferenceResolutionError, literal, positive_integer
 from model.reference_nodes import nodes
 from utils.aws_catalogs import catalogs_for
 from utils.input_cache import input_scope as input_scope
@@ -1210,7 +1210,14 @@ def expanded_design(
                             reference = re.fullmatch(
                                 r"\[[^\]]+\]\(#([^)]*)\)", cells[2]
                             )
-                            if not reference or reference.group(1) != parent_anchor:
+                            typed = tuple(nodes(literal(cells[2])))
+                            matches_parent = (
+                                len(typed) == 1 and typed[0].logical_id == parent_id
+                                if typed
+                                else reference is not None
+                                and reference.group(1) == parent_anchor
+                            )
+                            if not matches_parent:
                                 raise ReferenceResolutionError(
                                     f"{resource_type}: {active_child['logicalId']}: {prop} must reference enclosing {parent_type}: {parent_id}"
                                 )

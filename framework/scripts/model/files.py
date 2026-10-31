@@ -11,6 +11,7 @@ import model.references as _imports_model_references
 import model.sources as _dependency_model_sources
 from model.core import entries, properties
 from model.core import resource_row_index as resource_row_index
+from model.reference_nodes import parse
 
 
 @input_scope
@@ -73,26 +74,15 @@ def resource_keys(text: str, selector: str, *, scope=None) -> set[str]:
         raise ValueError(
             f"resource selector must match exactly one fixed entry number or logicalId: {selector!r} ({len(matches)} matches)"
         )
-    anchors = resource_identity.anchor_index(values)
+    logical = resource_identity.resource_index(values)
     neighbors = {identity: set() for identity in resources}
     for identity, resource in resources.items():
         if "parentReference" not in resource:
             continue
-        environment, target, service, logical = resource_identity.parse_reference(
-            resource["parentReference"], scope
-        )
-        if scope is None or (environment, target, service) != (
-            scope.environment,
-            scope.target,
-            scope.service,
-        ):
-            raise ValueError("grouped parent requires the same explicit service scope")
-        match = resource_identity.select_anchor(
-            anchors, logical, resource["parentReference"]
-        )
-        if match is None:
+        node = parse(resource["parentReference"])
+        if node.logical_id not in logical:
             raise ValueError("grouped parent is absent: " + identity)
-        parent = match[0]
+        parent = logical[node.logical_id][0]
         neighbors[identity].add(parent)
         neighbors[parent].add(identity)
     selected = set()

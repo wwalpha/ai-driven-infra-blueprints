@@ -313,7 +313,9 @@ def test_invalid_reference_has_origin_code_and_position(models, fault, code):
             {
                 "observed.row.004-001.value": "`12345678-1234-1234-1234-123456789abc`",
                 "desired.row.004-002.property": "KMS.Key.Arn",
-                "desired.row.004-002.value": "[self](#saved-004)",
+                "desired.row.004-002.value": "`"
+                + json.dumps(reference("KMS_Key_004", "Arn"))
+                + "`",
                 "desired.row.004-002.comment": "合成",
                 "observed.row.004-002.value": "`invalid-arn`",
             }
@@ -475,7 +477,9 @@ def test_observed_identity_conflict_is_proven(models):
         {
             "desired.row.001-001.value": "`desired-bucket`",
             "desired.row.001-002.property": "S3.Bucket.Arn",
-            "desired.row.001-002.value": "[self](#saved-001)",
+            "desired.row.001-002.value": "`"
+            + json.dumps(reference("S3_Bucket_001", "Arn"))
+            + "`",
             "desired.row.001-002.comment": "合成",
             "observed.row.001-002.value": "`arn:aws:s3:::other-bucket`",
         }
@@ -800,7 +804,7 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     artifact.write_text(json.dumps(document), encoding="utf-8")
     markdown = generate_markdown(path, load_model(consumer).values, FRAMEWORK)
     path.write_text(markdown, encoding="utf-8")
-    assert "confirmed-bucket" in markdown and "$modelRef" in markdown
+    assert "confirmed-bucket" in markdown and "](kms.md#saved-004)" in markdown
     assert "iam/iam-role-070-synthetic-policy.json" in markdown
     assert "iam/iam-role-070-trust-policy.json" in markdown
     assert "pending_deploy" not in markdown
@@ -913,7 +917,9 @@ def test_real_generation_and_issues_scan_keep_reference_categories(models, state
             {
                 "observed.row.004-001.value": "`12345678-1234-1234-1234-123456789abc`",
                 "desired.row.004-002.property": "KMS.Key.Arn",
-                "desired.row.004-002.value": "[self](#saved-004)",
+                "desired.row.004-002.value": "`"
+                + json.dumps(reference("KMS_Key_004", "Arn"))
+                + "`",
                 "desired.row.004-002.comment": "合成",
                 "observed.row.004-002.value": "`invalid-arn`",
             }

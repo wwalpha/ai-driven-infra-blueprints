@@ -24,14 +24,13 @@ from validation.findings import Findings
 
 import model.core as _imports_model_core
 import model.files as _imports_model_files
-import model.identity as _dependency_model_identity
 from model.core import (
-    LINK,
     entries,
     stack_model,
 )
 from model.literal_values import literal_errors as row_literal_errors
 from model.projection import is_import_expression, resource_rows
+from model.references import has_reference
 from model.validations.naming import NAMING_EXEMPT_PROPERTIES, naming_errors
 
 
@@ -75,9 +74,7 @@ def validate_required_properties(
         references = {
             rid
             for rid, _, _, _ in rows
-            if _dependency_model_identity.resource_link(
-                values[f"desired.row.{rid}.value"]
-            )
+            if has_reference(values[f"desired.row.{rid}.value"])
         }
         for rid, prop, value, _ in rows:
             if properties_scope is not None and prop not in properties_scope:
@@ -90,10 +87,6 @@ def validate_required_properties(
             rule(prop, root)
             if prop in RESOURCE_REFERENCE_PROPERTIES and not (
                 rid in references
-                or (
-                    LINK.fullmatch(value)
-                    or _dependency_model_identity.resource_link(value)
-                )
                 or is_service_role_reference(prop, value)
                 or _dependency_design_layout.resource_mode(resource) == "IMPORT"
                 and (
@@ -108,8 +101,8 @@ def validate_required_properties(
             ):
                 warnings.append(
                     {
-                        "code": "reference.expected_link",
-                        "message": f"{prop} must be a resource link or an allowed IMPORT reference",
+                        "code": "reference.expected_model_ref",
+                        "message": f"{prop} requires $modelRef or an allowed IMPORT reference",
                         "resource": identity,
                         "property": prop,
                         "reference": value,
@@ -200,11 +193,8 @@ def _callback_check_model_inputs_literal_check(
         _state_check_model_inputs_337.view,
     ):
         return
-    if (
-        "document" not in _state_check_model_inputs_337.row
-        and _dependency_model_identity.resource_link(
-            _state_check_model_inputs_337.row["value"]
-        )
+    if "document" not in _state_check_model_inputs_337.row and has_reference(
+        _state_check_model_inputs_337.row["value"]
     ):
         return
     kind = ".".join(prop.split(".")[:2])

@@ -5,6 +5,7 @@ import json
 import sys
 from functools import partial
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -151,7 +152,7 @@ def test_context_never_guesses(
         if kind == "CloudTrail.Trail"
         else desired["EnvironmentVariables"][0]["Value"]
     )
-    assert isinstance(value, Expression), value
+    TestCase().assertIsInstance(value, Expression)
 
 
 def test_flowlog_nested_context(models):
@@ -370,7 +371,9 @@ def test_glue_catalog_connection_ref(models, logical, expected):
     receiver.update(
         {
             "desired.row.001-002.property": "Glue.Catalog.FederatedCatalog.ConnectionName",
-            "desired.row.001-002.value": "[first](producer.md#saved-001)",
+            "desired.row.001-002.value": "`"
+            + json.dumps(reference("Glue_Connection_001", "Name"))
+            + "`",
             "desired.row.001-002.comment": "合成",
         }
     )
@@ -717,10 +720,9 @@ def test_flowlog_comparison_and_validation(models, resource_type):
     save(scope, authored)
     inputs = comparison(models, ("producer", "receiver"))
     row = dict(entries(authored, "desired.row."))["001-002"]
-    desired = inputs.prepare_value(
-        "receiver", row, "EC2.FlowLog", row_id="001-002"
-    ).require_value()
+    prepared = inputs.prepare_value("receiver", row, "EC2.FlowLog", row_id="001-002")
     if resource_type == "VPC":
+        desired = prepared.require_value()
         assert isinstance(desired, ResourceReference), desired
         validate_json_settings(authored, scope.path)
         assert (
@@ -730,7 +732,7 @@ def test_flowlog_comparison_and_validation(models, resource_type):
             is True
         )
     else:
-        assert isinstance(desired, Expression), desired
+        TestCase().assertIsInstance(prepared.require_value(), Expression)
         with pytest.raises(ValueError):
             validate_json_settings(authored, scope.path)
 
@@ -864,9 +866,9 @@ def test_codebuild_plaintext_and_missing_sibling_type(models):
     _, prepared, _, _ = prepare(
         models, "CodeBuild.Project", "Environment", payload, attribute="BucketName"
     )
-    good, missing = prepared.require_value()["EnvironmentVariables"]
-    assert isinstance(good["Value"], Expression), good
-    assert isinstance(missing["Value"], Expression), missing
+    with pytest.raises(Blocked, match="PLAINTEXT"):
+        prepared.require_value()
+    TestCase().assertEqual(len(prepared.failures), 2)
 
 
 def test_all_aws_return_contracts_are_explicit_and_schema_supported(models):
@@ -1235,7 +1237,7 @@ def test_route53_export_cannot_authorize_wrong_producer(models, producer, attrib
 
 
 @pytest.mark.parametrize("producer_kind", ["Glue.Connection", "S3.Bucket"])
-def test_lakeformation_legacy_link_chooses_producer_arn(models, producer_kind):
+def test_lakeformation_typed_producer_arn(models, producer_kind):
     resource(models, "producer", producer_kind, attribute="Name")
     scope, receiver = resource(
         models, "receiver", "LakeFormation.Resource", attribute="Name"
@@ -1243,7 +1245,9 @@ def test_lakeformation_legacy_link_chooses_producer_arn(models, producer_kind):
     receiver.update(
         {
             "desired.row.001-002.property": "LakeFormation.Resource.ResourceArn",
-            "desired.row.001-002.value": "[producer](producer.md#saved-001)",
+            "desired.row.001-002.value": "`"
+            + json.dumps(reference(producer_kind.replace(".", "_") + "_001", "Arn"))
+            + "`",
             "desired.row.001-002.comment": "synthetic",
         }
     )
@@ -1269,7 +1273,7 @@ def test_invalid_expression_producer_cannot_match(models):
     )
 
 
-LEGACY_CONTRACTS = [
+ELEMENT_CONTRACTS = [
     "DynamoDB.Table.SSESpecification.KMSMasterKeyId",
     "KMS.Alias.TargetKeyId",
     "CloudTrail.Trail.KMSKeyId",
@@ -1314,8 +1318,8 @@ LEGACY_CONTRACTS = [
 ]
 
 
-@pytest.mark.parametrize("prop", LEGACY_CONTRACTS)
-def test_legacy_contract_preparation(models, prop):
+@pytest.mark.parametrize("prop", ELEMENT_CONTRACTS)
+def test_explicit_contract_preparation(models, prop):
     declared = contract(prop)
     producer = next(iter(declared))
     forms = declared[producer]
@@ -1328,7 +1332,16 @@ def test_legacy_contract_preparation(models, prop):
     receiver.update(
         {
             "desired.row.001-002.property": prop,
-            "desired.row.001-002.value": "[producer](producer.md#saved-001)",
+            "desired.row.001-002.value": "`"
+            + json.dumps(
+                [reference(producer.replace(".", "_") + "_001", forms[0])]
+                if DesignSchemaCatalog(models)
+                .property_schema(kind, prop.removeprefix(kind + "."))
+                .get("type")
+                == "array"
+                else reference(producer.replace(".", "_") + "_001", forms[0])
+            )
+            + "`",
             "desired.row.001-002.comment": "synthetic",
         }
     )
@@ -1349,8 +1362,8 @@ def test_legacy_contract_preparation(models, prop):
     }
 
 
-@pytest.mark.parametrize("prop", LEGACY_CONTRACTS)
-def test_legacy_contract_rejects_wrong_producer(models, prop):
+@pytest.mark.parametrize("prop", ELEMENT_CONTRACTS)
+def test_explicit_contract_rejects_wrong_producer(models, prop):
     declared = contract(prop)
     wrong = next(
         kind for kind in ("S3.Bucket", "IAM.Role", "EC2.VPC") if kind not in declared
@@ -1364,15 +1377,24 @@ def test_legacy_contract_rejects_wrong_producer(models, prop):
     receiver.update(
         {
             "desired.row.001-002.property": prop,
-            "desired.row.001-002.value": "[producer](producer.md#saved-001)",
+            "desired.row.001-002.value": "`"
+            + json.dumps(reference(wrong.replace(".", "_") + "_001", "Arn"))
+            + "`",
             "desired.row.001-002.comment": "synthetic",
         }
     )
     save(scope, receiver)
     inputs = comparison(models, ("producer", "receiver"))
     row = dict(entries(receiver, "desired.row."))["001-002"]
-    with pytest.raises(Blocked):
-        inputs.prepare_value("receiver", row, kind, row_id="001-002").require_value()
+    value = inputs.prepare_value(
+        "receiver", row, kind, row_id="001-002"
+    ).require_value()
+    TestCase().assertIsNot(
+        inputs.reference_decision(
+            value, value, kind, prop.removeprefix(kind + ".")
+        ).equal,
+        True,
+    )
 
 
 def test_role_formats_and_expression_producer(models):

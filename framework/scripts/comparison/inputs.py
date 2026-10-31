@@ -18,13 +18,13 @@ from iac_evaluation import RETURN_ATTRIBUTE_PROPERTIES
 from model.adapters.observed import mapped_resource, resource_index
 from model.core import ReferenceResolutionError, entries, stack_model
 from model.files import load_model, resource_row_index
-from model.identity import anchor_index, parse_reference, select_anchor
 from model.literal_values import value_shape
 from model.projection import reference_attribute
+from model.reference_nodes import is_reference, parse
+from model.reference_values import resolve
 from model.sources import _invocation_reads, model_exists, model_paths
 from task_contract_core import task_reads
 from utils.arn_values import context_value, named_arn
-from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import (
     Blocked,
@@ -349,12 +349,58 @@ class Inputs:
         self.metrics["stack_evaluations"] += 1
         return template, self.stack_inputs[name]
 
+    def load_reference_models(self):
+        if self.local_comparison and not self.reference_models_loaded:
+            for path in model_paths(self.root, self.environment, self.directory):
+                if path.stem != "cloudformation-stacks":
+                    self.model(path.stem)
+            self.reference_models_loaded = True
+
     def reference(
         self, service, value, expected_attribute=None, *, protect_import=True
     ):
+        if is_reference(value):
+            self.load_reference_models()
+            resolver = _imports_model_identity.Resolver(self.root, self.model_reads)
+            resolver.catalog = self.catalog
+            index = {}
+            for producer, resources in self.resources.items():
+                snapshot = self.models[producer]
+                if (snapshot.scope.environment, snapshot.scope.target) != (
+                    self.environment,
+                    self.directory,
+                ):
+                    continue
+                for number, resource in resources.items():
+                    index.setdefault(resource["logicalId"], []).append(
+                        (self.models[producer], number, resource)
+                    )
+            resolver.logical_indexes[self.environment, self.directory] = index
+            scope = _imports_model_sources.Scope(
+                self.root, self.environment, self.directory, service
+            )
+            try:
+                snapshot, number, resource, attribute = resolve(
+                    parse(value), scope, resolver
+                )
+            except (ValueError, KeyError) as error:
+                raise Blocked(str(error)) from error
+            value = ResourceReference(
+                {
+                    "$resource": [snapshot.scope.service, number],
+                    "$attribute": reference_attribute(
+                        resource["resourceType"], attribute
+                    ),
+                }
+            )
         if isinstance(value, ResourceReference):
             refservice, identity = value["$resource"]
-            resource = self.resources[refservice][identity]
+            try:
+                resource = self.resources[refservice][identity]
+            except KeyError as error:
+                raise Blocked(
+                    "Resource reference has no unique loaded producer"
+                ) from error
             if (
                 expected_attribute is not None
                 and reference_attribute(resource["resourceType"], expected_attribute)
@@ -376,62 +422,7 @@ class Inputs:
                 if protect_import
                 else value
             )
-        Scope = _imports_model_sources.Scope
-        consumer = Scope(self.root, self.environment, self.directory, service)
-        environment, directory, refservice, anchor = parse_reference(value, consumer)
-        if (environment, directory) != (self.environment, self.directory):
-            Resolver = _imports_model_identity.Resolver
-            Resolver(self.root).resolve(value, consumer)
-            raise Blocked("cross-target IaC reference requires a proven handoff")
-        model = self.model(refservice)
-        if not hasattr(self, "reference_anchor_indexes"):
-            self.reference_anchor_indexes = {}
-        if refservice not in self.reference_anchor_indexes:
-            self.reference_anchor_indexes[refservice] = anchor_index(model.values)
-        try:
-            identity, resource = select_anchor(
-                self.reference_anchor_indexes[refservice], anchor, value
-            )
-        except ReferenceResolutionError as error:
-            raise Blocked(str(error)) from error
-        attributes = {
-            row["property"].removeprefix(resource["resourceType"] + ".")
-            for _, row in self.rows[refservice][identity]
-            if row["property"] in catalog_outputs(self.root, resource["resourceType"])
-        }
-        schema = self.catalog.schema(resource["resourceType"])
-        primary = schema.get("primaryIdentifier", [])
-        if expected_attribute is None:
-            expected_attribute = REF_ATTRIBUTES.get(resource["resourceType"])
-            if expected_attribute is None:
-                raise Blocked(
-                    f"reference attribute is unproven: {resource['resourceType']}; explicit property contract required"
-                )
-        expected_attribute = reference_attribute(
-            resource["resourceType"], expected_attribute
-        )
-        # The link label is never a physical ID, including PENDING_DEPLOY.
-        readonly = schema.get("readOnlyProperties", [])
-        alias_arn = resource[
-            "resourceType"
-        ] in ARN_SHAPES and expected_attribute == reference_attribute(
-            resource["resourceType"], "Arn"
-        )
-        if (
-            not alias_arn
-            and expected_attribute not in attributes
-            and expected_attribute not in schema.get("identifierOutputs", [])
-            and "/properties/" + expected_attribute not in primary + readonly
-        ):
-            raise Blocked(f"reference attribute not confirmed: {expected_attribute}")
-        symbol = ResourceReference(
-            {"$resource": [refservice, identity], "$attribute": expected_attribute}
-        )
-        return (
-            self.protect_import_reference(symbol, resource, None)
-            if protect_import
-            else symbol
-        )
+        raise Blocked("Resource reference requires a validated $modelRef symbol")
 
     def protect_import_reference(self, symbol, resource, consumer_property):
         expected_attribute = symbol["$attribute"]
@@ -463,12 +454,7 @@ class Inputs:
             raise Blocked(
                 f"local resource reference missing/inactive: {stack}/{logical}"
             )
-        if self.local_comparison and not self.reference_models_loaded:
-            # Same-target model identities establish uniqueness, never physical values.
-            for path in model_paths(self.root, self.environment, self.directory):
-                if path.stem != "cloudformation-stacks":
-                    self.model(path.stem)
-            self.reference_models_loaded = True
+        self.load_reference_models()
         direct = self.index()
         try:
             entry = mapped_resource(direct, stack, logical, definition["Type"])
@@ -932,6 +918,15 @@ class Inputs:
             frozenset({("comparison-select",), ("comparison-unresolved",)}),
         )
 
+    def evaluate_model(self, stack, value):
+        evaluator = self.evaluator()
+        evaluator.defer_select = evaluation.model_select
+        return evaluator.evaluate(
+            stack,
+            value,
+            frozenset({("comparison-select",), ("comparison-unresolved",)}),
+        )
+
     def reference_forms(self, kind, path):
         key = self.local_comparison, kind, path
         if key not in self.reference_formats:
@@ -1134,7 +1129,14 @@ class Inputs:
         )
 
     def normalize_model_reference(
-        self, service, row_id, field, value, context=None, failures=None
+        self,
+        service,
+        row_id,
+        field,
+        value,
+        context=None,
+        failures=None,
+        property_name=None,
     ):
         try:
             if service not in self.model_references:
@@ -1165,6 +1167,7 @@ class Inputs:
                 "" if field == "document" or isinstance(value, (list, dict)) else None,
                 context,
                 failures,
+                property_name,
             )
         except (KeyError, ValueError, TypeError) as error:
             raise Blocked(str(error)) from error
@@ -1181,6 +1184,7 @@ class Inputs:
                     value,
                     context,
                     failures,
+                    row["property"],
                 )
             )
             if self.local_comparison and row_id is not None
@@ -1195,7 +1199,7 @@ class Inputs:
             local_comparison=self.local_comparison,
             desired_reference=self.desired_reference,
             property_schema=self.catalog.property_schema,
-            evaluate=self.evaluate,
+            evaluate=self.evaluate_model if self.local_comparison else self.evaluate,
             model_path=self.root
             / "model"
             / self.environment

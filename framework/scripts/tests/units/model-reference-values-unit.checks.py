@@ -216,7 +216,10 @@ def test_other_api_generated_output(fixture):
             "`arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:example-AbCd12`",
             "logical_only",
         ),
-        ("[Secret](secrets.md#saved-001)", "logical_only"),
+        (
+            "`" + json.dumps(reference("SecretsManager_Secret_001", "Name")) + "`",
+            "logical_only",
+        ),
         ("`UNSET`", "unresolved"),
     ],
 )
@@ -250,8 +253,8 @@ def test_required_input_literal_or_link(fixture, value, expected):
         ("example:AWSCURRENT", "conflict", True),
         (
             "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:example-AbCd12",
-            "unresolved",
-            False,
+            "conflict",
+            True,
         ),
         ("UNSET", "unresolved", False),
     ],
@@ -269,7 +272,9 @@ def test_required_link_observed_identity(fixture, observed, expected, conflict):
         "SecretsManager.RotationSchedule",
         attribute="SecretId",
     )
-    values["desired.row.001-001.value"] = "[Secret](secrets.md#saved-001)"
+    values["desired.row.001-001.value"] = (
+        "`" + json.dumps(reference("SecretsManager_Secret_001", "Name")) + "`"
+    )
     values["observed.row.001-001.value"] = "`" + observed + "`"
     save(scope, values)
     if conflict:
@@ -306,7 +311,9 @@ def test_required_link_with_recorded_arn(fixture, suffix, other):
         "SecretsManager.RotationSchedule",
         attribute="SecretId",
     )
-    values["desired.row.001-001.value"] = "[Secret](secrets.md#saved-001)"
+    values["desired.row.001-001.value"] = (
+        "`" + json.dumps(reference("SecretsManager_Secret_001", "Id")) + "`"
+    )
     values["observed.row.001-001.value"] = (
         "`" + (arn.replace("example", "another") if other else arn) + suffix + "`"
     )
@@ -324,9 +331,9 @@ def test_required_link_with_recorded_arn(fixture, suffix, other):
 @pytest.mark.parametrize(
     "link",
     [
-        "[Missing](secrets.md#missing)",
-        "[Wrong](s3.md#saved-001)",
-        "[Malformed](secrets.md#)",
+        "`" + json.dumps(reference("SecretsManager_Secret_999", "Id")) + "`",
+        "`" + json.dumps(reference("S3_Bucket_001", "BucketName")) + "`",
+        '`{"$modelRef":{"logicalId":"SecretsManager_Secret_001"}}`',
     ],
 )
 def test_required_input_invalid_link_fails(fixture, link):
@@ -379,7 +386,9 @@ def test_required_link_without_contract_is_unverified(fixture):
         "SecretsManager.RotationSchedule",
         attribute="SecretId",
     )
-    values["desired.row.001-001.value"] = "[Secret](secrets.md#saved-001)"
+    values["desired.row.001-001.value"] = (
+        "`" + json.dumps(reference("SecretsManager_Secret_001", "Name")) + "`"
+    )
     save(scope, values)
     with patch("model.reference_values.contract", return_value={}):
         with pytest.raises(FrameworkUnsupportedError):
@@ -394,7 +403,9 @@ def test_required_input_missing_producer_model(fixture):
         "SecretsManager.RotationSchedule",
         attribute="SecretId",
     )
-    values["desired.row.001-001.value"] = "[Missing](absent.md#saved-001)"
+    values["desired.row.001-001.value"] = (
+        "`" + json.dumps(reference("SecretsManager_Secret_999", "Id")) + "`"
+    )
     save(scope, values)
     with pytest.raises(ModelNeedsFixError):
         result(consumer, "SecretsManager_RotationSchedule_001", "Id")
@@ -436,10 +447,12 @@ def test_required_link_rejects_invalid_attribute_contract(fixture):
         "SecretsManager.RotationSchedule",
         attribute="SecretId",
     )
-    values["desired.row.001-001.value"] = "[Secret](secrets.md#saved-001)"
+    values["desired.row.001-001.value"] = (
+        "`" + json.dumps(reference("SecretsManager_Secret_001", "Name")) + "`"
+    )
     save(scope, values)
     with patch(
-        "model.reference_values.contract",
+        "model.identity._imports_reference_contracts.contract",
         return_value={"SecretsManager.Secret": ("NotRegistered",)},
     ):
         with pytest.raises(ModelNeedsFixError):
@@ -530,7 +543,9 @@ def test_explicit_pending(fixture, mode):
     producer, values, consumer, policy = fixture
     values["desired.resource.001.resourceMode"] = mode
     values["desired.row.001-002.property"] = "S3.Bucket.Arn"
-    values["desired.row.001-002.value"] = "[self](#saved-001)"
+    values["desired.row.001-002.value"] = (
+        "`" + json.dumps(reference("S3_Bucket_001", "Arn")) + "`"
+    )
     values["desired.row.001-002.comment"] = "合成"
     values["observed.row.001-002.value"] = "`PENDING_DEPLOY`"
     save(producer, values)
@@ -696,7 +711,9 @@ def test_refuses_unproven_values(fixture, fault):
             values["observed.row.001-001.value"] = "`different-bucket`"
         else:
             values["desired.row.001-002.property"] = "S3.Bucket.Arn"
-            values["desired.row.001-002.value"] = "[self](#saved-001)"
+            values["desired.row.001-002.value"] = (
+                "`" + json.dumps(reference("S3_Bucket_001", "Arn")) + "`"
+            )
             values["desired.row.001-002.comment"] = "合成"
             values["observed.row.001-002.value"] = "`arn:aws:s3:::different-bucket`"
         save(producer, values)

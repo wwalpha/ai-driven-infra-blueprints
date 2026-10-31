@@ -19,7 +19,6 @@ from comparison.values import desired_value
 from design.catalog import DesignSchemaCatalog
 from design.services.ec2.security_groups import cells, sg_tables
 from model.core import literal, properties
-from model.sources import runtime_values
 from support.fixture_cases import load_case, load_suite
 from support.security_group_tables_fixtures import (
     COMMENTS,
@@ -33,7 +32,6 @@ from support.security_group_tables_fixtures import (
     Path,
     expanded_design,
     layout_errors,
-    model_projection,
     port_properties,
     security_group_table_lines,
     sys,
@@ -177,13 +175,16 @@ def check_service_filenames(tmp_path):
 def _callback_main_errors(catalog, metadata, path, root, /, text, *, saved=True):
     path.write_text(text, encoding="utf-8")
     validator = VALIDATOR.Validator(root)
-    values = {
-        key: raw
-        for key, raw in properties(GENERATED_MODEL).items()
-        if not (key.startswith("observed.") and key.endswith((".property", ".comment")))
-    }
     if saved:
-        validator.design_sources = {path: runtime_values(values)}
+        # These hand-authored Markdown cases bind anchors; scoped tests check complete Model/View equality.
+        validator.design_sources = {
+            path: {
+                key: value
+                for key, value in properties(GENERATED_MODEL).items()
+                if key.startswith("desired.resource.")
+                and key.endswith((".resourceType", ".logicalId", ".anchor"))
+            }
+        }
     validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
     validator.markdown_service_metadata(path, catalog[0])
     validator.check_design_tables(metadata, *catalog)
@@ -237,16 +238,13 @@ def check_table_conditions():
                 "resource-EC2_SecurityGroup_001", "security-group-groupone"
             ).replace("resource-EC2_SecurityGroup_002", "security-group-grouptwo"),
             saved=False,
-        ), errors(path.read_text(), saved=False)
+        ), errors(path.read_text())
         short_design = DESIGN.replace("| EC2.SecurityGroup.", "| ")
         assert not errors(short_design), errors(short_design)
         assert expanded_design(short_design.splitlines()) == expanded_design(
             DESIGN.splitlines()
         )
         assert not errors(DESIGN)
-        assert model_projection.linked_resource(
-            path, "[sgr-00000001](#resource-EC2_SecurityGroupIngress_001)"
-        ) == ("EC2.SecurityGroupIngress", "EC2_SecurityGroupIngress_001")
         assert VALIDATOR.rendered_policy_design(path) == DESIGN
 
         normalized, children = expanded_design(DESIGN.splitlines())

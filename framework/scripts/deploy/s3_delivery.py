@@ -6,8 +6,7 @@ from functools import partial as _bind_framework_callback
 from types import SimpleNamespace
 
 from design.policy_tables import literal
-from model.core import LINK
-from model.identity import resource_link
+from model.references import has_reference
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 from utils.json_format import policy_json as strict_json
@@ -194,7 +193,7 @@ def model_conditions(backend, bucket, boundary=None):
             fail("INDETERMINATE", "SSE-S3 design also specifies a KMS key")
         if algorithm == "aws:kms":
             raw = selected(resource, KEY)
-            if resource_link(raw) or LINK.fullmatch(raw):
+            if has_reference(raw):
                 referenced = resource.reference(raw)
                 if referenced.kind == "KMS.Alias":
                     parent = referenced.parent()

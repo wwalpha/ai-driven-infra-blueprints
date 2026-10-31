@@ -53,7 +53,7 @@ If updating the model fails, do not update Markdown/JSON. The model is authorita
 - Retain Name tags for `EC2.VPCEndpoint`/`EC2.Instance` in desired rows using each resource type's formal `Tags[].Key=Name` and corresponding `Tags[].Value`. Do not add design-only `.Name`. Name tags are mandatory for CREATE; reject case differences, missing Values, empty or unconfirmed values, and do not substitute display labels. Listings, headings and ordinary reference link labels use that Value; anchors retain their saved values; retain internal logical IDs in hidden metadata and the separation of existing desired logical references/observed IDs for identifier references. Retain VPC/Subnet/RouteTable/Flow Log .Name displays.
 
 - Retain Security Groups and their Ingress/Egress in `security-group.properties`, and generate `security-group.md`. Use `security-group` for service metadata and anchor prefixes. Do not mix other EC2 resources into this model.
-- Retain ConfigurationRecorder RoleName displays and KDF BucketARN/RoleARN in desired as resource links displaying confirmed names of referenced resources. If a referenced IAM role name starts with `AWSService` (example: `AWSServiceRoleForConfig`), do not require an IAM Role design or link; retain the role name literal in the formal ARN property's desired value. Do not change formal ARN properties to name properties or save derived ARNs in Model authority; retain Resource links/names in these Markdown displays. Separate KDF KeyARN into a logical reference to the actual KMS Key in desired and the displayed KeyId/PENDING_DEPLOY in observed according to existing identifier reference rules.
+- Retain ConfigurationRecorder RoleName displays and save KDF BucketARN/RoleARN references as typed `$modelRef` nodes; Markdown displays confirmed names of referenced resources. If a referenced IAM role name starts with `AWSService` (example: `AWSServiceRoleForConfig`), do not require an IAM Role design or link; retain the role name literal in the formal ARN property's desired value. Do not change formal ARN properties to name properties or save derived ARNs in Model authority; retain Resource links/names in these Markdown displays. Separate KDF KeyARN into a logical reference to the actual KMS Key in desired and the displayed KeyId/PENDING_DEPLOY in observed according to existing identifier reference rules.
 
 For `Config.ConfigurationRecorder.RoleARN`, an IMPORT resource may retain an acquired,
 valid IAM Role ARN with its full partition, account ID, path and role name. Display
@@ -323,20 +323,16 @@ producer integrity, change-impact analysis and warnings still apply. Source publ
 and generation reject embedded Resource links with Model, Resource, Property and JSON
 Pointer diagnostics. Do not automatically migrate/overwrite existing Models, introduce
 new reference syntax, or save reference-derived generated ARNs in Model authority.
-Ordinary URLs and legitimate non-Resource JSON strings remain valid. Resource links and
-JSON artifact links outside JSON bodies remain supported.
+Ordinary URLs and legitimate non-Resource JSON strings remain valid. Generated Markdown Resource links and
+JSON artifact links remain supported.
 
-For a CNAME `Route53.RecordSet.ResourceRecords` Resource link to an Interface
-`EC2.VPCEndpoint`, optional `desired.reference.<id>.valueSelector=dns-entry[n].dns-name`
-declares the zero-based `DnsEntries` entry and its DNS-name component. Use existing
-resource/link metadata (including the exact saved text, occurrence, producer scope and
-logicalId); do not change the saved row value or infer `n=0`. This selector is restricted
-to these links, including an explicitly numbered ResourceRecords row. It does not extend
-`$modelRef` or authorize links inside AWS JSON. Comparison requires Model/IaC CNAME and
-Interface types, the same proven Producer and `Select(1, Split(":", Select(n, DnsEntries)))`,
-with a unique same-scope Export. Missing selection, provenance or extraction proof remains
-uncompared. Structural equality retains runtime Select-bounds uncertainty and
-`current_aws_verified=false`; it never supplies an observed DNS value.
+For a CNAME `Route53.RecordSet.ResourceRecords`, select Interface Endpoint DNS names
+with the existing intrinsic form `Select(1, Split(":", Select(n, $modelRef(DnsEntries))))`.
+The typed operand keeps its logicalId and attribute; explicitly save the nonnegative entry index.
+Do not use old Resource links or their `valueSelector` metadata. Comparison retains the
+CNAME/Interface, Producer identity, same-scope Export/direct correspondence and extraction
+proofs. Missing evidence stays uncompared; structural equality never proves runtime bounds
+or current AWS values and never persists a generated DNS value.
 
 Rows with JSON links require `desired.row.<番号>.document`; reject duplicate JSON keys, invalid constants, and non-objects. Validate generated JSON directly against the projected document; do not store derived JSON Artifact hashes in the Model or require `artifactSha256`.
 
@@ -346,8 +342,7 @@ use `generated_document()` and the common Reference Value Resolver in both norma
 strict generation. Resolve confirmed references in objects, arrays and encoded JSON
 strings, then apply `execution_document()`; never restore logical nodes in these Artifacts.
 Compare saved JSON with this physical projection, not the authored logical document.
-Markdown uses the authored reference positions to retain Resource links, independently
-of the generated JSON values. Display and generated values never flow back to Model.
+Markdown uses authored reference positions and validated logical contracts to generate Resource links independently of physical resolution. Existing Resource metadata and confirmed Observed values determine labels; no display-only Model fields are added. Invalid targets, attributes, types, scopes or saved anchors do not produce normal links. Producer self references are symbolic, use confirmed observations when present and never become physical literals; non-self chains retain cycle and drift diagnostics. Display and generated values never flow back to Model.
 Unresolved references prevent the affected service's Artifact publication and report the
 service, Producer and cause through Reference Diagnostics; other services continue.
 Retained old outputs are not successful current generation. Model Change Validation and
@@ -463,7 +458,7 @@ diff; extraction alone is not schema/reference/generated-equality validation.
 
 Restore `Config.ConfigurationRecorder.RoleName`, `EC2.RouteTableId`, `S3.Bucket.BucketEncryption.BucketKeyEnabled`, `S3.Bucket.BucketEncryption[].KMSMasterKeyID`, `S3.Bucket.BucketEncryption[].SSEAlgorithm`, and `S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays` used in Markdown configuration tables to formal properties through `framework/mappings/aws/<service>.yaml display.name` and save them in models. Do not save display names as model properties. Omit heading resource-type prefixes in Property columns.
 
-Do not generate hidden `CodeCommit.Repository.RepositoryId` properties in models; also exclude them from identifier output reference detection. Retain RepositoryName and Markdown Resource link references in desired. Do not change the catalog.
+Do not generate hidden `CodeCommit.Repository.RepositoryId` properties in models; also exclude them from identifier output reference detection. Retain RepositoryName and typed `$modelRef` references in desired. Do not change the catalog.
 
 Restore CodePipeline `Stages[N]` and `Actions[M]`, including single actions, to formal `Stages[]`/`Actions[]` in models, retaining original row order and membership per stage/action. Combine consecutive `Configuration.<Key>` rows of the same action into one formal `CodePipeline.Pipeline.Stages[].Actions[].Configuration` property, generating Value as a JSON object of original string values. Store confirmed AWS setting values under the corresponding JSON object keys and track Resource relationships with external reference metadata; do not restore them to CFn import expressions or Export names. Combine each key's Japanese comments with key names in occurrence order. Do not save display-only indexes or per-key Configuration properties as model properties. Do not rewrite original Markdown during generation.
 
@@ -507,7 +502,7 @@ desired.row.001-003.comment=VPCを識別するNameタグの値
 desired.note.001.text=実装注記: 必要最小限の注記
 ```
 
-Specify resource and row numbers in authoritative Model inputs. Validate deterministic output order with saved-view comparison. Exclude `## リソース一覧` tables from Model inputs for all services as human-readable generated guides. Markdown property rows follow materials properties row order, omitting unselected/hidden items. Markdown retains model row order; do not move names or identifiers back to the beginning. Retain existing special display positions for design-only `.Name` and `S3.Bucket.Region`. Match `S3.Bucket` heading identifiers to BucketName; retain internal logicalId from hidden metadata. Missing identity markers are not permission to infer logicalId from BucketName. For identity-free grouped `S3.BucketPolicy.PolicyDocument` and formal `EC2.SubnetRouteTableAssociation.RouteTableId` displayed as `EC2.RouteTableId` in Markdown, do not create independent `desired.resource.*`; reflect them into the containing parent's `desired.row.*` with formal Property names. Resolve omitted `S3.BucketPolicy.Bucket` and `EC2.SubnetRouteTableAssociation.SubnetId` from containing parents; do not generate `EC2.SubnetRouteTableAssociation.Id` in models. For catalog `IDENTIFIER_OUTPUT` rows, generate the resource's own fully scoped Markdown Resource link into `desired.*` and Markdown current values into `observed.*` of the same row key. For Markdown link rows referencing identifier outputs too, retain fully scoped Markdown Resource links in `desired.*` and Markdown link display text into `observed.*` of the same row key. Retain Alias Markdown Resource links losslessly in `desired.*` for rows referencing KMS aliases. Policy JSON bodies are authoritative in document. Validate JSON syntax, native types, array order, AWS document constraints and generated content directly; do not generate a derived runtime document hash. Import approval, Deploy current-run input guards/unfinished-operation journals and file delivery integrity retain their separate SHA-256 evidence.
+Specify resource and row numbers in authoritative Model inputs. Validate deterministic output order with saved-view comparison. Exclude `## リソース一覧` tables from Model inputs for all services as human-readable generated guides. Markdown property rows follow materials properties row order, omitting unselected/hidden items. Markdown retains model row order; do not move names or identifiers back to the beginning. Retain existing special display positions for design-only `.Name` and `S3.Bucket.Region`. Match `S3.Bucket` heading identifiers to BucketName; retain internal logicalId from hidden metadata. Missing identity markers are not permission to infer logicalId from BucketName. For identity-free grouped `S3.BucketPolicy.PolicyDocument` and formal `EC2.SubnetRouteTableAssociation.RouteTableId` displayed as `EC2.RouteTableId` in Markdown, do not create independent `desired.resource.*`; reflect them into the containing parent's `desired.row.*` with formal Property names. Resolve omitted `S3.BucketPolicy.Bucket` and `EC2.SubnetRouteTableAssociation.SubnetId` from containing parents; do not generate `EC2.SubnetRouteTableAssociation.Id` in models. For catalog `IDENTIFIER_OUTPUT` rows, save a typed self `$modelRef` with the explicit returned attribute in desired; keep confirmed current values or `PENDING_DEPLOY` only in the same row's observed value. Attribute/property aliases use the common registered map (for example SecurityGroup GroupId → Model Id). Retain Alias references as typed nodes to the Alias itself. Never write Markdown display labels or links back to authority. Policy JSON bodies are authoritative in document. Validate JSON syntax, native types, array order, AWS document constraints and generated content directly; do not generate a derived runtime document hash. Import approval, Deploy current-run input guards/unfinished-operation journals and file delivery integrity retain their separate SHA-256 evidence.
 
 Follow [observed-values](observed-values.md) for identifier states and saving conditions.
 
@@ -532,7 +527,7 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 - `framework/rules/resource-layout.json` is authoritative for display relationships. Retain single children without identity, such as S3 BucketPolicy and Subnet Route Table Association, as parent resource rows.
 - For children with identity such as KMS Alias, generate independent `desired.resource.<番号>.resourceType`, `logicalId`, `anchor`, and their own `desired.row.*` even within the same Markdown table. Place children after parents in occurrence order. Interpret hidden Markdown markers as structure; retain only Japanese descriptions in row comments.
 - Derive KMS Key display names from `AliasName` of Aliases whose membership is verified through `parentReference`, removing the leading `alias/`. If there is 1 alias type, do not save derived display names in labels. If multiple types exist, require confirmed `display.resource.*.label` to match a name derived from one of the aliases. When reading multiple-alias displays in explicit migration, retain the selected display name in label. Do not convert AliasName desired values or KeyId desired/observed.
-- Generate child `desired.resource.<番号>.parentProperty=KMS.Alias.TargetKeyId` and `parentReference=[S3FILETRANSFERKEY01](#kms-s3filetransferkey01)`. Restore omitted parent properties from this logical reference; do not fill using physical KeyIds or the first Alias. This is desired membership; do not add observed values.
+- Generate child `desired.resource.<番号>.parentProperty=KMS.Alias.TargetKeyId` and `parentReference={"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`. Restore omitted parent properties from this logical reference; do not fill using physical KeyIds or the first Alias. This is desired membership; do not add observed values.
 - Lambda Permissions also retain independent desired resources and their own formal rows. Specify owning Functions through `parentProperty=Lambda.Permission.FunctionName` and `parentReference`, matching formal FunctionName row desired values. Restore Markdown `Permission.*` to formal `Lambda.Permission.*` and restore Id/FunctionName, each comment, and confirmed display names from hidden markers. Retain Id desired logical references/observed current IDs; do not save markers or abbreviated names as model properties.
 - Retain child anchors and AliasName as-is in Alias references; do not convert to KeyId or separate into observed namespaces. When moving children, only parentReference points to the new owning parent; retain confirmed logical IDs and anchors.
 
@@ -577,16 +572,16 @@ Display `SecretsManager.RotationSchedule` in the same Markdown table as its pare
 
 ## CloudFormation S3配置
 
-Optional settings in `cloudformation-stacks.properties`. Deployment buckets point to `S3.Bucket` anchors in the same target; link display names must match confirmed BucketNames in those models. The following names/paths are format examples; use human-confirmed values for actual targets.
+Optional settings in `cloudformation-stacks.properties`. Deployment buckets use typed `$modelRef` references to `S3.Bucket.BucketName` in the same target. Resolve confirmed BucketNames only at the execution boundary; generated Markdown artifact cells use the shared reference presentation. The following names/paths are format examples; use human-confirmed values for actual targets.
 
 ```properties
-desired.deployment.templateBucket=[app-dev-assets](s3.md#s3-app-dev-assets)
+desired.deployment.templateBucket={"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}
 desired.deployment.templateKeyPrefix=cloudformation/templates/
 desired.artifact.001.stack=cfn-stack-app-dev-job
 desired.artifact.001.resource=FunctionA
 desired.artifact.001.property=Code
 desired.artifact.001.source=infra/cloudformation/artifacts/function-a.zip
-desired.artifact.001.bucket=[app-dev-assets](s3.md#s3-app-dev-assets)
+desired.artifact.001.bucket={"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}
 desired.artifact.001.keyPrefix=lambda/functions/
 ```
 

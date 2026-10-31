@@ -13,32 +13,8 @@ def node(scope, kind="service", identity=""):
     return (*scope, kind, identity)
 
 
-def canonical(value):
-    """Keep JSON types/order, but ignore a saved Resource link's display label."""
-    if isinstance(value, dict):
-        return {key: canonical(child) for key, child in value.items()}
-    if isinstance(value, list):
-        return [canonical(child) for child in value]
-    if isinstance(value, str):
-        for match in reversed(
-            tuple(_dependency_model_identity.reference_tokens(value))
-        ):
-            value = (
-                value[: match.start()]
-                + "[]("
-                + match[2]
-                + "#"
-                + match[3]
-                + ")"
-                + value[match.end() :]
-            )
-    return value
-
-
 def frozen(value):
-    return json.dumps(
-        canonical(value), sort_keys=True, ensure_ascii=False, separators=(",", ":")
-    )
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
 def consumer_key(key, row_keys, number):

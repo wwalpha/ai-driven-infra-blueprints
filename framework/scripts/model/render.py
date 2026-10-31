@@ -45,7 +45,6 @@ import model.sources as _imports_model_sources
 from model.change_scope import change_reads
 from model.core import (
     ARTIFACT_FIELDS,
-    LINK,
     ReferenceResolutionError,
     deployment_settings,
     entries,
@@ -55,6 +54,7 @@ from model.core import (
     properties as properties,
 )
 from model.format import JSON_LINK
+from model.reference_nodes import parse, resolve
 
 
 def stack_markdown(
@@ -64,7 +64,13 @@ def stack_markdown(
     limit, stacks = stack_model(values)
     settings, artifacts = deployment_settings(values)
     displayed = reference_display(values, path, root)
+    presentation = _reference_presentation.Presentation(values, path, root)
     display_artifacts = dict(entries(displayed, "desired.artifact."))
+    for artifact in display_artifacts.values():
+        artifact["bucket"] = (
+            presentation.link(parse(artifact["bucket"]), field="S3.BucketPolicy.Bucket")
+            or artifact["bucket"]
+        )
     delivery = []
     if artifacts:
         delivery = [
@@ -144,33 +150,6 @@ def display_name(
     if GROUPED.get(kind, {}).get("display") == "rule-table":
         return label or resource["logicalId"], None
     mode = _dependency_design_layout.resource_mode(resource)
-    if mode == "IMPORT" and kind not in {"IAM.Role", "CodeBuild.Project"}:
-        # Resolve a saved self-reference from its observation, never from its link label.
-        local = {""} | {
-            value + ".md"
-            for key, value in values.items()
-            if key.startswith("desired.service.") and key.endswith(".serviceId")
-        }
-        rows = [list(row) for row in rows]
-        for row in rows:
-            field = row[1].removeprefix(kind + ".")
-            link = LINK.fullmatch(row[2])
-            if (
-                field in _dependency_design_layout.resource_name_fields(kind)
-                and link
-                and link[2] in local
-                and link[3] == resource["anchor"]
-            ):
-                matches = [
-                    rid
-                    for rid, item in entries(values, "desired.row.")
-                    if rid.startswith(identity + "-")
-                    and item.get("property") == kind + "." + field
-                    and (source_link := LINK.fullmatch(item.get("value", "")))
-                    and source_link.groups()[1:] == link.groups()[1:]
-                ]
-                if len(matches) == 1:
-                    row[2] = values.get(f"observed.row.{matches[0]}.value", row[2])
     count = (
         sum(
             item["resourceType"] == kind
@@ -307,6 +286,8 @@ def resource_details(
 
 
 def grouped_resources(values, details, by_anchor, *, scope=None):
+    resolver = _imports_model_projection.reference_resolver(values, scope, scope.root)
+    by_logical = {item[1]["logicalId"]: item for item in details}
     grouped: dict[str, list] = {}
     for item in details:
         identity, resource, name, rows = item
@@ -319,15 +300,11 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
                 raise InputValidationError(
                     f"{kind}: {resource['logicalId']}: required metadata missing: desired.resource.{identity}.{field} ({kind}.{rule['parentProperty']})"
                 )
-        link = LINK.fullmatch(resource["parentReference"])
-        parse_reference = _imports_model_identity.parse_reference
-        local = link and (
-            not link[2]
-            or scope is not None
-            and parse_reference(link[0], scope)[:3]
-            == (scope.environment, scope.target, scope.service)
+        node = parse(resource["parentReference"])
+        snapshot, _, target, _ = resolve(
+            node, scope, resolver, field=resource["parentProperty"]
         )
-        parent = by_anchor.get(link[3]) if local else None
+        parent = by_logical.get(node.logical_id) if snapshot.scope == scope else None
         if resource["parentProperty"] != kind + "." + rule["parentProperty"]:
             raise InputValidationError("invalid grouped parentProperty: " + identity)
         if not parent or parent[1]["resourceType"] != rule["parent"]:
@@ -345,17 +322,7 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
                 raise InputValidationError(
                     f"{kind}: {resource['logicalId']}: {resource['parentProperty']} requires exactly one formal row matching parentReference"
                 )
-            row_link = LINK.fullmatch(parent_rows[0].get("value", ""))
-            same = (
-                parse_reference(row_link[0], scope) == parse_reference(link[0], scope)
-                if scope is not None and row_link
-                else bool(
-                    row_link
-                    and row_link[3] == link[3]
-                    and not row_link[2]
-                    and not link[2]
-                )
-            )
+            same = parse(parent_rows[0]["value"]) == node
             if not same:
                 raise ReferenceResolutionError(
                     "grouped formal row does not match parentReference",
@@ -648,7 +615,7 @@ def _generate_markdown(
             / path.relative_to(path.parents[4] / "docs/designs")
         ).with_suffix(".properties")
     )
-    grouped = grouped_resources(values, details, by_anchor, scope=scope)
+    grouped = grouped_resources(reference_values, details, by_anchor, scope=scope)
     return render_markdown(
         path,
         values,
@@ -739,7 +706,6 @@ def render_markdown(
         table = resource_table_lines(
             resource, name, rows, children, root, references=references
         )
-        baseline = table
         if presentation is not None and any(
             ref.link for ref in presentation.references.values()
         ):
@@ -754,7 +720,7 @@ def render_markdown(
                 root,
                 references=references,
             )
-            table = presentation.lines(baseline, marked)
+            table = presentation.lines(marked, marked)
         output += table
         sources = (
             tuple(
@@ -884,7 +850,8 @@ def model_policy_views(values, *, presentation=None):
             lines = policy_document_lines(document, policy)
             if presentation is not None:
                 marked = presentation.document(row_id, "document", document)
-                lines = presentation.lines(lines, policy_document_lines(marked, policy))
+                marked_lines = policy_document_lines(marked, policy)
+                lines = presentation.lines(marked_lines, marked_lines)
             policies.extend(["", *lines])
         if policies:
             start, end = (

@@ -61,7 +61,9 @@ def fixture(tmp_path, document=False):
             {
                 key: value
                 for key, value in values.items()
-                if not key.startswith("desired.row.001-002.")
+                if not key.startswith(
+                    ("desired.row.001-002.", "desired.reference.peer.")
+                )
             },
         )
     if document:
@@ -274,7 +276,16 @@ def check_route_table_pair_example(tmp_path):
                 f"desired.resource.{rid}.logicalId": "EC2_RouteTable_" + rid,
                 "desired.service.identity.lastAllocated": '{"EC2.RouteTable":23}',
                 f"desired.row.{rid}-001.property": "EC2.RouteTable.RouteTableId",
-                f"desired.row.{rid}-001.value": f"[route](vpc.md#route-{rid})",
+                f"desired.row.{rid}-001.value": "`"
+                + json.dumps(
+                    {
+                        "$modelRef": {
+                            "logicalId": "EC2_RouteTable_" + rid,
+                            "attribute": "RouteTableId",
+                        }
+                    }
+                )
+                + "`",
                 f"desired.row.{rid}-001.comment": "合成fixture",
                 f"observed.row.{rid}-001.value": "`rtb-" + rid + "`",
             }
@@ -290,7 +301,16 @@ def check_route_table_pair_example(tmp_path):
         endpoint.update(
             {
                 f"desired.row.001-{index:03d}.property": f"EC2.VPCEndpoint.RouteTableIds[{index}]",
-                f"desired.row.001-{index:03d}.value": f"[route](vpc.md#route-{rid})",
+                f"desired.row.001-{index:03d}.value": "`"
+                + json.dumps(
+                    {
+                        "$modelRef": {
+                            "logicalId": "EC2_RouteTable_" + rid,
+                            "attribute": "RouteTableId",
+                        }
+                    }
+                )
+                + "`",
                 f"desired.row.001-{index:03d}.comment": "合成fixture",
             }
         )
@@ -301,8 +321,8 @@ def check_route_table_pair_example(tmp_path):
     template = after / "model/stg/cde/vpc-endpoint.properties"
     template.write_text(
         template.read_text()
-        .replace("[route](vpc.md#route-009)", "[route](vpc.md#route-022)")
-        .replace("[route](vpc.md#route-010)", "[route](vpc.md#route-023)")
+        .replace("EC2_RouteTable_009", "EC2_RouteTable_022")
+        .replace("EC2_RouteTable_010", "EC2_RouteTable_023")
     )
     sources = {template.relative_to(after).as_posix()}
     refs = [

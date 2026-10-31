@@ -328,7 +328,7 @@ class ReferenceTests(unittest.TestCase):
     def test_pending_logical_only_and_invalid_type(self):
         for fields, expected in [
             (
-                {"CidrBlock": "10.0.0.0/16", "VpcId": "[VPC](#fixture)"},
+                {"CidrBlock": "10.0.0.0/16", "VpcId": self.ref("EC2_VPC_001", "VpcId")},
                 "pending_deploy",
             ),
             ({"CidrBlock": "10.0.0.0/16"}, "logical_only"),
@@ -440,7 +440,7 @@ class ReferenceTests(unittest.TestCase):
         self.assertIsNone(row["value"])
         item = self.result(snapshot)
         self.assertEqual(item["status"], "design_unresolved", item)
-        self.assertIn("MODEL_REF_INVALID_VALUE", item["reason"])
+        self.assertIn("no confirmed desired or observed value", item["reason"])
         row.update(
             status="resolved", value=self.ref("Logs_LogGroup_001", "LogGroupName")
         )
@@ -831,7 +831,9 @@ class DisplayTests(unittest.TestCase):
                 "desired.resource.002.resourceType": "KMS.Alias",
                 "desired.resource.002.logicalId": "Internal_002",
                 "desired.resource.002.anchor": "alias",
-                "desired.resource.002.parentReference": "[Key](#key)",
+                "desired.resource.002.parentReference": json.dumps(
+                    {"$modelRef": {"logicalId": "Internal_001", "attribute": "KeyId"}}
+                ),
                 "desired.row.002-001.property": "KMS.Alias.AliasName",
                 "desired.row.002-001.value": "`alias/app`",
                 "desired.row.002-001.comment": "fixture",

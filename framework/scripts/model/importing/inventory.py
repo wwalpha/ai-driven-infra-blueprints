@@ -16,10 +16,8 @@ from utils.lazy_definitions import load_once
 from utils.property_path import definition_path
 from utils.script_loader import module
 
-import model.identity as _dependency_model_identity
 import model.importing.sdk_inventory as sdk_inventory
 import model.projection as _imports_model_projection
-import model.sources as _dependency_model_sources
 from model.importing.discovery import (
     ADAPTER_INVENTORIES,
     adapter_detail,
@@ -27,6 +25,7 @@ from model.importing.discovery import (
     resolve,
     type_name,
 )
+from model.reference_nodes import nodes
 
 
 def comparator():
@@ -81,17 +80,10 @@ def cloudcontrol_value(ctx, resource, getter):
         current = resource.current(prop)
         if current is None:
             rows = resource.rows_for(prop)
-            scope = _dependency_model_sources.scope_for(resource.model.path)
             if any(
-                _dependency_model_identity.resource_link(row["value"])
-                and _dependency_model_identity.parse_reference(row["value"], scope)
-                == (
-                    scope.environment,
-                    scope.target,
-                    scope.service,
-                    resource.spec.get("anchor"),
-                )
+                node.logical_id == resource.spec["logicalId"]
                 for _, row in rows
+                for node in nodes(row["value"].strip("`"))
             ):
                 raise comparator().Unresolved(
                     "provider self identity has no confirmed observation"

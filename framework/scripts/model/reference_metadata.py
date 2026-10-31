@@ -5,7 +5,6 @@ from types import MappingProxyType
 
 from utils.json_format import strict_json
 
-import model.identity as identity
 from model.core import structural_entries
 from model.format import KEY, PART, parse
 from model.reference_nodes import nodes
@@ -62,27 +61,6 @@ def extract(snapshot, *, strict=False):
 
 def candidates(value, scope, links, logical, *, strict=False, uncertain=False):
     diagnostics = []
-    for token in identity.reference_tokens(value):
-        try:
-            address = identity.parse_reference(token[0], scope)
-        except ValueError as error:
-            if strict:
-                raise
-            # These addresses cannot resolve to any producer in the Model tree.
-            diagnostics.append(
-                {"message": str(error), "kind": "link", "outsideModel": True}
-            )
-        else:
-            links.add("/".join(address[:3]))
-            if uncertain:
-                diagnostics.append(
-                    {
-                        "message": "reference in unreadable or duplicate property",
-                        "kind": "link",
-                        "producerScope": "/".join(address[:3]),
-                        "anchor": address[3],
-                    }
-                )
     raw = value.strip("`")
     for node in nodes(raw, errors=diagnostics):
         logical.add(node.logical_id)
@@ -178,7 +156,7 @@ def possible(error, scope, scopes, identifiers):
             continue
         if (
             not producer
-            and error.get("kind") not in {"link", "unknown"}
+            and error.get("kind") != "unknown"
             and parts[:2] != (scope.environment, scope.target)
         ):
             continue

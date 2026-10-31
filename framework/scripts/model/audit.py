@@ -183,11 +183,6 @@ def dependencies(root, target, selected, *, model_references=True):
                         # The row snapshot retains the classified resolution error.
                         continue
                     pending.append((source.scope.path, {rid}))
-                reference_tokens = _imports_model_identity.reference_tokens
-                resolver = identity_resolver
-                for uri in reference_tokens(value):
-                    source, rid, _ = resolver.resolve(uri[0], data.scope)
-                    pending.append((source.scope.path, {rid}))
                 try:
                     names = logical_names(json.loads(value.strip("`")))
                 except (ValueError, TypeError):
@@ -462,13 +457,8 @@ def generate(root, environment, selector, service):
         "def memo_table(): return None\n"
     )
     engine += definitions(
-        scripts / "model/identity.py",
-        ["parse_reference", "anchor_index", "select_anchor"],
-    ).replace("    from model.references import link_scope\n", "")
-    engine += definitions(
         scripts / "validation/diagnostics.py", ["InputValidationError"]
     )
-    engine += definitions(scripts / "model/format.py", ["link_scope"])
     engine += definitions(
         scripts / "utils/aws/identity.py",
         [
@@ -500,7 +490,6 @@ def generate(root, environment, selector, service):
             "ReferenceDiagnosticError",
             "ModelNeedsFixError",
             "ReferenceResolutionError",
-            "resource_link",
             "SnapshotValues",
             "structural_entries",
             "entries",
@@ -509,7 +498,11 @@ def generate(root, environment, selector, service):
     )
     engine += definitions(scripts / "design/layout.py", ["confirmed_display_name"])
     engine += definitions(scripts / "model/reference_values.py", ["confirmed"])
-    engine += definitions(scripts / "model/reference_nodes.py", ["is_reference"])
+    engine += definitions(
+        scripts / "model/reference_nodes.py",
+        ["ReferenceNode", "is_reference", "parse", "nodes"],
+    )
+    engine += "parse_model_reference = parse\n"
     engine += definitions(
         scripts / "utils/cloudformation/schema.py", ["native_type_errors"]
     )

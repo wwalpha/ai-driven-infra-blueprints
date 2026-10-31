@@ -41,6 +41,7 @@ from support.issues_scan_fixtures import (
     stamp_naming_scan,
     task,
 )
+from support.model_reference_fixtures import reference as model_ref
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
 from utils.iac_values import (
@@ -187,7 +188,12 @@ def resource(
     parsed = []
     for number, (prop, value, observed) in enumerate(rows, 1):
         rid = identity + "-" + f"{number:03}"
-        row = {"property": kind + "." + prop, "value": "`" + value + "`"}
+        row = {
+            "property": kind + "." + prop,
+            "value": "`"
+            + (value if isinstance(value, str) else json.dumps(value))
+            + "`",
+        }
         parsed.append((rid, row))
         snapshot.authoritative.update(
             {f"desired.row.{rid}.{key}": value for key, value in row.items()}
@@ -884,7 +890,7 @@ def test_declared_security_group_uses_existing_ref_output_mapping():
     )
     desired = prepared(comparison, row).require_value()
     actual = exported(comparison, {"Ref": "Group"})
-    assert desired["$attribute"] == "Id" and actual["$attribute"] == "GroupId"
+    assert desired["$attribute"] == "GroupId" and actual["$attribute"] == "GroupId"
     assert (
         comparison.reference_decision(
             desired, actual, "EC2.Instance", "SecurityGroupIds[]"
@@ -1029,7 +1035,7 @@ def test_kms_link_contract_and_id_arn_separation():
     arn = exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]})
     desired = comparison.desired_reference(
         "kms",
-        "[key](kms.md#key)",
+        model_ref("KMS_Key_001", "Arn"),
         "Athena.WorkGroup",
         "WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey",
     )
@@ -1577,7 +1583,7 @@ def test_alias_arn_sub_import_ref_pipeline_preserves_export_evidence():
         "010",
         "Logs.LogGroup",
         "Log",
-        [("KmsKeyId", "[Alias](kms.md#alias)", None)],
+        [("KmsKeyId", model_ref("KMS_Alias_002", "Arn"), None)],
         properties={"KmsKeyId": expression},
         stack="consumer",
     )
@@ -1891,7 +1897,7 @@ def test_receiver_contracts(service, producer, attribute, kind, path):
         [],
         properties={"VpcId": VPC} if producer == "EC2.SecurityGroup" else {},
     )
-    link = "[label](" + service + ".md#producer)"
+    link = model_ref(producer.replace(".", "_") + "_001", attribute)
     desired = comparison.desired_reference(service, link, kind, path)
     assert desired == ResourceReference(
         {"$resource": [service, "001"], "$attribute": attribute}
@@ -1913,7 +1919,7 @@ def test_receiver_contracts(service, producer, attribute, kind, path):
     )
     for bad_link, requested in (
         (link, "Unknown"),
-        (link.replace("#producer", "#missing"), None),
+        (model_ref(producer.replace(".", "_") + "_999", attribute), None),
     ):
         with pytest.raises(Blocked):
             comparison.desired_reference(service, bad_link, kind, path, requested)
@@ -1926,7 +1932,17 @@ def test_receiver_contracts(service, producer, attribute, kind, path):
         [],
     )
     with pytest.raises(Blocked):
-        comparison.desired_reference(service, "[wrong](wrong.md#wrong)", kind, path)
+        comparison.desired_reference(
+            service,
+            model_ref(
+                "IAM_Role_001"
+                if producer != "IAM.Role"
+                else "SecretsManager_Secret_001",
+                "Arn",
+            ),
+            kind,
+            path,
+        )
 
 
 @pytest.mark.parametrize(
@@ -1978,7 +1994,7 @@ def test_glue_connection_name(expression, expected):
         comparison,
         "Glue.Job",
         "Connections",
-        {"Connections": ["[connection](glue.md#connection)"]},
+        {"Connections": [model_ref("Glue_Connection_001", "Name")]},
         {"Connections": ["fixture"]},
     )
     record = records[0]
@@ -2058,7 +2074,7 @@ def test_glue_secret_identity(actual, expected):
         comparison,
         "Glue.Connection",
         "ConnectionInput.AuthenticationConfiguration.SecretArn",
-        "[secret](secrets-manager.md#secret)",
+        model_ref("SecretsManager_Secret_001", "Id"),
         value,
     )
     assert records[0]["category"] == expected, records
@@ -2072,10 +2088,10 @@ def test_action_context_requires_own_codecommit_contract(bad):
     resource(comparison, "codecommit", "001", "CodeCommit.Repository", "Repository", [])
     resource(comparison, "lambda", "001", "Lambda.Function", "Function", [])
     action = dict(Category="Source", Owner="AWS", Provider="CodeCommit", Version="1")
-    link = "[repo](codecommit.md#repository)"
+    link = model_ref("CodeCommit_Repository_001", "Name")
     path = "Stages[].Actions[].Configuration.RepositoryName"
     if bad == "target":
-        link = "[function](lambda.md#function)"
+        link = model_ref("Lambda_Function_001", "Arn")
     elif bad:
         action[bad] = "wrong"
     if bad is None:
@@ -2264,7 +2280,7 @@ def test_symbolic_setting_classification(fault):
 def test_model_policy_links_bind_but_raw_intrinsics_do_not(fault):
     comparison = fixture()
     resource(comparison, "cloudwatch-logs", "001", "Logs.LogGroup", "Log", [])
-    link = "[log](cloudwatch-logs.md#log)"
+    link = model_ref("Logs_LogGroup_001", "Arn")
     model = {
         "Fn::Join": ["", [{"Fn::Select": [0, {"Fn::Split": [":*", link]}]}, ":stream"]]
     }
@@ -2287,7 +2303,7 @@ def test_model_policy_links_bind_but_raw_intrinsics_do_not(fault):
     elif fault == "intrinsic":
         model = actual
     elif fault == "unknown":
-        model = {"Fn::Join": ["", [link.replace("#log", "#missing"), ":stream"]]}
+        model = {"Fn::Join": ["", [model_ref("Logs_LogGroup_999", "Arn"), ":stream"]]}
     elif fault == "nested-sub":
         model = {
             "Fn::Sub": [
@@ -2456,7 +2472,7 @@ def test_quicksight_api_group_principal(fault):
         "desired.resource.001.cfn-logicalId"
     )
     comparison.models["quicksight"].values.pop("desired.resource.001.cfn-logicalId")
-    link = "[display label](quicksight.md#group)"
+    link = model_ref("QuickSight_Group_001", "Arn")
     arn = "arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts"
     actions = ["quicksight:DescribeDataSource", "quicksight:PassDataSource"]
     actual = arn
@@ -2495,7 +2511,9 @@ def test_quicksight_api_group_principal(fault):
             "invalid-account": (0, "invalid"),
             "link-name": (2, link),
         }[fault]
-        rows[index][1]["value"] = value
+        rows[index][1]["value"] = (
+            json.dumps(value) if isinstance(value, dict) else value
+        )
         expected = "uncompared"
     elif fault and fault.startswith("missing-") and fault != "missing-anchor":
         rows.pop(
@@ -2506,16 +2524,21 @@ def test_quicksight_api_group_principal(fault):
         rows.append(("001-004", dict(rows[-1][1])))
         expected = "uncompared"
     elif fault == "missing-anchor":
-        link = link.replace("#group", "#missing")
+        link = model_ref("QuickSight_Group_999", "Arn")
         expected = "uncompared"
     elif fault == "observed":
-        rows.append(("001-004", dict(property="QuickSight.Group.Arn", value=link)))
+        rows.append(
+            ("001-004", dict(property="QuickSight.Group.Arn", value=json.dumps(link)))
+        )
         comparison.models["quicksight"].authoritative["observed.row.001-004.value"] = (
             "PENDING_DEPLOY"
         )
     elif fault in {"cross-target", "attribute", "deploy", "terraform", "no-partition"}:
         if fault == "cross-target":
-            link = link.replace("quicksight.md", "../other/quicksight.md")
+            comparison.models["quicksight"] = replace(
+                comparison.models["quicksight"],
+                scope=Scope(ROOT, "fixture", "other", "quicksight"),
+            )
         elif fault == "deploy":
             comparison.local_comparison = False
         elif fault == "terraform":
@@ -2561,7 +2584,7 @@ def test_quicksight_api_group_principal(fault):
                 "090-001",
                 dict(
                     property="QuickSight.DataSource.Permissions[1].Principal",
-                    value=link,
+                    value=json.dumps(link),
                 ),
             ),
             (
@@ -2572,6 +2595,11 @@ def test_quicksight_api_group_principal(fault):
                 ),
             ),
         ]
+        for rid, row in current:
+            comparison.models["quicksight"].authoritative.update(
+                {f"desired.row.{rid}.{key}": value for key, value in row.items()}
+            )
+        comparison.model_references.clear()
         document = comparison.stack_inputs["producer"][0]
         records = comparison.compare_rows(
             "quicksight",
@@ -2607,7 +2635,10 @@ def test_flowlog_resource_type_context(prop, context, producer, expected):
     comparison = fixture()
     resource(comparison, "vpc", "001", "EC2.VPC", "Vpc", [])
     resource(comparison, "vpc", "002", "EC2.Subnet", "Subnet", [])
-    link = "[producer](vpc.md#" + producer.lower() + ")"
+    link = model_ref(
+        "EC2_VPC_001" if producer == "Vpc" else "EC2_Subnet_002",
+        "VpcId" if producer == "Vpc" else "SubnetId",
+    )
     if expected:
         assert (
             comparison.desired_reference(
@@ -2645,7 +2676,7 @@ def test_security_group_receiver_ref_evidence(
             properties={"VpcId": {"Ref": "VpcId"}},
         )
     desired = comparison.desired_reference(
-        service, "[label](security-group.md#producer)", kind, path
+        service, model_ref("EC2_SecurityGroup_001", "GroupId"), kind, path
     )
     actual = comparison.evaluate("producer", {"Ref": "Producer"})
     other = comparison.evaluate("producer", {"Ref": "OtherProducer"})
@@ -2965,7 +2996,7 @@ def test_codebuild_secret_context(mode):
         [],
         properties={"Name": "app/secret"},
     )
-    link = "[secret](secrets-manager.md#secret)"
+    link = model_ref("SecretsManager_Secret_001", "Id")
     if mode == "implicit":
         context = {"Type": "SECRETS_MANAGER" if mode == "implicit" else "PLAINTEXT"}
         symbol = comparison.desired_reference(
@@ -3071,7 +3102,11 @@ def test_incomplete_codebuild_missing_structure(actual):
     rows = [
         ("Environment.EnvironmentVariables[1].Name", "RELEASE_BUCKET_KMS_KEY_ID", None),
         ("Environment.EnvironmentVariables[1].Type", "PLAINTEXT", None),
-        ("Environment.EnvironmentVariables[1].Value", "[alias](kms.md#alias)", None),
+        (
+            "Environment.EnvironmentVariables[1].Value",
+            model_ref("KMS_Alias_001", "Arn"),
+            None,
+        ),
     ]
     resource(
         comparison,
@@ -3114,19 +3149,19 @@ def test_nested_diagnostics_retain_format_and_failures(deferred):
         "ResultConfiguration": {"EncryptionConfiguration": {"KmsKey": {"Ref": "Key"}}}
     }
     rows = [
-        (ATHENA_KMS, "[key](kms.md#key)", None),
+        (ATHENA_KMS, model_ref("KMS_Key_001", "Arn"), None),
         ("WorkGroupConfiguration.EnforceWorkGroupConfiguration", "true", None),
     ]
     if deferred:
         rows += [
             (
                 "WorkGroupConfiguration.ExecutionRole",
-                "[private](kms.md#private-missing)",
+                model_ref("KMS_Key_999", "Arn"),
                 None,
             ),
             (
                 "WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner",
-                "[missing](kms.md#missing)",
+                model_ref("KMS_Key_999", "Arn"),
                 None,
             ),
         ]
@@ -3161,17 +3196,22 @@ def test_nested_diagnostics_retain_format_and_failures(deferred):
         if item["property"] == "Athena.WorkGroup.WorkGroupConfiguration"
     )
     if deferred:
-        assert (
-            record["category"] == "difference" and len(record["deferred_children"]) == 2
-        )
-        assert {child["property"] for child in record["deferred_children"]} == {
-            "Athena.WorkGroup.WorkGroupConfiguration.ExecutionRole",
-            "Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner",
+        children = [
+            child
+            for child in result
+            if child["property"]
+            in {
+                "Athena.WorkGroup.WorkGroupConfiguration#/ExecutionRole",
+                "Athena.WorkGroup.WorkGroupConfiguration#/ResultConfiguration/ExpectedBucketOwner",
+            }
+        ]
+        assert record["category"] == "difference" and len(children) == 2, result
+        assert {child["property"] for child in children} == {
+            "Athena.WorkGroup.WorkGroupConfiguration#/ExecutionRole",
+            "Athena.WorkGroup.WorkGroupConfiguration#/ResultConfiguration/ExpectedBucketOwner",
         }
-        assert all(child["reason"] for child in record["deferred_children"])
-        assert {child["category"] for child in record["deferred_children"]} == {
-            "uncompared"
-        }
+        assert all(child["reason"] for child in children)
+        assert {child["category"] for child in children} == {"uncompared"}
         assert "private" not in json.dumps(result)
     assert record["category"] == "difference", result
     diagnostic = record["reference_diagnostics"][0]
@@ -3183,7 +3223,7 @@ def test_nested_diagnostics_retain_format_and_failures(deferred):
         diagnostic["model"]["$attribute"] == "Arn"
         and diagnostic["iac"]["$attribute"] == "KeyId"
     )
-    assert len(record.get("deferred_children", [])) == (2 if deferred else 0)
+    assert len(children if deferred else []) == (2 if deferred else 0)
     assert "private" not in json.dumps(result)
 
 
@@ -3214,7 +3254,7 @@ def test_incomplete_setting_presence_and_siblings(scenario):
     rows = [
         (prefix + "Name", "RELEASE_BUCKET_KMS_KEY_ID", None),
         (prefix + "Type", "PLAINTEXT", None),
-        (prefix + "Value", "[alias](kms.md#alias)", None),
+        (prefix + "Value", model_ref("KMS_Alias_001", "Arn"), None),
     ]
     variable = {
         "Name": "RELEASE_BUCKET_KMS_KEY_ID",
@@ -3305,7 +3345,7 @@ def test_incomplete_setting_presence_and_siblings(scenario):
 def test_all_children_failed_preserve_parent_and_categories(present):
     comparison = fixture()
     rows = [
-        ("Environment.Image", "[missing](kms.md#missing)", None),
+        ("Environment.Image", model_ref("KMS_Key_999", "Arn"), None),
         ("Environment.PrivilegedMode", "invalid-json", None),
     ]
     resource(
@@ -3342,7 +3382,11 @@ def test_all_children_failed_preserve_parent_and_categories(present):
             parent["property"] == "CodeBuild.Project.Environment"
             and parent["reason"] == "property missing"
         )
-        assert {item["category"] for item in parent["deferred_children"]} == {
+        assert {
+            item["category"]
+            for item in batch.records
+            if item["property"] != parent["property"]
+        } == {
             "error",
             "uncompared",
         }
@@ -3360,7 +3404,7 @@ def test_incomplete_json_preserves_declared_children(document_row, scenario):
             dict(
                 Name="RELEASE_BUCKET_KMS_KEY_ID",
                 Type="PLAINTEXT",
-                Value="[alias](kms.md#alias)",
+                Value=model_ref("KMS_Alias_001", "Arn"),
             )
         ]
     }
@@ -3384,7 +3428,7 @@ def test_incomplete_json_preserves_declared_children(document_row, scenario):
     if document_row:
         rows[0][1]["document"] = json.dumps(desired)
     prepared = comparison.prepare_value(
-        "codebuild", rows[0][1], "CodeBuild.Project", stack="producer"
+        "codebuild", rows[0][1], "CodeBuild.Project", stack="producer", row_id="001-001"
     )
     with pytest.raises(Blocked, match="PLAINTEXTではResource linkは禁止"):
         prepared.require_value()
@@ -4002,7 +4046,8 @@ def test_grouped_parent_reference():
     )
     alias = comparison.resources["kms"]["002"]
     alias.update(
-        parentReference="[key](kms.md#key)", parentProperty="KMS.Alias.TargetKeyId"
+        parentReference=json.dumps(model_ref("KMS_Key_001", "KeyId")),
+        parentProperty="KMS.Alias.TargetKeyId",
     )
     document = comparison.stack_inputs["producer"][0]
     result = comparison.compare_rows(
@@ -4331,7 +4376,7 @@ def test_iac_partial_errors_preserve_known_fields(
         ("Environment.EnvironmentVariables[1].Type", "PLAINTEXT", None),
         (
             "Environment.EnvironmentVariables[1].Value",
-            "[alias](kms.md#alias)" if model_unresolved else "known",
+            model_ref("KMS_Alias_001", "Arn") if model_unresolved else "known",
             None,
         ),
     ]
@@ -4639,7 +4684,7 @@ def test_iac_partial_error_keeps_reference_diagnostics():
         "CodeBuild.Project",
         "Build",
         [
-            ("VpcConfig.VpcId", "[vpc](vpc.md#vpc)", None),
+            ("VpcConfig.VpcId", model_ref("EC2_VPC_001", "VpcId"), None),
             ("VpcConfig.Subnets", '["subnet"]', None),
         ],
         properties={
@@ -5761,7 +5806,7 @@ def test_import_wait_propagates_without_parent_issue(observed, phase, shape):
         "IMPORT"
     )
     comparison.models["vpc"].values["desired.resource.001.resourceMode"] = "IMPORT"
-    link = "[vpc](vpc.md#vpc)"
+    link = model_ref("EC2_VPC_001", "VpcId")
     value = (
         link
         if shape in {"link", "json-link", "intrinsic-link"}
@@ -5839,13 +5884,11 @@ def test_import_invalid_contract_or_identifier_stays_an_issue(fault, observed):
     comparison = fixture()
     vpc(comparison, observed=observed)
     comparison.resources["vpc"]["001"]["resourceMode"] = "IMPORT"
-    link, prop = "[vpc](vpc.md#vpc)", "EC2.Subnet.VpcId"
+    link, prop = model_ref("EC2_VPC_001", "VpcId"), "EC2.Subnet.VpcId"
     if fault == "missing":
-        link = "[vpc](vpc.md#absent)"
+        link = model_ref("EC2_VPC_999", "VpcId")
     elif fault == "ambiguous":
-        comparison.reference_anchor_indexes = {
-            "vpc": {"vpc": [("001", comparison.resources["vpc"]["001"])] * 2}
-        }
+        resource(comparison, "duplicate", "001", "EC2.VPC", "Duplicate", [])
     elif fault == "type":
         prop = "EC2.Instance.SubnetId"
     elif fault == "consumer":
@@ -5876,7 +5919,7 @@ def test_import_wait_preserves_known_json_difference(shape, observed):
     )
     comparison.models["vpc"].values["desired.resource.001.resourceMode"] = "IMPORT"
     value = (
-        "[vpc](vpc.md#vpc)"
+        model_ref("EC2_VPC_001", "VpcId")
         if shape == "json-link"
         else {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}}
     )
@@ -5898,7 +5941,10 @@ def test_import_wait_preserves_known_json_difference(shape, observed):
             "IMPORT"
         )
         comparison.models["vpc"].values["desired.resource.002.resourceMode"] = "IMPORT"
-        desired = {"VpcId": VPC, "Subnets": ["[subnet](vpc.md#subnet)", "subnet-first"]}
+        desired = {
+            "VpcId": VPC,
+            "Subnets": [model_ref("EC2_Subnet_002", "SubnetId"), "subnet-first"],
+        }
         actual = {"VpcId": VPC, "Subnets": ["subnet-external", "subnet-second"]}
     resource(
         comparison,
@@ -7848,7 +7894,11 @@ def test_security_group_receiver_rows_with_external_vpc(
             properties={"VpcId": vpc},
         )
     records = setting(
-        comparison, kind, path, "[label](security-group.md#producer)", {"Ref": target}
+        comparison,
+        kind,
+        path,
+        model_ref("EC2_SecurityGroup_001", "GroupId"),
+        {"Ref": target},
     )
     assert [record["category"] for record in records] == [expected], records
     with pytest.raises(Blocked):
@@ -7968,7 +8018,11 @@ def test_security_group_vpc_expression_identity_rows(
         with pytest.raises(Blocked):
             comparison.evaluate("producer", {"Ref": target})
     records = setting(
-        comparison, kind, path, "[label](security-group.md#producer)", {"Ref": target}
+        comparison,
+        kind,
+        path,
+        model_ref("EC2_SecurityGroup_001", "GroupId"),
+        {"Ref": target},
     )
     assert [record["category"] for record in records] == [expected], records
 
@@ -8010,7 +8064,7 @@ def test_security_group_invalid_expression_receiver_rows(
         comparison,
         kind,
         path,
-        "[label](security-group.md#producer)",
+        model_ref("EC2_SecurityGroup_001", "GroupId"),
         {"Ref": "Producer"},
     )
     assert [record["category"] for record in records] in (["uncompared"], ["error"]), (
@@ -8059,7 +8113,10 @@ def test_import_only_receiving_contract_prepares_link(kind, path, producer, attr
     comparison = fixture()
     resource(comparison, "producer", "001", producer, "Producer", [])
     symbol = comparison.desired_reference(
-        "producer", "[label](producer.md#producer)", kind, path
+        "producer",
+        model_ref(producer.replace(".", "_") + "_001", attribute),
+        kind,
+        path,
     )
     assert symbol == ResourceReference(
         {"$resource": ["producer", "001"], "$attribute": attribute}
@@ -8436,7 +8493,7 @@ def test_lambda_source_access_uri_context_is_bound_to_entry():
         comparison,
         "Lambda.EventSourceMapping",
         "SourceAccessConfigurations",
-        [{"Type": "BASIC_AUTH", "URI": "[secret](secret.md#secret)"}],
+        [{"Type": "BASIC_AUTH", "URI": model_ref("SecretsManager_Secret_001", "Id")}],
         [{"Type": "BASIC_AUTH", "URI": {"Ref": "Secret"}}],
     )
     assert [row["category"] for row in rows] == ["matched"], rows
@@ -8513,7 +8570,11 @@ def test_lambda_source_access_split_model_rows_compare():
         "Receiver",
         [
             ("SourceAccessConfigurations[1].Type", "BASIC_AUTH", None),
-            ("SourceAccessConfigurations[1].URI", "[secret](secret.md#secret)", None),
+            (
+                "SourceAccessConfigurations[1].URI",
+                model_ref("SecretsManager_Secret_001", "Id"),
+                None,
+            ),
         ],
         properties={
             "SourceAccessConfigurations": [
@@ -8562,7 +8623,7 @@ def test_codebuild_artifact_s3_location_context():
         comparison,
         "CodeBuild.Project",
         "Artifacts",
-        {"Type": "S3", "Location": "[bucket](bucket.md#bucket)"},
+        {"Type": "S3", "Location": model_ref("S3_Bucket_001", "BucketName")},
         {"Type": "S3", "Location": {"Ref": "Bucket"}},
     )
     assert [row["category"] for row in rows] == ["matched"], rows
@@ -8689,7 +8750,10 @@ def test_new_multiple_attribute_contract_does_not_guess_legacy_link(
     resource(comparison, "producer", "001", producer, "Producer", [])
     with pytest.raises(Blocked):
         comparison.desired_reference(
-            "producer", "[producer](producer.md#producer)", kind, path
+            "producer",
+            model_ref(producer.replace(".", "_") + "_001", "Unknown"),
+            kind,
+            path,
         )
 
 
@@ -8758,7 +8822,7 @@ def test_security_group_invalid_evidence_receiver_rows(
         comparison,
         kind,
         path,
-        "[label](security-group.md#producer)",
+        model_ref("EC2_SecurityGroup_001", "GroupId"),
         {"Ref": "Producer"},
     )
     assert [record["category"] for record in records] == ["uncompared"], records

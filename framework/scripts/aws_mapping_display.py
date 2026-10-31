@@ -5,16 +5,15 @@ from collections import defaultdict, deque
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from types import SimpleNamespace
 
 import aws_mapping as _imports_aws_mapping
 import design.layout_schema as _imports_design_layout
 import model.display as _imports_model_display
-import model.identity as _imports_model_identity
 import model.projection as _imports_model_projection
 from design.catalog import DesignSchemaCatalog
 from design.services.definitions.lambda_permission import LAMBDA_PERMISSION
 from model.core import entries
+from model.reference_nodes import parse
 from utils.aws_mappings import mappings_for, owners
 from utils.input_cache import input_scope, memoized
 from utils.property_path import definition_path
@@ -280,8 +279,6 @@ def validate_mappings(source, root=ROOT):
 @input_scope
 def validation_rows(rows, source, kind, logical_id, root=ROOT, *, scope=None):
     """Reinsert only hidden source rows for existing semantic validators."""
-    parse_reference = _imports_model_identity.parse_reference
-    resource_link = _imports_model_identity.resource_link
     if not source:
         return rows
     validate_mappings(source, root)
@@ -301,18 +298,11 @@ def validation_rows(rows, source, kind, logical_id, root=ROOT, *, scope=None):
         return rows
     identity, resource = targets[0]
 
-    consumer = (
-        SimpleNamespace(environment=scope[0], target=scope[1], service=scope[2])
-        if scope
-        else None
-    )
     targets += [
         (rid, child)
         for rid, child in resources.items()
-        if consumer is not None
-        and resource_link(child.get("parentReference", ""))
-        and parse_reference(child["parentReference"], consumer)
-        == (*scope, resource["anchor"])
+        if child.get("parentReference")
+        and parse(child["parentReference"]).logical_id == resource["logicalId"]
     ]
     ordered = [
         row

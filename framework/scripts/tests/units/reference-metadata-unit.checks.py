@@ -40,12 +40,6 @@ desired.row.001-004.value=`{"x":\\
     )
     snapshot, errors = recover(sources.edit_base(path, sources.FileReads()))
     assert snapshot.authoritative["desired.row.001-001.value"] == "fixture"
-    assert any(
-        error.get("producerScope") == "preview/team/logs"
-        and error["anchor"] == "logs-001"
-        for ds in errors.values()
-        for error in ds
-    )
     assert (
         errors["desired.row.001-001.value"][0]["targetLogicalId"] == "Logs_LogGroup_001"
     )

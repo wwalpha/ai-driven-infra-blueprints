@@ -7,9 +7,9 @@ import re
 from collections import defaultdict, deque
 from pathlib import Path
 
-import model.identity as _imports_model_identity
 import model.importing.references as _imports_model_importing_references
 import model.importing.scope as _imports_model_importing_scope
+import model.projection as _model_projection
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
 from aws_mapping_display import validation_lines
@@ -40,6 +40,7 @@ from model.core import (
     literal,
 )
 from model.files import resource_row_index
+from model.reference_nodes import nodes
 from utils.input_cache import input_is_file, input_scope, input_select, input_text
 
 from .design import (
@@ -483,6 +484,32 @@ def check_design_links(
                 source_values[source] = {}
     for source, values in source_values.items():
         design_index.get(source, values=values)
+        if values:
+            try:
+                if not any(
+                    any(nodes(literal(value)))
+                    for key, value in values.items()
+                    if key.startswith("desired.")
+                    and key.endswith((".value", ".document", ".parentReference"))
+                ):
+                    continue
+                model_scope = _imports_model_sources.scope_for(
+                    (
+                        root / "model" / source.relative_to(root / "docs/designs")
+                    ).with_suffix(".properties")
+                )
+                resolver = _model_projection.reference_resolver(
+                    values, model_scope, root
+                )
+                diagnostics, _ = _imports_model_references.diagnose(
+                    resolver.models[model_scope.path]
+                )
+                for diagnostic in diagnostics:
+                    findings.warn(diagnostic, source=str(source))
+            except (OSError, ValueError) as error:
+                unavailable_semantics(
+                    findings, failed_views, source, error, "model-reference"
+                )
     sources = list(source_values)
     imported = {}
     for source in sources:
@@ -514,8 +541,7 @@ def check_design_links(
                 rows = queues[imported[source][anchor], prop]
                 if rows:
                     row_key = "desired.row." + rows.popleft() + ".value"
-                    resource_link = _imports_model_identity.resource_link
-                    if not resource_link(values[row_key]):
+                    if not _imports_model_references.has_reference(values[row_key]):
                         candidate[row_key] = cells[2]
             relative = source.relative_to(root / "docs/designs")
             load_model = _imports_model_sources.load_model
@@ -546,7 +572,6 @@ def check_design_links(
             unavailable_semantics(
                 findings, failed_views, source, error, "import-reference"
             )
-    authority_values = source_values
     references = {path.resolve() for path in sources}
     fragments = {}
     consumers = {}
@@ -799,44 +824,11 @@ def check_design_links(
         observed_references = set()
         automatic_references = set()
         values = source_values[source] or {}
-        selected = _imports_model_importing_scope.selected
-        expansion = None
-        if selected(root) is not None:
-            declarations = _imports_model_references.declarations
-            load_model = _imports_model_sources.load_model
-            model_path = (
-                root / "model" / source.relative_to(root / "docs/designs")
-            ).with_suffix(".properties")
-            expansion = load_model(model_path)
         for identity, rows in resource_row_index(values).items():
             anchor = values.get(f"desired.resource.{identity}.anchor")
             for row_id, row in rows:
                 observed = values.get(f"observed.row.{row_id}.value")
                 reference = LINK.fullmatch(row.get("value", ""))
-                if (
-                    reference
-                    and expansion is not None
-                    and expansion.values == authority_values[source]
-                    and any(
-                        spec["consumerKey"] == "desired.row." + row_id + ".value"
-                        and spec["format"] == "link"
-                        for spec in declarations(expansion.authoritative).values()
-                    )
-                ):
-                    target = (
-                        source.parent / reference.group(2)
-                        if reference.group(2)
-                        else source
-                    ).resolve()
-                    automatic_references.add(
-                        (
-                            anchor,
-                            row["property"],
-                            target,
-                            reference.group(3),
-                            reference.group(1),
-                        )
-                    )
                 if observed is not None and reference:
                     target = (
                         source.parent / reference.group(2)

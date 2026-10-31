@@ -67,7 +67,14 @@ def fixture(parents=1, children=1, deployed=False):
                 "`123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/worker:latest`",
             ),
             ("PackageType", "`Image`"),
-            ("Role", "[Role](iam.md#iam-app-dev-worker-role)"),
+            (
+                "Role",
+                "`"
+                + json.dumps(
+                    {"$modelRef": {"logicalId": "IAM_Role_001", "attribute": "Arn"}}
+                )
+                + "`",
+            ),
         ]
         for index, (field, value) in enumerate(rows, 1):
             key = f"desired.row.{identity}-{index:03d}"
@@ -86,7 +93,13 @@ def fixture(parents=1, children=1, deployed=False):
                 f"Lambda_Permission_{parent * children + child + 1:03d}",
             )
             child_anchor = resource_anchor("lambda", child_name)
-            reference = f"[{name}](#{anchor})"
+            reference = (
+                "`"
+                + json.dumps(
+                    {"$modelRef": {"logicalId": logical, "attribute": "FunctionName"}}
+                )
+                + "`"
+            )
             values.update(
                 {
                     f"desired.resource.{child_id}.resourceType": PERMISSION,
@@ -100,7 +113,14 @@ def fixture(parents=1, children=1, deployed=False):
                 }
             )
             rows = [
-                ("Id", f"[{child_logical}](#{child_anchor})"),
+                (
+                    "Id",
+                    "`"
+                    + json.dumps(
+                        {"$modelRef": {"logicalId": child_logical, "attribute": "Id"}}
+                    )
+                    + "`",
+                ),
                 ("Action", "`lambda:InvokeFunction`"),
                 ("EventSourceToken", "`source-token`"),
                 ("FunctionName", reference),

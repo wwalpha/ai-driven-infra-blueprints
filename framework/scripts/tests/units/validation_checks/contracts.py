@@ -109,11 +109,11 @@ def check_implementation_preflight_prompt() -> None:
         "Use only authoritative model properties",
         "`desired.row.*`",
         "`.document`",
-        "saved Markdown Resource links",
+        "structured `$modelRef` Resource references",
         "common parser/resolver",
         "referenced Model groups",
         "parentReference",
-        "Resolve through producer Model saved anchors, never names, cfn-logicalId or generated Markdown",
+        "Resolve through producer Model logicalId and explicit attribute, never display names, anchors or generated Markdown",
         "never emit an unresolved Resource link, PENDING_DEPLOY or an inferred physical value to IaC",
     ):
         assert required in implementation, required
@@ -261,7 +261,7 @@ def _callback_check_update_flow_prompt_validate(prompt):
         "Do not read generated Markdown bodies or generated JSON artifacts as input",
         "model/cli.py resource",
         "parentReference",
-        "saved Markdown Resource links",
+        "structured `$modelRef` Resource references",
         "required parts",
     ):
         assert token in reading, token

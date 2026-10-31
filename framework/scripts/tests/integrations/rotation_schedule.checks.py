@@ -16,6 +16,7 @@ from model.core import properties
 from model.files import read_model
 from support import model_design_fixtures as HELPERS
 from support.it_case_receipt import it_case
+from support.model_reference_fixtures import reference
 from support.model_sources import write_model
 from support.rotation_schedule_fixtures import fixture
 from support.validator import load as load
@@ -74,7 +75,13 @@ def main():
             "kms",
             "KMS.Key",
             "app-dev-key",
-            [("KeyId", "[KMS_Key_001](kms.md#kms-app-dev-key)", "鍵のID")],
+            [
+                (
+                    "KeyId",
+                    "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`",
+                    "鍵のID",
+                )
+            ],
             "Key",
             "app-dev-key",
         )
@@ -87,7 +94,7 @@ def main():
         )
         for identity in ("001", "003"):
             for namespace, value in (
-                ("desired", "[KMS_Key_001](kms.md#kms-app-dev-key)"),
+                ("desired", "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`"),
                 ("observed", "PENDING_DEPLOY"),
             ):
                 values.update(
@@ -104,12 +111,13 @@ def main():
         save()
         SYNC.sync(root, True, "dev", "123456789012")
         SYNC.sync(root, False, "dev", "123456789012")
-        key["observed.row.001-001.value"] = "`key-current`"
+        current = "1234abcd-12ab-34cd-56ef-1234567890ab"
+        key["observed.row.001-001.value"] = "`" + current + "`"
         for identity in ("001", "003"):
-            values[f"observed.row.{identity}-002.value"] = "key-current"
+            values[f"observed.row.{identity}-002.value"] = current
         save()
         SYNC.sync(root, True, "dev", "123456789012")
-        assert path.read_text().count("[key-current](kms.md#kms-app-dev-key)") == 2
+        assert path.read_text().count(f"[{current}](kms.md#kms-app-dev-key)") == 2
         saved = {file: file.read_bytes() for file in path.parent.glob("*.md")}
         # Rejected Secret generation retains its old link, while valid KMS saves.
         del values["desired.resource.002.parentReference"]
@@ -128,14 +136,14 @@ def main():
             read_model(models / "secretsmanager.properties")
         ) == properties(HELPERS.text(values))
         # Repair only the source in a later task against the already saved KMS view.
-        values["desired.resource.002.parentReference"] = (
-            "[Secret1](#secretsmanager-app-dev-secret-1)"
+        values["desired.resource.002.parentReference"] = json.dumps(
+            reference("SecretsManager_Secret_001", "Id")
         )
         save()
         SYNC.sync(root, True, "dev", "123456789012", services=["secretsmanager"])
         SYNC.sync(root, False, "dev", "123456789012")
         assert "kms-app-dev-key" in path.read_text()
-        assert path.read_text().count("[key-current](kms.md#kms-app-dev-key)") == 2
+        assert path.read_text().count(f"[{current}](kms.md#kms-app-dev-key)") == 2
     print(
         "rotation-schedule: PASS (single/multiple parents, identity, formal rows, invalid references, projection, KMS updates and deferred source repair)"
     )

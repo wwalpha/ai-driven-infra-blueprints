@@ -7,7 +7,6 @@ from functools import partial as _bind_framework_callback
 import json_intrinsics as _imports_json_intrinsics
 import model.environment_values as environment_values
 from design.policy_tables import literal
-from model.identity import resource_link
 from model.literal_values import literal_errors as row_literal_errors
 from model.literal_values import typed_value, value_shape
 from model.reference_nodes import is_reference
@@ -20,7 +19,6 @@ from utils.iac_values import (
 from utils.json_format import policy_json as strict_json
 from utils.reference_contracts import reference_context
 
-from . import registry
 from .deferral import DesiredPendingDeployExcluded, ImportReferenceDeferred
 
 _CALLBACK_DEFAULT = object()
@@ -126,31 +124,6 @@ def _callback__desired_value_references_86(
         context = _default_context
     if pointer is _CALLBACK_DEFAULT:
         pointer = _default_pointer
-    if isinstance(item, str) and resource_link(item):
-        attribute = (
-            "Arn" if policy and field in {"Resource", "NotResource", "AWS"} else None
-        )
-        try:
-            return desired_reference(service, item, kind, path, attribute, context)
-        except (
-            Blocked,
-            KeyError,
-            OSError,
-            ValueError,
-            ImportError,
-            TypeError,
-            IndexError,
-        ) as error:
-            failures.append((path, pointer, error))
-            if operands and isinstance(error, ImportReferenceDeferred):
-                producer = error.iac_cause["producer"]
-                return ResourceReference(
-                    {
-                        "$resource": [producer["service"], producer["resource"]],
-                        "$attribute": producer["attribute"],
-                    }
-                )
-            return Expression("Unverified", [])
     if isinstance(item, (ResourceReference, Expression)) or is_reference(item):
         return item
     if isinstance(item, list):
@@ -283,26 +256,6 @@ def _desired_value(
     raw = row.get("document", row["value"])
     if "document" in row:
         value = strict_json(raw)
-    elif resource_link(raw):
-        prop = re.sub(r"\[\d+\]", "[]", row["property"].removeprefix(kind + "."))
-        # A schema-typed ARN property selects the referenced Arn, never a current ARN.
-        attribute = registry.property_rule(kind, prop).direct_attribute
-        node = property_schema(kind, prop)
-        if normalize is not None:
-            selected = normalize(literal(raw), failures)
-            if isinstance(selected, Expression):
-                if node.get("type") == "array":
-                    return [selected]
-                return selected
-        symbol = desired_reference(
-            service,
-            raw,
-            kind,
-            prop + ("[]" if node.get("type") == "array" else ""),
-            attribute,
-            context,
-        )
-        return [symbol] if node.get("type") == "array" else symbol
     else:
         value = literal(raw)
         if value == "PENDING_DEPLOY":
@@ -330,9 +283,7 @@ def _desired_value(
                 encoded = strict_json(value)
             except ValueError:
                 encoded = None
-            if is_reference(encoded) or (
-                schema_type == "boolean" and _imports_json_intrinsics.intrinsic(encoded)
-            ):
+            if is_reference(encoded) or (_imports_json_intrinsics.intrinsic(encoded)):
                 value = encoded
         if schema_type != "string" and isinstance(value, str):
             if schema_type is None:

@@ -12,7 +12,6 @@ from utils.json_format import document_sha256
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
-import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity
 import model.importing.evidence as _dependency_model_importing_evidence
 import model.importing.inventory as _dependency_model_importing_inventory
@@ -207,12 +206,8 @@ def _callback_build_review_rows(property_schema, /, values, indexed, rid, prop):
         if row["property"] != prop:
             continue
         raw = row.get("document", row["value"])
-        value = (
-            raw
-            if _dependency_model_identity.resource_link(raw)
-            else _dependency_model_importing_sources.typed_row(
-                row, raw, property_schema(prop)
-            )
+        value = _dependency_model_importing_sources.typed_row(
+            row, raw, property_schema(prop)
         )
         current = values.get("observed.row." + row_id + ".value")
         result.append(

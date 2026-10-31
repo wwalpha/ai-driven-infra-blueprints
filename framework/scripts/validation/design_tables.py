@@ -41,6 +41,7 @@ from model.core import ReferenceDiagnosticError, ReferenceResolutionError, liter
 from model.core import entries as entries
 from model.literal_values import literal_errors as row_literal_errors
 from model.projection import bound_resource_anchors, is_import_expression
+from model.reference_nodes import nodes
 from utils.input_cache import input_scope as input_scope
 from utils.input_cache import input_text
 from utils.property_path import definition_path
@@ -1089,12 +1090,14 @@ def check_design_tables(
                             )
                         if check_display and cells[1] == S3_KMS_MASTER_KEY_ID:
                             findings.warn(
-                                RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
+                                RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None
+                                or any(nodes(literal(cells[2]))),
                                 f"S3 KMSMasterKeyID must link to a KMS.Alias or an explicit Model KMS.Key/Arn: {findings.relative(path)}: {current_logical_id}",
                             )
                         if check_display and cells[1] == "EC2.SecurityGroup.VpcId":
                             findings.warn(
-                                RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
+                                RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None
+                                or any(nodes(literal(cells[2]))),
                                 f"Security Group VpcId must link to its VPC: {findings.relative(path)}: {current_logical_id}",
                             )
                         if is_json_link:

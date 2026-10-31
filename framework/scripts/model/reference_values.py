@@ -11,7 +11,6 @@ from utils.arn_values import context_value, generated_attribute, named_arn
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
-from utils.iac_values import same
 from utils.json_format import AwsDocumentError, strict_json, validate_aws_document
 from utils.reference_contracts import (
     ARN_DEFAULTS,
@@ -24,6 +23,7 @@ from utils.reference_contracts import (
 )
 
 import model.environment_values as environment_values
+import model.reference_nodes as reference_nodes
 from model.core import (
     FrameworkUnsupportedError,
     ModelNeedsFixError,
@@ -31,7 +31,6 @@ from model.core import (
     ReferenceResolutionError,
     entries,
     literal,
-    resource_link,
 )
 
 
@@ -98,12 +97,14 @@ def partition_for(region):
 def confirmed(value):
     if not isinstance(value, str):
         return value
-    if (
-        not value
-        or value.lower()
-        in {"unresolved", "unset", "tbd", "todo", "pending_deploy", "未確定"}
-        or resource_link(value)
-    ):
+    if not value or value.lower() in {
+        "unresolved",
+        "unset",
+        "tbd",
+        "todo",
+        "pending_deploy",
+        "未確定",
+    }:
         return None
     try:
         validate_aws_document(value)
@@ -136,6 +137,8 @@ class ProducerValues:
         self.observed_fields = set()
         self.drift_fields = set()
         self.missing_outputs = ()
+        self.symbolic_fields = set()
+        self.unresolved_fields = set()
 
     def value(self, field, *, recorded=False):
         rows = [
@@ -170,7 +173,43 @@ class ProducerValues:
                 )
             self.pending_fields.add(field)
             self.environment_pending_fields.add(field)
-        desired = confirmed(desired_raw)
+        if desired_raw.lstrip().startswith("{"):
+            document = strict_json(desired_raw)
+        else:
+            document = desired_raw
+        reference_unconfirmed = False
+        if reference_nodes.is_reference(document):
+            node = reference_nodes.parse(document)
+            _, _, target, attribute = resolve(
+                node, self.snapshot.scope, self.resolver, field=row["property"]
+            )
+            if (
+                target["logicalId"] == self.resource["logicalId"]
+                and RETURN_ATTRIBUTE_PROPERTIES.get(
+                    (self.kind, reference_attribute(self.kind, attribute)),
+                    reference_attribute(self.kind, attribute),
+                )
+                == field
+            ):
+                desired = None
+                self.symbolic_fields.add(field)
+            else:
+                result = reference_value(
+                    self.resolver,
+                    self.snapshot.scope,
+                    node,
+                    field=row["property"],
+                )
+                reference_unconfirmed = result.status != "resolved"
+                desired = result.value if result.status == "resolved" else None
+                if result.status == "logical_only":
+                    self.symbolic_fields.add(field)
+                elif result.status == "unresolved":
+                    self.unresolved_fields.add(field)
+                if result.status == "pending_deploy":
+                    self.pending_fields.add(field)
+        else:
+            desired = confirmed(desired_raw)
         observed = self.snapshot.authoritative.get(f"observed.row.{rid}.value")
         if observed is not None:
             observed = literal(observed)
@@ -184,7 +223,9 @@ class ProducerValues:
         for source, value in (("desired", desired), ("observed", observed)):
             if value is None:
                 continue
-            identity_pattern = VALUE_IDENTITIES.get((self.kind, field))
+            identity_pattern = VALUE_IDENTITIES.get(
+                (self.kind, reference_attribute(self.kind, field))
+            )
             if identity_pattern and re.fullmatch(identity_pattern, str(value)) is None:
                 raise ModelNeedsFixError(
                     "invalid Producer identifier: " + field,
@@ -217,6 +258,13 @@ class ProducerValues:
                 )
         if desired is not None and observed is not None and desired != observed:
             self.drift_fields.add(field)
+            if reference_nodes.is_reference(document):
+                raise ModelNeedsFixError(
+                    "Desired and Observed differ: " + field,
+                    code="MODEL_REF_VALUE_CONFLICT",
+                )
+        if reference_unconfirmed:
+            return None
         value = (
             observed
             if observed is not None
@@ -260,9 +308,7 @@ class ProducerValues:
                 schema = self.resolver.catalog.property_schema(self.kind, name)
             except KeyError:
                 continue
-            if schema.get("type") == "string" and not resource_link(
-                literal(row["value"])
-            ):
+            if schema.get("type") == "string":
                 self.value(name)
         for required in self.resolver.catalog.required_design_properties(self.kind):
             rows = [
@@ -273,84 +319,27 @@ class ProducerValues:
             if len(rows) != 1:
                 return False
             rid, row = rows[0]
-            raw = literal(row["value"])
-            if resource_link(raw):
-                field = self.kind + "." + required
-                try:
-                    snapshot, number, linked = self.resolver.resolve(
-                        raw, self.snapshot.scope
-                    )
-                except (ReferenceResolutionError, FileNotFoundError) as error:
-                    raise ModelNeedsFixError(
-                        str(error), code="MODEL_REF_TARGET_MISSING"
-                    ) from error
-                kind = linked["resourceType"]
-                declared = contract(field)
-                if not declared:
-                    raise FrameworkUnsupportedError(
-                        "reference contract unproven: " + field
-                    )
-                if kind not in declared:
-                    raise ModelNeedsFixError(
-                        "Resource reference type differs from receiving property",
-                        code="MODEL_REF_TYPE_MISMATCH",
-                    )
-                for attribute in declared[kind]:
-                    self.resolver.validate_attribute(kind, attribute, field=field)
-                    self.resolver.validate_reference_type(kind, attribute, field)
-                observed = self.value(required)
-                if (
-                    observed is None
-                    and f"observed.row.{rid}.value" in self.snapshot.authoritative
-                ):
-                    return False
-                if observed is not None:
-                    linked_values = ProducerValues(
-                        snapshot, number, linked, self.resolver
-                    )
-                    comparisons = []
-                    for attribute in declared[kind]:
-                        pattern = VALUE_IDENTITIES.get((kind, attribute))
-                        match = (
-                            re.fullmatch(pattern, str(observed)) if pattern else None
-                        )
-                        if pattern and not match:
-                            continue
-                        if not pattern and len(declared[kind]) != 1:
-                            continue
-                        normalized = reference_attribute(kind, attribute)
-                        target_field = RETURN_ATTRIBUTE_PROPERTIES.get(
-                            (kind, normalized), normalized
-                        )
-                        target = linked_values.value(target_field)
-                        if target is None:
-                            comparisons.append(None)
-                        elif str(observed).startswith("arn:") != str(target).startswith(
-                            "arn:"
-                        ):
-                            comparisons.append(None)
-                        else:
-                            comparisons.append(same(observed, target))
-                    if linked_values.drift_fields:
-                        self.drift_fields.update(linked_values.drift_fields)
-                        raise ReferenceResolutionError(
-                            "Desired and Observed differ: "
-                            + ", ".join(sorted(self.drift_fields))
-                        )
-                    if True not in comparisons:
-                        if comparisons and None not in comparisons:
-                            self.drift_fields.add(required)
-                            raise ModelNeedsFixError(
-                                "Desired and Observed differ: " + required,
-                                code="MODEL_REF_VALUE_CONFLICT",
-                            )
-                        return False
-            elif re.match(r"^\[[^\]]+\]\([^)]*#", row["value"]):
-                raise ModelNeedsFixError(
-                    "invalid Markdown Resource reference: " + raw,
-                    code="MODEL_REF_TARGET_MISSING",
+            refs = tuple(reference_nodes.nodes(literal(row["value"])))
+            if refs and not contract(row["property"]):
+                raise FrameworkUnsupportedError(
+                    "reference contract unproven: " + row["property"]
                 )
-            elif self.value(required) is None:
+            if (
+                refs
+                and f"observed.row.{rid}.value" in self.snapshot.authoritative
+                and confirmed(
+                    literal(self.snapshot.authoritative[f"observed.row.{rid}.value"])
+                )
+                is None
+            ):
+                return False
+            value = self.value(required)
+            if (
+                required in self.unresolved_fields
+                or (value is None and required not in self.symbolic_fields)
+                or required in self.symbolic_fields
+                and f"observed.row.{rid}.value" in self.snapshot.authoritative
+            ):
                 return False
         return not self.drift_fields
 
@@ -375,7 +364,7 @@ class ProducerValues:
             ):
                 continue
             raw = literal(row["value"])
-            if raw.lstrip().startswith(("{", "[")) and not resource_link(raw):
+            if raw.lstrip().startswith(("{", "[")):
                 try:
                     raw = strict_json(raw)
                 except ValueError:
@@ -465,6 +454,17 @@ class ProducerValues:
 
 def reference_value(resolver, scope, node, **contract):
     producer = None
+    active = getattr(resolver, "active_values", set())
+    resolver.active_values = active
+    key = (scope.environment, scope.target, node.logical_id, node.attribute)
+    if key in active:
+        raise ModelNeedsFixError(
+            "cyclic Producer reference",
+            code="MODEL_REF_CYCLE",
+            targetLogicalId=node.logical_id,
+            attribute=node.attribute,
+        )
+    active.add(key)
     try:
         snapshot, number, resource, attribute = resolve(
             node, scope, resolver, **contract
@@ -542,3 +542,5 @@ def reference_value(resolver, scope, node, **contract):
             reason=error.diagnostic["message"],
             diagnostic=error.diagnostic,
         )
+    finally:
+        active.remove(key)

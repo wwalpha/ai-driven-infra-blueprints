@@ -1,13 +1,12 @@
 """Static Route53 comparison methods; container rules include their recursive contents."""
 
-import re
 from dataclasses import replace
 
 from model.core import entries, literal
 from utils.arn_values import context_value
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import select
-from utils.iac_values import Expression, ResourceReference, cfn_resource_identity, same
+from utils.iac_values import Expression, ResourceReference, cfn_resource_identity
 
 from .. import expressions
 from ..methods import OBJECT, properties
@@ -46,31 +45,19 @@ def stack_property(inputs, service, identity, field):
     ), scope
 
 
-def selected_reference(inputs, service, key, value, spec, producer_id):
-    """Project only a declared saved link; never change the saved row or invent index 0."""
+def selected_reference(inputs, service, key, symbol):
+    """Retain the receiving Resource for a typed DNS extraction operand."""
     number = key.split(".")[2].rpartition("-")[0]
     if model_property(inputs, service, number, "Type") != "CNAME":
         raise Blocked("Endpoint DNS valueSelector requires Type=CNAME")
-    symbol = inputs.reference(service, value, "DnsEntries")
-    producer = spec["producerScope"].split("/")[2]
-    expected = ResourceReference(
-        {"$resource": [producer, producer_id], "$attribute": "DnsEntries"}
-    )
-    if same(symbol, expected) is not True:
-        raise Blocked("Endpoint DNS declared Producer differs from saved link")
+    producer, producer_id = symbol["$resource"]
+    if symbol["$attribute"] != "DnsEntries":
+        raise Blocked("Endpoint DNS requires the DnsEntries attribute")
     if model_property(inputs, producer, producer_id, "VpcEndpointType") != "Interface":
         raise Blocked("Endpoint DNS requires an explicit Interface Endpoint")
-    match = re.fullmatch(
-        r"dns-entry\[(0|[1-9][0-9]*)\]\.dns-name", spec["valueSelector"]
-    )
-    if match is None:
-        raise Blocked("Endpoint DNS selection index is unproven")
     symbol = ResourceReference(symbol)
     symbol.dns_consumer = (service, number)
-    return Expression(
-        "Select",
-        [1, Expression("Split", [":", Expression("Select", [int(match[1]), symbol])])],
-    )
+    return symbol
 
 
 def dns_expression(value):

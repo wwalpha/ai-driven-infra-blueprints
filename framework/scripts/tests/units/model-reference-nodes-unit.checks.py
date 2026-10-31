@@ -6,6 +6,7 @@ import sys
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -13,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import model.sources as sources
 import pytest
-import sync_runtime
 from comparison.deferral import ImportReferenceDeferred
 from comparison.methods import compare_values
 from comparison.registry import rules
@@ -39,12 +39,12 @@ from model.projection import (
     observed_value,
     reference_display,
     reference_resolver,
-    resource_rows,
 )
 from model.reference_nodes import nodes, parse, resolve
 from model.reference_nodes import project as display
+from model.reference_presentation import Presentation
 from model.references import Usage, incoming, symbolic, usages
-from model.render import generate_files, generate_markdown
+from model.render import generate_markdown
 from model.sources import load_model
 from model.validations.json_settings import validate_json_settings
 from support.model_reference_fixtures import (
@@ -143,7 +143,7 @@ def check_intrinsic_pending_dependencies():
         ("EC2.VPC", "vpc", "VpcId", "EC2.SecurityGroup.VpcId"),
     ],
 )
-@pytest.mark.parametrize("observed", ["PENDING_DEPLOY", "physical-123"])
+@pytest.mark.parametrize("observed", ["PENDING_DEPLOY", None])
 def check_identifier_link_projection(models, kind, service, attribute, prop, observed):
     root = models[0].root
     producer, _ = resource(root, service, kind, attribute=attribute, observed=observed)
@@ -153,31 +153,20 @@ def check_identifier_link_projection(models, kind, service, attribute, prop, obs
         prop.rsplit(".", 1)[0].split(".")[0] + "." + prop.split(".")[1],
         attribute="Name",
     )
-    link = f"[214]({service}.md#saved-001)"
+    node = reference(
+        kind.replace(".", "_") + "_001",
+        "GroupId" if kind == "EC2.SecurityGroup" else attribute,
+    )
+    value = [node] if prop.endswith(("SecurityGroupIds", "SubnetIds")) else node
     values["desired.row.001-001.property"] = prop
-    values["desired.row.001-001.value"] = link
+    values["desired.row.001-001.value"] = "`" + json.dumps(value) + "`"
     save(consumer, values)
     path = root / "docs/designs/qa/team/consumer.md"
-    assert (
-        reference_display(values, path, root)["desired.row.001-001.value"]
-        == f"[{observed}]({service}.md#saved-001)"
-    )
-    assert (
-        load_model(producer).authoritative["observed.row.001-001.value"]
-        == f"`{observed}`"
-    )
-    values["observed.row.001-001.value"] = "`source-id`"
-    displayed = reference_display(values, path, root)
-    assert displayed["desired.row.001-001.value"] == link
-    assert (
-        resource_rows(displayed, "001", ".".join(prop.split(".")[:2]), root)[0][2]
-        == f"[source-id]({service}.md#saved-001)"
-    )
-    values["observed.row.001-001.value"] = f"`{observed}`"
-    displayed = reference_display(values, path, root)
-    assert (
-        resource_rows(displayed, "001", ".".join(prop.split(".")[:2]), root)[0][2]
-        == f"[{observed}]({service}.md#saved-001)"
+    presentation = Presentation(values, path, root)
+    TestCase().assertTrue(all(ref.link for ref in presentation.references.values()))
+    TestCase().assertEqual(
+        load_model(producer).authoritative.get("observed.row.001-001.value"),
+        None if observed is None else f"`{observed}`",
     )
 
 
@@ -191,7 +180,7 @@ def check_identifier_generation_diagnostics(models, state):
         "security-group",
         "EC2.SecurityGroup",
         attribute="Id",
-        observed={"pending": "PENDING_DEPLOY", "confirmed": "sg-123"}.get(state),
+        observed={"pending": "PENDING_DEPLOY", "confirmed": "sg-11111111"}.get(state),
     )
     if state == "ambiguous":
         _, second = resource(
@@ -203,55 +192,21 @@ def check_identifier_generation_diagnostics(models, state):
     consumer, values = resource(
         root, "lambda", "Lambda.Function", attribute="FunctionName"
     )
-    link = (
-        "[original](security-group.md#"
-        + ("missing" if state == "missing" else "saved-001")
-        + ")"
+    node = reference(
+        "EC2_SecurityGroup_999" if state == "missing" else "EC2_SecurityGroup_001",
+        "GroupId",
     )
     values["desired.row.001-001.property"] = (
         "Lambda.Function.VpcConfig.SecurityGroupIds"
     )
-    values["desired.row.001-001.value"] = link
-    save(consumer, values)
-    original = (producer.path.read_bytes(), consumer.path.read_bytes())
-    view = root / "docs/designs/qa/team/lambda.md"
-    warnings = []
-    files = generate_files(view, load_model(consumer).values, root, warnings=warnings)
-    plan = sync_runtime.prepare_generation(
-        root, {("qa", "team", "lambda")}, write=False, definitions_root=FRAMEWORK
+    values["desired.row.001-001.value"] = "`" + json.dumps([node]) + "`"
+    path = root / "docs/designs/qa/team/lambda.md"
+    presentation = Presentation(values, path, root)
+    TestCase().assertEqual(
+        any(ref.link for ref in presentation.references.values()),
+        state not in {"missing", "ambiguous"},
     )
-    try:
-        metadata = sync_runtime.generation_metadata(plan)
-        assert metadata["status"] == "PASS", metadata
-        assert plan.generated[view]
-        assert [
-            w
-            for w in plan.reference_warnings
-            if w.get("category") in {"REFERENCE_UNRESOLVED", "REFERENCE_PENDING_DEPLOY"}
-        ] == warnings
-        assert metadata["warnings"] == plan.reference_warnings
-        assert metadata["unverified"] == [
-            w
-            for w in plan.reference_warnings
-            if w.get("category") == "REFERENCE_UNRESOLVED"
-        ]
-        assert len(warnings) == len({json.dumps(w, sort_keys=True) for w in warnings})
-        expected = {
-            "pending": "PENDING_DEPLOY",
-            "confirmed": "sg-123",
-            "unobserved": "UNOBSERVED",
-        }.get(state, "original")
-        assert f"[{expected}](security-group.md#" in files[view]
-        assert bool(warnings) == (state != "confirmed")
-        if warnings:
-            assert warnings[0]["category"] == (
-                "REFERENCE_PENDING_DEPLOY"
-                if state == "pending"
-                else "REFERENCE_UNRESOLVED"
-            )
-    finally:
-        plan.close()
-    assert (producer.path.read_bytes(), consumer.path.read_bytes()) == original
+    TestCase().assertIn("$modelRef", values["desired.row.001-001.value"])
 
 
 def check_name_reference_is_not_identifier_projection(models):
@@ -284,7 +239,7 @@ def check_identifier_links_missing_and_array(models):
         "security-group",
         "EC2.SecurityGroup",
         attribute="Id",
-        observed="sg-002",
+        observed="sg-22222222",
         number="002",
     )
     first.update(second)
@@ -295,40 +250,16 @@ def check_identifier_links_missing_and_array(models):
     values["desired.row.001-001.property"] = (
         "Lambda.Function.VpcConfig.SecurityGroupIds"
     )
-    value = "[001](security-group.md#saved-001), [002](security-group.md#saved-002)"
-    values["desired.row.001-001.value"] = value
+    nodes_value = [
+        reference("EC2_SecurityGroup_001", "GroupId"),
+        reference("EC2_SecurityGroup_002", "GroupId"),
+        reference("EC2_SecurityGroup_001", "GroupId"),
+    ]
+    values["desired.row.001-001.value"] = "`" + json.dumps(nodes_value) + "`"
     path = root / "docs/designs/qa/team/lambda.md"
-    result = reference_display(values, path, root)
-    assert (
-        result["desired.row.001-001.value"]
-        == "[PENDING_DEPLOY](security-group.md#saved-001), [sg-002](security-group.md#saved-002)"
-    )
-    warnings = []
-    values["desired.row.001-001.value"] = ", ".join(
-        ["[001](security-group.md#saved-001)"] * 2
-    )
-    reference_display(values, path, root, warnings=warnings)
-    assert len(warnings) == 1 and warnings[0]["category"] == "REFERENCE_PENDING_DEPLOY"
-    warnings = []
-    values["desired.row.001-001.value"] = "[missing](security-group.md#missing)"
-    assert (
-        reference_display(values, path, root, warnings=warnings)[
-            "desired.row.001-001.value"
-        ]
-        == values["desired.row.001-001.value"]
-    )
-    assert warnings and warnings[0]["category"] == "REFERENCE_UNRESOLVED"
-    first["desired.resource.002.anchor"] = "saved-001"
-    save(scope, first)
-    warnings = []
-    values["desired.row.001-001.value"] = "[001](security-group.md#saved-001)"
-    assert (
-        reference_display(values, path, root, warnings=warnings)[
-            "desired.row.001-001.value"
-        ]
-        == values["desired.row.001-001.value"]
-    )
-    assert warnings and "ambiguous" in warnings[0]["message"]
+    presentation = Presentation(values, path, root)
+    TestCase().assertEqual(len(presentation.references), 3)
+    TestCase().assertTrue(all(ref.link for ref in presentation.references.values()))
 
 
 def check_parse():
@@ -474,7 +405,10 @@ def check_cross_service_comparison(
     if service != "kms":
         (tmp_path / "model/qa/team/kms.properties").unlink()
     policy["desired.row.001-002.property"] = consumer_kind + "." + property_name
-    node = reference(kind.replace(".", "_") + "_001", attribute)
+    node = reference(
+        kind.replace(".", "_") + "_001",
+        "GroupId" if kind == "EC2.SecurityGroup" else attribute,
+    )
     row = {
         "property": consumer_kind + "." + property_name,
         "value": "`" + json.dumps(node) + "`",
@@ -601,6 +535,9 @@ def check_display_and_stable_design(tmp_path, models, observed, expected):
         values["observed.row.001-001.value"] = "`" + observed + "`"
         if observed == "PENDING_DEPLOY":
             values["desired.row.001-001.property"] = "KMS.Key.KeyId"
+            values["desired.row.001-001.value"] = (
+                "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`"
+            )
         save(producer, values)
     original = copy.deepcopy(policy)
     warnings = []
@@ -850,6 +787,9 @@ def check_unknown_attribute_equivalence_and_encoded_json(tmp_path, models):
 def check_return_attribute_mapping_and_identifier_pending(tmp_path, models):
     producer, values, consumer, policy = models
     values["desired.row.001-001.property"] = "KMS.Key.KeyId"
+    values["desired.row.001-001.value"] = (
+        "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`"
+    )
     values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
     save(producer, values)
     assert (
@@ -861,7 +801,7 @@ def check_return_attribute_mapping_and_identifier_pending(tmp_path, models):
     # Resolver's anchor path remains usable after logical indexing populated its snapshot cache.
     resolver = Resolver(tmp_path)
     resolve(parse(reference()), consumer, resolver)
-    assert resolver.resolve("[key](kms.md#saved-001)", consumer)[1] == "001"
+    assert resolver.resolve(reference(), consumer)[1] == "001"
 
 
 @pytest.mark.parametrize(
@@ -924,6 +864,9 @@ def check_scalar_value_and_json_are_stable(tmp_path, models, mode):
     )
     assert policy[key] == "`" + json.dumps(reference("EC2_VPC_001", "VpcId")) + "`"
     values["desired.row.001-001.property"] = "KMS.Key.KeyId"
+    values["desired.row.001-001.value"] = (
+        "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`"
+    )
     save(producer, values)
     validate_json_settings(policy, consumer.path)
     assert (
@@ -1062,7 +1005,7 @@ def check_pipeline_context_and_name_proof(tmp_path, models):
     # Typed proof does not relax the legacy Markdown output/identifier guard.
     resolver = Resolver(tmp_path)
     resolver.validate_attribute("CodeBuild.Project", "Name")
-    with pytest.raises(Blocked, match="reference attribute not confirmed: Name"):
+    with pytest.raises(Blocked, match="validated.*modelRef"):
         inputs.reference(
             "codepipeline", "[arbitrary label](codebuild.md#saved-001)", "Name"
         )

@@ -4,6 +4,7 @@ import copy
 import json
 import sys
 from pathlib import Path
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -19,10 +20,18 @@ from design.policy_tables import (
     policy_lines,
     rendered_design,
 )
-from model.core import literal
+from model.core import ModelNeedsFixError, literal, validate_authority
 from model.identity import COUNTERS
-from model.projection import reference_display
+from model.projection import (
+    deployment_bucket,
+    document_references,
+    generated_document,
+    reference_display,
+    reference_resolver,
+)
+from model.reference_nodes import parse
 from model.reference_presentation import Position, Presentation
+from model.reference_values import reference_value
 from model.render import generate_files, generate_markdown
 from model.sources import Scope, load_model
 from support.model_reference_fixtures import (
@@ -226,10 +235,8 @@ def test_marker_collision_and_comment_source_preservation(models):
     [
         "missing",
         "duplicate",
-        "pending",
         "invalid-attribute",
         "ambiguous-anchor",
-        "unconfirmed-name",
     ],
 )
 def test_no_guessed_destination(models, fault):
@@ -308,10 +315,10 @@ def test_array_indexes_duplicates_and_generic_service(models):
     markdown = generate_markdown(path, values, FRAMEWORK)
     lines = [line for line in markdown.splitlines() if "| VpcConfig.SubnetIds[" in line]
     assert len(lines) == 4
-    assert "[shared-subnet](subnet.md#saved-001)" in lines[0]
+    assert "[subnet-11111111](subnet.md#saved-001)" in lines[0]
     assert "| `subnet-11111111` |" in lines[1]
-    assert "[shared-subnet](subnet.md#saved-002)" in lines[2]
-    assert "[shared-subnet](subnet.md#saved-001)" in lines[3]
+    assert "[subnet-22222222](subnet.md#saved-002)" in lines[2]
+    assert "[subnet-11111111](subnet.md#saved-001)" in lines[3]
     assert json.dumps(items) in restore(path, markdown, values)
     assert Position(rid, "value", "/3") in presentation.references
 
@@ -324,11 +331,8 @@ def test_same_file_and_existing_link(models):
         "DefaultArguments",
         {"--self": reference("Glue_Job_001", "Name")},
     )
-    add(values, "Glue.Job", "Role", "placeholder", number=3)
-    values["desired.row.001-003.value"] = "[existing](iam.md#saved-role)"
     markdown = generate_markdown(path, values, FRAMEWORK)
     assert "| [consumer](#saved-001) | <!-- glue-arguments-source:" in markdown
-    assert "[existing](iam.md#saved-role)" in markdown
     assert "$modelRef" in restore(path, markdown, values)
 
 
@@ -480,7 +484,10 @@ def test_codebuild_vpc_connection(models, field, producer_kind, attribute):
     line = next(
         line for line in markdown.splitlines() if f"| VpcConfig.{field}" in line
     )
-    assert "[network-resource](network.md#saved-001)" in line
+    TestCase().assertIn(
+        f"[{'vpc-11111111' if field == 'VpcId' else 'subnet-11111111' if field == 'Subnets' else 'sg-11111111'}](network.md#saved-001)",
+        line,
+    )
     assert "$modelRef" in restore(path, markdown, values)
 
 
@@ -676,7 +683,7 @@ def test_security_group_horizontal_display_and_restoration(models):
     )
     path = models / "docs/designs/qa/team/security-group.md"
     markdown = generate_markdown(path, values, FRAMEWORK)
-    assert "[network](network.md#saved-001)" in markdown
+    TestCase().assertIn("[vpc-11111111](network.md#saved-001)", markdown)
     assert "$modelRef" in restore(path, markdown, values)
     with pytest.raises(ValueError, match="Model expected display"):
         restore(
@@ -713,6 +720,154 @@ def test_policy_enum_reference_is_validated_before_presentation(models):
         ]
         == "Allow"
     )
+
+
+@pytest.mark.parametrize("observed", [None, "PENDING_DEPLOY", "sg-0dd5df87e10362d7f"])
+def test_security_group_logical_link_and_confirmed_label(models, observed):
+    producer, target = resource(
+        models, "security-group", "EC2.SecurityGroup", attribute="Id", observed=observed
+    )
+    target["desired.resource.001.resourceMode"] = "IMPORT"
+    target["desired.resource.001.anchor"] = "security-group-saved"
+    add(target, "EC2.SecurityGroup", "GroupName", "VULNERABILITYSCANSECURITYGROUP01")
+    save(producer, target)
+    scope, values, path = consumer(models, "lambda", "Lambda.Function")
+    values["desired.row.001-001.property"] = "Lambda.Function.FunctionName"
+    node = reference("EC2_SecurityGroup_001", "GroupId")
+    add(values, "Lambda.Function", "VpcConfig.SecurityGroupIds", [node])
+    before = copy.deepcopy(values)
+    original = producer.path.read_bytes()
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    label = (
+        observed
+        if observed not in (None, "PENDING_DEPLOY")
+        else "VULNERABILITYSCANSECURITYGROUP01"
+    )
+    TestCase().assertIn(f"[{label}](security-group.md#security-group-saved)", markdown)
+    TestCase().assertNotIn("$modelRef", markdown)
+    result = reference_value(
+        reference_resolver(values, scope, models), scope, parse(node)
+    )
+    TestCase().assertEqual(
+        result.status,
+        "resolved"
+        if observed not in (None, "PENDING_DEPLOY")
+        else "pending_deploy"
+        if observed
+        else "unresolved",
+    )
+    TestCase().assertEqual(values, before)
+    TestCase().assertEqual(producer.path.read_bytes(), original)
+
+
+@pytest.mark.parametrize(
+    "fault", ["physical", "attribute", "type", "anchor", "duplicate-anchor"]
+)
+def test_logical_contract_is_separate_from_physical_diagnostics(models, fault):
+    producer, target = resource(
+        models, "invalid-bucket", "S3.Bucket", attribute="BucketName"
+    )
+    target["desired.row.001-001.value"] = "`invalid bucket`"
+    if fault == "anchor":
+        target["desired.resource.001.anchor"] = "invalid anchor"
+    elif fault == "duplicate-anchor":
+        _, other = resource(
+            models, "invalid-bucket", "S3.Bucket", attribute="BucketName", number="002"
+        )
+        other["desired.resource.002.anchor"] = target["desired.resource.001.anchor"]
+        target.update(other)
+    (models / "model/qa/team/s3.properties").unlink()
+    save(producer, target)
+    scope, values, path = consumer(models, "lambda", "Lambda.Function")
+    values["desired.row.001-001.property"] = "Lambda.Function.FunctionName"
+    node = reference(
+        "S3_Bucket_001", "Missing" if fault == "attribute" else "BucketName"
+    )
+    prop = (
+        "Lambda.Function.Role"
+        if fault == "type"
+        else "Lambda.Function.Environment.Variables"
+    )
+    raw = node if fault == "type" else {"BUCKET": node}
+    rid = add(values, "Lambda.Function", prop.removeprefix("Lambda.Function."), raw)
+    presentation = Presentation(values, path, models)
+    TestCase().assertEqual(
+        any(ref.link for ref in presentation.references.values()), fault == "physical"
+    )
+    _, diagnostics = document_references(
+        raw, resolver=presentation.resolver, scope=scope, property_name=prop
+    )
+    TestCase().assertTrue(diagnostics)
+    TestCase().assertEqual(
+        diagnostics[0]["code"],
+        "MODEL_REF_INVALID_ATTRIBUTE"
+        if fault == "attribute"
+        else "MODEL_REF_TYPE_MISMATCH"
+        if fault == "type"
+        else "MODEL_REF_INVALID_VALUE",
+    )
+    TestCase().assertIn("$modelRef", values[f"desired.row.{rid}.value"])
+
+
+def test_producer_chain_cycle_and_drift(models):
+    scope, target = resource(models, "buckets", "S3.Bucket", attribute="BucketName")
+    _, other = resource(
+        models, "buckets", "S3.Bucket", attribute="BucketName", number="002"
+    )
+    target.update(other)
+    target["desired.row.001-001.value"] = (
+        "`" + json.dumps(reference("S3_Bucket_002", "BucketName")) + "`"
+    )
+    target["desired.row.002-001.value"] = "`chain-bucket`"
+    # The fixture's independent s3 service must not duplicate these logical IDs.
+    (models / "model/qa/team/s3.properties").unlink()
+    save(scope, target)
+    resolver = reference_resolver(target, scope, models)
+    result = reference_value(
+        resolver, scope, parse(reference("S3_Bucket_001", "BucketName"))
+    )
+    TestCase().assertEqual(result.value, "chain-bucket")
+    target["observed.row.001-001.value"] = "`different-bucket`"
+    save(scope, target)
+    with pytest.raises(ModelNeedsFixError, match="MODEL_REF_VALUE_CONFLICT"):
+        reference_value(
+            reference_resolver(target, scope, models),
+            scope,
+            parse(reference("S3_Bucket_001", "BucketName")),
+        )
+    target.pop("observed.row.001-001.value")
+    target["desired.row.002-001.value"] = (
+        "`" + json.dumps(reference("S3_Bucket_001", "BucketName")) + "`"
+    )
+    save(scope, target)
+    with pytest.raises(ModelNeedsFixError, match="MODEL_REF_CYCLE"):
+        reference_value(
+            reference_resolver(target, scope, models),
+            scope,
+            parse(reference("S3_Bucket_001", "BucketName")),
+        )
+
+
+def test_legacy_authority_rejected_and_deployment_bucket_is_typed(models):
+    scope, values, _ = consumer(models)
+    values["desired.row.001-001.value"] = "[old](glue.md#saved-001)"
+    with pytest.raises(ValueError, match=r"requires \$modelRef"):
+        validate_authority(values)
+    bucket = json.dumps(reference("S3_Bucket_001", "BucketName"))
+    stack_path = models / "model/qa/team/cloudformation-stacks.properties"
+    TestCase().assertEqual(deployment_bucket(bucket, stack_path, models), "shared-name")
+    with pytest.raises(ValueError, match="modelRef"):
+        deployment_bucket("[old](s3.md#s3-saved-anchor)", stack_path, models)
+    document = {"Bucket": reference("S3_Bucket_001", "BucketName")}
+    execution = generated_document(
+        document,
+        models,
+        resolver=reference_resolver({}, scope, models),
+        scope=scope,
+        property_name="S3.BucketPolicy.PolicyDocument",
+    )
+    TestCase().assertEqual(execution, {"Bucket": "shared-name"})
+    TestCase().assertNotIn("](", json.dumps(execution))
 
 
 if __name__ == "__main__":

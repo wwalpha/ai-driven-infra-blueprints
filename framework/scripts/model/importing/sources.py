@@ -1,8 +1,6 @@
 """Check explicit acquired correspondences and preserve every unselected canonical field."""
 
 import json
-import re
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 from utils.json_format import document_sha256
@@ -10,14 +8,15 @@ from utils.json_format import strict_json as json_read
 
 import model.core as _imports_model_core
 import model.identity as _dependency_model_identity
-import model.identity as _imports_model_identity
 import model.importing.limitations as limitations
+import model.importing.references as reference_verification
 import model.operations as _imports_model_operations
 import model.projection as _imports_model_projection
 from model.core import entries as entries
-from model.core import resource_row_index
+from model.core import literal, resource_row_index
 from model.format import owner
 from model.literal_values import projection_value, typed_value, value_shape
+from model.reference_nodes import is_reference, nodes
 from model.references import has_reference as has_reference
 
 
@@ -37,7 +36,12 @@ def identity_value(prop, value):
 
 
 def typed_row(row, raw, schema):
-    return typed_value(row, raw, schema)
+    value = typed_value(row, raw, schema)
+    if isinstance(value, str) and value.lstrip().startswith("{") and any(nodes(value)):
+        document = json_read(value)
+        if is_reference(document):
+            return document
+    return value
 
 
 def property_values(
@@ -59,11 +63,8 @@ def property_values(
         if observed:
             row = {key: value for key, value in row.items() if key != "document"}
         elif resolve_observed and (
-            _dependency_model_identity.resource_link(raw)
-            or (
-                has_reference(row.get("document", raw))
-                and "observed.row." + row_id + ".value" in values
-            )
+            has_reference(row.get("document", raw))
+            and "observed.row." + row_id + ".value" in values
         ):
             raw = values.get("observed.row." + row_id + ".value")
             if raw is None:
@@ -138,14 +139,14 @@ def selection_records(
             if prop not in identity_properties.get(resource["resourceType"], set()):
                 continue
             for raw in (row["value"], old.get("observed.row." + row_id + ".value")):
-                if raw is None or _dependency_model_identity.resource_link(raw):
+                if raw is None or has_reference(raw):
                     continue
                 value = typed_row(row, raw, property_schema(prop))
                 if (
                     isinstance(value, str)
                     and value.strip()
                     and value not in {"PENDING_DEPLOY", "UNSET"}
-                    and not _dependency_model_identity.resource_link(value)
+                    and not has_reference(value)
                 ):
                     known = True
                     owners.setdefault((resource["resourceType"], value), set()).add(rid)
@@ -266,7 +267,7 @@ def selection_records(
             not isinstance(record["identity"], str)
             or not record["identity"].strip()
             or record["identity"] in {"PENDING_DEPLOY", "UNSET"}
-            or _dependency_model_identity.resource_link(record["identity"])
+            or has_reference(record["identity"])
         ):
             raise ValueError("IMPORT acquired physical identity is invalid")
         identity_key, collisions = correspondences[record["record"]]
@@ -484,33 +485,20 @@ def pending_items(selection, selected, values, property_schema):
     return pending
 
 
-def _callback_reference_value_equal_matches(reference_tokens, /, expression, value):
-    pieces, start = [], 0
-    for match in reference_tokens(expression):
-        pieces.extend((re.escape(expression[start : match.start()]), ".*?"))
-        start = match.end()
-    if not pieces:
-        return False
-    pieces.append(re.escape(expression[start:]))
-    return re.fullmatch("".join(pieces), value, re.DOTALL) is not None
-
-
 def reference_value_equal(left, right):
-    """Only reference expression spans may differ; structure and other literals stay exact."""
+    """Typed references are atomic; all other acquired values remain exact."""
+    if is_reference(left):
+        return not is_reference(right) or typed_equal(left, right)
+    if is_reference(right):
+        return False
     if isinstance(left, dict) and isinstance(right, dict):
         return left.keys() == right.keys() and all(
             reference_value_equal(v, right[k]) for k, v in left.items()
         )
     if isinstance(left, list) and isinstance(right, list):
         return len(left) == len(right) and all(
-            reference_value_equal(a, b) for a, b in zip(left, right, strict=False)
+            reference_value_equal(a, b) for a, b in zip(left, right, strict=True)
         )
-    if isinstance(left, str) and isinstance(right, str):
-        reference_tokens = _imports_model_identity.reference_tokens
-        matches = _bind_framework_callback(
-            _callback_reference_value_equal_matches, reference_tokens
-        )
-        return left == right or matches(left, right) or matches(right, left)
     return typed_equal(left, right)
 
 
@@ -521,6 +509,10 @@ def verify_values(
     validate_authority = _imports_model_core.validate_authority
     observed_value = _imports_model_projection.observed_value
     old, new = before.authoritative, after.authoritative
+    if references is None and getattr(after, "scope", None) is not None:
+        references = reference_verification.Resolver(
+            after.scope.root, after.scope.environment, after.scope.target
+        )
     validate_authority(new)
     _dependency_model_identity.preserve_allocation(old, new)
     old_resources, new_resources = (
@@ -646,6 +638,8 @@ def verify_values(
                 new, rid, prop, schema, rows=new_index, resolve_observed=False
             )
             actual = property_values(after.values, rid, prop, schema, rows=new_index)
+            if references is None and any(nodes(desired)):
+                raise ValueError("IMPORT reference verification is required: " + prop)
             if not reference_value_equal(desired, capture["value"]) or (
                 actual is not None
                 and not typed_equal(actual, capture["value"])
@@ -708,19 +702,11 @@ def verify_values(
                 )
             if warnings is not None:
                 for _, row in new_index[rid]:
-                    link = _dependency_model_identity.resource_link(row["value"])
+                    refs = list(nodes(literal(row["value"])))
                     if (
                         row["property"] == prop
-                        and link
-                        and _dependency_model_identity.parse_reference(
-                            link[0], after.scope
-                        )
-                        != (
-                            after.scope.environment,
-                            after.scope.target,
-                            after.scope.service,
-                            new_resources[rid].get("anchor"),
-                        )
+                        and refs
+                        and refs[0].logical_id != new_resources[rid]["logicalId"]
                     ):
                         warnings.append(
                             {

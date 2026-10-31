@@ -9,7 +9,6 @@ import sync_runtime as _imports_sync_runtime
 from deploy.model_cache import RunModels
 from design.catalog import DesignSchemaCatalog
 from design.layout_schema import GROUPED
-from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from task_contract_core import matches as matches
 from task_contract_core import paths_in as paths_in
@@ -37,7 +36,7 @@ import model.sources as source_models
 from model import projection as model_projection
 from model.core import entries, properties, stack_model
 from model.files import read_model, resource_row_index
-from model.identity import Resolver, parse_reference, resource_link
+from model.identity import Resolver
 from model.reference_nodes import nodes
 from model.references import usages
 from model.sources import (
@@ -454,16 +453,13 @@ def _mappings(
                     selected = [
                         (rid, row) for rid, row in rows if row["property"] == prop
                     ]
-                    link = (
-                        resource_link(selected[0][1]["value"])
-                        if len(selected) == 1
-                        else None
-                    )
-                    if not link:
+                    if len(selected) != 1:
                         errors.setdefault(name, []).append(
                             f"{name}/{logical}: identifier row missing/ambiguous: {prop}"
                         )
-                    elif reference_key(link[0], path) != own_key(path, resource):
+                    elif reference_key(selected[0][1]["value"], path) != own_key(
+                        path, resource
+                    ):
                         errors.setdefault(name, []).append(
                             f"{name}/{logical}: identifier must reference its own Resource reference: {prop}"
                         )
@@ -652,13 +648,6 @@ def propagate_references(
     """Discover incoming links mechanically; both deploy and destroy use this scanner."""
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
     # This is link discovery, not validation of unrelated prod/service designs.
-    resolver = Resolver(root)
-    incoming = {
-        (*own_key(path, resource)[:3], resource.get("anchor"))
-        for path, values in loaded.items()
-        for _, resource in entries(values, "desired.resource.")
-        if own_key(path, resource) in identifiers
-    }
     reads, typed_usages = FileReads(), {}
     shared = source_models.session_reads(root)
     paths = (
@@ -699,14 +688,6 @@ def propagate_references(
                 (*usage.producer_scope.split("/"), usage.logical_id) in identifiers
                 for usage in typed_usages[path]
             )
-        for key, value in values.items():
-            link = (
-                resource_link(value)
-                if key.startswith("desired.row.") and key.endswith(".value")
-                else None
-            )
-            if link:
-                linked |= parse_reference(link[0], scope_for(path)) in incoming
         if linked:
             loaded[path] = properties(read_model(path))
     # Include every incoming reference, including out-of-scope ones; reject before any write.
@@ -731,32 +712,6 @@ def propagate_references(
                 changes.setdefault(path, {})
                 if by_identifier is not None:
                     by_identifier.setdefault(target, {}).setdefault(path, {})
-        _ = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(
-            ".md"
-        )
-        for rid, row in entries(values, "desired.row."):
-            link = resource_link(row["value"])
-            if not link or row["property"] == CODEBUILD_FORMAL_VARIABLE + "Value":
-                continue
-            target = reference_key(link[0], path, resolver)
-            if target in identifiers:
-                own_resource = dict(entries(values, "desired.resource.")).get(
-                    rid.rpartition("-")[0]
-                )
-                if (
-                    target not in reset_references
-                    and own_resource
-                    and own_key(path, own_resource) != target
-                ):
-                    changes.setdefault(path, {})
-                    continue
-                changes.setdefault(path, {}).setdefault(
-                    f"observed.row.{rid}.value", identifiers[target]
-                )
-                if by_identifier is not None:
-                    by_identifier.setdefault(target, {}).setdefault(path, {})[
-                        f"observed.row.{rid}.value"
-                    ] = identifiers[target]
 
 
 def observed_destinations(
@@ -908,8 +863,7 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                         f"{name}/{logical}: identifier row missing/ambiguous: {prop}"
                     )
                 rid, row = selected[0]
-                link = resource_link(row["value"])
-                if not link or reference_key(link[0], path) != own_key(path, resource):
+                if reference_key(row["value"], path) != own_key(path, resource):
                     ambiguous(
                         f"{name}/{logical}: identifier must reference its own Resource reference"
                     )

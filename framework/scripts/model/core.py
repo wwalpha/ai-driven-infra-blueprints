@@ -262,6 +262,14 @@ def validate_model_keys(values: dict[str, str]) -> None:
         "desired.deployment.templateKeyPrefix",
     }
     for key in values:
+        if (
+            key.startswith("desired.")
+            and key.endswith(
+                (".value", ".parentReference", ".bucket", ".templateBucket")
+            )
+            and resource_link(values[key])
+        ):
+            raise InputValidationError("Resource authority requires $modelRef: " + key)
         parts = key.split(".")
         if key not in singles and not (
             len(parts) == 4
@@ -414,10 +422,19 @@ def deployment_settings(
 
 
 def validate_bucket_reference(value: str) -> None:
-    if not resource_link(value):
-        raise InputValidationError(
-            "deployment bucket requires a Markdown Resource reference"
-        )
+    try:
+        document = json.loads(literal(value))
+    except (TypeError, ValueError) as error:
+        raise InputValidationError("deployment bucket requires $modelRef") from error
+    if (
+        not isinstance(document, dict)
+        or set(document) != {"$modelRef"}
+        or not isinstance(document["$modelRef"], dict)
+        or set(document["$modelRef"]) != {"logicalId", "attribute"}
+        or document["$modelRef"]["attribute"] != "BucketName"
+        or not isinstance(document["$modelRef"]["logicalId"], str)
+    ):
+        raise InputValidationError("deployment bucket requires $modelRef BucketName")
 
 
 def validate_key_prefix(value: str) -> None:

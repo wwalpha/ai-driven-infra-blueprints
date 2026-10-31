@@ -168,11 +168,15 @@ def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
             "desired.resource.008.logicalId": "EC2_Subnet_001",
             "desired.service.identity.lastAllocated": '{"EC2.VPC":1,"EC2.Subnet":1}',
             "desired.row.008-001.property": "EC2.Subnet.VpcId",
-            "desired.row.008-001.value": "[vpc](#network-existing)",
+            "desired.row.008-001.value": json.dumps(
+                {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}}
+            ),
             "desired.row.008-001.comment": "foreign VPC",
             "observed.row.008-001.value": "vpc-before",
             "desired.row.008-002.property": "EC2.Subnet.SubnetId",
-            "desired.row.008-002.value": "[subnet](#subnet-existing)",
+            "desired.row.008-002.value": json.dumps(
+                {"$modelRef": {"logicalId": "EC2_Subnet_001", "attribute": "SubnetId"}}
+            ),
             "desired.row.008-002.comment": "own ID",
             "observed.row.008-002.value": "subnet-before",
         }
@@ -197,7 +201,9 @@ def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
             {**snapshot.values, "observed.row.008-002.value": "subnet-other"},
         )
     # A forged foreign link cannot make a native primary identifier writable.
-    values["desired.row.008-002.value"] = "[vpc](#network-existing)"
+    values["desired.row.008-002.value"] = json.dumps(
+        {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}}
+    )
     scope.path.write_text(serialize(values))
     snapshot = load_model(scope)
     with pytest.raises(ValueError, match="IMPORT physical identity"):
@@ -358,24 +364,6 @@ def check_shared_display_selection_and_diagnostics(
             {},
         )
         assert details[0][2] == expected
-    text = "[resource](#resource-existing)"
-    values["desired.note.001.text"] = text
-    spec = {
-        "consumerKey": "desired.note.001.text",
-        "text": text,
-        "occurrence": "1",
-        "producerKind": "resource",
-        "producerScope": "/".join((scope.environment, scope.target, scope.service)),
-        "producerLogicalId": resource["logicalId"],
-        "resourceType": kind,
-        "format": "link",
-        "labelPolicy": "display-name",
-    }
-    values.update(
-        {"desired.reference.name." + key: value for key, value in spec.items()}
-    )
-    scope.path.write_text(serialize(values), encoding="utf-8")
-    assert load_model(scope).warnings == ()
 
 
 @pytest.mark.parametrize(
@@ -750,57 +738,6 @@ def check_unsafe_parts(failure):
             load_model(scope)
 
 
-def check_declared_and_direct_links_coalesce_or_retain_conflicts():
-    with tempfile.TemporaryDirectory() as directory:
-        scope, values = format_fixture(Path(directory))
-        key = "desired.row.007-001.value"
-        spec = {
-            "consumerKey": key,
-            "text": values[key],
-            "occurrence": "1",
-            "producerKind": "resource",
-            "producerScope": "qa-custom/one/network",
-            "producerLogicalId": "EC2_VPC_001",
-            "resourceType": "EC2.VPC",
-            "format": "link",
-            "labelPolicy": "fixed",
-        }
-        values.update(
-            {
-                f"desired.reference.stable.{field}": value
-                for field, value in spec.items()
-            }
-        )
-        scope.path.write_text(serialize(values), encoding="utf-8")
-        model = load_model(scope)
-        assert len([usage for usage in usages(model) if usage.consumer_key == key]) == 1
-        values.update(
-            {
-                "desired.resource.008.resourceType": "EC2.VPC",
-                "desired.resource.008.logicalId": "EC2_VPC_002",
-                "desired.resource.008.anchor": "resource-EC2_VPC_002",
-                "desired.service.identity.lastAllocated": '{"EC2.VPC":2}',
-                "desired.reference.stable.producerLogicalId": "EC2_VPC_002",
-            }
-        )
-        scope.path.write_text(serialize(values), encoding="utf-8")
-        original = scope.path.read_bytes()
-        model = load_model(scope)
-        assert len([usage for usage in usages(model) if usage.consumer_key == key]) == 2
-        assert any("both meanings" in warning["message"] for warning in model.warnings)
-        dependency_index.rebuild(scope.root)
-        assert len(incoming(model, "007")) == len(incoming(model, "008")) == 1
-        assert scope.path.read_bytes() == original
-        values["desired.reference.stable.producerLogicalId"] = "EC2_VPC_001"
-        values["desired.resource.008.logicalId"] = values[
-            "desired.resource.007.logicalId"
-        ]
-        scope.path.write_text(serialize(values), encoding="utf-8")
-        with pytest.raises(ValueError, match="duplicate logicalId"):
-            load_model(scope)
-        assert parse(scope.path.read_text()).values[key] == values[key]
-
-
 @pytest.mark.parametrize("action", ["add", "refresh", "bind", "replace"])
 def check_properties_import_review_operations(action):
     with tempfile.TemporaryDirectory() as directory:
@@ -828,8 +765,8 @@ def check_properties_import_review_operations(action):
             allocate = _imports_model_identity.allocate
             del after["desired.resource.008.logicalId"]
             after = allocate(after, ["008"])
-            after["desired.row.008-001.value"] = (
-                "[EC2_VPC_002](network.md#resource-EC2_VPC_002)"
+            after["desired.row.008-001.value"] = json.dumps(
+                {"$modelRef": {"logicalId": "EC2_VPC_002", "attribute": "VpcId"}}
             )
         after[f"observed.row.{rid}-001.value"] = acquisition["records"][0]["identity"]
         review = build_review(
@@ -868,22 +805,30 @@ def check_properties_reference_review_after_map_and_ownership(change):
                 "desired.service.identity.lastAllocated": '{"EC2.VPC":2}',
                 "desired.resource.008.resourceMode": "IMPORT",
                 "desired.row.008-001.property": "EC2.VPC.VpcId",
-                "desired.row.008-001.value": "[EC2_VPC_002](network.md#resource-EC2_VPC_002)",
+                "desired.row.008-001.value": "`"
+                + json.dumps(
+                    {"$modelRef": {"logicalId": "EC2_VPC_002", "attribute": "VpcId"}}
+                )
+                + "`",
                 "desired.row.008-001.comment": "合成",
                 "observed.row.008-001.value": "vpc-second",
                 "observed.row.007-001.value": "vpc-original",
             }
         )
+        values["desired.row.007-003.property"] = "EC2.VPC.InstanceTenancy"
+        values["desired.row.007-003.value"] = "default"
+        values["desired.row.007-003.comment"] = "literal provenance"
         spec = {
-            "consumerKey": "desired.row.007-001.value",
-            "text": values["desired.row.007-001.value"],
+            "consumerKey": "desired.row.007-003.value",
+            "text": values["desired.row.007-003.value"],
             "occurrence": "1",
             "producerKind": "resource",
             "producerScope": "qa-custom/one/network",
             "producerLogicalId": "EC2_VPC_001",
             "resourceType": "EC2.VPC",
-            "format": "link",
-            "labelPolicy": "fixed",
+            "format": "identifier",
+            "property": "EC2.VPC.VpcId",
+            "labelPolicy": "none",
         }
         values.update(
             {
@@ -903,12 +848,13 @@ def check_properties_reference_review_after_map_and_ownership(change):
                     **(
                         {
                             "consumerKey": "desired.row.008-001.value",
-                            "text": "[EC2_VPC_002](network.md#resource-EC2_VPC_002)",
+                            "text": "EC2_VPC_002",
+                            "pointer": "/$modelRef/logicalId",
                         }
                         if change == "move-unselected"
                         else {
                             "producerLogicalId": "EC2_VPC_002",
-                            "labelPolicy": "display-name",
+                            "labelPolicy": "none",
                         }
                     ),
                 }
@@ -921,7 +867,7 @@ def check_properties_reference_review_after_map_and_ownership(change):
             )
             selection["resources"][0]["resource"] = "008"
         if change in {"delete-unselected", "move-unselected"}:
-            with pytest.raises(ValueError, match="unselected"):
+            with pytest.raises(ValueError, match="unselected|unacquired Property"):
                 build_review(
                     acquisition,
                     selection,
@@ -992,7 +938,7 @@ def check_properties_model_operation_preservation(tmp_path, monkeypatch, change)
         candidate["observed.row.008-001.value"] = values["observed.row.007-001.value"]
         candidate["desired.row.008-002.document"] = values[
             "desired.row.007-002.document"
-        ].replace("[role](#role-source)", "[role](#role-destination)")
+        ].replace("IAM_Role_007", "IAM_Role_008")
     if change == "identity":
         candidate["desired.resource.008.logicalId"] = "changed"
     elif change == "observation":
@@ -1145,7 +1091,9 @@ def check_common_shape(tmp_path):
     )
     full.update(
         {
-            "desired.row.017-023.value": "[S3_Bucket_001](shared.md#resource-S3_Bucket_001)",
+            "desired.row.017-023.value": json.dumps(
+                {"$modelRef": {"logicalId": "S3_Bucket_001", "attribute": "BucketName"}}
+            ),
             "desired.note.bucket.text": "[S3_Bucket_001](shared.md#resource-S3_Bucket_001)",
             "desired.row.017-025.value": '`{"Drop":null,"Items":[0,1,2,3],"Value":false,"Keep":null}`',
             "desired.row.017-024.document": '{"Statement":[{"Resource":"*"},{"Resource":"explicit-target"}]}',

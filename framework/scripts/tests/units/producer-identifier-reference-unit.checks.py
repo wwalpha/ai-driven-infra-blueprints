@@ -104,7 +104,7 @@ def check_json_settings():
     )
     before = dict(good)
     with patch(
-        "model.identity.Resolver.operand",
+        "model.identity.Resolver.resolve_logical",
         side_effect=AssertionError("physical literals must not resolve"),
     ):
         validate_json_settings(good, path)
@@ -201,7 +201,7 @@ def check_identifier_schema():
     assert declarations(values)["fixed"]["format"] == "identifier"
     for fields, phrase in [
         ({"format": "unknown"}, "format/scope"),
-        ({"labelPolicy": "fixed"}, "non-link"),
+        ({"labelPolicy": "fixed"}, "labelPolicy none"),
         ({"contextProperty": "environment"}, "forbidden"),
         ({"producerScope": "../team/vpc"}, "unsafe"),
         ({"selector": "first"}, "fields"),
@@ -329,26 +329,6 @@ def check_identifier_value_conditions(tmp_path, value, phrase):
     assert any(phrase in warning["message"] for warning in snapshot.warnings), (
         snapshot.warnings
     )
-    assert snapshot.authoritative == values
-
-
-@pytest.mark.parametrize("fault", ["missing", "empty", "duplicate"])
-def check_link_reference_ignores_name_rows(tmp_path, fault):
-    producer = resource("001", "IAM.Role", "producer", [("RoleName", "`saved`")])
-    if fault == "missing":
-        producer["desired.row.001-001.property"] = "IAM.Role.Path"
-    elif fault == "empty":
-        producer["desired.row.001-001.value"] = "``"
-    else:
-        producer.update(
-            {
-                "desired.row.001-002.property": "IAM.Role.RoleName",
-                "desired.row.001-002.value": "`duplicate`",
-                "desired.row.001-002.comment": "重複",
-            }
-        )
-    snapshot, values = reference_snapshot(tmp_path, producer, mode="link")
-    assert not snapshot.warnings
     assert snapshot.authoritative == values
 
 

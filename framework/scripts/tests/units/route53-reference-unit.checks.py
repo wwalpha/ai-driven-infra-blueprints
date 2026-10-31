@@ -1,10 +1,12 @@
 """Endpoint DNS selection proof through real Model preparation and Export evaluation."""
 
 import copy
+import json
 import sys
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -15,12 +17,13 @@ from comparison.registry import rules
 from comparison.rules import route53
 from comparison.runner import Settings
 from model.core import entries
-from model.references import declarations, symbolic
+from model.references import symbolic
 from model.sources import Scope, load_model
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
     project,
+    reference,
     resource,
     save,
 )
@@ -52,6 +55,14 @@ def extraction(
     }
 
 
+def model_selection(entry=0):
+    value = extraction(entry=entry)
+    value["Fn::Select"][1]["Fn::Split"][1]["Fn::Select"][1] = reference(
+        "EC2_VPCEndpoint_001", "DnsEntries"
+    )
+    return value
+
+
 @pytest.fixture
 def models(tmp_path):
     with mapping_alias(FRAMEWORK, tmp_path):
@@ -76,22 +87,9 @@ def models(tmp_path):
         values["desired.resource.001.cfn-logicalId"] = "consumer-Policy"
         values["desired.row.001-001.value"] = "`CNAME`"
         values["desired.row.001-002.property"] = "Route53.RecordSet.ResourceRecords"
-        values["desired.row.001-002.value"] = "[endpoint](endpoint.md#saved-001)"
-        values["desired.row.001-002.comment"] = "DNS選択はコメントで証明しない"
-        spec = dict(
-            consumerKey="desired.row.001-002.value",
-            text=values["desired.row.001-002.value"],
-            occurrence="1",
-            producerKind="resource",
-            producerScope="qa/team/endpoint",
-            producerLogicalId="EC2_VPCEndpoint_001",
-            resourceType="EC2.VPCEndpoint",
-            format="link",
-            labelPolicy="fixed",
-            valueSelector="dns-entry[0].dns-name",
-        )
-        values.update(
-            {"desired.reference.dns." + field: value for field, value in spec.items()}
+        values["desired.row.001-002.value"] = json.dumps([model_selection()])
+        values["desired.row.001-002.comment"] = (
+            "DNS selection is explicit in the Model expression"
         )
         save(scope, values)
         yield tmp_path, scope, values
@@ -191,10 +189,18 @@ def test_other_split_does_not_claim_dns_difference(models, delimiter, field):
 
 
 def test_missing_selector_stays_uncompared(models):
-    del models[2]["desired.reference.dns.valueSelector"]
-    _, prepared = prepare(models)
-    with pytest.raises(Blocked, match="reference property contract unproven"):
-        prepared.require_value()
+    models[2]["desired.row.001-002.value"] = json.dumps(
+        [reference("EC2_VPCEndpoint_001", "DnsEntries")]
+    )
+    inputs, prepared = prepare(models)
+    TestCase().assertIsNone(
+        inputs.reference_same(
+            prepared.require_value()[0],
+            imported(inputs),
+            "Route53.RecordSet",
+            "ResourceRecords[]",
+        )
+    )
 
 
 @pytest.mark.parametrize(
@@ -212,7 +218,15 @@ def test_selected_row_shapes_and_container_comparison(models, prop, ticked, entr
         values["desired.row.001-002.value"] = (
             "`" + values["desired.row.001-002.value"] + "`"
         )
-    values["desired.reference.dns.valueSelector"] = f"dns-entry[{entry}].dns-name"
+    values["desired.row.001-002.value"] = (
+        json.dumps([model_selection(entry)])
+        if prop == "ResourceRecords"
+        else json.dumps(model_selection(entry))
+    )
+    if ticked:
+        values["desired.row.001-002.value"] = (
+            "`" + values["desired.row.001-002.value"] + "`"
+        )
     inputs, prepared = prepare(models, extraction(entry=entry))
     desired = prepared.require_value()
     actual = imported(inputs)
@@ -252,28 +266,6 @@ def test_identity_wrapper_reuses_expression_parts(models):
     )
 
 
-@pytest.mark.parametrize("fault", ["producer", "scope", "overlap"])
-def test_model_selection_cannot_override_saved_identity(models, fault):
-    values = models[2]
-    if fault == "producer":
-        values["desired.reference.dns.producerLogicalId"] = "EC2_VPCEndpoint_002"
-    elif fault == "scope":
-        values["desired.reference.dns.producerScope"] = "qa/other/endpoint"
-    else:
-        values.update(
-            {
-                key.replace(
-                    "desired.reference.dns.", "desired.reference.duplicate."
-                ): value
-                for key, value in tuple(values.items())
-                if key.startswith("desired.reference.dns.")
-            }
-        )
-    _, prepared = prepare(models)
-    with pytest.raises(Blocked):
-        prepared.require_value()
-
-
 @pytest.mark.parametrize(
     "fault", ["missing", "ambiguous", "scope", "same-stack", "incomplete"]
 )
@@ -308,8 +300,14 @@ def test_export_proof_required(models, fault):
 def test_cname_only(models, record_type):
     models[2]["desired.row.001-001.value"] = "`" + record_type + "`"
     inputs, prepared = prepare(models)
-    with pytest.raises(Blocked, match="Type=CNAME"):
-        prepared.require_value()
+    TestCase().assertIsNone(
+        inputs.reference_same(
+            prepared.require_value()[0],
+            imported(inputs),
+            "Route53.RecordSet",
+            "ResourceRecords[]",
+        )
+    )
     assert (
         route53.selected_decision(
             inputs,
@@ -377,20 +375,10 @@ def test_runtime_contract_failures_stay_uncompared(models, fault):
     )
 
 
-@pytest.mark.parametrize(
-    "selector",
-    ["", "dns-entry[].dns-name", "dns-entry[-1].dns-name", "dns-entry[01].dns-name"],
-)
-def test_selector_validation(models, selector):
-    values = dict(models[2], **{"desired.reference.dns.valueSelector": selector})
-    with pytest.raises(ValueError, match="valueSelector"):
-        declarations(values)
-
-
 def test_selector_is_preserved_in_symbolic_meaning(models):
     root, scope, values = models
     before = symbolic(load_model(scope))
-    values["desired.reference.dns.valueSelector"] = "dns-entry[1].dns-name"
+    values["desired.row.001-002.value"] = json.dumps([model_selection(1)])
     save(scope, values)
     after = symbolic(load_model(scope))
     assert before["desired.row.001-002.value"] != after["desired.row.001-002.value"]

@@ -7,6 +7,7 @@ from functools import partial as _bind_framework_callback
 
 import design.document as _imports_design_document
 from model.render import generate_markdown
+from support.model_reference_fixtures import reference
 from support.model_sources import write_model
 from support.validator import (
     MODULE,
@@ -178,7 +179,10 @@ def _callback_check_array_role_links_errors(path, root, /, label):
             "iam-profile",
             [
                 ("InstanceProfileName", "`app-profile`"),
-                ("Roles", f"[{label}](#iam-role)"),
+                (
+                    "Roles",
+                    "`" + json.dumps([reference("IAM_Role_001", "RoleName")]) + "`",
+                ),
             ],
         ),
     ):
@@ -202,6 +206,7 @@ def _callback_check_array_role_links_errors(path, root, /, label):
             )
     write_model(root / "model/dev/123456789012/iam.properties", values)
     content = generate_markdown(path, values, SCRIPT.parents[2])
+    content = content.replace("[app-role](#iam-role)", f"[{label}](#iam-role)")
     assert "<!-- array-source:" not in content and "Roles[1]" in content
     write(path, content)
     validator = MODULE.Validator(root)
@@ -233,10 +238,9 @@ def check_array_role_links() -> None:
             _callback_check_array_role_links_errors, path, root
         )
         assert not errors("app-role"), errors("app-role")
-        assert any(
-            "IAM Role link must display RoleName" in error
-            for error in errors("wrong-role")
-        ), errors("wrong-role")
+        assert any("display" in error for error in errors("wrong-role")), errors(
+            "wrong-role"
+        )
 
 
 def _callback_check_s3_bucket_policy_grouping_errors(

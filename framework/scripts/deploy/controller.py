@@ -14,8 +14,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import utils.aws.client as _imports_utils_aws_client
-from model.core import ARTIFACT_PROPERTIES, resource_link
+from model.core import ARTIFACT_PROPERTIES
 from model.projection import deployment_bucket
+from model.references import has_reference
 from utils.aws.identity import execution_account, select_profile
 from utils.cloudformation.environment import validate_environment_inputs
 from utils.cloudformation.export_resolution import (
@@ -251,14 +252,14 @@ def load_inputs(runtime: SimpleNamespace, unit: StackUnit) -> None:
         / runtime.directory
         / "cloudformation-stacks.properties"
     )
-    if (template.stat().st_size > 51200 or unit.get("artifacts")) and resource_link(
+    if (template.stat().st_size > 51200 or unit.get("artifacts")) and has_reference(
         unit.get("templateBucket", "")
     ):
         unit["templateBucket"] = deployment_bucket(
             unit["templateBucket"], source, runtime.root
         )
     for artifact in unit.get("artifacts", []):
-        if resource_link(artifact["bucket"]):
+        if has_reference(artifact["bucket"]):
             artifact["bucket"] = deployment_bucket(
                 artifact["bucket"], source, runtime.root
             )

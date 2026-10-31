@@ -143,7 +143,7 @@ Use only authoritative model properties as machine-readable input of approved de
 
 Reflect tags in properties desired rows into CloudFormation/Terraform unchanged. Do not output `EC2.VPC.Name`, `EC2.Subnet.Name`, `EC2.RouteTable.Name`, or `EC2.FlowLog.Name` as provider properties; convert them to tags with case-sensitive `Name` keys and the same values. Only when the corresponding target resource `.Name` and non-empty value are missing, report that a separate `design` task is required and stop without guessing values.
 
-Resolve saved Markdown Resource links with the common parser/resolver and consumer scope, including parentReference and JSON operands. Read only the referenced Model groups. Resolve through producer Model saved anchors, never names, cfn-logicalId or generated Markdown. Preserve explicit receiving attributes and emit engine-native references; never emit an unresolved Resource link, PENDING_DEPLOY or an inferred physical value to IaC. Add only catalog IDENTIFIER_OUTPUT required by consumers to Outputs, without saving generated ARNs.
+Resolve structured `$modelRef` Resource references with the common parser/resolver and consumer scope, including parentReference and JSON operands. Read only the referenced Model groups. Resolve through producer Model logicalId and explicit attribute, never display names, anchors or generated Markdown. Preserve explicit receiving attributes and emit engine-native references; never emit an unresolved Resource link, PENDING_DEPLOY or an inferred physical value to IaC. Add only catalog IDENTIFIER_OUTPUT required by consumers to Outputs, without saving generated ARNs.
 
 For CloudFormation:
 

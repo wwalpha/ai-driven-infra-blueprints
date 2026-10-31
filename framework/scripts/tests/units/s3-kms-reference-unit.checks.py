@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -22,6 +23,7 @@ from model.projection import reference_display
 from model.references import incoming
 from model.render import generate_markdown
 from model.sources import Scope, load_model
+from support.model_reference_fixtures import reference
 from support.model_sources import catalog_display, write_model
 from sync_runtime import _compare_generation
 from utils.reference_contracts import S3_KMS_MASTER_KEY_ID as PROP
@@ -82,15 +84,25 @@ def fixture(root):
         )
     kms.update(
         {
-            "desired.resource.002.parentReference": KEY_LINK,
+            "desired.resource.002.parentReference": "`"
+            + json.dumps(reference("KMS_Key_001", "KeyId"))
+            + "`",
             "desired.resource.002.parentProperty": "KMS.Alias.TargetKeyId",
             "display.resource.003.label": "other-key",
         }
     )
     for rid, prop, value in [
-        ("001-001", "KMS.Key.KeyId", "[key](#key-one)"),
+        (
+            "001-001",
+            "KMS.Key.KeyId",
+            "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`",
+        ),
         ("002-001", "KMS.Alias.AliasName", "`alias/fixture-key`"),
-        ("003-001", "KMS.Key.KeyId", "[key](#key-two)"),
+        (
+            "003-001",
+            "KMS.Key.KeyId",
+            "`" + json.dumps(reference("KMS_Key_002", "KeyId")) + "`",
+        ),
     ]:
         kms.update(
             {
@@ -115,7 +127,7 @@ def fixture(root):
     for rid, prop, value in [
         ("001-001", "S3.Bucket.BucketName", "`fixture-bucket`"),
         ("001-002", "S3.Bucket.Region", "`ap-northeast-1`"),
-        ("001-003", PROP, ALIAS_LINK),
+        ("001-003", PROP, "`" + json.dumps(reference("KMS_Alias_001", "Arn")) + "`"),
         ("001-004", PROP.rsplit(".", 1)[0] + ".SSEAlgorithm", "`aws:kms`"),
     ]:
         bucket.update(
@@ -160,13 +172,17 @@ def check_authority_display_and_references(project_workspace):
     dependency_index.rebuild(scope.root)
     uses = incoming(load_model(Scope(scope.root, "fixture", "team", "kms")), "002")
     assert any(
-        consumer == scope and usage.consumer_key == ROW and usage.pointer is None
+        consumer == scope and usage.consumer_key == ROW and usage.pointer == ""
         for consumer, usage in uses
     )
     validate_candidates(
         scope.root,
         {"model/fixture/team/s3.properties"},
-        {scope.path: serialize({**bucket, ROW: KEY_LINK})},
+        {
+            scope.path: serialize(
+                {**bucket, ROW: "`" + json.dumps(reference("KMS_Key_001", "Arn")) + "`"}
+            )
+        },
         {("fixture", "team", "s3")},
     )
     with patch(
@@ -174,11 +190,12 @@ def check_authority_display_and_references(project_workspace):
         side_effect=AssertionError("AWS forbidden"),
     ):
         displayed = reference_display(bucket, scope.path, scope.root)
-        files = designs(scope, displayed, kms)
+        files = designs(scope, bucket, kms)
     view = scope.root / "docs/designs/fixture/team/s3.md"
     expected = ALIAS_LINK
     assert expected in files[view] and "$resource" not in files[view]
-    assert displayed[ROW] == expected and bucket[ROW] == snapshot.authoritative[ROW]
+    TestCase().assertNotIn("$modelRef", displayed[ROW])
+    TestCase().assertEqual(bucket[ROW], snapshot.authoritative[ROW])
     findings = Findings(scope.root)
     validate_links(
         {},
@@ -301,8 +318,10 @@ def check_iac_matrix(project_workspace):
         scope.root, "fixture", "team", ["s3"], catalog=DesignSchemaCatalog(FRAMEWORK)
     )
     results = comparison.run()
-    encryption = [item for item in results if item["property"] == PROP]
-    assert len(encryption) == 1 and encryption[0]["category"] == "uncompared", results
+    encryption = [
+        item for item in results if item["property"] == "S3.Bucket.BucketEncryption"
+    ]
+    assert len(encryption) == 1 and encryption[0]["category"] == "matched", results
 
     bucket[ROW] = json.dumps(
         {"$modelRef": {"logicalId": "KMS_Alias_001", "attribute": "AliasName"}}
@@ -317,7 +336,11 @@ def check_iac_matrix(project_workspace):
     ]
     assert len(encryption) == 1 and encryption[0]["category"] == "matched", results
     plain = comparison.desired_reference(
-        "s3", KEY_LINK, "S3.Bucket", PROP.removeprefix("S3.Bucket."), attribute="KeyId"
+        "s3",
+        reference("KMS_Key_001", "KeyId"),
+        "S3.Bucket",
+        PROP.removeprefix("S3.Bucket."),
+        attribute="KeyId",
     )
     assert plain["$attribute"] == "KeyId"
     assert (
@@ -331,7 +354,7 @@ def check_iac_matrix(project_workspace):
     )
     alias = comparison.desired_reference(
         "s3",
-        ALIAS_LINK,
+        reference("KMS_Alias_001", "AliasName"),
         "S3.Bucket",
         PROP.removeprefix("S3.Bucket."),
         attribute="AliasName",

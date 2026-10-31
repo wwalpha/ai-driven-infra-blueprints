@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from utils.json_format import strict_json
 from utils.reference_contracts import reference_context
 
-from model.core import ModelNeedsFixError
+from model.core import ModelNeedsFixError, literal
 from model.reference_values import reference_value
 from model.reference_values import resolve as resolve
 
@@ -24,6 +24,15 @@ def is_reference(value):
 
 
 def parse(value, pointer=""):
+    if isinstance(value, str):
+        try:
+            value = strict_json(literal(value))
+        except ValueError as error:
+            raise ModelNeedsFixError(
+                "Resource reference requires a $modelRef object",
+                code="MODEL_REF_INVALID_SYNTAX",
+                pointer=pointer,
+            ) from error
     body = value.get("$modelRef") if isinstance(value, dict) else None
     details = {"pointer": pointer}
     if isinstance(body, dict):

@@ -7,6 +7,7 @@ from comparison import Comparison
 from model.format import serialize
 from model.identity import COUNTERS
 from model.sources import Scope, load_model
+from utils.reference_contracts import RETURN_ATTRIBUTE_PROPERTIES, reference_attribute
 
 from model import dependency_index
 
@@ -52,8 +53,14 @@ def resource_values(
         f"desired.resource.{number}.resourceMode": "CREATE",
         f"desired.resource.{number}.cfn-logicalId": "producer-Resource" + number,
         f"display.resource.{number}.comment": "合成",
-        f"desired.row.{number}-001.property": kind + "." + attribute,
-        f"desired.row.{number}-001.value": "[self](#saved-" + number + ")",
+        f"desired.row.{number}-001.property": kind
+        + "."
+        + RETURN_ATTRIBUTE_PROPERTIES.get(
+            (kind, reference_attribute(kind, attribute)), attribute
+        ),
+        f"desired.row.{number}-001.value": "`"
+        + json.dumps(reference(logical, reference_attribute(kind, attribute)))
+        + "`",
         f"desired.row.{number}-001.comment": "合成",
     }
     if observed is not None:

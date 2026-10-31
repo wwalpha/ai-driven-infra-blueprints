@@ -9,6 +9,7 @@ from utils.comparison_rows import put_row
 
 # Returned attributes whose explicit setting has a different property name.
 RETURN_ATTRIBUTE_PROPERTIES = {
+    ("EC2.SecurityGroup", "GroupId"): "Id",
     ("CodeCommit.Repository", "Name"): "RepositoryName",
     ("Events.Rule", "RuleName"): "Name",
     ("SNS.Topic", "TopicName"): "TopicName",

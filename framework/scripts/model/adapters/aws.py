@@ -50,19 +50,12 @@ from utils.lazy_definitions import load_once
 from validation.diagnostics import InputValidationError
 
 import model.importing.inventory as _imports_model_importing_inventory
-from model.core import ReferenceResolutionError
 from model.core import entries as entries
 from model.core import properties as properties
 from model.files import load_model, read_model
-from model.identity import (
-    anchor_index,
-    parse_reference,
-    resource_link,
-    select_anchor,
-)
 from model.literal_values import projection_conflicts, typed_value, value_shape
 from model.projection import reference_resolver
-from model.reference_nodes import is_reference
+from model.reference_nodes import is_reference, nodes
 from model.reference_nodes import parse as parse_model_reference
 from model.reference_values import reference_value
 from model.sources import model_paths, scope_for
@@ -731,7 +724,7 @@ class Resource:
             return None
         rid, row = rows[0]
         raw = self.model.values.get("observed.row." + rid + ".value")
-        if raw is None and not resource_link(row["value"]):
+        if raw is None and not any(nodes(literal(row["value"]))):
             raw = row["value"]
         if raw is None:
             return None
@@ -763,25 +756,10 @@ class Resource:
         return self.reference(reference)
 
     def reference(self, value):
-        scope = SimpleNamespace(
-            environment=self.model.path.parent.parent.name,
-            target=self.model.path.parent.name,
-            service=self.model.service,
-        )
-        environment, target, service, anchor = parse_reference(value, scope)
-        path = (
-            self.ctx.root / "model" / environment / target / (service + ".properties")
-        )
-        try:
-            model = self.ctx.model(path)
-        except FileNotFoundError as error:
-            raise Unresolved("producer Model is absent") from error
-        if not hasattr(model, "_anchor_resources"):
-            model._anchor_resources = anchor_index(model.values)
-        try:
-            number, _ = select_anchor(model._anchor_resources, anchor, value)
-        except ReferenceResolutionError as error:
-            raise Unresolved(str(error)) from error
+        scope = scope_for(self.model.path)
+        resolver = reference_resolver(self.model.values, scope, self.ctx.root)
+        snapshot, number, _ = resolver.resolve(value, scope)
+        model = self.ctx.model(snapshot.scope.path)
         return next(
             resource for resource in model.resources if resource.number == number
         )
@@ -850,18 +828,6 @@ class Resource:
             schema, schema_type = {}, "string"
         if "document" in row:
             value = policy_json(raw)
-        elif resource_link(raw):
-            target = self.reference(raw)
-            mode = (
-                "arn"
-                if norm in {"arn", "policy", "iam_role", "log_group_arn"}
-                else "name"
-                if norm in {"name", "string"}
-                else "id"
-            )
-            value = target.identity(mode)
-            if schema_type == "array":
-                value = [value]
         else:
             value = literal(raw)
             explicit_empty = (
@@ -900,15 +866,13 @@ class Resource:
         return value
 
     def resolve_json(self, value, norm="typed"):
-        if isinstance(value, str) and resource_link(value):
-            target = self.reference(value)
-            return target.identity(
-                "arn"
-                if norm in {"arn", "policy", "iam_role", "log_group_arn"}
-                else "name"
-                if norm in {"name", "string"}
-                else "id"
-            )
+        if is_reference(value):
+            scope = scope_for(self.model.path)
+            resolver = reference_resolver(self.model.values, scope, self.ctx.root)
+            result = reference_value(resolver, scope, parse_model_reference(value))
+            if result.status != "resolved":
+                raise Unresolved(result.reason or "Model reference is unresolved")
+            return result.value
         if isinstance(value, list):
             return [self.resolve_json(item, norm) for item in value]
         if not isinstance(value, dict):

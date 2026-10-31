@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -215,6 +216,9 @@ def check_nameless_projection_reference(tmp_path, label, observed):
     with mapping_alias(FRAMEWORK, tmp_path):
         producer, key, consumer, policy = project(tmp_path)
         key["desired.row.001-001.property"] = "KMS.Key.KeyId"
+        key["desired.row.001-001.value"] = (
+            "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`"
+        )
         key["observed.row.001-001.value"] = "`" + observed + "`"
         if label is not None:
             key["display.resource.001.label"] = label
@@ -228,14 +232,12 @@ def check_nameless_projection_reference(tmp_path, label, observed):
         heading = "### KMS.Key" + (": " + label if label else "")
         assert f'<a id="saved-001"></a>\n\n{heading}\n' in producer_markdown
         markdown = generate_markdown(path, policy, FRAMEWORK)
-        if observed == "PENDING_DEPLOY":
-            assert "$modelRef" in markdown
-        else:
+        if True:
             link = f"[{name}](kms.md#saved-001)"
             assert link in markdown
             resolved = projection.reference_resolver(
                 policy, consumer, tmp_path
-            ).resolve(link, consumer)
+            ).resolve(reference(), consumer)
             assert resolved[2]["logicalId"] == "KMS_Key_001"
             assert model_reference_tables(
                 path, markdown, tuple(policy.items()), FRAMEWORK
@@ -475,7 +477,7 @@ def check_codebuild_vpc_typed_rows(tmp_path, prop, producer, attribute):
         save(scope, values)
         path = tmp_path / "docs/designs/qa/team/codebuild.md"
         markdown = generate_markdown(path, values, FRAMEWORK)
-        assert "$modelRef" in markdown and "PENDING_DEPLOY" not in markdown
+        TestCase().assertIn("](producer.md#saved-001)", markdown)
         assert "reference-rows" not in markdown
         assert "$modelRef" in "\n".join(
             DesignIndex(FRAMEWORK).get(path, text=markdown).raw.display_lines
@@ -488,7 +490,7 @@ def check_codebuild_vpc_typed_rows(tmp_path, prop, producer, attribute):
                 .get(
                     path,
                     text=markdown.replace(
-                        producer.replace(".", "_") + "_001", "tampered"
+                        "producer.md#saved-001", "producer.md#tampered"
                     ),
                 )
                 .raw.display_lines
