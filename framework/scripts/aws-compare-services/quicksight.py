@@ -92,6 +92,10 @@ def fetch(ctx, r, getter):
         return {"Namespace": resource[1]}
     account, omitted = datasource_account(ctx, r)
     if getter == "vpc":
+        if account != execution_account(ctx.target):
+            raise Unresolved(
+                "QuickSight VPC connection owner differs from verified execution account"
+            )
         result = ctx.call(
             "quicksight",
             "describe_vpc_connection",

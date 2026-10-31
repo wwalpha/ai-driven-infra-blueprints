@@ -1505,3 +1505,74 @@ def test_quicksight_account_fallback_and_other_resources(tmp_path):
     ):
         with pytest.raises(m.Unresolved):
             module.fetch_sdk(ctx, resource, "describe_group")
+
+
+@pytest.mark.parametrize(
+    "configured,owner,verified,allowed",
+    [(ACCOUNT, ACCOUNT, True, True),
+     ("999999999999", "999999999999", True, True),
+     ("999999999999", ACCOUNT, True, False),
+     (ACCOUNT, ACCOUNT, False, False)],
+)
+def test_quicksight_vpc_owner_before_describe(
+    tmp_path, configured, owner, verified, allowed
+):
+    ctx = SchemaOffline(tmp_path)
+    ctx.target["awsExecutionAccountId"] = configured
+    ctx.verified = verified
+    resource = Mock(kind="QuickSight.VPCConnection")
+    resource.rows_for.return_value = [object()]
+    resource.value.side_effect = lambda prop: {
+        "AwsAccountId": owner, "VPCConnectionId": "vpc-id"
+    }[prop]
+    with patch.object(
+        ctx, "call", return_value={"VPCConnection": {"DnsResolvers": ["10.0.0.2"]}}
+    ) as call:
+        if allowed:
+            assert m.service_module("quicksight").fetch(ctx, resource, "vpc")["DnsResolvers"] == ["10.0.0.2"]
+            call.assert_called_once_with(
+                "quicksight", "describe_vpc_connection",
+                AwsAccountId=owner, VPCConnectionId="vpc-id"
+            )
+        else:
+            with pytest.raises(m.Unresolved):
+                m.service_module("quicksight").fetch(ctx, resource, "vpc")
+            call.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "actual,status", [(["10.0.0.2"], "match"), (["10.0.0.3"], "difference")]
+)
+def test_quicksight_vpc_dns_comparison(tmp_path, actual, status):
+    ctx = SchemaOffline(ROOT, target=dict(TARGET, awsExecutionAccountId="999999999999"))
+    ctx.verified = True
+    kind = "QuickSight.VPCConnection"
+    model = SimpleNamespace(
+        ctx=ctx, service="quicksight", values={}, locations={},
+        path=ROOT / "model/dev" / ACCOUNT / "quicksight.properties",
+    )
+    resource = m.Resource(model, "001", {"resourceType": kind, "logicalId": "VPC"}, [
+        ("001-001", {"property": kind + ".AwsAccountId", "value": "`999999999999`"}),
+        ("001-002", {"property": kind + ".VPCConnectionId", "value": "`vpc-id`"}),
+        ("001-003", {"property": kind + ".DnsResolvers", "value": '`["10.0.0.2"]`', "valueShape": "leaf"}),
+    ])
+    with patch.object(
+        ctx, "call", return_value={"VPCConnection": {"DnsResolvers": actual}}
+    ) as call:
+        records = m.compare_resource(ctx, resource)
+    dns = next(record for record in records if record["propertiesKey"] == kind + ".DnsResolvers")
+    assert dns["status"] == status, dns
+    assert call.call_args.kwargs["AwsAccountId"] == "999999999999"
+
+
+def test_quicksight_vpc_access_denied(tmp_path):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    resource = Mock(kind="QuickSight.VPCConnection")
+    resource.rows_for.return_value = []
+    resource.value.return_value = "vpc-id"
+    error = m.AcquisitionError("quicksight.describe_vpc_connection", "AccessDenied")
+    with patch.object(ctx, "call", side_effect=error):
+        with pytest.raises(m.AcquisitionError) as caught:
+            m.service_module("quicksight").fetch(ctx, resource, "vpc")
+    assert caught.value.code == "AccessDenied"
