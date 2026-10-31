@@ -55,6 +55,31 @@ class SdkErrorTests(unittest.TestCase):
                     self.assertEqual((result.code, result.status), (code, expected))
 
 
+class IamInlinePolicyTests(unittest.TestCase):
+    def test_role_inline_outcomes(self):
+        adapter = service_module("iam")
+        resource = SimpleNamespace(kind="IAM.Role", value=lambda key: "role")
+        for case in ("present", "missing_policy", "missing_role", "deleted", "denied", "changed"):
+            with self.subTest(case=case):
+                ctx = Mock(import_mode=False)
+                ctx.pages.return_value = {"PolicyNames": [] if case == "missing_policy" else ["policy"]}
+                ctx.fresh_pages.return_value = {"PolicyNames": [] if case in {"missing_policy", "changed"} else ["policy"]}
+                ctx.call.return_value = {"PolicyDocument": {"Version": "2012-10-17"}}
+                if case == "missing_role":
+                    ctx.pages.side_effect = AcquisitionError("iam.list_role_policies", "NoSuchEntity", "resource_missing")
+                if case in {"deleted", "denied"}:
+                    ctx.call.side_effect = AcquisitionError("iam.get_role_policy", "NoSuchEntity" if case == "deleted" else "AccessDenied", "resource_missing" if case == "deleted" else "acquisition_failed")
+                if case in {"present", "missing_policy"}:
+                    result = adapter.fetch(ctx, resource, "inline")
+                    self.assertEqual(len(result["Policies"]), 1 if case == "present" else 0)
+                else:
+                    with self.assertRaises(AcquisitionError) as raised:
+                        adapter.fetch(ctx, resource, "inline")
+                    self.assertEqual(raised.exception.status, "resource_missing" if case == "missing_role" else "acquisition_failed")
+                if case == "deleted":
+                    self.assertEqual(ctx.fresh_pages.call_count, 2)
+
+
 class WriteOnlyArrayValidationTests(unittest.TestCase):
     def test_array_item_types(self):
         m = SimpleNamespace(

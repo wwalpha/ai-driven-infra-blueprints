@@ -486,6 +486,17 @@ class Context:
             )
         )
 
+    def fresh_pages(self, service, operation, **inputs):
+        fresh = Context(
+            self.root, self.target, self.session, self.cli_runner, self.services, self.import_mode
+        )
+        fresh.verified = self.verified
+        try:
+            return fresh.pages(service, operation, **inputs)
+        finally:
+            self.trace.extend(fresh.trace)
+            self.metrics.update(fresh.metrics)
+
     def _pages(self, service, operation, **inputs):
         if (service, operation) not in self.allowed or not self.verified:
             raise ValueError("paginated API is outside verified read-only scope")

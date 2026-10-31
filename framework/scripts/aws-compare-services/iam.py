@@ -1,6 +1,6 @@
 """iam: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model.adapters.aws import one
+from model.adapters.aws import AcquisitionError, one
 
 APIS = {
     ("iam", "list_attached_user_policies"),
@@ -69,22 +69,26 @@ def fetch(ctx, r, getter):
         )
         return {"Arns": [v["PolicyArn"] for v in result.get("AttachedPolicies", [])]}
     if getter == "inline":
-        names = ctx.pages("iam", "list_" + kind + "_policies", **{argument: name}).get(
-            "PolicyNames", []
-        )
-        return {
-            "Policies": [
-                {
-                    "PolicyName": p,
-                    "PolicyDocument": ctx.call(
-                        "iam",
-                        "get_" + kind + "_policy",
-                        **{argument: name, "PolicyName": p},
-                    )["PolicyDocument"],
-                }
-                for p in names
-            ]
-        }
+        operation = "list_" + kind + "_policies"
+        inputs = {argument: name}
+        names = ctx.pages("iam", operation, **inputs).get("PolicyNames", [])
+        if kind == "role" and not getattr(ctx, "import_mode", False):
+            confirmed = ctx.fresh_pages("iam", operation, **inputs).get("PolicyNames", [])
+            if set(names) != set(confirmed):
+                raise AcquisitionError("iam." + operation, "InlinePolicyListChanged")
+        policies = []
+        for p in names:
+            try:
+                document = ctx.call(
+                    "iam", "get_" + kind + "_policy", **inputs, PolicyName=p
+                )["PolicyDocument"]
+            except AcquisitionError as error:
+                if kind != "role" or error.code != "NoSuchEntity" or getattr(ctx, "import_mode", False):
+                    raise
+                ctx.fresh_pages("iam", operation, **inputs)
+                raise AcquisitionError(error.api, error.code, request=error.request) from error
+            policies.append({"PolicyName": p, "PolicyDocument": document})
+        return {"Policies": policies}
     return ctx.call("iam", "get_" + kind, **{argument: name})[
         "Role" if kind == "role" else "User"
     ]

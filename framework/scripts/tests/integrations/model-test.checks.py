@@ -227,6 +227,76 @@ def runtime(data):
     return namespace
 
 
+def test_iam_inline_fresh_recheck():
+    from model.adapters.aws import AcquisitionError, Context, service_module
+
+    resource = _CallbackState(kind="IAM.Role", value=lambda key: "test-role")
+    target = {"awsRegion": "ap-northeast-1"}
+    adapter = service_module("iam")
+    for case in ("present", "missing_policy", "missing_role", "deleted", "denied", "changed"):
+        calls = []
+        def runner(command, **kwargs):
+            operation = command[2]
+            calls.append(operation)
+            if operation == "list-role-policies":
+                if case == "missing_role":
+                    code = "NoSuchEntity"
+                else:
+                    names = [] if case == "missing_policy" or (case == "changed" and calls.count(operation) > 1) else ["policy"]
+                    return subprocess.CompletedProcess(command, 0, json.dumps({"PolicyNames": names}), "")
+            elif case in {"deleted", "denied"}:
+                code = "NoSuchEntity" if case == "deleted" else "AccessDenied"
+            else:
+                return subprocess.CompletedProcess(command, 0, json.dumps({"PolicyDocument": {}}), "")
+            return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({code}) when calling Mock: denied")
+        ctx = Context(ROOT, target, cli_runner=runner, services=["iam"])
+        ctx.verified = True
+        if case in {"present", "missing_policy"}:
+            assert len(adapter.fetch(ctx, resource, "inline")["Policies"]) == (case == "present")
+        else:
+            try:
+                adapter.fetch(ctx, resource, "inline")
+                assert False, case
+            except AcquisitionError as error:
+                assert error.status == ("resource_missing" if case == "missing_role" else "acquisition_failed"), case
+        assert calls.count("list-role-policies") == (1 if case == "missing_role" else 3 if case == "deleted" else 2)
+
+
+def test_iam_inline_generated_report():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "project.json").write_text(json.dumps({"projectName": "fixture", "targets": [{"environment": "dev", "alias": "cde", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}), encoding="utf-8")
+        data = fixture({}, "iam", [("001", "IAM.Role", "role", [("RoleName", "`test-role`", None), ("Policies[].PolicyName", "`policy`", None)])])
+        write_model(root / "model/dev/cde/iam.properties", data["models"]["dev/cde/iam"])
+        source, _, _ = generator.generate(root, "dev", "cde", "iam")
+        generated = {"__name__": "iam_fixture", "__file__": str(root / "audit.py")}
+        exec(compile(source, "audit.py", "exec"), generated)
+        for case in ("present", "missing_policy", "missing_role", "deleted", "denied", "changed"):
+            calls = []
+            def runner(command, **kwargs):
+                operation = command[2]
+                calls.append(operation)
+                if operation == "get-caller-identity":
+                    value = {"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/offline"}
+                elif operation == "get-role":
+                    value = {"Role": {"RoleName": "test-role"}}
+                elif operation == "list-role-policies":
+                    if case == "missing_role":
+                        return subprocess.CompletedProcess(command, 1, "", "An error occurred (NoSuchEntity) when calling Mock: missing")
+                    value = {"PolicyNames": [] if case == "missing_policy" or (case == "changed" and calls.count(operation) > 1) else ["policy"]}
+                elif case in {"deleted", "denied"}:
+                    code = "NoSuchEntity" if case == "deleted" else "AccessDenied"
+                    return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({code}) when calling Mock: denied")
+                else:
+                    value = {"PolicyDocument": {}}
+                return subprocess.CompletedProcess(command, 0, json.dumps(value), "")
+            _, account, records = generated["audit"](generated["SNAPSHOT"], None, runner)
+            report, code = generated["report"](generated["SNAPSHOT"], None, account, records, datetime.now(timezone.utc))
+            expected = {"present": "OK", "missing_policy": "NG", "missing_role": "NG", "deleted": "ERROR", "denied": "ERROR", "changed": "ERROR"}[case]
+            assert f"[{expected}] IAM.Role | test-role | " in report, (case, report)
+            assert code == (0 if case == "present" else 1 if expected == "NG" else 2), (case, report)
+
+
 class CLI:
     def __init__(self, responses, account="123456789012", fail=None):
         self.responses, self.account, self.fail, self.calls = (
@@ -1261,6 +1331,8 @@ else:
 
 @it_case
 def check():
+    test_iam_inline_fresh_recheck()
+    test_iam_inline_generated_report()
     lambda_missing_standalone()
     test_quicksight_generated_standalone()
     glue_write_only()
