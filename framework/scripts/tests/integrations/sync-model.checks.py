@@ -575,7 +575,7 @@ def check_pending_artifact_transaction(generated_policy, failure):
                     json.loads(candidate[artifact])["Statement"][0]["Resource"][1]
                     == "PENDING_DEPLOY"
                 )
-                assert "[KMS.Key](kms.md#saved-001)" in candidate[design]
+                assert "[PENDING_DEPLOY](kms.md#saved-001)" in candidate[design]
                 with ExitStack() as injections:
                     if failure:
                         injections.enter_context(
@@ -623,6 +623,7 @@ def check_pending_artifact_transaction(generated_policy, failure):
                     json.loads(candidate[artifact]) == expected and trust in candidate
                 )
                 assert "iam/iam-role-001-pending.json" in candidate[design]
+                assert f"[{arn}](kms.md#saved-001)" in candidate[design]
                 assert (
                     "$modelRef" not in candidate[design]
                     and "confirmed-bucket" in candidate[design]
