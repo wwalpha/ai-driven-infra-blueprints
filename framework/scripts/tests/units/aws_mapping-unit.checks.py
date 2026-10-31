@@ -333,6 +333,14 @@ def check_v3_registry():
         assert prop["model"]["include"] is True and prop["display"]["show"] is True
         baseline = baseline_properties["s3"]["S3.Bucket"][name]
         baseline["model"]["include"] = baseline["display"]["show"] = False
+    policy_id = baseline_properties["sqs"]["SQS.QueuePolicy"]["Id"]["source"]
+    assert policy_id["constraint"] == (
+        "CloudFormation Fn::GetAtt Id is a provider-assigned ID; SQS GetQueueAttributes "
+        "returns the policy document but cannot independently verify this ID."
+    )
+    policy_id["constraint"] = (
+        "SQS has no independent QueuePolicy resource ID; GetQueueAttributes returns only the queue policy document."
+    )
     # Environment mappings add CodePipeline SDK fields and expose ECS/Lambda values.
     for values, expected in [
         (

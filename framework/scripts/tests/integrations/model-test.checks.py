@@ -200,7 +200,7 @@ POLICY = {
 }
 
 
-def check_pipeline_membership(root):
+def _check_pipeline_membership(root):
     pipeline_rows = [("Name", "`fixture-pipeline`", None)]
     pipeline_stages = []
     for stage in range(2):
@@ -1565,7 +1565,7 @@ def check():
             ),
             encoding="utf-8",
         )
-        check_pipeline_membership(root)
+        _check_pipeline_membership(root)
         iam = fixture(
             {},
             "iam",

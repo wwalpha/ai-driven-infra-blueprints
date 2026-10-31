@@ -1841,6 +1841,7 @@ def check_cloudcontrol_json_and_readonly_boundary():
         ("sts", "get_caller_identity"),
         ("datazone", "get_domain"),
         ("datazone", "get_project"),
+        ("datazone", "list_domains"),
     }
 
 
