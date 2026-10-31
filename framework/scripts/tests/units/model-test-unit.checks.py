@@ -47,14 +47,22 @@ if not __debug__:
 
 def _flow_log_cli(response, command, **kwargs):
     if command[1] == "sts":
-        return subprocess.CompletedProcess(command, 0, json.dumps({"Account": "123456789012"}), "")
+        return subprocess.CompletedProcess(
+            command, 0, json.dumps({"Account": "123456789012"}), ""
+        )
     if response is None:
-        return subprocess.CompletedProcess(command, 1, "", "An error occurred (AccessDenied) when calling Mock: denied")
-    return subprocess.CompletedProcess(command, 0, json.dumps({"FlowLogs": response}), "")
+        return subprocess.CompletedProcess(
+            command, 1, "", "An error occurred (AccessDenied) when calling Mock: denied"
+        )
+    return subprocess.CompletedProcess(
+        command, 0, json.dumps({"FlowLogs": response}), ""
+    )
 
 
 def _flow_log_id_cli(records, command, **kwargs):
-    value = {"Account": "123456789012"} if command[1] == "sts" else {"FlowLogs": records}
+    value = (
+        {"Account": "123456789012"} if command[1] == "sts" else {"FlowLogs": records}
+    )
     return subprocess.CompletedProcess(command, 0, json.dumps(value), "")
 
 
@@ -66,11 +74,16 @@ def _sg_sdk_error(code):
 
 class SdkErrorTests(unittest.TestCase):
     def test_lambda_cli_errors_with_retry_metadata(self):
-        for code, expected in [("ResourceNotFoundException", "resource_missing"), ("AccessDeniedException", "acquisition_failed")]:
+        for code, expected in [
+            ("ResourceNotFoundException", "resource_missing"),
+            ("AccessDeniedException", "acquisition_failed"),
+        ]:
             for suffix in ("", " (reached max retries: 2)"):
                 with self.subTest(code=code, suffix=suffix):
                     error = subprocess.CalledProcessError(
-                        254, "aws", stderr=f"An error occurred ({code}) when calling the GetFunction operation{suffix}: details"
+                        254,
+                        "aws",
+                        stderr=f"An error occurred ({code}) when calling the GetFunction operation{suffix}: details",
                     )
                     result = sdk_error("lambda.get_function", error, ("request",))
                     self.assertEqual((result.code, result.status), (code, expected))
@@ -80,23 +93,51 @@ class IamInlinePolicyTests(unittest.TestCase):
     def test_role_inline_outcomes(self):
         adapter = service_module("iam")
         resource = SimpleNamespace(kind="IAM.Role", value=lambda key: "role")
-        for case in ("present", "missing_policy", "missing_role", "deleted", "denied", "changed"):
+        for case in (
+            "present",
+            "missing_policy",
+            "missing_role",
+            "deleted",
+            "denied",
+            "changed",
+        ):
             with self.subTest(case=case):
                 ctx = Mock(import_mode=False)
-                ctx.pages.return_value = {"PolicyNames": [] if case == "missing_policy" else ["policy"]}
-                ctx.fresh_pages.return_value = {"PolicyNames": [] if case in {"missing_policy", "changed"} else ["policy"]}
+                ctx.pages.return_value = {
+                    "PolicyNames": [] if case == "missing_policy" else ["policy"]
+                }
+                ctx.fresh_pages.return_value = {
+                    "PolicyNames": []
+                    if case in {"missing_policy", "changed"}
+                    else ["policy"]
+                }
                 ctx.call.return_value = {"PolicyDocument": {"Version": "2012-10-17"}}
                 if case == "missing_role":
-                    ctx.pages.side_effect = AcquisitionError("iam.list_role_policies", "NoSuchEntity", "resource_missing")
+                    ctx.pages.side_effect = AcquisitionError(
+                        "iam.list_role_policies", "NoSuchEntity", "resource_missing"
+                    )
                 if case in {"deleted", "denied"}:
-                    ctx.call.side_effect = AcquisitionError("iam.get_role_policy", "NoSuchEntity" if case == "deleted" else "AccessDenied", "resource_missing" if case == "deleted" else "acquisition_failed")
+                    ctx.call.side_effect = AcquisitionError(
+                        "iam.get_role_policy",
+                        "NoSuchEntity" if case == "deleted" else "AccessDenied",
+                        "resource_missing"
+                        if case == "deleted"
+                        else "acquisition_failed",
+                    )
                 if case in {"present", "missing_policy"}:
                     result = adapter.fetch(ctx, resource, "inline")
-                    self.assertEqual(len(result["Policies"]), 1 if case == "present" else 0)
+                    self.assertEqual(
+                        len(result["Policies"]), 1 if case == "present" else 0
+                    )
                 else:
                     with self.assertRaises(AcquisitionError) as raised:
                         adapter.fetch(ctx, resource, "inline")
-                    self.assertEqual(raised.exception.status, "resource_missing" if case == "missing_role" else "acquisition_failed")
+                    self.assertEqual(
+                        raised.exception.status,
+                        "resource_missing"
+                        if case == "missing_role"
+                        else "acquisition_failed",
+                    )
                 if case == "deleted":
                     self.assertEqual(ctx.fresh_pages.call_count, 2)
 
@@ -129,9 +170,21 @@ class WriteOnlyArrayValidationTests(unittest.TestCase):
 
 class ExclusionClassificationTests(unittest.TestCase):
     def test_queue_policy_id_is_unverifiable_only_when_sdk_unavailable(self):
-        item = {"propertiesKey": "SQS.QueuePolicy.Id", "status": "sdk_unavailable", "reason": "no independent ID"}
-        self.assertEqual(audit.classify_exclusion(None, {}, None, item), {**item, "status": "excluded"})
-        for status in ("acquisition_failed", "resource_missing", "difference", "design_unresolved"):
+        item = {
+            "propertiesKey": "SQS.QueuePolicy.Id",
+            "status": "sdk_unavailable",
+            "reason": "no independent ID",
+        }
+        self.assertEqual(
+            audit.classify_exclusion(None, {}, None, item),
+            {**item, "status": "excluded"},
+        )
+        for status in (
+            "acquisition_failed",
+            "resource_missing",
+            "difference",
+            "design_unresolved",
+        ):
             failure = {**item, "status": status}
             self.assertEqual(audit.classify_exclusion(None, {}, None, failure), failure)
 
@@ -174,7 +227,11 @@ class FlowLogLookupTests(unittest.TestCase):
         record = {"FlowLogId": "fl-123", "TrafficType": "ALL"}
         ctx.pages.return_value = {"FlowLogs": [record]}
         self.assertEqual(adapter.fetch(ctx, resource, "base")["TrafficType"], "ALL")
-        ctx.pages.assert_called_with("ec2", "describe_flow_logs", Filter=[{"Name": "resource-id", "Values": ["vpc-123"]}])
+        ctx.pages.assert_called_with(
+            "ec2",
+            "describe_flow_logs",
+            Filter=[{"Name": "resource-id", "Values": ["vpc-123"]}],
+        )
         resource.current.return_value = "fl-123"
         adapter.fetch(ctx, resource, "base")
         ctx.pages.assert_called_with("ec2", "describe_flow_logs", FlowLogIds=["fl-123"])
@@ -186,9 +243,15 @@ class FlowLogLookupTests(unittest.TestCase):
         with self.assertRaises(AcquisitionError) as missing:
             adapter.fetch(ctx, resource, "base")
         self.assertEqual(missing.exception.status, "resource_missing")
-        ctx.pages.return_value = {"FlowLogs": [record, {**record, "LogGroupName": "other"}]}
-        resource.rows_for.side_effect = lambda prop: [1] if prop == "LogGroupName" else []
-        resource.value.side_effect = lambda prop, *args: "wanted" if prop == "LogGroupName" else "vpc-123"
+        ctx.pages.return_value = {
+            "FlowLogs": [record, {**record, "LogGroupName": "other"}]
+        }
+        resource.rows_for.side_effect = (
+            lambda prop: [1] if prop == "LogGroupName" else []
+        )
+        resource.value.side_effect = (
+            lambda prop, *args: "wanted" if prop == "LogGroupName" else "vpc-123"
+        )
         ctx.pages.return_value["FlowLogs"][0]["LogGroupName"] = "wanted"
         self.assertEqual(adapter.fetch(ctx, resource, "base")["LogGroupName"], "wanted")
         ctx.pages.return_value = {"FlowLogs": [{**record, "LogGroupName": "other"}]}
@@ -200,12 +263,16 @@ class FlowLogLookupTests(unittest.TestCase):
         ctx.pages.return_value = {"FlowLogs": [record, record]}
         with self.assertRaises(Unresolved):
             adapter.fetch(ctx, resource, "base")
-        ctx.pages.side_effect = AcquisitionError("ec2.describe_flow_logs", "AccessDenied", "acquisition_failed")
+        ctx.pages.side_effect = AcquisitionError(
+            "ec2.describe_flow_logs", "AccessDenied", "acquisition_failed"
+        )
         with self.assertRaises(AcquisitionError) as denied:
             adapter.fetch(ctx, resource, "base")
         self.assertEqual(denied.exception.status, "acquisition_failed")
         ctx.pages.reset_mock(side_effect=True)
-        resource.value.side_effect = AcquisitionError("ec2.describe_vpcs", "ResourceNotFound", "resource_missing")
+        resource.value.side_effect = AcquisitionError(
+            "ec2.describe_vpcs", "ResourceNotFound", "resource_missing"
+        )
         with self.assertRaises(Unresolved):
             adapter.fetch(ctx, resource, "base")
         ctx.pages.assert_not_called()
@@ -547,9 +614,13 @@ class ReferenceTests(unittest.TestCase):
 
     def test_flow_log_traffic_type_outcomes(self):
         self.consumer = self.model(
-            "EC2.FlowLog", "EC2_FlowLog_001",
-            {"Id": self.ref("EC2_FlowLog_001", "Id"),
-             "ResourceId": "vpc-123", "TrafficType": "ALL"},
+            "EC2.FlowLog",
+            "EC2_FlowLog_001",
+            {
+                "Id": self.ref("EC2_FlowLog_001", "Id"),
+                "ResourceId": "vpc-123",
+                "TrafficType": "ALL",
+            },
         )
         self.save()
         snapshot = self.snapshot()
@@ -557,20 +628,28 @@ class ReferenceTests(unittest.TestCase):
         for case, response, status in (
             ("untagged", [record], "match"),
             ("missing", [], "resource_missing"),
-            ("ambiguous", [record, {**record, "FlowLogId": "fl-456"}], "design_unresolved"),
+            (
+                "ambiguous",
+                [record, {**record, "FlowLogId": "fl-456"}],
+                "design_unresolved",
+            ),
             ("denied", None, "acquisition_failed"),
         ):
             with self.subTest(case=case):
                 cli = _bind_framework_callback(_flow_log_cli, response)
-                item = next(item for item in audit.audit(snapshot, cli_runner=cli)[2]
-                            if item["propertiesKey"] == "EC2.FlowLog.TrafficType")
+                item = next(
+                    item
+                    for item in audit.audit(snapshot, cli_runner=cli)[2]
+                    if item["propertiesKey"] == "EC2.FlowLog.TrafficType"
+                )
                 self.assertEqual(item["status"], status, item)
                 if case == "untagged":
                     self.assertEqual(item["awsValue"], "ALL")
 
     def test_flow_log_identifier_evidence(self):
         self.consumer = self.model(
-            "EC2.FlowLog", "EC2_FlowLog_001",
+            "EC2.FlowLog",
+            "EC2_FlowLog_001",
             {"Id": self.ref("EC2_FlowLog_001", "Id"), "ResourceId": "vpc-123"},
         )
         for observed, records, status in (
@@ -579,14 +658,21 @@ class ReferenceTests(unittest.TestCase):
             ("fl-old", [], "resource_missing"),
             ("fl-old", [{"FlowLogId": "fl-old"}], "match"),
             ("fl-old", [{"FlowLogId": "fl-new"}], "difference"),
-            ("PENDING_DEPLOY", [{"FlowLogId": "fl-a"}, {"FlowLogId": "fl-b"}], "design_unresolved"),
+            (
+                "PENDING_DEPLOY",
+                [{"FlowLogId": "fl-a"}, {"FlowLogId": "fl-b"}],
+                "design_unresolved",
+            ),
         ):
             with self.subTest(observed=observed, records=records):
                 self.consumer["observed.row.001-001.value"] = f"`{observed}`"
                 self.save()
                 cli = _bind_framework_callback(_flow_log_id_cli, records)
-                item = next(item for item in audit.audit(self.snapshot(), cli_runner=cli)[2]
-                            if item["propertiesKey"] == "EC2.FlowLog.Id")
+                item = next(
+                    item
+                    for item in audit.audit(self.snapshot(), cli_runner=cli)[2]
+                    if item["propertiesKey"] == "EC2.FlowLog.Id"
+                )
                 self.assertEqual(item["status"], status, item)
                 if observed == "PENDING_DEPLOY":
                     self.assertIsNone(item["designValue"])
@@ -1662,36 +1748,60 @@ class IdentifierTests(unittest.TestCase):
 
     def test_lakeformation_request_input_requires_resource_confirmation(self):
         prop = "LakeFormation.Resource.UseServiceLinkedRole"
-        item = {"propertiesKey": prop, "status": "sdk_unavailable", "reason": "request input"}
+        item = {
+            "propertiesKey": prop,
+            "status": "sdk_unavailable",
+            "reason": "request input",
+        }
         for desired in (True, False):
             self.resource.rows_for.return_value = [("001-001", {"value": str(desired)})]
             self.resource.parse = lambda row, desired=desired: desired
-            result = audit.classify_exclusion(self.m, {}, self.resource, item, resource_confirmed=True)
+            result = audit.classify_exclusion(
+                self.m, {}, self.resource, item, resource_confirmed=True
+            )
             self.assertEqual(result["status"], "excluded")
             self.assertIs(result["designValue"], desired)
-            self.assertIs(audit.classify_exclusion(self.m, {}, self.resource, item), item)
+            self.assertIs(
+                audit.classify_exclusion(self.m, {}, self.resource, item), item
+            )
         self.resource.parse = Mock(side_effect=ValueError("invalid"))
-        self.assertEqual(audit.classify_exclusion(self.m, {}, self.resource, item, resource_confirmed=True)["status"], "design_unresolved")
+        self.assertEqual(
+            audit.classify_exclusion(
+                self.m, {}, self.resource, item, resource_confirmed=True
+            )["status"],
+            "design_unresolved",
+        )
 
     def test_lambda_bucket_missing_evidence_only_is_excluded(self):
         prop = "Lambda.Function.Code.S3Bucket"
         self.resource.rows_for.return_value = [("001-001", {"value": "`bucket`"})]
         self.resource.parse = lambda row: row["value"].strip("`")
-        item = {"propertiesKey": prop, "status": "sdk_unavailable",
-                "reason": "GetFunction did not return Code.ResolvedS3Object; unavailable"}
-        self.assertEqual(audit.classify_exclusion(self.m, {}, self.resource, item)["status"], "excluded")
+        item = {
+            "propertiesKey": prop,
+            "status": "sdk_unavailable",
+            "reason": "GetFunction did not return Code.ResolvedS3Object; unavailable",
+        }
+        self.assertEqual(
+            audit.classify_exclusion(self.m, {}, self.resource, item)["status"],
+            "excluded",
+        )
         for status in ("match", "difference", "resource_missing", "acquisition_failed"):
             candidate = {**item, "status": status}
-            self.assertIs(audit.classify_exclusion(self.m, {}, self.resource, candidate), candidate)
+            self.assertIs(
+                audit.classify_exclusion(self.m, {}, self.resource, candidate),
+                candidate,
+            )
         candidate = {**item, "reason": "other SDK failure"}
-        self.assertIs(audit.classify_exclusion(self.m, {}, self.resource, candidate), candidate)
+        self.assertIs(
+            audit.classify_exclusion(self.m, {}, self.resource, candidate), candidate
+        )
 
     def test_missing_resource_report_is_not_a_property_diff(self):
         snapshot = {
             "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
             "service": "glue",
             "modelHash": "hash",
-            "names": {"job": "job-name"},
+            "names": {"job": "fixture-job"},
         }
         item = {
             "resource": "job",
@@ -1703,10 +1813,16 @@ class IdentifierTests(unittest.TestCase):
             "reason": "EntityNotFoundException",
         }
         text, code = audit.report(
-            snapshot, None, "account", [item], datetime.now(timezone.utc)
+            snapshot,
+            None,
+            "account",
+            [item, {**item, "propertiesKey": "Glue.Job.Name"}],
+            datetime.now(timezone.utc),
         )
         self.assertEqual(code, 1)
-        self.assertIn("[NG] Glue.Job | job-name | (resource missing)", text)
+        self.assertIn("[NG] Glue.Job | fixture-job | Timeout (resource missing)", text)
+        self.assertIn("[NG] Glue.Job | fixture-job | Name (resource missing)", text)
+        self.assertEqual(text.count("[NG] Glue.Job"), 2)
         self.assertIn('  Design: ["`30`"]', text)
         self.assertIn("  AWS:    null", text)
         self.assertIn("  Reason: EntityNotFoundException", text)
@@ -2251,7 +2367,8 @@ class PipelineMembershipTests(unittest.TestCase):
         path = self.root / "model/dev/cde/codepipeline.properties"
         values = dict(load_model(path).authoritative)
         config_rows = [
-            rid for rid, row in entries(values, "desired.row.")
+            rid
+            for rid, row in entries(values, "desired.row.")
             if row["property"].endswith(".Configuration")
         ]
         for index, rid in enumerate(config_rows):
@@ -2259,35 +2376,59 @@ class PipelineMembershipTests(unittest.TestCase):
                 for field in ("property", "value", "comment"):
                     values.pop(f"desired.row.{rid}.{field}")
                 continue
-            config = {"ProjectName": self.ref("CodeBuild_Project_001", "Name") if index == 0 else f"project-{index // 2}-{index % 2}"}
+            config = {
+                "ProjectName": self.ref("CodeBuild_Project_001", "Name")
+                if index == 0
+                else f"project-{index // 2}-{index % 2}"
+            }
             config[f"Extra{index}"] = f"value-{index}"
             values[f"desired.row.{rid}.value"] = "`" + json.dumps(config) + "`"
-            values[f"desired.row.{rid}.comment"] = f"ProjectName: project / Extra{index}: extra"
+            values[f"desired.row.{rid}.comment"] = (
+                f"ProjectName: project / Extra{index}: extra"
+            )
         write_model(path, values)
         source = generate(self.root, "dev", "cde", "codepipeline")[0]
         snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
         _, response, _ = self.build(reference=True)
-        for index, action in enumerate(a for stage in response for a in stage["actions"]):
+        for index, action in enumerate(
+            a for stage in response for a in stage["actions"]
+        ):
             if index == 2:
                 action.pop("configuration")
             else:
                 action["configuration"][f"Extra{index}"] = f"value-{index}"
-        config = next(r for r in self.records(snapshot, response) if r["propertiesKey"].endswith(".Configuration"))
+        config = next(
+            r
+            for r in self.records(snapshot, response)
+            if r["propertiesKey"].endswith(".Configuration")
+        )
         self.assertEqual(config["status"], "match", config)
         response[1]["actions"][1]["configuration"]["Extra3"] = "wrong"
-        config = next(r for r in self.records(snapshot, response) if r["propertiesKey"].endswith(".Configuration"))
+        config = next(
+            r
+            for r in self.records(snapshot, response)
+            if r["propertiesKey"].endswith(".Configuration")
+        )
         self.assertEqual(config["status"], "difference", config)
         failure = Mock(return_value=subprocess.CompletedProcess([], 1, "", "denied"))
-        config = next(r for r in audit.audit(snapshot, cli_runner=failure)[2] if r["propertiesKey"].endswith(".Configuration"))
+        config = next(
+            r
+            for r in audit.audit(snapshot, cli_runner=failure)[2]
+            if r["propertiesKey"].endswith(".Configuration")
+        )
         self.assertNotIn("Design reference projection failed", config["reason"])
 
     def test_ambiguous_membership(self):
         snapshot, response, _ = self.build(2, 2, ambiguous=True)
         self.assertFalse(snapshot["pipelineIndexedRows"]["001"])
         records = self.records(snapshot, response)
-        config = next(r for r in records if r["propertiesKey"].endswith(".Configuration"))
+        config = next(
+            r for r in records if r["propertiesKey"].endswith(".Configuration")
+        )
         self.assertIn("001-", config["reason"])
-        self.assertIn("Stage Name, Action Name and ActionTypeId.Category", config["reason"])
+        self.assertIn(
+            "Stage Name, Action Name and ActionTypeId.Category", config["reason"]
+        )
         self.assertTrue(
             all(
                 r["status"] == "design_unresolved"
@@ -2452,9 +2593,10 @@ class SecurityGroupRuleRecoveryTests(unittest.TestCase):
                         module.fetch(ctx, resource, "rule")["SecurityGroupRuleId"],
                         expected,
                     )
-                self.assertEqual(ctx.pages.call_args.kwargs, {"Filters": [{"Name": "group-id", "Values": ["sg-parent"]}]})
-
-
+                self.assertEqual(
+                    ctx.pages.call_args.kwargs,
+                    {"Filters": [{"Name": "group-id", "Values": ["sg-parent"]}]},
+                )
 
     def test_recreated_rule_id_is_reported_as_difference(self):
         engine = Mock()
@@ -2473,13 +2615,24 @@ class SecurityGroupRuleRecoveryTests(unittest.TestCase):
         resource.parse.return_value = "sgr-old"
         resource.module.sensitive.return_value = False
         ctx = Mock()
-        ctx.comparison.return_value = (None, {
-            "EC2.SecurityGroupEgress.Id": SimpleNamespace(field=SimpleNamespace(norm="typed"))
-        })
-        result = audit.identifier_result(engine, ctx, resource, {
-            "propertiesKey": "EC2.SecurityGroupEgress.Id", "status": "identifier",
-            "awsValue": "sgr-new",
-        })
+        ctx.comparison.return_value = (
+            None,
+            {
+                "EC2.SecurityGroupEgress.Id": SimpleNamespace(
+                    field=SimpleNamespace(norm="typed")
+                )
+            },
+        )
+        result = audit.identifier_result(
+            engine,
+            ctx,
+            resource,
+            {
+                "propertiesKey": "EC2.SecurityGroupEgress.Id",
+                "status": "identifier",
+                "awsValue": "sgr-new",
+            },
+        )
         self.assertEqual(result["status"], "difference")
         self.assertEqual(result["designValue"], "sgr-old")
         self.assertEqual(result["awsValue"], "sgr-new")
@@ -2560,6 +2713,7 @@ class IngressRuleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 
 class Route53AliasProducerTests(unittest.TestCase):
     def test_endpoint_observation_and_unresolved_reasons(self):

@@ -51,29 +51,55 @@ def _iam_inline_runner(case, calls, command, **kwargs):
         if case == "missing_role":
             code = "NoSuchEntity"
         else:
-            names = [] if case == "missing_policy" or (case == "changed" and calls.count(operation) > 1) else ["policy"]
-            return subprocess.CompletedProcess(command, 0, json.dumps({"PolicyNames": names}), "")
+            names = (
+                []
+                if case == "missing_policy"
+                or (case == "changed" and calls.count(operation) > 1)
+                else ["policy"]
+            )
+            return subprocess.CompletedProcess(
+                command, 0, json.dumps({"PolicyNames": names}), ""
+            )
     elif case in {"deleted", "denied"}:
         code = "NoSuchEntity" if case == "deleted" else "AccessDenied"
     else:
-        return subprocess.CompletedProcess(command, 0, json.dumps({"PolicyDocument": {}}), "")
-    return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({code}) when calling Mock: denied")
+        return subprocess.CompletedProcess(
+            command, 0, json.dumps({"PolicyDocument": {}}), ""
+        )
+    return subprocess.CompletedProcess(
+        command, 1, "", f"An error occurred ({code}) when calling Mock: denied"
+    )
 
 
 def _iam_report_runner(case, calls, command, **kwargs):
     operation = command[2]
     calls.append(operation)
     if operation == "get-caller-identity":
-        value = {"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/offline"}
+        value = {
+            "Account": "123456789012",
+            "Arn": "arn:aws:iam::123456789012:user/offline",
+        }
     elif operation == "get-role":
         value = {"Role": {"RoleName": "test-role"}}
     elif operation == "list-role-policies":
         if case == "missing_role":
-            return subprocess.CompletedProcess(command, 1, "", "An error occurred (NoSuchEntity) when calling Mock: missing")
-        value = {"PolicyNames": [] if case == "missing_policy" or (case == "changed" and calls.count(operation) > 1) else ["policy"]}
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                "",
+                "An error occurred (NoSuchEntity) when calling Mock: missing",
+            )
+        value = {
+            "PolicyNames": []
+            if case == "missing_policy"
+            or (case == "changed" and calls.count(operation) > 1)
+            else ["policy"]
+        }
     elif case in {"deleted", "denied"}:
         code = "NoSuchEntity" if case == "deleted" else "AccessDenied"
-        return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({code}) when calling Mock: denied")
+        return subprocess.CompletedProcess(
+            command, 1, "", f"An error occurred ({code}) when calling Mock: denied"
+        )
     else:
         value = {"PolicyDocument": {}}
     return subprocess.CompletedProcess(command, 0, json.dumps(value), "")
@@ -81,7 +107,12 @@ def _iam_report_runner(case, calls, command, **kwargs):
 
 def _lambda_error_cli(error, command, **kwargs):
     if command[1:3] == ["lambda", "get-function"]:
-        return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({error}) when calling GetFunction: failed")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            "",
+            f"An error occurred ({error}) when calling GetFunction: failed",
+        )
     return CLI({})(command, **kwargs)
 
 
@@ -155,35 +186,71 @@ def fixture(base, service, resources):
 
 def test_flowlog_pending_and_missing_standalone(tmp_path):
     root = tmp_path
-    (root / "project.json").write_text(json.dumps({"projectName": "fixture", "targets": [{
-        "environment": "dev", "alias": "cde", "awsAccountId": "123456789012",
-        "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}), encoding="utf-8")
+    (root / "project.json").write_text(
+        json.dumps(
+            {
+                "projectName": "fixture",
+                "targets": [
+                    {
+                        "environment": "dev",
+                        "alias": "cde",
+                        "awsAccountId": "123456789012",
+                        "awsRegion": "ap-northeast-1",
+                        "iacEngine": "cloudformation",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     reference = {"$modelRef": {"logicalId": "EC2_FlowLog_001", "attribute": "Id"}}
-    values = fixture({}, "vpc", [("001", "EC2.FlowLog", "flowlog", [
-        ("Id", "`" + json.dumps(reference) + "`", None),
-        ("ResourceId", "`vpc-123`", None),
-    ])])["models"]["dev/cde/vpc"]
+    values = fixture(
+        {},
+        "vpc",
+        [
+            (
+                "001",
+                "EC2.FlowLog",
+                "flowlog",
+                [
+                    ("Id", "`" + json.dumps(reference) + "`", None),
+                    ("ResourceId", "`vpc-123`", None),
+                ],
+            )
+        ],
+    )["models"]["dev/cde/vpc"]
     values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
     write_model(root / "model/dev/cde/vpc.properties", values)
     source = generator.generate(root, "dev", "cde", "vpc")[0]
     script = root / "audit.py"
     script.write_text(source, encoding="utf-8")
     aws = root / "aws"
-    aws.write_text("#!" + sys.executable + "\nimport json, os, sys\n"
+    aws.write_text(
+        "#!" + sys.executable + "\nimport json, os, sys\n"
         "if sys.argv[1:3] == ['sts', 'get-caller-identity']:\n"
         " result={'Account':'123456789012'}\n"
         "else:\n"
         " assert sys.argv[1:3] == ['ec2', 'describe-flow-logs']\n"
         " result={'FlowLogs': [] if os.environ['CASE'] == 'missing' else [{'FlowLogId':'fl-new','ResourceId':'vpc-123'}]}\n"
-        "print(json.dumps(result))\n", encoding="utf-8")
+        "print(json.dumps(result))\n",
+        encoding="utf-8",
+    )
     aws.chmod(0o700)
     for case, code in (("missing", 1), ("found", 2)):
-        result = subprocess.run([sys.executable, "-I", "-B", str(script)], cwd=root,
-            env={**os.environ, "PATH": str(root), "CASE": case}, capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", str(script)],
+            cwd=root,
+            env={**os.environ, "PATH": str(root), "CASE": case},
+            capture_output=True,
+            text=True,
+        )
         assert result.returncode == code, (result.stdout, result.stderr)
         assert "REFERENCE_PENDING_DEPLOY" in result.stdout
         if case == "missing":
-            assert "ResourceNotFound" in result.stdout and "[NG] EC2.FlowLog" in result.stdout
+            assert (
+                "ResourceNotFound" in result.stdout
+                and "[NG] EC2.FlowLog" in result.stdout
+            )
 
 
 POLICY = {
@@ -207,19 +274,34 @@ def _check_pipeline_membership(root):
         actions = []
         for action in range(4):
             name = f"action-{stage}-{action}"
-            pipeline_rows.append(("Stages[].Actions[].ActionTypeId.Category", "`Build`", None))
+            pipeline_rows.append(
+                ("Stages[].Actions[].ActionTypeId.Category", "`Build`", None)
+            )
             if (stage, action) != (1, 2):
                 config = {"ProjectName": name, f"Extra{action}": name}
                 pipeline_rows.append(
-                    ("Stages[].Actions[].Configuration", "`" + json.dumps(config) + "`", None)
+                    (
+                        "Stages[].Actions[].Configuration",
+                        "`" + json.dumps(config) + "`",
+                        None,
+                    )
                 )
-            pipeline_rows.extend([
-                ("Stages[].Actions[].Name", f"`{name}`", None),
-                ("Stages[].Actions[].RunOrder", "`1`", None),
-            ])
-            action_data = {"name": name, "actionTypeId": {"category": "Build"}, "runOrder": 1}
+            pipeline_rows.extend(
+                [
+                    ("Stages[].Actions[].Name", f"`{name}`", None),
+                    ("Stages[].Actions[].RunOrder", "`1`", None),
+                ]
+            )
+            action_data = {
+                "name": name,
+                "actionTypeId": {"category": "Build"},
+                "runOrder": 1,
+            }
             if (stage, action) != (1, 2):
-                action_data["configuration"] = {"ProjectName": name, f"Extra{action}": name}
+                action_data["configuration"] = {
+                    "ProjectName": name,
+                    f"Extra{action}": name,
+                }
             actions.append(action_data)
         pipeline_rows.append(("Stages[].Name", f"`stage-{stage}`", None))
         pipeline_stages.append({"name": f"stage-{stage}", "actions": actions})
@@ -233,7 +315,9 @@ def _check_pipeline_membership(root):
     for rid, row in entries(pipeline_values, "desired.row."):
         if row["property"].endswith(".Configuration"):
             keys = json.loads(row["value"][1:-1])
-            pipeline_values[f"desired.row.{rid}.comment"] = " / ".join(f"{key}: fixture" for key in keys)
+            pipeline_values[f"desired.row.{rid}.comment"] = " / ".join(
+                f"{key}: fixture" for key in keys
+            )
     write_model(pipeline_path, pipeline_values)
     pipeline_source, _, notices = generator.generate(root, "dev", "cde", "codepipeline")
     assert not any("membership unresolved" in reason for _, reason in notices), notices
@@ -247,11 +331,15 @@ def _check_pipeline_membership(root):
     records = generated["audit"](generated["SNAPSHOT"], None, CLI(responses))[2]
     run = next(item for item in records if item["propertiesKey"].endswith(".RunOrder"))
     assert run["status"] == "match", run
-    config = next(item for item in records if item["propertiesKey"].endswith(".Configuration"))
+    config = next(
+        item for item in records if item["propertiesKey"].endswith(".Configuration")
+    )
     assert config["status"] == "match", config
     pipeline_stages[1]["actions"][3]["configuration"]["Extra3"] = "wrong"
     records = generated["audit"](generated["SNAPSHOT"], None, CLI(responses))[2]
-    config = next(item for item in records if item["propertiesKey"].endswith(".Configuration"))
+    config = next(
+        item for item in records if item["propertiesKey"].endswith(".Configuration")
+    )
     assert config["status"] == "difference", config
     pipeline_stages[1]["actions"][2]["runOrder"] = 2
     records = generated["audit"](generated["SNAPSHOT"], None, CLI(responses))[2]
@@ -341,39 +429,111 @@ def test_iam_inline_fresh_recheck():
     resource = _CallbackState(kind="IAM.Role", value=lambda key: "test-role")
     target = {"awsRegion": "ap-northeast-1"}
     adapter = service_module("iam")
-    for case in ("present", "missing_policy", "missing_role", "deleted", "denied", "changed"):
+    for case in (
+        "present",
+        "missing_policy",
+        "missing_role",
+        "deleted",
+        "denied",
+        "changed",
+    ):
         calls = []
         runner = _bind_framework_callback(_iam_inline_runner, case, calls)
         ctx = Context(ROOT, target, cli_runner=runner, services=["iam"])
         ctx.verified = True
         if case in {"present", "missing_policy"}:
-            assert len(adapter.fetch(ctx, resource, "inline")["Policies"]) == (case == "present")
+            assert len(adapter.fetch(ctx, resource, "inline")["Policies"]) == (
+                case == "present"
+            )
         else:
             try:
                 adapter.fetch(ctx, resource, "inline")
                 raise AssertionError(case)
             except AcquisitionError as error:
-                assert error.status == ("resource_missing" if case == "missing_role" else "acquisition_failed"), case
-        assert calls.count("list-role-policies") == (1 if case == "missing_role" else 3 if case == "deleted" else 2)
+                assert error.status == (
+                    "resource_missing"
+                    if case == "missing_role"
+                    else "acquisition_failed"
+                ), case
+        assert calls.count("list-role-policies") == (
+            1 if case == "missing_role" else 3 if case == "deleted" else 2
+        )
 
 
 def test_iam_inline_generated_report():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        (root / "project.json").write_text(json.dumps({"projectName": "fixture", "targets": [{"environment": "dev", "alias": "cde", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}), encoding="utf-8")
-        data = fixture({}, "iam", [("001", "IAM.Role", "role", [("RoleName", "`test-role`", None), ("Policies[].PolicyName", "`policy`", None)])])
-        write_model(root / "model/dev/cde/iam.properties", data["models"]["dev/cde/iam"])
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "projectName": "fixture",
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "alias": "cde",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        data = fixture(
+            {},
+            "iam",
+            [
+                (
+                    "001",
+                    "IAM.Role",
+                    "role",
+                    [
+                        ("RoleName", "`test-role`", None),
+                        ("Policies[].PolicyName", "`policy`", None),
+                    ],
+                )
+            ],
+        )
+        write_model(
+            root / "model/dev/cde/iam.properties", data["models"]["dev/cde/iam"]
+        )
         source, _, _ = generator.generate(root, "dev", "cde", "iam")
         generated = {"__name__": "iam_fixture", "__file__": str(root / "audit.py")}
         exec(compile(source, "audit.py", "exec"), generated)
-        for case in ("present", "missing_policy", "missing_role", "deleted", "denied", "changed"):
+        for case in (
+            "present",
+            "missing_policy",
+            "missing_role",
+            "deleted",
+            "denied",
+            "changed",
+        ):
             calls = []
             runner = _bind_framework_callback(_iam_report_runner, case, calls)
-            _, account, records = generated["audit"](generated["SNAPSHOT"], None, runner)
-            report, code = generated["report"](generated["SNAPSHOT"], None, account, records, datetime.now(timezone.utc))
-            expected = {"present": "OK", "missing_policy": "NG", "missing_role": "NG", "deleted": "ERROR", "denied": "ERROR", "changed": "ERROR"}[case]
+            _, account, records = generated["audit"](
+                generated["SNAPSHOT"], None, runner
+            )
+            report, code = generated["report"](
+                generated["SNAPSHOT"],
+                None,
+                account,
+                records,
+                datetime.now(timezone.utc),
+            )
+            expected = {
+                "present": "OK",
+                "missing_policy": "NG",
+                "missing_role": "NG",
+                "deleted": "ERROR",
+                "denied": "ERROR",
+                "changed": "ERROR",
+            }[case]
             assert f"[{expected}] IAM.Role | test-role | " in report, (case, report)
-            assert code == (0 if case == "present" else 1 if expected == "NG" else 2), (case, report)
+            assert code == (0 if case == "present" else 1 if expected == "NG" else 2), (
+                case,
+                report,
+            )
 
 
 class CLI:
@@ -476,7 +636,11 @@ def standalone_service_imports():
                     "SQS.QueuePolicy",
                     "policy",
                     [
-                        ("Id", '`{"$modelRef":{"logicalId":"SQS_QueuePolicy_002","attribute":"Id"}}`', None),
+                        (
+                            "Id",
+                            '`{"$modelRef":{"logicalId":"SQS_QueuePolicy_002","attribute":"Id"}}`',
+                            None,
+                        ),
                         ("Queues[]", "`https://queue/one`", None),
                         ("Queues[]", "`https://queue/two`", None),
                         ("PolicyDocument", "[policy](sqs/policy.json)", policy),
@@ -774,7 +938,7 @@ def typed_reference_round_trip():
                         ) in process.stdout
                     if case == "missing":
                         assert (
-                            "[NG] EC2.FlowLog | fl-fixture | (resource missing)"
+                            "[NG] EC2.FlowLog | fl-fixture | LogGroupName (resource missing)"
                             in process.stdout
                         )
                         assert "AWS:    null" in process.stdout
@@ -1029,39 +1193,86 @@ def lambda_bucket_audit():
     case = TestCase()
     with tempfile.TemporaryDirectory(prefix="audit-lambda-") as directory:
         root = Path(directory)
-        target = {"environment": "dev", "alias": "cde", "awsAccountId": "123456789012",
-                  "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
-        (root / "project.json").write_text(json.dumps({"projectName": "fixture", "targets": [target]}))
-        data = fixture({}, "lambda", [("001", "Lambda.Function", "function", [
-            ("FunctionName", "`fixture-function`", None),
-            ("Code.S3Bucket", "`fixture-bucket`", None),
-        ])])
-        write_model(root / "model/dev/cde/lambda.properties", data["models"]["dev/cde/lambda"])
+        target = {
+            "environment": "dev",
+            "alias": "cde",
+            "awsAccountId": "123456789012",
+            "awsRegion": "ap-northeast-1",
+            "iacEngine": "cloudformation",
+        }
+        (root / "project.json").write_text(
+            json.dumps({"projectName": "fixture", "targets": [target]})
+        )
+        data = fixture(
+            {},
+            "lambda",
+            [
+                (
+                    "001",
+                    "Lambda.Function",
+                    "function",
+                    [
+                        ("FunctionName", "`fixture-function`", None),
+                        ("Code.S3Bucket", "`fixture-bucket`", None),
+                    ],
+                )
+            ],
+        )
+        write_model(
+            root / "model/dev/cde/lambda.properties", data["models"]["dev/cde/lambda"]
+        )
         snap = snapshot(generator.generate(root, "dev", "cde", "lambda")[0])
         engine = runtime(snap)
         key = "Lambda.Function.Code.S3Bucket"
         for code, expected in [
             ({"ResolvedS3Object": {"S3Bucket": "fixture-bucket"}}, "match"),
             ({"ResolvedS3Object": {"S3Bucket": "other-bucket"}}, "difference"),
-            ({"Location": "https://example.invalid/package", "CodeSha256": "ignored"}, "excluded"),
+            (
+                {
+                    "Location": "https://example.invalid/package",
+                    "CodeSha256": "ignored",
+                },
+                "excluded",
+            ),
         ]:
-            response = {("lambda", "get-function"): {"Configuration": {"FunctionName": "fixture-function"}, "Code": code}}
+            response = {
+                ("lambda", "get-function"): {
+                    "Configuration": {"FunctionName": "fixture-function"},
+                    "Code": code,
+                }
+            }
             records = engine["audit"](snap, None, CLI(response))[2]
             item = next(item for item in records if item["propertiesKey"] == key)
             case.assertEqual(item["status"], expected, records)
             if expected == "excluded":
-                text, _ = engine["report"](snap, None, "123456789012", records, datetime.now(timezone.utc))
+                text, _ = engine["report"](
+                    snap, None, "123456789012", records, datetime.now(timezone.utc)
+                )
                 case.assertIn("[INFO] Lambda.Function", text)
                 case.assertIn("Verification: NOT_VERIFIABLE", text)
-        response = {("lambda", "get-function"): {"Configuration": {"FunctionName": "fixture-function"}, "Code": {"Error": {"ErrorCode": "AccessDenied"}}}}
+        response = {
+            ("lambda", "get-function"): {
+                "Configuration": {"FunctionName": "fixture-function"},
+                "Code": {"Error": {"ErrorCode": "AccessDenied"}},
+            }
+        }
         records = engine["audit"](snap, None, CLI(response))[2]
-        case.assertTrue(any(item["status"] == "acquisition_failed" for item in records), records)
+        case.assertTrue(
+            any(item["status"] == "acquisition_failed" for item in records), records
+        )
         case.assertFalse(any(item["status"] == "excluded" for item in records), records)
-        for error, expected in [("ResourceNotFoundException", "resource_missing"), ("AccessDenied", "acquisition_failed")]:
+        for error, expected in [
+            ("ResourceNotFoundException", "resource_missing"),
+            ("AccessDenied", "acquisition_failed"),
+        ]:
             cli = _bind_framework_callback(_lambda_error_cli, error)
             records = engine["audit"](snap, None, cli)[2]
-            case.assertTrue(any(item["status"] == expected for item in records), records)
-            case.assertFalse(any(item["status"] == "excluded" for item in records), records)
+            case.assertTrue(
+                any(item["status"] == expected for item in records), records
+            )
+            case.assertFalse(
+                any(item["status"] == "excluded" for item in records), records
+            )
 
 
 def glue_write_only():
@@ -1113,7 +1324,8 @@ def glue_write_only():
         responses = {
             ("glue", "get-connection"): {
                 "Connection": {
-                    "Name": "fixture-connection", "ConnectionType": "JDBC",
+                    "Name": "fixture-connection",
+                    "ConnectionType": "JDBC",
                     "CompatibleComputeEnvironments": ["ATHENA"],
                 }
             }
@@ -1142,7 +1354,9 @@ def glue_write_only():
         records = engine["audit"](snap, None, CLI(responses, account="999999999999"))[2]
         case.assertTrue(all(item["status"] == "acquisition_failed" for item in records))
         case.assertEqual(
-            engine["report"](snap, None, "999999999999", records, datetime.now(timezone.utc))[1],
+            engine["report"](
+                snap, None, "999999999999", records, datetime.now(timezone.utc)
+            )[1],
             2,
         )
         bad = copy.deepcopy(responses)
@@ -1218,7 +1432,13 @@ def glue_write_only():
         case.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         case.assertIn("Verification: NOT_VERIFIABLE", result.stdout)
         case.assertIn("Result: PASS", result.stdout)
-        for value in ([123], ["SPARK", 123], "SPARK", ["INVALID"], ["SPARK", "INVALID"]):
+        for value in (
+            [123],
+            ["SPARK", 123],
+            "SPARK",
+            ["INVALID"],
+            ["SPARK", "INVALID"],
+        ):
             with case.subTest(value=value):
                 data["models"]["dev/cde/glue"]["desired.row.001-004.value"] = (
                     "`" + json.dumps(value) + "`"
@@ -1388,16 +1608,38 @@ def lambda_missing_standalone():
     with tempfile.TemporaryDirectory(prefix="audit-lambda-") as directory:
         root = Path(directory)
         target = {
-            "environment": "dev", "alias": "cde", "awsAccountId": "123456789012",
-            "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation",
+            "environment": "dev",
+            "alias": "cde",
+            "awsAccountId": "123456789012",
+            "awsRegion": "ap-northeast-1",
+            "iacEngine": "cloudformation",
         }
-        (root / "project.json").write_text(json.dumps({"projectName": "fixture", "targets": [target]}), encoding="utf-8")
-        data = fixture({}, "lambda", [("001", "Lambda.Function", "function", [
-            ("FunctionName", "`fixture-function`", None), ("Timeout", "`30`", None),
-        ])])
+        (root / "project.json").write_text(
+            json.dumps({"projectName": "fixture", "targets": [target]}),
+            encoding="utf-8",
+        )
+        data = fixture(
+            {},
+            "lambda",
+            [
+                (
+                    "001",
+                    "Lambda.Function",
+                    "function",
+                    [
+                        ("FunctionName", "`fixture-function`", None),
+                        ("Timeout", "`30`", None),
+                    ],
+                )
+            ],
+        )
         path = root / "model/dev/cde/lambda.properties"
         fake = root / "aws"
-        fake.write_text("#!" + sys.executable + "\n" + """
+        fake.write_text(
+            "#!"
+            + sys.executable
+            + "\n"
+            + """
 import json, os, sys
 api = sys.argv[1:3]
 if api == ["sts", "get-caller-identity"]:
@@ -1411,62 +1653,196 @@ elif api == ["lambda", "get-function"]:
  print(json.dumps({"Configuration": {"FunctionName": "fixture-function", "Timeout": 30}}))
 else:
  raise RuntimeError(str(api))
-""", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
         fake.chmod(0o700)
-        for scenario, status, code in [("success", "OK", 0), ("missing", "NG", 1), ("denied", "ERROR", 2), ("unresolved", "ERROR", 2), ("ambiguous", "ERROR", 2), ("account", "ERROR", 2)]:
+        for scenario, status, code in [
+            ("success", "OK", 0),
+            ("missing", "NG", 1),
+            ("denied", "ERROR", 2),
+            ("unresolved", "ERROR", 2),
+            ("ambiguous", "ERROR", 2),
+            ("account", "ERROR", 2),
+        ]:
             values = dict(data["models"]["dev/cde/lambda"])
             if scenario == "unresolved":
                 values["desired.row.001-001.value"] = "`PENDING_DEPLOY`"
             if scenario == "ambiguous":
-                values.update({
-                    "desired.row.001-003.property": "Lambda.Function.FunctionName",
-                    "desired.row.001-003.value": "`other-function`",
-                    "desired.row.001-003.comment": "fixture",
-                })
+                values.update(
+                    {
+                        "desired.row.001-003.property": "Lambda.Function.FunctionName",
+                        "desired.row.001-003.value": "`other-function`",
+                        "desired.row.001-003.comment": "fixture",
+                    }
+                )
             write_model(path, values)
             script = root / "lambda.py"
-            script.write_text(generator.generate(root, "dev", "cde", "lambda")[0], encoding="utf-8")
+            script.write_text(
+                generator.generate(root, "dev", "cde", "lambda")[0], encoding="utf-8"
+            )
             calls = root / "calls"
             calls.unlink(missing_ok=True)
-            result = subprocess.run([sys.executable, "-I", "-B", str(script)], cwd=root, env={
-                **os.environ, "PATH": str(root), "CASE": scenario, "CALLS": str(calls),
-            }, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                [sys.executable, "-I", "-B", str(script)],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "PATH": str(root),
+                    "CASE": scenario,
+                    "CALLS": str(calls),
+                },
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
             output = result.stdout + result.stderr
             assert result.returncode == code, output
             assert "[" + status + "] Lambda.Function" in output, output
             if scenario == "success":
-                assert "[OK] Lambda.Function | fixture-function | Timeout" in output, output
+                assert "[OK] Lambda.Function | fixture-function | Timeout" in output, (
+                    output
+                )
             if scenario == "missing":
-                assert output.count("[NG] Lambda.Function | fixture-function | (resource missing)") == 2, output
+                assert (
+                    output.count(
+                        "[NG] Lambda.Function | fixture-function | FunctionName (resource missing)"
+                    )
+                    == 1
+                ), output
+                assert (
+                    output.count(
+                        "[NG] Lambda.Function | fixture-function | Timeout (resource missing)"
+                    )
+                    == 1
+                ), output
+                assert output.count("[NG] Lambda.Function") == 2, output
                 assert output.count("AWS:    null") == 2, output
-                assert "ResourceNotFoundException" in output and "Diff paths:" not in output, output
+                assert (
+                    "ResourceNotFoundException" in output
+                    and "Diff paths:" not in output
+                ), output
             if scenario in ("unresolved", "ambiguous", "account"):
                 assert not calls.exists(), output
+
+        glue = fixture(
+            {},
+            "glue",
+            [
+                (
+                    "001",
+                    "Glue.Job",
+                    "job",
+                    [
+                        ("Name", "`fixture-job`", None),
+                        ("Timeout", "`30`", None),
+                    ],
+                )
+            ],
+        )
+        write_model(
+            root / "model/dev/cde/glue.properties", glue["models"]["dev/cde/glue"]
+        )
+        fake.write_text(
+            "#!"
+            + sys.executable
+            + "\n"
+            + """
+import json, os, sys
+if sys.argv[1:3] == ["sts", "get-caller-identity"]:
+ print(json.dumps({"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/offline"}))
+elif sys.argv[1:3] == ["glue", "get-job"]:
+ code = os.environ["CASE"]
+ if code != "success":
+  print(f"An error occurred ({code}) when calling GetJob: details", file=sys.stderr)
+  sys.exit(254)
+ print(json.dumps({"Job": {"Name": "fixture-job", "Timeout": 30}}))
+else:
+ raise RuntimeError(str(sys.argv))
+""",
+            encoding="utf-8",
+        )
+        script = root / "glue.py"
+        script.write_text(
+            generator.generate(root, "dev", "cde", "glue")[0], encoding="utf-8"
+        )
+        for scenario, status, code in [
+            ("EntityNotFoundException", "NG", 1),
+            ("ResourceNotFoundException", "NG", 1),
+            ("AccessDeniedException", "ERROR", 2),
+            ("success", "OK", 0),
+        ]:
+            result = subprocess.run(
+                [sys.executable, "-I", "-B", str(script)],
+                cwd=root,
+                env={**os.environ, "PATH": str(root), "CASE": scenario},
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            output = result.stdout + result.stderr
+            assert result.returncode == code, output
+            suffix = " (resource missing)" if status == "NG" else ""
+            for prop in ("Name", "Timeout"):
+                assert (
+                    f"[{status}] Glue.Job | fixture-job | {prop}{suffix}" in output
+                ), output
+            assert output.count(f"[{status}] Glue.Job | fixture-job |") == 2, output
+            if scenario != "success":
+                assert output.count(f"Reason: {scenario}") == 2, output
+            if status == "NG":
+                assert "Diff paths:" not in output, output
 
 
 def _callback_lakeformation_failure(code, /, command, **kwargs):
     if command[1:3] == ["lakeformation", "describe-resource"]:
-        return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({code}) when calling DescribeResource: failed")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            "",
+            f"An error occurred ({code}) when calling DescribeResource: failed",
+        )
     return CLI({})(command, **kwargs)
 
 
 def lakeformation_federation_audit():
     with tempfile.TemporaryDirectory(prefix="audit-lakeformation-") as directory:
         root = Path(directory)
-        target = {"environment": "dev", "alias": "cde", "awsAccountId": "123456789012",
-                  "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
-        (root / "project.json").write_text(json.dumps({"projectName": "fixture", "targets": [target]}), encoding="utf-8")
+        target = {
+            "environment": "dev",
+            "alias": "cde",
+            "awsAccountId": "123456789012",
+            "awsRegion": "ap-northeast-1",
+            "iacEngine": "cloudformation",
+        }
+        (root / "project.json").write_text(
+            json.dumps({"projectName": "fixture", "targets": [target]}),
+            encoding="utf-8",
+        )
         arn = "arn:aws:s3:::fixture-bucket"
-        data = fixture({}, "lake-formation", [("001", "LakeFormation.Resource", "resource", [
-            ("ResourceArn", "`" + arn + "`", None),
-            ("UseServiceLinkedRole", "`false`", None),
-            ("WithFederation", "`true`", None),
-        ])])
+        data = fixture(
+            {},
+            "lake-formation",
+            [
+                (
+                    "001",
+                    "LakeFormation.Resource",
+                    "resource",
+                    [
+                        ("ResourceArn", "`" + arn + "`", None),
+                        ("UseServiceLinkedRole", "`false`", None),
+                        ("WithFederation", "`true`", None),
+                    ],
+                )
+            ],
+        )
         path = root / "model/dev/cde/lake-formation.properties"
         write_model(path, data["models"]["dev/cde/lake-formation"])
         key = "LakeFormation.Resource.WithFederation"
         for desired in (True, False):
-            data["models"]["dev/cde/lake-formation"]["desired.row.001-003.value"] = "`" + json.dumps(desired) + "`"
+            data["models"]["dev/cde/lake-formation"]["desired.row.001-003.value"] = (
+                "`" + json.dumps(desired) + "`"
+            )
             write_model(path, data["models"]["dev/cde/lake-formation"])
             snap = snapshot(generator.generate(root, "dev", "cde", "lake-formation")[0])
             engine = runtime(snap)
@@ -1474,45 +1850,137 @@ def lakeformation_federation_audit():
                 info = {"ResourceArn": arn}
                 if value is not None:
                     info["WithFederation"] = value
-                records = engine["audit"](snap, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": info}}))[2]
+                records = engine["audit"](
+                    snap,
+                    None,
+                    CLI(
+                        {("lakeformation", "describe-resource"): {"ResourceInfo": info}}
+                    ),
+                )[2]
                 item = next(item for item in records if item["propertiesKey"] == key)
-                expected = "excluded" if value is None else "match" if value == desired else "difference"
+                expected = (
+                    "excluded"
+                    if value is None
+                    else "match"
+                    if value == desired
+                    else "difference"
+                )
                 assert item["status"] == expected, records
-                text, _ = engine["report"](snap, None, "123456789012", records, datetime.now(timezone.utc))
+                text, _ = engine["report"](
+                    snap, None, "123456789012", records, datetime.now(timezone.utc)
+                )
                 if value is None:
-                    assert "[INFO] LakeFormation.Resource" in text and "Verification: NOT_VERIFIABLE" in text
+                    assert (
+                        "[INFO] LakeFormation.Resource" in text
+                        and "Verification: NOT_VERIFIABLE" in text
+                    )
         role_key = "LakeFormation.Resource.UseServiceLinkedRole"
         role_arn = "arn:aws:iam::123456789012:role/aws-service-role/lakeformation.amazonaws.com/AWSServiceRoleForLakeFormationDataAccess"
         for desired in (True, False):
-            data["models"]["dev/cde/lake-formation"]["desired.row.001-002.value"] = "`" + json.dumps(desired) + "`"
+            data["models"]["dev/cde/lake-formation"]["desired.row.001-002.value"] = (
+                "`" + json.dumps(desired) + "`"
+            )
             write_model(path, data["models"]["dev/cde/lake-formation"])
             snap = snapshot(generator.generate(root, "dev", "cde", "lake-formation")[0])
             engine = runtime(snap)
             for actual_role in (role_arn, "arn:aws:iam::123456789012:role/other"):
-                info = {"ResourceArn": arn, "RoleArn": actual_role, "WithFederation": True}
-                records = engine["audit"](snap, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": info}}))[2]
-                item = next(item for item in records if item["propertiesKey"] == role_key)
-                assert item["status"] == "excluded" and item["designValue"] is desired, records
-                text, _ = engine["report"](snap, None, "123456789012", records, datetime.now(timezone.utc))
-                assert any(line.startswith("[INFO] LakeFormation.Resource |") and line.endswith("| UseServiceLinkedRole") for line in text.splitlines()) and "Verification: NOT_VERIFIABLE" in text
+                info = {
+                    "ResourceArn": arn,
+                    "RoleArn": actual_role,
+                    "WithFederation": True,
+                }
+                records = engine["audit"](
+                    snap,
+                    None,
+                    CLI(
+                        {("lakeformation", "describe-resource"): {"ResourceInfo": info}}
+                    ),
+                )[2]
+                item = next(
+                    item for item in records if item["propertiesKey"] == role_key
+                )
+                assert (
+                    item["status"] == "excluded" and item["designValue"] is desired
+                ), records
+                text, _ = engine["report"](
+                    snap, None, "123456789012", records, datetime.now(timezone.utc)
+                )
+                assert (
+                    any(
+                        line.startswith("[INFO] LakeFormation.Resource |")
+                        and line.endswith("| UseServiceLinkedRole")
+                        for line in text.splitlines()
+                    )
+                    and "Verification: NOT_VERIFIABLE" in text
+                )
         invalid_role = copy.deepcopy(snap)
-        invalid_role["models"]["dev/cde/lake-formation"]["desired.row.001-002.value"] = "`invalid`"
-        records = runtime(invalid_role)["audit"](invalid_role, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": {"ResourceArn": arn}}}))[2]
-        assert next(item for item in records if item["propertiesKey"] == role_key)["status"] == "design_unresolved", records
+        invalid_role["models"]["dev/cde/lake-formation"][
+            "desired.row.001-002.value"
+        ] = "`invalid`"
+        records = runtime(invalid_role)["audit"](
+            invalid_role,
+            None,
+            CLI(
+                {
+                    ("lakeformation", "describe-resource"): {
+                        "ResourceInfo": {"ResourceArn": arn}
+                    }
+                }
+            ),
+        )[2]
+        assert (
+            next(item for item in records if item["propertiesKey"] == role_key)[
+                "status"
+            ]
+            == "design_unresolved"
+        ), records
         for info in ({}, {"ResourceArn": arn + "-other"}):
-            records = engine["audit"](snap, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": info}}))[2]
-            assert next(item for item in records if item["propertiesKey"] == key)["status"] != "excluded", records
-            assert next(item for item in records if item["propertiesKey"] == role_key)["status"] != "excluded", records
+            records = engine["audit"](
+                snap,
+                None,
+                CLI({("lakeformation", "describe-resource"): {"ResourceInfo": info}}),
+            )[2]
+            assert (
+                next(item for item in records if item["propertiesKey"] == key)["status"]
+                != "excluded"
+            ), records
+            assert (
+                next(item for item in records if item["propertiesKey"] == role_key)[
+                    "status"
+                ]
+                != "excluded"
+            ), records
         invalid = copy.deepcopy(snap)
-        invalid["models"]["dev/cde/lake-formation"]["desired.row.001-003.value"] = "`invalid`"
-        records = runtime(invalid)["audit"](invalid, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": {"ResourceArn": arn}}}))[2]
-        assert next(item for item in records if item["propertiesKey"] == key)["status"] == "design_unresolved", records
-        for code, expected in (("EntityNotFoundException", "resource_missing"), ("ResourceNotFoundException", "resource_missing"), ("AccessDeniedException", "acquisition_failed")):
+        invalid["models"]["dev/cde/lake-formation"]["desired.row.001-003.value"] = (
+            "`invalid`"
+        )
+        records = runtime(invalid)["audit"](
+            invalid,
+            None,
+            CLI(
+                {
+                    ("lakeformation", "describe-resource"): {
+                        "ResourceInfo": {"ResourceArn": arn}
+                    }
+                }
+            ),
+        )[2]
+        assert (
+            next(item for item in records if item["propertiesKey"] == key)["status"]
+            == "design_unresolved"
+        ), records
+        for code, expected in (
+            ("EntityNotFoundException", "resource_missing"),
+            ("ResourceNotFoundException", "resource_missing"),
+            ("AccessDeniedException", "acquisition_failed"),
+        ):
             cli = _bind_framework_callback(_callback_lakeformation_failure, code)
             records = engine["audit"](snap, None, cli)[2]
             assert any(item["status"] == expected for item in records), records
             assert not any(item["status"] == "excluded" for item in records), records
-            text, exit_code = engine["report"](snap, None, "123456789012", records, datetime.now(timezone.utc))
+            text, exit_code = engine["report"](
+                snap, None, "123456789012", records, datetime.now(timezone.utc)
+            )
             assert "[ERROR] LakeFormation.Resource" in text and exit_code == 2, text
 
 

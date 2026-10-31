@@ -104,7 +104,10 @@ def validate_design_value(m, snapshot, row, value):
                         raise m.Unresolved(
                             f"candidate Property item {index} " + errors[0]
                         )
-                    if "enum" in schema["items"] and item not in schema["items"]["enum"]:
+                    if (
+                        "enum" in schema["items"]
+                        and item not in schema["items"]["enum"]
+                    ):
                         raise m.Unresolved(
                             f"candidate Property item {index} has invalid value"
                         )
@@ -235,10 +238,16 @@ def engine(snapshot):
 
 
 def reference_result(m, snapshot, resource, item):
-    if item["propertiesKey"] == "SQS.QueuePolicy.Id" and item["status"] == "sdk_unavailable":
+    if (
+        item["propertiesKey"] == "SQS.QueuePolicy.Id"
+        and item["status"] == "sdk_unavailable"
+    ):
         return item
     rows = resource.rows_for(item["propertiesKey"])
-    if resource.kind == "CodePipeline.Pipeline" and ".Stages[]." in item["propertiesKey"]:
+    if (
+        resource.kind == "CodePipeline.Pipeline"
+        and ".Stages[]." in item["propertiesKey"]
+    ):
         paths = snapshot.get("pipelineIndexedRows", {}).get(resource.number, {})
         missing = [rid for rid, _ in rows if rid not in paths]
         if missing:
@@ -498,7 +507,9 @@ def classify_exclusion(m, snapshot, resource, item, *, resource_confirmed=False)
     if (
         prop == "Lambda.Function.Code.S3Bucket"
         and item["status"] == "sdk_unavailable"
-        and item.get("reason", "").startswith("GetFunction did not return Code.ResolvedS3Object;")
+        and item.get("reason", "").startswith(
+            "GetFunction did not return Code.ResolvedS3Object;"
+        )
     ):
         reason = item["reason"]
     if (
@@ -511,7 +522,8 @@ def classify_exclusion(m, snapshot, resource, item, *, resource_confirmed=False)
     if prop == "LakeFormation.Resource.UseServiceLinkedRole":
         reason = (
             "RegisterResource input cannot be recovered from DescribeResource"
-            if resource_confirmed else None
+            if resource_confirmed
+            else None
         )
     if item["status"] not in {"sdk_unavailable", "local_metadata"} or not reason:
         return item
@@ -683,7 +695,9 @@ def audit(snapshot, profile=None, cli_runner=None):
                 )
             )
             items = [
-                reference_result(m, snapshot, resource, identifier_result(m, ctx, resource, item))
+                reference_result(
+                    m, snapshot, resource, identifier_result(m, ctx, resource, item)
+                )
                 for item in items
             ]
             failed = any(
@@ -697,8 +711,14 @@ def audit(snapshot, profile=None, cli_runner=None):
             )
             for item in items:
                 records.append(
-                    item if failed else classify_exclusion(
-                        m, snapshot, resource, item, resource_confirmed=resource_confirmed
+                    item
+                    if failed
+                    else classify_exclusion(
+                        m,
+                        snapshot,
+                        resource,
+                        item,
+                        resource_confirmed=resource_confirmed,
                     )
                 )
         except Exception as error:
@@ -760,17 +780,18 @@ def report(snapshot, profile, account, records, timestamp):
             "resource_missing": "NG",
             "excluded": "INFO",
         }.get(item["status"], "ERROR")
-        if item["status"] == "resource_missing" and item.get("resourceType") == "LakeFormation.Resource":
+        if (
+            item["status"] == "resource_missing"
+            and item.get("resourceType") == "LakeFormation.Resource"
+        ):
             state = "ERROR"
         counts[state] += 1
         prop = item.get("propertiesKey") or "(resource)"
         kind = item.get("resourceType") or ".".join(prop.split(".")[:2])
         name = snapshot.get("names", {}).get(item["resource"], "（名前未設定）")
-        attribute = (
-            "(resource missing)"
-            if item["status"] == "resource_missing"
-            else prop.removeprefix(kind + ".")
-        )
+        attribute = prop.removeprefix(kind + ".")
+        if item["status"] == "resource_missing":
+            attribute += " (resource missing)"
         line(f"[{state}] {kind} | {name} | {attribute}")
         expected = masked(item.get("designValue"), prop)
         actual = masked(item.get("awsValue"), prop)
