@@ -5,6 +5,7 @@ import json
 import uuid
 
 from utils.aws.client import AwsError
+from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import Blocked
 from utils.file_operations import atomic_replace_file
 from utils.json_format import fingerprint
@@ -415,21 +416,87 @@ def send(
                     raise Blocked(
                         "settled request needs durable progress before release"
                     )
-                requires_fresh_change_set = operation == "execute_change_set" and (
-                    prior["operation"] != "create_change_set"
-                    or not owns(runtime.states[name], prior)
-                    or not current_state.same_change_set(
-                        arguments.get("ChangeSetName"), prior["changeSetId"]
+                state = runtime.states[name]
+                transition = False
+                if (
+                    operation == "execute_change_set"
+                    and prior["operation"] == "create_change_set"
+                ):
+                    change_set = runtime.aws(
+                        "describe_change_set",
+                        StackName=name,
+                        ChangeSetName=prior["changeSetId"],
                     )
-                )
-                end_tracking(runtime.states[name], prior)
-                runtime.save()
-                path.unlink()
-                prior = None
-                if requires_fresh_change_set:
+                    evidence = state.get("executionEvidence", {})
+                    stack_arn = str(state.get("stackId") or "").split(":", 5)
+                    change_arn = str(state.get("changeSetId") or "").split(":", 5)
+                    region = runtime.target.get("awsRegion")
+                    account = runtime.target.get(
+                        "awsExecutionAccountId"
+                    ) or runtime.target.get("awsAccountId")
+                    partition = (
+                        aws_runtime().sdk_session().get_partition_for_region(region)
+                        if region
+                        else None
+                    )
+                    transition = bool(
+                        partition
+                        and account
+                        and len(stack_arn) == len(change_arn) == 6
+                        and stack_arn[:5]
+                        == change_arn[:5]
+                        == ["arn", partition, "cloudformation", region, account]
+                        and stack_arn[5].startswith("stack/" + name + "/")
+                        and len(stack_arn[5].split("/")) == 3
+                        and bool(stack_arn[5].split("/")[2])
+                        and change_arn[5].startswith("changeSet/")
+                        and len(change_arn[5].split("/")) == 3
+                        and all(change_arn[5].split("/")[1:])
+                        and prior["token"] == state.get("preparationId")
+                        and current_state.same_change_set(
+                            prior["changeSetId"], state.get("changeSetId")
+                        )
+                        and change_set.get("ChangeSetId") == state.get("changeSetId")
+                        and change_set.get("StackId") == state.get("stackId")
+                        and current.get("StackId") == state.get("stackId")
+                        and (
+                            not prior.get("stackId")
+                            or prior["stackId"] == state.get("stackId")
+                        )
+                        and change_set.get("Status") == "CREATE_COMPLETE"
+                        and change_set.get("ExecutionStatus") == "AVAILABLE"
+                        and state.get("approvedChangeDigest")
+                        and state["approvedChangeDigest"] == state.get("changeDigest")
+                        and fingerprint(change_set.get("Changes", []))
+                        == state["changeDigest"]
+                        and evidence.get("StackId")
+                        == arguments.get("StackName")
+                        == state.get("stackId")
+                        and evidence.get("ChangeSetId")
+                        == arguments.get("ChangeSetName")
+                        == state.get("changeSetId")
+                        and evidence.get("clientToken")
+                        and evidence.get("clientToken")
+                        == arguments.get("ClientRequestToken")
+                        == state.get("clientToken")
+                        and evidence.get("clientToken") != prior["token"]
+                        and evidence.get("changeDigest") == state["changeDigest"]
+                        and evidence.get("inputDigest")
+                    )
+                ended = state.get("endedRequest")
+                if transition and ended and ended.get("request") != prior:
                     raise Blocked(
-                        "execution tracking ended; prepare a fresh current ChangeSet before executing"
+                        "cannot preserve both existing and current Create completion evidence"
                     )
+                end_tracking(state, prior)
+                runtime.save()
+                if not transition:
+                    path.unlink()
+                    if operation == "execute_change_set":
+                        raise Blocked(
+                            "execution tracking ended; prepare a fresh current ChangeSet before executing"
+                        )
+                prior = None
         created = prior is None
         if prior:
             if operation == "execute_change_set":

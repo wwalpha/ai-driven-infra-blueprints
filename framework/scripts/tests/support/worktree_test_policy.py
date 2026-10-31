@@ -38,6 +38,7 @@ WORKTREE_CASES = {
     ),
     "integrations/deploy-worktree.checks.py": (
         "check_current_request_is_shared_without_history_or_duplicate_execute",
+        "check_create_review_execute_uses_one_atomic_request",
         "check_start_creates_and_reuses_official_worktree",
         "check_failed_snapshot_with_unstarted_stack_publishes",
         "check_controller_keeps_aws_success_after_rewrite_and_conflict",

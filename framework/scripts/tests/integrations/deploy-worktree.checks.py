@@ -28,6 +28,7 @@ from deploy import (
     guards,
     inputs,
     operation_journal,
+    scheduler,
     steps,
     temporary,
     worktree,
@@ -41,6 +42,7 @@ from support.worktree_deploy_fixtures import seed
 from support.worktree_task_fixtures import fixture, git
 from task_contract_core import read_task_snapshot, selected_task, set_status, start
 from utils.aws.client import AwsError
+from utils.json_format import fingerprint
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -1375,6 +1377,124 @@ def check_final_candidate_external_changes_stop_before_adoption(kind):
             ]["final"].get("validated")
             is None
         )
+
+
+@pytest.mark.parametrize(
+    "released,missing_stack", [(False, False), (False, True), (True, False)]
+)
+def check_create_review_execute_uses_one_atomic_request(
+    tmp_path, released, missing_stack
+):
+    name = "Example"
+    stack = "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Example/stack-id"
+    change = "arn:aws:cloudformation:ap-northeast-1:123456789012:changeSet/change/id"
+    observed = {
+        "StackId": stack,
+        "ChangeSetId": change,
+        "Status": "CREATE_COMPLETE",
+        "ExecutionStatus": "AVAILABLE",
+        "Changes": [],
+    }
+    unit = {"name": name, "deployOrder": 1}
+    state = {
+        "status": "CHANGESET_CREATING",
+        "stackId": stack,
+        "changeSetId": "change",
+        "preparationId": "create-token",
+    }
+    request = tmp_path / "request.json"
+    progress = tmp_path / "progress.json"
+    calls = []
+    saves = []
+    runtime = SimpleNamespace(
+        target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
+        states={name: state},
+        templates={name: ({}, None)},
+        expected_digests={name: "input"},
+    )
+
+    def save():
+        worktree.write_sealed(tmp_path, progress, state)
+        saves.append(
+            (
+                json.loads(request.read_text()) if request.exists() else None,
+                json.loads(json.dumps(state)),
+            )
+        )
+
+    def transport(_runtime, _service, operation, arguments):
+        calls.append((operation, dict(arguments), json.loads(request.read_text())))
+        return (
+            {"StackId": None if missing_stack else stack}
+            if operation == "create_change_set"
+            else {}
+        )
+
+    def aws(operation, **arguments):
+        if operation in {"create_change_set", "execute_change_set"}:
+            return current_request.send(runtime, operation, arguments, transport)
+        if operation == "describe_stacks":
+            return {"Stacks": [{"StackId": stack, "StackStatus": "UPDATE_COMPLETE"}]}
+        if operation == "describe_change_set":
+            return dict(observed)
+        if operation == "describe_stack_events":
+            return {"StackEvents": []}
+        raise AssertionError(operation)
+
+    runtime.aws = aws
+    runtime.save = save
+    runtime.describe_change_set = lambda _unit, _state: dict(observed)
+    runtime.approvals = set()
+    runtime.review_prepared = partial(controller.review_prepared, runtime)
+    runtime.execute = partial(controller.execute, runtime)
+    runtime.prepare = Mock()
+    runtime.load_inputs = Mock()
+    runtime.observed_readiness = Mock()
+    runtime.input_digest = lambda _unit, fresh=False: "input"
+    runtime.file_digest = Mock()
+    runtime.template_arguments = Mock()
+    runtime.check_imports = Mock()
+    runtime.poll = Mock()
+    with patch.object(current_request, "location", return_value=request):
+        aws(
+            "create_change_set",
+            StackName=name,
+            ChangeSetName="change",
+            ClientToken="create-token",
+        )
+        if released:
+            state["currentStack"] = {"StackId": stack, "StackStatus": "UPDATE_COMPLETE"}
+            settled = current_request.reconcile(runtime, unit)
+            assert settled["settled"]
+            current_request.end_tracking(state, settled)
+            save()
+            current_request.release(runtime, settled)
+            assert not request.exists()
+        assert current_request.current_state.same_change_set("change", change)
+        assert not current_request.current_state.same_change_set(change, "change")
+        assert scheduler.run_group([unit], 1, runtime.states, runtime, save) == "ACTIVE"
+        assert [call[0] for call in calls] == [
+            "create_change_set",
+            "execute_change_set",
+        ]
+        assert calls[-1][2]["submission"] == "SENDING"
+        assert calls[-1][1]["ClientRequestToken"] != "create-token"
+        assert any(
+            item[0]
+            and item[0]["operation"] == "create_change_set"
+            and item[1].get("endedRequest")
+            for item in saves
+        )
+        assert json.loads(request.read_text())["submission"] == "SENT"
+        assert state["changeDigest"] == fingerprint([])
+        with pytest.raises(current_request.Blocked):
+            aws(
+                "execute_change_set",
+                StackName=stack,
+                ChangeSetName=change,
+                ClientRequestToken=state["clientToken"],
+            )
+        assert len(calls) == 2
 
 
 if __name__ == "__main__":

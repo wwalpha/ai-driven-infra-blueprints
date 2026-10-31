@@ -42,6 +42,7 @@ from support.pytest_cli import run
 from utils import sealed_evidence
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
+from utils.json_format import fingerprint
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -2233,13 +2234,17 @@ def check_final_cli_rejected_before_action(action):
     [("original", "change"), ("foreign", "change"), ("original", "other")],
 )
 def check_completed_create_only_allows_its_own_execute(tmp_path, owner, change):
+    stack = "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/id"
+    change_arn = (
+        "arn:aws:cloudformation:ap-northeast-1:123456789012:changeSet/change/id"
+    )
     request = tmp_path / "request.json"
     request.write_text(
         json.dumps(
             {
                 "operation": "create_change_set",
                 "name": "A",
-                "stackId": "stack",
+                "stackId": stack,
                 "changeSetId": "change",
                 "token": "original",
             }
@@ -2248,32 +2253,37 @@ def check_completed_create_only_allows_its_own_execute(tmp_path, owner, change):
     )
     request.chmod(0o600)
     runtime = SimpleNamespace(
-        target={},
+        target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
         states={
             "A": {
                 "preparationId": owner,
-                "changeSetId": "change",
+                "changeSetId": change_arn,
+                "stackId": stack,
+                "changeDigest": fingerprint([]),
+                "approvedChangeDigest": fingerprint([]),
                 "clientToken": "execute",
                 "executionEvidence": {
-                    "StackId": "stack",
-                    "ChangeSetId": "change",
+                    "StackId": stack,
+                    "ChangeSetId": change_arn,
                     "clientToken": "execute",
+                    "changeDigest": fingerprint([]),
+                    "inputDigest": "input",
                 },
             }
         },
         save=Mock(),
         aws=Mock(
             return_value={
-                "StackId": "stack",
-                "ChangeSetId": "change",
+                "StackId": stack,
+                "ChangeSetId": change_arn,
                 "Status": "CREATE_COMPLETE",
                 "ExecutionStatus": "AVAILABLE",
             }
         ),
     )
     arguments = {
-        "StackName": "A",
-        "ChangeSetName": change,
+        "StackName": stack,
+        "ChangeSetName": change_arn if change == "change" else change,
         "ClientRequestToken": "execute",
     }
     transport = Mock(return_value={})
@@ -2282,7 +2292,7 @@ def check_completed_create_only_allows_its_own_execute(tmp_path, owner, change):
         patch.object(
             current_state,
             "read",
-            return_value={"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"},
+            return_value={"StackId": stack, "StackStatus": "UPDATE_COMPLETE"},
         ),
     ):
         if owner == "original" and change == "change":
@@ -2540,6 +2550,243 @@ def check_current_guidance_preserves_safe_recovery_and_final_choices(condition):
     assert context == original
     if condition == "ended-unknown":
         assert report["deployResult"] == "UNKNOWN" and report["task"] == "running"
+
+
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "owner",
+        "stack",
+        "changeset",
+        "same-name-other-id",
+        "approval",
+        "digest",
+        "evidence",
+        "token",
+        "failed",
+        "in-progress",
+        "unavailable",
+        "account",
+        "region",
+        "partition",
+        "input",
+        "ended",
+    ],
+)
+def check_create_handoff_rejects_mismatched_evidence(tmp_path, problem):
+    stack = "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/stack-id"
+    change = "arn:aws:cloudformation:ap-northeast-1:123456789012:changeSet/change/id"
+    digest = fingerprint([])
+    prior = {
+        "operation": "create_change_set",
+        "name": "A",
+        "stackId": stack,
+        "changeSetId": "change",
+        "token": "create",
+    }
+    state = {
+        "status": "RUNNING",
+        "preparationId": "create",
+        "stackId": stack,
+        "changeSetId": change,
+        "clientToken": "execute",
+        "changeDigest": digest,
+        "approvedChangeDigest": digest,
+        "executionEvidence": {
+            "StackId": stack,
+            "ChangeSetId": change,
+            "clientToken": "execute",
+            "changeDigest": digest,
+            "inputDigest": "input",
+        },
+    }
+    observed = {
+        "Status": "CREATE_COMPLETE",
+        "ExecutionStatus": "AVAILABLE",
+        "StackId": stack,
+        "ChangeSetId": change,
+        "Changes": [],
+    }
+    arguments = {
+        "StackName": stack,
+        "ChangeSetName": change,
+        "ClientRequestToken": "execute",
+    }
+    if problem == "owner":
+        state["preparationId"] = "foreign"
+    if problem == "stack":
+        prior["stackId"] = stack + "-other"
+    if problem == "changeset":
+        state["changeSetId"] = change + "-other"
+    if problem == "same-name-other-id":
+        observed["ChangeSetId"] = change + "-other"
+    if problem == "approval":
+        state.pop("approvedChangeDigest")
+    if problem == "digest":
+        observed["Changes"] = [{"other": "change"}]
+    if problem == "evidence":
+        state["executionEvidence"]["StackId"] = stack + "-other"
+    if problem == "token":
+        arguments["ClientRequestToken"] = "other"
+    if problem == "failed":
+        observed["Status"] = "FAILED"
+    if problem == "in-progress":
+        observed["Status"] = "CREATE_IN_PROGRESS"
+    if problem == "unavailable":
+        observed["ExecutionStatus"] = "OBSOLETE"
+    if problem == "input":
+        state["executionEvidence"].pop("inputDigest")
+    if problem == "ended":
+        state["endedRequest"] = {"request": {"token": "earlier"}, "result": "UNKNOWN"}
+    if problem == "partition":
+        stack_other = stack.replace("arn:aws:", "arn:aws-cn:")
+        change_other = change.replace("arn:aws:", "arn:aws-cn:")
+        prior["stackId"] = stack_other
+        state.update(stackId=stack_other, changeSetId=change_other)
+        state["executionEvidence"].update(StackId=stack_other, ChangeSetId=change_other)
+        observed.update(StackId=stack_other, ChangeSetId=change_other)
+        arguments.update(StackName=stack_other, ChangeSetName=change_other)
+        stack = stack_other
+    request = tmp_path / "request.json"
+    request.write_text(json.dumps(prior), encoding="utf-8")
+    request.chmod(0o600)
+    backend = SimpleNamespace(
+        target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
+        states={"A": state},
+        aws=Mock(return_value=observed),
+        save=Mock(),
+    )
+    if problem == "account":
+        backend.target["awsAccountId"] = "999999999999"
+    if problem == "region":
+        backend.target["awsRegion"] = "us-east-1"
+    transport = Mock()
+    with (
+        patch.object(current_request, "location", return_value=request),
+        patch.object(
+            current_state,
+            "read",
+            return_value={"StackId": stack, "StackStatus": "UPDATE_COMPLETE"},
+        ),
+    ):
+        with pytest.raises(Blocked):
+            current_request.send(backend, "execute_change_set", arguments, transport)
+    transport.assert_not_called()
+    if problem == "ended":
+        assert state["endedRequest"]["request"]["token"] == "earlier"
+        assert json.loads(request.read_text())["token"] == "create"
+        backend.save.assert_not_called()
+
+
+@pytest.mark.parametrize("boundary", ["save", "replace", "after_replace", "transport"])
+def check_create_handoff_interruption_preserves_evidence(tmp_path, boundary):
+    stack = "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/stack-id"
+    change = "arn:aws:cloudformation:ap-northeast-1:123456789012:changeSet/change/id"
+    digest = fingerprint([])
+    prior = {
+        "operation": "create_change_set",
+        "name": "A",
+        "stackId": stack,
+        "changeSetId": "change",
+        "token": "create",
+    }
+    state = {
+        "status": "RUNNING",
+        "preparationId": "create",
+        "stackId": stack,
+        "changeSetId": change,
+        "clientToken": "execute",
+        "changeDigest": digest,
+        "approvedChangeDigest": digest,
+        "executionEvidence": {
+            "StackId": stack,
+            "ChangeSetId": change,
+            "clientToken": "execute",
+            "changeDigest": digest,
+            "inputDigest": "input",
+        },
+    }
+    observed = {
+        "Status": "CREATE_COMPLETE",
+        "ExecutionStatus": "AVAILABLE",
+        "StackId": stack,
+        "ChangeSetId": change,
+        "Changes": [],
+    }
+    arguments = {
+        "StackName": stack,
+        "ChangeSetName": change,
+        "ClientRequestToken": "execute",
+    }
+    request, progress = tmp_path / "request.json", tmp_path / "progress.json"
+    request.write_text(json.dumps(prior), encoding="utf-8")
+    request.chmod(0o600)
+
+    def save():
+        if boundary == "save":
+            raise OSError("save interrupted")
+        worktree.write_sealed(tmp_path, progress, state)
+
+    backend = SimpleNamespace(
+        target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
+        states={"A": state},
+        aws=Mock(return_value=observed),
+        save=save,
+    )
+    transport = Mock(side_effect=OSError("transport interrupted"))
+    replace = current_request.atomic_replace_file
+
+    def replace_file(*args, **kwargs):
+        if boundary == "replace":
+            raise OSError("replace interrupted")
+        result = replace(*args, **kwargs)
+        if boundary == "after_replace":
+            raise OSError("after replace interrupted")
+        return result
+
+    with (
+        patch.object(current_request, "location", return_value=request),
+        patch.object(
+            current_state,
+            "read",
+            return_value={"StackId": stack, "StackStatus": "UPDATE_COMPLETE"},
+        ),
+        patch.object(current_request, "atomic_replace_file", side_effect=replace_file),
+    ):
+        with pytest.raises(OSError):
+            current_request.send(backend, "execute_change_set", arguments, transport)
+    saved_request = json.loads(request.read_text())
+    assert saved_request["operation"] == (
+        "execute_change_set"
+        if boundary in {"after_replace", "transport"}
+        else "create_change_set"
+    )
+    assert transport.call_count == (1 if boundary == "transport" else 0)
+    if boundary != "save":
+        assert (
+            worktree.read_sealed(tmp_path, progress)["endedRequest"]["request"]["token"]
+            == "create"
+        )
+    if boundary in {"after_replace", "transport"}:
+        assert saved_request["submission"] == "SENDING"
+        with (
+            patch.object(current_request, "location", return_value=request),
+            patch.object(
+                current_state,
+                "read",
+                return_value={"StackId": stack, "StackStatus": "UPDATE_COMPLETE"},
+            ),
+        ):
+            backend.aws = Mock(
+                side_effect=lambda operation, **kwargs: observed
+                if operation == "describe_change_set"
+                else {"StackEvents": []}
+            )
+            with pytest.raises(Blocked):
+                current_request.send(
+                    backend, "execute_change_set", arguments, transport
+                )
+        assert transport.call_count == (1 if boundary == "transport" else 0)
 
 
 if __name__ == "__main__":
