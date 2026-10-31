@@ -517,7 +517,7 @@ def typed_reference_round_trip():
             script = root / (service + ".py")
             script.write_text(source, encoding="utf-8")
             for case, expected in (
-                [("match", 0), ("different", 1), ("missing", 2), ("denied", 2)]
+                [("match", 0), ("different", 1), ("missing", 1), ("denied", 2)]
                 if service == "vpc"
                 else [("match", 0)]
             ):
@@ -551,6 +551,13 @@ def typed_reference_round_trip():
                         assert (
                             "ResourceNotFound" if case == "missing" else "AccessDenied"
                         ) in process.stdout
+                    if case == "missing":
+                        assert (
+                            "[NG] EC2.FlowLog | fl-fixture | (resource missing)"
+                            in process.stdout
+                        )
+                        assert "AWS:    null" in process.stdout
+                        assert "Diff paths:" not in process.stdout
                 else:
                     assert (
                         actual_policy["Statement"][0]["Resource"][0] in process.stdout
@@ -582,8 +589,14 @@ def typed_reference_round_trip():
                     text=True,
                     timeout=30,
                 )
-                assert process.returncode == 2, (process.stdout, process.stderr)
-                assert "[ERROR] EC2.FlowLog" in process.stdout
+                assert process.returncode == (1 if case == "missing" else 2), (
+                    process.stdout,
+                    process.stderr,
+                )
+                assert (
+                    ("[NG]" if case == "missing" else "[ERROR]") + " EC2.FlowLog"
+                    in process.stdout
+                )
                 assert reason in process.stdout
                 assert (
                     "  Design:" in process.stdout and "  Model:" not in process.stdout

@@ -635,14 +635,21 @@ def report(snapshot, profile, account, records, timestamp):
     line()
     counts = Counter()
     for item in records:
-        state = {"match": "OK", "difference": "NG", "excluded": "INFO"}.get(
-            item["status"], "ERROR"
-        )
+        state = {
+            "match": "OK",
+            "difference": "NG",
+            "resource_missing": "NG",
+            "excluded": "INFO",
+        }.get(item["status"], "ERROR")
         counts[state] += 1
         prop = item.get("propertiesKey") or "(resource)"
         kind = item.get("resourceType") or ".".join(prop.split(".")[:2])
         name = snapshot.get("names", {}).get(item["resource"], "（名前未設定）")
-        attribute = prop.removeprefix(kind + ".")
+        attribute = (
+            "(resource missing)"
+            if item["status"] == "resource_missing"
+            else prop.removeprefix(kind + ".")
+        )
         line(f"[{state}] {kind} | {name} | {attribute}")
         expected = masked(item.get("designValue"), prop)
         actual = masked(item.get("awsValue"), prop)
@@ -661,7 +668,7 @@ def report(snapshot, profile, account, records, timestamp):
                 .replace("Model reference", "Design reference")
                 .replace("producer Model is absent", "producer Design is absent")
             )
-        if state == "NG":
+        if item["status"] == "difference":
             line(
                 "  Diff paths: "
                 + ", ".join(

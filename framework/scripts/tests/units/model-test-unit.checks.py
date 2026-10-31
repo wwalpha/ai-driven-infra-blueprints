@@ -1360,6 +1360,42 @@ class IdentifierTests(unittest.TestCase):
             self.assertIn("Verification: NOT_VERIFIABLE", text)
             self.assertIn("INFO: 1", text)
 
+    def test_missing_resource_report_is_not_a_property_diff(self):
+        snapshot = {
+            "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
+            "service": "glue",
+            "modelHash": "hash",
+            "names": {"job": "job-name"},
+        }
+        item = {
+            "resource": "job",
+            "resourceType": "Glue.Job",
+            "propertiesKey": "Glue.Job.Timeout",
+            "status": "resource_missing",
+            "designValue": ["`30`"],
+            "awsValue": None,
+            "reason": "EntityNotFoundException",
+        }
+        text, code = audit.report(
+            snapshot, None, "account", [item], datetime.now(timezone.utc)
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("[NG] Glue.Job | job-name | (resource missing)", text)
+        self.assertIn('  Design: ["`30`"]', text)
+        self.assertIn("  AWS:    null", text)
+        self.assertIn("  Reason: EntityNotFoundException", text)
+        self.assertNotIn("Diff paths:", text)
+        self.assertNotIn("[ERROR]", text)
+        text, code = audit.report(
+            snapshot,
+            None,
+            "account",
+            [item, {**item, "status": "acquisition_failed", "reason": "AccessDenied"}],
+            datetime.now(timezone.utc),
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("[ERROR]", text)
+
     def test_report_translates_fixed_producer_diagnostic_only(self):
         snapshot = {
             "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
