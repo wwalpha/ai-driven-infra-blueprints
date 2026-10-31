@@ -87,7 +87,7 @@ def fetch(ctx, r, getter):
     if r.kind == "EC2.FlowLog" and not isinstance(response.get(collection), list):
         raise Unresolved("Flow Log response lacks a complete collection")
     records = response.get(collection, [])
-    if r.kind == "EC2.FlowLog" and not current and len(records) > 1:
+    if r.kind == "EC2.FlowLog" and not current and records:
         for prop in ("LogDestinationType", "LogDestination", "LogGroupName"):
             if r.rows_for(prop):
                 value = r.value(prop)

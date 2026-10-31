@@ -163,6 +163,9 @@ class FlowLogLookupTests(unittest.TestCase):
         resource.value.side_effect = lambda prop, *args: "wanted" if prop == "LogGroupName" else "vpc-123"
         ctx.pages.return_value["FlowLogs"][0]["LogGroupName"] = "wanted"
         self.assertEqual(adapter.fetch(ctx, resource, "base")["LogGroupName"], "wanted")
+        ctx.pages.return_value = {"FlowLogs": [{**record, "LogGroupName": "other"}]}
+        with self.assertRaises(Unresolved):
+            adapter.fetch(ctx, resource, "base")
         resource.rows_for.side_effect = None
         resource.rows_for.return_value = []
         resource.value.side_effect = None
@@ -477,6 +480,32 @@ class ReferenceTests(unittest.TestCase):
                 self.assertEqual(item["status"], status, item)
                 if case == "untagged":
                     self.assertEqual(item["awsValue"], "ALL")
+
+    def test_flow_log_identifier_evidence(self):
+        self.consumer = self.model(
+            "EC2.FlowLog", "EC2_FlowLog_001",
+            {"Id": self.ref("EC2_FlowLog_001", "Id"), "ResourceId": "vpc-123"},
+        )
+        for observed, records, status in (
+            ("PENDING_DEPLOY", [], "resource_missing"),
+            ("PENDING_DEPLOY", [{"FlowLogId": "fl-new"}], "design_unresolved"),
+            ("fl-old", [], "resource_missing"),
+            ("fl-old", [{"FlowLogId": "fl-old"}], "match"),
+            ("fl-old", [{"FlowLogId": "fl-new"}], "difference"),
+            ("PENDING_DEPLOY", [{"FlowLogId": "fl-a"}, {"FlowLogId": "fl-b"}], "design_unresolved"),
+        ):
+            with self.subTest(observed=observed, records=records):
+                self.consumer["observed.row.001-001.value"] = f"`{observed}`"
+                self.save()
+                def cli(command, records=records, **kwargs):
+                    value = {"Account": "123456789012"} if command[1] == "sts" else {"FlowLogs": records}
+                    return subprocess.CompletedProcess(command, 0, json.dumps(value), "")
+                item = next(item for item in audit.audit(self.snapshot(), cli_runner=cli)[2]
+                            if item["propertiesKey"] == "EC2.FlowLog.Id")
+                self.assertEqual(item["status"], status, item)
+                if observed == "PENDING_DEPLOY":
+                    self.assertIsNone(item["designValue"])
+                    self.assertIn("REFERENCE_PENDING_DEPLOY", item["reason"])
 
     def test_boolean_literal_comparisons(self):
         self.consumer["desired.row.001-002.value"] = "`False`"

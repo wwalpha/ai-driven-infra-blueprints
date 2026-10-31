@@ -298,6 +298,40 @@ def check_step_diagnostics_do_not_expose_unknown_error_values():
     assert known["reason"] == "base advanced; review retained commit"
 
 
+@pytest.mark.parametrize("output,physical,expected", [
+    ("fl-new", "fl-new", "`fl-new`"),
+    (None, "fl-new", "`fl-new`"),
+    ("fl-other", "fl-new", None),
+])
+def check_flowlog_observed_identifier(tmp_path, output, physical, expected):
+    source = tmp_path / "model/dev/app/vpc.properties"
+    resource = {"resourceType": "EC2.FlowLog", "logicalId": "EC2_FlowLog_001"}
+    rows = [("001-001", {"property": "EC2.FlowLog.Id"})]
+    mapped = {"A": {"Flow": (source, "001", resource, rows, {"EC2.FlowLog.Id"})}}
+    document = {"Resources": {"Flow": {"Type": "AWS::EC2::FlowLog"}},
+                "Outputs": {"FlowId": {"Value": {"Ref": "Flow"}}}}
+    stack = {"StackId": "stack", "StackStatus": "CREATE_COMPLETE",
+             "Outputs": [] if output is None else [{"OutputKey": "FlowId", "OutputValue": output}]}
+    backend = SimpleNamespace(root=tmp_path, environment="dev", directory="app",
+        target={"awsRegion": "region", "awsAccountId": "account"},
+        templates={"A": (document, {})}, aws=Mock(side_effect=[
+            {"Stacks": [stack]}, {"StackResourceSummaries": [{"LogicalResourceId": "Flow",
+                "ResourceType": "AWS::EC2::FlowLog", "ResourceStatus": "CREATE_COMPLETE",
+                "PhysicalResourceId": physical}]}, {"Stacks": [stack]}]))
+    catalog = Mock()
+    catalog.schema.return_value = {"primaryIdentifier": ["/properties/Id"]}
+    loaded = {source: {"observed.row.001-001.value": "`PENDING_DEPLOY`"}}
+    state = {"A": {"status": "SUCCESS"}}
+    with (patch.object(observed, "DesignSchemaCatalog", return_value=catalog),
+          patch.object(observed, "resolve_resources", return_value=(loaded, mapped)),
+          patch.object(observed, "own_key", return_value="self"),
+          patch.object(observed, "propagate_references"),
+          patch.object(observed, "observed_destinations", return_value=({}, [], None)) as destinations):
+        observed.collect_successful(backend, [{"name": "A"}], state)
+    assert destinations.call_args.args[4][source]["observed.row.001-001.value"] == expected
+    assert state["A"]["observedCoverage"]["Flow"]["status"] == ("UPDATED" if expected else "UNCONFIRMED")
+
+
 @pytest.mark.parametrize(
     "missing", [False, True, "unknown-literal", "missing-status", "wrong-type"]
 )

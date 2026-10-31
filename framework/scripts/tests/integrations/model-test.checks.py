@@ -91,6 +91,39 @@ def fixture(base, service, resources):
     return data
 
 
+def test_flowlog_pending_and_missing_standalone(tmp_path):
+    root = tmp_path
+    (root / "project.json").write_text(json.dumps({"projectName": "fixture", "targets": [{
+        "environment": "dev", "alias": "cde", "awsAccountId": "123456789012",
+        "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}), encoding="utf-8")
+    reference = {"$modelRef": {"logicalId": "EC2_FlowLog_001", "attribute": "Id"}}
+    values = fixture({}, "vpc", [("001", "EC2.FlowLog", "flowlog", [
+        ("Id", "`" + json.dumps(reference) + "`", None),
+        ("ResourceId", "`vpc-123`", None),
+    ])])["models"]["dev/cde/vpc"]
+    values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
+    write_model(root / "model/dev/cde/vpc.properties", values)
+    source = generator.generate(root, "dev", "cde", "vpc")[0]
+    script = root / "audit.py"
+    script.write_text(source, encoding="utf-8")
+    aws = root / "aws"
+    aws.write_text("#!" + sys.executable + "\nimport json, os, sys\n"
+        "if sys.argv[1:3] == ['sts', 'get-caller-identity']:\n"
+        " result={'Account':'123456789012'}\n"
+        "else:\n"
+        " assert sys.argv[1:3] == ['ec2', 'describe-flow-logs']\n"
+        " result={'FlowLogs': [] if os.environ['CASE'] == 'missing' else [{'FlowLogId':'fl-new','ResourceId':'vpc-123'}]}\n"
+        "print(json.dumps(result))\n", encoding="utf-8")
+    aws.chmod(0o700)
+    for case, code in (("missing", 1), ("found", 2)):
+        result = subprocess.run([sys.executable, "-I", "-B", str(script)], cwd=root,
+            env={**os.environ, "PATH": str(root), "CASE": case}, capture_output=True, text=True)
+        assert result.returncode == code, (result.stdout, result.stderr)
+        assert "REFERENCE_PENDING_DEPLOY" in result.stdout
+        if case == "missing":
+            assert "ResourceNotFound" in result.stdout and "[NG] EC2.FlowLog" in result.stdout
+
+
 POLICY = {
     "Version": "2012-10-17",
     "Statement": [
