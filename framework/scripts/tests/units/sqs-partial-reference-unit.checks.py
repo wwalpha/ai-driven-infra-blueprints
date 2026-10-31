@@ -12,7 +12,7 @@ from design.document import model_resource_reference_tables
 from model.core import ReferenceDiagnosticError
 from model.format import owner
 from model.projection import reference_display, validate_json_documents
-from model.render import generate_markdown
+from model.render import generate_files, generate_markdown
 from support.model_reference_fixtures import (
     FRAMEWORK,
     project,
@@ -75,6 +75,27 @@ def policy_result(path, markdown, values):
             path, markdown, values, FRAMEWORK
         )
     )["saved-002"]
+
+
+def check_eventbridge_source_arn_policy_generation(sqs):
+    scope, path, values = sqs
+    producer, rule = resource(scope.root, "events", "Events.Rule", attribute="Name")
+    rule["desired.row.001-001.value"] = "`fixture-rule`"
+    save(producer, rule)
+    document = json.loads(values["desired.row.002-002.document"])
+    document["Statement"][0]["Condition"] = {
+        "ArnEquals": {"aws:SourceArn": reference("Events_Rule_001", "Arn")}
+    }
+    values["desired.row.002-002.document"] = json.dumps(document)
+    save(scope, values)
+    original = dict(values)
+    outputs = generate_files(path, values, scope.root)
+    policy = json.loads(outputs[path.parent / "sqs/policy.json"])
+    assert policy["Statement"][0]["Condition"]["ArnEquals"]["aws:SourceArn"] == (
+        "arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule"
+    )
+    assert "[fixture-rule](events.md#saved-001)" in outputs[path]
+    assert values == original
 
 
 def check_other_group_producer(sqs):

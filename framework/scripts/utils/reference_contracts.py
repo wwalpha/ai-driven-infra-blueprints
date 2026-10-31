@@ -1543,6 +1543,15 @@ def contract(prop, context=None):
         for values in ("", "[]")
     }:
         return {"KMS.Key": ("Arn",)}
+    if prop in {
+        "SQS.QueuePolicy.PolicyDocument.Statement"
+        + statement
+        + ".Condition.ArnEquals.aws:SourceArn"
+        + values
+        for statement in ("", "[]")
+        for values in ("", "[]")
+    }:
+        return {"Events.Rule": ("Arn",)}
     for root, style in POLICY_FORMATS.items():
         if style not in {"statement", "wrapped-statement"}:
             continue

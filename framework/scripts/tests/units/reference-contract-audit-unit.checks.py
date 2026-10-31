@@ -1506,6 +1506,22 @@ def test_iam_condition_arn_contract_and_comparison(
             assert not contract(field.replace(operator, "UnknownOperator"))
 
 
+def test_sqs_eventbridge_source_arn_contract_is_narrow(models):
+    resolver = Resolver(models)
+    prefix = "SQS.QueuePolicy.PolicyDocument.Statement"
+    for statement in ("", "[]"):
+        for values in ("", "[]"):
+            field = prefix + statement + ".Condition.ArnEquals.aws:SourceArn" + values
+            assert contract(field) == {"Events.Rule": ("Arn",)}
+            resolver.validate_attribute("Events.Rule", "Arn", field=field)
+            for kind, attribute in (("S3.Bucket", "Arn"), ("Events.Rule", "Name")):
+                with pytest.raises(ValueError):
+                    resolver.validate_attribute(kind, attribute, field=field)
+            assert not contract(field.replace("ArnEquals", "ArnLike"))
+            assert not contract(field.replace("aws:SourceArn", "aws:SourceAccount"))
+            assert not contract(field.replace("SQS.QueuePolicy", "SQS.Queue"))
+
+
 def test_iam_condition_document_generation(models):
     key = "aws:SourceArn"
     payload = {
