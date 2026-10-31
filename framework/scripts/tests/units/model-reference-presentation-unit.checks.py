@@ -4,6 +4,7 @@ import copy
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -31,7 +32,7 @@ from model.projection import (
 )
 from model.reference_nodes import parse
 from model.reference_presentation import Position, Presentation
-from model.reference_values import reference_value
+from model.reference_values import ReferenceValue, reference_value
 from model.render import generate_files, generate_markdown
 from model.sources import Scope, load_model
 from support.model_reference_fixtures import (
@@ -332,8 +333,94 @@ def test_same_file_and_existing_link(models):
         {"--self": reference("Glue_Job_001", "Name")},
     )
     markdown = generate_markdown(path, values, FRAMEWORK)
-    assert "| [consumer](#saved-001) | <!-- glue-arguments-source:" in markdown
+    assert "| `consumer` | <!-- glue-arguments-source:" in markdown
     assert "$modelRef" in restore(path, markdown, values)
+
+
+@pytest.mark.parametrize("observed", [None, "PENDING_DEPLOY", "vpc-12345678"])
+def test_vpc_self_and_other_reference_display(models, observed):
+    scope, values = resource(
+        models, "vpc", "EC2.VPC", attribute="VpcId", observed=observed
+    )
+    values["desired.resource.001.resourceMode"] = "IMPORT" if observed else "CREATE"
+    add(values, "EC2.VPC", "CidrBlock", "10.0.0.0/16")
+    _, other = resource(
+        models, "vpc", "EC2.VPC", attribute="VpcId", number="002", observed=observed
+    )
+    other["desired.resource.002.resourceMode"] = "IMPORT"
+    values.update(other)
+    values["desired.row.002-002.property"] = "EC2.VPC.CidrBlock"
+    values["desired.row.002-002.value"] = "`10.1.0.0/16`"
+    values["desired.row.002-002.comment"] = "CIDR"
+    save(scope, values)
+    path = models / "docs/designs/qa/team/vpc.md"
+    before = copy.deepcopy(values)
+    presentation = Presentation(values, path, models)
+    own = presentation.references[Position("001-001", "value", "")]
+    expected = observed or "PENDING_DEPLOY"
+    TestCase().assertEqual(own.value, expected)
+    TestCase().assertIsNone(own.link)
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    TestCase().assertIn("`" + expected + "`", markdown)
+    TestCase().assertNotIn("[" + expected + "](#saved-001)", markdown)
+    TestCase().assertIn("10.0.0.0/16", markdown)
+    TestCase().assertIn("$modelRef", restore(path, markdown, values))
+    TestCase().assertEqual(generate_markdown(path, values, FRAMEWORK), markdown)
+    TestCase().assertEqual(values, before)
+
+
+def test_same_file_other_resource_link(models):
+    scope, values, path = consumer(models)
+    _, other = resource(models, "glue", "Glue.Job", attribute="Name", number="002")
+    other["desired.row.002-001.value"] = "`other-job`"
+    values.update(other)
+    add(
+        values,
+        "Glue.Job",
+        "DefaultArguments",
+        {
+            "--self": reference("Glue_Job_001", "Name"),
+            "--other": reference("Glue_Job_002", "Name"),
+            "--literal": "other-job",
+        },
+    )
+    save(scope, values)
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    TestCase().assertIn("[other-job](#saved-002)", markdown)
+    TestCase().assertIn("`consumer`", markdown)
+    TestCase().assertNotIn(
+        "[consumer](#saved-001) | <!-- glue-arguments-source:", markdown
+    )
+    TestCase().assertIn("$modelRef", restore(path, markdown, values))
+
+
+def test_same_logical_id_in_other_scope_is_not_self(models):
+    _, values, path = consumer(models)
+    presentation = Presentation(values, path, models)
+    other_scope = Scope(models, "qa", "other", "glue")
+    resource_data = {
+        "resourceType": "Glue.Job",
+        "logicalId": "Glue_Job_001",
+        "anchor": "saved-001",
+    }
+    snapshot = SimpleNamespace(scope=other_scope, authoritative=values)
+    node = parse(reference("Glue_Job_001", "Name"))
+    with (
+        patch(
+            "model.reference_presentation.resolve",
+            return_value=(snapshot, "001", resource_data, "Name"),
+        ),
+        patch(
+            "model.reference_presentation.render.resource_presentation",
+            return_value=("consumer", None, None),
+        ),
+    ):
+        link = presentation.link(
+            node,
+            position=Position("001-001", "value", ""),
+            result=ReferenceValue("resolved", "consumer"),
+        )
+    TestCase().assertEqual(link, "[consumer](../other/glue.md#saved-001)")
 
 
 @pytest.mark.parametrize(
@@ -738,11 +825,7 @@ def test_security_group_logical_link_and_confirmed_label(models, observed):
     before = copy.deepcopy(values)
     original = producer.path.read_bytes()
     markdown = generate_markdown(path, values, FRAMEWORK)
-    label = (
-        observed
-        if observed not in (None, "PENDING_DEPLOY")
-        else "VULNERABILITYSCANSECURITYGROUP01"
-    )
+    label = observed if observed is not None else "VULNERABILITYSCANSECURITYGROUP01"
     TestCase().assertIn(f"[{label}](security-group.md#security-group-saved)", markdown)
     TestCase().assertNotIn("$modelRef", markdown)
     result = reference_value(

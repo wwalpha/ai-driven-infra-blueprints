@@ -224,7 +224,7 @@ def check_reference_views(root):
         )
         for path, model in zip(paths, (producer, consumer), strict=True):
             save_files(generate_files(path, load_model(model).values, root))
-        assert "[sg-one](security-group.md#sg-one)" in paths[1].read_text(
+        assert "[PENDING_DEPLOY](security-group.md#sg-one)" in paths[1].read_text(
             encoding="utf-8"
         )
         findings = Findings(root)
@@ -249,7 +249,7 @@ def check_reference_views(root):
             paths[1]
             .read_text()
             .replace(
-                "[sg-one](security-group.md#sg-one)",
+                "[PENDING_DEPLOY](security-group.md#sg-one)",
                 "[sg-different](security-group.md#sg-one)",
             )
         )

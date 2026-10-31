@@ -792,7 +792,7 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     )
     projected = json.loads(displayed["desired.row.070-004.document"])
     assert projected["Statement"][0]["Resource"] == "arn:aws:s3:::confirmed-bucket"
-    assert projected["Statement"][6]["Resource"] == document["Statement"][6]["Resource"]
+    assert projected["Statement"][6]["Resource"] == "PENDING_DEPLOY"
     assert displayed["desired.row.070-004.value"] == role["desired.row.070-004.value"]
     assert "desired.row.070-004.artifactSha256" not in displayed
     path = consumer.root / "docs/designs/qa/team/iam.md"
@@ -807,7 +807,7 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     assert "confirmed-bucket" in markdown and "](kms.md#saved-004)" in markdown
     assert "iam/iam-role-070-synthetic-policy.json" in markdown
     assert "iam/iam-role-070-trust-policy.json" in markdown
-    assert "pending_deploy" not in markdown
+    assert "[PENDING_DEPLOY](kms.md#saved-004)" in markdown
     assert rendered_design(path, definitions_root=FRAMEWORK) == markdown
     assert consumer.path.read_bytes() == original
     assert (

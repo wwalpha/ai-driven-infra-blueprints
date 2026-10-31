@@ -17,7 +17,11 @@ from design.catalog import design_material_files
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
 from utils.input_cache import input_is_file, input_text, memo_table, memoized
-from utils.reference_contracts import action_contexts, row_contexts
+from utils.reference_contracts import (
+    RETURN_ATTRIBUTE_PROPERTIES,
+    action_contexts,
+    row_contexts,
+)
 from utils.reference_contracts import reference_attribute as reference_attribute
 
 import model.environment_values as environment_values
@@ -380,11 +384,20 @@ def _resolved_document_value(resolutions, node):
     )
 
 
-def _display_document_value(resolutions, node):
+def _display_document_value(resolutions, resolver, scope, root, node):
     result = resolutions.get(node)
+    if result is not None and result.status == "logical_only":
+        _, _, resource = resolver.resolve_logical(node.logical_id, scope)
+        kind = resource["resourceType"]
+        attribute = reference_attribute(kind, node.attribute)
+        field = RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute)
+        if kind + "." + field in identifier_outputs(root).get(kind, ()):
+            return "PENDING_DEPLOY"
     return (
         result.value
         if result is not None and result.status == "resolved"
+        else "PENDING_DEPLOY"
+        if result is not None and result.status == "pending_deploy"
         else reference_document(node)
     )
 
@@ -402,7 +415,16 @@ def display_document(document, root, *, pending=None, **contract):
         scope=contract["scope"],
     )
     return execution_document(
-        project(document, partial(_display_document_value, resolutions)),
+        project(
+            document,
+            partial(
+                _display_document_value,
+                resolutions,
+                contract["resolver"],
+                contract["scope"],
+                root,
+            ),
+        ),
         root,
         property_name=contract.get("property_name"),
         scope=contract["scope"],

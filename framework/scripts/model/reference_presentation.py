@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from functools import partial
 
 import json_intrinsics
-from utils.reference_contracts import RETURN_ATTRIBUTE_PROPERTIES, reference_attribute
 
 import model.files as files
 import model.identity as identity
@@ -24,7 +23,6 @@ from model.reference_nodes import (
     reference_document,
     resolve,
 )
-from model.reference_values import confirmed
 
 
 @dataclass(frozen=True)
@@ -101,11 +99,12 @@ class Presentation:
                         position = Position(rid, field, node.pointer)
                         self.references[position] = Reference(
                             position,
-                            result.value
-                            if result is not None and result.status == "resolved"
-                            else reference_document(node),
+                            projection._display_document_value(
+                                resolutions, self.resolver, self.scope, root, node
+                            ),
                             self.link(
                                 node,
+                                position=position,
                                 field=receiving_property(prop, node.pointer),
                                 property_name=prop,
                                 context=context_at(
@@ -142,11 +141,16 @@ class Presentation:
             for variant in (marker, html.escape(marker, quote=False))
         }
 
-    def link(self, node, *, result=None, **contract):
+    def link(self, node, *, position, result=None, **contract):
         try:
-            snapshot, number, resource, attribute = resolve(
+            snapshot, number, resource, _ = resolve(
                 node, self.scope, self.resolver, **contract
             )
+            if (
+                snapshot.scope == self.scope
+                and number == position.row_id.rpartition("-")[0]
+            ):
+                return None
             name, _, _ = render.resource_presentation(
                 snapshot.authoritative,
                 number,
@@ -155,32 +159,15 @@ class Presentation:
                 scope=snapshot.scope,
                 projection=True,
             )
-            kind = resource["resourceType"]
-            field = RETURN_ATTRIBUTE_PROPERTIES.get(
-                (kind, reference_attribute(kind, attribute)),
-                reference_attribute(kind, attribute),
+            displayed = projection._display_document_value(
+                {node: result}, self.resolver, self.scope, self.root, node
             )
-            if (
-                kind + "." + field
-                in projection.identifier_outputs(self.root).get(kind, ())
-                and result is not None
-                and result.status == "resolved"
-            ):
-                observed = [
-                    snapshot.authoritative.get(f"observed.row.{rid}.value")
-                    for rid, row in files.resource_row_index(snapshot.authoritative)[
-                        number
-                    ]
-                    if row["property"] == kind + "." + field
-                ]
-                if len(observed) == 1 and observed[0] is not None:
-                    physical = confirmed(literal(observed[0]))
-                    if isinstance(physical, str) and not physical.startswith("arn:"):
-                        name = physical
+            if isinstance(displayed, str) and not displayed.startswith("arn:"):
+                name = displayed
             if (
                 not name
                 or literal(name).lower()
-                in {"unset", "unresolved", "pending_deploy", "tbd", "todo", "未確定"}
+                in {"unset", "unresolved", "tbd", "todo", "未確定"}
                 or literal(name).startswith("arn:")
             ):
                 return None

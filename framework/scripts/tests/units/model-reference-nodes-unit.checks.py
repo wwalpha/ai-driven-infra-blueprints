@@ -553,7 +553,7 @@ def check_display_and_stable_design(tmp_path, models, observed, expected):
     displayed = reference_display(policy, consumer.path, tmp_path)
     assert json.loads(displayed["desired.row.001-002.document"])["Statement"][0][
         "Resource"
-    ] == (reference() if observed in (None, "PENDING_DEPLOY") else expected)
+    ] == (reference() if observed is None else expected)
     warnings = []
     mixed = {
         "json": json.dumps(document),
@@ -793,7 +793,7 @@ def check_return_attribute_mapping_and_identifier_pending(tmp_path, models):
     values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
     save(producer, values)
     assert (
-        "$modelRef"
+        "PENDING_DEPLOY"
         in reference_display(policy, consumer.path, tmp_path)[
             "desired.row.001-002.document"
         ]
@@ -875,7 +875,7 @@ def check_scalar_value_and_json_are_stable(tmp_path, models, mode):
                 "desired.row.001-002.document"
             ]
         )["Statement"][0]["Resource"]
-        == reference()
+        == "PENDING_DEPLOY"
     )
     with pytest.raises(ValueError, match="change comparison unavailable"):
         validate_candidates(

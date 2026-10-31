@@ -964,9 +964,7 @@ def check_encoded_environment_typed_reference_retains_state(models, physical):
     assert bool(pending) == (physical == "PENDING_DEPLOY")
     displayed = reference_display(values, scope.path, models)
     config = json.loads(literal(displayed["desired.row.001-001.value"]))
-    assert json.loads(config["EnvironmentVariables"])[0]["value"] == (
-        reference("KMS_Key_001", "KeyId") if physical == "PENDING_DEPLOY" else physical
-    )
+    assert json.loads(config["EnvironmentVariables"])[0]["value"] == physical
     assert values["desired.row.001-001.value"] == "`" + json.dumps(value) + "`"
 
 
