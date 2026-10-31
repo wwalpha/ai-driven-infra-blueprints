@@ -1,6 +1,6 @@
 """security-group: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model.adapters.aws import one, select
+from model.adapters.aws import MISSING, AcquisitionError, Unresolved, one, select
 
 APIS = {("ec2", "describe_security_groups"), ("ec2", "describe_security_group_rules")}
 
@@ -69,9 +69,21 @@ def fetch(ctx, r, getter):
         if current
         else {"Filters": [{"Name": "group-id", "Values": [group]}]}
     )
-    records = ctx.pages("ec2", "describe_security_group_rules", **inputs).get(
-        "SecurityGroupRules", []
-    )
+    try:
+        records = ctx.pages("ec2", "describe_security_group_rules", **inputs).get(
+            "SecurityGroupRules", []
+        )
+    except AcquisitionError as error:
+        if not current or error.code != "InvalidSecurityGroupRuleId.NotFound":
+            raise
+        current = None
+        records = ctx.pages(
+            "ec2",
+            "describe_security_group_rules",
+            Filters=[{"Name": "group-id", "Values": [group]}],
+        ).get("SecurityGroupRules", [])
+    if any(v["GroupId"] != group for v in records):
+        raise Unresolved("security group rule parent mismatch")
     egress = r.kind.endswith("Egress")
     candidates = [
         v for v in records if v["GroupId"] == group and v["IsEgress"] == egress
@@ -89,10 +101,27 @@ def fetch(ctx, r, getter):
             "SourceSecurityGroupId": "ReferencedGroupInfo.GroupId",
             "DestinationSecurityGroupId": "ReferencedGroupInfo.GroupId",
         }
+        fields = (
+            "IpProtocol",
+            "FromPort",
+            "ToPort",
+            "CidrIpv4",
+            "CidrIpv6",
+            "PrefixListId",
+            "ReferencedGroupInfo.GroupId",
+            "Description",
+        )
+        rename["DestinationPrefixListId"] = "PrefixListId"
+        rename["SourcePrefixListId"] = "PrefixListId"
+        expected_paths = {rename.get(k, k) for k in expected}
         candidates = [
             v
             for v in candidates
             if all(
+                select(v, field) in (MISSING, None) or field in expected_paths
+                for field in fields
+            )
+            and all(
                 select(v, rename.get(k, k)) == value for k, value in expected.items()
             )
         ]

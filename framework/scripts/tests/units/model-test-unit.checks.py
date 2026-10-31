@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from design.layout import confirmed_display_name
-from model.adapters.aws import AcquisitionError, Unresolved, service_module
+from model.adapters.aws import AcquisitionError, Unresolved, sdk_error, service_module
 from model.audit import (
     definitions,
     dependencies,
@@ -2014,6 +2014,118 @@ class PipelineMembershipTests(unittest.TestCase):
         )
         self.assertEqual(config["status"], "design_unresolved", config)
         self.assertIn("missing producer", config["reason"])
+
+
+class SecurityGroupRuleRecoveryTests(unittest.TestCase):
+    def test_rule_recovery(self):
+        module = service_module("security-group")
+        rule = {
+            "SecurityGroupRuleId": "sgr-old",
+            "GroupId": "sg-parent",
+            "IsEgress": True,
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIpv4": "10.0.0.0/24",
+        }
+        resource = Mock()
+        resource.kind = "EC2.SecurityGroupEgress"
+        resource.parent.return_value.identity.return_value = "sg-parent"
+        resource.current.return_value = "sgr-old"
+        values = {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "10.0.0.0/24",
+        }
+        resource.rows = [
+            (name, {"property": resource.kind + "." + name, "value": value})
+            for name, value in values.items()
+        ]
+        resource.parse.side_effect = lambda row, norm: row["value"]
+
+        def sdk(code):
+            error = Exception()
+            error.response = {"Error": {"Code": code}}
+            return sdk_error("ec2.describe_security_group_rules", error, {})
+
+        missing = sdk("InvalidSecurityGroupRuleId.NotFound")
+        self.assertEqual(missing.status, "resource_missing")
+        ctx = Mock()
+        for name, responses, expected in (
+            ("normal", [{"SecurityGroupRules": [rule]}], "sgr-old"),
+            ("deleted", [missing, {"SecurityGroupRules": []}], "missing"),
+            (
+                "recreated",
+                [
+                    missing,
+                    {
+                        "SecurityGroupRules": [
+                            {**rule, "SecurityGroupRuleId": "sgr-new"}
+                        ]
+                    },
+                ],
+                "sgr-new",
+            ),
+            ("ambiguous", [missing, {"SecurityGroupRules": [rule, rule]}], "ambiguous"),
+            (
+                "parent",
+                [{"SecurityGroupRules": [{**rule, "GroupId": "sg-other"}]}],
+                "ambiguous",
+            ),
+            ("denied", [sdk("AccessDenied")], "denied"),
+            (
+                "different attributes",
+                [missing, {"SecurityGroupRules": [{**rule, "CidrIpv6": "::/0"}]}],
+                "missing",
+            ),
+        ):
+            with self.subTest(name=name):
+                ctx.pages.side_effect = responses
+                if expected in {"missing", "ambiguous", "denied"}:
+                    with self.assertRaises(
+                        AcquisitionError if expected != "ambiguous" else Unresolved
+                    ) as caught:
+                        module.fetch(ctx, resource, "rule")
+                    if expected == "missing":
+                        self.assertEqual(caught.exception.status, "resource_missing")
+                    if expected == "denied":
+                        self.assertEqual(caught.exception.status, "acquisition_failed")
+                else:
+                    self.assertEqual(
+                        module.fetch(ctx, resource, "rule")["SecurityGroupRuleId"],
+                        expected,
+                    )
+
+
+
+    def test_recreated_rule_id_is_reported_as_difference(self):
+        engine = Mock()
+        engine.ROOT = Path("/")
+        engine.catalog_outputs.return_value = {"EC2.SecurityGroupEgress.Id"}
+        engine.literal.return_value = "sgr-old"
+        engine.confirmed_display_name.return_value = True
+        engine.confirmed.return_value = True
+        engine.normalize.side_effect = lambda ctx, value, norm: value
+        engine.stable.side_effect = lambda value: value
+        engine.redacted.side_effect = lambda value: value
+        resource = Mock()
+        resource.kind = "EC2.SecurityGroupEgress"
+        resource.rows_for.return_value = [("001-001", {"value": "`sgr-old`"})]
+        resource.model.values = {"observed.row.001-001.value": "`sgr-old`"}
+        resource.parse.return_value = "sgr-old"
+        resource.module.sensitive.return_value = False
+        ctx = Mock()
+        ctx.comparison.return_value = (None, {
+            "EC2.SecurityGroupEgress.Id": SimpleNamespace(field=SimpleNamespace(norm="typed"))
+        })
+        result = audit.identifier_result(engine, ctx, resource, {
+            "propertiesKey": "EC2.SecurityGroupEgress.Id", "status": "identifier",
+            "awsValue": "sgr-new",
+        })
+        self.assertEqual(result["status"], "difference")
+        self.assertEqual(result["designValue"], "sgr-old")
+        self.assertEqual(result["awsValue"], "sgr-new")
 
 
 if __name__ == "__main__":

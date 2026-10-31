@@ -144,6 +144,7 @@ def sdk_error(api, error, request):
         "InvalidVpcID.NotFound",
         "InvalidSubnetID.NotFound",
         "InvalidGroup.NotFound",
+        "InvalidSecurityGroupRuleId.NotFound",
         "NoSuchHostedZone",
         "TrailNotFoundException",
         "RepositoryDoesNotExistException",
