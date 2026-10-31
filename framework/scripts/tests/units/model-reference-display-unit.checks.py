@@ -237,6 +237,8 @@ def check_nameless_projection_reference(tmp_path, label, observed):
             if observed == "PENDING_DEPLOY"
             else f"arn:aws:kms:ap-northeast-1:123456789012:key/{observed}"
         )
+        if label and observed != "PENDING_DEPLOY":
+            displayed = label
         assert f"[{displayed}](kms.md#saved-001)" in markdown
         resolved = projection.reference_resolver(policy, consumer, tmp_path).resolve(
             reference(), consumer

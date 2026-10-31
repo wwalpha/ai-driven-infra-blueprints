@@ -1161,6 +1161,58 @@ def test_s3_bucket_policy_self_reference_links_only_bucket_arn(models):
     restore(path, files[path], values)
 
 
+def test_kms_policy_resource_uses_key_name_and_execution_arn(models):
+    key_scope = Scope(models, "qa", "team", "kms")
+    key = dict(load_model(key_scope).authoritative)
+    key["desired.row.001-001.property"] = "KMS.Key.KeyId"
+    key["desired.row.001-001.value"] = (
+        "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`"
+    )
+    key["observed.row.001-001.value"] = "`de6ef4b4-c7a2-489e-9355-feb9fb8f73cc`"
+    key["display.resource.001.label"] = "fixture-app-key"
+    save(key_scope, key)
+    scope, values, path = consumer(models, "iam", "IAM.Role")
+    values["desired.row.001-001.property"] = "IAM.Role.RoleName"
+    document = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "s3.amazonaws.com"},
+                "Action": ["kms:Decrypt", "kms:GenerateDataKey"],
+                "Resource": reference("KMS_Key_001", "Arn"),
+                "Condition": {
+                    "StringEquals": {
+                        "kms:EncryptionContext:aws:s3:arn": reference(
+                            "S3_Bucket_001", "Arn"
+                        )
+                    }
+                },
+            }
+        ],
+    }
+    rid = add(values, "IAM.Role", "AssumeRolePolicyDocument", "placeholder")
+    values[f"desired.row.{rid}.value"] = "[Policy](iam/policy.json)"
+    values[f"desired.row.{rid}.document"] = json.dumps(document)
+    save(scope, values)
+    before = copy.deepcopy(values)
+    files = generate_files(path, values, models)
+    artifact = path.with_suffix("") / "policy.json"
+    statement = json.loads(files[artifact])["Statement"][0]
+    assert (
+        statement["Resource"]
+        == "arn:aws:kms:ap-northeast-1:123456789012:key/de6ef4b4-c7a2-489e-9355-feb9fb8f73cc"
+    )
+    assert (
+        statement["Condition"]["StringEquals"]["kms:EncryptionContext:aws:s3:arn"]
+        == "arn:aws:s3:::shared-name"
+    )
+    assert "[fixture-app-key](kms.md#saved-001)" in files[path]
+    assert "[shared-name](s3.md#s3-saved-anchor)" in files[path]
+    assert values == before
+    restore(path, files[path], values)
+
+
 def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     scope, values, path = consumer(models, "iam", "IAM.ManagedPolicy")
     values["desired.row.001-001.property"] = "IAM.ManagedPolicy.ManagedPolicyName"

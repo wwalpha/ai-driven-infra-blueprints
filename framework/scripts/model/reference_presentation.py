@@ -168,25 +168,26 @@ class Presentation:
             snapshot, number, resource, _ = resolve(
                 node, self.scope, self.resolver, **contract
             )
+            terminal = next(
+                (
+                    part
+                    for part in reversed(node.pointer.split("/"))
+                    if not part.isdigit()
+                ),
+                "",
+            )
+            policy_resource = (
+                position.source_field == "document"
+                and POLICY_FORMATS.get(contract.get("property_name"))
+                in {"statement", "wrapped-statement"}
+                and terminal in {"Resource", "NotResource"}
+            )
             if (
                 snapshot.scope == self.scope
                 and number == position.row_id.rpartition("-")[0]
+                and not policy_resource
             ):
-                terminal = next(
-                    (
-                        part
-                        for part in reversed(node.pointer.split("/"))
-                        if not part.isdigit()
-                    ),
-                    "",
-                )
-                if not (
-                    position.source_field == "document"
-                    and POLICY_FORMATS.get(contract.get("property_name"))
-                    in {"statement", "wrapped-statement"}
-                    and terminal in {"Resource", "NotResource"}
-                ):
-                    return None
+                return None
             name, _, _ = render.resource_presentation(
                 snapshot.authoritative,
                 number,
@@ -211,6 +212,12 @@ class Presentation:
                 shape is not None
                 and attribute == projection.reference_attribute(kind, "Arn")
                 and any(kind + "." + part in identifiers for part in components)
+                and not (
+                    policy_resource
+                    and result is not None
+                    and result.status == "resolved"
+                    and name not in {None, kind, resource["logicalId"]}
+                )
             )
             if (kind + "." + field in identifiers or identifier_arn) and isinstance(
                 displayed, str
