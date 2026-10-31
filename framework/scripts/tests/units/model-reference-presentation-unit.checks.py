@@ -1241,6 +1241,59 @@ def test_s3_bucket_policy_self_reference_links_only_bucket_arn(models):
     restore(path, files[path], values)
 
 
+def test_s3_policy_kms_condition_uses_name_and_execution_arn(models):
+    key_scope = Scope(models, "qa", "team", "kms")
+    key = dict(load_model(key_scope).authoritative)
+    key["desired.row.001-001.property"] = "KMS.Key.KeyId"
+    key["desired.row.001-001.value"] = (
+        "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`"
+    )
+    key["observed.row.001-001.value"] = "`7c6b3f84-ede1-4f7b-a1e0-32cd6eed9295`"
+    key["display.resource.001.label"] = "fixture-app-key"
+    save(key_scope, key)
+    scope = Scope(models, "qa", "team", "s3")
+    values = dict(load_model(scope).authoritative)
+    path = models / "docs/designs/qa/team/s3.md"
+    document = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "DenyObjectsThatAreNotSSEKMSWithSpecificKey",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:PutObject",
+                "Resource": "arn:aws:s3:::shared-name/*",
+                "Condition": {
+                    "StringNotEquals": {
+                        "s3:x-amz-server-side-encryption-aws-kms-key-id": reference(
+                            "KMS_Key_001", "Arn"
+                        )
+                    }
+                },
+            }
+        ],
+    }
+    rid = add(values, "S3.BucketPolicy", "PolicyDocument", "placeholder")
+    values[f"desired.row.{rid}.value"] = "[Policy](s3/policy.json)"
+    values[f"desired.row.{rid}.document"] = json.dumps(document)
+    save(scope, values)
+    before = copy.deepcopy(values)
+    files = generate_files(path, values, models)
+    artifact = path.with_suffix("") / "policy.json"
+    statement = json.loads(files[artifact])["Statement"][0]
+    assert (
+        statement["Condition"]["StringNotEquals"][
+            "s3:x-amz-server-side-encryption-aws-kms-key-id"
+        ]
+        == "arn:aws:kms:ap-northeast-1:123456789012:key/7c6b3f84-ede1-4f7b-a1e0-32cd6eed9295"
+    )
+    assert statement["Resource"] == "arn:aws:s3:::shared-name/*"
+    assert "[fixture-app-key](kms.md#saved-001)" in files[path]
+    assert "`arn:aws:s3:::shared-name/*`" in files[path]
+    assert values == before
+    restore(path, files[path], values)
+
+
 def test_kms_policy_resource_uses_key_name_and_execution_arn(models):
     key_scope = Scope(models, "qa", "team", "kms")
     key = dict(load_model(key_scope).authoritative)

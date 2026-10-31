@@ -176,12 +176,15 @@ class Presentation:
                 ),
                 "",
             )
-            policy_resource = (
+            policy_document = (
                 position.source_field == "document"
                 and POLICY_FORMATS.get(contract.get("property_name"))
                 in {"statement", "wrapped-statement"}
-                and terminal in {"Resource", "NotResource"}
             )
+            policy_resource = policy_document and terminal in {
+                "Resource",
+                "NotResource",
+            }
             if (
                 snapshot.scope == self.scope
                 and number == position.row_id.rpartition("-")[0]
@@ -213,7 +216,7 @@ class Presentation:
                 and attribute == projection.reference_attribute(kind, "Arn")
                 and any(kind + "." + part in identifiers for part in components)
                 and not (
-                    policy_resource
+                    policy_document
                     and result is not None
                     and result.status == "resolved"
                     and name not in {None, kind, resource["logicalId"]}
