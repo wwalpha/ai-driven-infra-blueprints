@@ -631,7 +631,6 @@ def check_glue_catalog_compare():
                     client.get_catalog.assert_not_called()
 
 
-
 class ReplicationClient:
     def __init__(self, payload, error=None):
         self.payload = payload
