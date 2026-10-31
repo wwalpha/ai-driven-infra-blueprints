@@ -50,15 +50,31 @@ def compare(ctx, model):
         start = len(ctx.trace)
         try:
             records = ctx.call("cloudformation", "describe_stacks", StackName=name).get(
-                "Stacks", []
+                "Stacks"
             )
-            if len(records) != 1 or records[0].get("StackName") != name:
+            if not isinstance(records, list) or any(
+                not isinstance(row, dict) or not isinstance(row.get("StackName"), str)
+                for row in records
+            ):
+                raise AcquisitionError(
+                    "cloudformation.describe_stacks", "InvalidResponse"
+                )
+            matches = [row for row in records if row["StackName"] == name]
+            if not records:
                 raise AcquisitionError(
                     "cloudformation.describe_stacks",
                     "StackNotFound",
                     "resource_missing",
                 )
-            state = records[0]["StackStatus"]
+            if (
+                len(records) != 1
+                or len(matches) != 1
+                or not isinstance(matches[0].get("StackStatus"), str)
+            ):
+                raise AcquisitionError(
+                    "cloudformation.describe_stacks", "InvalidResponse"
+                )
+            state = matches[0]["StackStatus"]
             healthy = state in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
             results.append(
                 dict(

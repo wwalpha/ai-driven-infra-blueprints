@@ -20,6 +20,7 @@ import boto3
 import pytest
 from botocore.exceptions import ClientError
 from botocore.stub import Stubber
+from model.adapters.aws import AcquisitionError
 from support.cloudformation_destroy_fixtures import M as destroy
 from utils.aws import client as sdk
 from utils.aws import cloudformation, secretsmanager
@@ -28,92 +29,6 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 _CALLBACK_DEFAULT = object()
-
-
-@pytest.mark.parametrize(
-    "service,operation,code,message,arguments,expected",
-    [
-        (
-            "cloudformation",
-            "list_imports",
-            "ValidationError",
-            message,
-            {"ExportName": "Vpc"},
-            True,
-        )
-        for message in (
-            "Export 'Vpc' is not imported by any stack.",
-            "Export 'Vpc' is not imported by any stack",
-            "Export Vpc is not imported by any stack.",
-            "Export Vpc is not imported by any stack",
-        )
-    ]
-    + [
-        (
-            "s3",
-            "list_imports",
-            "ValidationError",
-            "Export Vpc is not imported by any stack.",
-            {"ExportName": "Vpc"},
-            False,
-        ),
-        (
-            "cloudformation",
-            "list_exports",
-            "ValidationError",
-            "Export Vpc is not imported by any stack.",
-            {"ExportName": "Vpc"},
-            False,
-        ),
-        (
-            "cloudformation",
-            "list_imports",
-            "AccessDenied",
-            "Export Vpc is not imported by any stack.",
-            {"ExportName": "Vpc"},
-            False,
-        ),
-        (
-            "cloudformation",
-            "list_imports",
-            "ValidationError",
-            "Export Other is not imported by any stack.",
-            {"ExportName": "Vpc"},
-            False,
-        ),
-        (
-            "cloudformation",
-            "list_imports",
-            "ValidationError",
-            "Export Vpc does not exist",
-            {"ExportName": "Vpc"},
-            False,
-        ),
-        (
-            "cloudformation",
-            "list_imports",
-            "ValidationError",
-            "prefix Export Vpc is not imported by any stack.",
-            {"ExportName": "Vpc"},
-            False,
-        ),
-        (
-            "cloudformation",
-            "list_imports",
-            "ValidationError",
-            "Export Vpc is not imported by any stack.",
-            {"ExportName": "Vpc", "NextToken": "next"},
-            False,
-        ),
-        ("cloudformation", "list_imports", "ValidationError", None, {}, False),
-    ],
-)
-def check_empty_list_imports_predicate(
-    service, operation, code, message, arguments, expected
-):
-    assert (
-        sdk.empty_list_imports(service, operation, code, message, arguments) is expected
-    )
 
 
 @pytest.mark.parametrize(
@@ -170,7 +85,8 @@ def check_list_imports_sdk_pages(monkeypatch):
         sdk, "read_api", lambda account, region, operation, send, **kw: send()
     )
     context = (None, "region", "account", None)
-    assert cloudformation.list_imports(context, ExportName="Vpc") == {"Imports": []}
+    with pytest.raises(sdk.AwsError, match="ValidationError"):
+        cloudformation.list_imports(context, ExportName="Vpc")
     assert cloudformation.list_imports(context, ExportName="Vpc") == {
         "Imports": ["A", "B"]
     }
@@ -178,6 +94,64 @@ def check_list_imports_sdk_pages(monkeypatch):
         cloudformation.list_imports(context, ExportName="Vpc")
     with pytest.raises(sdk.AwsError, match="InvalidPage"):
         cloudformation.list_imports(context, ExportName="Vpc")
+
+
+def check_independent_structured_confirmations(monkeypatch):
+    context = (None, "region", "account", None)
+    for rows, expected in [
+        ([], True),
+        (
+            [{"StackName": "x", "StackId": "id", "StackStatus": "CREATE_COMPLETE"}],
+            False,
+        ),
+        ([{"StackName": "x", "StackId": "id", "StackStatus": "DELETE_COMPLETE"}], True),
+        ([{}], False),
+    ]:
+        monkeypatch.setattr(
+            sdk, "pages", lambda *a, rows=rows, **k: {"StackSummaries": rows}
+        )
+        assert sdk.confirmed_stack_absent(context, "x") is expected
+    for stages, expected in [
+        ({}, True),
+        ({"v": ["AWSCURRENT"]}, False),
+        ({"v": "AWSCURRENT"}, False),
+        (None, False),
+    ]:
+        monkeypatch.setattr(
+            sdk,
+            "request",
+            lambda *a, stages=stages, **k: {"ARN": "arn", "VersionIdsToStages": stages},
+        )
+        assert sdk.confirmed_current_missing(context, "arn") is expected
+
+
+def check_structured_failure_confirmation_is_message_independent(monkeypatch):
+    context = (None, "region", "account", None)
+    for message in ("secret credential", "different wording"):
+        error = ClientError(
+            {"Error": {"Code": "ValidationError", "Message": message}}, "DescribeStacks"
+        )
+        client = SimpleNamespace(
+            describe_stacks=Mock(side_effect=error),
+            list_stacks=Mock(return_value={"StackSummaries": []}),
+        )
+        monkeypatch.setattr(sdk, "client", lambda *a, client=client, **k: client)
+        monkeypatch.setattr(
+            sdk, "read_api", lambda account, region, operation, send, **kw: send()
+        )
+        with pytest.raises(sdk.AwsError) as caught:
+            sdk.request(
+                context, "cloudformation", "describe_stacks", {"StackName": "x"}
+            )
+        assert caught.value.stack_absent and message not in str(caught.value)
+        client.list_stacks.side_effect = ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "secret"}}, "ListStacks"
+        )
+        with pytest.raises(sdk.AwsError) as caught:
+            sdk.request(
+                context, "cloudformation", "describe_stacks", {"StackName": "x"}
+            )
+        assert not caught.value.stack_absent and "secret" not in str(caught.value)
 
 
 def _callback_check_client_concurrency_Session___init__(self, calls, /, **kwargs):
@@ -358,6 +332,9 @@ def check_structured_errors_and_secrets(monkeypatch):
         lambda *a, **kw: SimpleNamespace(
             describe_stacks=error("ValidationError", "Stack with id x does not exist")
         ),
+    )
+    monkeypatch.setattr(
+        sdk, "confirmed_stack_absent", lambda context, name: name == "x"
     )
     with pytest.raises(sdk.AwsError) as caught:
         sdk.request(context, "cloudformation", "describe_stacks", {"StackName": "x"})
@@ -589,6 +566,22 @@ def check_reference_retry_and_non_throttling_failure(
         with pytest.raises(ClientError):
             sdk.read_api("account", "region", operation, send)
         assert send.call_count == 1 and not clock.waits
+
+
+def check_structured_cli_throttling_retries(monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(sdk, "time", clock)
+    monkeypatch.setattr(sdk, "_rate_locks", {})
+    monkeypatch.setattr(sdk, "_rate_next", {})
+    monkeypatch.setattr(sdk.random, "uniform", lambda a, b: 1)
+    send = Mock(
+        side_effect=[
+            AcquisitionError("cloudformation.describe_stacks", "ThrottlingException"),
+            {"ok": True},
+        ]
+    )
+    assert sdk.read_api("account", "region", "describe_stacks", send) == {"ok": True}
+    assert send.call_count == 2 and clock.waits == [1]
 
 
 def check_cli_throttling_text_is_not_retried(monkeypatch):

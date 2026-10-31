@@ -16,6 +16,7 @@ _clients = {}
 API_BUDGET_SECONDS = 60
 READ_RATES = {
     "describe_stacks": 5,
+    "list_stacks": 5,
     "describe_stack_events": 5,
     "get_template": 5,
     "list_exports": 5,
@@ -54,11 +55,9 @@ def read_api(account, region, operation, send, *, deadline=None):
                 # Keep the slot through transport completion so delayed sends cannot bunch up.
                 _rate_next[key] = time.monotonic() + 1 / READ_RATES[operation]
         except Exception as error:
-            code = (
-                error.code
-                if isinstance(error, AwsError)
-                else getattr(error, "response", {}).get("Error", {}).get("Code")
-            )
+            code = getattr(error, "code", None) or getattr(error, "response", {}).get(
+                "Error", {}
+            ).get("Code")
             if code not in THROTTLING or attempt == 4:
                 raise
         finally:
@@ -152,24 +151,49 @@ class AwsError(Blocked):
         )
 
 
-def empty_list_imports(service, operation, code, message, arguments):
-    export = arguments.get("ExportName")
-    if (
-        service != "cloudformation"
-        or operation != "list_imports"
-        or code != "ValidationError"
-        or "NextToken" in arguments
-        or not isinstance(export, str)
-        or not export
-        or not isinstance(message, str)
-    ):
+def confirmed_stack_absent(context, name):
+    if not isinstance(name, str) or not name:
         return False
-    return message in (
-        f"Export '{export}' is not imported by any stack",
-        f"Export '{export}' is not imported by any stack.",
-        f"Export {export} is not imported by any stack",
-        f"Export {export} is not imported by any stack.",
-    )
+    try:
+        records = pages(context, "cloudformation", "list_stacks", "StackSummaries", {})[
+            "StackSummaries"
+        ]
+        return all(
+            isinstance(row, dict)
+            and isinstance(row.get("StackName"), str)
+            and isinstance(row.get("StackId"), str)
+            and isinstance(row.get("StackStatus"), str)
+            and (
+                row["StackStatus"] == "DELETE_COMPLETE"
+                or name not in (row["StackName"], row["StackId"])
+            )
+            for row in records
+        )
+    except Exception:
+        return False
+
+
+def confirmed_current_missing(context, identifier):
+    if not isinstance(identifier, str) or not identifier:
+        return False
+    try:
+        response = request(
+            context, "secretsmanager", "describe_secret", {"SecretId": identifier}
+        )
+        stages = response.get("VersionIdsToStages")
+        return (
+            response.get("ARN") == identifier
+            and isinstance(stages, dict)
+            and all(
+                isinstance(k, str)
+                and isinstance(v, list)
+                and all(isinstance(x, str) for x in v)
+                for k, v in stages.items()
+            )
+            and all("AWSCURRENT" not in v for v in stages.values())
+        )
+    except Exception:
+        return False
 
 
 def request(context, service, operation, arguments, *, deadline=None):
@@ -198,37 +222,21 @@ def request(context, service, operation, arguments, *, deadline=None):
     except ClientError as error:
         details = error.response.get("Error", {})
         code = details.get("Code", "Unknown")
-        if empty_list_imports(
-            service, operation, code, details.get("Message"), arguments
-        ):
-            return {"Imports": []}
         status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-        raw_message = details.get("Message", "")
-        message = raw_message.lower() if isinstance(raw_message, str) else ""
-        # ValidationException/ResourceNotFound alone never proves a Stack is absent.
+        # ValidationError and ResourceNotFoundException do not prove these specific states.
         absent = (
             service == "cloudformation"
             and operation == "describe_stacks"
             and code == "ValidationError"
-            and isinstance(arguments.get("StackName"), str)
-            and bool(arguments["StackName"])
-            and raw_message == f"Stack with id {arguments['StackName']} does not exist"
+            and confirmed_stack_absent(context, arguments.get("StackName"))
         )
         missing = (
             service == "secretsmanager"
             and operation == "get_secret_value"
             and code == "ResourceNotFoundException"
-            and "awscurrent" in message
-            and any(
-                word in message
-                for word in (
-                    "not found",
-                    "can't find",
-                    "cannot find",
-                    "not exist",
-                    "missing",
-                )
-            )
+            and arguments.get("VersionStage", "AWSCURRENT") == "AWSCURRENT"
+            and "VersionId" not in arguments
+            and confirmed_current_missing(context, arguments.get("SecretId"))
         )
         raise AwsError(
             service,
@@ -255,10 +263,9 @@ def pages(context, service, operation, field, arguments):
             context, service, operation, page_arguments, deadline=deadline
         )
         values = response.get(field, [])
-        if (
-            service == "cloudformation"
-            and operation == "list_imports"
-            and "Imports" not in response
+        if service == "cloudformation" and (
+            (operation == "list_imports" and "Imports" not in response)
+            or (operation == "list_stacks" and "StackSummaries" not in response)
         ):
             raise AwsError(service, operation, "InvalidPage")
         if (

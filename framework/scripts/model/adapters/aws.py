@@ -125,15 +125,20 @@ def sdk_error(api, error, request):
         if isinstance(error, subprocess.CalledProcessError)
         else detail.get("Code", getattr(error, "code", type(error).__name__))
     )
-    if api == "s3.get_bucket_replication" and isinstance(
-        error, subprocess.CalledProcessError
-    ):
+    if isinstance(error, subprocess.CalledProcessError):
         try:
             detail = json.loads(error.stderr)
         except (TypeError, ValueError):
             detail = None
-        if isinstance(detail, dict) and isinstance(detail.get("Code"), str):
-            code = detail["Code"]
+        candidate = detail.get("Code") if isinstance(detail, dict) else None
+        if (
+            isinstance(candidate, str)
+            and candidate
+            and candidate.isascii()
+            and all(c.isalnum() or c in "._-" for c in candidate)
+            and len(candidate) <= 128
+        ):
+            code = candidate
     missing = code in {
         "ResourceNotFoundException",
         "ResourceNotFound",
@@ -376,11 +381,7 @@ class Context:
                 **os.environ,
                 "AWS_CLI_AUTO_PROMPT": "off",
                 "AWS_PAGER": "",
-                **(
-                    {"AWS_CLI_ERROR_FORMAT": "json"}
-                    if (service, operation) == ("s3", "get_bucket_replication")
-                    else {}
-                ),
+                "AWS_CLI_ERROR_FORMAT": "json",
                 **(
                     {"AWS_MAX_ATTEMPTS": "1"}
                     if self.import_mode
@@ -390,9 +391,10 @@ class Context:
             },
         )
         if result.returncode:
-            raise subprocess.CalledProcessError(
+            error = subprocess.CalledProcessError(
                 result.returncode, command[:3], stderr=result.stderr
             )
+            raise sdk_error(service + "." + operation, error, None) from None
         response = policy_json(result.stdout)
         if not isinstance(response, dict):
             raise ValueError("AWS CLI response must be a JSON object")

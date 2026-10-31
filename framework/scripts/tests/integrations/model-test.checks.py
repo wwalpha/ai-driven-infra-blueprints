@@ -495,6 +495,44 @@ def test_iam_inline_generated_report():
         source, _, _ = generator.generate(root, "dev", "cde", "iam")
         generated = {"__name__": "iam_fixture", "__file__": str(root / "audit.py")}
         exec(compile(source, "audit.py", "exec"), generated)
+        embedded = generated["engine"](generated["SNAPSHOT"])
+        for code, status in (
+            ("ResourceNotFoundException", "resource_missing"),
+            ("AccessDeniedException", "acquisition_failed"),
+            ("ValidationError", "acquisition_failed"),
+        ):
+            for message in ("secret credential", "different wording"):
+                error = subprocess.CalledProcessError(
+                    1, "aws", stderr=json.dumps({"Code": code, "Message": message})
+                )
+                result = embedded.sdk_error("iam.get_role", error, None)
+                assert (result.code, result.status) == (code, status)
+                assert message not in str(result)
+        target = {"awsAccountId": "123456789012", "awsRegion": "us-east-1"}
+        runner = Mock(
+            side_effect=[
+                subprocess.CompletedProcess(
+                    [],
+                    1,
+                    "",
+                    json.dumps({"Code": "ThrottlingException", "Message": "secret"}),
+                ),
+                subprocess.CompletedProcess([], 0, '{"Exports": []}', ""),
+            ]
+        )
+        ctx = embedded.Context(root, target, cli_runner=runner, services=[])
+        ctx.allowed.add(("cloudformation", "list_exports"))
+        ctx.verified = True
+        with (
+            patch.object(embedded.time, "sleep"),
+            patch.object(embedded.random, "uniform", return_value=0),
+        ):
+            assert ctx.call("cloudformation", "list_exports") == {"Exports": []}
+        assert runner.call_count == 2
+        assert all(
+            call.kwargs["env"]["AWS_CLI_ERROR_FORMAT"] == "json"
+            for call in runner.call_args_list
+        )
         for case in (
             "present",
             "missing_policy",

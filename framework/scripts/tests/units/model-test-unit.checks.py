@@ -89,6 +89,49 @@ class SdkErrorTests(unittest.TestCase):
                     self.assertEqual((result.code, result.status), (code, expected))
                     self.assertNotIn(message, str(result))
 
+    def test_cli_structured_errors_match_sdk(self):
+        for code, status in (
+            ("ResourceNotFoundException", "resource_missing"),
+            ("AccessDeniedException", "acquisition_failed"),
+            ("ValidationError", "acquisition_failed"),
+        ):
+            for message in ("private secret", "different wording"):
+                error = subprocess.CalledProcessError(
+                    1, "aws", stderr=json.dumps({"Code": code, "Message": message})
+                )
+                result = sdk_error("lambda.get_function", error, ())
+                self.assertEqual((result.code, result.status), (code, status))
+                self.assertNotIn(message, str(result))
+
+    def test_cli_throttling_retries_and_uses_json_format(self):
+        target = {"awsAccountId": "123456789012", "awsRegion": "us-east-1"}
+        replies = [
+            SimpleNamespace(
+                returncode=1,
+                stderr=json.dumps({"Code": "ThrottlingException", "Message": "secret"}),
+                stdout="",
+            ),
+            SimpleNamespace(returncode=0, stdout='{"Exports": []}', stderr=""),
+        ]
+        runner = Mock(side_effect=replies)
+        ctx = m.Context(Path.cwd(), target, cli_runner=runner, services=[])
+        ctx.allowed.add(("cloudformation", "list_exports"))
+        ctx.verified = True
+        with (
+            patch("utils.aws.client.time.sleep"),
+            patch("utils.aws.client.random.uniform", return_value=0),
+        ):
+            self.assertEqual(
+                ctx.call("cloudformation", "list_exports"), {"Exports": []}
+            )
+        self.assertEqual(runner.call_count, 2)
+        self.assertTrue(
+            all(
+                call.kwargs["env"]["AWS_CLI_ERROR_FORMAT"] == "json"
+                for call in runner.call_args_list
+            )
+        )
+
     def test_cli_errors_do_not_recover_codes(self):
         for code in (
             "ResourceNotFoundException",

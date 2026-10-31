@@ -349,18 +349,24 @@ def check_stack_states(tmp_path):
             ("ROLLBACK_COMPLETE", "difference"),
         ]
     ]
+    cases += [(payload, None, "resource_missing") for payload in ({"Stacks": []},)]
     cases += [
-        (payload, None, "resource_missing")
-        for payload in (
-            {"Stacks": []},
+        (
             {"Stacks": [{"StackName": "other", "StackStatus": "CREATE_COMPLETE"}]},
+            None,
+            "acquisition_failed",
+        ),
+        (
             {"Stacks": [{"StackName": "fixture"}, {"StackName": "fixture"}]},
-        )
+            None,
+            "acquisition_failed",
+        ),
+        ({}, None, "acquisition_failed"),
     ]
     cases += [
         ({}, message, status)
         for message, status in [
-            ("Stack with id fixture does not exist", "resource_missing"),
+            ("Stack with id fixture does not exist", "acquisition_failed"),
             ("Invalid StackName", "acquisition_failed"),
         ]
     ]

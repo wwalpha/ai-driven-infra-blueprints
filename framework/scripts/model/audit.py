@@ -744,7 +744,11 @@ def generate(root, environment, selector, service):
                     item_type = schema["items"].get("type")
                     if item_type:
                         schemas[prop]["items"] = {"type": item_type}
-                    if item_type and prop == "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments":
+                    if (
+                        item_type
+                        and prop
+                        == "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments"
+                    ):
                         schemas[prop]["items"]["enum"] = ["SPARK", "ATHENA", "PYTHON"]
             except KeyError:
                 pass  # Existing Resource.parse treats design-only properties as strings.
@@ -764,7 +768,7 @@ def generate(root, environment, selector, service):
     scripts = definition_root(ROOT) / "framework/scripts"
     engine = (
         "from __future__ import annotations\n"
-        "import argparse, hashlib, json, math, os, posixpath, re, subprocess, sys\n"
+        "import argparse, hashlib, json, math, os, posixpath, random, re, subprocess, sys, threading, time\n"
         "from collections import Counter, defaultdict\nfrom collections.abc import Mapping\n"
         "from copy import deepcopy\nfrom threading import RLock\nfrom concurrent.futures import Future\n"
         "from functools import partial as _bind_framework_callback\n"
@@ -788,6 +792,24 @@ def generate(root, environment, selector, service):
             "verify_account",
         ],
     )
+    client_source = input_text(scripts / "utils/aws/client.py", encoding="utf-8")
+    client_tree = ast.parse(client_source)
+    for node in client_tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name)
+            and target.id
+            in {
+                "_lock",
+                "API_BUDGET_SECONDS",
+                "READ_RATES",
+                "THROTTLING",
+                "_rate_locks",
+            }
+            for target in node.targets
+        ):
+            engine += ast.get_source_segment(client_source, node) + "\n"
+    engine += "_rate_locks, _rate_next = {}, {}\nBlocked = Exception\n"
+    engine += definitions(scripts / "utils/aws/client.py", ["AwsError", "read_api"])
     engine += definitions(scripts / "utils/lazy_definitions.py", ["load_once"])
     engine += definitions(
         scripts / "utils/json_format.py",
