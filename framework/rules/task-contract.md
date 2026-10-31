@@ -172,8 +172,17 @@ leaf rolls back only its current save and retains earlier saves. Failed final va
 retains the parent and candidate without merge. Explicit same-parent resume/repair and
 revalidation is allowed for deletion; preserve the prior candidate commit rather than
 amending/discarding it. Failed-validation approval cannot bypass deletion final checks.
-`task_contract.model_operation` returns immutable named MergePair,
-ReferenceChange and ModelOperation data for every consumer of the contract.
+`task_contract_core.model_operation` returns an immutable `ModelOperation` or
+`None` when no operation is declared. Its pairs and references contain immutable
+`MergePair` and `ReferenceChange` values, respectively.
+
+Python consumers import contract parsing and shared data types from
+`task_contract_core`, and Task transitions from `task_contract_runtime`;
+`task_contract.py` remains the Task transition CLI. Validation consumers import
+from `validation.runner` or `validation.loop` rather than their CLI wrappers.
+Import acquisition and receipt operations belong to `model.importing.evidence`,
+resource configuration to `model.configuration.resource_configuration`, and
+source write authority to `model.adapters.task.source_write_context`.
 
 Managed worktree intermediate saves enforce running Task/worktree ownership, revision,
 raw registered paths, scope, syntax and input bytes/file sets without requiring expansion
