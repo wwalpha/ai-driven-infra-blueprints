@@ -17,6 +17,11 @@ def dotted(node):
     return ast.unparse(node) if isinstance(node, (ast.Name, ast.Attribute)) else ""
 
 
+def imported_name(value, imports):
+    first, separator, rest = value.partition(".")
+    return imports.get(first, first) + separator + rest
+
+
 def pytest_entry(tests, symbol, trees, seen=None):
     """Resolve fixture re-exports without importing fixtures or running their setup."""
     seen = set() if seen is None else seen
@@ -42,15 +47,17 @@ def pytest_entry(tests, symbol, trees, seen=None):
         elif isinstance(node, ast.FunctionDef) and node.name == name:
             imports = {
                 a.asname or a.name: (n.module or "") + "." + a.name
-                for n in tree.body
                 if isinstance(n, ast.ImportFrom)
+                else a.name
+                for n in tree.body
+                if isinstance(n, (ast.ImportFrom, ast.Import))
                 for a in n.names
             }
             return any(
                 isinstance(call, ast.Call)
                 and pytest_entry(
                     tests,
-                    imports.get(dotted(call.func), dotted(call.func)),
+                    imported_name(dotted(call.func), imports),
                     trees,
                     seen,
                 )
@@ -109,12 +116,7 @@ def discover(tests):
                         aliases[target.id] = node.value.id
         pytest_runner = any(
             isinstance(node, ast.Call)
-            and (
-                pytest_entry(
-                    tests, imports.get(dotted(node.func), dotted(node.func)), trees
-                )
-                or dotted(node.func) == "pytest.main"
-            )
+            and pytest_entry(tests, imported_name(dotted(node.func), imports), trees)
             for node in ast.walk(tree)
         )
         for name, node in functions.items():
@@ -241,8 +243,7 @@ def discover(tests):
                     target = aliases.get(value, value)
                     if target in functions:
                         pending.append((file, target))
-                    first, _, rest = value.partition(".")
-                    resolved = imports.get(first, "") + ("." + rest if rest else "")
+                    resolved = imported_name(value, imports)
                     module, _, function = resolved.rpartition(".")
                     if module in module_names:
                         pending.append((module_names[module], function))

@@ -277,5 +277,95 @@ def check_revision_rejects_changed_inputs(tmp_path):
         compare_revisions(before, after)
 
 
+@pytest.mark.parametrize("suffix", [".csv", ".fixture", ""])
+def check_revision_reduction_from_arbitrary_fixture_formats(tmp_path, suffix):
+    source = (
+        "import csv\nfrom pathlib import Path\nimport pytest\n"
+        + f"values = [int(row[0]) for row in csv.reader(Path(__file__).with_name('parameters{suffix}').read_text(encoding='utf-8').splitlines())]\n"
+        + PYTEST.replace(
+            "def check_one", "@pytest.mark.parametrize('value', values)\ndef check_one"
+        ).replace("check_one():", "check_one(value):")
+    )
+    before = tree(tmp_path / "before", source)
+    after = tree(tmp_path / "after", source)
+    for tests, values in ((before, "1\n2\n"), (after, "1\n")):
+        (tests / "integrations" / ("parameters" + suffix)).write_text(
+            values, encoding="utf-8"
+        )
+    assert (before / "integrations/example.checks.py").read_bytes() == (
+        after / "integrations/example.checks.py"
+    ).read_bytes()
+    result = compare_revisions(before, after)
+    assert result["collection"] == "compared"
+    assert result["review_required"]
+    assert result["entries"] == {"removed": [], "added": []}
+    assert result["pytest_nodes"]["removed"] == [
+        "integrations/example.checks.py::check_one[2]"
+    ]
+
+
+@pytest.mark.parametrize("cache", ["__pycache__", ".pytest_cache"])
+def check_revision_ignores_generated_caches(tmp_path, cache):
+    before = tree(tmp_path / "before")
+    after = tree(tmp_path / "after")
+    for tests, value in ((before, b"old cache"), (after, b"new cache")):
+        directory = tests / cache
+        directory.mkdir()
+        (directory / "cached-data").write_bytes(value)
+    with patch(
+        "support.it_revision.collect_nodes",
+        side_effect=AssertionError("cache output must not trigger collection"),
+    ):
+        result = compare_revisions(before, after)
+    assert not result["review_required"]
+    assert result["collection"].startswith("unchanged")
+
+
+@pytest.mark.parametrize(
+    "statement,call,expected",
+    [
+        ("from support.pytest_cli import run as execute", "execute", True),
+        ("import support.pytest_cli as cli", "cli.run", True),
+        ("import support.pytest_cli", "support.pytest_cli.run", True),
+        ("import unrelated as cli", "cli.run", False),
+        ("from unrelated import run as execute", "execute", False),
+        ("import unrelated as pytest", "pytest.main", False),
+    ],
+)
+def check_pytest_runner_import_aliases(tmp_path, statement, call, expected):
+    source = PYTEST.replace("from support.pytest_cli import run", statement).replace(
+        "run(__file__)", call + "(__file__)"
+    )
+    tests = tree(tmp_path, source)
+    discovery = discover(tests)
+    if expected:
+        assert not discovery.errors, discovery.errors
+        assert discovery.cases == {
+            ("integrations/example.checks.py", "check_one"): "pytest"
+        }
+    else:
+        assert any("unknown execution" in error for error in discovery.errors)
+
+
+def check_pytest_runner_module_alias_in_fixture_wrapper(tmp_path):
+    tests = tree(
+        tmp_path,
+        PYTEST.replace(
+            "from support.pytest_cli import run", "from support.cli_fixture import main"
+        ).replace("run(__file__)", "main(__file__)"),
+    )
+    support = tests / "support"
+    support.mkdir()
+    (support / "cli_fixture.py").write_text(
+        "import support.pytest_cli as cli\ndef main(path):\n    return cli.run(path)\n",
+        encoding="utf-8",
+    )
+    discovery = discover(tests)
+    assert not discovery.errors, discovery.errors
+    assert discovery.cases == {
+        ("integrations/example.checks.py", "check_one"): "pytest"
+    }
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

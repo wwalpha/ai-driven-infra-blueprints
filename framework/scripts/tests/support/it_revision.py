@@ -62,13 +62,16 @@ def collect_nodes(tests, suite, output):
 
 
 def collection_inputs(tests):
-    # Include data-driven parameters and Framework catalogs, never consumer Models.
+    # Fixture formats are unrestricted; only generated interpreter/pytest caches are excluded.
     framework = tests.parent.parent
-    suffixes = {".py", ".ini", ".json", ".yaml", ".yml", ".toml", ".properties", ".txt"}
     return {
         p.relative_to(framework): p.read_bytes()
         for p in framework.rglob("*")
-        if p.is_file() and p.suffix in suffixes
+        if p.is_file()
+        and not any(
+            part in {"__pycache__", ".pytest_cache"}
+            for part in p.relative_to(framework).parent.parts
+        )
     }
 
 
