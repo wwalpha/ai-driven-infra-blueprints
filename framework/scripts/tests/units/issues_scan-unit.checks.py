@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Separated checks; case provenance is recorded in ../CASES.md."""
+"""Focused checks; test sources define the current verification responsibilities."""
 
 import sys
 from contextlib import nullcontext, redirect_stdout

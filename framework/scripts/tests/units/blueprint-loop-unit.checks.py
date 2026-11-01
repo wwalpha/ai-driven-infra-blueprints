@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Separated checks; case provenance is recorded in ../CASES.md."""
+"""Focused checks; test sources define the current verification responsibilities."""
 
 import shutil
 import sys
@@ -460,16 +460,47 @@ def check_ci_workflow(tmp_path):
         (SCRIPT.parents[2] / ".github/workflows/framework-it.yml").read_text()
     )
     events = workflow[True]  # PyYAML's YAML 1.1 resolver reads the key 'on' as True.
-    assert set(events) == {"pull_request", "push", "workflow_dispatch"}
-    assert events["pull_request"] is None and events["push"] == {
-        "branches": ["main", "master"]
-    }
-    step = workflow["jobs"]["framework-it"]["steps"][-1]
+    assert set(events) == {"push", "workflow_dispatch"}
+    assert events["push"] == {"branches": ["main", "master"]}
+    job = workflow["jobs"]["framework-it"]
+    assert (
+        job["if"]
+        == "github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'"
+    )
+    step = job["steps"][-1]
     assert (
         step["run"]
         == 'python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"'
     )
     assert set(step["env"]) == {"IT_BASELINE"}
+    assert "if" not in step
+    assert not any("--ut-only" in item.get("run", "") for item in job["steps"])
+    steps = {item.get("name"): item for item in job["steps"]}
+    assert "if" not in steps["Install Terraform CLI for integration verification"]
+    assert (
+        steps["Checkout measurement baseline"]["if"]
+        == "github.event_name == 'workflow_dispatch' && inputs.baseline_ref != ''"
+    )
+
+    unit_workflow = yaml.safe_load(
+        (SCRIPT.parents[2] / ".github/workflows/framework-ut.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert set(unit_workflow[True]) == {"pull_request", "workflow_dispatch"}
+    assert unit_workflow[True]["pull_request"] is None
+    unit_job = unit_workflow["jobs"]["framework-ut"]
+    assert unit_job["name"] == "Framework UT"
+    assert "if" not in unit_job
+    assert unit_job["env"] == job["env"]
+    assert unit_job["steps"][-1] == {
+        "name": "Run all UT",
+        "run": "python -B framework/scripts/tests/run_it.py --ut-only",
+    }
+    assert unit_job["steps"][:-1] == job["steps"][:3]
+    assert not any(
+        "--compare-root" in item.get("run", "") for item in unit_job["steps"]
+    )
 
     for unit_status, it_status in ((0, 0), (1, 0), (0, 1)):
         outcome = {"reachability_errors": [], "suites": [{"code": it_status}]}
@@ -505,6 +536,52 @@ def check_ci_workflow(tmp_path):
         run_it.main()
     unit_dispatch.assert_not_called()
     it_dispatch.assert_not_called()
+
+
+@pytest.mark.parametrize("unit_status", [0, 1])
+def check_ut_only_never_reaches_it(unit_status, capsys):
+    with (
+        patch.object(sys, "argv", ["run_it.py", "--ut-only"]),
+        patch.object(MODULE, "authorize_full_regression") as authorize,
+        patch.object(MODULE, "select_checks", return_value=([SCRIPT], "all requested")),
+        patch.object(MODULE, "run_commands", return_value=unit_status) as units,
+        patch.object(run_it, "run_all") as integrations,
+        patch.object(run_it, "compare_revisions") as compare,
+        patch.object(run_it, "inventory") as inventory,
+    ):
+        assert run_it.main() == unit_status
+    authorize.assert_called_once_with(run_it.TESTS.parents[2])
+    assert units.call_args.args[1] == [[sys.executable, str(SCRIPT)]]
+    assert units.call_args.kwargs["jobs"] == 2
+    integrations.assert_not_called()
+    compare.assert_not_called()
+    inventory.assert_not_called()
+    assert "1 UT suites" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [
+        ("--baseline-root", "old"),
+        ("--compare-root", "old"),
+        ("--suite", "example.checks.py"),
+        ("--receipt", "receipt.json"),
+        ("--case-id", "case"),
+        ("--baseline", None),
+    ],
+)
+def check_ut_only_rejects_it_options(option, value):
+    arguments = ["run_it.py", "--ut-only", option, *([value] if value else [])]
+    with (
+        patch.object(sys, "argv", arguments),
+        patch.object(MODULE, "run_commands") as units,
+        patch.object(run_it, "run_all") as integrations,
+        pytest.raises(SystemExit) as error,
+    ):
+        run_it.main()
+    assert error.value.code == 2
+    units.assert_not_called()
+    integrations.assert_not_called()
 
 
 def check_it_reachability(tmp_path):
@@ -544,28 +621,23 @@ if __name__ == '__main__':
     )
     assert result.returncode == 0, result.stdout + result.stderr
     data = json.loads(receipt.read_text())
-    cases = {("integrations/receipt.checks.py", "check_body"): ("pytest", 2)}
+    cases = {("integrations/receipt.checks.py", "check_body"): "pytest"}
     assert not run_it.reachability(cases, [data])
     assert len(data["passed"]) == 2
     assert "calls" not in data
     helper = ("integrations/helper.py", "check_helper")
     with_helper = {**data, "completed": {"::".join(helper): 1}}
     assert run_it.reachability(cases, [with_helper])
-    assert not run_it.reachability(
-        cases, [with_helper], {**cases, helper: ("direct", 1)}
-    )
+    assert not run_it.reachability(cases, [with_helper], {**cases, helper: "direct"})
     assert run_it.reachability(
-        cases, [{**with_helper, "passed": []}], {**cases, helper: ("direct", 1)}
+        cases, [{**with_helper, "passed": []}], {**cases, helper: "direct"}
     )
     assert run_it.reachability(cases, [{**data, "passed": data["passed"][:1]}])
     assert run_it.reachability(cases, [{**data, "passed": [data["passed"][0]] * 2}])
-    cases[("integrations/receipt.checks.py", "check_not_called")] = ("direct", 1)
+    cases[("integrations/receipt.checks.py", "check_not_called")] = "direct"
     assert "verification did not complete" in run_it.reachability(cases, [data])[0]
-    cases[("integrations/receipt.checks.py", "check_body")] = ("pytest", 3)
-    assert (
-        "expected 3, collected 2, passed body 2"
-        in run_it.reachability(cases, [data])[0]
-    )
+    cases[("integrations/receipt.checks.py", "check_not_called")] = "pytest"
+    assert any("not collected" in error for error in run_it.reachability(cases, [data]))
     assert run_it.reachability(cases, [{**data, "passed": []}])
 
     output = tmp_path / "receipts"
@@ -573,7 +645,7 @@ if __name__ == '__main__':
     rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
     assert [row["code"] for row in rows] == [0]
     assert not run_it.reachability(
-        {("integrations/receipt.checks.py", "check_body"): ("pytest", 2)}, receipts
+        {("integrations/receipt.checks.py", "check_body"): "pytest"}, receipts
     )
     assert run_it.reachability(
         cases, receipts
@@ -621,11 +693,11 @@ module_complete(__file__)
     data = json.loads(receipt.read_text())
     direct = ("integrations/receipt.checks.py", "check_direct")
     module = ("integrations/receipt.checks.py", "__module__")
-    cases = {direct: ("direct", 1), module: ("module", 1)}
+    cases = {direct: "direct", module: "module"}
     assert data["completed"] == {"::".join(direct): 2, "::".join(module): 1}
     assert not run_it.reachability(cases, [data])
     assert run_it.reachability(
-        {**cases, (direct[0], "check_failure"): ("direct", 1)}, [data]
+        {**cases, (direct[0], "check_failure"): "direct"}, [data]
     )
     assert run_it.reachability(cases, [{**data, "completed": {"::".join(direct): 2}}])
     for invalid in (
@@ -843,49 +915,25 @@ def check_it_fixture_isolation(tmp_path):
 
 
 def check_it_inventory(tmp_path):
-    cases, errors = run_it.inventory(Path(run_it.__file__).parent)
+    discovery, errors = run_it.inventory(Path(run_it.__file__).parent)
     assert not errors, errors
-    assert cases[
-        ("integrations/design_layout.checks.py", "check_config_firehose_references")
-    ] == ("pytest", 1)
-    assert cases[
-        ("integrations/sync-model.checks.py", "check_incoming_reference_models")
-    ] == ("pytest", 1)
-    assert cases[
-        ("integrations/model-validation-reuse.checks.py", "check_sync_mapping_lifetime")
-    ] == ("pytest", 4)
-    row = "| `origin` | `check_one` | IT | [case](integrations/example.py) | direct / 1 |\n"
-    (tmp_path / "CASES.md").write_text(row + row)
-    with pytest.raises(ValueError, match="duplicate"):
-        run_it.registered_cases(tmp_path)
+    assert (
+        discovery.cases[
+            ("integrations/design_layout.checks.py", "check_config_firehose_references")
+        ]
+        == "pytest"
+    )
+    assert (
+        discovery.cases[
+            (
+                "integrations/model-validation-reuse.checks.py",
+                "check_sync_mapping_lifetime",
+            )
+        ]
+        == "pytest"
+    )
     assert run_it.reachability({}, [])
-    folder = tmp_path / "integrations"
-    folder.mkdir()
-    entry = folder / "example.checks.py"
-    row = row.replace("example.py", "example.checks.py")
-    (tmp_path / "CASES.md").write_text(row)
-    entry.write_text("def check_one():\n    pass\n")
-    assert any("decorator" in error for error in run_it.inventory(tmp_path)[1])
-    entry.write_text(
-        "from support.it_case_receipt import it_case\n@it_case\ndef check_one():\n    pass\n"
-    )
-    assert not run_it.inventory(tmp_path)[1]
-    entry.write_text("pass\n")
-    assert any("missing IT case" in error for error in run_it.inventory(tmp_path)[1])
-    (folder / "unregistered.checks.py").write_text("pass\n")
-    assert any(
-        "unregistered IT suite" in error for error in run_it.inventory(tmp_path)[1]
-    )
-    (folder / "unregistered.checks.py").unlink()
-    (tmp_path / "CASES.md").write_text(
-        row.replace("check_one", "__module__").replace("direct /", "module /")
-    )
-    entry.write_text(
-        "from support.it_case_receipt import module_complete\nmodule_complete(__file__)\n"
-    )
-    assert not run_it.inventory(tmp_path)[1]
-    entry.write_text(entry.read_text() + "assert True\n")
-    assert any("terminal module" in error for error in run_it.inventory(tmp_path)[1])
+    assert run_it.inventory(tmp_path)[1]
 
 
 def _check_it_run_lifecycle_build(root, name):
@@ -914,10 +962,7 @@ def _callback_check_it_run_lifecycle_execute(*args):
 def check_it_run_lifecycle(tmp_path):
     (tmp_path / "integrations").mkdir()
     (tmp_path / "integrations/example.checks.py").write_text(
-        "if not __debug__:\n    raise SystemExit('Focused checks require assertions; run without -O')\nfrom support.it_case_receipt import it_case\n@it_case\ndef check_one():\n    assert True\n"
-    )
-    (tmp_path / "CASES.md").write_text(
-        "| `origin` | `check_one` | IT | [case](integrations/example.checks.py) | direct / 1 |\n"
+        "if not __debug__:\n    raise SystemExit('Focused checks require assertions; run without -O')\nfrom support.it_case_receipt import it_case\n@it_case\ndef check_one():\n    assert True\ncheck_one()\n"
     )
     build = _check_it_run_lifecycle_build
     execute = _callback_check_it_run_lifecycle_execute
@@ -947,8 +992,7 @@ def check_it_run_lifecycle(tmp_path):
             run_it.run_all(tmp_path, io.StringIO())
         assert os.environ["BLUEPRINT_TASK_FILE"] == "tasks/parent.md"
     assert result["selection"] == "full"
-    # Old baseline may have neither ledger nor markers; only process results are comparable.
-    (tmp_path / "CASES.md").unlink()
+    # Old baseline may lack markers; only process results are comparable.
     with patch.object(
         run_it, "execute_suites", return_value=([{"suite": "old", "code": 7}], [])
     ):
@@ -1667,7 +1711,7 @@ def check_parallel_repair_receipts():
     combined = run_it.repair_receipt(receipts)
     assert combined["collected"] == combined["passed"] == list(run_it.REPAIR_CASES)
     assert combined["metrics"] == {"subprocess.Popen": 2}
-    cases = run_it.registered_cases(Path(run_it.__file__).parent)
+    cases = run_it.inventory(Path(run_it.__file__).parent)[0].cases
     selected = {
         key: value for key, value in cases.items() if key[0] == run_it.REPAIR_SUITE
     }
