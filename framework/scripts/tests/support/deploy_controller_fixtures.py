@@ -330,6 +330,17 @@ def _callback_clients_request(
                 result = {"TemplateBody": state["changes"][name]["document"]}
             elif operation == "validate_template":
                 result = {"Parameters": []}
+            elif operation == "list_stacks":
+                result = {
+                    "StackSummaries": [
+                        {
+                            "StackName": name,
+                            "StackId": stack["id"],
+                            "StackStatus": stack["status"],
+                        }
+                        for name, stack in state["stacks"].items()
+                    ]
+                }
             elif operation == "describe_stacks":
                 if stack is None:
                     error(
@@ -707,6 +718,7 @@ def clients(root, state_path, aws_path):
         "cloudformation": [
             "validate_template",
             "describe_stacks",
+            "list_stacks",
             "create_change_set",
             "describe_change_set",
             "list_change_sets",
