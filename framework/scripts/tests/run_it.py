@@ -622,6 +622,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-root", default="")
     parser.add_argument(
+        "--ut-only",
+        action="store_true",
+        help="Run all UTs without IT discovery, collection or execution",
+    )
+    parser.add_argument(
         "--compare-root",
         type=Path,
         help="Compare IT definitions with a trusted checkout; imports pytest suites in isolated collection children, no test bodies",
@@ -632,6 +637,15 @@ def main():
     parser.add_argument("--receipt", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--case-id", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.ut_only and (
+        args.suite
+        or args.compare_root
+        or args.baseline_root
+        or args.baseline
+        or args.case_id
+        or args.receipt
+    ):
+        parser.error("--ut-only cannot be combined with IT or comparison options")
     if args.suite:
         if args.case_id and (
             args.baseline
@@ -672,6 +686,8 @@ def main():
             Path(directory),
             jobs=2,
         )
+    if args.ut_only:
+        return int(bool(unit_status))
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     with (
         open(summary_path, "a", encoding="utf-8")

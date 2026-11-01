@@ -470,6 +470,31 @@ def check_ci_workflow(tmp_path):
         == 'python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"'
     )
     assert set(step["env"]) == {"IT_BASELINE"}
+    default_branch = (
+        "(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')"
+    )
+    assert (
+        step["if"]
+        == "(success() || failure()) && github.event_name != 'pull_request' && "
+        + default_branch
+    )
+    steps = {
+        item.get("name"): item for item in workflow["jobs"]["framework-it"]["steps"]
+    }
+    assert (
+        steps["Run all UT"]["run"]
+        == "python -B framework/scripts/tests/run_it.py --ut-only"
+    )
+    assert (
+        steps["Run all UT"]["if"]
+        == "github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master')"
+    )
+    assert (
+        steps["Install Terraform CLI for integration verification"]["if"]
+        == default_branch[1:-1]
+    )
+    assert steps["Checkout measurement baseline"]["if"].endswith(default_branch)
+    assert not any("--compare-root" in item.get("run", "") for item in steps.values())
 
     for unit_status, it_status in ((0, 0), (1, 0), (0, 1)):
         outcome = {"reachability_errors": [], "suites": [{"code": it_status}]}
@@ -505,6 +530,52 @@ def check_ci_workflow(tmp_path):
         run_it.main()
     unit_dispatch.assert_not_called()
     it_dispatch.assert_not_called()
+
+
+@pytest.mark.parametrize("unit_status", [0, 1])
+def check_ut_only_never_reaches_it(unit_status, capsys):
+    with (
+        patch.object(sys, "argv", ["run_it.py", "--ut-only"]),
+        patch.object(MODULE, "authorize_full_regression") as authorize,
+        patch.object(MODULE, "select_checks", return_value=([SCRIPT], "all requested")),
+        patch.object(MODULE, "run_commands", return_value=unit_status) as units,
+        patch.object(run_it, "run_all") as integrations,
+        patch.object(run_it, "compare_revisions") as compare,
+        patch.object(run_it, "inventory") as inventory,
+    ):
+        assert run_it.main() == unit_status
+    authorize.assert_called_once_with(run_it.TESTS.parents[2])
+    assert units.call_args.args[1] == [[sys.executable, str(SCRIPT)]]
+    assert units.call_args.kwargs["jobs"] == 2
+    integrations.assert_not_called()
+    compare.assert_not_called()
+    inventory.assert_not_called()
+    assert "1 UT suites" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [
+        ("--baseline-root", "old"),
+        ("--compare-root", "old"),
+        ("--suite", "example.checks.py"),
+        ("--receipt", "receipt.json"),
+        ("--case-id", "case"),
+        ("--baseline", None),
+    ],
+)
+def check_ut_only_rejects_it_options(option, value):
+    arguments = ["run_it.py", "--ut-only", option, *([value] if value else [])]
+    with (
+        patch.object(sys, "argv", arguments),
+        patch.object(MODULE, "run_commands") as units,
+        patch.object(run_it, "run_all") as integrations,
+        pytest.raises(SystemExit) as error,
+    ):
+        run_it.main()
+    assert error.value.code == 2
+    units.assert_not_called()
+    integrations.assert_not_called()
 
 
 def check_it_reachability(tmp_path):

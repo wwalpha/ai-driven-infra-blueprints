@@ -499,15 +499,18 @@ nonzero failure exits and `BLUEPRINT_PROFILE_DIR`; the local loop selects UT onl
 
 ### Integration tests in GitHub Actions
 
-[Framework IT](.github/workflows/framework-it.yml) invokes only
-`python -B framework/scripts/tests/run_it.py` on PRs, pushes to `main`/`master`, and manual
-dispatch with Python 3.14 and the existing requirements. The runner discovers IT
-suites from Python sources and retains independent processes for pytest and direct/top-level scripts. It
-continues after suite failures and records PASS/FAIL, duration and runtime case receipts.
-AST-discovered entrypoints are checked against actual pytest nodes and successful
-direct/module completion receipts; missing, skipped, duplicate or unknown cases fail the job.
-PRs also compare source entry IDs and expanded pytest node IDs with the base revision
-for human review; see the [test guide](framework/scripts/tests/README.md#it入口の自動発見と差分レビュー).
+[Framework IT](.github/workflows/framework-it.yml) uses Python 3.14 and the existing
+requirements. PRs run every UT through `python -B framework/scripts/tests/run_it.py --ut-only`,
+using the existing scheduler with at most 2 workers. PRs do not discover, collect or execute
+IT suites, prepare Terraform, or run the IT definition comparison.
+
+Pushes to `main`/`master` run every UT and IT through the default `run_it.py` entrypoint.
+Manual dispatch runs IT only when the selected branch is `main` or `master`; other
+branches run UT only. No changed-file or test-case filtering is introduced.
+The IT runner discovers Python suites and retains independent pytest and direct/module
+processes, failure continuation, runtime receipts and shared-fixture checks. Source entry ID
+and expanded pytest node comparison remains an explicit review command documented in the
+[test guide](framework/scripts/tests/README.md#it入口の自動発見と差分レビュー).
 
 The runner builds one read-only fixture bundle: framework inputs, authored parameter
 templates, typed service inputs and generated IAM policy outputs. Each seed is built once;
@@ -516,7 +519,7 @@ content and permissions are fingerprinted before/after execution, and temporary 
 cleaned on exit. Individual UT/script execution uses process-local seeds. Neither path
 reads consumer `model/` or `project.json` as fixture inputs.
 
-For a one-time before/after measurement, manually dispatch **Framework IT** with
+For a one-time before/after measurement, manually dispatch **Framework IT** on `main`/`master` with
 `baseline_ref` set to the baseline commit (this consolidation uses `2647f97`). The same
 runner executes baseline and current once with the same Python/dependencies, instrumentation,
 and separate fresh validation caches. Summary/logs report actual seed generations, copies,
@@ -528,8 +531,10 @@ turn a failing current run into PASS. Normal CI runs only the current revision.
 No live AWS resources, credentials or extra Full run are needed. Local modifications use
 related UTs; every local mode, including Full and staged snapshots, excludes IT.
 
-Before merging a PR, confirm `Framework IT` PASS for its current revision. Pending,
-unexecuted, canceled or failed CI does not count as completed IT validation. In GitHub
+Before merging a PR, confirm `Framework IT` PASS for its current revision (UT only).
+The check name is retained for compatibility. IT results are checked on `main`/`master`;
+PR UT success is not evidence of IT validation. Pending, unexecuted, canceled or failed
+CI does not count as completed validation. In GitHub
 Settings → Branches (or Rules → Rulesets), require status checks for the target branch
 and select `Framework IT` after its first run. This is an administrator setting;
 adding the workflow does not configure branch protection.
@@ -542,7 +547,7 @@ Read [Conflict resolution and reproducible validation](framework/rules/loop-engi
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --staged --base <比較元commit>
 ```
 
-The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `task` mode validates the selected Task contract and Validation scope; it does not select or run Framework UT/IT, including with `--staged`. Framework CI runs all UT and IT on every PR, main/master push and manual dispatch through `run_it.py`, without changed-file selection. Framework task completion follows the classified [Validation policy](framework/rules/loop-engineering.md#validation-policy). See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
+The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `task` mode validates the selected Task contract and Validation scope; it does not select or run Framework UT/IT, including with `--staged`. Framework CI runs all UT on PRs and all UT/IT on main/master pushes; manual dispatch runs IT only on main/master. It uses `run_it.py` without changed-file selection. Framework task completion follows the classified [Validation policy](framework/rules/loop-engineering.md#validation-policy). See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
 
 ### Local loop timing measurement
 

@@ -53,7 +53,7 @@ rerun the failed test or affected service; for a fixture fix, run its consuming 
 Do not run Full after each correction, repeat unchanged results, or retry Full with known
 failures left unfixed. If dependencies need investigation, directly invoke the relevant existing UT
 `framework/scripts/tests/units/<name>.checks.py` entrypoints or installed pytest test nodes during
-repair. CI always runs all UT/IT; local narrowing does not replace a required final Full or prove unknown impact safe.
+repair. CI runs all UT on PRs and all UT/IT on main/master; local narrowing does not replace a required final Full or prove unknown impact safe.
 For bounded final validation, run these tests and the existing Project scoped loop or
 standalone scoped validator:
 
@@ -304,19 +304,21 @@ Ordinary `task` / `local` loops, including staged snapshots, do not
 automatically run Framework regression for changed files or missing Validation scope.
 Explicit `full` / `--all` runs all UTs and no IT, retaining validator scope and safety
 checks. Framework development runs related dedicated UTs and necessary
-IT cases under Validation policy. CI always runs all tests.
+IT cases under Validation policy. CI runs all UT on PRs and all UT/IT on main/master.
 
-All UT and IT run in [Framework IT](../../.github/workflows/framework-it.yml) on every pull request,
-push to `main`/`master`, and manual dispatch, using Python 3.14 and the existing requirements.
-Its sole entrypoint is `framework/scripts/tests/run_it.py`. CI has no changed-file or case selection
-and no path filters. The existing loop scheduler runs every UT with at most 2 workers,
-then the IT runner executes every discovered suite; either failure fails the job, and UT
-failures do not skip IT.
+[Framework IT](../../.github/workflows/framework-it.yml) runs all UT on every pull request
+with `framework/scripts/tests/run_it.py --ut-only`. This path returns the UT result before
+IT discovery, collection, fixture-bundle creation or execution. PRs also skip Terraform
+setup and IT definition comparison. Pushes to `main`/`master` run all UT and IT with the
+default entrypoint. Manual dispatch runs IT only on `main`/`master`, otherwise UT only.
+Python 3.14, existing requirements and at most 2 UT workers remain unchanged. CI has no
+changed-file/case selection or path filters. On main/master the IT runner executes every
+discovered suite even after UT failure; either failure fails the job.
 Existing pytest/direct entrypoints run in independent processes. It continues after suite failures, records PASS/FAIL and duration,
 and reconciles runtime verification receipts with independently AST-discovered Python entrypoints.
 Each expected pytest function must collect at least one node, and every collected node must pass
 exactly once. Direct/helper/module completion and suite ownership remain required. Missing execution,
-skips, unknown/duplicate nodes and invalid receipts fail the job. PR definition comparison reports
+skips, unknown/duplicate nodes and invalid receipts fail the job. Explicit definition comparison reports
 removed/renamed entry IDs and expanded node IDs for review; current-source receipts alone cannot
 prove historical test deletion. See [IT discovery](../scripts/tests/README.md#it入口の自動発見と差分レビュー).
 Full IT owns one immutable authored fixture bundle and its cleanup; modifying cases
@@ -324,10 +326,11 @@ use independent copies. Git/worktree integration tests validate that
 functionality; other tests must not initialize Git/worktree environments unnecessarily. Generation events and before/after content/permission fingerprints
 verify initialization counts and shared-fixture integrity. No real consumer Model inputs,
 AWS credentials or live AWS resources are required. Do not add an extra Full loop.
-Optional manual `baseline_ref` measures before/after once under identical dependencies
+Optional manual `baseline_ref` on main/master measures before/after once under identical dependencies
 and separate fresh caches; normal CI executes only the current revision.
-Confirm IT PASS for the current PR revision before merging. Pending, canceled,
-unexecuted or failed CI is not completed IT validation. Configure the `Framework IT`
+Confirm the current PR check PASS (UT only) before merging. Check IT results after
+main/master execution; PR UT success does not prove IT validation. Pending, canceled,
+unexecuted or failed CI is not completed validation. Configure the `Framework IT`
 job as a required status check in GitHub branch protection/rulesets; repository files
 alone do not enable that setting.
 

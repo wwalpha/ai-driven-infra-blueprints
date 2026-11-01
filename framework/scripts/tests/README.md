@@ -154,7 +154,9 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 `blueprint-loop.py` の `task` / `local` はProjectのValidation scopeに従って検証し、Framework回帰UT／ITを自動実行しない。通常TaskではFrameworkを不変として扱い、FrameworkファイルのGit差分から回帰テストを選択しない。`full` / `--all` は `units/**/*.checks.py` と `units/**/test_*.py` の全UTを既存のPython直接実行入口で起動する。`full` は既存のProject Validation scopeを維持し、`--all` はProject全体を検証する。Scope `all` だけではFramework UTを実行しない。`blueprint-loop.py` からFramework ITは実行しない。
 
 
-[Framework IT](../../../.github/workflows/framework-it.yml) はすべてのPRおよびmain/masterへのpushと手動 `workflow_dispatch` で、変更ファイルによる選別をせず全UT・全ITを実行する。ファイル種別による起動除外も行わない。Python 3.14と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が既存schedulerで全UTを最大2並列、その後 `integrations/**/*.checks.py` を独立プロセスで全件実行する。UT失敗後もITを実行し、いずれかの失敗でCIを失敗させる。既存のpytest・直接実行・トップレベル実行方式と手動baseline計測を維持する。
+[Framework IT](../../../.github/workflows/framework-it.yml) のPRチェックは `python -B framework/scripts/tests/run_it.py --ut-only` で全UTだけを既存schedulerの最大2並列で実行する。ITのDiscovery・collect・実行、Terraform準備、IT定義差分比較はPRでは行わない。UTの失敗をそのまま非0終了にし、IT/比較用オプションとの併用は拒否する。
+
+main/masterへのpushでは通常の `run_it.py` で全UTと全ITを実行する。手動 `workflow_dispatch` もmain/masterを選択した場合だけITを実行し、他ブランチはUTだけにする。Python 3.14、既存requirements、変更ファイルによる非選別とファイル種別による非除外は維持する。ITは `integrations/**/*.checks.py` を独立プロセスで全件実行し、UT失敗後もITを続け、いずれかの失敗でCIを失敗させる。既存のpytest・直接実行・トップレベル実行方式を維持する。手動baseline計測はmain/masterのみで使う。
 
 runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 
@@ -168,7 +170,7 @@ runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_se
 
 ケースIDは `相対ファイルパス::関数名` / `::__module__` のまま。pytestは既存 `PytestReceipt` で、期待関数ごとに1件以上の収集と、展開後の全node IDの一度ずつのPASSを確認する。skip/失敗、期待関数全体の未収集、未知/重複node、完了イベントの所有スイート不正、Receipt欠落、非0終了はFAIL。direct関数の正常な繰返し実行は許可する。共有fixture、Worktreeポリシー、assertion guard、並列Repair/Checkpointとbaseline計測は従来のまま。固定総数を成功条件にしない。
 
-PRでは公式Workflowがbase SHAを別checkoutへ取得し、次の比較専用モードを実行する。通常のFull Runnerは追加collectを行わない。
+入口・パラメータの削除/縮小をレビューする場合は、信頼するbase checkoutを用意して次の比較専用モードを明示実行する。PRのCIはUTのみとし、この比較とIT collectは行わない。通常のFull Runnerも追加collectを行わない。
 
 ```console
 python3 -B framework/scripts/run-python.py -B framework/scripts/tests/run_it.py --compare-root /path/to/trusted-base-checkout
@@ -183,7 +185,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/run_it.py 
 
 手動実行の `baseline_ref` は同じrunnerで旧コードの終了コードと時間を測定する。旧baselineには完了マーカーや台帳を要求せず、ケース到達性は「未検証」、旧profiler由来のfixture要求数・生成数は「比較不能」と明示する。依存パッケージが異なる場合は比較を拒否する。検証内容・スイートの同一性が確立していない時間差を、同条件での性能改善とは扱わない。
 
-ローカル修正では関連UTを実行し、ITの検証はGitHub Actionsへ委ねる。PRの現revisionでIT PASSを確認してからマージする。CI未完了・未実行・キャンセル・FAILをIT検証完了と扱わない。ブランチ保護のRequired status checkに `Framework IT` を指定する設定は別途必要。
+ローカル修正では関連UTを実行し、ITの検証はGitHub Actionsへ委ねる。PRの現revisionではUTのPASSを確認してからマージする。ITの結果はmain/masterで確認し、PRのUT成功をITの検証完了と扱わない。CI未完了・未実行・キャンセル・FAILも検証完了と扱わない。チェック名 `Framework IT` は既存設定との互換性のため維持する。ブランチ保護のRequired status checkに `Framework IT` を指定する設定は別途必要。
 
 契約の選択・通常の状態遷移・公開時の変更検出を既存UTで確認する。実Git、Atomic rollback、finalize/cleanupの安全停止は既存ITで検証する。予約と独自worktree identityだけを検証するケースは廃止した。
 

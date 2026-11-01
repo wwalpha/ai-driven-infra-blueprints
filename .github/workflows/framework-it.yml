@@ -39,29 +39,23 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r framework/scripts/requirements.txt
       - name: Install Terraform CLI for integration verification
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: '1.16.1'
           terraform_wrapper: false
       - name: Checkout measurement baseline
-        if: github.event_name == 'workflow_dispatch' && inputs.baseline_ref != ''
+        if: github.event_name == 'workflow_dispatch' && inputs.baseline_ref != '' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.baseline_ref }}
           path: .it-baseline
           persist-credentials: false
-      - name: Checkout PR definition baseline
-        if: github.event_name == 'pull_request'
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: .it-review-base
-          persist-credentials: false
-      - name: Compare IT definitions for PR review
-        if: github.event_name == 'pull_request'
-        run: python -B framework/scripts/tests/run_it.py --compare-root .it-review-base
+      - name: Run all UT
+        if: github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master')
+        run: python -B framework/scripts/tests/run_it.py --ut-only
       - name: Run all UT and IT
-        if: success() || failure()
+        if: (success() || failure()) && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         env:
           IT_BASELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_ref != '' && '.it-baseline' || '' }}
         run: python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"
