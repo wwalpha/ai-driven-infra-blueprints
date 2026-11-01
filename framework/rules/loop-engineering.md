@@ -306,11 +306,14 @@ Explicit `full` / `--all` runs all UTs and no IT, retaining validator scope and 
 checks. Framework development runs related dedicated UTs and necessary
 IT cases under Validation policy. CI runs all UT on PRs and all UT/IT on main/master.
 
-[Framework IT](../../.github/workflows/framework-it.yml) runs all UT on every pull request
+[Framework UT](../../.github/workflows/framework-ut.yml) runs all UT on every pull request
+and supports UT-only manual dispatch
 with `framework/scripts/tests/run_it.py --ut-only`. This path returns the UT result before
 IT discovery, collection, fixture-bundle creation or execution. PRs also skip Terraform
-setup and IT definition comparison. Pushes to `main`/`master` run all UT and IT with the
-default entrypoint. Manual dispatch runs IT only on `main`/`master`, otherwise UT only.
+setup and IT definition comparison. The separate
+[Framework IT](../../.github/workflows/framework-it.yml) runs all UT and IT with the default
+entrypoint on `main`/`master` pushes and manual dispatch on those branches only. It has
+no UT-only execution path.
 Python 3.14, existing requirements and at most 2 UT workers remain unchanged. CI has no
 changed-file/case selection or path filters. On main/master the IT runner executes every
 discovered suite even after UT failure; either failure fails the job.
@@ -330,7 +333,7 @@ Optional manual `baseline_ref` on main/master measures before/after once under i
 and separate fresh caches; normal CI executes only the current revision.
 Confirm the current PR check PASS (UT only) before merging. Check IT results after
 main/master execution; PR UT success does not prove IT validation. Pending, canceled,
-unexecuted or failed CI is not completed validation. Configure the `Framework IT`
+unexecuted or failed CI is not completed validation. Configure the `Framework UT`
 job as a required status check in GitHub branch protection/rulesets; repository files
 alone do not enable that setting.
 

@@ -460,41 +460,47 @@ def check_ci_workflow(tmp_path):
         (SCRIPT.parents[2] / ".github/workflows/framework-it.yml").read_text()
     )
     events = workflow[True]  # PyYAML's YAML 1.1 resolver reads the key 'on' as True.
-    assert set(events) == {"pull_request", "push", "workflow_dispatch"}
-    assert events["pull_request"] is None and events["push"] == {
-        "branches": ["main", "master"]
-    }
-    step = workflow["jobs"]["framework-it"]["steps"][-1]
+    assert set(events) == {"push", "workflow_dispatch"}
+    assert events["push"] == {"branches": ["main", "master"]}
+    job = workflow["jobs"]["framework-it"]
+    assert (
+        job["if"]
+        == "github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'"
+    )
+    step = job["steps"][-1]
     assert (
         step["run"]
         == 'python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"'
     )
     assert set(step["env"]) == {"IT_BASELINE"}
-    default_branch = (
-        "(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')"
-    )
+    assert "if" not in step
+    assert not any("--ut-only" in item.get("run", "") for item in job["steps"])
+    steps = {item.get("name"): item for item in job["steps"]}
+    assert "if" not in steps["Install Terraform CLI for integration verification"]
     assert (
-        step["if"]
-        == "(success() || failure()) && github.event_name != 'pull_request' && "
-        + default_branch
+        steps["Checkout measurement baseline"]["if"]
+        == "github.event_name == 'workflow_dispatch' && inputs.baseline_ref != ''"
     )
-    steps = {
-        item.get("name"): item for item in workflow["jobs"]["framework-it"]["steps"]
+
+    unit_workflow = yaml.safe_load(
+        (SCRIPT.parents[2] / ".github/workflows/framework-ut.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert set(unit_workflow[True]) == {"pull_request", "workflow_dispatch"}
+    assert unit_workflow[True]["pull_request"] is None
+    unit_job = unit_workflow["jobs"]["framework-ut"]
+    assert unit_job["name"] == "Framework UT"
+    assert "if" not in unit_job
+    assert unit_job["env"] == job["env"]
+    assert unit_job["steps"][-1] == {
+        "name": "Run all UT",
+        "run": "python -B framework/scripts/tests/run_it.py --ut-only",
     }
-    assert (
-        steps["Run all UT"]["run"]
-        == "python -B framework/scripts/tests/run_it.py --ut-only"
+    assert unit_job["steps"][:-1] == job["steps"][:3]
+    assert not any(
+        "--compare-root" in item.get("run", "") for item in unit_job["steps"]
     )
-    assert (
-        steps["Run all UT"]["if"]
-        == "github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master')"
-    )
-    assert (
-        steps["Install Terraform CLI for integration verification"]["if"]
-        == default_branch[1:-1]
-    )
-    assert steps["Checkout measurement baseline"]["if"].endswith(default_branch)
-    assert not any("--compare-root" in item.get("run", "") for item in steps.values())
 
     for unit_status, it_status in ((0, 0), (1, 0), (0, 1)):
         outcome = {"reachability_errors": [], "suites": [{"code": it_status}]}

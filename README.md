@@ -499,14 +499,15 @@ nonzero failure exits and `BLUEPRINT_PROFILE_DIR`; the local loop selects UT onl
 
 ### Integration tests in GitHub Actions
 
-[Framework IT](.github/workflows/framework-it.yml) uses Python 3.14 and the existing
-requirements. PRs run every UT through `python -B framework/scripts/tests/run_it.py --ut-only`,
+[Framework UT](.github/workflows/framework-ut.yml) runs on PRs and manual dispatch
+with Python 3.14 and the existing requirements. It runs every UT through `python -B framework/scripts/tests/run_it.py --ut-only`,
 using the existing scheduler with at most 2 workers. PRs do not discover, collect or execute
 IT suites, prepare Terraform, or run the IT definition comparison.
 
-Pushes to `main`/`master` run every UT and IT through the default `run_it.py` entrypoint.
-Manual dispatch runs IT only when the selected branch is `main` or `master`; other
-branches run UT only. No changed-file or test-case filtering is introduced.
+[Framework IT](.github/workflows/framework-it.yml) separately runs every UT and IT on
+`main`/`master` pushes through the default `run_it.py` entrypoint. Its manual dispatch
+also requires `main`/`master`; it has no UT-only execution path. No changed-file or
+test-case filtering is introduced.
 The IT runner discovers Python suites and retains independent pytest and direct/module
 processes, failure continuation, runtime receipts and shared-fixture checks. Source entry ID
 and expanded pytest node comparison remains an explicit review command documented in the
@@ -531,12 +532,12 @@ turn a failing current run into PASS. Normal CI runs only the current revision.
 No live AWS resources, credentials or extra Full run are needed. Local modifications use
 related UTs; every local mode, including Full and staged snapshots, excludes IT.
 
-Before merging a PR, confirm `Framework IT` PASS for its current revision (UT only).
-The check name is retained for compatibility. IT results are checked on `main`/`master`;
+Before merging a PR, confirm `Framework UT` PASS for its current revision.
+IT results are checked separately through `Framework IT` on `main`/`master`;
 PR UT success is not evidence of IT validation. Pending, unexecuted, canceled or failed
 CI does not count as completed validation. In GitHub
 Settings → Branches (or Rules → Rulesets), require status checks for the target branch
-and select `Framework IT` after its first run. This is an administrator setting;
+and select `Framework UT` after its first run. This is an administrator setting;
 adding the workflow does not configure branch protection.
 
 ### Fixed snapshot validation after conflict resolution
@@ -547,7 +548,7 @@ Read [Conflict resolution and reproducible validation](framework/rules/loop-engi
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --staged --base <比較元commit>
 ```
 
-The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `task` mode validates the selected Task contract and Validation scope; it does not select or run Framework UT/IT, including with `--staged`. Framework CI runs all UT on PRs and all UT/IT on main/master pushes; manual dispatch runs IT only on main/master. It uses `run_it.py` without changed-file selection. Framework task completion follows the classified [Validation policy](framework/rules/loop-engineering.md#validation-policy). See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
+The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `task` mode validates the selected Task contract and Validation scope; it does not select or run Framework UT/IT, including with `--staged`. Framework CI runs all UT on PRs and all UT/IT on main/master pushes; separate manual workflows provide UT-only execution or IT on main/master. Both use `run_it.py` without changed-file selection. Framework task completion follows the classified [Validation policy](framework/rules/loop-engineering.md#validation-policy). See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
 
 ### Local loop timing measurement
 
