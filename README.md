@@ -501,12 +501,13 @@ nonzero failure exits and `BLUEPRINT_PROFILE_DIR`; the local loop selects UT onl
 
 [Framework IT](.github/workflows/framework-it.yml) invokes only
 `python -B framework/scripts/tests/run_it.py` on PRs, pushes to `main`/`master`, and manual
-dispatch with Python 3.14 and the existing requirements. The runner discovers all 66 IT
-suites and retains independent processes for pytest and direct/top-level scripts. It
+dispatch with Python 3.14 and the existing requirements. The runner discovers IT
+suites from Python sources and retains independent processes for pytest and direct/top-level scripts. It
 continues after suite failures and records PASS/FAIL, duration and runtime case receipts.
-The existing [case ledger](framework/scripts/tests/CASES.md) is checked against actual
-pytest parameter execution and direct function calls; missing, skipped or unregistered
-cases fail the job.
+AST-discovered entrypoints are checked against actual pytest nodes and successful
+direct/module completion receipts; missing, skipped, duplicate or unknown cases fail the job.
+PRs also compare source entry IDs and expanded pytest node IDs with the base revision
+for human review; see the [test guide](framework/scripts/tests/README.md#it入口の自動発見と差分レビュー).
 
 The runner builds one read-only fixture bundle: framework inputs, authored parameter
 templates, typed service inputs and generated IAM policy outputs. Each seed is built once;

@@ -5,7 +5,6 @@ import argparse
 import ast
 import json
 import os
-import re
 import runpy
 import shutil
 import signal
@@ -24,6 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest as _imports_pytest
 import support.it_fixture_bundle as _imports_support_it_fixture_bundle
 import validation.loop as _imports_validation_loop
+from support.it_discovery import discover
+from support.it_revision import compare_revisions
 from support.worktree_test_policy import audit as worktree_audit
 from support.worktree_test_policy import ordinary_suite, violations
 from task_contract_core import SELECTOR
@@ -50,86 +51,9 @@ CHECKPOINT_CASES = tuple(
 PARALLEL_CASES = {REPAIR_SUITE: REPAIR_CASES, CHECKPOINT_SUITE: CHECKPOINT_CASES}
 
 
-def registered_cases(tests):
-    pattern = r"^\| `[^`]+` \| `([^`]+)` \| IT \| \[[^]]+\]\(([^)#]+)(?:#[^)]*)?\) \| (\w+) / (\d+)"
-    rows = re.findall(pattern, (tests / "CASES.md").read_text(encoding="utf-8"), re.M)
-    cases = {(path, name): (mode, int(count)) for name, path, mode, count in rows}
-    if len(cases) != len(rows):
-        raise ValueError("duplicate IT case ledger entries")
-    return cases
-
-
 def inventory(tests):
-    """The existing ledger is the only case list; reject stale/unregistered entries."""
-    cases = registered_cases(tests)
-    errors = violations(tests)
-    if not cases:
-        errors.append("empty IT case ledger")
-    suites = sorted((tests / "integrations").rglob("*.py"))
-    for path in suites:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        relative = path.relative_to(tests).as_posix()
-        functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
-        aliases = {
-            n.targets[0].id
-            for n in tree.body
-            if isinstance(n, ast.Assign)
-            and isinstance(n.targets[0], ast.Name)
-            and isinstance(n.value, ast.Name)
-        }
-        owned = {
-            name: value for (file, name), value in cases.items() if file == relative
-        }
-        if path.name.endswith(".checks.py") and not owned:
-            errors.append(f"unregistered IT suite: {relative}")
-        for name in functions:
-            if name.startswith("check_") and name not in owned:
-                errors.append(f"unregistered IT case: {relative}::{name}")
-        imports = {
-            alias.name
-            for node in tree.body
-            if isinstance(node, ast.ImportFrom)
-            and node.module == "support.it_case_receipt"
-            for alias in node.names
-            if alias.asname is None
-        }
-        for name, (mode, count) in owned.items():
-            if mode not in ("pytest", "direct", "direct_group", "module") or count < 1:
-                errors.append(f"invalid IT registration: {relative}::{name}")
-            elif mode == "module":
-                expected = ast.parse("module_complete(__file__)").body[0]
-                if (
-                    name != "__module__"
-                    or count != 1
-                    or "module_complete" not in imports
-                    or ast.dump(tree.body[-1]) != ast.dump(expected)
-                ):
-                    errors.append(
-                        f"missing terminal module completion: {relative}::{name}"
-                    )
-            elif name not in functions and not (mode == "pytest" and name in aliases):
-                errors.append(f"missing IT case: {relative}::{name}")
-            elif mode in ("direct", "direct_group"):
-                decorators = functions[name].decorator_list
-                if (
-                    count != 1
-                    or "it_case" not in imports
-                    or not decorators
-                    or ast.unparse(decorators[0]) != "it_case"
-                ):
-                    errors.append(
-                        f"missing outer completion decorator: {relative}::{name}"
-                    )
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Constant)
-                and isinstance(node.value, str)
-                and node.value.endswith(".checks")
-            ):
-                errors.append(f"IT module dependency: {relative}: {node.value}")
-    present = {p.relative_to(tests).as_posix() for p in suites}
-    errors += [f"missing IT file: {file}" for file, _ in cases if file not in present]
-    return cases, errors
+    discovery = discover(tests)
+    return discovery, [*discovery.errors, *violations(tests)]
 
 
 def path_setup(node):
@@ -315,47 +239,48 @@ def receipt_errors(receipt, suite=None):
     return []
 
 
-def reachability(cases, receipts, registered=None):
+def reachability(cases, receipts, registered=None, owners=None):
     registered = cases if registered is None else registered
     completed, collected, passed = Counter(), Counter(), Counter()
-    errors = [] if cases else ["empty IT case ledger"]
-    owners = set()
+    errors = [] if cases else ["empty IT discovery"]
+    suites = set()
     for receipt in receipts:
         invalid = receipt_errors(receipt)
         if invalid:
             errors += invalid
             continue
         owner = receipt["suite"]
-        if owner in owners:
+        if owner in suites:
             errors.append(f"duplicate runtime receipt suite: {owner}")
-        owners.add(owner)
-        completed.update(receipt["completed"])
-        for key in receipt["collected"]:
-            collected[key.split("[", 1)[0]] += 1
-        for key in receipt["passed"]:
-            passed[key.split("[", 1)[0]] += 1
+        suites.add(owner)
+        if owner not in {path for path, _ in cases if path.endswith(".checks.py")}:
+            errors.append(f"unknown runtime receipt suite: {owner}")
+        for key, count in receipt["completed"].items():
+            identity = tuple(key.split("::", 1))
+            if registered.get(identity) not in ("direct", "module"):
+                errors.append(f"unknown completed IT case: {key}")
+            elif owners is not None and owner not in owners.get(identity, set()):
+                errors.append(f"incorrect completed IT owner: {owner}: {key}")
+            completed[key] += count
+        collected.update(receipt["collected"])
+        passed.update(receipt["passed"])
+        if set(receipt["collected"]) != set(receipt["passed"]):
+            errors.append(f"{owner}: collected nodes did not all pass")
     for path in sorted(
-        {path for path, _ in cases if path.endswith(".checks.py")} - owners
+        {path for path, _ in cases if path.endswith(".checks.py")} - suites
     ):
         errors.append(f"missing runtime receipt: {path}")
     for key in collected:
-        if cases.get(tuple(key.split("::", 1)), (None,))[0] != "pytest":
-            errors.append(f"unregistered collected IT case: {key}")
-    for key in completed:
-        if registered.get(tuple(key.split("::", 1)), (None,))[0] not in (
-            "direct",
-            "direct_group",
-            "module",
-        ):
-            errors.append(f"unregistered completed IT case: {key}")
-    for (path, name), (mode, count) in cases.items():
+        if cases.get(tuple(key.split("[", 1)[0].split("::", 1))) != "pytest":
+            errors.append(f"unknown collected IT case: {key}")
+        if collected[key] != 1 or passed[key] != 1:
+            errors.append(f"duplicate/incomplete pytest node: {key}")
+    for (path, name), mode in cases.items():
         key = path + "::" + name
         if mode == "pytest":
-            if collected[key] != count or passed[key] != count:
-                errors.append(
-                    f"{key}: expected {count}, collected {collected[key]}, passed body {passed[key]}"
-                )
-        elif mode not in ("direct", "direct_group", "module") or not completed[key]:
+            if not any(node.split("[", 1)[0] == key for node in collected):
+                errors.append(f"{key}: expected pytest entry was not collected")
+        elif mode not in ("direct", "module") or not completed[key]:
             errors.append(f"{key}: verification did not complete")
     return errors
 
@@ -391,14 +316,14 @@ def repair_receipt(receipts, suite=REPAIR_SUITE, cases=REPAIR_CASES):
 def run_parallel_repair(suite, tests, output):
     suite_key = suite.relative_to(tests).as_posix()
     cases = PARALLEL_CASES[suite_key]
-    ledger = {
-        name: value
-        for (path, name), value in registered_cases(tests).items()
-        if path == suite_key
+    discovery, errors = inventory(tests)
+    selected = {
+        path + "::" + name
+        for (path, name), mode in discovery.cases.items()
+        if path == suite_key and mode == "pytest"
     }
-    expected = {case.split("::", 1)[1]: ("pytest", 1) for case in cases}
-    if ledger != expected:
-        raise ValueError(f"repair ledger mismatch: {ledger}")
+    if errors or selected != set(cases):
+        raise ValueError(f"parallel discovery mismatch: {selected}; {errors}")
     logs = Path(tempfile.mkdtemp(prefix="framework-repair-it-logs-"))
     children = []
     success = False
@@ -596,8 +521,8 @@ def run_all(tests, summary, baseline=False):
         bundle = _imports_support_it_fixture_bundle.bundle
     else:
         ENV = "BLUEPRINT_IT_FIXTURES"
-    cases, errors = ({}, []) if baseline else inventory(tests)
-    registered = cases
+    discovery, errors = (None, []) if baseline else inventory(tests)
+    cases = {} if discovery is None else discovery.cases
     if not baseline:
         check_assertion_guards(tests)
     started = time.monotonic()
@@ -623,7 +548,7 @@ def run_all(tests, summary, baseline=False):
                     tests, Path(directory), summary, baseline
                 )
                 if not baseline and cases:
-                    errors += reachability(cases, receipts, registered)
+                    errors += reachability(cases, receipts, owners=discovery.owners)
     except RuntimeError as error:
         errors.append(str(error))
     finally:
@@ -637,6 +562,12 @@ def run_all(tests, summary, baseline=False):
             os.environ["BLUEPRINT_VALIDATION_CACHE_DIR"] = previous_cache
         if previous_task is not None:
             os.environ[SELECTOR] = previous_task
+    if not baseline:
+        errors.extend(
+            f"suite process failed: {row['suite']} (exit={row['code']})"
+            for row in rows
+            if row["code"]
+        )
     for receipt in receipts:
         metrics.update(receipt.get("metrics", {}))
     result = {
@@ -653,6 +584,8 @@ def run_all(tests, summary, baseline=False):
         },
         "selection": "full",
         "selected_cases": len(cases),
+        "collected_nodes": sum(len(receipt["collected"]) for receipt in receipts),
+        "definition_comparison": "not verified; current sources cannot prove historical deletion",
         "reachability": "not verified (baseline)"
         if baseline
         else "verified"
@@ -688,6 +621,11 @@ def run_all(tests, summary, baseline=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-root", default="")
+    parser.add_argument(
+        "--compare-root",
+        type=Path,
+        help="Compare IT definitions with a trusted checkout; imports pytest suites in isolated collection children, no test bodies",
+    )
     parser.add_argument("--baseline", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--suite", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--tests", type=Path, default=TESTS, help=argparse.SUPPRESS)
@@ -706,6 +644,21 @@ def main():
         ):
             raise ValueError(f"unknown repair case: {args.case_id}")
         run_child(args.suite, args.tests, args.receipt, args.baseline, args.case_id)
+        return 0
+    if args.compare_root:
+        comparison = compare_revisions(
+            args.compare_root.resolve() / "framework/scripts/tests", TESTS
+        )
+        report = (
+            "IT definition comparison (reductions require PR review):\n"
+            + json.dumps(comparison, ensure_ascii=False, indent=2)
+        )
+        print(report, flush=True)
+        if os.environ.get("GITHUB_STEP_SUMMARY"):
+            with open(
+                os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8"
+            ) as summary:
+                summary.write("\n```text\n" + report + "\n```\n")
         return 0
     sys.path[:0] = [str(TESTS.parent), str(TESTS)]
     _imports_validation_loop.authorize_full_regression(TESTS.parents[2])

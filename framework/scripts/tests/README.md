@@ -1,6 +1,6 @@
 # Framework tests
 
-テストは検証責務で分類する。ケース一覧、現在の配置、パラメータ数、直接実行の検証地点は [CASES.md](CASES.md) を参照。
+テストは検証責務で分類する。Pythonテストコードを唯一の入口定義とし、展開後のpytest node IDは実収集で確認する。過去の移管理由・assertion対応はGit履歴と既存Issueを参照する。
 
 - `units/`: 単一関数・クラスの変換、比較、判定、入力検証。Framework内部定義と合成fixture、既存Fake/Mockで完結する。
 - `integrations/`: Model生成・保存・再読込・同期、サービス間参照、CLI、Git/worktree、Adapter連携。
@@ -32,7 +32,7 @@ Issue IDの再Scan/Save安定性はtyped・Model/Markdown両方・2変数の代�
 単体表示にはSync、実CLI、Git、全Model生成、全Frameworkコピーやroundtripを使わない。
 Task変更・publication barrier・sidecar rollbackはsync-model/Task専用テスト、参照警告はmodel-reference-warnings、Dynamic Referenceの値制約はcloudformation_schemaが受け持つ。
 実Path.write_text差替えのself/data/encodingと失敗伝播はfunction_wrapper UTが受け持つ。
-旧29関数のassertion対応と登録は [CASES.md](CASES.md#issue-17-model-designの検証責務) を参照。
+
 pytest/direct/module completionとrunner receiptの契約は維持する。
 
 ## Importの責務
@@ -40,7 +40,7 @@ pytest/direct/module completionとrunner receiptの契約は維持する。
 `import-model` ITは29登録関数・37 pytest条件（変更前47関数・104条件）。Acquire→Review→Publishの保存/再読込、
 bind/replace、参照、Atomicity、部分失敗Rollback、Receipt整合性、実Recovery、非選択Resource・他サービス/環境の不変を検証する。
 Identity/Scope、Review/Approval、候補差分、参照診断の入力組合せは既存Import UTの直接関数呼出に集約する。
-削除18関数と縮小条件のAssertion対応は [Issue 14台帳](CASES.md#issue-14-import-it-responsibility-reduction) を参照。
+
 UTからITのPublication helperやFull fixtureを実行しない。
 
 共有seedの `populate()` は既存Fullのまま。Import ITだけ明示的にFocused（project.jsonと対象dev Serviceの入口/parts）を選べる。
@@ -48,7 +48,7 @@ UTからITのPublication helperやFull fixtureを実行しない。
 Full代表ITと明示構築したCloudTrail/S3参照ITで、Focusedにない他サービス/環境の保護を保証する。
 Git/WorktreeとCLI実行境界は既存専用ITに任せ、Import ITのPopen Git禁止・worktree fixture非ロードを維持する。
 
-ローカルでは関連UT・構文・pytest収集・登録/Receipt静的整合性を確認する。ITと性能測定は実行しない。
+ローカルでは関連UT・構文・pytest収集・Discovery/Receipt静的整合性を確認する。ITと性能測定は実行しない。
 目標10秒未満と削減対象UT+IT合計時間の非悪化は、公式Framework ITのbaseline_refを使う同条件比較で判定する。
 CI実測前に高速化達成と報告しない。Fixtureのコピー削減だけから性能効果を断定しない。
 
@@ -113,15 +113,15 @@ productionの管理所有者確認は維持し、そのfactory/registry境界を
 全UT/IT/supportの依存を静的にたどり、直接/間接Import・動的fixture loader・worktree Mockを検出する。
 pytestと公式IT runnerには実操作/管理書込の実行時guardもある。通常Git init/commit/diffとproductionの
 read-only discoveryは許可する。公開Reviewの `worktree` フィールドは証跡の入力データとして保持する。
-分類・移動先・assertion対応は [CASES.md](CASES.md#worktree-dependency-separation-master-1024v2) を参照。
+
 
 Worktree関連5 ITは27関数・29入口。実Git/Worktree、CLI連携、状態の永続化、失敗復旧、独立プロセス間Lockだけを検証する。
 入力条件は既存Import/Model/Worktree UTへ集約し、Python decodingとglobal wrapperのIT関数は廃止した。
 実venv初回生成・再利用とプロセス間排他を保持する。Fake AWSも本番と同じ1回のbounded操作を使い、テストsupervisorが必要な追加pollを明示する。schedulerのsleep注入・連続実行modeは使用しない。
-削除した内部パターン数、既存UT対応、各IT固有の保証は[削減一覧](CASES.md#worktree-it-runtime-reduction-master-1024v4)を参照。
-ローカルで長時間ITや性能比較を再実行しない。関連短時間UT・構文・登録静的整合性を確認し、ITと時間測定は既存Framework ITに委ねる。30%以上の時間削減は実測前には達成扱いにしない。
 
-Deploy repair専用ITは2関数2入口（明示actionによる通常修復とMerge復旧）。通常修復は現行の独立Deployと実CLI・fresh Validationまで通し、Merge復旧は正式Requestと実Git FF直後中断・永続State再開・証拠/入力保持・Cleanupを検証する。異常YAMLは通常修復で一度確認する。Assertionの対応は[責務一覧](CASES.md#worktree-deploy-repair-performance-responsibilities)を参照。progress/current requestの永続化地点は維持し、性能未計測や10秒未達を達成扱いにしない。
+ローカルで長時間ITや性能比較を再実行しない。関連短時間UT・構文・Discovery静的整合性を確認し、ITと時間測定は既存Framework ITに委ねる。30%以上の時間削減は実測前には達成扱いにしない。
+
+Deploy repair専用ITは2関数2入口（明示actionによる通常修復とMerge復旧）。通常修復は現行の独立Deployと実CLI・fresh Validationまで通し、Merge復旧は正式Requestと実Git FF直後中断・永続State再開・証拠/入力保持・Cleanupを検証する。異常YAMLは通常修復で一度確認する。progress/current requestの永続化地点は維持し、性能未計測や10秒未達を達成扱いにしない。
 
 ## Dependency index（v3のみ）
 
@@ -158,9 +158,25 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 
-`worktree-deploy-repair.checks.py` の通常修復、Merge復旧は、各ケースを独立Pythonプロセスで同時実行する。各プロセスは全ケースを収集して固定された2 node IDとの一致を確認し、指定ケースだけを実行する。親は正常終了とケース別Receiptを検証して一つに統合し、既存の台帳到達性検査に渡す。一時領域と検証キャッシュはケースごとに分離し、共有Fixtureは読み取り専用とする。失敗・中断時は残存プロセスを停止してケース別ログを保存する。baselineと他のスイートは従来の実行経路を使う。
+`worktree-deploy-repair.checks.py` の通常修復、Merge復旧は、各ケースを独立Pythonプロセスで同時実行する。各プロセスは全ケースを収集して固定された2 node IDとの一致を確認し、指定ケースだけを実行する。親は正常終了とケース別Receiptを検証して一つに統合し、既存のReceipt到達性検査に渡す。一時領域と検証キャッシュはケースごとに分離し、共有Fixtureは読み取り専用とする。失敗・中断時は残存プロセスを停止してケース別ログを保存する。baselineと他のスイートは従来の実行経路を使う。
 
-登録件数とparameter数は `CASES.md` と実収集から照合する。pytestは既存 `PytestReceipt`、直接実行は正常return後の `@it_case`、module型は末尾の `module_complete(__file__)` で完了を確認する。未登録suite、未実行・未完了ケース、不正receipt、非0終了を失敗とする。件数を合格ノルマにしない。
+## IT入口の自動発見と差分レビュー
+
+`support/it_discovery.py` は `integrations/**/*.py` をASTで読み、最上位の `check_*`、pytest入口/alias、`@it_case`、末尾の `module_complete(__file__)` を重複なく発見する。対象モジュールはimport・実行しない。fixtureからのpytest CLI再exportもソースを読むだけで解決する。独立して実行するスイートは `integrations/**/*.checks.py` だけとし、補助Pythonファイルは呼出元スイートのReceiptで完了を確認する。
+
+直接呼出しとcallback参照をたどって所有スイートを求める。静的参照は実行の証明にはせず、実行時の正常returnだけがdirect完了となる。孤立入口、実行責務不明な `test_*`、重複定義/alias、不正Decorator、末尾マーカー欠落、解析不能、空Discovery/スイートはFAIL。動的な入口やclass型を黙って推測せず、対応するDiscovery/検証を実装してから導入する。
+
+ケースIDは `相対ファイルパス::関数名` / `::__module__` のまま。pytestは既存 `PytestReceipt` で、期待関数ごとに1件以上の収集と、展開後の全node IDの一度ずつのPASSを確認する。skip/失敗、期待関数全体の未収集、未知/重複node、完了イベントの所有スイート不正、Receipt欠落、非0終了はFAIL。direct関数の正常な繰返し実行は許可する。共有fixture、Worktreeポリシー、assertion guard、並列Repair/Checkpointとbaseline計測は従来のまま。固定総数を成功条件にしない。
+
+PRでは公式Workflowがbase SHAを別checkoutへ取得し、次の比較専用モードを実行する。通常のFull Runnerは追加collectを行わない。
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/tests/run_it.py --compare-root /path/to/trusted-base-checkout
+```
+
+両revisionの入口IDをASTで比較する。Pythonソース・Fixtureデータ・Frameworkカタログまたはpytest設定が変わった場合だけ、pytest型スイートを各revisionの独立子プロセスでcollectし、展開後node IDの削除・追加を比較する。変更依存を見逃さないよう共有Framework/supportの変更時も比較する。collectはテスト本体を走らせないが、import・conftest・collection hookの副作用は起こり得る。信頼するcheckoutと互換な依存環境でのみ実行し、各collectの上限は120秒。差分はstdout/Actions Summaryだけに表示し、永続台帳を生成しない。
+
+`review_required: true` の減少は、意図的な統廃合かレビューする。比較成功は変更を承認する意味ではなく、レビューを機械で代行しない。名称変更は削除/追加として見える。解析・collect失敗、比較中の入力変更、比較不能は非0終了とし、未検証をPASS扱いしない。baseのないpush/ローカル通常実行では、現在のコードだけでは過去のテスト削除・パラメータ減少を証明できないことを結果に明示する。性能用baselineの未検証表示とは別の検査である。
 
 
 全関数・全行の監視は使用しない。ファイルコピー・子プロセス・fixture生成のauditイベントと、スイート別の時間・終了コード・receiptを維持する。FAIL後も残りのスイートを実行し、結果をActionsログとSummaryに記録する。追加のFull IT実行入口は設けず、`blueprint-loop.py` の回帰はUTのみとする。
@@ -178,10 +194,10 @@ Snapshotの12差分条件は既存check_snapshot_conflictへ集約し、Sync UT�
 read-onlyのView欠落拒否も既存check_missing_validation_inputsへ補い、Model欠落とは別条件で非生成と入力不変を確認する。
 Validator正常ITは新規生成/既存更新の2条件を維持する。欠落からのMarkdown/JSON生成とoriginals=None、Markdownだけの更新と旧bytesの受渡しを区別し、両方で保存後Acceptance・正本保護を確認する。
 PassCacheは同一呼出し内だけ再利用する。別Validatorの生成省略を期待せず、freshと入力変更後の失効は直接UT、候補結果からAcceptanceへの再利用は既存CheckResult UTが保証する。
-共有generated_policy seedと既存pytest入口・receipt・reachabilityを維持する。旧67条件のAssertion分類、削除/統合理由と各ITの固有保証は [CASES.md](CASES.md#issue-15-sync-model-itの責務再編) を参照。
+共有generated_policy seedと既存pytest入口・receipt・reachabilityを維持する。
 ローカルでは関連UTと構文/parameter数/登録を静的確認し、IT本体・時間計測・cProfileは実行しない。直近成功CIの13.37秒は1024v9自体の測定値ではない。10秒以下の達成とIT PASSは、変更後の既存Framework ITでの確認待ち。
 
-Framework定義（Mapping/Schema/Rules/Catalog/Materials等）はテスト中に変更・追加・削除せず、コピーも同じ内容を維持する。定義変更に依存する条件を削除し、現行定義の読取・メモリ上の入力検証・独立した読取例外、Model/Task/生成物の変更と保存保護は維持する。削除・部分削除・Fixture整理と台帳件数の差分は [CASES.md](CASES.md#framework定義不変による削除) を参照。
+Framework定義（Mapping/Schema/Rules/Catalog/Materials等）はテスト中に変更・追加・削除せず、コピーも同じ内容を維持する。定義変更に依存する条件を削除し、現行定義の読取・メモリ上の入力検証・独立した読取例外、Model/Task/生成物の変更と保存保護は維持する。
 
 ## 静的Fixture
 
@@ -219,7 +235,7 @@ ITは実行環境のCLI一致（正常/異常の各代表1件）、Worker設定�
 設定隔離の4連続要求でHOME/cwd設定、custom ruleの状態、registry/overrideの再読込、NoEcho、output非書込をまとめる。
 Scan→Lint→Artifact→Review→Saveと入力変更後の保存許容の実接続は既存 `issues_scan::check_scan_publish_mismatch` に一本化し、重いケースを他suiteへ追加しない。
 View障害別分類・独立Service継続・非Cache・入力変更許容は `issues_scan-unit`、設定/入力/schema分類・期限/protocol/fatal・終了エスカレーションは `issues-lint-unit` が受け持つ。
-全旧assertionと削除/移管先は [Issue 21対応表](CASES.md#issue-21-issues-lintの検証責務) を参照。
+
 
 要求は `time.monotonic()` の一つの期限で管理し、固定5秒猶予と無期限readlineを使わない。
 既存progress packetを中継し、断片stdoutでも期限を守り、取得済み診断をTimeout/異常終了後も保持する。
@@ -280,7 +296,7 @@ controller ITは6関数6フロー。Order 10の2Stack配送・成功・実Model�
 
 `deploy-observed-recovery.checks.py` の1フローは、小さいModel/planとMarkdown/JSONの部分書込journalを使い、実reconcile・所有者検証・publication_lock・復元を通す。controller/AWS/Git/seed/renderer/子processは使わない。小型ITからUTをimportしない。
 
-組み合わせは既存SDK/runtime/observed-resume/handoff UTへ集約し、不足する削除イベント照合、応答喪失と保存状態、guard停止、公開stageのI/O失敗、署名/accept/request/未実行失敗だけ直接呼出しで補強する。旧66条件の主要assertion対応と各入口/展開数は[対応台帳](CASES.md#deploy-controller-processing-reduction-1024v4)を参照。
+組み合わせは既存SDK/runtime/observed-resume/handoff UTへ集約し、不足する削除イベント照合、応答喪失と保存状態、guard停止、公開stageのI/O失敗、署名/accept/request/未実行失敗だけ直接呼出しで補強する。
 
 seed・Project全生成・Git initは各66→6、初期Gitは330→30、Python子processは100→7の静的見込み。小型ITと新規UTの追加子processは0。既存sleep無効化・skip・xfail・timeout短縮やrunner選別を短縮根拠にしない。Worktree normal/mergeは実checkpoint/child/validation/merge/cleanup/親Task再開とコピー結果・再適用・未記録変更拒否を保持し、追加assertionを共有helperから明示的に呼ぶ。
 
@@ -303,7 +319,7 @@ boto3 Session/Clientは不要。新Fixture自体の拒否条件・分離・cache
 既存Offline/Stubberは維持し、ITはcommon/associations/batch/cli/stacks/cfn-identity/coverageの7 callback、
 pytest8条件（consumer条件付き入口を含む）で実コンポーネント間の接続とSDK paginatorを担当する。
 分岐・異常入力・比較値の組合せは既存check-model-aws UTへ移管した。
-assertion移管と重複削除の対応は [CASES.md](CASES.md#issue-20-check-model-aws-responsibility-separation) を参照。
+
 ローカルでは関連UTとIT構文/import/登録の静的確認だけを行い、IT実行・時間計測は行わない。
 CIの10秒目標は、後続の同一条件測定で判断する。異なる環境のwall時間から改善率を計算しない。
 
@@ -312,7 +328,7 @@ CIの10秒目標は、後続の同一条件測定で判断する。異なる環�
 ITは7条件。実CLI→Validator、子プロセス・heartbeat・並列同期、対象Taskだけのsuspend、実Git staged snapshotの隔離・stale拒否、失敗後の後続と診断を保証する。
 正常Model/Designと失敗時の入力は共有generated_policy seedの独立コピーを使い、Sync CLIを起動しない。
 モード・引数・authorization・startup診断11条件・Windows guard・snapshot finallyは既存UTへ統合する。
-全assertionの対応先は[Issue 18台帳](CASES.md#issue-18-blueprint-loopの検証責務)を参照。
+
 ローカルでは関連UTと静的確認のみを実行し、ITのPASSと10秒以内の達成は正式CIで確認する。
 
 ## Pending environment Values
@@ -372,7 +388,7 @@ and change only the proved expression under a separately authorized Model Task.
 指定6 suiteに加えてDesign Document/Route53 Import Expressionを削除し、サービス契約13補助登録とValidator補助10登録を整理した。
 値/型/Schema/Enum/比較/警告/Cacheの細かな条件は既存UT内の直接検証に置く。UTファイルやRunnerは新設しない。
 
-全68残存ITの境界、追加UT、削除根拠、Phase結果は[CASES.md](CASES.md#framework-it-to-ut-migration-74252f5-baseline)に記録する。
+
 
 ITは実CLI、複数保存Model/環境の参照と依存Snapshot、実Git/Worktree、Task/Controller、Publication/Atomicity/Recoveryを所有する。
 保存前の失敗遮断と旧bytes保持、実複数workerやプロセス間の隔離は、それぞれの実経路で検証する。
@@ -425,7 +441,7 @@ write failures and full rollback; the node round-trip IT owns artifact-backed re
 Run related UTs, scoped validation and repository-wide Ruff locally; long/full IT and live AWS
 remain separate checks.
 
-Dependency index tests require sealed v3 with an integer version. Legacy or invalid versions are rejected for publication, updates, inventory and Deploy; missing-index bootstrap remains separate. The offline `model/cli.py index --repository-root <root>` rebuild derives v3 from Model sources without trusting old edges. See [CASES.md](CASES.md#dependency-index-v3-only-issue-49).
+Dependency index tests require sealed v3 with an integer version. Legacy or invalid versions are rejected for publication, updates, inventory and Deploy; missing-index bootstrap remains separate. The offline `model/cli.py index --repository-root <root>` rebuild derives v3 from Model sources without trusting old edges.
 
 Deploy一時入力のreclaimはprogress lock内で行い、正確なWorktree/Task/digestの所有物だけを対象にする。
 別Worktree・別Taskは探索・書換えせず保全する。未確定要求、Observed/生成/最終保存候補の参照も保持する。
@@ -442,3 +458,9 @@ base immutability, creation-only pre-push race protection, process-exit lock rel
 one-pass final validation and default FF behavior. gh/API calls are mocked; these tests never
 push to GitHub or create a live PR. Run only these related IT cases/suites when explicitly
 validating this feature; no new runner or unrelated Full IT run is required.
+
+## Model監査テストの検証責務
+
+`units/model_test/` は応答変換・比較・参照解決・コード生成・レポートを合成入力で検証する。Route53 Producer観測の `test_route53_alias_producer_observation` は `generation-unit.checks.py` のpytest入口である。`test_*` の補助関数は呼出関係と実収集で区別し、名前だけでITへ追加しない。
+
+`integrations/model_test/` のAudit RoundtripはModelからの監査Python生成・保存、独立プロセス実行、OK/NG/ERROR、ログの保存/再読込とstdout一致、Model不変性を検証する。CLI ContractはTask/出力Scope、completed/suspend・契約変更・契約なしの拒否、出力保護と復旧を検証する。`fixtures/model_test/` のInput/Expectedは手動で定義し、実行結果から期待値を更新しない。結果レコードだけpropertiesKeyで整列し、型・配列順序・API引数/順序・余分な呼出・マスキングも検証する。両ITの正常returnを通常のDiscovery/Receiptで照合する。

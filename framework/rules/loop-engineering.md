@@ -310,11 +310,15 @@ All UT and IT run in [Framework IT](../../.github/workflows/framework-it.yml) on
 push to `main`/`master`, and manual dispatch, using Python 3.14 and the existing requirements.
 Its sole entrypoint is `framework/scripts/tests/run_it.py`. CI has no changed-file or case selection
 and no path filters. The existing loop scheduler runs every UT with at most 2 workers,
-then the IT runner executes every registered suite; either failure fails the job, and UT
+then the IT runner executes every discovered suite; either failure fails the job, and UT
 failures do not skip IT.
 Existing pytest/direct entrypoints run in independent processes. It continues after suite failures, records PASS/FAIL and duration,
-and reconciles runtime verification receipts with `tests/CASES.md`. Missing execution,
-skipped pytest bodies, stale registrations and parameter-count mismatches fail the job.
+and reconciles runtime verification receipts with independently AST-discovered Python entrypoints.
+Each expected pytest function must collect at least one node, and every collected node must pass
+exactly once. Direct/helper/module completion and suite ownership remain required. Missing execution,
+skips, unknown/duplicate nodes and invalid receipts fail the job. PR definition comparison reports
+removed/renamed entry IDs and expanded node IDs for review; current-source receipts alone cannot
+prove historical test deletion. See [IT discovery](../scripts/tests/README.md#it入口の自動発見と差分レビュー).
 Full IT owns one immutable authored fixture bundle and its cleanup; modifying cases
 use independent copies. Git/worktree integration tests validate that
 functionality; other tests must not initialize Git/worktree environments unnecessarily. Generation events and before/after content/permission fingerprints
