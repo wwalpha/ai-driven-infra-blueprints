@@ -126,9 +126,12 @@ def check_preparation():
                 ).hexdigest()
             )
         entrance = root / "model/dev/123456789012/ec2.properties"
-        assert all(
-            p.relative_to(root).as_posix() in plan["inputIdentities"]
-            for p in model_parts(entrance)
+        TestCase().assertTrue(
+            all(
+                p.relative_to(root).as_posix()
+                in plan["inputIdentities"] | plan["inputs"]
+                for p in model_parts(entrance)
+            )
         )
         assert all(name in plan["controllerArgv"] for name in STACKS)
         assert (

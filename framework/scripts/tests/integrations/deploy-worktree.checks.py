@@ -28,6 +28,7 @@ from deploy import (
     guards,
     inputs,
     operation_journal,
+    preparation,
     scheduler,
     steps,
     temporary,
@@ -36,7 +37,10 @@ from deploy import (
 from deploy import git_publication as publication
 from model.format import parse
 from model.format import patch as patch_properties
+from model.sources import load_model
+from support import deploy_controller_fixtures, worktree_deploy_fixtures
 from support.deploy_controller_fixtures import ACCOUNT, aws_state, invoke
+from support.model_sources import write_model
 from support.pytest_cli import run
 from support.worktree_deploy_fixtures import seed
 from support.worktree_task_fixtures import fixture, git
@@ -603,6 +607,128 @@ def run_controller(root, report, aws):
         ):
             return 0
     raise AssertionError("short operations did not complete local checkpoints")
+
+
+def check_order_range_preparation_publication_and_resume(tmp_path, monkeypatch):
+    report, aws = tmp_path / "report.json", tmp_path / "aws.json"
+    primary = deploy_controller_fixtures.seed(
+        tmp_path / "project", report, "observed-peers"
+    )
+    first_template = primary / "infra/cloudformation/templates/first.yaml"
+    first_template.write_text(
+        deploy_controller_fixtures.load_case("deploy_controller", "orders")["files"][
+            "infra/cloudformation/templates/first.yaml"
+        ]
+        + "\n  VpcFirst:\n    Type: AWS::EC2::VPC\n    Properties: {CidrBlock: 10.1.0.0/16}\n",
+        encoding="utf-8",
+    )
+    stack_source = primary / f"model/dev/{ACCOUNT}/cloudformation-stacks.properties"
+    values = dict(inputs.stack_snapshot(stack_source).values)
+    for number, order in enumerate((30, 40, 60), 1):
+        values[f"desired.stack.{number:03d}.deployOrder"] = str(order)
+    write_model(stack_source, values)
+    design = primary / f"docs/designs/dev/{ACCOUNT}/cloudformation-stacks.md"
+    design.write_text(
+        inputs.stack_markdown(design, values, primary, validate_delivery=False).replace(
+            "third.yaml", "stale-third.yaml"
+        ),
+        encoding="utf-8",
+    )
+    outside_view = design.read_bytes()
+    git(primary, "add", "model", "docs", "infra")
+    git(primary, "commit", "-qm", "Synthetic partial deployment inputs")
+    with patch.object(worktree_deploy_fixtures, "seed_project", return_value=primary):
+        root = seed(primary, report)
+    baseline = git(primary, "rev-parse", "HEAD")
+    contract = root / "tasks/deploy.md"
+    contract.unlink()
+    logs = tmp_path / "preparation"
+    TestCase().assertEqual(
+        preparation.main(
+            [
+                "--repository-root",
+                str(root),
+                "--environment",
+                "dev",
+                "--aws-account-id",
+                ACCOUNT,
+                "--order-from",
+                "30",
+                "--order-to",
+                "50",
+                "--task-file",
+                "tasks/deploy.md",
+                "--log-dir",
+                str(logs),
+            ]
+        ),
+        0,
+    )
+    plan_path = next(logs.iterdir()) / "preparation.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    TestCase().assertEqual(plan["scope"], [f"dev/{ACCOUNT}/ec2", f"dev/{ACCOUNT}/s3"])
+    selected = {"cfn-stack-app-dev-first", "cfn-stack-app-dev-second"}
+    TestCase().assertEqual(set(plan["ownership"]["resources"]), selected)
+    TestCase().assertEqual(
+        preparation.main(
+            [
+                "--repository-root",
+                str(root),
+                "--register",
+                str(plan_path),
+            ]
+        ),
+        0,
+    )
+    fixed = contract.read_bytes()
+    source = root / f"model/dev/{ACCOUNT}/s3.properties"
+    before = {
+        key: value
+        for key, value in load_model(source).authoritative.items()
+        if key.startswith(
+            (
+                "desired.resource.003.",
+                "display.resource.003.",
+                "desired.row.003-",
+                "observed.row.003-",
+            )
+        )
+    }
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    aws_state(aws)
+    TestCase().assertEqual(run_controller(root, report, aws), 0)
+    saved = json.loads(report.read_text(encoding="utf-8"))
+    TestCase().assertEqual(set(saved["states"]), selected)
+    TestCase().assertTrue(
+        all(
+            state.get("observedSynced") and state.get("checkpointed")
+            for state in saved["states"].values()
+        )
+    )
+    TestCase().assertEqual(saved["gitPublication"]["status"], "SUCCESS")
+    TestCase().assertNotEqual(git(primary, "rev-parse", "HEAD"), baseline)
+    TestCase().assertEqual(
+        (root / design.relative_to(primary)).read_bytes(), outside_view
+    )
+    TestCase().assertEqual(design.read_bytes(), outside_view)
+    TestCase().assertEqual(
+        {
+            key: value
+            for key, value in load_model(source).authoritative.items()
+            if key in before
+        },
+        before,
+    )
+    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
+    TestCase().assertFalse(
+        any("cfn-stack-app-dev-third" in str(arguments) for _, _, arguments in calls)
+    )
+    TestCase().assertEqual(invoke(root, report, aws, ["--action", "status"]), 0)
+    TestCase().assertEqual(contract.read_bytes(), fixed)
+    TestCase().assertEqual(
+        set(json.loads(report.read_text(encoding="utf-8"))["states"]), selected
+    )
 
 
 def check_controller_keeps_aws_success_after_rewrite_and_conflict(

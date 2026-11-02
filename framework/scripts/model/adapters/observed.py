@@ -5,6 +5,7 @@ import hashlib
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
+import deploy.inputs as _imports_deploy_inputs
 import sync_runtime as _imports_sync_runtime
 from deploy.model_cache import RunModels
 from design.catalog import DesignSchemaCatalog
@@ -263,9 +264,9 @@ def static_export_handle(document, logical, parameters, pseudo):
         return False
 
 
-def require_fixed_stack_names(source, selected):
+def require_fixed_stack_names(source, selected, *, values=None):
     bound_stack_names = _imports_model_projection.bound_stack_names
-    bound = bound_stack_names(source)
+    bound = bound_stack_names(source, values=values)
     for fixed, desired in bound.items():
         if desired in selected and fixed != desired:
             ambiguous(
@@ -325,8 +326,21 @@ def _mappings(
     source = (
         root / "model" / environment / directory / "cloudformation-stacks.properties"
     )
-    values = properties(read_model(source)) if model_exists(source) else {}
-    bound = require_fixed_stack_names(source, {unit["name"] for unit in units})
+    names = {unit["name"] for unit in units}
+    values = (
+        (
+            _imports_deploy_inputs.selected_stack_values(
+                _imports_deploy_inputs.stack_snapshot(source).values, names
+            )
+            if selection is not None
+            else properties(read_model(source))
+        )
+        if model_exists(source)
+        else {}
+    )
+    bound = require_fixed_stack_names(
+        source, names, values=values if selection is not None else None
+    )
     if values:
         stack_model(values)
     target = target or (

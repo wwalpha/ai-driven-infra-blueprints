@@ -27,8 +27,10 @@ from support.deploy_preparation_fixtures import (
     subprocess,
     sys,
     tempfile,
+    write_model,
 )
 from utils.aws.identity import IdentityError
+from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from validation.findings import Findings
 
@@ -151,7 +153,10 @@ def check_instruction_changes_do_not_invalidate_registration(tmp_path):
     task = root / args.task_file
     task.parent.mkdir()
     task.write_text(Path(plan["contract"]).read_text())
-    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0)):
+    with (
+        mapping_alias(ROOT, root),
+        patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0)),
+    ):
         registered = M.register(root, path, timing)
     assert registered["registeredContractDigest"] == M.sha(task)
     assert not any(
@@ -257,33 +262,78 @@ def test_order_selection(lower, upper, expected):
         M.select_stacks(values, order_from=50)
 
 
-def test_invalid_stack_diagnostic_identifies_outside_stack(tmp_path):
+def selected_values():
     values = {"desired.deployment.maxConcurrentStacks": "1"}
-    for number, name in ((1, "One"), (2, "Two")):
+    for number, name, order in ((1, "One", 30), (2, "Two", 60)):
         for key, value in {
             "name": name,
-            "deployOrder": str(number * 10),
+            "placementName": name,
+            "deployOrder": str(order),
             "template": "valid.yaml",
             "parameters": f"{number}.json",
         }.items():
             values[f"desired.stack.{number}.{key}"] = value
-    values["desired.stack.2.template"] = "bad/path"
+        values[f"display.stack.{number}.comment"] = "合成Stack"
+    return values
+
+
+@pytest.mark.parametrize("field", ["template", "parameters", "artifact"])
+def test_invalid_outside_stack_does_not_block(tmp_path, field):
+    values = selected_values()
+    if field == "artifact":
+        values.update(
+            {"desired.artifact.1.stack": "Two", "desired.artifact.1.source": "bad/path"}
+        )
+    else:
+        values[f"desired.stack.2.{field}"] = "bad/path"
+    names = [
+        stack["name"]
+        for _, stack in M.select_stacks(values, order_from=30, order_to=50)
+    ]
+    _, units = M.load_units(
+        tmp_path, "dev", "target", names, snapshot=SimpleNamespace(values=values)
+    )
+    TestCase().assertEqual([unit["name"] for unit in units], ["One"])
+
+
+@pytest.mark.parametrize("field", ["template", "parameters", "artifact"])
+def test_invalid_selected_stack_blocks(tmp_path, field):
+    values = selected_values()
+    if field == "artifact":
+        values.update(
+            {"desired.artifact.1.stack": "One", "desired.artifact.1.source": "bad/path"}
+        )
+    else:
+        values[f"desired.stack.1.{field}"] = "bad/path"
     with pytest.raises(
         Blocked,
-        match="cloudformation-stacks.properties: StackName=Two DeployOrder=20.*template='bad/path'",
+        match="StackName=One.*" + ("artifact" if field == "artifact" else field),
     ):
         M.load_units(
             tmp_path, "dev", "target", ["One"], snapshot=SimpleNamespace(values=values)
         )
-    values["desired.stack.2.template"] = "valid.yaml"
-    values["desired.stack.2.parameters"] = "1.json"
-    with pytest.raises(Blocked, match="StackName=Two.*parameter.*StackName=One"):
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("name", "One"),
+        ("deployOrder", "unknown"),
+        ("parameters", "1.json"),
+        ("placementName", "One"),
+    ],
+)
+def test_global_selection_and_selected_collisions_block(tmp_path, field, value):
+    values = selected_values()
+    values[f"desired.stack.2.{field}"] = value
+    with pytest.raises(Blocked):
         M.load_units(
             tmp_path, "dev", "target", ["One"], snapshot=SimpleNamespace(values=values)
         )
 
 
-def test_stack_view_diagnostics_identify_mismatched_stack(tmp_path):
+@pytest.mark.parametrize("selected", [[STACKS[0]], [STACKS[1]], None])
+def test_stack_view_diagnostics_identify_mismatched_stack(tmp_path, selected):
     root = tmp_path / "repo"
     fixture(root)
     source = root / "model/dev/123456789012/cloudformation-stacks.properties"
@@ -293,16 +343,108 @@ def test_stack_view_diagnostics_identify_mismatched_stack(tmp_path):
         design.read_text(encoding="utf-8").replace("second.yaml", "incorrect.yaml"),
         encoding="utf-8",
     )
-    with pytest.raises(
-        inputs.DeployStepBlocked, match="StackName=" + STACKS[1] + ".*template"
-    ):
-        inputs.check_stack_markdown(root, snapshot)
+    if selected == [STACKS[0]]:
+        inputs.check_stack_markdown(root, snapshot, selected)
+    else:
+        with pytest.raises(
+            inputs.DeployStepBlocked, match="StackName=" + STACKS[1] + ".*template"
+        ):
+            inputs.check_stack_markdown(root, snapshot, selected)
     design.write_text(
         design.read_text(encoding="utf-8").replace("shared.yaml", "wrong.yaml"),
         encoding="utf-8",
     )
     with pytest.raises(inputs.DeployStepBlocked):
-        inputs.check_stack_markdown(root, snapshot)
+        inputs.check_stack_markdown(root, snapshot, selected)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "comment",
+        "invalid-unrelated",
+        "owner",
+        "duplicate",
+        "missing",
+        "new-owner",
+        "dependency",
+    ],
+)
+def test_registration_rechecks_selected_ownership(tmp_path, change):
+    root, run = tmp_path / "repo", tmp_path / "run"
+    fixture(root)
+    run.mkdir()
+    args = SimpleNamespace(
+        task_file="tasks/deploy-test.md",
+        service=None,
+        environment="dev",
+        aws_account_id="123456789012",
+        alias=None,
+        stack=None,
+        order_from=10,
+        order_to=10,
+        profile=None,
+        sequential=True,
+    )
+    timing = M.Timing(root)
+    with patch.object(
+        M, "environment", return_value={"python": sys.executable, "tools": {}}
+    ):
+        plan = M.prepare(root, args, run, timing)
+    plan["preparationSeconds"] = 0
+    path = run / "preparation.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+    entrance = root / "model/dev/123456789012/ec2.properties"
+    part = next(
+        p
+        for p in (entrance, *entrance.with_suffix("").rglob("*.properties"))
+        if STACKS[1] + "-Vpc" in p.read_text(encoding="utf-8")
+    )
+    original = part.read_text(encoding="utf-8")
+    if change == "comment":
+        part.write_text(original + "# unrelated display comment\n", encoding="utf-8")
+    elif change == "invalid-unrelated":
+        part.write_text(
+            original.replace(STACKS[1] + "-Vpc", "invalid"), encoding="utf-8"
+        )
+    elif change == "duplicate":
+        part.write_text(
+            original.replace(STACKS[1] + "-Vpc", STACKS[0] + "-WorkerRole"),
+            encoding="utf-8",
+        )
+    elif change == "new-owner":
+        values = dict(M.raw_model(entrance).authoritative)
+        values["desired.resource.001.cfn-logicalId"] = STACKS[0] + "-WorkerRole"
+        write_model(entrance.with_name("unexpected.properties"), values)
+    else:
+        owner = root / "model/dev/123456789012/iam.properties"
+        if change == "missing":
+            owner.unlink()
+        else:
+            owner.write_text(
+                owner.read_text(encoding="utf-8")
+                + (
+                    "# changed dependency\n"
+                    if change == "dependency"
+                    else "desired.resource.001.cfn-logicalId=Changed-Owner\n"
+                ),
+                encoding="utf-8",
+            )
+    task = root / args.task_file
+    task.parent.mkdir()
+    task.write_text(
+        Path(plan["contract"]).read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    with patch.object(
+        M.subprocess, "run", return_value=SimpleNamespace(returncode=0)
+    ) as register:
+        if change in {"comment", "invalid-unrelated"}:
+            M.register(root, path, timing)
+            register.assert_called_once()
+        else:
+            with pytest.raises(ValueError):
+                M.register(root, path, timing)
+            register.assert_not_called()
 
 
 def test_ownership_discovery_uses_selected_stack(tmp_path):
@@ -385,3 +527,146 @@ def test_removed_resource_observation_remains_authorized(tmp_path, monkeypatch):
         root, task, findings, plan=SimpleNamespace(changes={"ec2": change})
     )
     TestCase().assertEqual(findings.errors, [])
+
+
+@pytest.mark.parametrize("field", ["template", "parameters", "artifact"])
+def test_preparation_ignores_real_outside_stack_definition(tmp_path, field):
+    root, run = tmp_path / "repo", tmp_path / "run"
+    fixture(root)
+    run.mkdir()
+    source = root / "model/dev/123456789012/cloudformation-stacks.properties"
+    text = (
+        source.read_text(encoding="utf-8")
+        .replace(".deployOrder=10", ".deployOrder=30")
+        .replace(".deployOrder=20", ".deployOrder=60")
+    )
+    source.write_text(text, encoding="utf-8")
+    design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
+    design.write_text(
+        inputs.stack_markdown(
+            design, M.stack_snapshot(source).values, root, validate_delivery=False
+        ),
+        encoding="utf-8",
+    )
+    if field == "artifact":
+        text += f"desired.artifact.001.stack={STACKS[1]}\ndesired.artifact.001.source=bad/path\n"
+    else:
+        text = text.replace(
+            "second.yaml" if field == "template" else "2.json", "bad/path"
+        )
+    source.write_text(text, encoding="utf-8")
+    args = SimpleNamespace(
+        task_file="tasks/deploy-test.md",
+        service=None,
+        environment="dev",
+        aws_account_id="123456789012",
+        alias=None,
+        stack=None,
+        order_from=30,
+        order_to=50,
+        profile=None,
+        sequential=True,
+    )
+    with patch.object(
+        M, "environment", return_value={"python": sys.executable, "tools": {}}
+    ):
+        plan = M.prepare(root, args, run, M.Timing(root))
+    TestCase().assertEqual(plan["scope"], ["dev/123456789012/iam"])
+    TestCase().assertEqual(
+        [unit["name"] for unit in plan["ownership"]["units"]], [STACKS[0]]
+    )
+    inputs.check_stack_markdown(root, M.stack_snapshot(source), [STACKS[0]])
+    with pytest.raises(ValueError):
+        inputs.stack_model(M.stack_snapshot(source).values)
+
+
+@pytest.mark.parametrize("number", ["001", "003"])
+def test_mixed_service_validates_only_selected_resource(tmp_path, monkeypatch, number):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    root = controller_fixtures.seed(
+        tmp_path / "repo", tmp_path / "session.json", "multi-observed"
+    )
+    path = root / "model/dev/123456789012/ec2.properties"
+    values = dict(M.load_model(path).authoritative)
+    values[f"desired.row.{number}-002.property"] = "EC2.VPC.UnsupportedProperty"
+    write_model(path, values)
+    text = (root / "tasks/deploy.md").read_text(encoding="utf-8")
+    line = next(
+        line for line in text.splitlines() if line.startswith("- Deployment scope:")
+    )
+    task = SimpleNamespace(
+        text=text.replace(line, "- Deployment scope: `cfn-stack-app-dev-first`")
+    )
+    findings = Findings(root)
+    execution_scope.validate_selected(root, task, findings)
+    if number == "001":
+        TestCase().assertEqual(findings.errors, [])
+    else:
+        TestCase().assertTrue(findings.errors)
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        "selected-stack",
+        "outside-stack",
+        "selected-artifact",
+        "outside-artifact",
+        "settings",
+        "header",
+    ],
+)
+def test_scoped_markdown_artifacts_and_common_structure(tmp_path, section):
+    root = tmp_path / "repo"
+    fixture(root)
+    source = root / "model/dev/123456789012/cloudformation-stacks.properties"
+    design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
+    values = dict(M.stack_snapshot(source).values)
+    for number, name in enumerate(STACKS, 1):
+        for field, value in {
+            "stack": name,
+            "resource": "WorkerRole",
+            "property": "Code",
+            "source": f"infra/cloudformation/artifacts/{number}.zip",
+            "bucket": '{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}',
+            "keyPrefix": "artifacts/",
+        }.items():
+            values[f"desired.artifact.{number:03d}.{field}"] = value
+    # Use the existing renderer with a synthetic IMPORT bucket producer.
+    producer = root / "model/dev/123456789012/s3.properties"
+    producer.write_text(
+        '# model-format: 2\ndesired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.logicalId=S3_Bucket_001\ndesired.resource.001.resourceMode=IMPORT\ndesired.resource.001.anchor=resource-S3_Bucket_001\ndesired.service.identity.lastAllocated={"S3.Bucket":1}\ndesired.row.001-001.property=S3.Bucket.BucketName\ndesired.row.001-001.value=`fixture-bucket`\ndesired.row.001-001.comment=配置先\n',
+        encoding="utf-8",
+    )
+    rendered = inputs.stack_markdown(design, values, root, validate_delivery=False)
+    old, new = {
+        "selected-stack": ("shared.yaml", "wrong.yaml"),
+        "outside-stack": ("second.yaml", "wrong.yaml"),
+        "selected-artifact": ("artifacts/1.zip", "artifacts/wrong.zip"),
+        "outside-artifact": ("artifacts/2.zip", "artifacts/wrong.zip"),
+        "settings": ("max-concurrent-stacks: 2", "max-concurrent-stacks: 3"),
+        "header": ("## Stack一覧", "## wrong"),
+    }[section]
+    design.write_text(rendered.replace(old, new), encoding="utf-8")
+    snapshot = SimpleNamespace(
+        values=values, scope=SimpleNamespace(environment="dev", target="123456789012")
+    )
+    if section.startswith("outside-"):
+        inputs.check_stack_markdown(root, snapshot, [STACKS[0]])
+    else:
+        with pytest.raises(inputs.DeployStepBlocked):
+            inputs.check_stack_markdown(root, snapshot, [STACKS[0]])
+
+
+@pytest.mark.parametrize("number", ["1", "2"])
+def test_reference_metadata_follows_selected_stack(number):
+    values = selected_values()
+    values["desired.reference.incomplete.consumerKey"] = (
+        f"desired.stack.{number}.template"
+    )
+    if number == "2":
+        selected = inputs.selected_stack_values(values, ["One"])
+        TestCase().assertNotIn("desired.reference.incomplete.consumerKey", selected)
+    else:
+        with pytest.raises(ValueError, match="invalid reference fields"):
+            inputs.selected_stack_values(values, ["One"])

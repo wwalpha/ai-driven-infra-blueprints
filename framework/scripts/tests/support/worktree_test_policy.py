@@ -64,6 +64,7 @@ WORKTREE_CASES = {
         "check_untracked_cleanup_uses_only_published_exact_task",
     ),
     "integrations/deploy-worktree.checks.py": (
+        "check_order_range_preparation_publication_and_resume",
         "check_contract_preparation_correction_round_trip",
         "check_current_request_is_shared_without_history_or_duplicate_execute",
         "check_create_review_execute_uses_one_atomic_request",

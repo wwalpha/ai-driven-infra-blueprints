@@ -8,7 +8,7 @@ import model.adapters.observed as observed_adapter
 from model.change_plan import ServiceChange
 from model.core import structural_entries
 from model.format import owner
-from model.sources import FileReads, load_model, stack_snapshot
+from model.sources import FileReads, load_model
 from model.validations.change_inputs import check_change_inputs
 from task_contract_core import section, task_snapshot
 from utils.cloudformation.inputs import load_template_inputs
@@ -67,7 +67,7 @@ def validate_selected(root, task, findings, definitions_root=None, plan=None):
     source = (
         root / "model" / environment / directory / "cloudformation-stacks.properties"
     )
-    inputs.check_stack_markdown(root, stack_snapshot(source))
+    inputs.check_stack_markdown(root, inputs.stack_snapshot(source), names)
     templates = {
         unit["name"]: load_template_inputs(
             *inputs.paths(root, environment, directory, target, unit)

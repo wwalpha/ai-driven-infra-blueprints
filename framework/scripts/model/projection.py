@@ -69,11 +69,14 @@ def identifier_outputs(root: Path) -> dict[str, set[str]]:
     return outputs
 
 
-def bound_stack_names(path):
+def bound_stack_names(path, *, values=None):
     stack_snapshot = _imports_model_sources.stack_snapshot
     return {
         stack["placementName"]: stack["name"]
-        for _, stack in entries(stack_snapshot(path).authoritative, "desired.stack.")
+        for _, stack in entries(
+            stack_snapshot(path).authoritative if values is None else values,
+            "desired.stack.",
+        )
     }
 
 

@@ -532,13 +532,7 @@ class Validator:
             self.findings.evaluate(
                 "validation.deployment-scope",
                 self.scope,
-                lambda: _imports_deploy_scope.validate_selected(
-                    self.root,
-                    _imports_task_contract.task_snapshot(self.root, executable=False),
-                    self.findings,
-                    self.definitions_root,
-                    self.change_plan,
-                ),
+                self.check_deployment_scope,
                 isolate=True,
             )
         if self.model_validation == "change":
@@ -1613,9 +1607,32 @@ class Validator:
         }
         return definitions or None
 
+    def check_deployment_scope(self):
+        task = _imports_task_contract.task_snapshot(self.root, executable=False)
+        units = _imports_deploy_scope.validate_selected(
+            self.root, task, self.findings, self.definitions_root, self.change_plan
+        )
+        environment, directory, _ = next(iter(task.scope))
+        design = self.root / "docs/designs" / environment / directory / STACK_DESIGN
+        self.iac_paths = set(
+            _imports_deploy_inputs.task_deployment_input_paths(self.root) or ()
+        ) | {
+            self.root / path for path in self.changed_paths if path.startswith("infra/")
+        }
+        return {"stack_definitions": {design: units}}
+
     def check_cloudformation_environment_parameters(
         self, stack_definitions=None
     ) -> None:
+        if self.infrastructure_phase == "deploy":
+            result = self.findings.get_result("validation.deployment-scope", self.scope)
+            if result is None or result.status != "PASS":
+                self.check(
+                    False,
+                    "selected deployment scope validation is required before Parameters mapping",
+                )
+                return
+            stack_definitions = result.metadata["stack_definitions"]
         if stack_definitions is None:
             result = self.findings.get_result("design.stacks", self.scope)
             if result is not None and result.status == "PASS":

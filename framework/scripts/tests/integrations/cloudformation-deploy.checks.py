@@ -2025,7 +2025,7 @@ def check_deploy_preparation_separates_producer_reads_from_writes(
         ["network", "cloudformation-stacks"],
     )
     allowed = paths_in(text, "## Allowed paths")
-    assert producer not in sources
+    TestCase().assertIn(producer, sources)
     cache = RunModels(tmp_path, {})
     with model_sources.model_session(cache):
         snapshot = load_model(scope.path)

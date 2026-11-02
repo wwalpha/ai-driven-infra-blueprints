@@ -24,7 +24,7 @@ from model.core import structural_entries
 from model.dependency_index import inventory as model_inventory
 from model.dependency_index import revision as file_revision
 from model.render import owned_artifacts
-from model.sources import load_model, model_session, raw_model, stack_snapshot
+from model.sources import load_model, model_session, raw_model
 from utils.aws.identity import execution_account, select_profile
 from utils.aws_mappings import definition_root
 from utils.cloudformation.inputs import load_template_inputs
@@ -33,7 +33,13 @@ from utils.iac_values import cfn_resource_identity
 from utils.project_targets import load_target
 
 from deploy import cli_guidance
-from deploy.inputs import deployment_input_paths, load_units, paths, select_stacks
+from deploy.inputs import (
+    deployment_input_paths,
+    load_units,
+    paths,
+    select_stacks,
+    stack_snapshot,
+)
 from deploy.model_cache import RunModels
 from deploy.timing import Timing
 from model import dependency_index
@@ -113,6 +119,7 @@ def owning_resources(root, env, directory, target, units):
             for relative, entry in reads.dependency_index["models"].items()
             if relative.startswith(f"model/{env}/{directory}/")
             for identity in entry["owners"]
+            if identity.startswith(tuple(name + "-" for name in selected))
             if cfn_resource_identity(identity)[0] in selected
         }
         for path in dependency_index.owners(root, env, directory, identities):
@@ -160,7 +167,9 @@ def candidate(
         design = root / "docs/designs" / env / directory / (service + ".md")
         files.update(model_input_paths(root, [f"{env}/{directory}/{service}"]))
         source = root / "model" / env / directory / (service + ".properties")
-        snapshot_values = load_model(source).values
+        service_snapshot = load_model(source)
+        sources.update(service_snapshot.dependencies)
+        snapshot_values = service_snapshot.values
         views = {design, *owned_artifacts(design, snapshot_values)}
         generated_views.update(views)
         files.update(path.relative_to(root).as_posix() for path in views)
@@ -409,7 +418,13 @@ def prepare(root, args, run, timing):
             path.relative_to(root).as_posix() for path in generated_views
         ),
         "scope": scope,
-        "ownershipInventory": inventory,
+        "ownership": {
+            "environment": args.environment,
+            "directory": directory,
+            "target": target,
+            "units": units,
+            "resources": resources,
+        },
         "controllerArgv": command,
         "modelInputPaths": model_input_paths(root, scope),
         "environment": {
@@ -482,11 +497,19 @@ def register(root, path, timing):
                 "deferred deployment input changed; prepare again",
                 condition="deferred-inputs",
             )
-        if (
-            model_inventory(
-                root, plan["scope"][0].split("/")[0], plan["scope"][0].split("/")[1]
-            )
-            != plan["ownershipInventory"]
+        ownership = plan["ownership"]
+        inventory = model_inventory(
+            root, ownership["environment"], ownership["directory"]
+        )
+        resources = owning_resources(
+            root,
+            ownership["environment"],
+            ownership["directory"],
+            ownership["target"],
+            ownership["units"],
+        )
+        if resources != ownership["resources"] or inventory != model_inventory(
+            root, ownership["environment"], ownership["directory"]
         ):
             raise cli_guidance.InputChanged(
                 "ownership inventory changed; prepare again",

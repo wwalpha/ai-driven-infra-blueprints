@@ -6,16 +6,21 @@ from functools import partial as _bind_framework_callback
 
 import utils.cloudformation.inputs as _imports_cfn_inputs
 import utils.project_targets as _imports_project_targets
+from design.common import cells
 from model.core import (
     deployment_settings,
     entries,
     positive_integer,
     stack_context,
     stack_model,
+    validate_model_keys,
     validate_stack_field,
+    validate_stack_metadata,
 )
+from model.format import owner
+from model.references import declarations
 from model.render import stack_markdown
-from model.sources import stack_snapshot
+from model.sources import raw_model as stack_snapshot
 from task_contract_core import (
     section,
     task_snapshot,
@@ -26,7 +31,96 @@ from utils.json_format import fingerprint as fingerprint
 from deploy.cli_guidance import DeployStepBlocked
 
 
-def check_stack_markdown(root, snapshot):
+def selected_stack_values(values, names):
+    """Keep global selection/collision checks and reuse full validation on selected rows."""
+    selected = select_stacks(values, names)
+    parameters = {stack.get("parameters") for _, stack in selected}
+    identities = {identity for identity, _ in selected}
+    placements = {stack.get("placementName") for _, stack in selected} - {None}
+    for identity, stack in entries(values, "desired.stack."):
+        if identity not in identities and stack.get("parameters") in parameters - {
+            None
+        }:
+            raise Blocked(
+                f"{stack_context(identity, stack)}: parameter file belongs to multiple stacks: {stack['parameters']}"
+            )
+        if identity not in identities and (
+            stack.get("placementName") in placements | set(names)
+            or stack.get("name") in placements
+        ):
+            raise Blocked(
+                f"{stack_context(identity, stack)}: conflicting selected placementName"
+            )
+    artifacts = set()
+    for identity, artifact in entries(values, "desired.artifact."):
+        if not artifact.get("stack"):
+            raise Blocked(f"desired.artifact.{identity}: missing Stack ownership")
+        if artifact["stack"] in names:
+            artifacts.add(identity)
+    selected_values = {
+        key: value
+        for key, value in values.items()
+        if not key.startswith(("desired.stack.", "display.stack.", "desired.artifact."))
+        or key.startswith(("desired.stack.", "display.stack."))
+        and key.split(".")[2] in identities
+        or key.startswith("desired.artifact.")
+        and key.split(".")[2] in artifacts
+    }
+    excluded = []
+    for identity, _ in entries(values, "desired.reference."):
+        kind, block = owner(f"desired.reference.{identity}.consumerKey", values)
+        if (
+            kind == "stack"
+            and block not in identities
+            or kind == "artifact"
+            and block not in artifacts
+        ):
+            excluded.append(f"desired.reference.{identity}.")
+    selected_values = {
+        key: value
+        for key, value in selected_values.items()
+        if not key.startswith(tuple(excluded))
+    }
+    validate_model_keys(selected_values)
+    validate_stack_metadata(selected_values)
+    declarations(selected_values)
+    return selected_values
+
+
+def selected_markdown_lines(lines, names, artifacts, *, numbers=None):
+    """Project rendered tables with the shared cell reader; retain common structure."""
+    result, section_name = [], None
+    for line in lines:
+        if line.startswith("## "):
+            section_name = line
+        if section_name == "## S3配置" and not artifacts:
+            if line in {
+                "## S3配置",
+                "### 配置ファイル",
+                "",
+                "| No. | StackName | Resource | Property | Source | Bucket | KeyPrefix |",
+                "| ---: | --- | --- | --- | --- | --- | --- |",
+            }:
+                continue
+        row = cells(line) if line.startswith("|") else []
+        index = 2 if section_name == "## Stack一覧" else 1
+        if row and row[0] != "No." and not row[0].startswith("---"):
+            if len(row) <= index:
+                result.append(line)
+                continue
+            if row[index] not in names:
+                continue
+            if numbers is not None:
+                identity = row[2] if index == 2 else tuple(row[1:4])
+                row[0] = str(numbers[index][identity])
+                line = "| " + " | ".join(row) + " |"
+        result.append(line)
+    while result and not result[-1]:
+        result.pop()
+    return result
+
+
+def check_stack_markdown(root, snapshot, names=None):
     """Check the saved Stack design and identify the first mismatched Stack field."""
     design = (
         root
@@ -35,16 +129,49 @@ def check_stack_markdown(root, snapshot):
         / snapshot.scope.target
         / "cloudformation-stacks.md"
     )
-    expected = stack_markdown(
-        design, snapshot.values, root, validate_delivery=False
-    ).encode("utf-8")
+    values = getattr(snapshot, "authoritative", snapshot.values)
+    values = selected_stack_values(values, names) if names else values
+    expected = stack_markdown(design, values, root, validate_delivery=False).encode(
+        "utf-8"
+    )
     actual = design.read_bytes() if design.is_file() else b""
     if hashlib.sha256(actual).digest() == hashlib.sha256(expected).digest():
         return
     detail = "deployment settings/header/format or artifact rows differ"
     actual_lines = actual.decode("utf-8").splitlines()
     expected_lines = expected.decode("utf-8").splitlines()
-    for identity, stack in entries(snapshot.values, "desired.stack."):
+    if names:
+        artifacts = entries(values, "desired.artifact.")
+        numbers = {
+            2: {
+                stack["name"]: number
+                for number, (_, stack) in enumerate(
+                    sorted(
+                        entries(snapshot.values, "desired.stack."),
+                        key=lambda entry: (
+                            int(entry[1]["deployOrder"]),
+                            entry[1]["name"],
+                        ),
+                    ),
+                    1,
+                )
+            },
+            1: {
+                tuple(
+                    artifact.get(field) for field in ("stack", "resource", "property")
+                ): number
+                for number, (_, artifact) in enumerate(
+                    entries(snapshot.values, "desired.artifact."), 1
+                )
+            },
+        }
+        actual_lines = selected_markdown_lines(actual_lines, names, artifacts)
+        expected_lines = selected_markdown_lines(
+            expected_lines, names, artifacts, numbers=numbers
+        )
+        if actual_lines == expected_lines:
+            return
+    for identity, stack in entries(values, "desired.stack."):
         marker = "| " + stack["name"] + " |"
         wanted = [line for line in expected_lines if marker in line]
         saved = [line for line in actual_lines if marker in line]
@@ -116,15 +243,15 @@ def load_units(root, environment, directory, scope, *, snapshot=None):
     source = (
         root / "model" / environment / directory / "cloudformation-stacks.properties"
     )
-    values = (snapshot or stack_snapshot(source)).values
-    select_stacks(values, scope)
+    snapshot = snapshot or stack_snapshot(source)
+    values = getattr(snapshot, "authoritative", snapshot.values)
     if not scope:
         raise Blocked("Deployment scope must contain unique designed StackName values")
     try:
+        values = selected_stack_values(values, scope)
         limit, stacks = stack_model(values)
     except ValueError as error:
         raise Blocked(f"{source.relative_to(root)}: {error}") from error
-    stacks = [(identity, stack) for identity, stack in stacks if stack["name"] in scope]
     settings, artifacts = deployment_settings(values)
     result = [dict(stack) for _, stack in stacks]
     for unit in result:

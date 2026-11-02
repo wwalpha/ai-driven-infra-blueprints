@@ -780,7 +780,7 @@ def run(
                 or state.get("endedRequest", {}).get("executionEvidence")
                 for state in backend.states.values()
             ):
-                inputs.check_stack_markdown(root, snapshot)
+                inputs.check_stack_markdown(root, snapshot, args.stack)
             run = backend.run_context
             backend.save = partial(save, backend)
             backend.guard = partial(
