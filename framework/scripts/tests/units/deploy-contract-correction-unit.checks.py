@@ -16,14 +16,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 import task_contract_core as tasks
 import task_contract_runtime as runtime
-from deploy import contract_correction as correction
 from deploy import (
+    change_sets,
     correction_scope,
     deferred,
     observed_resume,
     steps,
     worktree,
 )
+from deploy import contract_correction as correction
 from model.dependency_index import revision
 from support.pytest_cli import run
 from support.repository_fixtures import transition_contract
@@ -801,6 +802,37 @@ def check_scope_failure_is_retained_and_transferred(case, monkeypatch):
     ]
     assert saved["states"] == progress["runContext"]["states"]
     case.aws.assert_not_called()
+    history = copy.deepcopy(saved["resolvedScopeFailures"])
+    stack = saved["states"]["A"]
+    stack.update(
+        stackId="stack",
+        changeSetId="change",
+        operationType="UPDATE",
+        absentBeforeCreate=False,
+        expectedOutputs={},
+    )
+    change = {
+        "Status": "FAILED",
+        "StatusReason": "The submitted information didn't contain changes.",
+        "ExecutionStatus": "UNAVAILABLE",
+        "Changes": [],
+        "ChangeSetId": "change",
+        "StackId": "stack",
+        "StackName": "A",
+    }
+    aws = Mock(
+        return_value={
+            "Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}]
+        }
+    )
+    assert (
+        change_sets.review_prepared({"name": "A"}, stack, set(), aws, Mock(), change)
+        == "SUCCESS"
+    )
+    assert "failure" not in stack
+    assert stack["reason"] == "no changes; existing stack terminal success"
+    assert saved["resolvedScopeFailures"] == history
+    assert evidence.read_bytes() == original
 
 
 @pytest.mark.parametrize("variant", ["valid", "extra", "wrong-owner"])

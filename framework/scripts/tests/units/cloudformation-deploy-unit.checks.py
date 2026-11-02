@@ -418,6 +418,7 @@ def check_no_change_success_evidence(status):
 )
 def check_no_change_contradictory_or_missing_proof(record, field, value):
     state, change = no_change_inputs()
+    state["failure"] = {"classification": "OWNER_SCOPE_MISSING"}
     target = state if record == "state" else change
     if value is None:
         target.pop(field)
@@ -430,6 +431,7 @@ def check_no_change_contradictory_or_missing_proof(record, field, value):
     aws.assert_not_called()
     assert state.get("stackId") == original.get("stackId")
     assert "stackStatus" not in state and "reason" not in state
+    assert state["failure"] == original["failure"]
 
 
 @pytest.mark.parametrize(
@@ -452,6 +454,7 @@ def check_no_change_invalid_evidence_blocks(stack, saved_id, change_id):
     backend = StubAws()
     state, change = no_change_inputs()
     state["stackId"] = saved_id
+    state["failure"] = {"classification": "OWNER_SCOPE_MISSING"}
     change["StackId"] = change_id
     if stack and stack.get("StackStatus") == "UPDATE_ROLLBACK_COMPLETE":
         with patch.object(backend, "aws", return_value={"Stacks": [stack]}):
@@ -469,7 +472,23 @@ def check_no_change_invalid_evidence_blocks(stack, saved_id, change_id):
                 change,
             )
     assert "stackStatus" not in state
+    assert state["failure"] == {"classification": "OWNER_SCOPE_MISSING"}
     assert all(call.args[0] != "execute_change_set" for call in aws.call_args_list)
+
+
+def check_change_set_ready_clears_previous_failure():
+    state = {
+        "changeSetId": "change",
+        "failure": {"classification": "OWNER_SCOPE_MISSING"},
+    }
+    change = {
+        "Status": "CREATE_COMPLETE",
+        "ExecutionStatus": "AVAILABLE",
+        "ChangeSetId": "change",
+        "Changes": [],
+    }
+    assert StubAws().review_prepared({"name": "A"}, state, change) == "READY"
+    assert "failure" not in state
 
 
 def check_deployment_input_conditions():
