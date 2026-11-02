@@ -988,9 +988,7 @@ def check_design_tables(
                                 cause_kind="input_invalid",
                             )
                         try:
-                            import_expression = is_import_expression(
-                                cells[1], cells[2], path
-                            )
+                            import_expression = is_import_expression(cells[1], cells[2])
                         except ValueError as error:
                             findings.check(
                                 False,

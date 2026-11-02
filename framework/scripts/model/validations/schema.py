@@ -197,7 +197,6 @@ def _callback_check_model_inputs_literal_check(
     if "document" not in _state_check_model_inputs_337.row and is_import_expression(
         prop,
         _state_check_model_inputs_337.row["value"],
-        _state_check_model_inputs_337.view,
     ):
         return
     if "document" not in _state_check_model_inputs_337.row and has_reference(

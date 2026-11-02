@@ -116,7 +116,7 @@ def bound_resource_anchors(path):
     }
 
 
-def is_import_expression(prop: str, raw_value: str, design: Path) -> bool:
+def is_import_expression(prop: str, raw_value: str) -> bool:
     """Validate the narrow Model ImportValue notation, not arbitrary CFn/YAML."""
     value = literal(raw_value)
     link = re.fullmatch(r"\[([^\]]+)\]\(([^)]*)\)", value)
@@ -144,12 +144,6 @@ def is_import_expression(prop: str, raw_value: str, design: Path) -> bool:
         ):
             raise ValueError(
                 "ImportValue link requires a same-target service Markdown filename"
-            )
-        target = (design.parent / link[2]).resolve()
-        if target.parent != design.parent.resolve() or not input_is_file(target):
-            raise ValueError(
-                "ImportValue link requires an existing same-target service design: "
-                + link[2]
             )
     return True
 

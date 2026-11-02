@@ -171,6 +171,19 @@ def check_local_links(
             target = (
                 source if not target_text else source.parent / target_text
             ).resolve()
+        if (
+            target_text
+            and Path(target_text).parent == Path(".")
+            and not target.is_relative_to(source.parent.resolve())
+        ):
+            findings.check(
+                False,
+                f"design link escapes target directory: {findings.relative(source)}: {raw}",
+                source_path=source,
+                cause_kind="input_invalid",
+                location=raw,
+            )
+            continue
         findings.check(
             not Path(target_text).is_absolute(),
             f"design link must be relative: {findings.relative(source)}: {raw}",

@@ -10,16 +10,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from model.change_plan import compare
 from model.projection import is_import_expression
 from model.render import markdown_for
+from model.sources import scope_for
+from model.validations.change_inputs import check_change_inputs as _check_change_inputs
 from model.validations.full_inputs import check_model_inputs as _check_model_inputs
 from support.import_model_fixtures import resource_values
 from support.model_design_fixtures import ROOT, model
 from support.model_sources import write_model
 from support.validator import schema_validator
 from utils.cloudformation.schema import CloudFormationSchemaCatalog
+from validation.design_links import check_local_links as _check_local_links
+from validation.findings import Findings
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -30,13 +36,12 @@ def check_limited_import_expression(tmp_path):
     expression = (
         "Fn::ImportValue: QuickSightWebsiteInterfaceEndpointHostedZoneId${Suffix}"
     )
-    design = tmp_path / "route53.md"
     (tmp_path / "vpc-endpoint.md").write_text("# 接続先\n", encoding="utf-8")
     link = f"[{expression}](vpc-endpoint.md)"
     for value in (expression, "`" + expression + "`", link):
-        assert is_import_expression(prop, value, design)
+        assert is_import_expression(prop, value)
     for value in ("Z123", "Z" * 45, "[Z123](vpc-endpoint.md#endpoint)"):
-        assert not is_import_expression(prop, value, design)
+        assert not is_import_expression(prop, value)
     for value in (
         expression.replace("ImportValue", "Unknown"),
         expression.replace("QuickSightWebsiteInterfaceEndpointHostedZoneId", ""),
@@ -57,27 +62,25 @@ def check_limited_import_expression(tmp_path):
         "`" + link + "`",
         "[Z123](vpc-endpoint.md)",
         f"[{expression}](vpc-endpoint.md#endpoint)",
-        f"[{expression}](missing.md)",
         f"[{expression}](../vpc-endpoint.md)",
         f"[{expression}](/vpc-endpoint.md)",
         f"[{expression}](https://example.com/vpc-endpoint.md)",
         f"[{expression}](vpc-endpoint.md?query)",
     ):
         with pytest.raises(ValueError):
-            is_import_expression(prop, value, design)
+            is_import_expression(prop, value)
     for other in (
         "Route53.RecordSet.HostedZoneId",
         "Route53.RecordSet.AliasTarget.DNSName",
     ):
         for value in (expression, link):
             with pytest.raises(ValueError):
-                is_import_expression(other, value, design)
+                is_import_expression(other, value)
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "target.md").write_text("# 外部\n", encoding="utf-8")
     (tmp_path / "escape.md").symlink_to(outside / "target.md")
-    with pytest.raises(ValueError):
-        is_import_expression(prop, f"[{expression}](escape.md)", design)
+    assert is_import_expression(prop, f"[{expression}](escape.md)")
 
     catalog = CloudFormationSchemaCatalog(Path(__file__).resolve().parents[4])
     assert not catalog.literal_errors(
@@ -167,7 +170,7 @@ def check_route53_import_expression_validation(tmp_path):
             '`{"$modelRef":{"logicalId":"Route53_HostedZone_002","attribute":"Id"}}`',
             True,
         ),
-        ("AliasTarget.HostedZoneId", f"[{expression}](missing.md)", False),
+        ("AliasTarget.HostedZoneId", f"[{expression}](missing.md)", True),
         ("AliasTarget.HostedZoneId", f"[{expression}](../vpc-endpoint.md)", False),
         ("AliasTarget.HostedZoneId", "[Z123](vpc-endpoint.md)", False),
         (
@@ -195,13 +198,30 @@ def check_route53_import_expression_validation(tmp_path):
         key = f"desired.row.001-{row}.value"
         selected[key] = value
         write_model(source, selected)
-        inputs = _check_model_inputs(source, selected, tmp_path, definitions_root=ROOT)
-        errors = [
-            error
-            for error in inputs.errors
-            if "provider schema violation" in error or "ImportValue" in error
-        ]
-        assert bool(errors) != valid, (field, value, inputs.errors)
+        old = SimpleNamespace(scope=scope_for(source), authoritative=values, files={})
+        new = SimpleNamespace(scope=scope_for(source), authoritative=selected, files={})
+        change = compare(old, new)
+        target = path.parent / "vpc-endpoint.md"
+        for exists in (False, True):
+            if exists:
+                target.write_text("# 接続先\n", encoding="utf-8")
+            else:
+                target.unlink(missing_ok=True)
+            full = _check_model_inputs(
+                source, selected, tmp_path, definitions_root=ROOT
+            )
+            changed = _check_change_inputs(
+                source, selected, tmp_path, change, definitions_root=ROOT
+            )
+            for inputs in (full, changed):
+                errors = [
+                    error
+                    for error in inputs.errors
+                    if "provider schema violation" in error or "ImportValue" in error
+                ]
+                # Change validation only checks changed values.
+                if selected[key] != values[key]:
+                    assert bool(errors) != valid, (field, value, inputs.errors)
         # Render accepted values; inject rejected values into an otherwise valid View.
         shown = (
             markdown_for(path, selected, tmp_path, definitions_root=ROOT)
@@ -222,6 +242,27 @@ def check_route53_import_expression_validation(tmp_path):
             or "invalid Model expression" in error
         ]
         assert bool(errors) != valid, (field, value, validator.findings.errors)
+
+
+def check_view_link_diagnostics(tmp_path):
+    directory = tmp_path / "docs/designs/dev/123456789012"
+    directory.mkdir(parents=True)
+    source = directory / "route53.md"
+    outside = tmp_path / "outside.md"
+    outside.write_text("# 外部\n", encoding="utf-8")
+    (directory / "escape.md").symlink_to(outside)
+    findings = Findings(tmp_path)
+    _check_local_links(
+        source,
+        "[missing](missing.md) [escape](escape.md)",
+        anchors={},
+        unavailable=set(),
+        findings=findings,
+        root=tmp_path,
+        design_index={},
+    )
+    assert any("broken design link" in str(item) for item in findings.warnings)
+    assert any("escapes target directory" in str(item) for item in findings.errors)
 
 
 if __name__ == "__main__":
