@@ -15,6 +15,12 @@ Operate this repository in Codex with the repository root as the working directo
 - Follow [Validation policy](framework/rules/loop-engineering.md#validation-policy) for development checks and classified final validation; mark completed only after the required checks succeed.
 - Apply [Debug read reporting](framework/rules/debug-read-reporting.md) from task start only for tasks whose Human active task instruction explicitly specifies `debug` as the execution mode. For ordinary tasks, do not perform this rule's additional reads, tracking, report generation, or saving; do not save the mode or carry it into the next task.
 
+### Framework Investigation Policy
+
+- Do not investigate Framework internal source code without an explicit Human instruction. Explicitly requested investigation and modification remain permitted within the Task scope.
+- In normal execution, use the published Skills, CLIs and APIs.
+- When an error occurs, report the issue to the Human; do not automatically start an internal investigation. Follow the existing recovery procedures within their authorized scope.
+
 ## Task transition
 
 Select the Skill using [Workflow selection](framework/rules/task-contract.md#workflow-selection) before reading its prompt.
