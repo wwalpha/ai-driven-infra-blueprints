@@ -2503,6 +2503,54 @@ def check_pending_generation_sync_preserves_candidate_scope(
     backend.claim_inputs.assert_not_called()
 
 
+def finish_or_collect(context, collected, _backend, units, _states):
+    if context.get("pendingObserved"):
+        context.pop("pendingObserved")
+        collected.append(["saved A"])
+    else:
+        collected.append([unit["name"] for unit in units])
+
+
+@pytest.mark.parametrize("names", [["A"], ["A", "B"]])
+def check_pending_observed_finishes_before_collecting_other_stacks(tmp_path, names):
+    context = {
+        "inputDigests": {"A": "a", "B": "b"},
+        "checkpointPending": {"stacks": ["A"], "before": {}, "after": None},
+        "pendingObserved": {"evidence": {"A": {}}},
+        "pendingGeneration": {"view": {}},
+    }
+    backend = SimpleNamespace(
+        root=tmp_path,
+        phase="update",
+        target={},
+        environment="dev",
+        directory="team",
+        units=[{"name": "A"}, {"name": "B"}],
+        states={"A": {}, "B": {}},
+        run_context=context,
+        guard=Mock(),
+        save=Mock(),
+    )
+    collected = []
+
+    with (
+        patch.object(steps, "task_snapshot"),
+        patch.object(steps.contracts, "validation_snapshot", return_value={}),
+        patch.object(steps.observed_resume, "reconcile"),
+        patch.object(steps.generation_resume, "recover_publications"),
+        patch.object(steps.generation_resume, "run"),
+        patch.object(
+            steps.observed,
+            "sync_successful",
+            side_effect=partial(finish_or_collect, context, collected),
+        ),
+        patch.object(steps, "publish_snapshot"),
+    ):
+        steps.sync(backend, names)
+    assert collected == ([["saved A"], ["B"]] if "B" in names else [["saved A"]])
+    assert context["pendingGeneration"] == {"view": {}}
+
+
 def check_final_cli_accepts_saved_observations_without_sync_stack():
     with patch.object(steps, "run", return_value=0) as run_step:
         assert (

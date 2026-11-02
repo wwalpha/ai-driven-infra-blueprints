@@ -431,13 +431,11 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
     if not context.get("pendingObserved"):
         for unit in units:
             backend.states[unit["name"]].pop("checkpointed", None)
+    if resumed_observation:
+        observed.sync_successful(backend, units, backend.states)
+        units = [unit for unit in units if unit["name"] not in saved_observed]
     if units:
         observed.sync_successful(backend, units, backend.states)
-    if resumed_observation:
-        # Only Stacks outside the retained candidate need another collection.
-        remaining = [unit for unit in units if unit["name"] not in saved_observed]
-        if remaining:
-            observed.sync_successful(backend, remaining, backend.states)
     if context.get("pendingGeneration"):
         generation_resume.run(backend)
     elif context.get("generationError"):

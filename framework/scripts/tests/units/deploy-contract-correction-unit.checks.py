@@ -753,6 +753,190 @@ def check_missing_owner_is_added_inside_fixed_execution(case, monkeypatch):
         revised["start"] == state["start"]
         and tasks.status(revised["deployContract"]) == "suspend"
     )
+
+
+def scope_failure_case(case, monkeypatch):
+    state, progress, candidate = fixed_owner_case(case, monkeypatch)
+    context = progress["runContext"]
+    context["states"]["A"] = {
+        "status": "BLOCKED",
+        "failure": {
+            "stage": "PREPARATION",
+            "classification": "OWNER_SCOPE_MISSING",
+            "executionState": "NOT_SUBMITTED",
+            "owners": [
+                {"logicalId": "Bucket", "service": "s3", "resource": "S3_Bucket_001"}
+            ],
+        },
+    }
+    backend = SimpleNamespace(
+        root=case.root,
+        states=context["states"],
+        run_context=context,
+        target=case.target,
+        environment="dev",
+        directory="team",
+    )
+    failure = correction.handoff.record_failure(backend)
+    context["currentFailure"] = failure
+    write_sealed(case.root, case.progress_path, progress)
+    return state, progress, candidate, Path(failure)
+
+
+def check_scope_failure_is_retained_and_transferred(case, monkeypatch):
+    state, progress, candidate, evidence = scope_failure_case(case, monkeypatch)
+    original = evidence.read_bytes()
+    correction.correct(case.root, case.name, case.source)
+    revised = read_state(case.root, case.name)[3]
+    saved = worktree.read_progress(case.root, revised)["runContext"]
+    assert "currentFailure" not in saved
+    assert evidence.read_bytes() == original
+    assert saved["resolvedScopeFailures"] == [
+        {
+            "evidence": str(evidence),
+            "sha256": file_operations.sha(evidence),
+            "taskDigest": state["deployIdentity"]["taskDigest"],
+            "correctedTaskDigest": tasks.task_digest(candidate),
+        }
+    ]
+    assert saved["states"] == progress["runContext"]["states"]
+    case.aws.assert_not_called()
+
+
+@pytest.mark.parametrize("variant", ["valid", "extra", "wrong-owner"])
+def check_legacy_scope_failure_requires_exact_proven_owner(case, monkeypatch, variant):
+    state, progress, _candidate, evidence = scope_failure_case(case, monkeypatch)
+    item = progress["runContext"]["states"]["A"]
+    item["failure"] = {
+        "stage": "PREPARATION",
+        "classification": "NEEDS_HUMAN",
+        "executionState": "NOT_EXECUTED",
+        "service": None,
+        "operation": None,
+        "code": None,
+    }
+    service = "unrelated" if variant == "wrong-owner" else "s3"
+    item["reason"] = (
+        "A: Observed readiness: AMBIGUOUS_OBSERVED_MAPPING: "
+        "A/Bucket: task scope violation: stack resource outside Validation scope: "
+        f"dev/team/{service}"
+        + ("\nA/Bucket: another failure" if variant == "extra" else "")
+    )
+    record = correction.read_sealed(case.root, evidence)
+    record["states"] = copy.deepcopy(progress["runContext"]["states"])
+    write_sealed(case.root, evidence, record)
+    write_sealed(case.root, case.progress_path, progress)
+    if variant != "valid":
+        with pytest.raises(ValueError, match="proven scope failure"):
+            correction.correct(case.root, case.name, case.source)
+    else:
+        correction.correct(case.root, case.name, case.source)
+        revised = read_state(case.root, case.name)[3]
+        assert not worktree.read_progress(case.root, revised)["runContext"].get(
+            "currentFailure"
+        )
+        assert evidence.exists()
+    case.aws.assert_not_called()
+
+
+@pytest.mark.parametrize("success", [True, False])
+def check_scope_failure_preserves_completed_request(case, monkeypatch, success):
+    state, progress, _candidate, evidence = scope_failure_case(case, monkeypatch)
+    request = {
+        "operation": "execute_change_set",
+        "name": "A",
+        "token": "token",
+        "stackId": "stack",
+        "changeSetId": "change",
+        "settled": True,
+        "trackingReason": "CHANGESET_EXECUTION_ENDED",
+        "result": "SUCCESS" if success else "UNKNOWN",
+    }
+    progress["runContext"]["states"]["A"]["endedRequest"] = {
+        "request": request,
+        "result": "SUCCESS",
+        "executionEvidence": {
+            "StackId": "stack",
+            "ChangeSetId": "change",
+            "clientToken": "token",
+            "inputDigest": progress["runContext"]["inputDigests"]["A"],
+            "changeDigest": "change-digest",
+        },
+    }
+    record = correction.read_sealed(case.root, evidence)
+    record["states"] = copy.deepcopy(progress["runContext"]["states"])
+    write_sealed(case.root, evidence, record)
+    write_sealed(case.root, case.progress_path, progress)
+    if not success:
+        with pytest.raises(ValueError, match="success cannot be proven"):
+            correction.correct(case.root, case.name, case.source)
+    else:
+        correction.correct(case.root, case.name, case.source)
+        revised = read_state(case.root, case.name)[3]
+        assert (
+            worktree.read_progress(case.root, revised)["runContext"]["states"]["A"][
+                "status"
+            ]
+            == "SUCCESS"
+        )
+    case.aws.assert_not_called()
+
+
+@pytest.mark.parametrize("boundary", ["Task", "Progress", "both"])
+def check_interrupted_scope_failure_correction_preserves_evidence(
+    case, monkeypatch, boundary
+):
+    _state, _progress, _candidate, evidence = scope_failure_case(case, monkeypatch)
+    original = evidence.read_bytes()
+    atomic = correction.atomic_files
+    monkeypatch.setattr(correction, "atomic_files", InterruptedSave(boundary))
+    with pytest.raises(OSError, match="process interrupted"):
+        correction.correct(case.root, case.name, case.source)
+    assert evidence.read_bytes() == original
+    monkeypatch.setattr(correction, "atomic_files", atomic)
+    correction.correct(case.root, case.name, case.source)
+    revised = read_state(case.root, case.name)[3]
+    saved = worktree.read_progress(case.root, revised)["runContext"]
+    assert "currentFailure" not in saved
+    assert saved["resolvedScopeFailures"][0]["evidence"] == str(evidence)
+    assert evidence.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "problem",
+    ["task", "digest", "repository", "target", "cause", "unknown", "active", "missing"],
+)
+def check_scope_failure_rejects_unproven_evidence(case, monkeypatch, problem):
+    state, progress, _candidate, evidence = scope_failure_case(case, monkeypatch)
+    record = correction.read_sealed(case.root, evidence)
+    if problem in {"task", "digest", "repository", "target"}:
+        key = {
+            "task": "taskFile",
+            "digest": "taskDigest",
+            "repository": "repository",
+            "target": "target",
+        }[problem]
+        record[key] = "different"
+        write_sealed(case.root, evidence, record)
+    elif problem == "cause":
+        record["states"]["A"]["failure"]["classification"] = "NEEDS_HUMAN"
+        progress["runContext"]["states"]["A"]["failure"]["classification"] = (
+            "NEEDS_HUMAN"
+        )
+        write_sealed(case.root, evidence, record)
+        write_sealed(case.root, case.progress_path, progress)
+    elif problem in {"unknown", "active"}:
+        progress["runContext"]["states"]["A"]["requestPending"] = problem
+        record["states"]["A"]["requestPending"] = problem
+        write_sealed(case.root, evidence, record)
+        write_sealed(case.root, case.progress_path, progress)
+    else:
+        evidence.unlink()
+    with pytest.raises((ValueError, OSError)):
+        correction.correct(case.root, case.name, case.source)
+    assert worktree.read_progress(case.root, state)["runContext"][
+        "currentFailure"
+    ] == str(evidence)
     case.aws.assert_not_called()
 
 

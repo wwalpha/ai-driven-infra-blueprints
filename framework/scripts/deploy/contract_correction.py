@@ -25,6 +25,7 @@ from deploy import (
     contracts,
     correction_scope,
     current_request,
+    current_state,
     deferred,
     generation_resume,
     git_publication,
@@ -135,7 +136,38 @@ def check_candidate(root, task, original, candidate, state, context, approved):
     return consumers
 
 
-def check_state(root, state, progress, task, consumers=()):
+def legacy_scope_owners(name, saved, identity, context, owners):
+    detail = saved.get("failure", {})
+    if not isinstance(detail, dict) or (
+        detail.get("stage") != "PREPARATION"
+        or detail.get("classification") != "NEEDS_HUMAN"
+        or detail.get("executionState") != "NOT_EXECUTED"
+        or any(detail.get(key) is not None for key in ("service", "operation", "code"))
+    ):
+        return None
+    reason = saved.get("reason")
+    prefix = name + ": Observed readiness: AMBIGUOUS_OBSERVED_MAPPING: "
+    if not isinstance(reason, str) or not reason.startswith(prefix):
+        return None
+    result = []
+    separator = ": task scope violation: stack resource outside Validation scope: "
+    for line in reason[len(prefix) :].split("\n"):
+        address, found, scope = line.partition(separator)
+        if not found or not address.startswith(name + "/"):
+            return None
+        logical = address[len(name) + 1 :]
+        item = owners.get(name, {}).get(logical)
+        if not item or scope != "/".join(
+            (identity["environment"], context["directory"], item["service"])
+        ):
+            return None
+        result.append({"logicalId": logical, **item})
+    if not result or len({item["logicalId"] for item in result}) != len(result):
+        return None
+    return result
+
+
+def check_state(root, state, progress, task, consumers=(), candidate=None):
     identity = state["deployIdentity"]
     context = progress["runContext"] if progress else None
     if context is None:
@@ -179,24 +211,120 @@ def check_state(root, state, progress, task, consumers=()):
         raise ws.Blocked(
             "finish or review saved Git publication before contract correction"
         )
+    failure_path = None
     if context.get("currentFailure"):
         failure = context["currentFailure"]
         if not isinstance(failure, str):
             raise ws.Blocked(
                 "currentFailure has no readable failure evidence; retain and review it"
             )
-        record = read_sealed(root, handoff.external(root, failure))
+        failure_path = handoff.external(root, failure)
+        store = evidence_store(root, create=False)
+        if failure_path.parent != store or not re.fullmatch(
+            r"deploy-failure-[a-zA-Z0-9-]+\.json", failure_path.name
+        ):
+            raise ws.Blocked("currentFailure evidence location is unknown")
+        try:
+            operation_journal.private_path(failure_path)
+            record = read_sealed(root, failure_path)
+        except OSError as error:
+            raise ws.Blocked(
+                "currentFailure evidence is missing or unreadable"
+            ) from error
         if (
             record.get("taskDigest") != identity["taskDigest"]
             or record.get("taskFile") != task.name
+            or record.get("repository") != str(root)
+            or record.get("target") != identity["target"]
+            or record.get("environment") != identity["environment"]
+            or record.get("directory") != context["directory"]
         ):
             raise ws.Blocked(
                 "currentFailure ownership differs; retain evidence and review existing repair/discard operation"
             )
-        raise ws.Blocked(
-            "currentFailure is retained: inspect it and use existing repair/discard completion before correction: "
-            + failure
+        failures = record.get("states")
+        if not candidate or not isinstance(failures, dict) or not failures:
+            raise ws.Blocked("currentFailure scope cause cannot be proven")
+        if set(failures) != {
+            name
+            for name, item in context["states"].items()
+            if item.get("status") in {"FAILED", "BLOCKED"}
+        }:
+            raise ws.Blocked("currentFailure does not cover every current failure")
+        owners = correction_scope.ownership(root, state, context)
+        before = (
+            tasks.replace(task, text=original_contract(root, state)).scope
+            or frozenset()
         )
+        after = tasks.replace(task, text=candidate).scope or frozenset()
+        for name, saved in failures.items():
+            current = copy.deepcopy(context["states"].get(name))
+            if not isinstance(current, dict) or not isinstance(saved, dict):
+                raise ws.Blocked("currentFailure Stack evidence is unknown")
+            current.pop("approvedChangeDigest", None)
+            saved = {
+                key: value
+                for key, value in saved.items()
+                if key in operation_journal.OPERATION_FIELDS
+                or key
+                in {
+                    "checkpointed",
+                    "currentStack",
+                    "requestPending",
+                    "requestError",
+                    "endedRequest",
+                    "reason",
+                    "createUnconfirmed",
+                }
+            }
+            detail = saved.get("failure", {})
+            if not isinstance(detail, dict):
+                raise ws.Blocked("currentFailure classification is invalid")
+            missing = detail.get("owners")
+            legacy = legacy_scope_owners(name, saved, identity, context, owners)
+            if (
+                current != saved
+                or saved.get("status") != "BLOCKED"
+                or not (
+                    detail.get("stage") == "PREPARATION"
+                    and detail.get("classification") == "OWNER_SCOPE_MISSING"
+                    and detail.get("executionState") == "NOT_SUBMITTED"
+                    and isinstance(missing, list)
+                    and missing
+                    or legacy is not None
+                )
+            ):
+                raise ws.Blocked("currentFailure is not a proven scope failure")
+            if legacy is not None:
+                missing = legacy
+            ended = saved.get("endedRequest")
+            if ended:
+                if not successful_request(
+                    name, ended, context["inputDigests"].get(name)
+                ):
+                    raise ws.Blocked("previous AWS request success cannot be proven")
+            elif (
+                saved.get("executionEvidence")
+                or saved.get("attemptResult") == "UNKNOWN"
+            ):
+                raise ws.Blocked("previous AWS request outcome is unknown")
+            for item in missing:
+                if not isinstance(item, dict) or set(item) != {
+                    "logicalId",
+                    "service",
+                    "resource",
+                }:
+                    raise ws.Blocked("currentFailure owner evidence is invalid")
+                key = (identity["environment"], context["directory"], item["service"])
+                if (
+                    owners.get(name, {}).get(item["logicalId"])
+                    != {"service": item["service"], "resource": item["resource"]}
+                    or key in before
+                    or key not in after
+                ):
+                    raise ws.Blocked(
+                        "currentFailure owner is not covered by correction"
+                    )
     if context.get("generationError") and not context.get("pendingGeneration"):
         raise ws.Blocked(
             "generationError has no retained generation Intent; safe correction cannot be proven"
@@ -243,9 +371,43 @@ def check_state(root, state, progress, task, consumers=()):
                 "checkpointPending bytes are not explained by retained publication Intents"
             )
     store = evidence_store(root, create=False)
+    retained = set()
+    history = context.get("resolvedScopeFailures", [])
+    if not isinstance(history, list):
+        raise ws.Blocked("resolved scope failure history is invalid")
+    for entry in history:
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"evidence", "sha256", "taskDigest", "correctedTaskDigest"}
+            or not all(isinstance(value, str) and value for value in entry.values())
+        ):
+            raise ws.Blocked("resolved scope failure history is inconsistent")
+        retained_path = handoff.external(root, entry["evidence"])
+        if retained_path.parent != store or retained_path in retained:
+            raise ws.Blocked("resolved scope failure evidence location is invalid")
+        try:
+            operation_journal.private_path(retained_path)
+            retained_record = read_sealed(root, retained_path)
+            digest = sha(retained_path)
+        except OSError as error:
+            raise ws.Blocked("resolved scope failure evidence is missing") from error
+        if (
+            digest != entry["sha256"]
+            or retained_record.get("taskDigest") != entry["taskDigest"]
+            or retained_record.get("taskFile") != task.name
+            or retained_record.get("repository") != str(root)
+            or retained_record.get("target") != identity["target"]
+            or retained_record.get("environment") != identity["environment"]
+            or retained_record.get("directory") != context["directory"]
+        ):
+            raise ws.Blocked("resolved scope failure evidence changed")
+        retained.add(retained_path)
     if (
         any(store.glob("deploy-repair-*"))
-        or any(store.glob("deploy-failure-*"))
+        or any(
+            p != failure_path and p not in retained
+            for p in store.glob("deploy-failure-*")
+        )
         or any(store.glob("deploy-cleanup-*"))
     ):
         raise ws.Blocked(
@@ -319,6 +481,34 @@ def check_state(root, state, progress, task, consumers=()):
     if state.get("deployCheckpoints"):
         git_publication.checkpoint_source(root, state, progress)
     git_publication.require_observation_delta(root, state["start"])
+
+
+def successful_request(name, ended, input_digest):
+    if not isinstance(ended, dict):
+        return False
+    request = ended.get("request")
+    evidence = ended.get("executionEvidence")
+    if not isinstance(request, dict) or not isinstance(evidence, dict):
+        return False
+    return bool(
+        ended.get("result") == "SUCCESS"
+        and request.get("result") == "SUCCESS"
+        and request.get("operation") == "execute_change_set"
+        and request.get("name") == name
+        and request.get("settled")
+        and request.get("trackingReason")
+        in {"TOKEN_ROOT_EVENT", "CHANGESET_EXECUTION_ENDED"}
+        and request.get("token")
+        and request.get("token") == evidence.get("clientToken")
+        and request.get("stackId")
+        and request.get("stackId") == evidence.get("StackId")
+        and input_digest
+        and input_digest == evidence.get("inputDigest")
+        and evidence.get("changeDigest")
+        and current_state.same_change_set(
+            request.get("changeSetId"), evidence.get("ChangeSetId")
+        )
+    )
 
 
 def pending_identity(root, task, candidate, state, saved, consumers, *, journal=None):
@@ -435,7 +625,7 @@ def recover_publication(root, name, initial, candidate, approved, record):
         progress["runContext"],
         approved,
     )
-    check_state(root, state, progress, task, consumers)
+    check_state(root, state, progress, task, consumers, candidate)
     pending_identity(
         root, task, candidate, state, copy.deepcopy(progress), consumers, journal=record
     )
@@ -464,7 +654,7 @@ def guard_snapshot(root, state):
             for name in identity["stacks"]
         },
         "repairEvidence": sorted(
-            p.name
+            [p.name, sha(p) if p.is_file() else None]
             for pattern in ("deploy-repair-*", "deploy-failure-*", "deploy-cleanup-*")
             for p in store.glob(pattern)
         ),
@@ -612,9 +802,24 @@ def correct(root, name, source, approved=()):
             progress["runContext"] if progress else {},
             approved,
         )
-        check_state(root, state, progress, task, consumers)
+        check_state(root, state, progress, task, consumers, candidate)
         revised, saved = copy.deepcopy(state), copy.deepcopy(progress)
         new_identity = dict(identity, taskDigest=tasks.task_digest(candidate))
+        failure = saved["runContext"].pop("currentFailure", None)
+        if failure:
+            saved["runContext"].setdefault("resolvedScopeFailures", []).append(
+                {
+                    "evidence": failure,
+                    "sha256": sha(handoff.external(root, failure)),
+                    "taskDigest": identity["taskDigest"],
+                    "correctedTaskDigest": new_identity["taskDigest"],
+                }
+            )
+            for item in saved["runContext"]["states"].values():
+                if item.get("status") == "BLOCKED" and item.get("endedRequest"):
+                    item["status"] = DEPLOY_SUCCESS
+                    item.pop("failure", None)
+                    item.pop("reason", None)
         revised.update(deployIdentity=new_identity, deployContract=candidate)
         saved["identity"] = new_identity
         pending_identity(root, task, candidate, state, saved, consumers)

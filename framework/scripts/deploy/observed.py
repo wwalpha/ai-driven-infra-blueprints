@@ -239,12 +239,35 @@ def readiness(backend, unit, state=None):
             {name: selected},
             removed,
             target=backend.target,
+            check_scope=False,
         )
         execution_scope.check_fixed_resources(
             backend.root,
             mapped,
             keys={(name, logical) for logical in document.get("Resources", {})},
         )
+        scope = active_scope(backend.root)
+        missing = [
+            {
+                "logicalId": logical,
+                "service": path.stem,
+                "resource": resource["logicalId"],
+            }
+            for logical, (path, _identity, resource, _rows, _outputs) in mapped[
+                name
+            ].items()
+            if scope is not None
+            and (backend.environment, backend.directory, path.stem) not in scope
+        ]
+        if missing:
+            error = Blocked(f"{name}: owning services are outside Validation scope")
+            error.deploy_failure = {
+                "stage": "PREPARATION",
+                "classification": "OWNER_SCOPE_MISSING",
+                "executionState": "NOT_SUBMITTED",
+                "owners": sorted(missing, key=lambda item: item["logicalId"]),
+            }
+            raise error
         changes, identifiers = {}, {}
         for path, _identity, resource, rows, outputs in (
             mapped[name].values() if state is not None else ()
@@ -278,7 +301,10 @@ def readiness(backend, unit, state=None):
         checked.add(key)
         backend.observed_checks = checked
     except (OSError, ValueError, Blocked) as error:
-        raise Blocked(f"{name}: Observed readiness: {error}") from error
+        wrapped = Blocked(f"{name}: Observed readiness: {error}")
+        if hasattr(error, "deploy_failure"):
+            wrapped.deploy_failure = error.deploy_failure
+        raise wrapped from error
 
 
 def collect_successful(backend, units, states, *, generated_views=None):

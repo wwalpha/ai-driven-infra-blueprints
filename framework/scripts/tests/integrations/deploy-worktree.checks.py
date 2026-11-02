@@ -44,6 +44,7 @@ from support.worktree_deploy_fixtures import pin_progress, seed
 from support.worktree_task_fixtures import fixture, git
 from task_contract import main as task_main
 from task_contract_core import read_task_snapshot, selected_task, set_status, start
+from utils.local_evidence import read_sealed
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -330,6 +331,105 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
             len(calls) :
         ]
     )
+
+
+def seed_unrelated_service(root, report, case, **kwargs):
+    deploy_controller_fixtures.seed(root, report, case, **kwargs)
+    values = model_design_fixtures.model(
+        "dynamodb",
+        "DynamoDB.Table",
+        "app-dev-unrelated",
+        [("TableName", "`app-dev-unrelated`", "名前")],
+    )
+    values.pop("desired.resource.001.cfn-logicalId", None)
+    values["desired.resource.001.resourceMode"] = "IMPORT"
+    write_model(root / f"model/dev/{ACCOUNT}/dynamodb.properties", values)
+    git(root, "add", "model")
+    git(root, "commit", "-qm", "Synthetic unrelated service")
+
+
+def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
+    report, aws = tmp_path / "report.json", tmp_path / "aws.json"
+    with patch.object(worktree_deploy_fixtures, "seed_project", seed_unrelated_service):
+        root = seed(tmp_path / "project", report, "orders")
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    monkeypatch.setattr(
+        operation_journal,
+        "location",
+        Mock(return_value=report.with_suffix(".operations.json")),
+    )
+    path = root / "tasks/deploy.md"
+    unrelated = root / f"model/dev/{ACCOUNT}/dynamodb.properties"
+    unrelated_before = unrelated.read_bytes()
+    text = path.read_text(encoding="utf-8")
+    target = json.loads((root / "project.json").read_text(encoding="utf-8"))["targets"][
+        0
+    ]
+    _, units = inputs.load_units(
+        root, "dev", ACCOUNT, deploy_controller_fixtures.stack_names(root)
+    )
+    mappings = preparation.owning_resources(root, "dev", ACCOUNT, target, units)
+    execution = "## Execution scope\n" + "".join(
+        "- `"
+        + json.dumps(
+            dict(stack=stack, logicalId=logical, **item),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "`\n"
+        for stack, group in sorted(mappings.items())
+        for logical, item in sorted(group.items())
+    )
+    scope = f"- `dev/{ACCOUNT}/s3`\n"
+    assert scope in text
+    path.write_text(
+        text.replace(
+            "## Validation scope\n", execution + "## Validation scope\n"
+        ).replace(scope, ""),
+        encoding="utf-8",
+    )
+    aws_state(aws)
+    assert invoke(root, report, aws, ["--action", "advance"]) != 0
+    state = ws.load(root, "deploy")[3]
+    before = worktree.read_progress(root, state)["runContext"]
+    failure = Path(before["currentFailure"])
+    assert failure.is_file()
+    assert any(
+        item.get("failure", {}).get("classification") == "OWNER_SCOPE_MISSING"
+        for item in before["states"].values()
+    )
+    failure_bytes = failure.read_bytes()
+    from_evidence = read_sealed(root, failure)
+    assert from_evidence["states"]
+    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
+    transitions.suspend(root, "tasks/deploy.md", "missing owning service")
+    candidate = path.read_text(encoding="utf-8").replace(
+        "## Validation scope\n", "## Validation scope\n" + scope
+    )
+    source = tmp_path / "owner-correction.md"
+    source.write_text(candidate, encoding="utf-8")
+    transitions.correct_deploy_contract(root, "tasks/deploy.md", source)
+    revised = ws.load(root, "deploy")[3]
+    after = worktree.read_progress(root, revised)["runContext"]
+    assert (
+        state["start"] == revised["start"] and state["worktree"] == revised["worktree"]
+    )
+    assert "currentFailure" not in after and after["resolvedScopeFailures"][0][
+        "evidence"
+    ] == str(failure)
+    assert failure.read_bytes() == failure_bytes
+    assert json.loads(aws.read_text(encoding="utf-8"))["calls"] == calls
+    transitions.check_resume_scope(root, "tasks/deploy.md")
+    transitions.resume(root, "tasks/deploy.md")
+    assert run_controller(root, report, aws) == 0
+    saved = json.loads(report.read_text(encoding="utf-8"))
+    assert saved["gitPublication"]["status"] == "SUCCESS"
+    assert unrelated.read_bytes() == unrelated_before
+    all_calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
+    for call in calls:
+        if call[1] in {"create_change_set", "execute_change_set"}:
+            assert all_calls.count(call) == calls.count(call)
 
 
 def run_controller(root, report, aws):
