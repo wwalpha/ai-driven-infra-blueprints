@@ -15,7 +15,7 @@ from unittest import TestCase
 import pytest
 from deploy import inputs
 from deploy import scope as execution_scope
-from model.change_plan import ServiceChange
+from model.change_plan import ServiceChange, entries
 from model.render import stack_markdown
 from support import deploy_controller_fixtures as controller_fixtures
 from support.deploy_preparation_fixtures import (
@@ -699,7 +699,7 @@ def test_observed_row_from_another_selected_service_stack_is_rejected(
         text=task_text.replace(line, "- Deployment scope: `cfn-stack-app-dev-first`")
     )
     source = M.load_model(root / "model/dev/123456789012/ec2.properties")
-    row = next(rid for rid, _ in inputs.entries(source.authoritative, "desired.row."))
+    row = next(rid for rid, _ in entries(source.authoritative, "desired.row."))
     change = ServiceChange(source, source, observed_rows={row})
     with pytest.raises(
         ValueError, match="observed write outside fixed selected Resources"

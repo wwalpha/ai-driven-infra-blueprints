@@ -13,6 +13,9 @@ from comparison.rules.route53 import model_property
 from contracts.model import key_kind, row_has_resource_prefix
 from utils.cloudformation.inputs import Blocked
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 def check_key_kind_preserves_prefix_semantics():
     for key in (

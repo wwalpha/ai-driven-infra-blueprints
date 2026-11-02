@@ -23,6 +23,9 @@ from model import (
     update_observed_snapshot,
 )
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 def check_rebase_paths_identity_and_errors(tmp_path):
     root = tmp_path / "source"

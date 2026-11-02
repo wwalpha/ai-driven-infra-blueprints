@@ -16,6 +16,9 @@ from support.model_v2_fixtures import format_fixture
 
 from model import ModelView
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 def check_view_matches_existing_accessors_and_is_isolated(tmp_path):
     scope, values = format_fixture(tmp_path)

@@ -798,11 +798,11 @@ def display_unit_timing(result, summary):
         case_time = f"{duration:.3f}" if row["cases"] else "—"
         process = f"{row['process']:.3f}" if row["process"] is not None else "—"
         status = row["status"] if row["cases"] else row["status"] + " (process only)"
-        lines.append(f"| {row['path']} | {status} | {case_time} | {process} |")
+        lines.append(f"| {Path(row['path']).name} | {status} | {case_time} | {process} |")
     for group in result["groups"]:
         lines.append(
             f"Group process: {group['status'].upper()} ({group['duration']:.3f}s): "
-            + ", ".join(group["paths"])
+            + ", ".join(Path(path).name for path in group["paths"])
         )
     cases = sorted(result["cases"], key=lambda case: case["total"], reverse=True)
     lines.extend(["", "Slowest UT Cases (top 20):"])

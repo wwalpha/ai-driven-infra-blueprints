@@ -16,6 +16,9 @@ from validation.diagnostics import InputValidationError
 
 from model import ModelView, key_parts, row_resource
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 def check_key_and_owner_compatibility():
     values = {
