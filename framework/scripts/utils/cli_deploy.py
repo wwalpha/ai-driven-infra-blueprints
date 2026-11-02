@@ -1,12 +1,25 @@
 """Local CLI-Deploy context and validation; never retrieve or mutate AWS."""
 
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 import task_contract_core as tasks
 import worktree_state
 
 from utils.project_targets import load_target_directory
 from utils.script_loader import module
+
+_staged_roots = ContextVar("cli_deploy_staged_roots", default=None)
+
+
+@contextmanager
+def staged_root(stage, root):
+    token = _staged_roots.set({**(_staged_roots.get() or {}), stage.resolve(): root})
+    try:
+        yield
+    finally:
+        _staged_roots.reset(token)
 
 
 def field(text, name):
@@ -36,6 +49,7 @@ def is_cli(text):
 
 
 def partition(root, target, *, text=None):
+    root = (_staged_roots.get() or {}).get(root.resolve(), root)
     if text is None:
         if tasks.task_path(root, required=False) is None:
             return None

@@ -64,6 +64,7 @@ from sync_progress import stage as progress_stage
 from task_contract_core import task_path as task_path
 from task_contract_core import task_read_scope, task_reads
 from task_contract_core import task_revision as task_revision
+from utils import cli_deploy
 from utils.aws_mappings import definition_root, mapping_alias
 from utils.input_cache import (
     input_bytes,
@@ -748,16 +749,17 @@ def prepare_generation(
             snapshot,
             definitions_root,
         )
-        plan.generated = generate_views(
-            stage,
-            root,
-            plan.destinations,
-            plan.failure_records,
-            definitions_root=definitions_root,
-            warnings=plan.reference_warnings,
-            unavailable=plan.unavailable,
-            strict=strict,
-        )
+        with cli_deploy.staged_root(stage, root):
+            plan.generated = generate_views(
+                stage,
+                root,
+                plan.destinations,
+                plan.failure_records,
+                definitions_root=definitions_root,
+                warnings=plan.reference_warnings,
+                unavailable=plan.unavailable,
+                strict=strict,
+            )
         return plan
     except BaseException:
         lifetime.close()

@@ -505,7 +505,8 @@ def _fail_pending_write(original, target, /, path, *args, **kwargs):
 
 
 @pytest.mark.parametrize("failure", [None, "write", "artifact"])
-def check_pending_artifact_transaction(generated_policy, failure):
+@pytest.mark.parametrize("cli", [False, True])
+def check_pending_artifact_transaction(generated_policy, failure, cli):
     root, model, values, design, trust, register = generated_policy
     artifact = trust.with_name("iam-role-001-pending.json")
     arn = "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789abc"
@@ -554,13 +555,28 @@ def check_pending_artifact_transaction(generated_policy, failure):
     write_model(model, values)
     originals = {p: p.read_bytes() for p in (design, trust, artifact)}
     authority = {p: p.read_bytes() for p in (model, producer.path)}
-    with patch.dict(os.environ, register({design, trust, artifact})):
+    selector = register({design, trust, artifact})
+    if cli:
+        contract = root / selector[tasks.SELECTOR]
+        contract.write_text(
+            contract.read_text(encoding="utf-8").replace(
+                "- Task type: `design`",
+                "- Task type: `infrastructure`\n"
+                "- Infrastructure phase: `deploy`\n"
+                "- Deploy execution method: `cli`\n"
+                "- CLI AWS account: `123456789012`\n"
+                "- CLI AWS region: `ap-northeast-1`\n"
+                "- CLI AWS partition: `aws`",
+            ),
+            encoding="utf-8",
+        )
+    with patch.dict(os.environ, selector):
         with sync_runtime.generation_context(root, True):
             plan = sync_runtime.prepare_generation(
                 root, {("dev", "123456789012", "iam")}
             )
             try:
-                assert not plan.failures and not plan.unavailable
+                assert not plan.failures and not plan.unavailable, plan.failures
                 assert design in plan.generated
                 sync_runtime.validate_generation(plan, jobs=1)
                 metadata = sync_runtime.generation_metadata(plan)
