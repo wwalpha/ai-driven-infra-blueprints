@@ -70,6 +70,7 @@ def check_alias_rows():
     assert restored[3:] == ["| " + " | ".join(row) + " |" for row in source]
 
 
+PYTEST_GROUP_SAFE = True
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 if __name__ == "__main__":

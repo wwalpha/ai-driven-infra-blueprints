@@ -47,6 +47,7 @@ def check_catalog_schema():
     assert catalog.literal_errors("DataZone.DataSource", "Type", "GLUE") == []
 
 
+PYTEST_GROUP_SAFE = True
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 if __name__ == "__main__":

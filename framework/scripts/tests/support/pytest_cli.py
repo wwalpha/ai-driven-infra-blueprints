@@ -24,6 +24,83 @@ class Diagnostics:
 
 def shared_state_writes(tree):
     """Keep direct writes to imported/module objects out of a shared interpreter."""
+    sys_names = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "sys"
+    }
+    if any(
+        isinstance(node, (ast.Import, ast.ImportFrom))
+        and (
+            getattr(node, "module", None) in {"importlib", "builtins"}
+            or any(
+                alias.name.split(".")[0] in {"importlib", "builtins"}
+                for alias in node.names
+            )
+        )
+        or isinstance(node, ast.Name)
+        and node.id
+        in {
+            "__import__",
+            "__builtins__",
+            "getattr",
+            "vars",
+            "locals",
+            "globals",
+            "eval",
+            "exec",
+            "compile",
+        }
+        or isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id in sys_names
+        and node.attr == "modules"
+        for node in ast.walk(tree)
+    ):
+        return True
+    warning_names = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "warnings"
+        for alias in node.names
+        if alias.name in {"filterwarnings", "simplefilter", "resetwarnings"}
+    }
+    warning_modules = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "warnings"
+    }
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            value = node.value
+            if (
+                isinstance(value, ast.Name)
+                and value.id in warning_names
+                or isinstance(value, ast.Attribute)
+                and isinstance(value.value, ast.Name)
+                and value.value.id in warning_modules
+                and value.attr in {"filterwarnings", "simplefilter", "resetwarnings"}
+            ):
+                warning_names.update(
+                    target.id for target in node.targets if isinstance(target, ast.Name)
+                )
+    if any(
+        isinstance(node, ast.Call)
+        and (
+            isinstance(node.func, ast.Name)
+            and node.func.id in warning_names
+            or isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in warning_modules
+            and node.func.attr in {"filterwarnings", "simplefilter", "resetwarnings"}
+        )
+        for node in ast.walk(tree)
+    ):
+        return True
     bindings = set()
     for node in tree.body:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -49,13 +126,23 @@ def shared_state_writes(tree):
                 *function.args.kwonlyargs,
             )
         }
-        foreign = bindings - local
+        foreign = bindings | local
+        foreign.update(
+            alias.asname or alias.name.split(".")[0]
+            for node in ast.walk(function)
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+            for alias in node.names
+        )
         for node in ast.walk(function):
             if isinstance(node, ast.Assign):
                 value = node.value
                 while isinstance(value, (ast.Attribute, ast.Subscript)):
                     value = value.value
-                if isinstance(value, ast.Name) and value.id in foreign:
+                if (
+                    isinstance(value, ast.Call)
+                    or isinstance(value, ast.Name)
+                    and value.id in foreign
+                ):
                     foreign.update(
                         target.id
                         for target in node.targets
@@ -117,6 +204,40 @@ def groupable(path):
     ):
         return False
     tree = ast.parse(path.read_text(encoding="utf-8"))
+    permissions = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "PYTEST_GROUP_SAFE"
+            for target in node.targets
+        )
+    ]
+    if (
+        len(permissions) != 1
+        or len(permissions[0].targets) != 1
+        or not isinstance(permissions[0].value, ast.Constant)
+        or permissions[0].value.value is not True
+    ):
+        return False
+    if any(
+        isinstance(node, (ast.Assign, ast.AnnAssign))
+        and any(
+            isinstance(child, ast.Call)
+            and not (
+                ast.unparse(child.func) == "pytest.mark.usefixtures"
+                and all(
+                    isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                    for arg in child.args
+                )
+                and not child.keywords
+            )
+            for child in ast.walk(node.value)
+        )
+        for node in tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None
+    ):
+        return False
     if not any(
         isinstance(node, ast.FunctionDef) and node.name.startswith(("check_", "test_"))
         for node in tree.body
@@ -253,14 +374,29 @@ class GroupDiagnostics(Diagnostics):
                 if isinstance(node, ast.FunctionDef)
                 and node.name.startswith(("check_", "test_"))
             }
+        self.generated = Counter()
         self.collected = Counter()
+        self.executed = Counter()
         self.passed = Counter()
         self.invalid = False
 
     def pytest_configure(self, config):
         config.blueprint_ut_group = True
 
+    def pytest_sessionstart(self, session):
+        self.collection_path = sys.path[:]
+
+    def pytest_itemcollected(self, item):
+        self.generated[item.nodeid] += 1
+
+    def pytest_deselected(self, items):
+        for item in items:
+            self.invalid = True
+            print(f"UT group deselected node: {item.nodeid}", file=sys.stderr)
+
+    @pytest.hookimpl(tryfirst=True)
     def pytest_collection_finish(self, session):
+        sys.path[:] = self.collection_path
         found = {path: set() for path in self.expected}
         for item in session.items:
             path = Path(item.path).resolve()
@@ -270,6 +406,13 @@ class GroupDiagnostics(Diagnostics):
                 continue
             found[path].add(item.originalname or item.name)
             self.collected[item.nodeid] += 1
+        for node in sorted(self.generated.keys() | self.collected.keys()):
+            if self.generated[node] != 1 or self.collected[node] != 1:
+                self.invalid = True
+                print(
+                    f"UT group collection mismatch: {node}: generated={self.generated[node]}, selected={self.collected[node]}",
+                    file=sys.stderr,
+                )
         duplicates = [node for node, count in self.collected.items() if count != 1]
         if duplicates:
             print(f"UT group duplicate nodes: {duplicates}", file=sys.stderr)
@@ -290,16 +433,33 @@ class GroupDiagnostics(Diagnostics):
         super().pytest_runtest_logreport(report)
         if report.skipped or report.failed or hasattr(report, "wasxfail"):
             self.invalid = True
-        if report.when == "call" and report.passed:
-            self.passed[report.nodeid] += 1
+            print(
+                f"UT group unsuccessful node: {report.nodeid} ({report.when})",
+                file=sys.stderr,
+            )
+        if report.when == "call":
+            self.executed[report.nodeid] += 1
+            if report.passed:
+                self.passed[report.nodeid] += 1
 
     def pytest_sessionfinish(self, session, exitstatus):
         incomplete = sorted(
-            node for node in self.collected if self.collected[node] != self.passed[node]
+            node
+            for node in self.generated.keys()
+            | self.collected.keys()
+            | self.executed.keys()
+            | self.passed.keys()
+            if not (
+                self.generated[node]
+                == self.collected[node]
+                == self.executed[node]
+                == self.passed[node]
+                == 1
+            )
         )
         if incomplete:
             print(f"UT group incomplete cases: {incomplete}", file=sys.stderr)
-        if not exitstatus and (self.invalid or self.collected != self.passed):
+        if not exitstatus and (self.invalid or incomplete):
             session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 

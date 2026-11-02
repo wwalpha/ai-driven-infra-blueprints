@@ -4,6 +4,7 @@
 import ast
 import shutil
 import sys
+import warnings
 from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
@@ -408,7 +409,7 @@ def check_pytest_group_selection(tmp_path, entry):
     for name in ("a-unit.checks.py", "b-unit.checks.py", "c-unit.checks.py"):
         path = tmp_path / name
         path.write_text(
-            "from support.pytest_cli import run\n"
+            "from support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
             "def check_ok(): pass\n"
             "def main(): return run(__file__, message='done')\n"
             f"if __name__ == '__main__': raise SystemExit({entry})\n",
@@ -445,7 +446,7 @@ def check_pytest_group_selection(tmp_path, entry):
     )
     check.assertFalse(groupable(direct))
     direct.write_text(
-        "from support.pytest_cli import run\n"
+        "from support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
         "class Shared: values = []\n"
         "def check_ok(): Shared.values.append(1)\n"
         "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
@@ -459,17 +460,41 @@ def check_pytest_group_selection(tmp_path, entry):
         "setattr(external, 'value', 1)",
         "globals().update(value=1)",
         "sys.path_importer_cache.clear()",
+        "module = acquire(); module.value = 1",
+        "alias = sys.modules; alias['synthetic'] = 1",
+        "__builtins__['__import__']('warnings').filterwarnings('ignore')",
     ):
         direct.write_text(
-            "import external, sys\nfrom support.pytest_cli import run\n"
+            "import external, sys\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
             "def check_ok():\n    " + mutation + "\n"
             "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
             encoding="utf-8",
         )
         check.assertFalse(groupable(direct))
+    for content, expected in (
+        ("import external\ndef check_ok(): external.calculate()\n", True),
+        (
+            "import warnings\ndef check_ok(): change = warnings.filterwarnings; change('ignore')\n",
+            False,
+        ),
+    ):
+        direct.write_text(
+            "from support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
+            + content
+            + "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+            encoding="utf-8",
+        )
+        check.assertEqual(groupable(direct), expected)
+        direct.write_text(
+            direct.read_text(encoding="utf-8").replace(
+                "PYTEST_GROUP_SAFE = True\n", ""
+            ),
+            encoding="utf-8",
+        )
+        check.assertFalse(groupable(direct))
     for marker in ("skip", "skipif", "xfail"):
         direct.write_text(
-            "import pytest\nfrom support.pytest_cli import run\n"
+            "import pytest\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
             f"@pytest.mark.{marker}(True, reason='platform contract')\n"
             "def check_ok(): pass\n"
             "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
@@ -486,6 +511,7 @@ def check_pytest_group_completeness(tmp_path, fault):
     path = tmp_path / "a-unit.checks.py"
     path.write_text("def check_ok(value): pass\n", encoding="utf-8")
     plugin = GroupDiagnostics([path])
+    plugin.pytest_sessionstart(None)
     items = [
         SimpleNamespace(
             path=path,
@@ -494,8 +520,10 @@ def check_pytest_group_completeness(tmp_path, fault):
         )
         for value in (1, 2)
     ]
+    for item in items:
+        plugin.pytest_itemcollected(item)
     if fault == "missing":
-        items = []
+        items = items[:1]
     elif fault == "duplicate":
         items.append(items[0])
     elif fault == "unknown":
@@ -531,6 +559,174 @@ def check_pytest_group_completeness(tmp_path, fault):
     check.assertEqual(session.exitstatus, 2)
 
 
+def check_group_subprocess_isolation_and_collection(tmp_path):
+    check = TestCase()
+    tests = Path(__file__).resolve().parents[1]
+    env = dict(os.environ, PYTHONPATH=str(tests))
+    (tmp_path / "pytest.ini").write_text(
+        "[pytest]\npython_files = *-unit.checks.py\npython_functions = check_*\naddopts = --import-mode=importlib\n",
+        encoding="utf-8",
+    )
+    first = tmp_path / "first-unit.checks.py"
+    second = tmp_path / "second-unit.checks.py"
+    first.write_text(
+        "import importlib\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
+        "def check_mutation():\n"
+        "    module = importlib.import_module('sys')\n"
+        "    module.modules['synthetic_leak'] = 'value'\n"
+        "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+        encoding="utf-8",
+    )
+    second.write_text(
+        "import sys\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
+        "def check_clean():\n"
+        "    if 'synthetic_leak' in sys.modules: raise ValueError('leaked')\n"
+        "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+        encoding="utf-8",
+    )
+    for path in (first, second):
+        result = subprocess.run(
+            [sys.executable, str(path)],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        check.assertEqual(result.returncode, 0, result.stderr)
+    check.assertFalse(groupable(first))
+    safe = tmp_path / "safe-unit.checks.py"
+    safe.write_text(
+        "from support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\ndef check_ok(): pass\nif __name__ == '__main__': raise SystemExit(run(__file__))\n",
+        encoding="utf-8",
+    )
+    check.assertTrue(groupable(safe))
+    commands = unit_commands([first, second, safe])
+    check.assertIn([sys.executable, str(first)], commands)
+    for command in commands:
+        result = subprocess.run(
+            command, cwd=tmp_path, env=env, capture_output=True, text=True
+        )
+        check.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    first.write_text(
+        "import pytest\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
+        "@pytest.mark.parametrize('value', [1, 2])\n"
+        "def check_parameter(value): pass\n"
+        "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+        encoding="utf-8",
+    )
+    command = [
+        sys.executable,
+        str(tests / "support/pytest_cli.py"),
+        "--group",
+        str(first),
+        str(safe),
+    ]
+    result = subprocess.run(
+        command, cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    check.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    (tmp_path / "conftest.py").write_text(
+        "def pytest_collection_modifyitems(items):\n"
+        "    items[:] = [item for item in items if item.nodeid != 'first-unit.checks.py::check_parameter[2]']\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        command, cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    check.assertNotEqual(result.returncode, 0)
+    check.assertIn("first-unit.checks.py::check_parameter[2]", result.stderr)
+
+
+@pytest.mark.parametrize(
+    "imports,mutation",
+    [
+        (
+            "import warnings",
+            "warnings.filterwarnings('ignore', message='synthetic-isolation')",
+        ),
+        (
+            "import warnings as alias",
+            "alias.filterwarnings('ignore', message='synthetic-isolation')",
+        ),
+        (
+            "from warnings import filterwarnings",
+            "filterwarnings('ignore', message='synthetic-isolation')",
+        ),
+        (
+            "import importlib",
+            "importlib.import_module('warnings').filterwarnings('ignore', message='synthetic-isolation')",
+        ),
+        (
+            "from synthetic_external import change as unknown",
+            "unknown()",
+        ),
+    ],
+)
+def check_group_unknown_external_calls_are_isolated(tmp_path, imports, mutation):
+    check = TestCase()
+    tests = Path(__file__).resolve().parents[1]
+    env = dict(os.environ, PYTHONPATH=str(tests))
+    (tmp_path / "pytest.ini").write_text(
+        "[pytest]\npython_files = *-unit.checks.py\npython_functions = check_*\naddopts = --import-mode=importlib\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "synthetic_external.py").write_text(
+        "import warnings\ndef change(): warnings.filterwarnings('ignore', message='synthetic-isolation')\n",
+        encoding="utf-8",
+    )
+    unsafe = tmp_path / "unsafe-unit.checks.py"
+    unsafe.write_text(
+        imports
+        + "\nfrom support.pytest_cli import run\n"
+        + ("" if "synthetic_external" in imports else "PYTEST_GROUP_SAFE = True\n")
+        + "def check_mutation():\n    "
+        + mutation
+        + "\n"
+        "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+        encoding="utf-8",
+    )
+    safe = tmp_path / "safe-unit.checks.py"
+    safe.write_text(
+        "import warnings\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
+        "def check_clean():\n"
+        "    if any('synthetic-isolation' in str(item[1]) for item in warnings.filters): raise ValueError('leaked')\n"
+        "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+        encoding="utf-8",
+    )
+    other = tmp_path / "other-unit.checks.py"
+    other.write_text(
+        "from support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\ndef check_ok(): pass\nif __name__ == '__main__': raise SystemExit(run(__file__))\n",
+        encoding="utf-8",
+    )
+    check.assertFalse(groupable(unsafe))
+    check.assertTrue(groupable(safe))
+    check.assertTrue(groupable(other))
+    for path in (unsafe, safe):
+        result = subprocess.run(
+            [sys.executable, str(path)],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        check.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    commands = unit_commands([unsafe, safe, other])
+    check.assertIn([sys.executable, str(unsafe)], commands)
+    group = [
+        sys.executable,
+        str(tests / "support/pytest_cli.py"),
+        "--group",
+        str(safe),
+        str(other),
+    ]
+    for command in ([sys.executable, str(unsafe)], group):
+        result = subprocess.run(
+            command, cwd=tmp_path, env=env, capture_output=True, text=True
+        )
+        check.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 @pytest.mark.parametrize("leak", [False, True])
 def check_group_process_state_restoration(tmp_path, leak):
     check = TestCase()
@@ -547,11 +743,13 @@ def check_group_process_state_restoration(tmp_path, leak):
         Path.cwd(),
     )
     environment_object = os.environ
+    warning_filters = warnings.filters[:]
     original = GroupDiagnostics.pytest_collectreport
     fixture = configuration.process_state.__wrapped__(request)
     next(fixture)
     try:
         os.environ[key] = "case-local"
+        warnings.simplefilter("ignore", category=DeprecationWarning)
         sys.path.append("case-local")
         sys.argv.append("case-local")
         os.chdir(tmp_path)
@@ -569,6 +767,7 @@ def check_group_process_state_restoration(tmp_path, leak):
     check.assertEqual(sys.path, paths)
     check.assertEqual(sys.argv, arguments)
     check.assertEqual(Path.cwd(), cwd)
+    check.assertEqual(warnings.filters, warning_filters)
     check.assertIs(GroupDiagnostics.pytest_collectreport, original)
 
 

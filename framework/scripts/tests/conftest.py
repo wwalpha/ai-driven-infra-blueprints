@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 import tempfile
+import warnings
 from unittest.mock import _patch, patch
 
 import pytest
@@ -59,6 +60,7 @@ def process_state(request):
     cwd = Path.cwd()
     active_patches = tuple(_patch._active_patches)
     with (
+        warnings.catch_warnings(),
         patch.object(os, "environ", os.environ),
         patch.dict(os.environ),
         patch.object(sys, "path", list(sys.path)),
