@@ -610,10 +610,9 @@ def check_cleanup_failure_and_retry():
         assert saved["merged"] and git(root, "rev-parse", "HEAD") == saved["commit"]
         assert target.exists() and wt.branch_exists(root, state["branch"])
         (target / "secret.bin").write_bytes(b"ignored human data")
-        blocked = cli(root, "cleanup", success=False)
-        assert "ignored files" in blocked["error"]
-        assert blocked["cleanup"]["phase"] == "verify_worktree"
-        assert blocked["cleanup"]["stop_reason"] == blocked["error"]
+        with pytest.raises(wt.Blocked, match="ignored files") as error:
+            wt.automatic_cleanup(root, "example")
+        assert error.value.cleanup["phase"] == "verify_worktree"
         assert (target / "secret.bin").read_bytes() == b"ignored human data"
         (target / "secret.bin").rename(root.parent / "saved-secret.bin")
         evidence_store = sealed_evidence.evidence_store
@@ -625,18 +624,17 @@ def check_cleanup_failure_and_retry():
         other_before = other.read_bytes()
         assert not (target / ".blueprint").exists()
 
-        git(root, "branch", "feature", "HEAD^")
-        git(root, "checkout", "-q", "feature")
-        # Removal may succeed while branch deletion is blocked; retry from base safely.
-        result = cli(target, "cleanup", success=False)
-        assert "base must be checked out" in result["error"]
-        assert (
-            result["remaining_worktree"] is None
-            and result["remaining_branch"] == state["branch"]
-        )
-        assert wt.branch_exists(root, state["branch"])
-        git(root, "checkout", "-q", "main")
-        result = cli(root, "cleanup")
+        # Branch failure after checkout removal retains the same retryable Task state.
+        with patch.object(
+            wt,
+            "git",
+            side_effect=_bind_framework_callback(_deny_branch_delete, real_git),
+        ):
+            with pytest.raises(wt.Blocked, match="injected branch") as error:
+                wt.automatic_cleanup(root, "example")
+        assert error.value.cleanup["phase"] == "remove_branch"
+        assert not target.exists() and wt.branch_exists(root, state["branch"])
+        result = wt.automatic_cleanup(root, "example")
         assert result["cleaned"] and git(root, "rev-parse", "HEAD") == saved["merged"]
         assert not wt.branch_exists(root, state["branch"])
         assert not own.exists() and other.read_bytes() == other_before
@@ -1246,7 +1244,7 @@ class PRGitHub:
     def git(self, root, *args, **kwargs):
         if "push" in args:
             assert not any(str(arg).startswith("--force") for arg in args)
-            if self.interruption == "race" and not self.failed:
+            if self.interruption in {"race", "update-race"} and not self.failed:
                 self.failed = True
                 self.real_git(
                     self.remote,
@@ -1264,10 +1262,20 @@ class PRGitHub:
         if (
             command[0] == str(sys.executable)
             and "-c" in command
-            and "from worktree_task import _integrate_model"
-            in command[command.index("-c") + 1]
+            and (
+                "from worktree_task import _integrate_model"
+                in command[command.index("-c") + 1]
+                or "from worktree_pr import validate_update"
+                in command[command.index("-c") + 1]
+            )
         ):
-            wt._integrate_model(self.root, self.state["task_id"])
+            if (
+                "from worktree_pr import validate_update"
+                in command[command.index("-c") + 1]
+            ):
+                pr.validate_update(self.root, self.state["task_id"])
+            else:
+                wt._integrate_model(self.root, self.state["task_id"])
             return subprocess.CompletedProcess(command, 0, "", "")
         return self.real_run(command, **kwargs)
 
@@ -1318,12 +1326,39 @@ class PRGitHub:
                 "refs/heads/" + self.state["branch"],
                 check=False,
             )
-            if self.interruption == "push" and not self.failed and head.returncode == 0:
+            if (
+                self.interruption == "push"
+                and not self.failed
+                and head.returncode == 0
+                and (self.pr is None or head.stdout.strip() != self.pr["headRefOid"])
+            ):
                 self.failed = True
                 raise wt.Blocked("injected API interruption after push")
             return json.dumps([self.pr] if self.pr else [])
         if args[:2] == ("pr", "view"):
+            if self.pr and self.pr["state"] != "MERGED":
+                self.pr["headRefOid"] = git(
+                    self.remote, "rev-parse", "refs/heads/" + self.state["branch"]
+                )
             return json.dumps(self.pr)
+        if args[:2] == ("pr", "ready"):
+            self.pr["isDraft"] = "--undo" in args
+            return ""
+        if args[:2] == ("pr", "close"):
+            self.pr["state"] = "CLOSED"
+            return ""
+        if args[:2] == ("pr", "merge"):
+            assert "--delete-branch" not in args
+            assert args[args.index("--match-head-commit") + 1] == self.pr["headRefOid"]
+            if self.interruption == "merge-fail":
+                raise wt.Blocked("injected failed merge")
+            self.pr["state"] = "MERGED"
+            # Squash/rebase merge result deliberately differs from the public candidate.
+            self.pr["mergeCommit"] = {"oid": "a" * 40}
+            if self.interruption == "merge-unknown" and not self.failed:
+                self.failed = True
+                raise wt.Blocked("injected unknown merge result")
+            return ""
         assert args[:2] == ("pr", "create"), args
         body = Path(args[args.index("--body-file") + 1]).read_text(encoding="utf-8")
         assert "example" in body and "Required changes" in body
@@ -1339,6 +1374,7 @@ class PRGitHub:
                 self.remote, "rev-parse", "refs/heads/" + self.state["branch"]
             ),
             isCrossRepository=False,
+            isDraft="--draft" in args,
         )
         return self.pr["url"] + "\n"
 
@@ -1435,8 +1471,6 @@ def check_pr_publication_recovery():
                 assert remote.created == 1 and len(remote.validations) == int(framework)
                 with pytest.raises(wt.Blocked, match="--create-pr"):
                     wt.finalize(root, "example")
-                with pytest.raises(wt.Blocked, match="PR worktree is retained"):
-                    wt.cleanup(root, "example")
                 retained(root, target, state, base)
                 assert (
                     git(remote.remote, "rev-parse", "refs/heads/" + state["base"])
@@ -1535,6 +1569,262 @@ def check_pr_push_race_and_process_lock():
             assert path.with_suffix(".pr-lock").stat().st_ino == identity
 
 
+def _deny_branch_delete(real_git, root, *args, skip=False, **kwargs):
+    if args[:2] == ("branch", "-D"):
+        if skip:
+            return subprocess.CompletedProcess(args, 0, "", "")
+        raise wt.Blocked("injected branch deletion failure")
+    return real_git(root, *args, **kwargs)
+
+
+@it_case
+def check_explicit_disposal_and_orphans():
+    for status in ("running", "suspend", "completed"):
+        with fixture() as root:
+            target, state = start(root)
+            peer, peer_state = start(root, "other")
+            peer_path = wt.load(root, "other")[2]
+            peer_before = peer_path.read_bytes()
+            (target / "file.txt").write_text("unmerged commit\n", encoding="utf-8")
+            git(target, "add", "file.txt")
+            git(target, "commit", "-qm", "review change")
+            if status == "suspend":
+                tasks.suspend(target, state["task_file"], "unfinished Task")
+            elif status == "completed":
+                finish_contract(target, state)
+            (target / "file.txt").write_text("dirty\n", encoding="utf-8")
+            (target / "untracked.txt").write_text("discard\n", encoding="utf-8")
+            (target / "secret.bin").write_bytes(b"ignored discard")
+            proof = sealed_evidence.evidence_store(target) / "example.json"
+            sealed_evidence.write_sealed(target, proof, {"task": state["task_file"]})
+            shared_marker = wt.python_env.shared_directory(root) / "keep.txt"
+            shared_marker.parent.mkdir(parents=True, exist_ok=True)
+            shared_marker.write_text("shared environment", encoding="utf-8")
+            before = git(root, "rev-parse", "HEAD")
+            path = wt.load(root, "example")[2]
+            with (
+                pr.publication_lock(path),
+                pytest.raises(wt.Blocked, match="publication busy"),
+            ):
+                wt.cleanup(root, "example")
+            real_git = wt.git
+            with patch.object(
+                wt,
+                "git",
+                side_effect=_bind_framework_callback(
+                    _deny_branch_delete, real_git, skip=status == "completed"
+                ),
+            ):
+                with pytest.raises(wt.Blocked) as error:
+                    wt.cleanup(root, "example")
+            assert error.value.cleanup["phase"] == (
+                "verify_removal" if status == "completed" else "remove_branch"
+            )
+            assert error.value.cleanup["remaining"] == dict(
+                worktree=False, git_registration=False, branch=True, task_state=True
+            )
+            result = cli(root, "cleanup")
+            assert result["cleaned"] and not any(
+                result["cleanup"]["remaining"].values()
+            )
+            assert proof.exists() and str(proof) in result["retained_external_evidence"]
+            assert peer.exists() and peer_path.read_bytes() == peer_before
+            assert shared_marker.read_text(encoding="utf-8") == "shared environment"
+            assert git(root, "rev-parse", "HEAD") == before
+            git(root, "branch", "codex/worktree/orphan")
+            listing = wt.branches(root)["branches"]
+            assert next(b for b in listing if b["branch"].endswith("/orphan"))["orphan"]
+            with pytest.raises(wt.Blocked, match="lifecycle exists"):
+                wt.delete_branch(root, peer_state["branch"])
+            foreign = root.parent / "foreign"
+            git(root, "worktree", "add", str(foreign), "codex/worktree/orphan")
+            with pytest.raises(wt.Blocked, match="used by a worktree"):
+                wt.delete_branch(root, "codex/worktree/orphan")
+            git(root, "worktree", "remove", str(foreign))
+            assert not wt.delete_branch(root, "codex/worktree/orphan")[
+                "remaining_branch"
+            ]
+            proof.unlink()
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("staged before missing\n", encoding="utf-8")
+        git(target, "add", "file.txt")
+        shutil.rmtree(target)
+        assert cli(root, "cleanup")["cleaned"]
+    with fixture() as root:
+        target, state = start(root)
+        peer, _ = start(root, "other")
+        peer_before = git(peer, "rev-parse", "HEAD")
+        preserved = root.parent / "preserved"
+        target.rename(preserved)
+        target.symlink_to(peer, target_is_directory=True)
+        with pytest.raises(wt.Blocked, match="symlink") as error:
+            wt.cleanup(root, "example")
+        assert all(error.value.cleanup["remaining"].values())
+        assert git(peer, "rev-parse", "HEAD") == peer_before
+        target.unlink()
+        preserved.rename(target)
+        admin = Path(git(target, "rev-parse", "--absolute-git-dir"))
+        lock = admin / "index.lock"
+        lock.write_text("fixture-owned active Git operation", encoding="utf-8")
+        with pytest.raises(wt.Blocked, match="locked"):
+            wt.cleanup(root, "example")
+        lock.unlink()
+        with wt.lifecycle_lock(root), pytest.raises(wt.Blocked, match="lifecycle busy"):
+            wt.cleanup(root, "example")
+        # Git may write relative registration paths; compare filesystem identity.
+        (target / ".git").write_text(
+            "gitdir: " + os.path.relpath(admin, target) + "\n", encoding="utf-8"
+        )
+        assert wt.cleanup(root, "example")["cleaned"]
+        assert peer.exists()
+
+
+@it_case
+def check_pr_update_and_operations():
+    for ending in (
+        "close",
+        "cleanup-first",
+        "external",
+        "merge",
+        "squash",
+        "rebase",
+        "merge-unknown",
+        "merge-fail",
+        "head-conflict",
+        "update-race",
+    ):
+        with fixture() as root:
+            target, state = start(root, files=("framework/scripts/candidate.txt",))
+            source = target / "framework/scripts/candidate.txt"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("initial\n", encoding="utf-8")
+            remote = PRGitHub(root, state)
+            with (
+                patch.object(wt, "git", side_effect=remote.git),
+                patch.object(pr, "gh", side_effect=remote.gh),
+                patch.object(
+                    wt.python_env,
+                    "runtime",
+                    return_value=(
+                        Path(sys.executable),
+                        wt.python_env.environment(Path(sys.prefix)),
+                    ),
+                ),
+                patch.object(subprocess, "run", side_effect=remote.child),
+                patch.object(loop, "run_loop", side_effect=remote.validate),
+            ):
+                published = wt.finalize(root, "example", create_pr=True, draft=True)
+                old = published["tip"]
+                assert published["prPublication"]["isDraft"] and target.exists()
+                with pytest.raises(wt.Blocked, match="requires a new descendant"):
+                    pr.update(root, "example")
+                assert "prUpdate" not in wt.load(root, "example")[3]
+                assert wt.finalize(root, "example", create_pr=True)["prPublication"][
+                    "isDraft"
+                ]
+                assert not pr.operate(root, "example", "pr-ready")["prPublication"][
+                    "isDraft"
+                ]
+                assert pr.operate(root, "example", "pr-draft")["prPublication"][
+                    "isDraft"
+                ]
+                source.write_text("review revision\n", encoding="utf-8")
+                # Validation failure must publish nothing and retain a resumable intent.
+                with (
+                    patch.object(loop, "run_loop", return_value=1),
+                    pytest.raises(wt.Blocked),
+                ):
+                    pr.update(root, "example")
+                assert (
+                    git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
+                    == old
+                )
+                # Interrupt after the real push; retry must update the same PR once.
+                remote.interruption, remote.failed = "push", False
+                with pytest.raises(wt.Blocked, match="injected"):
+                    pr.update(root, "example")
+                updated = pr.update(root, "example")
+                assert updated["prPublication"]["number"] == 7 and remote.created == 1
+                assert (
+                    updated["tip"] != old
+                    and target.exists()
+                    and updated["merged"] is None
+                )
+                assert git(target, "merge-base", old, updated["tip"]) == old
+                assert remote.validations == [old, updated["tip"]]
+                assert git(root, "rev-parse", "HEAD") == state["start"]
+                remote.interruption, remote.failed = ending, False
+                if ending == "head-conflict":
+                    remote.real_git(
+                        remote.remote,
+                        "update-ref",
+                        "refs/heads/" + state["branch"],
+                        old,
+                    )
+                    with pytest.raises(wt.Blocked, match="identity differs"):
+                        pr.update(root, "example")
+                    assert target.exists()
+                elif ending == "update-race":
+                    source.write_text("third revision\n", encoding="utf-8")
+                    with pytest.raises(wt.Blocked, match="push failed"):
+                        pr.update(root, "example")
+                    assert (
+                        target.exists()
+                        and wt.load(root, "example")[3]["prUpdate"]["status"]
+                        == "VALIDATED"
+                    )
+                    assert (
+                        git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
+                        == state["start"]
+                    )
+                elif ending == "close":
+                    assert (
+                        pr.operate(root, "example", "pr-close")["prPublication"][
+                            "prState"
+                        ]
+                        == "CLOSED"
+                    )
+                    assert target.exists()
+                    assert wt.cleanup(root, "example")["cleaned"]
+                    assert (
+                        pr.close_existing(root, "7")["prPublication"]["state"]
+                        == "CLOSED"
+                    )
+                elif ending == "cleanup-first":
+                    assert wt.cleanup(root, "example")["cleaned"]
+                    assert (
+                        pr.close_existing(root, remote.pr["url"])["prPublication"][
+                            "state"
+                        ]
+                        == "CLOSED"
+                    )
+                elif ending == "external":
+                    remote.pr.update(state="MERGED", mergeCommit={"oid": "b" * 40})
+                    assert pr.operate(root, "example", "pr-status")["cleaned"]
+                elif ending in {"merge-unknown", "merge-fail"}:
+                    with pytest.raises(wt.Blocked, match="injected"):
+                        pr.operate(root, "example", "pr-merge")
+                    assert target.exists() and wt.load(root, "example")[3]
+                    result = pr.operate(root, "example", "pr-status")
+                    if ending == "merge-unknown":
+                        assert result["cleaned"]
+                    else:
+                        assert (
+                            result["prPublication"]["prState"] == "OPEN"
+                            and target.exists()
+                        )
+                else:
+                    assert pr.operate(root, "example", "pr-merge", method=ending)[
+                        "cleaned"
+                    ]
+                assert wt.branch_exists(remote.remote, state["branch"])
+                assert (
+                    git(remote.remote, "rev-parse", "refs/heads/" + state["base"])
+                    == state["start"]
+                )
+
+
 def main():
     for check in (
         check_implement_rewritten_base_and_real_conflict,
@@ -1561,6 +1851,8 @@ def main():
         check_pr_publication_recovery,
         check_pr_empty_and_failed_validation,
         check_pr_push_race_and_process_lock,
+        check_explicit_disposal_and_orphans,
+        check_pr_update_and_operations,
     ):
         check()
     print("worktree-task: PASS (Git integration and failure recovery)")

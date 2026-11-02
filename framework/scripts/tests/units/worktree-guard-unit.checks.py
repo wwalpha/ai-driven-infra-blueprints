@@ -251,6 +251,8 @@ def _cleanup_output(common, case, /, root, *args):
         return str(
             common / "foreign" if case == "common" and "--git-dir" in args else common
         )
+    if "symbolic-ref" in args:
+        return "refs/heads/codex/worktree/example"
     if args[-1] == "HEAD":
         return "changed" if case == "git_head" else "tip"
     if "diff-index" in args:
@@ -280,7 +282,8 @@ def _cleanup_output(common, case, /, root, *args):
         "dirty",
     ],
 )
-def check_cleanup_missing_worktree(tmp_path, case):
+@pytest.mark.parametrize("discard", [False, True])
+def check_cleanup_missing_worktree(tmp_path, case, discard):
     target = tmp_path / ".worktrees/example"
     common = tmp_path / ".git"
     directory = common / "worktrees/example"
@@ -342,12 +345,18 @@ def check_cleanup_missing_worktree(tmp_path, case):
             else None,
         ) as idle,
     ):
-        if case == "clean":
-            wt.cleanup_missing_worktree(tmp_path, state, entry)
+        if (
+            case == "clean"
+            or discard
+            and case in {"head", "merged", "unverified", "dirty", "index_error"}
+        ):
+            if case == "head":
+                entry["HEAD"] = "tip"
+            wt.cleanup_missing_worktree(tmp_path, state, entry, discard=discard)
             assert idle.call_args.kwargs["runner"].keywords == {"directory": directory}
         else:
             with pytest.raises(wt.Blocked):
-                wt.cleanup_missing_worktree(tmp_path, state, entry)
+                wt.cleanup_missing_worktree(tmp_path, state, entry, discard=discard)
     assert (directory / "HEAD").read_text() == "tip" and not target.exists()
 
 
@@ -406,6 +415,7 @@ def check_cleanup_stops_before_removal(tmp_path, case):
             side_effect=lambda path: case == "symlink" and path == target,
         ),
         patch.object(wt, "integration_task"),
+        patch.object(wt, "cleanup_missing_worktree"),
         patch.object(
             wt, "output", return_value="changed" if case == "branch_changed" else "tip"
         ),
@@ -1304,7 +1314,7 @@ def check_pr_lock_and_mode_retention(tmp_path):
         with pr.publication_lock(path):
             pytest.fail("redirected metadata")
     path.with_suffix(".tmp").unlink()
-    state = {"merged": None, "integrationMode": "pr"}
+    state = {"merged": None, "commit": None, "integrationMode": "pr"}
     with (
         patch.object(wt, "load", return_value=(tmp_path, None, path, state)),
         patch.object(wt, "_finalize") as finalize,
@@ -1312,7 +1322,7 @@ def check_pr_lock_and_mode_retention(tmp_path):
         with pytest.raises(wt.Blocked, match="--create-pr"):
             wt.finalize(tmp_path, "example")
         finalize.assert_not_called()
-    with pytest.raises(wt.Blocked, match="PR worktree is retained"):
+    with pytest.raises(wt.Blocked, match="successful merge"):
         wt.cleanup_state(tmp_path, path, state)
 
 
@@ -1342,6 +1352,108 @@ def check_pr_git_deadline(tmp_path):
             assert "sensitive" not in str(error.value)
             assert git.call_args.kwargs["timeout"] == 60
             assert "core.sshCommand=ssh -o BatchMode=yes" in git.call_args.args
+
+
+@pytest.mark.parametrize("draft", [False, True])
+def check_pr_draft_and_closed_state(tmp_path, draft):
+    publication = _pr_publication()
+    item = dict(
+        number=7,
+        url="https://github.com/team/repo/pull/7",
+        state="MERGED",
+        isDraft=draft,
+        baseRefName="main",
+        headRefName=publication["head"],
+        headRefOid="candidate",
+        isCrossRepository=False,
+    )
+    assert "isDraft" in pr.PR_FIELDS.split(",")
+    with patch.object(pr, "gh", side_effect=[json.dumps([item]), json.dumps(item)]):
+        assert (
+            pr.existing_pr(tmp_path, publication, states=("MERGED",))["isDraft"]
+            is draft
+        )
+
+
+@pytest.mark.parametrize(
+    "published,descendant,changed",
+    [(None, True, False), ("old", True, True), ("old", False, False)],
+)
+def check_pr_update_commit_boundary(tmp_path, published, descendant, changed):
+    state = dict(
+        tip="old",
+        commit="old",
+        verified=True,
+        branch="codex/worktree/example",
+        task_file="tasks/example.md",
+    )
+    text = contract("example", ["file.txt"])
+    with (
+        patch.object(wt, "idle_git"),
+        patch.object(wt.tasks, "validate_contract"),
+        patch.object(wt, "output", return_value="new"),
+        patch.object(wt, "ancestor", return_value=descendant),
+    ):
+        if published and descendant:
+            assert (
+                wt._commit_preconditions(
+                    tmp_path,
+                    state,
+                    {"file.txt"} if changed else set(),
+                    text,
+                    None,
+                    scope_paths={"file.txt"},
+                    published_head=published,
+                )
+                == "new"
+            )
+        else:
+            with pytest.raises(wt.Blocked):
+                wt._commit_preconditions(
+                    tmp_path,
+                    state,
+                    set(),
+                    text,
+                    None,
+                    scope_paths={"file.txt"},
+                    published_head=published,
+                )
+
+
+@pytest.mark.parametrize(
+    "arguments,valid",
+    [
+        (["finalize", "--task-id", "example", "--create-pr", "--draft"], True),
+        (["finalize", "--task-id", "example", "--draft"], False),
+        (["cleanup", "--task-id", "example", "--draft"], False),
+        (["branches"], True),
+        (["branch-delete", "--branch", "codex/worktree/example"], True),
+        (["branch-delete"], False),
+        (["pr-close", "--pr", "7"], True),
+        (["pr-close"], False),
+        (["pr-update", "--task-id", "example", "--create-pr"], False),
+    ],
+)
+def check_pr_lifecycle_cli(tmp_path, capsys, arguments, valid):
+    with (
+        patch.object(sys, "argv", ["worktree_task.py", *arguments]),
+        patch.object(
+            wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", {})
+        ),
+        patch.object(wt, "finalize", return_value={}) as finalize,
+        patch.object(wt, "branches", return_value={}),
+        patch.object(wt, "delete_branch", return_value={}),
+        patch.object(pr, "close_existing", return_value={}),
+    ):
+        if valid:
+            assert wt.main() == 0
+            if arguments[0] == "finalize":
+                assert finalize.call_args.kwargs["draft"] is True
+        else:
+            with pytest.raises(SystemExit) as error:
+                wt.main()
+            assert error.value.code == 2
+    capsys.readouterr()
 
 
 if __name__ == "__main__":

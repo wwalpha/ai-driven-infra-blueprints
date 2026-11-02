@@ -20,7 +20,7 @@ if os.name == "nt":
 else:
     import fcntl
 
-PR_FIELDS = "number,url,state,baseRefName,headRefName,headRefOid,isCrossRepository"
+PR_FIELDS = "number,url,state,baseRefName,headRefName,headRefOid,isCrossRepository,isDraft,mergeCommit"
 
 
 @contextmanager
@@ -67,7 +67,7 @@ def publication_lock(path):
         os.close(descriptor)
 
 
-def finalize(where, task_id, approval):
+def finalize(where, task_id, approval, *, draft=False):
     root, _, path, state = wt.load(where, task_id)
     with wt.lifecycle_lock(root):
         root, _, path, state = wt.load(root, task_id)
@@ -80,6 +80,8 @@ def finalize(where, task_id, approval):
             raise wt.Blocked("Python setup must finish before PR intent selection")
         if state.get("integrationMode") not in (None, "pr"):
             raise wt.Blocked("Task integration mode changed; review required")
+        if "draftRequested" not in state:
+            state["draftRequested"] = draft
         state["integrationMode"] = "pr"
         wt.save(path, state)
     if not state.get("prPublication"):
@@ -113,6 +115,7 @@ def prepare(root, path, state, base_commit, candidate):
         baseCommit=base_commit,
         candidate=candidate,
         taskHash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        draftRequested=state.get("draftRequested", False),
     )
     wt.save(path, state)
     return state
@@ -287,7 +290,7 @@ def remote_base(target, publication):
     return refs.get(f"refs/heads/{publication['head']}")
 
 
-def existing_pr(target, publication):
+def existing_pr(target, publication, *, states=("OPEN",), heads=None):
     repo = publication["host"] + "/" + publication["repository"]
     matches = json.loads(
         gh(
@@ -328,11 +331,11 @@ def existing_pr(target, publication):
         )
     )
     if (
-        result["state"] != "OPEN"
+        result["state"] not in states
         or result["isCrossRepository"]
         or result["baseRefName"] != publication["base"]
         or result["headRefName"] != publication["head"]
-        or result["headRefOid"] != publication["candidate"]
+        or result["headRefOid"] not in (heads or {publication["candidate"]})
         or publication.get("number", result["number"]) != result["number"]
         or publication.get("url", result["url"]) != result["url"]
         or result["url"]
@@ -363,7 +366,12 @@ def push_candidate(target, publication):
         # Git checks the advertised old OID again on receive, closing the query→push creation race.
         guard.write_text(
             "#!/bin/sh\nwhile read -r local_ref local_sha remote_ref remote_sha; do\n"
-            '  case "$remote_sha" in ""|*[!0]*) exit 1 ;; esac\ndone\n',
+            + (
+                f'  test "$remote_sha" = "{publication["previousCandidate"]}" || exit 1\n'
+                if publication.get("previousCandidate")
+                else '  case "$remote_sha" in ""|*[!0]*) exit 1 ;; esac\n'
+            )
+            + "done\n",
             encoding="utf-8",
         )
         guard.chmod(0o700)
@@ -399,22 +407,24 @@ def publish(root, path, state):
         raise wt.Blocked("recorded PR repository/remote changed; review required")
     record(root, path, state, **identity)
     head = remote_base(target, publication)
+    previous = publication.get("previousCandidate")
     if head is not None and (
-        not publication.get("pushIntent") or head != publication["candidate"]
+        not publication.get("pushIntent")
+        or head not in {publication["candidate"], previous}
     ):
         raise wt.Blocked("remote branch collision; no push performed")
     if head is None and publication.get("status") in {"PUSHED", "OPEN"}:
         raise wt.Blocked("published remote branch disappeared; review required")
-    pr = existing_pr(target, publication)
+    pr = existing_pr(target, publication, heads={publication["candidate"], previous})
     if pr and not publication.get("pushIntent"):
         raise wt.Blocked("unknown PR for this head; review required")
     if pr and head is None:
         raise wt.Blocked("PR branch disappeared; review required")
-    if head is None:
+    if head is None or previous and head == previous:
         record(root, path, state, pushIntent=True)
         # Recheck remote/local boundaries immediately before the single non-force ref push.
-        if remote_base(target, publication) is not None:
-            raise wt.Blocked("remote branch appeared before push; review required")
+        if remote_base(target, publication) != previous:
+            raise wt.Blocked("remote branch changed before push; review required")
         with wt.lifecycle_lock(root):
             check_candidate(root, path, state)
         push_candidate(target, publication)
@@ -462,6 +472,7 @@ def publish(root, path, state):
                 publication["host"],
                 "pr",
                 "create",
+                *(["--draft"] if publication.get("draftRequested") else []),
                 "--repo",
                 publication["host"] + "/" + publication["repository"],
                 "--base",
@@ -493,5 +504,307 @@ def publish(root, path, state):
         url=pr["url"],
         number=pr["number"],
         prState=pr["state"],
+        isDraft=pr.get("isDraft", False),
+        publishedHead=publication["candidate"],
     )
+    if previous:
+        with wt.lifecycle_lock(root):
+            check_candidate(root, path, state)
+            publication.pop("previousCandidate", None)
+            state.pop("prUpdate", None)
+            wt.save(path, state)
     return state
+
+
+def update(where, task_id):
+    root, _, path, state = wt.load(where, task_id)
+    with publication_lock(path):
+        root, _, path, state = wt.load(root, task_id)
+        publication = state.get("prPublication", {})
+        if (
+            state.get("integrationMode") != "pr"
+            or not publication.get("number")
+            or state["merged"]
+        ):
+            raise wt.Blocked("PR update requires this Task's published open PR")
+        identity = remote_identity(root)
+        if any(publication.get(k) != v for k, v in identity.items()):
+            raise wt.Blocked("recorded PR repository/remote changed")
+        if not state.get("prUpdate"):
+            existing_pr(root, publication)
+            if (
+                remote_heads(root, publication).get("refs/heads/" + publication["head"])
+                != publication["candidate"]
+            ):
+                raise wt.Blocked(
+                    "remote HEAD differs from the published HEAD; no update"
+                )
+            with wt.lifecycle_lock(root):
+                if wt.load(root, task_id)[3] != state:
+                    raise wt.Blocked("PR lifecycle changed before update")
+                target = wt.task_worktree(root, state)
+                if wt.output(target, "rev-parse", "HEAD") == publication[
+                    "candidate"
+                ] and not (
+                    wt.paths(
+                        target, "diff", "--name-only", "--no-renames", "-z", "HEAD"
+                    )
+                    | wt.paths(
+                        target, "ls-files", "--others", "--exclude-standard", "-z"
+                    )
+                ):
+                    raise wt.Blocked("PR update requires a new descendant candidate")
+                if path.with_suffix(".setup-lock").exists():
+                    raise wt.Blocked("Python setup busy; PR update refused")
+                if state.get("validation_failure_approval"):
+                    raise wt.Blocked(
+                        "new candidate requires successful validation; failure approval cannot be reused"
+                    )
+                state["prUpdate"] = dict(
+                    previousCandidate=publication["candidate"], status="PREPARING"
+                )
+                wt.save(path, state)
+        if state["prUpdate"]["status"] == "PREPARING":
+            with wt.lifecycle_lock(root):
+                target = wt.task_worktree(root, state)
+                text = tasks.read_task_snapshot(
+                    target, state["task_file"], live=True
+                ).text
+                if tasks.status(text) not in {"running", "completed"}:
+                    raise wt.Blocked("PR update requires a running/completed Task")
+                latest = wt._prepare_commit(
+                    root, path, state, target, None, pr_update=True
+                )
+                if state["tip"] == state["prUpdate"]["previousCandidate"]:
+                    raise wt.Blocked("PR update requires a new descendant candidate")
+                state["prUpdate"].update(
+                    status="PREPARED", candidate=state["tip"], baseCommit=latest
+                )
+                wt.save(path, state)
+        if state["prUpdate"]["status"] == "PREPARED":
+            target = wt.task_worktree(root, state)
+            interpreter, environment = wt.python_env.runtime(target)
+            result = subprocess.run(
+                [
+                    str(interpreter),
+                    "-B",
+                    "-c",
+                    f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); "
+                    "from worktree_pr import validate_update; validate_update(sys.argv[1], sys.argv[2])",
+                    str(root),
+                    task_id,
+                ],
+                cwd=target,
+                env=environment,
+                capture_output=True,
+                encoding="utf-8",
+            )
+            if result.returncode:
+                error = wt.Blocked(
+                    "PR update candidate validation failed; intent retained"
+                )
+                error.diagnostics = dict(
+                    returncode=result.returncode,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                )
+                raise error
+            state = wt.load(root, task_id)[3]
+        return publish(root, path, state)
+
+
+def validate_update(where, task_id):
+    """Registered-runtime validation; never rebase or merge published history."""
+    root, _, path, state = wt.load(Path(where), task_id)
+    update_intent = state["prUpdate"]
+    target = wt.task_worktree(root, state)
+    text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
+    if tasks.status(text) not in {"running", "completed"}:
+        raise wt.Blocked("PR update requires a running/completed Task")
+    if (
+        update_intent["status"] != "PREPARED"
+        or state["tip"] != update_intent["candidate"]
+    ):
+        raise wt.Blocked("PR update intent changed before validation")
+    changed = wt.paths(
+        target,
+        "diff",
+        "--no-renames",
+        "--name-only",
+        "-z",
+        update_intent["baseCommit"],
+        state["tip"],
+    )
+    framework = tasks.final_framework_task(text, changed)
+    candidate = wt.FinalCandidate(
+        target,
+        target,
+        state["task_file"],
+        text,
+        update_intent["baseCommit"],
+        state["tip"],
+        frozenset(changed),
+        frozenset()
+        if framework
+        else frozenset(tasks.active_scope(target, task_file=state["task_file"])),
+    )
+    result = wt.validate_final_candidate(candidate)
+    if result.returncode:
+        raise wt.Blocked("PR update candidate validation failed; no push")
+    with wt.lifecycle_lock(root):
+        if (
+            wt.load(root, task_id)[3] != state
+            or wt.output(target, "rev-parse", "HEAD") != candidate.candidate_head
+            or wt.changed_paths(target)
+            or tasks.read_task_snapshot(target, state["task_file"], live=True).text
+            != text
+            or wt.output(wt.base_worktree(root, state), "rev-parse", "HEAD")
+            != candidate.base_commit
+        ):
+            raise wt.Blocked(
+                "PR update candidate, Task or base changed during validation"
+            )
+        completed = tasks.set_status(text, "completed")
+        if completed != text:
+            tasks.atomic_files(
+                {target / state["task_file"]: completed}, staging_directory=target
+            )
+        state["prPublication"].update(
+            candidate=candidate.candidate_head,
+            baseCommit=candidate.base_commit,
+            taskHash=hashlib.sha256(completed.encode("utf-8")).hexdigest(),
+            previousCandidate=update_intent["previousCandidate"],
+            status="PREPARED",
+        )
+        update_intent["status"] = "VALIDATED"
+        wt.save(path, state)
+
+
+def operate(where, task_id, action, *, method="merge"):
+    root, _, path, state = wt.load(where, task_id)
+    with publication_lock(path):
+        root, _, path, state = wt.load(root, task_id)
+        publication = state.get("prPublication", {})
+        if state.get("integrationMode") != "pr" or not publication.get("number"):
+            raise wt.Blocked("PR operation requires this Task's published PR")
+        if state.get("prUpdate"):
+            raise wt.Blocked("finish the pending PR update before another PR operation")
+        identity = remote_identity(root)
+        if any(publication.get(k) != v for k, v in identity.items()):
+            raise wt.Blocked("recorded PR repository/remote changed")
+        pr = existing_pr(root, publication, states=("OPEN", "CLOSED", "MERGED"))
+        repo = publication["host"] + "/" + publication["repository"]
+        if action != "pr-status" and pr["state"] == "OPEN":
+            if action == "pr-merge":
+                with wt.lifecycle_lock(root):
+                    if wt.load(root, task_id)[3] != state:
+                        raise wt.Blocked("PR lifecycle changed before merge")
+                    publication["mergeIntent"] = True
+                    wt.save(path, state)
+                gh(
+                    root,
+                    publication["host"],
+                    "pr",
+                    "merge",
+                    str(pr["number"]),
+                    "--repo",
+                    repo,
+                    "--" + method,
+                    "--match-head-commit",
+                    publication["candidate"],
+                )
+            elif action == "pr-close":
+                gh(
+                    root,
+                    publication["host"],
+                    "pr",
+                    "close",
+                    str(pr["number"]),
+                    "--repo",
+                    repo,
+                )
+            elif action in {"pr-draft", "pr-ready"}:
+                gh(
+                    root,
+                    publication["host"],
+                    "pr",
+                    "ready",
+                    str(pr["number"]),
+                    "--repo",
+                    repo,
+                    *(["--undo"] if action == "pr-draft" else []),
+                )
+            pr = existing_pr(root, publication, states=("OPEN", "CLOSED", "MERGED"))
+        with wt.lifecycle_lock(root):
+            if wt.load(root, task_id)[3] != state:
+                raise wt.Blocked("PR lifecycle changed during GitHub operation")
+            publication.update(
+                status=pr["state"],
+                prState=pr["state"],
+                isDraft=pr.get("isDraft", False),
+            )
+            if pr["state"] == "MERGED":
+                merged = (pr.get("mergeCommit") or {}).get("oid")
+                if not merged or not re.fullmatch(r"[0-9a-f]{40,64}", merged):
+                    raise wt.Blocked(
+                        "PR merge result is unknown; retain state and reconcile"
+                    )
+                state["githubMerged"] = dict(
+                    number=pr["number"],
+                    repository=repo,
+                    candidate=publication["candidate"],
+                    mergeCommit=merged,
+                )
+                state["merged"] = merged
+            wt.save(path, state)
+            if pr["state"] == "MERGED" and action in {"pr-merge", "pr-status"}:
+                return wt.cleanup_state(root, path, state)
+        return state
+
+
+def close_existing(where, reference):
+    """Close by explicit number/URL after local lifecycle cleanup; never delete a branch."""
+    root = wt.repository(where)[2]
+    identity = remote_identity(root)
+    repo = identity["host"] + "/" + identity["repository"]
+    if not re.fullmatch(r"[1-9][0-9]*", reference):
+        match = re.fullmatch(
+            r"https://" + re.escape(repo) + r"/pull/([1-9][0-9]*)", reference
+        )
+        if not match:
+            raise wt.Blocked("PR URL must match this repository")
+        reference = match[1]
+    pr = json.loads(
+        gh(
+            root,
+            identity["host"],
+            "pr",
+            "view",
+            reference,
+            "--repo",
+            repo,
+            "--json",
+            PR_FIELDS,
+        )
+    )
+    if (
+        str(pr["number"]) != reference
+        or pr["url"] != f"https://{repo}/pull/{reference}"
+    ):
+        raise wt.Blocked("PR identity mismatch")
+    if pr["state"] == "OPEN":
+        gh(root, identity["host"], "pr", "close", reference, "--repo", repo)
+        pr = json.loads(
+            gh(
+                root,
+                identity["host"],
+                "pr",
+                "view",
+                reference,
+                "--repo",
+                repo,
+                "--json",
+                PR_FIELDS,
+            )
+        )
+    return {"prPublication": pr}

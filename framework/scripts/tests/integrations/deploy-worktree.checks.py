@@ -549,7 +549,7 @@ def check_failed_snapshot_with_unstarted_stack_publishes(settled):
             read_task_snapshot(backend.root, "tasks/deploy.md", live=True).status
             == "completed"
         )
-        assert wt.cleanup(primary, "deploy")["cleaned"]
+        assert wt.automatic_cleanup(primary, "deploy")["cleaned"]
 
 
 def run_controller(root, report, aws):
@@ -1136,7 +1136,7 @@ def check_managed_final_contract_checkpoint(boundary, tracked):
         assert publication.publish(root, "deploy")["status"] == "SUCCESS"
         result = publication.finalize(root, "deploy")
         assert result["verified"] and git(root, "rev-parse", "HEAD").strip() == source
-        assert wt.cleanup(primary, "deploy")["cleaned"]
+        assert wt.automatic_cleanup(primary, "deploy")["cleaned"]
 
 
 def interrupt_final_receipt(real, path, state):
@@ -1389,9 +1389,9 @@ def check_final_zero_model_delta_keeps_exact_source_history(mode):
                 patch.object(wt, "git", partial(interrupt_untracked_cleanup, wt.git)),
                 pytest.raises(OSError, match="interrupted"),
             ):
-                wt.cleanup(primary, "deploy")
+                wt.automatic_cleanup(primary, "deploy")
             assert root.exists() and not (root / task.name).exists()
-        assert wt.cleanup(primary, "deploy")["cleaned"]
+        assert wt.automatic_cleanup(primary, "deploy")["cleaned"]
 
 
 def interrupt_untracked_cleanup(real, root, *args, **kwargs):

@@ -82,6 +82,9 @@ WORKTREE_CASES = {
     ),
     "units/worktree-guard-unit.checks.py": (
         "check_registered_guard_process",
+        "check_pr_lifecycle_cli",
+        "check_pr_update_commit_boundary",
+        "check_pr_draft_and_closed_state",
         "check_pr_cli_and_special_routes",
         "check_pr_repository_url",
         "check_pr_remote_identity",
@@ -165,6 +168,8 @@ WORKTREE_CASES = {
         "check_pr_publication_recovery",
         "check_pr_empty_and_failed_validation",
         "check_pr_push_race_and_process_lock",
+        "check_explicit_disposal_and_orphans",
+        "check_pr_update_and_operations",
     ),
     "integrations/worktree_python.checks.py": (
         "check_setup",

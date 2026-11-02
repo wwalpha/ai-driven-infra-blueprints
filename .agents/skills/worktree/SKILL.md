@@ -19,17 +19,17 @@ When performing validation/integration, read [Validation scope](../../../framewo
 
 ## Sandbox permission approval and continuation
 
-Apply this procedure to **create, setup (when needed), normal Deploy checkpoint, finalize and cleanup**, regardless of the Codex model. The agent requests permissions through its execution tool; the Python helper cannot open the platform's approval UI. Do not end the task merely because a sandboxed helper invocation returns `status: blocked` with a write denial.
+Apply this procedure to **create, setup (when needed), normal Deploy checkpoint, finalize, PR operations, orphan branch deletion and cleanup**, regardless of the Codex model. The agent requests permissions through its execution tool; the Python helper cannot open the platform's approval UI. Do not end the task merely because a sandboxed helper invocation returns `status: blocked` with a write denial.
 
-Before **each operation**, inspect the relevant Git/Task/lock state and the execution environment's effective Sandbox restrictions using read-only information. Determine the actual write destinations for that operation, including the Git common directory, linked worktree administration/index, lifecycle metadata and, for create/setup when needed, the shared Python environment. Compare resolved paths with the effective policy, including protected exceptions and symlinks. Do not probe by writing or infer a denial from ordinary filesystem permissions alone. If the policy confirms a required destination is protected, request native permission on the **first invocation**, including for a new Task; a prior denial is not required. If normal access is allowed, run normally without an unnecessary approval. If restrictions or destinations are unknown, do not assume either access or denial: use the ordinary invocation and identify any failure below. Keep knowledge only in the current execution context; add no persistent permission-state file. Finalize/cleanup guards and the Python helper remain unchanged.
+Before **each operation**, inspect the relevant Git/Task/lock state and the execution environment's effective Sandbox restrictions using read-only information. Determine the actual write destinations for that operation, including the Git common directory, linked worktree administration/index, lifecycle metadata and, for create/setup when needed, the shared Python environment. Compare resolved paths with the effective policy, including protected exceptions and symlinks. Do not probe by writing or infer a denial from ordinary filesystem permissions alone. If the policy confirms a required destination is protected, request native permission on the **first invocation**, including for a new Task; a prior denial is not required. If normal access is allowed, run normally without an unnecessary approval. If restrictions or destinations are unknown, do not assume either access or denial: use the ordinary invocation and identify any failure below. Keep knowledge only in the current execution context; add no persistent permission-state file. Permission approval does not relax the Python helper's guards.
 
 1. **Inspect state and restrictions.** From a surviving repository root, use read-only `git rev-parse --path-format=absolute --git-common-dir`, `git worktree list --porcelain`, `git --no-optional-locks status --porcelain --untracked-files=all` in each relevant surviving checkout, and branch/HEAD reads. Resolve `<primary>` from the first worktree entry. Inspect `<primary>/.worktrees/.blueprint/tasks/<task-id>.json` and whether `<primary>/.worktrees/.blueprint/lifecycle.lock` or `tasks/<task-id>.setup-lock` exists; for setup also inspect the shared Python setup lock and environment state as applicable. Compare saved start/tip/commit/verified/merged state with actual branches and worktree. Consult the execution tool's actual permission schema and effective Sandbox policy; do not invent unsupported capabilities. If inspection itself is denied, request only the permissions needed to inspect it first.
-2. **Choose a safe continuation.** The approval call may execute immediately, so finish inspection first. For create, verify this task's branch, target path, registered worktree and lifecycle state are absent. If creation already succeeded and valid lifecycle metadata matches the actual worktree/base/start, use that existing result instead of creating again. For partial finalize/cleanup, use only the helper's existing retry path after verifying retained state; a verified merge proceeds through cleanup from a surviving root. A commit/rebase/merge without matching saved state, an unverified commit, an unfinished Git operation, or a remaining lifecycle lock requires safe retention and review, not an automatic mutating retry. Never delete a lock, even when its removal was denied. Git lock contention, lifecycle busy, branch/worktree collisions, dirty worktrees, rebase conflicts, Task violations, Validation FAIL and inconsistent Git/Task state are safety blocks; never use escalation to bypass them. Do not write recovery metadata or reconstruct lifecycle with ad hoc Git commands.
+2. **Choose a safe continuation.** The approval call may execute immediately, so finish inspection first. For create, verify this task's branch, target path, registered worktree and lifecycle state are absent. If creation already succeeded and valid lifecycle metadata matches the actual worktree/base/start, use that existing result instead of creating again. For partial finalize/cleanup, use only the helper's existing retry path after verifying retained state; a verified merge proceeds through automatic cleanup from a surviving root; explicit disposal does not require a merge. A commit/rebase/merge without matching saved state, an unverified commit, an unfinished Git operation, or a remaining lifecycle lock requires safe retention and review, not an automatic mutating retry. Never delete a lock, even when its removal was denied. Git lock contention, lifecycle busy, branch/worktree collisions, unexpected dirty worktrees during integration/automatic cleanup, rebase conflicts, Task violations, Validation FAIL and inconsistent Git/Task state are safety blocks; never use escalation to bypass them. Do not write recovery metadata or reconstruct lifecycle with ad hoc Git commands.
 3. **Request real execution permission when needed.** If supported by the execution tool, prefer `sandbox_permissions: "with_additional_permissions"` with `additional_permissions.file_system.write` restricted to the actual required paths. Avoid granting the entire repository. If that facility is unavailable, use the supported native escalation, such as Codex `exec_command` with `sandbox_permissions: "require_escalated"` and a `justification` naming the operation, repository/task, protected paths and required temporary write access. Do not invent tool arguments or assume approval. Keep permission limited to the operation; a chat confirmation does not grant execution permission. If the native facility is unavailable or approval is denied/canceled, stop safely and preserve state.
 4. **Identify unexpected failure.** If an ordinary invocation fails, read the execution tool's denial and helper JSON `error`; confirm the operation and path against the effective Sandbox restrictions. `Operation not permitted` / `Permission denied` (`EPERM` / `EACCES`) alone do not prove a Sandbox denial. `File exists`, lifecycle busy, collisions and the other safety blocks above do not justify escalation. For a confirmed Sandbox denial, repeat the read-only inspection and safe continuation above before requesting permission; do not repeat the denied command under the same permissions. Partial success uses only the existing recovery path.
 5. **Continue automatically after success.** Keep the same task ID, contract selector, helper arguments and task scope (use a surviving root for cleanup). Allow at most **one escalated reexecution per denied invocation**; if a permission-granted invocation is denied again or state is inconsistent, stop with the concrete error and retained state. On exit 0 with JSON `status: ok`, continue the original workflow immediately without another instruction: creation returns to child execution, finalize returns to verified integration/cleanup, cleanup returns to completion reporting. If approval is unavailable, report the blocked operation and path; do not pretend chat confirmation grants permissions.
 
-Permission approval changes execution access only. It never approves validation failures, expands Allowed paths, resumes a suspended task or authorizes AWS operations. Do not add `--human-approved-validation-failure` for sandbox approval. Never use `sudo`, `chmod 777`, permanent sandbox disabling, force Git operations, stash/reset to discard changes, or lock deletion as a workaround. Report which permission/retry steps were exercised and distinguish mocked retention checks from actual approval UI/model verification.
+Permission approval changes execution access only. It never approves validation failures, expands Allowed paths, resumes a suspended task or authorizes AWS operations. Do not add `--human-approved-validation-failure` for sandbox approval. Never use `sudo`, `chmod 777`, permanent sandbox disabling, force Git operations outside the explicit local disposal described below, stash/reset to discard changes, or lock deletion as a workaround. Report which permission/retry steps were exercised and distinguish mocked retention checks from actual approval UI/model verification.
 
 ## Create and execute
 
@@ -167,17 +167,19 @@ the guard; changed Task, files or index stop before staging. No runtime fallback
 setup/retry occurs. Successful guard diagnostics use stderr so stdout remains CLI JSON; failures
 retain the child return code, stdout and stderr separately in `diagnostics`.
 
-It then checks a clean worktree holding the local base, rebases the task onto its latest local commit, rechecks the base, merges with `--ff-only`, verifies the expected task tip is included, and removes the worktree/branch without force. Have the local base checked out in an available worktree before finalize; the helper does not switch anyone's branch. Helpers serialize Git integration through the shared `<primary>/.worktrees/.blueprint/lifecycle.lock/` mutex; AWS locks remain separate. Default finalize creates no remote push or PR. Only an explicit Human PR request selects the PR exit below.
+It then checks a clean worktree holding the local base, rebases the task onto its latest local commit, rechecks the base, merges with `--ff-only`, verifies the expected task tip is included, and removes the clean owned worktree and its verified local branch. Branch deletion uses `-D` only after ownership and automatic-cleanup checks. Have the local base checked out in an available worktree before finalize; the helper does not switch anyone's branch. Helpers serialize Git integration through the shared `<primary>/.worktrees/.blueprint/lifecycle.lock/` mutex; AWS locks remain separate. Default finalize creates no remote push or PR. Only an explicit Human PR request selects the PR exit below.
 
 ## Explicit PR publication
 
 Use `python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id> --create-pr`
 only when the Human explicitly requests a Pull Request. A feature implementation request
 about PR support is not itself a request to publish that Task as a PR. Default finalize
-retains FF Merge → Cleanup. `--create-pr` is finalize-only and is rejected for Deploy or
+retains FF Merge → Cleanup. Append `--draft` to create a Draft PR; without it creation remains a normal PR. Re-running finalize never changes an existing PR's Draft/Ready state. `--draft` requires `finalize --create-pr`.
+
+`--create-pr` is finalize-only and is rejected for Deploy or
 Deploy Repair Child before their publication/parent integration begins.
 
-PR mode shares existing commit, rebase, guards and completion checks. Model/Framework
+Initial PR publication shares existing commit, rebase, guards and completion checks. Model/Framework
 final-candidate validation still runs once. It never merges, commits, checks out or resets
 the local base, never sets `merged`, and never runs cleanup. Zero diff is refused.
 Validation-failure approval remains independently explicit: where the existing exception
@@ -195,7 +197,7 @@ open PR is reused without editing its title/body. Publication title/body use the
 and confirmed contract content.
 
 `integrationMode: "pr"` and `prPublication` retain base/head/candidate/Task identity,
-remote/repository, PREPARED/PUSHED/OPEN progress and PR URL/number/state. The verified intent
+remote/repository, PREPARED/PUSHED/OPEN progress and PR URL/number/state plus `isDraft`. GitHub `state: OPEN` is separate from Draft status. The verified intent
 is atomically saved before remote effects. A task OS lock serializes publication before
 short lifecycle sections; network calls never hold the common lifecycle lock. Its owned
 lock file stays at the same inode and the OS releases exclusion on process exit.
@@ -207,8 +209,47 @@ matching PR has an uncertain outcome and requires Human review. Plain finalize o
 stops with explicit guidance. Candidate/base/authority changes and unsafe Git state require
 review; do not hand-edit lifecycle metadata or overwrite remote refs. PR success returns
 `prPublication.url`, `number`, `prState` and `status: OPEN`; worktree and branch remain.
-`cleanup` refuses PR Tasks. Automated cleanup after GitHub merge (including squash/rebase),
-mode conversion and later candidate updates are outside this workflow.
+PR creation and Push success retain the Worktree and branch.
+
+### Independent PR operations
+
+These operations are Git tools; the caller chooses their timing and order. They add no
+reviewer, external orchestrator, Task archive, watcher or scheduled workflow.
+
+```console
+python3 -B framework/scripts/worktree_task.py pr-update --task-id <task-id>
+python3 -B framework/scripts/worktree_task.py pr-ready --task-id <task-id>
+python3 -B framework/scripts/worktree_task.py pr-draft --task-id <task-id>
+python3 -B framework/scripts/worktree_task.py pr-merge --task-id <task-id> --merge-method squash
+python3 -B framework/scripts/worktree_task.py pr-status --task-id <task-id>
+python3 -B framework/scripts/worktree_task.py pr-close --task-id <task-id>
+python3 -B framework/scripts/worktree_task.py pr-close --pr <number-or-url>
+```
+
+`pr-update` explicitly prepares and validates a new descendant candidate in the same
+Task/Worktree, then pushes to the existing repository/head/PR. New commits and uncommitted
+review corrections must remain inside that Task's exact paths and authority. Existing
+commit/Model guards and the registered-runtime final candidate validator apply; a prior
+validation-failure approval cannot approve a new candidate. Published history is never
+rebased: include the latest local base in the descendant candidate before updating if
+that base advanced. Remote/GitHub base must match the validated local base at publication.
+The saved `prUpdate` intent distinguishes the old published HEAD and new candidate.
+A creation-only pre-push guard remains for initial publication; update's pre-push guard
+requires the advertised old HEAD exactly. Both use ordinary non-force Push. Remote HEAD
+conflicts stop even when Git could fast-forward. Push interruptions reconcile old/new
+remote HEAD against the same saved intent; retry `pr-update`, never discard the intent or
+hand-edit management JSON. Update success retains the Worktree and never recreates the PR.
+
+Draft/Ready transitions are explicit. `pr-merge` supports `merge` (default), `squash` and
+`rebase`, matching the published HEAD before requesting GitHub merge. `pr-status` explicitly
+reconciles external or uncertain merges. Both clean up automatically only after GitHub
+confirms MERGED with the same repository, number/URL, base/head and published HEAD, and a
+known merge commit. Squash/Rebase do not require that original HEAD be a local-base ancestor.
+Merge failure/unknown result retains lifecycle state for reconciliation. Automatic cleanup
+still preserves unexpected dirty worktrees/artifacts; use explicit disposal when intended.
+`pr-close` never cleans up and never deletes the remote branch. After local cleanup use
+`pr-close --pr <number-or-url>` against this checkout's origin repository. PR Close and
+Worktree Cleanup are separate; either may run first. No PR operation deletes remote branches.
 
 ## Failures and cleanup
 
@@ -216,11 +257,49 @@ Exit 0 and JSON `status: ok` indicate success; exit 1 and `status: blocked` give
 
 For failed validation/loop, assess Self recovery first; if unresolved, stop before finalize/commit unless the human explicitly approves the exception above. Other suspended tasks, missing input, approval waits or conflicts still stop before finalize/commit. Keep worktree and branch; use the child's existing suspension/resume rules. Ordinary finalize never completes or resumes a task; the Model-only/Framework final-candidate path completes only after validation passes. A dirty base is never stashed/reset/overwritten. Rebase failure runs `rebase --abort`, preserves the task commit and worktree, and requires human review; do not guess conflict resolutions. A base change during integration stops safely; rerun finalize only after reviewing the reported state.
 
-Cleanup runs only after verified merge. It removes only this task's state JSON after its worktree/branch are removed; the shared `.worktrees/.blueprint/` directory and other tasks' state remain. Dirty worktrees, unmerged/changed branches, locked/stale entries and ignored user artifacts are retained. The sole stale-registration recovery exception is a missing task checkout after a verified merge: cleanup must prove the saved branch/HEAD/merge identity, a unique matching Git administration directory, an unchanged retained index, and no locks or unfinished Git operations before retrying ordinary Git worktree removal. Missing, redirected or ambiguous Git metadata fails closed. Never use force removal or repository-wide prune. The shared Python environment is never removed. Unknown ignored files and directories require preservation before cleanup. Import completion evidence lives in `evidence_store(worktree)` outside the repository. Finalize verifies it before integration; successful cleanup removes only this task's sealed receipt after checkout/branch removal. Failed or interrupted integration retains retry evidence. Unknown ignored artifacts remain blockers; `.worktrees/.blueprint` lifecycle state is unchanged. A merge followed by cleanup failure remains merged and can use the existing cleanup retry. If cleanup fails, report the merged commit and remaining worktree/branch; do not roll back the merge. From a surviving repository root, retry only the helper:
+Automatic cleanup follows a verified local FF merge or a GitHub merge confirmed by
+`pr-merge`/`pr-status`. It retains the existing completion/cleanliness checks and Import,
+Deploy and Repair evidence finalization. Merge success remains recorded if cleanup fails;
+never roll it back. Automatic cleanup uses the already-held task publication lock, followed
+by the common lifecycle lock; it does not recursively acquire the publication lock.
+
+Explicit Cleanup is a local disposal operation, independent of merge, PR existence/state,
+Draft/Ready, Task running/suspend/completed, commits and uncommitted/ignored/untracked files.
+No extra merge confirmation or Task completion consent is required. From a surviving root:
 
 ```console
 python3 -B framework/scripts/worktree_task.py cleanup --task-id <task-id>
 ```
+
+It verifies Task/path/branch/Git registration ownership and excludes operation conflicts,
+then removes only the owned checkout and Git registration (`git worktree remove --force`
+when explicit), its local `codex/worktree/<task-id>` branch (`git branch -D` after ownership
+checks), and finally its state JSON. Symlink redirection, switched/foreign worktrees,
+locked registrations, setup/publication/lifecycle/Git locks and unfinished Git operations
+stop removal. No force Push, reset, foreign-worktree removal or repository-wide prune is
+permitted. A missing checkout is recoverable from uniquely matching Git administration,
+HEAD/branch and lock checks; explicit disposal does not require a clean retained index or
+merge receipt. A branch-delete failure retains state so the same Cleanup retries after
+checkout removal. Verify actual remaining resources before reporting completion.
+
+Explicit disposal does not finalize uncertain Import/Deploy/Repair evidence. External
+evidence is retained and reported under `retained_external_evidence`; it never becomes
+successful publication evidence. Physical cleanup does not depend on workflow completion.
+Neither cleanup mode changes GitHub PRs, remote branches, other Tasks, the shared Python
+environment or AWS. Only verified post-merge automatic cleanup removes owned sealed receipts.
+
+### Orphan local branches
+
+```console
+python3 -B framework/scripts/worktree_task.py branches
+python3 -B framework/scripts/worktree_task.py branch-delete --branch codex/worktree/<task-id>
+```
+
+`branches` is read-only and returns local branch ↔ Worktree registration ↔ Task-state
+associations with an `orphan` flag. It requires no `--task-id`. `branch-delete` requires one
+explicit branch, no Task state and no Worktree using that branch (including stale/locked
+registrations). Tasks with management state use normal explicit Cleanup. No bulk deletion,
+remote deletion, shared-environment removal or automatic pruning is provided.
 
 Cleanup success and failure JSON include `cleanup.phase`, `cleanup.remaining` (checkout, Git registration, branch and task-state presence), `cleanup.stop_reason`, `cleanup.retry_command` and `cleanup.next_action`. A blocked result requires resolving its stop reason before retrying; the retry command is not permission to bypass a guard. A missing checkout alone does not mean cleanup completed. After a partial removal, use the same official cleanup command from a surviving checkout containing this recovery implementation.
 

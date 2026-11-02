@@ -20,7 +20,9 @@ import worktree_state
 from utils import cli_deploy
 from utils.file_operations import sha
 from utils.import_evidence import discard_import_proof
+from utils.local_evidence import evidence_store as local_evidence_store
 from utils.script_loader import module
+from utils.sealed_evidence import evidence_store
 from worktree_state import (
     Blocked as Blocked,
 )
@@ -276,15 +278,21 @@ def _cleanup_git(root: Path, *args: str, directory: Path):
     return git(root, "--git-dir", str(directory), *args)
 
 
-def cleanup_missing_worktree(root: Path, state: dict, entry: dict) -> None:
+def cleanup_missing_worktree(
+    root: Path, state: dict, entry: dict, *, discard=False
+) -> None:
     """Prove retained Git data is unchanged before removing a missing checkout's registration."""
     if (
         "locked" in entry
         or entry.get("branch") != f"refs/heads/{state['branch']}"
-        or entry.get("HEAD") != state["tip"]
-        or state["merged"] != state["tip"]
-        or state["commit"] is not None
-        and not state.get("verified")
+        or not discard
+        and (
+            entry.get("HEAD") != state["tip"]
+            or not state.get("githubMerged")
+            and state["merged"] != state["tip"]
+            or state["commit"] is not None
+            and not state.get("verified")
+        )
     ):
         raise Blocked(
             "missing worktree registration is locked or differs from the verified merge; cleanup refused"
@@ -293,6 +301,8 @@ def cleanup_missing_worktree(root: Path, state: dict, entry: dict) -> None:
     common = Path(
         output(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
     )
+    if (common / "worktrees").is_symlink():
+        raise Blocked("Git worktree administration must not be redirected")
     directories = [
         directory
         for directory in (common / "worktrees").iterdir()
@@ -328,14 +338,26 @@ def cleanup_missing_worktree(root: Path, state: dict, entry: dict) -> None:
         ).resolve()
         != common.resolve()
         or output(root, "--git-dir", str(directory), "rev-parse", "HEAD")
-        != state["tip"]
+        != entry["HEAD"]
+        or output(root, "--git-dir", str(directory), "symbolic-ref", "HEAD")
+        != f"refs/heads/{state['branch']}"
     ):
         raise Blocked("missing worktree Git identity changed; cleanup refused")
+    if target.exists():
+        gitfile = target / ".git"
+        if gitfile.is_symlink() or not gitfile.is_file():
+            raise Blocked("worktree Git registration is redirected; cleanup refused")
+        pointer = gitfile.read_text(encoding="utf-8").strip()
+        if (
+            not pointer.startswith("gitdir: ")
+            or (target / pointer[8:]).resolve() != directory.resolve()
+        ):
+            raise Blocked("worktree Git registration is redirected; cleanup refused")
     worktree_state.idle_operations(
         root, runner=partial(_cleanup_git, directory=directory)
     )
     # diff-index reads the retained index without requiring the removed working directory.
-    if output(
+    if not discard and output(
         root,
         "--git-dir",
         str(directory),
@@ -361,7 +383,8 @@ def cleanup_progress(
         "remaining": {
             "worktree": target.exists() or target.is_symlink(),
             "git_registration": any(
-                Path(e["worktree"]).resolve() == target for e in worktrees(root)
+                Path(e["worktree"]) == target or Path(e["worktree"]).resolve() == target
+                for e in worktrees(root)
             ),
             "branch": branch_exists(root, state["branch"]),
             "task_state": path.exists(),
@@ -404,62 +427,86 @@ def deploy_cleanup_task(target, state):
     return path
 
 
-def cleanup_state(root, path, state):
+def cleanup_state(root, path, state, *, discard=False):
     phase = "verify_merge"
     try:
-        if state.get("integrationMode") == "pr":
-            raise Blocked(
-                "PR worktree is retained; automatic post-PR cleanup is outside this lifecycle"
-            )
-        if not state["merged"] or not ancestor(root, state["merged"], state["base"]):
-            raise Blocked("cleanup requires a verified successful merge")
-        if state["commit"] and not ancestor(root, state["commit"], state["base"]):
-            raise Blocked("base no longer contains the task commit; cleanup refused")
+        if not discard:
+            if state.get("githubMerged"):
+                if state.get("prPublication", {}).get("prState") != "MERGED":
+                    raise Blocked("automatic cleanup requires a confirmed PR merge")
+            else:
+                if not state["merged"] or not ancestor(
+                    root, state["merged"], state["base"]
+                ):
+                    raise Blocked("cleanup requires a verified successful merge")
+                if state["commit"] and not ancestor(
+                    root, state["commit"], state["base"]
+                ):
+                    raise Blocked(
+                        "base no longer contains the task commit; cleanup refused"
+                    )
         phase = "verify_worktree"
         target = Path(state["worktree"])
-        if target.is_symlink():
+        if target.is_symlink() or target.parent.is_symlink():
             raise Blocked("task worktree path is a symlink; cleanup refused")
         if path.with_suffix(".setup-lock").exists():
             raise Blocked("Python setup busy; cleanup refused")
         entries = [
             e for e in worktrees(root) if Path(e["worktree"]).resolve() == target
         ]
+        if any(
+            e.get("branch") == f"refs/heads/{state['branch']}"
+            and Path(e["worktree"]) != target
+            for e in worktrees(root)
+        ):
+            raise Blocked("task branch is used by another worktree; cleanup refused")
         untracked_task = None
         if target.exists():
             target = task_worktree(root, state)
-            if output(target, "rev-parse", "HEAD") != state["tip"]:
+            cleanup_missing_worktree(root, state, entries[0], discard=True)
+            if not discard and output(target, "rev-parse", "HEAD") != state["tip"]:
                 raise Blocked("task HEAD changed since merge; cleanup refused")
-            untracked_task = deploy_cleanup_task(target, state)
-            integration_task(target, state)
-            changed = changed_paths(target)
-            if untracked_task is not None:
-                changed.discard(state["task_file"])
-            if changed:
-                raise Blocked("task worktree is dirty; cleanup refused")
-            # Preserve user artifacts before removing the owned environment or checkout.
-            ignored = paths(
-                target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"
-            )
-            extras = {
-                p
-                for p in ignored
-                if p != state["task_file"]
-                and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))
-            }
-            if extras:
-                raise Blocked(
-                    "ignored files need preservation before cleanup: "
-                    + ", ".join(sorted(extras))
+            if not discard:
+                untracked_task = deploy_cleanup_task(target, state)
+                integration_task(target, state)
+                changed = changed_paths(target)
+                if untracked_task is not None:
+                    changed.discard(state["task_file"])
+                if changed:
+                    raise Blocked("task worktree is dirty; cleanup refused")
+                # Preserve user artifacts before removing the owned environment or checkout.
+                ignored = paths(
+                    target,
+                    "ls-files",
+                    "--others",
+                    "--ignored",
+                    "--exclude-standard",
+                    "-z",
                 )
+                extras = {
+                    p
+                    for p in ignored
+                    if p != state["task_file"]
+                    and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))
+                }
+                if extras:
+                    raise Blocked(
+                        "ignored files need preservation before cleanup: "
+                        + ", ".join(sorted(extras))
+                    )
         elif entries:
             if len(entries) != 1:
                 raise Blocked(
                     "multiple Git registrations for the missing worktree; cleanup refused"
                 )
-            cleanup_missing_worktree(root, state, entries[0])
+            cleanup_missing_worktree(root, state, entries[0], discard=discard)
         if branch_exists(root, state["branch"]):
             tip = output(root, "rev-parse", f"refs/heads/{state['branch']}")
-            if tip != state["tip"] or not ancestor(root, tip, state["base"]):
+            if not discard and (
+                tip != state["tip"]
+                or not state.get("githubMerged")
+                and not ancestor(root, tip, state["base"])
+            ):
                 raise Blocked(
                     "temporary branch changed or is unmerged; cleanup refused"
                 )
@@ -473,25 +520,58 @@ def cleanup_state(root, path, state):
                 and state["task_file"] in changed_paths(target)
             ):
                 deploy_cleanup_task(target, state).unlink()
-            git(root, "worktree", "remove", str(target))
+            git(
+                root,
+                "worktree",
+                "remove",
+                *(["--force"] if discard else []),
+                str(target),
+            )
         phase = "remove_branch"
         if branch_exists(root, state["branch"]):
-            # -d checks against HEAD when no upstream exists. Use the verified base worktree.
-            git(base_worktree(root, state), "branch", "-d", state["branch"])
-        phase = "remove_import_proof"
-        if not state.get("deployIdentity"):
-            discard_import_proof(target, state["task_file"])
-        phase = "remove_repair_proof"
-        if state.get("deployRepair"):
-            _worktree_runtime().deploy_handoff.discard_request(state)
-        if state.get("deployIdentity"):
-            phase = "remove_deploy_progress"
-            module("deploy/worktree.py", "deploy.worktree").discard_progress(state)
+            git(root, "branch", "-D", state["branch"])
+        phase = "verify_removal"
+        remaining = cleanup_progress(root, path, state, phase)["remaining"]
+        if any(remaining[key] for key in ("worktree", "git_registration", "branch")):
+            raise Blocked("local cleanup is incomplete; retain Task state and retry")
+        retained_evidence = []
+        if discard:
+            try:
+                proof = evidence_store(target, create=False) / (
+                    state["task_id"] + ".json"
+                )
+                if proof.exists() or proof.is_symlink():
+                    retained_evidence.append(str(proof))
+                if state.get("deployIdentity"):
+                    progress = (
+                        local_evidence_store(target, create=False)
+                        / "deploy-progress.json"
+                    )
+                    if progress.exists() or progress.is_symlink():
+                        retained_evidence.append(str(progress))
+            except (OSError, ValueError) as error:
+                retained_evidence.append(
+                    {"external_evidence_inspection_error": str(error)}
+                )
+            for key in ("deployRepair", "deployIdentity", "iacRepair"):
+                if state.get(key):
+                    retained_evidence.append({key: state[key]})
+        else:
+            phase = "remove_import_proof"
+            if not state.get("deployIdentity"):
+                discard_import_proof(target, state["task_file"])
+            phase = "remove_repair_proof"
+            if state.get("deployRepair"):
+                _worktree_runtime().deploy_handoff.discard_request(state)
+            if state.get("deployIdentity"):
+                phase = "remove_deploy_progress"
+                module("deploy/worktree.py", "deploy.worktree").discard_progress(state)
         phase = "remove_state"
         path.unlink()
         return {
             **state,
             "cleaned": True,
+            "retained_external_evidence": retained_evidence,
             "cleanup": cleanup_progress(root, path, state, "complete"),
         }
     except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
@@ -505,8 +585,69 @@ def cleanup_state(root, path, state):
 
 def cleanup(where, task_id):
     root, common, path, state = load(where, task_id)
-    with lifecycle_lock(root):
+    publication = module("worktree_pr.py", "worktree_pr")
+    with publication.publication_lock(path), lifecycle_lock(root):
+        root, _, path, state = load(root, task_id)
+        return cleanup_state(root, path, state, discard=True)
+
+
+def automatic_cleanup(where, task_id, *, publication_held=False):
+    root, _, path, state = load(where, task_id)
+    publication = module("worktree_pr.py", "worktree_pr")
+    lock = nullcontext() if publication_held else publication.publication_lock(path)
+    with lock, lifecycle_lock(root):
+        root, _, path, state = load(root, task_id)
         return cleanup_state(root, path, state)
+
+
+def branches(where):
+    root, _, primary = repository(where)
+    records = worktrees(root)
+    states = {}
+    for path in sorted((metadata_directory(primary) / "tasks").glob("*.json")):
+        state = load(primary, path.stem)[3]
+        states[state["branch"]] = str(path)
+    result = []
+    for branch in output(
+        root, "for-each-ref", "--format=%(refname:short)", "refs/heads/codex/worktree/"
+    ).splitlines():
+        entries = [
+            e["worktree"] for e in records if e.get("branch") == "refs/heads/" + branch
+        ]
+        result.append(
+            dict(
+                branch=branch,
+                worktrees=entries,
+                task_state=states.get(branch),
+                orphan=not entries and branch not in states,
+            )
+        )
+    return {"branches": result}
+
+
+def delete_branch(where, branch):
+    root, _, primary = repository(where)
+    if not branch or not branch.startswith("codex/worktree/"):
+        raise Blocked("specify one exact codex/worktree/<task-id> local branch")
+    path = state_path(primary, branch.removeprefix("codex/worktree/"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    publication = module("worktree_pr.py", "worktree_pr")
+    with publication.publication_lock(path), lifecycle_lock(primary):
+        if path.exists() or path.is_symlink():
+            raise Blocked("Task lifecycle exists; use cleanup --task-id instead")
+        if any(e.get("branch") == "refs/heads/" + branch for e in worktrees(root)):
+            raise Blocked("branch is used by a worktree; deletion refused")
+        # Also reject ambiguous ownership recorded by another lifecycle file.
+        if any(
+            e["branch"] == branch and not e["orphan"]
+            for e in branches(root)["branches"]
+        ):
+            raise Blocked("branch still has Task ownership; use cleanup")
+        git(root, "branch", "-D", branch)
+        return {
+            "deleted_branch": branch,
+            "remaining_branch": branch_exists(root, branch),
+        }
 
 
 def _run_model_guard(
@@ -592,7 +733,7 @@ def _run_model_guard(
 
 
 def _commit_preconditions(
-    target, state, changed, text, parsed_operation, *, scope_paths
+    target, state, changed, text, parsed_operation, *, scope_paths, published_head=None
 ):
     idle_git(target)
     tasks.validate_contract(target, state["task_file"], text)
@@ -609,9 +750,12 @@ def _commit_preconditions(
     if any(p.startswith("tasks/") for p in changed):
         raise Blocked("contracts must remain ignored; nothing committed")
     head = output(target, "rev-parse", "HEAD")
-    if head != state["tip"]:
+    if published_head is not None:
+        if not ancestor(target, published_head, state["branch"]):
+            raise Blocked("PR update must descend from the published HEAD")
+    elif head != state["tip"]:
         raise Blocked("unexpected commits on task branch; review required")
-    if state["commit"] and changed:
+    if published_head is None and state["commit"] and changed:
         if parsed_operation is None or parsed_operation.action != "model-delete":
             raise Blocked(
                 "task changed after commit; rerun its workflow before integration"
@@ -623,7 +767,7 @@ def integration_changed_paths(target, task_file):
     return changed_paths(target) | (committed_task_paths(target, task_file) or set())
 
 
-def _prepare_commit(root, path, state, target, approval):
+def _prepare_commit(root, path, state, target, approval, *, pr_update=False):
     changed = changed_paths(target)
     task_id = state["task_id"]
     model_changes = integration_changed_paths(target, state["task_file"])
@@ -639,7 +783,13 @@ def _prepare_commit(root, path, state, target, approval):
             "Model refactor/retarget/delete integration requires successful final candidate validation"
         )
     head = _commit_preconditions(
-        target, state, changed, contract, parsed_operation, scope_paths=model_changes
+        target,
+        state,
+        changed,
+        contract,
+        parsed_operation,
+        scope_paths=model_changes,
+        published_head=state["prUpdate"]["previousCandidate"] if pr_update else None,
     )
     base_worktree(root, state)
     implement = "- Infrastructure phase: `implement`" in tasks.section(
@@ -681,7 +831,15 @@ def _prepare_commit(root, path, state, target, approval):
                 )
         integration_task(target, state, approval)
         head = _commit_preconditions(
-            target, state, changed, current, parsed_operation, scope_paths=model_changes
+            target,
+            state,
+            changed,
+            current,
+            parsed_operation,
+            scope_paths=model_changes,
+            published_head=state["prUpdate"]["previousCandidate"]
+            if pr_update
+            else None,
         )
     if approval:
         state["validation_failure_approval"] = approval
@@ -725,6 +883,16 @@ def _prepare_commit(root, path, state, target, approval):
         raise Blocked("task worktree changed during commit; review required")
     base = base_worktree(root, state)
     latest = output(root, "rev-parse", f"refs/heads/{state['base']}")
+    if pr_update:
+        # Published history is never rebased; callers may add descendant commits explicitly.
+        if not ancestor(root, latest, state["branch"]):
+            raise Blocked(
+                "PR update must include the latest local base; retain published history"
+            )
+        state.update(tip=output(target, "rev-parse", "HEAD"), verified=True)
+        state["commit"] = state["tip"]
+        save(path, state)
+        return latest
     # Do not replay unexpected history if the base was rewritten after creation.
     if not implement and not ancestor(root, state["start"], state["base"]):
         raise Blocked("base history was rewritten; task retained for review")
@@ -930,7 +1098,12 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
 
 
 def finalize(
-    where, task_id, human_approved_validation_failure=None, *, create_pr=False
+    where,
+    task_id,
+    human_approved_validation_failure=None,
+    *,
+    create_pr=False,
+    draft=False,
 ):
     root, _, path, state = load(where, task_id)
     if (
@@ -945,18 +1118,24 @@ def finalize(
         )
     ):
         raise Blocked("PR publication is unavailable for Deploy tasks")
-    if state.get("deployIdentity") or state.get("deployRepair") or state["merged"]:
-        if create_pr:
-            raise Blocked(
-                "PR publication is unavailable for Deploy, repair or merged tasks"
-            )
-        return _finalize(where, task_id, human_approved_validation_failure)
+    if create_pr and (
+        state.get("deployIdentity") or state.get("deployRepair") or state["merged"]
+    ):
+        raise Blocked(
+            "PR publication is unavailable for Deploy, repair or merged tasks"
+        )
     publication = module("worktree_pr.py", "worktree_pr")
     with publication.publication_lock(path):
         state = load(root, task_id)[3]
+        if state.get("deployIdentity") or state.get("deployRepair") or state["merged"]:
+            if create_pr:
+                raise Blocked(
+                    "PR publication is unavailable for Deploy, repair or merged tasks"
+                )
+            return _finalize(root, task_id, human_approved_validation_failure)
         if create_pr:
             return publication.finalize(
-                root, task_id, human_approved_validation_failure
+                root, task_id, human_approved_validation_failure, draft=draft
             )
         if state.get("integrationMode") == "pr":
             raise Blocked(
@@ -976,7 +1155,7 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
         if human_approved_validation_failure is not None:
             raise Blocked("Deploy publication requires its successful validation")
         run_deploy_publication(where, task_id, finish=True)
-        return cleanup(root, task_id)
+        return automatic_cleanup(root, task_id, publication_held=True)
     if state.get("deployRepair"):
         if human_approved_validation_failure is not None:
             raise Blocked("deploy repair result requires successful static validation")
@@ -1025,7 +1204,7 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
             if state.get("integrationMode") == "pr":
                 return load(root, task_id)[3]
             # The surviving launcher owns cleanup, after the registered child exits.
-            return cleanup(root, task_id)
+            return automatic_cleanup(root, task_id, publication_held=True)
     with lifecycle_lock(root):
         if path.with_suffix(".setup-lock").exists():
             raise Blocked("Python setup busy; integration refused")
@@ -1450,6 +1629,14 @@ def main():
             "setup",
             "finalize",
             "cleanup",
+            "branches",
+            "branch-delete",
+            "pr-update",
+            "pr-merge",
+            "pr-status",
+            "pr-close",
+            "pr-draft",
+            "pr-ready",
             "recover",
             "repair-checkpoint",
             "repair-validate",
@@ -1459,7 +1646,21 @@ def main():
         ),
     )
     parser.add_argument("--repository-root", type=Path, default=Path.cwd())
-    parser.add_argument("--task-id", required=True)
+    parser.add_argument("--task-id")
+    parser.add_argument(
+        "--branch", help="One explicit orphan local codex/worktree branch"
+    )
+    parser.add_argument(
+        "--pr", help="Explicit PR number or URL for pr-close after cleanup"
+    )
+    parser.add_argument(
+        "--draft",
+        action="store_true",
+        help="Create a Draft PR; never changes an existing PR's draft state",
+    )
+    parser.add_argument(
+        "--merge-method", choices=("merge", "squash", "rebase"), default=None
+    )
     parser.add_argument(
         "--create-pr",
         action="store_true",
@@ -1486,6 +1687,27 @@ def main():
         help="Explicitly pin a reviewed clean recovery candidate to the latest descendant base",
     )
     args = parser.parse_args()
+    if (
+        args.command not in {"branches", "branch-delete"}
+        and not (args.command == "pr-close" and args.pr)
+        and not args.task_id
+    ):
+        parser.error("--task-id is required for this operation")
+    if args.task_id and (args.command in {"branches", "branch-delete"} or args.pr):
+        parser.error("branch operations and explicit --pr do not accept --task-id")
+    if args.draft and not (args.command == "finalize" and args.create_pr):
+        parser.error("--draft requires finalize --create-pr")
+    if (
+        args.branch
+        and args.command != "branch-delete"
+        or args.command == "branch-delete"
+        and not args.branch
+    ):
+        parser.error("--branch is required only for branch-delete")
+    if args.pr and args.command != "pr-close":
+        parser.error("--pr requires pr-close")
+    if args.merge_method and args.command != "pr-merge":
+        parser.error("--merge-method requires pr-merge")
     if args.create_pr and args.command != "finalize":
         parser.error("--create-pr is only valid with finalize")
     if args.publication_resolution and args.command != "deploy-publish":
@@ -1504,11 +1726,31 @@ def main():
         parser.error("recovery arguments require recover")
     where = args.repository_root
     try:
-        if args.command not in {"create", "deploy-start"}:
+        if (
+            args.command not in {"create", "deploy-start", "branches", "branch-delete"}
+            and not args.pr
+        ):
             where = load(where, args.task_id)[
                 0
             ]  # Keep diagnostics usable after task checkout removal.
-        if args.command == "deploy-start":
+        if args.command == "branches":
+            state = branches(where)
+        elif args.command == "branch-delete":
+            state = delete_branch(where, args.branch)
+        elif args.command.startswith("pr-"):
+            publication = module("worktree_pr.py", "worktree_pr")
+            if args.pr:
+                state = publication.close_existing(where, args.pr)
+            elif args.command == "pr-update":
+                state = publication.update(where, args.task_id)
+            else:
+                state = publication.operate(
+                    where,
+                    args.task_id,
+                    args.command,
+                    method=args.merge_method or "merge",
+                )
+        elif args.command == "deploy-start":
             state = module("deploy/worktree.py", "deploy.worktree").start(
                 where, args.task_id
             )
@@ -1546,6 +1788,7 @@ def main():
                     args.task_id,
                     args.human_approved_validation_failure,
                     create_pr=args.create_pr,
+                    draft=args.draft,
                 )
                 if args.command == "finalize"
                 else globals()[args.command](where, args.task_id)

@@ -351,7 +351,7 @@ def managed_delivery(
         result_path.is_file()
         and git(parent, "rev-parse", "HEAD").strip() == result["tip"]
     )
-    wt.cleanup(parent, "repair-one")
+    wt.automatic_cleanup(parent, "repair-one")
     assert not child.exists()
     resume(parent, "tasks/deploy.md")
     return {**request, "commit": result["commit"]}, result_path

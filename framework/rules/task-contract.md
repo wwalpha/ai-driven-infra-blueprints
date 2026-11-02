@@ -106,13 +106,37 @@ is required. Other Task types/approved suspended failures keep their completion 
 
 ## Explicit PR integration
 
-Only a Human request for a PR selects Worktree `finalize --create-pr`. Existing completion,
-validation, scope and failure-approval checks apply before publication. The verified candidate
-is published without local-base merge or cleanup; `integrationMode: "pr"` and publication
-intent retain the exact candidate/base/Task identity. Retry with the same flag and candidate;
-plain finalize never falls back to merge. Remote drift/collisions or an unconfirmed creation
-without a matching PR require review. Deploy and repair-child publication remain separate and
-reject PR mode before their existing operations. See [Worktree PR publication](../../.agents/skills/worktree/SKILL.md#explicit-pr-publication).
+Only a Human request for a PR selects Worktree `finalize --create-pr`; append `--draft`
+for initial Draft publication. Local FF Merge → automatic Cleanup remains the default.
+Existing completion, validation, scope and failure-approval checks apply before initial
+publication. The verified candidate is published without local-base merge or cleanup;
+`integrationMode: "pr"` and publication intent retain candidate/base/Task/repository identity,
+PR number/URL, GitHub state and separate Draft state. Retry the same operation and saved
+intent; plain finalize never falls back to merge or implicitly changes Draft status.
+
+The same Task/Worktree may explicitly `pr-update`: validate a new descendant candidate,
+retain old published HEAD/new candidate in the update intent, and use ordinary FF Push
+only when the remote HEAD equals the expected old HEAD. No force Push, published-history
+rebase, new PR or cleanup follows Push. Remote drift or an unconfirmed creation without a
+matching PR requires review; do not discard intents or edit lifecycle JSON to recover.
+`pr-ready`/`pr-draft`, `pr-merge`, `pr-status` and `pr-close` are independent explicit tools.
+Confirmed GitHub merge (including squash/rebase) triggers guarded automatic Cleanup through
+merge/status, using PR identity and GitHub result rather than original-commit ancestry.
+Failed/unknown merges retain state. Close retains the Worktree and remote branch; after
+Cleanup a PR number/URL may be supplied to `pr-close --pr`.
+
+Explicit `cleanup --task-id` discards the owned local Worktree, registration, branch and
+management state regardless of merge, PR or Task status and dirty/uncommitted/ignored files.
+Ownership, symlink and competing-operation locks remain mandatory. State survives partial
+physical removal for retry. Unfinished Import/Deploy/Repair evidence is retained/reported,
+not falsely finalized or made a prerequisite for physical removal. Automatic post-merge
+cleanup retains its cleanliness and owned-evidence finalization checks. Cleanup never
+changes PRs, remote branches, other Tasks, shared Python or AWS. `branches` provides read-only
+associations/orphan discovery; `branch-delete --branch` removes only an explicitly named
+orphan `codex/worktree/*` local branch without Task state or any Worktree registration.
+
+Deploy and repair-child PR publication remain separate and reject PR mode before their
+existing operations. See [Worktree PR publication](../../.agents/skills/worktree/SKILL.md#explicit-pr-publication).
 
 ## Human-approved validation failures
 

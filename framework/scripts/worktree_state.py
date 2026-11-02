@@ -104,11 +104,14 @@ def load(where, task_id):
 
 def _load(primary: Path, common: Path, task_id: str) -> tuple[Path, Path, Path, dict]:
     path = state_path(primary, task_id)
+    if path.is_symlink() or not path.is_file():
+        raise Blocked(f"task lifecycle state must be an owned regular file: {path}")
     state = json.loads(path.read_text(encoding="utf-8"))
     if (
         state["task_id"] != task_id
         or state["branch"] != f"codex/worktree/{task_id}"
         or state["task_file"] != f"tasks/{task_id}.md"
+        or state.get("base") == state["branch"]
         or state["primary"] != str(primary)
         or Path(state["worktree"]) != primary / ".worktrees" / task_id
     ):
