@@ -38,10 +38,10 @@ def resume(root, name):
     )
 
 
-def correct_deploy_contract(root, name, source):
+def correct_deploy_contract(root, name, source, approved=()):
     return module(
         "task_contract_runtime.py", "task_contract_runtime"
-    ).correct_deploy_contract(root, name, source)
+    ).correct_deploy_contract(root, name, source, approved)
 
 
 def main():
@@ -57,7 +57,13 @@ def main():
     transition.add_argument(
         "--correct-deploy-contract",
         type=Path,
-        help="Correct only omitted Deploy output paths from an external candidate; keep suspended",
+        help="Add proven missing Deploy owner services/exact outputs from an external candidate; keep suspended and fixed Execution scope",
+    )
+    parser.add_argument(
+        "--approve-deferred-consumer",
+        action="append",
+        default=[],
+        help="Human-approved same-target environment/target/service reference synchronization only; requires --correct-deploy-contract",
     )
     transition.add_argument(
         "--suspend-reason", help="Suspend only this task and record the problem"
@@ -82,6 +88,10 @@ def main():
     root = args.repository_root.resolve()
     try:
         args.task_file = _core.normalize_selector(args.task_file)
+        if args.approve_deferred_consumer and not args.correct_deploy_contract:
+            raise ValueError(
+                "--approve-deferred-consumer requires --correct-deploy-contract"
+            )
         if args.source and (
             args.suspend_reason is not None
             or args.resume
@@ -98,7 +108,12 @@ def main():
             )
             return 0
         if args.correct_deploy_contract:
-            correct_deploy_contract(root, args.task_file, args.correct_deploy_contract)
+            correct_deploy_contract(
+                root,
+                args.task_file,
+                args.correct_deploy_contract,
+                args.approve_deferred_consumer,
+            )
         elif args.approve_out_of_task_failures:
             approve_out_of_task_failures(
                 root,

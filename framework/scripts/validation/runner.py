@@ -1622,7 +1622,12 @@ class Validator:
     def check_deployment_scope(self):
         task = _imports_task_contract.task_snapshot(self.root, executable=False)
         units = _imports_deploy_scope.validate_selected(
-            self.root, task, self.findings, self.definitions_root, self.change_plan
+            self.root,
+            task,
+            self.findings,
+            self.definitions_root,
+            self.change_plan,
+            authority_root=self.task.attribution_root,
         )
         environment, directory, _ = next(iter(task.scope))
         design = self.root / "docs/designs" / environment / directory / STACK_DESIGN

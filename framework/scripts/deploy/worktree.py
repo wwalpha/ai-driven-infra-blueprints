@@ -256,6 +256,15 @@ def final_blockers(context):
             blockers.append({"reason": key})
     states = context["states"]
     for name, item in states.items():
+        for record in item.get("deferredConsumers", []):
+            if record.get("approved") and not record.get("referenceSynced"):
+                blockers.append(
+                    {
+                        "stack": record["stack"],
+                        "consumer": record["consumer"],
+                        "reason": "approved reference synchronization needs sync",
+                    }
+                )
         if not item.get("observedSynced") or not item.get("currentStack"):
             blockers.append({"stack": name, "reason": "current observation needs sync"})
         if item.get("requestPending") or item.get("requestError"):

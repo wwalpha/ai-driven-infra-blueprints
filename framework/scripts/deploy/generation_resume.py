@@ -16,6 +16,7 @@ from utils.cloudformation.inputs import Blocked
 from utils.iac_values import cfn_resource_identity
 
 import deploy.observed_resume as observed
+from deploy import deferred
 
 
 def complete(run_context):
@@ -448,9 +449,19 @@ def settle(
         )
     else:
         run_context.pop("generationError", None)
+    reference_status = [
+        (record, record.get("referenceSynced"))
+        for record in deferred.approved(run_context)
+    ]
+    deferred.views_saved(run_context)
     try:
         backend.save()
     except Exception:
+        for record, previous_status in reference_status:
+            if previous_status is None:
+                record.pop("referenceSynced", None)
+            else:
+                record["referenceSynced"] = previous_status
         run_context["pendingGeneration"] = previous
         if prior_error is None:
             run_context.pop("generationError", None)

@@ -16,7 +16,62 @@ from utils.iac_values import cfn_resource_identity
 from utils.project_targets import load_target_directory
 from validation.change import check_references
 
-from deploy import inputs
+from deploy import deferred, inputs, worktree
+
+
+def reference_write(root, task, change, row, mapped, target, authority_root):
+    if not getattr(task, "name", None):
+        return False
+    source_task = (
+        task_snapshot(authority_root, task.name, executable=False)
+        if authority_root != root
+        else task
+    )
+    if source_task.task_digest != task.task_digest:
+        raise ValueError(
+            "reference synchronization Task differs from publication authority"
+        )
+    state = worktree.require(authority_root, source_task)
+    progress = worktree.read_progress(authority_root, state) if state else None
+    if progress is None:
+        return False
+    records = deferred.approved(progress["runContext"])
+    service = "/".join(
+        (
+            change.after.scope.environment,
+            change.after.scope.target,
+            change.after.scope.service,
+        )
+    )
+    key = f"desired.row.{row}.value"
+    selected = [
+        record
+        for record in records
+        if record["consumer"] == service
+        and record["consumerKey"] in {key, key.removesuffix(".value") + ".document"}
+    ]
+    if not selected:
+        return False
+    mappings = {
+        name: {
+            logical: dict(service=path.stem, resource=resource["logicalId"])
+            for logical, (path, _, resource, _, _) in resources.items()
+        }
+        for name, resources in mapped.items()
+    }
+    for record in selected:
+        deferred.verify(root, record, mappings, target)
+    deferred.check_updates(
+        root,
+        change.after.scope.path,
+        {
+            f"observed.row.{row}.value": change.after.authoritative.get(
+                f"observed.row.{row}.value"
+            )
+        },
+        selected,
+    )
+    return True
 
 
 def check_fixed_resources(root, mapped, *, task=None, keys=None):
@@ -51,7 +106,9 @@ def check_fixed_resources(root, mapped, *, task=None, keys=None):
             )
 
 
-def validate_selected(root, task, findings, definitions_root=None, plan=None):
+def validate_selected(
+    root, task, findings, definitions_root=None, plan=None, *, authority_root=None
+):
     lines = section(task.text, "## Task contract")
     value = partial(inputs._callback_task_deployment_input_paths_value, lines)
     environment = value("Target environment")
@@ -108,7 +165,19 @@ def validate_selected(root, task, findings, definitions_root=None, plan=None):
                 removal = removed_owner[0] in templates and removed_owner[
                     1
                 ] not in templates[removed_owner[0]][0].get("Resources", {})
-                if logical not in permitted and not removal:
+                if (
+                    logical not in permitted
+                    and not removal
+                    and not reference_write(
+                        root,
+                        task,
+                        change,
+                        row,
+                        mapped,
+                        (environment, directory),
+                        authority_root or root,
+                    )
+                ):
                     raise ValueError(
                         f"observed write outside fixed selected Resources: {change.after.scope.path}: {logical}/{row}"
                     )

@@ -412,6 +412,7 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
     pending["after"] = None
     backend.save()
     resumed_observation = bool(context.get("pendingObserved"))
+    saved_observed = set(context.get("pendingObserved", {}).get("evidence", {}))
     if context.get("pendingObserved"):
         if not set(context["pendingObserved"]["evidence"]) <= set(names):
             raise Blocked("finish the saved Observed Stack scope before another sync")
@@ -430,8 +431,10 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
     if units:
         observed.sync_successful(backend, units, backend.states)
     if resumed_observation:
-        # Finish the retained candidate first, then collect the facts chosen for this sync.
-        observed.sync_successful(backend, units, backend.states)
+        # Only Stacks outside the retained candidate need another collection.
+        remaining = [unit for unit in units if unit["name"] not in saved_observed]
+        if remaining:
+            observed.sync_successful(backend, remaining, backend.states)
     if context.get("pendingGeneration"):
         generation_resume.run(backend)
     elif context.get("generationError"):
@@ -494,6 +497,13 @@ def next_actions(backend, complete, can_advance, publication):
         {"action": "sync", "stacks": [name]}
         for name, state in states.items()
         if not state.get("observedSynced")
+        or any(
+            record.get("approved")
+            and not record.get("referenceSynced")
+            and record["stack"] == name
+            for item in states.values()
+            for record in item.get("deferredConsumers", [])
+        )
     ]
     preview = {**context, "states": copy.deepcopy(states)}
     if context.get("stepUnits"):
@@ -869,6 +879,13 @@ def run(
                             final=getattr(args, "final", False),
                         )
                     elif run.get("checkpointPending"):
+                        if run.get("pendingObserved"):
+                            retained = set(run["pendingObserved"]["evidence"])
+                            observed.sync_successful(
+                                backend,
+                                [unit for unit in units if unit["name"] in retained],
+                                backend.states,
+                            )
                         if run.get("pendingGeneration"):
                             generation_resume.run(backend)
                         if run["checkpointPending"].get("final"):

@@ -1,6 +1,7 @@
 """Preparation corrections preserve Task authority and local progress without AWS."""
 
 import copy
+import hashlib
 import json
 import sys
 import tempfile
@@ -16,7 +17,13 @@ import pytest
 import task_contract_core as tasks
 import task_contract_runtime as runtime
 from deploy import contract_correction as correction
-from deploy import steps, worktree
+from deploy import (
+    correction_scope,
+    deferred,
+    observed_resume,
+    steps,
+    worktree,
+)
 from model.dependency_index import revision
 from support.pytest_cli import run
 from support.repository_fixtures import transition_contract
@@ -139,6 +146,8 @@ def case(tmp_path, monkeypatch):
     monkeypatch.setattr(correction.ws, "deploy_task_state", read_deploy_state)
     monkeypatch.setattr(correction.wt, "lifecycle_lock", Mock(side_effect=nullcontext))
     monkeypatch.setattr(correction.wt, "output", Mock(return_value="head"))
+    monkeypatch.setattr(correction.wt, "paths", Mock(return_value=set()))
+    monkeypatch.setattr(correction.wt, "changed_paths", Mock(return_value=set()))
     monkeypatch.setattr(
         correction.ws,
         "git",
@@ -429,7 +438,10 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
 
 
 @pytest.mark.parametrize("file_number", [1, 2, 3])
-def check_save_failure_rolls_back(case, monkeypatch, file_number):
+@pytest.mark.parametrize("pending", [False, True])
+def check_save_failure_rolls_back(case, monkeypatch, file_number, pending):
+    if pending:
+        pending_case(case)
     original = [p.read_bytes() for p in (case.task.path, case.progress_path, case.path)]
     replace = file_operations.os.replace
     fail = Mock(side_effect=[OSError("injected save failure")])
@@ -591,7 +603,12 @@ def check_template_cleanup_owner_is_updated(case, monkeypatch, problem):
 
 
 @pytest.mark.parametrize("boundary", ["Task", "Progress", "both"])
-def check_interrupted_correction_retries_same_operation(case, monkeypatch, boundary):
+@pytest.mark.parametrize("pending", [False, True])
+def check_interrupted_correction_retries_same_operation(
+    case, monkeypatch, boundary, pending
+):
+    if pending:
+        pending_case(case)
     atomic = correction.atomic_files
     monkeypatch.setattr(correction, "atomic_files", InterruptedSave(boundary))
     with pytest.raises(OSError, match="process interrupted"):
@@ -671,6 +688,283 @@ def check_active_controller_lock_prevents_correction(case):
     with correction.operation_journal.locked(case.progress_path):
         with pytest.raises(correction.operation_journal.Blocked, match="lock busy"):
             correction.correct(case.root, case.name, case.source)
+    assert_preserved(case, *original)
+
+
+def fixed_owner_case(case, monkeypatch):
+    execution = '## Execution scope\n- `{"stack":"A","logicalId":"Bucket","service":"s3","resource":"S3_Bucket_001"}`\n'
+    original = case.state["deployContract"].replace(
+        "## Validation scope\n", execution + "## Validation scope\n"
+    )
+    state = copy.deepcopy(case.state)
+    state["deployContract"] = original
+    state["deployIdentity"]["taskDigest"] = tasks.task_digest(original)
+    case.task.path.write_text(
+        tasks.set_status(original, "suspend")
+        + "\n## Suspension reason\n\n    omitted owner\n",
+        encoding="utf-8",
+    )
+    progress = worktree.read_progress(case.root, case.state)
+    progress["identity"] = state["deployIdentity"]
+    progress["runContext"]["taskDigest"] = state["deployIdentity"]["taskDigest"]
+    correction.wt.save(case.path, state)
+    write_sealed(case.root, case.progress_path, progress)
+    monkeypatch.setattr(
+        correction_scope.preparation,
+        "owning_resources",
+        Mock(
+            return_value={
+                "A": {"Bucket": {"service": "s3", "resource": "S3_Bucket_001"}}
+            }
+        ),
+    )
+    source = case.root / "model/dev/team/s3.properties"
+    source.write_text("synthetic owner\n", encoding="utf-8")
+    monkeypatch.setattr(
+        correction_scope, "load_model", Mock(return_value=SimpleNamespace(values={}))
+    )
+    monkeypatch.setattr(correction_scope, "owned_artifacts", Mock(return_value=[]))
+    candidate = case.task.path.read_text(encoding="utf-8").replace(
+        "## Validation scope\n", "## Validation scope\n- `dev/team/s3`\n"
+    )
+    for heading in ("Modified files", "Allowed paths"):
+        candidate = candidate.replace(
+            f"## {heading}\n",
+            f"## {heading}\n- `model/dev/team/s3.properties`\n- `docs/designs/dev/team/s3.md`\n",
+        )
+    case.source.write_text(candidate, encoding="utf-8")
+    return state, progress, candidate
+
+
+def check_missing_owner_is_added_inside_fixed_execution(case, monkeypatch):
+    state, progress, candidate = fixed_owner_case(case, monkeypatch)
+    correction.correct(case.root, case.name, case.source)
+    revised = read_state(case.root, case.name)[3]
+    saved = worktree.read_progress(case.root, revised)
+    assert tasks.section(candidate, "## Execution scope") == tasks.section(
+        state["deployContract"], "## Execution scope"
+    )
+    assert saved["runContext"]["states"] == progress["runContext"]["states"]
+    assert (
+        saved["runContext"]["consumedInputs"]
+        == progress["runContext"]["consumedInputs"]
+    )
+    assert (
+        revised["start"] == state["start"]
+        and tasks.status(revised["deployContract"]) == "suspend"
+    )
+    case.aws.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "legacy",
+        "ownership",
+        "execution",
+        "target",
+        "remove-scope",
+        "unrelated",
+        "extra-path",
+    ],
+)
+def check_added_owner_rejects_unproven_authority(case, monkeypatch, problem):
+    state, progress, candidate = fixed_owner_case(case, monkeypatch)
+    if problem == "legacy":
+        original = state["deployContract"].replace(
+            '## Execution scope\n- `{"stack":"A","logicalId":"Bucket","service":"s3","resource":"S3_Bucket_001"}`\n',
+            "",
+        )
+        state["deployContract"] = original
+        state["deployIdentity"]["taskDigest"] = tasks.task_digest(original)
+        progress["identity"] = state["deployIdentity"]
+        progress["runContext"]["taskDigest"] = state["deployIdentity"]["taskDigest"]
+        correction.wt.save(case.path, state)
+        write_sealed(case.root, case.progress_path, progress)
+        case.task.path.write_text(
+            tasks.set_status(original, "suspend")
+            + "\n## Suspension reason\n\n    omitted owner\n",
+            encoding="utf-8",
+        )
+        candidate = candidate.replace(
+            '## Execution scope\n- `{"stack":"A","logicalId":"Bucket","service":"s3","resource":"S3_Bucket_001"}`\n',
+            "",
+        )
+    elif problem == "ownership":
+        monkeypatch.setattr(
+            correction_scope.preparation,
+            "owning_resources",
+            Mock(return_value={"A": {}}),
+        )
+    elif problem == "execution":
+        candidate = candidate.replace('"stack":"A"', '"stack":"B"')
+    elif problem == "target":
+        candidate = candidate.replace("- `dev/team/s3`", "- `stg/team/s3`")
+    elif problem == "remove-scope":
+        candidate = candidate.replace("- `dev/team/logs`\n", "")
+    elif problem == "unrelated":
+        candidate = candidate.replace("- `dev/team/s3`", "- `dev/team/iam`")
+    else:
+        candidate = candidate.replace(
+            "## Modified files\n",
+            "## Modified files\n- `model/dev/team/s3/extra.properties`\n",
+        )
+    case.source.write_text(candidate, encoding="utf-8")
+    original = [p.read_bytes() for p in (case.task.path, case.progress_path, case.path)]
+    with pytest.raises(ValueError):
+        runtime.correct_deploy_contract(case.root, case.name, case.source)
+    assert_preserved(case, *original)
+
+
+def pending_case(case, *, generation=False):
+    progress = worktree.read_progress(case.root, case.state)
+    context = progress["runContext"]
+    text = case.state["deployContract"]
+    raw = text.encode("utf-8")
+    snapshot = tasks.replace(
+        case.task, text=text, raw=raw, raw_digest=hashlib.sha256(raw).hexdigest()
+    )
+    backend = SimpleNamespace(
+        root=case.root,
+        run_context=context,
+        target=case.target,
+        environment="dev",
+        directory="team",
+        save=Mock(),
+    )
+    suspended = case.task.path.read_bytes()
+    case.task.path.write_bytes(raw)
+    try:
+        with (
+            tasks.selected_task(case.root, case.name),
+            tasks.task_reads(case.root, snapshot=snapshot),
+        ):
+            observed_resume.prepare(
+                backend,
+                case.units,
+                {},
+                ["logs"],
+                {case.root / "docs/designs/dev/team/logs.md"},
+            )
+            if generation:
+                plan = context.pop("pendingObserved")
+                view = "docs/designs/dev/team/logs.md"
+                context["pendingGeneration"] = {
+                    view: dict(
+                        identity=plan["identity"],
+                        environment="dev",
+                        directory="team",
+                        service="logs",
+                        reason="Observed committed; generation required",
+                        producers=[],
+                        waitingModelManifest=context["modelInputs"],
+                        candidateManifest=None,
+                        candidateSelections=[],
+                        generated=plan["generated"],
+                    )
+                }
+    finally:
+        case.task.path.write_bytes(suspended)
+    write_sealed(case.root, case.progress_path, progress)
+    return progress
+
+
+@pytest.mark.parametrize("generation", [False, True])
+def check_pending_intent_identity_is_migrated_without_discard(case, generation):
+    before = pending_case(case, generation=generation)
+    correction.correct(case.root, case.name, case.source)
+    state = read_state(case.root, case.name)[3]
+    saved = worktree.read_progress(case.root, state)
+    key = "pendingGeneration" if generation else "pendingObserved"
+    prior = (
+        next(iter(before["runContext"][key].values()))
+        if generation
+        else before["runContext"][key]
+    )
+    after = (
+        next(iter(saved["runContext"][key].values()))
+        if generation
+        else saved["runContext"][key]
+    )
+    assert {k: v for k, v in after.items() if k != "identity"} == {
+        k: v for k, v in prior.items() if k != "identity"
+    }
+    assert after["identity"]["taskDigest"] == tasks.task_digest(case.candidate)
+    assert (
+        after["identity"]["taskBytes"]
+        == hashlib.sha256(
+            tasks.set_status(case.candidate, "running").encode("utf-8")
+        ).hexdigest()
+    )
+    assert saved["runContext"]["states"] == before["runContext"]["states"]
+    case.aws.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "problem", ["identity", "manifest", "aws", "generated", "error"]
+)
+def check_pending_evidence_corruption_is_rejected(case, problem):
+    progress = pending_case(case)
+    plan = progress["runContext"]["pendingObserved"]
+    if problem == "identity":
+        plan["identity"]["inputDigest"] = "unknown"
+    elif problem == "manifest":
+        plan["afterManifest"]["model/dev/team/logs.properties"] = "unknown"
+    elif problem == "aws":
+        plan["evidence"]["A"]["clientToken"] = "other"
+    elif problem == "generated":
+        plan["generated"]["outputs"] = {"docs/designs/dev/team/other.md": "unknown"}
+    else:
+        progress["runContext"]["generationError"] = "unclassified failure"
+    write_sealed(case.root, case.progress_path, progress)
+    original = [p.read_bytes() for p in (case.task.path, case.progress_path, case.path)]
+    with pytest.raises(ValueError):
+        runtime.correct_deploy_contract(case.root, case.name, case.source)
+    assert_preserved(case, *original)
+
+
+def check_consumer_arbitrary_observation_is_rejected(case, monkeypatch):
+    source = case.root / "model/dev/team/logs.properties"
+    snapshot = SimpleNamespace(
+        scope=SimpleNamespace(environment="dev", target="team", service="logs")
+    )
+    monkeypatch.setattr(deferred, "load_model", Mock(return_value=snapshot))
+    monkeypatch.setattr(deferred, "foreign_observation", Mock(return_value=True))
+    records = [dict(consumer="dev/team/logs", consumerKey="desired.row.001-002.value")]
+    deferred.check_updates(
+        case.root, source, {"observed.row.001-002.value": None}, records
+    )
+    for updates in (
+        {"observed.row.001-001.value": None},
+        {"observed.row.001-002.value": "`new-id`"},
+    ):
+        with pytest.raises((ValueError, RuntimeError)):
+            deferred.check_updates(case.root, source, updates, records)
+    monkeypatch.setattr(deferred, "foreign_observation", Mock(return_value=False))
+    with pytest.raises(RuntimeError, match="proven stale reference"):
+        deferred.check_updates(
+            case.root, source, {"observed.row.001-002.value": None}, records
+        )
+
+
+def check_desired_model_change_is_never_authorized(case, monkeypatch):
+    relative = "model/dev/team/logs.properties"
+    old = "# model-format: 2\ndesired.row.001-001.value=`original`\n"
+    (case.root / relative).write_text(
+        old.replace("original", "changed"), encoding="utf-8"
+    )
+    progress = worktree.read_progress(case.root, case.state)
+    progress["runContext"]["modelInputs"][relative] = file_operations.sha(
+        case.root / relative
+    )
+    write_sealed(case.root, case.progress_path, progress)
+    monkeypatch.setattr(correction.wt, "paths", Mock(return_value={relative}))
+    monkeypatch.setattr(
+        correction.ws, "subprocess_bytes", Mock(return_value=old.encode("utf-8"))
+    )
+    original = [p.read_bytes() for p in (case.task.path, case.progress_path, case.path)]
+    with pytest.raises(ValueError, match="non-observed authority"):
+        correction.correct(case.root, case.name, case.source)
     assert_preserved(case, *original)
 
 

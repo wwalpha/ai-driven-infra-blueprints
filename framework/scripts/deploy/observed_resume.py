@@ -22,7 +22,7 @@ from task_contract_core import (
 from task_contract_core import task_digest as task_digest
 from utils.cloudformation.inputs import Blocked
 
-from deploy import generation_resume
+from deploy import deferred, generation_resume
 from model import dependency_index
 
 
@@ -271,7 +271,7 @@ def _identity(root, run_context, target, environment, directory):
     }
 
 
-def reauthorize(backend, task):
+def reauthorize(backend, task, *, preserve_candidates=False):
     """Adopt signed unfinished publication only under this invocation's own authority."""
     context, root = backend.run_context, backend.root
     previous = {
@@ -304,7 +304,7 @@ def reauthorize(backend, task):
             raise Blocked("signed publication ownership differs from operation")
     # A saved candidate remains exact; a fresh patch preserves independent current edits.
     plan = context.get("pendingObserved")
-    if plan and plan["generated"]["outputs"] is None:
+    if not preserve_candidates and plan and plan["generated"]["outputs"] is None:
         rebase_inputs(root, context, plan)
     context.update(
         repository=str(root), taskFile=task.name, taskDigest=task.task_digest
@@ -319,7 +319,8 @@ def reauthorize(backend, task):
                 root / path.relative_to(previous["repository"])
             )
     if (
-        not context.get("pendingObserved")
+        not preserve_candidates
+        and not context.get("pendingObserved")
         and not any(
             item["generated"]["outputs"] is not None
             for item in context.get("pendingGeneration", {}).values()
@@ -561,9 +562,9 @@ def verify_journal(plan, record, current):
 
 # Never let an unrelated transaction or third-party bytes be rolled back.
 def _callback_reconcile_recovery(
-    directory, environment, root, run_context, target, /, record
+    directory, environment, root, run_context, target, /, record, *, snapshot=None
 ):
-    with task_reads(root, live=True):
+    with task_reads(root, live=snapshot is None, snapshot=snapshot):
         # Never let an unrelated transaction or third-party bytes be rolled back.
         plan = validate_plan(root, run_context, target, environment, directory)
         current = {
@@ -647,6 +648,7 @@ def finish(backend, units):
     # The journal saves the Model barrier and generation ownership in one revision.
     for name in plan["evidence"]:
         run_context["states"][name]["observedSynced"] = True
+    deferred.model_saved(run_context, plan)
     run_context.pop("pendingObserved")
     backend.save()
     return outputs

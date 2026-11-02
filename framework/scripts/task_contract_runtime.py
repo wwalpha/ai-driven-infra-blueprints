@@ -286,9 +286,9 @@ def resume(root, name):
     refresh(root, name, resuming=True)
 
 
-def correct_deploy_contract(root, name, source):
+def correct_deploy_contract(root, name, source, approved=()):
     try:
-        return contract_correction.correct(root, name, source)
+        return contract_correction.correct(root, name, source, approved)
     except DeployBlocked as error:
         raise ValueError(str(error)) from error
     except (KeyError, TypeError) as error:

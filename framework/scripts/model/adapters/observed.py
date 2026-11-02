@@ -667,6 +667,7 @@ def propagate_references(
     reset_references=(),
     allowed_services=None,
     deferred=None,
+    reference_consumers=(),
 ):
     """Discover incoming links mechanically; both deploy and destroy use this scanner."""
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
@@ -706,14 +707,19 @@ def propagate_references(
             else raw_model(path, reads)
         )
         values = snapshot.authoritative
-        if any(
+        if any(key.startswith("desired.reference.") for key in values) or any(
             node
             for key, value in values.items()
             if key.startswith("desired.row.") and key.endswith((".value", ".document"))
             for node in nodes(value.strip("`"))
         ):
             typed_usages[path] = [
-                usage for usage in usages(snapshot, reads) if usage.attribute
+                usage
+                for usage in usages(snapshot, reads)
+                if usage.attribute
+                or usage.metadata_id
+                and usage.producer_kind == "resource"
+                and usage.logical_id
             ]
             linked = any(
                 (*usage.producer_scope.split("/"), usage.logical_id) in identifiers
@@ -728,6 +734,7 @@ def propagate_references(
                             "consumer": "/".join(service),
                             "consumerKey": usage.consumer_key,
                             "producer": "/".join(target),
+                            "referenceKind": "typed" if usage.attribute else "declared",
                             "reason": "outside Deployment owner services; later synchronization required",
                         }
                         if record not in deferred:
@@ -737,11 +744,15 @@ def propagate_references(
             loaded[path] = properties(read_model(path))
     # Include every incoming reference, including out-of-scope ones; reject before any write.
     for path, values in loaded.items():
-        if path not in typed_usages and any(
-            node
-            for key, value in values.items()
-            if key.startswith("desired.row.") and key.endswith((".value", ".document"))
-            for node in nodes(value.strip("`"))
+        if path not in typed_usages and (
+            any(key.startswith("desired.reference.") for key in values)
+            or any(
+                node
+                for key, value in values.items()
+                if key.startswith("desired.row.")
+                and key.endswith((".value", ".document"))
+                for node in nodes(value.strip("`"))
+            )
         ):
             typed_usages[path] = [
                 usage
@@ -750,6 +761,9 @@ def propagate_references(
                     shared or reads,
                 )
                 if usage.attribute
+                or usage.metadata_id
+                and usage.producer_kind == "resource"
+                and usage.logical_id
             ]
         for usage in typed_usages.get(path, ()):
             target = (*usage.producer_scope.split("/"), usage.logical_id)
@@ -757,6 +771,20 @@ def propagate_references(
                 changes.setdefault(path, {})
                 if by_identifier is not None:
                     by_identifier.setdefault(target, {}).setdefault(path, {})
+                consumer = "/".join(
+                    path.relative_to(root / "model").with_suffix("").parts
+                )
+                if any(
+                    record["consumer"] == consumer
+                    and record["consumerKey"] == usage.consumer_key
+                    and record["producer"] == "/".join(target)
+                    and usage.attribute
+                    and usage.consumer_key.endswith(".value")
+                    for record in reference_consumers
+                ):
+                    row = usage.consumer_key.split(".")[2]
+                    # Typed references remain authority; stale foreign observations are removed.
+                    changes[path][f"observed.row.{row}.value"] = None
 
 
 def observed_destinations(

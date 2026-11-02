@@ -76,8 +76,14 @@ Sub Agent、Model 背景 writer、固定間隔同期、Python によるエージ
 
 固定後の契約訂正は[Self recovery](../../rules/task-contract.md#self-recovery)と
 [Deploy correction conditions](../../rules/cloudformation.md#managed-deploy-contract-correction)を読む。
-元Human依頼と固定時の原文を比較し、同じ対象serviceの観測保存・生成に必要だった
-Modified files／Allowed pathsの記載漏れだけを判断する。Goal・対象・実行入力・AWS権限・
+元Human依頼と固定時の原文を比較し、固定Execution scopeと保存入力で証明できるOwner serviceの
+Validation scope追加と、必要なModified files／Allowed pathsの記載漏れを判断する。
+同一TargetのConsumerはDeferredのProducer・Consumer・Reference Key・Stackを確認し、
+Humanの明示承認を得たserviceだけ同じ訂正コマンドの
+`--approve-deferred-consumer <environment/target-directory/service>`で追加する。
+参照行の古いObserved除去と必要Viewに限定し、他Targetや無関係Resourceへ権限を追加しない。
+他Targetは対象・参照根拠・未確認事項を提示し、別途承認された既存Model同期手順へ引き継ぐ。
+後続Taskを自動作成しない。Goal・対象・実行入力・AWS権限・
 Human同意の拡大は訂正扱いしない。ハッシュ一致は意味判断や承認の証明ではない。
 
 同じTaskを既存操作でsuspendし、現在のstatus／Suspension reasonを保った外部候補を作る。
@@ -90,10 +96,14 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py
 
 成功してもsuspendを維持する。全停止原因が安全に訂正済みの自分の準備ミスだけであり、
 他の阻害がないと確認したときだけ、既存の`--resume`を使い失敗した検査から再開する。
-AWS再実行やTask完了は訂正の結果として行わない。元契約原文や固定入力証拠の不足、未確定要求、
-保存途中のObserved／生成／checkpoint、未完了Git公開、修復handoff、同時変更はその理由で停止・保持する。
+AWS再実行やTask完了は訂正の結果として行わない。元契約原文や固定入力証拠の不足、未確定要求は停止する。
+原本・候補・現在値を検証できるObserved／生成Intentと未確定checkpointは既存復旧処理で保持・継続する。
+証拠不整合、固定済みcheckpoint候補、未完了Git公開、修復Failure／handoff、同時変更は停止・保持する。
 保存中断のintentが残った場合だけ同じ候補・同じ訂正コマンドで安全性を再検証する。
 未対応の契約訂正や状態を別Taskへの付け替え・無条件再固定・進捗削除で回避しない。
+再開は必要な`sync`／`checkpoint`を使い、確定済みStackを再Deployしない。
+古い`preparation.json --run-controller`を再利用しない。DeferredはOwner保存とConsumer参照保存・生成を
+別々に追跡し、未解決記録の削除や`sync-model`だけで同期完了にしない。
 
 ## Confirm unapproved delete/replacement
 

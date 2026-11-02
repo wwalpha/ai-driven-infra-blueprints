@@ -14,6 +14,7 @@ import worktree_task as wt
 from deploy import contracts, current_request, git_publication, worktree
 from deploy.cli_guidance import DeployStepBlocked
 from model.observed import verify_observed_outputs
+from model.sources import source_scope
 from validation.findings import Findings
 from validation.runner import Validator
 from validation.task import TaskValidation
@@ -49,6 +50,9 @@ def validate(backend: SimpleNamespace, *, scope_checked=False, changed=None) -> 
         for name in backend.run_context["checkpointPending"]["stacks"]
         for service in backend.states[name].get("observedServices", [])
     )
+    for relative in sources:
+        source = source_scope(root, root / relative)
+        scopes.add((source.environment, source.target, source.service))
     if scopes:
         validator = Validator(root, scopes, cache=False, model_validation="change")
         validator.run()

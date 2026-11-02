@@ -68,7 +68,9 @@ def mapping_inputs(tmp_path, monkeypatch):
     loaded = {}
     monkeypatch.setattr(observed, "models", lambda *args: loaded)
     monkeypatch.setattr(observed, "model_exists", lambda path: False)
-    monkeypatch.setattr(observed, "require_fixed_stack_names", lambda *args: {})
+    monkeypatch.setattr(
+        observed, "require_fixed_stack_names", lambda *args, **kwargs: {}
+    )
     monkeypatch.setattr(observed, "active_scope", lambda root: None)
     monkeypatch.setattr(observed, "GROUPED", {})
     monkeypatch.setattr(observed, "catalog_outputs", lambda *args: set())

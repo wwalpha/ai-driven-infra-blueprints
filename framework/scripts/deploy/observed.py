@@ -25,6 +25,7 @@ from validation_scope import active_scope
 
 import deploy.observed_resume as _dependency_deploy_observed_resume
 from deploy import current_state
+from deploy import deferred as deferred_work
 from deploy import scope as execution_scope
 from model import dependency_index
 
@@ -264,9 +265,12 @@ def readiness(backend, unit, state=None):
                 if task_snapshot(backend.root, required=False) is not None
                 else None,
                 deferred=deferred,
+                reference_consumers=deferred_work.approved(
+                    getattr(backend, "run_context", {})
+                ),
             )
             if state is not None and deferred:
-                state["deferredConsumers"] = deferred
+                deferred_work.remember({unit["name"]: state}, deferred, loaded)
             observed_destinations(
                 backend.root, backend.environment, backend.directory, loaded, changes
             )
@@ -533,10 +537,9 @@ def collect_successful(backend, units, states, *, generated_views=None):
         if task_snapshot(root, required=False) is not None
         else None,
         deferred=deferred,
+        reference_consumers=deferred_work.approved(getattr(backend, "run_context", {})),
     )
-    for unit in units:
-        if deferred:
-            states[unit["name"]]["deferredConsumers"] = deferred
+    deferred_work.remember(states, deferred, loaded)
     destinations, views, sync = observed_destinations(
         root, environment, directory, loaded, changes
     )
@@ -556,7 +559,7 @@ def sync_successful(backend, units, states):
             backend, units, states, generated_views=views
         )
         names = [unit["name"] for unit in units]
-        if destinations:
+        if destinations or views:
             _dependency_deploy_observed_resume.prepare(
                 backend, units, destinations, services, views
             )

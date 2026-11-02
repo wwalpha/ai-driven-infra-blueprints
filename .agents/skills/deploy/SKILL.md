@@ -84,6 +84,20 @@ No Sub Agents, background writer, general workflow engine or automatic IaC repai
 
 A settled request with an unconfirmed attempt outcome may report Deploy UNKNOWN; this never becomes a physical identifier or an active-request bypass. Current root Stack events are scoped by StackId and original token, and never replace the independently read current Stack status.
 
+## Recover omitted services in the same SDK Task
+
+Follow [Managed Deploy contract correction](../../../framework/rules/cloudformation.md#managed-deploy-contract-correction).
+Suspend the existing Task; preserve Snapshot, Stack/Resource Execution scope, AWS results
+and progress. The existing `--correct-deploy-contract` accepts only proven owner-service
+Validation additions and exact Model/View outputs. A same-target deferred consumer also
+requires explicit Human consent recorded with `--approve-deferred-consumer env/target/service`;
+only its proven reference Rows may lose stale Observed values. Other Targets gain no authority.
+Verified pending save Intents retain their candidates and identities; inconsistent evidence,
+active AWS requests, fixed checkpoint candidates and unfinished Git/failure work stop safely.
+After correction use `--check-resume-scope`, authorized `--resume`, then needed `sync`/`checkpoint`.
+Do not redeploy successful Stacks, reuse old `preparation.json --run-controller`, recreate
+Tasks or erase Deferred records. Owner observation and Consumer reference completion are separate.
+
 ## DeployOrder selection and synchronization scope
 
 SDK offline Preparation supports repeated `--stack` or inclusive numeric

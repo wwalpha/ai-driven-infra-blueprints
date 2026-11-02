@@ -4,13 +4,16 @@ import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import json
 
+import model.adapters.observed as observed_adapter
 import pytest
+from deploy import deferred
 from deploy.observed import security_group_rule_id
 from model.adapters.aws import Unresolved, service_module
 from model.adapters.observed import (
@@ -19,6 +22,7 @@ from model.adapters.observed import (
     resolve_resources,
 )
 from model.files import read_model
+from support import model_reference_fixtures
 from support.cloudformation_deploy_fixtures import TARGET
 from support.model_sources import allocate_fixture, write_model
 
@@ -274,6 +278,97 @@ def check_discovery_defers_semantics(project_workspace):
     other.write_text("broken syntax\n")
     with pytest.raises(ValueError, match="unsupported Model format"):
         read_model(other)
+
+
+@pytest.mark.parametrize("problem", [None, "key", "stack", "target", "owner"])
+def check_deferred_reference_requires_exact_typed_ownership(project_workspace, problem):
+    root = project_workspace
+    model_reference_fixtures.project(root)
+    record = dict(
+        consumer="qa/team/iam",
+        consumerKey="desired.row.001-002.document",
+        producer="qa/team/kms/KMS_Key_001",
+    )
+    mappings = {
+        "producer": {
+            "Resource001": dict(service="kms", resource="KMS_Key_001"),
+            "IntegratedChild": dict(service="kms", resource="KMS_Key_001"),
+        }
+    }
+    if problem == "key":
+        record["consumerKey"] = "desired.row.001-001.value"
+    elif problem == "stack":
+        record["stack"] = "unselected"
+    elif problem == "target":
+        record["consumer"] = "qa/other/iam"
+    elif problem == "owner":
+        mappings["producer"]["Resource001"]["resource"] = "KMS_Key_999"
+    if problem:
+        with pytest.raises((ValueError, RuntimeError)):
+            deferred.verify(root, record, mappings, ("qa", "team"))
+    else:
+        verified = deferred.verify(root, record, mappings, ("qa", "team"))
+        assert verified["stack"] == "producer" and not verified["referenceSynced"]
+
+
+def check_deferred_owner_and_reference_barriers_are_separate():
+    local = dict(
+        stack="producer", consumer="qa/team/iam", approved=True, referenceSynced=True
+    )
+    foreign = dict(stack="producer", consumer="qa/other/iam", referenceSynced=False)
+    context = dict(
+        states={"producer": dict(deferredConsumers=[local, foreign])},
+        pendingGeneration={"docs/designs/qa/team/iam.md": {}},
+    )
+    deferred.model_saved(context, dict(services=["iam"], evidence={"producer": {}}))
+    assert local["ownerObservedSynced"] and foreign["ownerObservedSynced"]
+    assert local["referenceObservedSynced"] and not local["referenceSynced"]
+    deferred.views_saved(context)
+    assert not local["referenceSynced"]
+    context["pendingGeneration"].clear()
+    context["generationError"] = "unresolved"
+    deferred.views_saved(context)
+    assert not local["referenceSynced"]
+    context.pop("generationError")
+    deferred.views_saved(context)
+    assert local["referenceSynced"] and not foreign["referenceSynced"]
+    assert len(context["states"]["producer"]["deferredConsumers"]) == 2
+
+
+def check_other_target_declared_reference_is_retained_read_only(tmp_path, monkeypatch):
+    consumer = tmp_path / "model/stg/other/rds.properties"
+    consumer.parent.mkdir(parents=True)
+    consumer.write_text("independent target authority\n", encoding="utf-8")
+    original = consumer.read_bytes()
+    producer = tmp_path / "model/dev/team/ec2.properties"
+    snapshot = SimpleNamespace(
+        authoritative={"desired.reference.001.consumerKey": "desired.row.001-001.value"}
+    )
+    usage = SimpleNamespace(
+        attribute=None,
+        metadata_id="001",
+        producer_kind="resource",
+        producer_scope="dev/team/ec2",
+        logical_id="EC2_Subnet_001",
+        consumer_key="desired.row.001-001.value",
+    )
+    monkeypatch.setattr(observed_adapter, "model_paths", Mock(return_value=[consumer]))
+    monkeypatch.setattr(observed_adapter, "raw_model", Mock(return_value=snapshot))
+    monkeypatch.setattr(observed_adapter, "usages", Mock(return_value=[usage]))
+    changes, records = {}, []
+    propagate_references(
+        tmp_path,
+        {producer: {}},
+        changes,
+        {("dev", "team", "ec2", "EC2_Subnet_001"): "subnet-current"},
+        allowed_services={("dev", "team", "ec2")},
+        deferred=records,
+    )
+    assert not changes and len(records) == 1
+    assert records[0]["consumer"] == "stg/other/rds"
+    assert records[0]["producer"] == "dev/team/ec2/EC2_Subnet_001"
+    assert records[0]["referenceKind"] == "declared"
+    assert consumer.read_bytes() == original
 
 
 if __name__ == "__main__":

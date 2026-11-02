@@ -553,10 +553,13 @@ A settled current request may leave its attempt outcome UNKNOWN while the curren
 ### Managed Deploy contract correction
 
 The suspended same-Task operation in [Self recovery](task-contract.md#self-recovery)
-corrects only omitted exact observation/Model and generated View paths within unchanged
-service scope. Existing observation writers still permit only observed fields; adding a
-path grants no desired-Model or IaC editing authority. Preserve the original contract's
-other content and fixed execution inputs. Changes to target/Account/Region/Stack, execution
+permits monotone additions only to Validation scope, Modified files and Allowed paths.
+Missing owner services must match fixed Execution scope and unique Model ownership of
+the saved execution inputs. A legacy Task without fixed Resource evidence is BLOCKED;
+no Execution scope is inferred or added. Exact entrances, necessary parts and generated
+Markdown/JSON are derived from Model sources, never directory-wide permissions. Existing
+observation writers still permit only observed fields; additions grant no Desired or IaC
+authority. Preserve all other contract content. Changes to target/Account/Region/Stack, execution
 units/templates/parameters/artifacts, permissions or consent require their original Human
 authority and cannot be disguised as preparation omissions. The digest comparison in normal
 Deploy remains mandatory.
@@ -568,17 +571,44 @@ receipts. Requests must be locally settled: any current per-Stack request record
 submission, active/unknown recorded Stack, unended token or active controller stops. No AWS
 read is used to settle requests on this path. Missing progress/input evidence stops.
 
-Pending Observed or generation plans/errors, a checkpoint candidate or commit intent,
-pending/conflicted/final Git publication, or repair failure/handoff/integration evidence
-stop with their concrete reason and retain all state. The operation supports pre-publication
-progress and verified already-published intermediate checkpoints; completed Tasks are not
-reopened. It does not rebind unfinished plans, reuse repair approvals or rewrite Git commits.
+Pending Observed and generation Intents may be rebound only after checking original Task
+bytes, ownership, execution evidence, exact before/after manifests, current bytes, file
+selections and corrected output authority. Existing journal recovery verifies its originals
+belong to that Intent before restoring an interrupted batch. Candidates are preserved,
+never initialized, discarded or unconditionally regenerated. A generation error requires
+its retained generation Intent. An unfinished checkpoint without an adopted after/final
+candidate may continue when every changed byte is explained by those Intents or a verified
+observation patch from its Git source. A fixed after/final candidate, commit intent,
+pending/conflicted/final Git publication or repair failure/handoff/integration evidence
+stops for existing checkpoint, Git publication or repair/discard review first. Failure
+evidence is inspected and retained, never implicitly erased. Completed Tasks are not
+reopened. Missing/inconsistent proof is BLOCKED with its concrete recovery need.
+
+Same-target reference consumers require explicit Human consent for each service. Review
+retained Producer/Consumer/Reference Key/Stack evidence, add exact outputs and Validation
+entries to the external candidate, and pass
+`--approve-deferred-consumer <environment/target-directory/service>` alongside
+`--correct-deploy-contract`. The option records consent; it does not obtain or infer it.
+Only matching typed references to selected owners qualify. Consumer updates may remove
+stale Observed values on those reference Rows; they cannot save derived ARNs, change
+Desired or observe arbitrary Resources outside selected Stacks. `ownerObservedSynced`,
+`referenceObservedSynced` and `referenceSynced` are separate: the last requires the Model
+barrier and successful generated publication. Deferred records remain after resolution;
+`sync-model` alone cannot resolve them.
+
+Other Environment/Account/alias consumers retain exact scope, producer, key and Stack in
+Deferred evidence and receive no authority. Typed references resolve within their Target;
+cross-target declared dependencies require independent authorized Model synchronization
+in the consumer's existing workflow, or Human facts/IMPORT refresh when acquisition is
+needed. Present affected Target, key, producer Stack and unconfirmed facts; do not create
+or execute a follow-up Task automatically or claim View generation changed Consumer AWS.
 
 The operation holds existing progress, per-Stack request, repair, Model publication and
 lifecycle locks. It compares candidate, contract, Git/index, project inputs, progress and
 temporary template owners again before saving. One rollback batch changes the current
 contract, lifecycle identity/text, progress identity, verified closed receipt identities and
-matching temporary template ownership; operation tokens/results/inputs remain unchanged.
+matching temporary template ownership, including pending Intent identities. Tokens/results,
+input digests, consumed inputs, Snapshot and checkpoint history remain unchanged.
 Snapshot validation becomes NOT_RUN. A transient intent in the existing lifecycle protects
 multi-file interruption, not a history or approval ledger. Normal Deploy rejects an unfinished
 intent. Retry the same correction command with the exact external candidate: only unchanged
@@ -587,6 +617,10 @@ the prior batch and revalidation of the correction. Unknown/concurrent bytes sto
 untouched; never hand-edit metadata or remove locks. Ordinary save failures roll back;
 unrecoverable interruption retains the intent and evidence for review. Correction does not
 resume execution, reissue AWS, erase progress, waive failed checks or complete the Task.
+Continue with `--check-resume-scope`, the authorized `--resume` and needed Controller
+`sync`/`checkpoint`, using the complete fixed Stack scope. A retained candidate is finished
+without collecting it twice. Do not relaunch old `preparation.json` through `--run-controller`
+after correction, or `advance`/redeploy successful Stacks as recovery.
 
 ### Deployment execution
 
@@ -666,8 +700,9 @@ range or gains more Stacks. Existing Tasks keep their recorded Deployment scope.
 Only selected owner observations are patched. Owner service Views and necessary
 references within those authorized services are regenerated through guarded APIs.
 References from other services are discovered read-only and saved as `deferredConsumers`
-in Stack progress, including consumer/key, producer and the reason for later synchronization.
-Those external services gain no Model/View write authority or full-quality validation.
+in Stack progress, including consumer/key, producer, Stack and separate completion flags.
+Those external services gain no Model/View write authority or full-quality validation
+unless the same-target limited correction above is explicitly approved.
 A service file shared across Orders is read for structure/reference integrity; selected
 Resources and actual Model changes receive quality validation. Publication uses Change
 Validation plus explicit selected Stack/Resource/identifier/mapping checks, and rejects

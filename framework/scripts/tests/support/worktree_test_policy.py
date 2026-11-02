@@ -33,6 +33,12 @@ WORKTREE_CASES = {
         "check_resume_cannot_adopt_unreconciled_digest",
         "check_active_controller_lock_prevents_correction",
         "check_interrupted_correction_external_edit_is_retained",
+        "check_missing_owner_is_added_inside_fixed_execution",
+        "check_added_owner_rejects_unproven_authority",
+        "check_pending_intent_identity_is_migrated_without_discard",
+        "check_pending_evidence_corruption_is_rejected",
+        "check_consumer_arbitrary_observation_is_rejected",
+        "check_desired_model_change_is_never_authorized",
     ),
     "units/deploy-worktree-unit.checks.py": (
         "check_source_scope_shares_deploy_baseline",
@@ -66,6 +72,8 @@ WORKTREE_CASES = {
     "integrations/deploy-worktree.checks.py": (
         "check_order_range_preparation_publication_and_resume",
         "check_contract_preparation_correction_round_trip",
+        "check_missing_owner_service_recovers_same_task",
+        "check_deferred_consumer_approved_reference_recovery",
         "check_current_request_is_shared_without_history_or_duplicate_execute",
         "check_create_review_execute_uses_one_atomic_request",
         "check_start_creates_and_reuses_official_worktree",

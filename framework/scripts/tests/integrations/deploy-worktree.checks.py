@@ -22,11 +22,13 @@ import worktree_checkpoint as checkpoints
 import worktree_state as ws
 import worktree_task as wt
 from deploy import (
+    contract_correction,
     contracts,
     controller,
     current_request,
     guards,
     inputs,
+    observed,
     operation_journal,
     preparation,
     scheduler,
@@ -39,7 +41,11 @@ from model.format import parse
 from model.format import patch as patch_properties
 from model.render import stack_markdown
 from model.sources import load_model
-from support import deploy_controller_fixtures, worktree_deploy_fixtures
+from support import (
+    deploy_controller_fixtures,
+    model_design_fixtures,
+    worktree_deploy_fixtures,
+)
 from support.deploy_controller_fixtures import ACCOUNT, aws_state, invoke
 from support.model_sources import write_model
 from support.pytest_cli import run
@@ -509,6 +515,333 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
         for _, op, _ in json.loads(aws.read_text(encoding="utf-8"))["calls"][
             len(calls) :
         ]
+    )
+
+
+class CorrectionInterrupt:
+    def __call__(self, contents):
+        path = next(iter(contents))
+        path.write_text(contents[path], encoding="utf-8")
+        raise OSError("interrupted correction after Task save")
+
+
+def interrupted_sync(root, report, aws, names, temporary, fault=None):
+    options = [
+        "--action",
+        "sync",
+        *[arg for name in names for arg in ("--sync-stack", name)],
+    ]
+    if fault != "model-partial":
+        return invoke(root, report, aws, options, fault=fault)
+    scripts = Path(steps.__file__).resolve().parents[1]
+    return subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(worktree_deploy_fixtures.__file__).resolve()),
+            str(root),
+            str(report),
+            str(aws),
+            *options,
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join((str(scripts), str(scripts / "tests"))),
+            "BLUEPRINT_OBSERVED_FAULT": fault,
+            "TMPDIR": str(temporary),
+        },
+    ).returncode
+
+
+@pytest.mark.parametrize(
+    "interruption",
+    [
+        None,
+        "model-partial",
+        "design-io",
+        "correction",
+        "pending-model",
+        "pending-generation",
+    ],
+)
+def check_missing_owner_service_recovers_same_task(tmp_path, monkeypatch, interruption):
+    report, aws = tmp_path / "report.json", tmp_path / "aws.json"
+    root = seed(tmp_path / "project", report, "orders")
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    monkeypatch.setattr(
+        operation_journal,
+        "location",
+        Mock(return_value=report.with_suffix(".operations.json")),
+    )
+    path = root / "tasks/deploy.md"
+    text = path.read_text(encoding="utf-8")
+    target, units = inputs.load_units(
+        root, "dev", ACCOUNT, deploy_controller_fixtures.stack_names(root)
+    )
+    target = json.loads((root / "project.json").read_text(encoding="utf-8"))["targets"][
+        0
+    ]
+    mappings = preparation.owning_resources(root, "dev", ACCOUNT, target, units)
+    execution = "## Execution scope\n" + "".join(
+        "- `"
+        + json.dumps(
+            dict(stack=stack, logicalId=logical, **item),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "`\n"
+        for stack, group in sorted(mappings.items())
+        for logical, item in sorted(group.items())
+    )
+    text = text.replace("## Validation scope\n", execution + "## Validation scope\n")
+    pending_correction = interruption in {"pending-model", "pending-generation"}
+    service = "s3" if pending_correction else "ec2"
+    omitted = {
+        line
+        for line in text.splitlines()
+        if line == f"- `dev/{ACCOUNT}/{service}`"
+        or line.startswith(
+            (
+                f"- `model/dev/{ACCOUNT}/{service}.",
+                f"- `model/dev/{ACCOUNT}/{service}/",
+                f"- `docs/designs/dev/{ACCOUNT}/{service}.",
+                f"- `docs/designs/dev/{ACCOUNT}/{service}/",
+            )
+        )
+    }
+    path.write_text(
+        "\n".join(line for line in text.splitlines() if line not in omitted) + "\n",
+        encoding="utf-8",
+    )
+    aws_state(aws)
+    # Reproduce an older successful deployment whose readiness omitted the owner check.
+    with patch.object(observed, "readiness"):
+        for _ in range(6):
+            assert invoke(root, report, aws, ["--action", "advance"]) == 0
+            if all(
+                item["status"] == "SUCCESS"
+                for item in json.loads(report.read_text())["states"].values()
+            ):
+                break
+    before = worktree.read_progress(root, ws.load(root, "deploy")[3])
+    assert all(
+        item["status"] == "SUCCESS" for item in before["runContext"]["states"].values()
+    )
+    calls = json.loads(aws.read_text())["calls"]
+    names = list(before["runContext"]["states"])
+    if pending_correction:
+        fault = "model-partial" if interruption == "pending-model" else "design-io"
+        assert interrupted_sync(root, report, aws, [names[1]], tmp_path, fault) == (
+            76 if fault == "model-partial" else 2
+        )
+        pending = worktree.read_progress(root, ws.load(root, "deploy")[3])["runContext"]
+        assert pending.get("pendingObserved") or pending.get("pendingGeneration")
+    else:
+        assert interrupted_sync(root, report, aws, names, tmp_path) == 2
+    transitions.suspend(root, "tasks/deploy.md", f"missing {service} owner service")
+    current = path.read_text(encoding="utf-8")
+    candidate = current.replace(
+        "## Validation scope\n", f"## Validation scope\n- `dev/{ACCOUNT}/{service}`\n"
+    )
+    for heading in ("Modified files", "Allowed paths"):
+        candidate = candidate.replace(
+            f"## {heading}\n",
+            f"## {heading}\n"
+            + "".join(
+                line + "\n"
+                for line in sorted(omitted)
+                if not line.startswith("- `dev/")
+            ),
+        )
+    external = tmp_path / "corrected-owner.md"
+    external.write_text(candidate, encoding="utf-8")
+    if interruption == "correction":
+        with patch.object(contract_correction, "atomic_files", CorrectionInterrupt()):
+            with pytest.raises(OSError, match="interrupted correction"):
+                transitions.correct_deploy_contract(root, "tasks/deploy.md", external)
+        assert ws.load(root, "deploy")[3].get("deployContractUpdate")
+    transitions.correct_deploy_contract(root, "tasks/deploy.md", external)
+    assert read_task_snapshot(root, "tasks/deploy.md", live=True).status == "suspend"
+    corrected = ws.load(root, "deploy")[3]
+    assert corrected["start"] == before["identity"]["snapshot"]
+    saved = worktree.read_progress(root, corrected)
+    assert saved["runContext"]["inputDigests"] == before["runContext"]["inputDigests"]
+    assert (
+        saved["runContext"]["consumedInputs"] == before["runContext"]["consumedInputs"]
+    )
+    transitions.check_resume_scope(root, "tasks/deploy.md")
+    transitions.resume(root, "tasks/deploy.md")
+    if pending_correction:
+        assert invoke(root, report, aws, ["--action", "checkpoint"]) == 0
+        names = names[:1]
+    result = interrupted_sync(
+        root,
+        report,
+        aws,
+        names,
+        tmp_path,
+        interruption if interruption in {"model-partial", "design-io"} else None,
+    )
+    if interruption in {"model-partial", "design-io"}:
+        assert result == (76 if interruption == "model-partial" else 2)
+        assert invoke(root, report, aws, ["--action", "checkpoint"]) == 0
+    else:
+        assert result == 0
+    final = worktree.read_progress(root, ws.load(root, "deploy")[3])["runContext"]
+    assert all(item.get("observedSynced") for item in final["states"].values())
+    assert not final.get("pendingObserved") and not final.get("pendingGeneration")
+    assert json.loads(report.read_text())["gitPublication"]["status"] == "SUCCESS"
+    assert not any(
+        operation in {"create_change_set", "execute_change_set"}
+        for _, operation, _ in json.loads(aws.read_text())["calls"][len(calls) :]
+    )
+
+
+def seed_reference_consumer(root, report, case, **kwargs):
+    deploy_controller_fixtures.seed(root, report, case, **kwargs)
+    values = model_design_fixtures.model(
+        "rds",
+        "RDS.DBSubnetGroup",
+        "app-dev-consumer",
+        [
+            ("DBSubnetGroupName", "`app-dev-consumer`", "名前"),
+            (
+                "SubnetIds[]",
+                '`{"$modelRef":{"logicalId":"EC2_Subnet_001","attribute":"SubnetId"}}`',
+                "参照",
+            ),
+            ("DBSubnetGroupDescription", "`synthetic consumer`", "説明"),
+        ],
+    )
+    values.pop("desired.resource.001.cfn-logicalId", None)
+    values["desired.resource.001.resourceMode"] = "IMPORT"
+    values["observed.row.001-002.value"] = "`subnet-before`"
+    source = write_model(root / f"model/dev/{ACCOUNT}/rds.properties", values)
+    view = root / f"docs/designs/dev/{ACCOUNT}/rds.md"
+    view.write_text(
+        model_design_fixtures.markdown_for(view, load_model(source).values, root),
+        encoding="utf-8",
+    )
+    # An unrelated Model remains a read-only input throughout recovery.
+    values = model_design_fixtures.model(
+        "dynamodb",
+        "DynamoDB.Table",
+        "app-dev-unrelated",
+        [("TableName", "`app-dev-unrelated`", "名前")],
+    )
+    values.pop("desired.resource.001.cfn-logicalId", None)
+    values["desired.resource.001.resourceMode"] = "IMPORT"
+    write_model(root / f"model/dev/{ACCOUNT}/dynamodb.properties", values)
+    git(root, "add", "model", "docs")
+    git(root, "commit", "-qm", "Synthetic reference consumers")
+
+
+def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
+    report, aws = tmp_path / "report.json", tmp_path / "aws.json"
+    with patch.object(
+        worktree_deploy_fixtures, "seed_project", seed_reference_consumer
+    ):
+        root = seed(tmp_path / "project", report, "orders")
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    monkeypatch.setattr(
+        operation_journal,
+        "location",
+        Mock(return_value=report.with_suffix(".operations.json")),
+    )
+    path = root / "tasks/deploy.md"
+    text = path.read_text(encoding="utf-8")
+    target = json.loads((root / "project.json").read_text())["targets"][0]
+    _, units = inputs.load_units(
+        root, "dev", ACCOUNT, deploy_controller_fixtures.stack_names(root)
+    )
+    mappings = preparation.owning_resources(root, "dev", ACCOUNT, target, units)
+    execution = "## Execution scope\n" + "".join(
+        "- `"
+        + json.dumps(
+            dict(stack=stack, logicalId=logical, **item),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "`\n"
+        for stack, group in sorted(mappings.items())
+        for logical, item in sorted(group.items())
+    )
+    path.write_text(
+        text.replace("## Validation scope\n", execution + "## Validation scope\n"),
+        encoding="utf-8",
+    )
+    unrelated = root / f"model/dev/{ACCOUNT}/dynamodb.properties"
+    unrelated_before = unrelated.read_bytes()
+    consumer = root / f"model/dev/{ACCOUNT}/rds.properties"
+    consumer_before = consumer.read_bytes()
+    aws_state(aws)
+    assert run_controller(root, report, aws) == 0
+    progress = worktree.read_progress(root, ws.load(root, "deploy")[3])
+    records = [
+        record
+        for state in progress["runContext"]["states"].values()
+        for record in state.get("deferredConsumers", [])
+    ]
+    assert records and all(
+        record["ownerObservedSynced"] and not record["referenceSynced"]
+        for record in records
+    )
+    assert consumer.read_bytes() == consumer_before
+    calls = json.loads(aws.read_text())["calls"]
+    transitions.suspend(
+        root, "tasks/deploy.md", "Human-approved deferred rds reference synchronization"
+    )
+    candidate = path.read_text(encoding="utf-8").replace(
+        "## Validation scope\n", f"## Validation scope\n- `dev/{ACCOUNT}/rds`\n"
+    )
+    for heading in ("Modified files", "Allowed paths"):
+        candidate = candidate.replace(
+            f"## {heading}\n",
+            f"## {heading}\n- `model/dev/{ACCOUNT}/rds.properties`\n- `docs/designs/dev/{ACCOUNT}/rds.md`\n",
+        )
+    external = tmp_path / "reference-correction.md"
+    external.write_text(candidate, encoding="utf-8")
+    with pytest.raises(ValueError, match="Human approval"):
+        transitions.correct_deploy_contract(root, "tasks/deploy.md", external)
+    transitions.correct_deploy_contract(
+        root, "tasks/deploy.md", external, [f"dev/{ACCOUNT}/rds"]
+    )
+    corrected_progress = worktree.read_progress(root, ws.load(root, "deploy")[3])[
+        "runContext"
+    ]
+    assert any(
+        item.get("consumer") == f"dev/{ACCOUNT}/rds"
+        for item in worktree.final_blockers(corrected_progress)
+    )
+    transitions.check_resume_scope(root, "tasks/deploy.md")
+    transitions.resume(root, "tasks/deploy.md")
+    first = "cfn-stack-app-dev-first"
+    assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", first]) == 0
+    saved = worktree.read_progress(root, ws.load(root, "deploy")[3])["runContext"]
+    resolved = [
+        record
+        for state in saved["states"].values()
+        for record in state.get("deferredConsumers", [])
+    ]
+    assert len(resolved) == len(records) and all(
+        record["referenceSynced"] for record in resolved
+    )
+    assert "observed.row.001-002.value" not in parse(consumer.read_text()).values
+    assert unrelated.read_bytes() == unrelated_before
+    assert (
+        "subnet-before" not in (root / f"docs/designs/dev/{ACCOUNT}/rds.md").read_text()
+    )
+    assert json.loads(report.read_text())["gitPublication"]["status"] == "SUCCESS"
+    assert not any(
+        operation in {"create_change_set", "execute_change_set"}
+        for _, operation, _ in json.loads(aws.read_text())["calls"][len(calls) :]
     )
 
 

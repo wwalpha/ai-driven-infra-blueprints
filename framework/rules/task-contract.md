@@ -424,12 +424,18 @@ from recovery or from a valid contract. No recovery history or approval ledger i
 
 For a fixed managed CloudFormation Deploy, use
 `task_contract.py --task-file tasks/<task-name>.md --correct-deploy-contract <external-candidate.md>`
-while suspended to correct omitted Modified files/Allowed paths. First compare the original
+while suspended to add proven missing owner services to Validation scope and omitted
+exact Modified files/Allowed paths. Preserve existing Validation entries. First compare the original
 Human request and the actual fixed contract text; the LLM must establish that each added
 file was necessary to the original requested observation/generation, not new work. The CLI
-checks exact additions against the existing service Models and their generated artifacts.
+checks exact additions against fixed Execution scope, saved execution inputs, existing
+service Models and generated artifacts. Same-target non-owner consumers additionally
+require retained typed reference evidence and explicit Human consent, recorded with
+`--approve-deferred-consumer <environment/target-directory/service>` on this operation.
+Other Target consumers cannot be added. Consumer authority permits only proven reference
+Rows and necessary Views, never arbitrary observations or Desired changes.
 It preserves all other contract content, including type/phase, Goal, environment/Account,
-Stack scope, validation/Acceptance, AWS permissions and delete/replacement consent. It does
+Stack/Resource Execution scope, Requirements/Acceptance, AWS permissions and delete/replacement consent. It does
 not approve a request or infer Human consent from matching hashes. Other declaration edits
 are outside this narrow correction path.
 
@@ -439,7 +445,9 @@ original evidence stops without guessing. The candidate is outside the repositor
 retain the current suspended status/reason. A live contract already containing only those
 same additions is also accepted. See [Deploy correction conditions](cloudformation.md#managed-deploy-contract-correction)
 for progress, locks and interruption handling. Success keeps the Task suspended, retains
-execution evidence, and requires Snapshot validation again. Then use the ordinary
+execution evidence and verified pending save candidates, and requires Snapshot validation
+again. Missing fixed Resource evidence on legacy Tasks, unknown manifests, active requests
+and unresolved Git/failure evidence stop without erasing progress. Then use the ordinary
 `--check-resume-scope` and, only under Self recovery above, `--resume`; rerun failed checks,
 final validation and Acceptance. Correction never runs AWS, clears progress or completes a Task.
 

@@ -45,6 +45,14 @@ must agree with project.json. --sequential caps concurrency at one; otherwise th
 Model's MaxConcurrentStacks applies within each DeployOrder group. The optional
 --allow-external-repair authorizes a separate evidence-backed Implement handoff,
 never automatic IaC editing. Existing Tasks use cloudformation-deploy.py directly.
+For omitted owner services, suspend the same Task and use task_contract.py
+--correct-deploy-contract with a reviewed external candidate adding only proven
+Validation services and exact outputs. Same-target deferred reference consumers
+also require explicit Human consent and --approve-deferred-consumer env/target/service.
+Other Targets gain no authority. Verified pending Intents are retained; unknown
+bytes, active requests and unfinished Git/failure evidence stop for existing recovery.
+Then check-resume-scope, resume and use needed sync/checkpoint without AWS replay.
+Do not relaunch the old preparation.json through --run-controller after correction.
 Failures return stage/cause/nextAction; command=null means stop for review.
 """
 

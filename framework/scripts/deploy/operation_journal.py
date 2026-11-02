@@ -53,6 +53,7 @@ OPERATION_FIELDS = {
     "checkpointRequired",
     "observedCoverage",
     "observedServices",
+    "deferredConsumers",
     "failure",
     "schedulerError",
     "pollReadFailures",
