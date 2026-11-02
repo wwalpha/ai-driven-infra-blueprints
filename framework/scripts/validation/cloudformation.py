@@ -501,9 +501,11 @@ def check_stack_designs(
                 for number, stack in enumerate(stacks, 1)
             }
             settings, artifacts = deployment_settings(values)
-            for reference in ([settings["templateBucket"]] if settings else []) + [
-                a["bucket"] for _, a in artifacts
-            ]:
+            for reference in (
+                [settings["templateBucket"]]
+                if settings and settings["templateBucket"].lstrip().startswith("{")
+                else []
+            ) + [a["bucket"] for _, a in artifacts]:
                 deployment_bucket(reference, path, root)
         except ValueError as error:
             findings.check(

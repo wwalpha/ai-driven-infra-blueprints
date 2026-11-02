@@ -73,7 +73,9 @@ def fetch(ctx, r, getter):
         inputs = {argument: name}
         names = ctx.pages("iam", operation, **inputs).get("PolicyNames", [])
         if kind == "role" and not getattr(ctx, "import_mode", False):
-            confirmed = ctx.fresh_pages("iam", operation, **inputs).get("PolicyNames", [])
+            confirmed = ctx.fresh_pages("iam", operation, **inputs).get(
+                "PolicyNames", []
+            )
             if set(names) != set(confirmed):
                 raise AcquisitionError("iam." + operation, "InlinePolicyListChanged")
         policies = []
@@ -83,10 +85,16 @@ def fetch(ctx, r, getter):
                     "iam", "get_" + kind + "_policy", **inputs, PolicyName=p
                 )["PolicyDocument"]
             except AcquisitionError as error:
-                if kind != "role" or error.code != "NoSuchEntity" or getattr(ctx, "import_mode", False):
+                if (
+                    kind != "role"
+                    or error.code != "NoSuchEntity"
+                    or getattr(ctx, "import_mode", False)
+                ):
                     raise
                 ctx.fresh_pages("iam", operation, **inputs)
-                raise AcquisitionError(error.api, error.code, request=error.request) from error
+                raise AcquisitionError(
+                    error.api, error.code, request=error.request
+                ) from error
             policies.append({"PolicyName": p, "PolicyDocument": document})
         return {"Policies": policies}
     return ctx.call("iam", "get_" + kind, **{argument: name})[

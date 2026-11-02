@@ -5247,7 +5247,10 @@ def test_route53_composite_export_uses_shared_nested_setting_comparison(transfor
     assert [item["category"] for item in results] == ["uncompared"], results
     details = results[0].get("reference_diagnostics", [])
     if transform == "same":
-        assert details[0]["reason"] == "Alias Endpoint DNS consumer correspondence is unproven"
+        assert (
+            details[0]["reason"]
+            == "Alias Endpoint DNS consumer correspondence is unproven"
+        )
         assert details[0]["current_aws_verified"] is False
     if transform != "select":
         assert details and details[0]["exports"][0]["unproven"].startswith(

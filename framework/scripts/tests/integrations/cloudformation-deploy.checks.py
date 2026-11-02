@@ -37,6 +37,7 @@ from model.sources import load_model, model_parts
 from support import rotation_schedule_fixtures as rotation
 from support.cloudformation_deploy_fixtures import (
     TARGET,
+    DeliveryAws,
     Fake,
     M,
     Path,
@@ -69,6 +70,7 @@ from support.model_sources import allocate_fixture as allocate
 from support.model_v2_fixtures import deploy_properties_fixture
 from support.repository_fixtures import fixture, git, start
 from support.security_group_tables_fixtures import GENERATED_MODEL
+from sync_runtime import stage_inputs
 from task_contract_core import paths_in, selected_task
 from utils.aws_catalogs import catalog_outputs
 from utils.input_cache import input_context, input_scope, memo_table
@@ -77,6 +79,121 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 publication_workspace = _fixture_publication_workspace.publication_workspace
+
+
+def check_direct_template_bucket_roundtrip_and_resume(tmp_path):
+    root = tmp_path / "project"
+    runtime = DeliveryAws(root, tmp_path / "execution")
+    (root / "model/dev/123456789012/s3.properties").unlink()
+    unit = units(10)[0]
+    unit.update(templateBucket="my-existing-cfn-bucket", templateKeyPrefix="templates/")
+    values = {
+        f"desired.stack.001.{key}": value
+        for key, value in unit.items()
+        if key not in {"templateBucket", "templateKeyPrefix"}
+    }
+    values.update(
+        {
+            "display.stack.001.comment": "テスト用スタック",
+            "desired.deployment.templateBucket": unit["templateBucket"],
+            "desired.deployment.templateKeyPrefix": unit["templateKeyPrefix"],
+        }
+    )
+    source = root / "model/dev/123456789012/cloudformation-stacks.properties"
+    write_model(source, values)
+    design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
+    design.parent.mkdir(parents=True)
+    design.write_text(markdown_for(design, values, root), encoding="utf-8")
+    TestCase().assertIn(
+        "<!-- templateBucket: my-existing-cfn-bucket -->",
+        design.read_text(encoding="utf-8"),
+    )
+    _, loaded = M.load_units(root, "dev", "123456789012", ["A"])
+    TestCase().assertEqual(loaded[0]["templateBucket"], unit["templateBucket"])
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    stage_inputs(stage, root, {design: values}, [source], [], [source.stem], False)
+    TestCase().assertFalse((stage / "model/dev/123456789012/s3.properties").exists())
+    template, parameters = runtime.paths(unit)
+    template.parent.mkdir(parents=True, exist_ok=True)
+    parameters.parent.mkdir(parents=True, exist_ok=True)
+    template.write_text(
+        json.dumps({"Resources": {}, "Description": "x" * 52000}), encoding="utf-8"
+    )
+    parameters.write_text("[]", encoding="utf-8")
+    runtime.load_inputs(unit)
+    runtime.states = states([unit])
+    runtime.expected_digests = {"A": runtime.input_digest(unit)}
+    runtime.prepare_delivery_group([unit], runtime.states)
+    state = runtime.states["A"]
+    saved = json.loads(json.dumps(state["delivery"]))
+    TestCase().assertEqual(runtime.prepare(unit, state), "READY")
+    create = next(
+        args for operation, args in runtime.calls if operation == "create_change_set"
+    )
+    TestCase().assertEqual(create["TemplateURL"], saved["arguments"]["TemplateURL"])
+    state["delivery"] = saved
+    runtime.calls.clear()
+    runtime.template_arguments(unit, state)
+    TestCase().assertIn("head_object", [operation for operation, _ in runtime.calls])
+    TestCase().assertNotIn("head_bucket", [operation for operation, _ in runtime.calls])
+
+
+def check_mixed_template_and_artifact_delivery(tmp_path):
+    root = tmp_path / "project"
+    runtime = DeliveryAws(root, tmp_path / "execution")
+    unit = units(10)[0]
+    unit.update(templateBucket="my-existing-cfn-bucket", templateKeyPrefix="templates/")
+    unit["artifacts"] = [
+        {
+            "stack": "A",
+            "resource": "Job",
+            "property": "Command.ScriptLocation",
+            "source": "infra/cloudformation/artifacts/job.py",
+            "bucket": "app-dev-assets",
+            "keyPrefix": "artifacts/",
+        }
+    ]
+    source = root / unit["artifacts"][0]["source"]
+    source.parent.mkdir(parents=True)
+    source.write_text("print('job')\n", encoding="utf-8")
+    template, parameters = runtime.paths(unit)
+    template.parent.mkdir(parents=True, exist_ok=True)
+    parameters.parent.mkdir(parents=True, exist_ok=True)
+    template.write_text(
+        json.dumps(
+            {
+                "Resources": {
+                    "Job": {
+                        "Type": "AWS::Glue::Job",
+                        "Properties": {
+                            "Command": {
+                                "ScriptLocation": "s3://app-dev-assets/artifacts/current.py"
+                            }
+                        },
+                    }
+                },
+                "Description": "x" * 52000,
+            }
+        ),
+        encoding="utf-8",
+    )
+    parameters.write_text("[]", encoding="utf-8")
+    runtime.load_inputs(unit)
+    runtime.states = states([unit])
+    runtime.expected_digests = {"A": runtime.input_digest(unit)}
+    runtime.prepare_delivery_group([unit], runtime.states)
+    state = runtime.states["A"]
+    TestCase().assertEqual(
+        [obj["kind"] for obj in state["delivery"]["objects"]], ["artifact", "template"]
+    )
+    TestCase().assertEqual(runtime.prepare(unit, state), "READY")
+    buckets = [args["Bucket"] for op, args in runtime.calls if op == "head_bucket"]
+    TestCase().assertIn("app-dev-assets", buckets)
+    TestCase().assertNotIn("my-existing-cfn-bucket", buckets)
+    state["delivery"] = json.loads(json.dumps(state["delivery"]))
+    runtime.template_arguments(unit, state)
+
 
 _CALLBACK_DEFAULT = object()
 
@@ -2008,9 +2125,18 @@ def check_ingress_observed_publication(project_workspace):
 @pytest.mark.parametrize("case", ["normal", "pending", "ambiguous", "recreated"])
 def check_egress_observed_publication(project_workspace, case):
     root = project_workspace
-    (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET}]}))
+    (root / "project.json").write_text(
+        json.dumps({"targets": [{"environment": "dev", **TARGET}]})
+    )
     source = root / "model/dev/123456789012/security-group.properties"
-    model = GENERATED_MODEL.replace("observed.row.005-001.value=`PENDING_DEPLOY`", "observed.row.005-001.value=`sgr-00000001`") if case == "recreated" else GENERATED_MODEL
+    model = (
+        GENERATED_MODEL.replace(
+            "observed.row.005-001.value=`PENDING_DEPLOY`",
+            "observed.row.005-001.value=`sgr-00000001`",
+        )
+        if case == "recreated"
+        else GENERATED_MODEL
+    )
     write_model(source, model)
     task = root / "tasks/observation-fixture.md"
     task.parent.mkdir(exist_ok=True)
@@ -2020,19 +2146,70 @@ def check_egress_observed_publication(project_workspace, case):
     row = dict(entries(loaded, "desired.row."))["005-001"]
     group = "sg-00000001"
     document = {
-        "Resources": {"Rule": {"Type": "AWS::EC2::SecurityGroupEgress", "Properties": {
-            "GroupId": group, "IpProtocol": "-1", "DestinationSecurityGroupId": group}}},
+        "Resources": {
+            "Rule": {
+                "Type": "AWS::EC2::SecurityGroupEgress",
+                "Properties": {
+                    "GroupId": group,
+                    "IpProtocol": "-1",
+                    "DestinationSecurityGroupId": group,
+                },
+            }
+        },
         "Outputs": {"RuleId": {"Value": {"Fn::GetAtt": ["Rule", "Id"]}}},
     }
-    actual = {"LogicalResourceId": "Rule", "ResourceType": "AWS::EC2::SecurityGroupEgress", "ResourceStatus": "CREATE_COMPLETE", "PhysicalResourceId": group}
-    rule = {"GroupId": group, "IsEgress": True, "IpProtocol": "-1", "ReferencedGroupInfo": {"GroupId": group}, "SecurityGroupRuleId": "sgr-00000002"}
-    stack = {"StackId": "stack-A", "StackStatus": "CREATE_COMPLETE", "Parameters": [], "Outputs": [] if case == "pending" else [{"OutputKey": "RuleId", "OutputValue": rule["SecurityGroupRuleId"]}]}
+    actual = {
+        "LogicalResourceId": "Rule",
+        "ResourceType": "AWS::EC2::SecurityGroupEgress",
+        "ResourceStatus": "CREATE_COMPLETE",
+        "PhysicalResourceId": group,
+    }
+    rule = {
+        "GroupId": group,
+        "IsEgress": True,
+        "IpProtocol": "-1",
+        "ReferencedGroupInfo": {"GroupId": group},
+        "SecurityGroupRuleId": "sgr-00000002",
+    }
+    stack = {
+        "StackId": "stack-A",
+        "StackStatus": "CREATE_COMPLETE",
+        "Parameters": [],
+        "Outputs": []
+        if case == "pending"
+        else [{"OutputKey": "RuleId", "OutputValue": rule["SecurityGroupRuleId"]}],
+    }
     aws = _bind_framework_callback(_sg_egress_aws, stack, actual, rule, document, case)
-    backend = SimpleNamespace(root=root, environment="dev", directory="123456789012", target=TARGET, templates={"A": (document, {})}, aws=aws)
-    mapping = {"A": {"Rule": (source, "005", resource, [("005-001", row)], {"EC2.SecurityGroupEgress.Id"})}}
+    backend = SimpleNamespace(
+        root=root,
+        environment="dev",
+        directory="123456789012",
+        target=TARGET,
+        templates={"A": (document, {})},
+        aws=aws,
+    )
+    mapping = {
+        "A": {
+            "Rule": (
+                source,
+                "005",
+                resource,
+                [("005-001", row)],
+                {"EC2.SecurityGroupEgress.Id"},
+            )
+        }
+    }
     state = {"A": {}}
-    with patch("deploy.observed.resolve_resources", return_value=({source: loaded}, mapping)), patch("deploy.observed.propagate_references"):
-        outputs, _, _ = deploy_observed.collect_successful(backend, [{"name": "A"}], state)
+    with (
+        patch(
+            "deploy.observed.resolve_resources",
+            return_value=({source: loaded}, mapping),
+        ),
+        patch("deploy.observed.propagate_references"),
+    ):
+        outputs, _, _ = deploy_observed.collect_successful(
+            backend, [{"name": "A"}], state
+        )
     publish_observed(root, outputs)
     value = properties(read_model(source)).get("observed.row.005-001.value")
     if case in {"normal", "recreated"}:

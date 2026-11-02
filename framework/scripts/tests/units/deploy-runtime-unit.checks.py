@@ -1019,11 +1019,14 @@ def check_delivery(tmp_path):
         ),
         "producer logicalId is absent",
     )
+    deployment_settings(
+        values | {"desired.deployment.templateBucket": "guessed-bucket"}
+    )
     rejects(
         lambda: deployment_settings(
-            values | {"desired.deployment.templateBucket": "guessed-bucket"}
+            values | {"desired.deployment.templateBucket": "INVALID_BUCKET"}
         ),
-        "requires $modelRef",
+        "invalid deployment template bucket",
     )
     missing = dict(values)
     del missing["desired.deployment.templateKeyPrefix"]

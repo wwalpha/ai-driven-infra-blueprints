@@ -591,16 +591,16 @@ Design update order is “confirm catalog selection items/naming rules → prepa
 
 The controller passes templates directly as before when the submitted template is at most 51,200 bytes; above that through 1 MiB, upload to the specified bucket and create change sets from S3 URLs. Stop above 1 MiB. Small templates require no placement bucket configuration.
 
-Specify destinations in target `cloudformation-stacks.properties` as follows. The following is a format example; confirm bucket names, StackName, and sources in actual design. The S3 model is authoritative for bucket names/settings; retain only references here.
+Specify destinations in target `cloudformation-stacks.properties` as follows. The following is a format example; confirm bucket names, StackName, and sources in actual design. The template bucket may be an existing bucket name or a same-target S3 Model reference. Artifact buckets retain their S3 Model reference and validation requirements.
 
 ```properties
-desired.deployment.templateBucket=[app-dev-assets](s3.md#s3-app-dev-assets)
+desired.deployment.templateBucket=my-existing-cfn-bucket
 desired.deployment.templateKeyPrefix=cloudformation/templates/
 desired.artifact.001.stack=cfn-stack-app-dev-job
 desired.artifact.001.resource=FunctionA
 desired.artifact.001.property=Code
 desired.artifact.001.source=infra/cloudformation/artifacts/function-a.zip
-desired.artifact.001.bucket=[app-dev-assets](s3.md#s3-app-dev-assets)
+desired.artifact.001.bucket={"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}
 desired.artifact.001.keyPrefix=lambda/functions/
 ```
 

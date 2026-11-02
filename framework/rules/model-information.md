@@ -572,10 +572,10 @@ Display `SecretsManager.RotationSchedule` in the same Markdown table as its pare
 
 ## CloudFormation S3配置
 
-Optional settings in `cloudformation-stacks.properties`. Deployment buckets use typed `$modelRef` references to `S3.Bucket.BucketName` in the same target. Resolve confirmed BucketNames only at the execution boundary; generated Markdown artifact cells use the shared reference presentation. The following names/paths are format examples; use human-confirmed values for actual targets.
+Optional settings in `cloudformation-stacks.properties`. Template buckets accept an existing bucket name directly or a typed `$modelRef` to same-target `S3.Bucket.BucketName`; artifact buckets require the typed reference. Resolve confirmed BucketNames only at the execution boundary; generated Markdown artifact cells use the shared reference presentation. The following names/paths are format examples; use human-confirmed values for actual targets.
 
 ```properties
-desired.deployment.templateBucket={"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}
+desired.deployment.templateBucket=my-existing-cfn-bucket
 desired.deployment.templateKeyPrefix=cloudformation/templates/
 desired.artifact.001.stack=cfn-stack-app-dev-job
 desired.artifact.001.resource=FunctionA
@@ -588,7 +588,7 @@ desired.artifact.001.keyPrefix=lambda/functions/
 - TemplateBucket/TemplateKeyPrefix may be omitted as a pair. Stop if unset when required for large-template deployment.
 - Artifact entries require all 6 fields; reject duplicates for the same stack/resource/property. Multiple entries may use the same source. Explicitly specify different buckets in each entry as well.
 - keyPrefix is a relative prefix ending with `/`. Allow only alphanumeric characters, underscores, and hyphens in segments. Sources are repository-relative files; do not specify build commands, directories, credentials, or status.
-- Mapping tables represent deployment inputs replacing S3 keys/versions with content hashes. Save per-execution hashes and versions only in sessions outside the repository. S3 models are authoritative for S3 bucket configurations/names; stack models have references only.
+- Mapping tables represent deployment inputs replacing S3 keys/versions with content hashes. Save per-execution hashes and versions only in sessions outside the repository. S3 models remain authoritative for Artifact bucket configurations and referenced bucket names; a template bucket may be specified directly.
 - Do not display TemplateBucket/TemplateKeyPrefix tables in generated Markdown; output to hidden `<!-- templateBucket: <value> -->`/`<!-- templateKeyPrefix: <value> -->` only when configured. Generate mapping tables under `## S3配置` and `### 配置ファイル` only if artifact mappings exist. Validate Stack displays structurally and compare saved outputs with generated candidates. Do not feed Markdown back. Retain existing unconfigured model/Markdown formats.
 
 ## Narrow DNS and IMPORT preparation references

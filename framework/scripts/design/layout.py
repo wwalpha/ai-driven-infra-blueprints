@@ -616,7 +616,8 @@ def expanded_display_rows(
     structural = _imports_aws_mapping_display.structural
     root = root or ROOT
     if any(
-        "<!-- reference-rows:" in line or "<!-- reference-value:" in line
+        "<!-- reference-rows:" in line
+        or "<!-- reference-value:" in line
         or "<!-- subnet-list-source:" in line
         for line in lines
     ):
@@ -833,7 +834,8 @@ def expanded_display_rows(
                     "CodeBuild environment variables must use Variables.<Name> display rows"
                 )
             if prop in LINKED_LIST_PROPERTIES and not (
-                _verified_reference and re.fullmatch(r"\[\s*\]", literal(cells[2]).strip())
+                _verified_reference
+                and re.fullmatch(r"\[\s*\]", literal(cells[2]).strip())
             ):
                 raise ValueError(
                     f"{prop} must use indexed one-resource-per-row display"

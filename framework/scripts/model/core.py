@@ -408,7 +408,15 @@ def deployment_settings(
             raise InputValidationError(f"duplicate artifact destination: {destination}")
         destinations.add(destination)
     if settings:
-        validate_bucket_reference(settings["templateBucket"])
+        bucket = settings["templateBucket"]
+        if bucket.lstrip().startswith("{"):
+            validate_bucket_reference(bucket)
+        elif (
+            not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket)
+            or ".." in bucket
+            or re.fullmatch(r"(?:[0-9]{1,3}\.){3}[0-9]{1,3}", bucket)
+        ):
+            raise InputValidationError("invalid deployment template bucket name")
         validate_key_prefix(settings["templateKeyPrefix"])
     for _, artifact in artifacts:
         validate_bucket_reference(artifact["bucket"])

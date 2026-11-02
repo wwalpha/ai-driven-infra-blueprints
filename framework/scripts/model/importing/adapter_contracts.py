@@ -4134,7 +4134,9 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
             "CatalogId": ("CatalogId", "typed", "fixture"),
             "Name": ("Name", "typed", "fixture"),
             "FederatedCatalog.Identifier": (
-                "FederatedCatalog.Identifier", "typed", "fixture-id"
+                "FederatedCatalog.Identifier",
+                "typed",
+                "fixture-id",
             ),
             "FederatedCatalog.ConnectionName": (
                 "FederatedCatalog.ConnectionName",

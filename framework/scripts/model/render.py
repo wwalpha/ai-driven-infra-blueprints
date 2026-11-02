@@ -41,6 +41,7 @@ import model.identity as _imports_model_identity
 import model.projection as _dependency_model_projection
 import model.projection as _imports_model_projection
 import model.reference_presentation as _reference_presentation
+import model.references as _model_references
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
 from model.change_scope import change_reads
@@ -77,7 +78,7 @@ def stack_markdown(
             or artifact["bucket"]
         )
     displayed_settings = dict(settings)
-    if settings:
+    if settings and _model_references.has_reference(settings["templateBucket"]):
         displayed_settings["templateBucket"] = (
             presentation.link(
                 parse(settings["templateBucket"]),
@@ -106,7 +107,11 @@ def stack_markdown(
             + " |"
             for number, (identity, artifact) in enumerate(artifacts, 1)
         ]
-    if settings and validate_delivery:
+    if (
+        settings
+        and validate_delivery
+        and _model_references.has_reference(settings["templateBucket"])
+    ):
         _dependency_model_projection.deployment_bucket(
             settings["templateBucket"], path, root
         )

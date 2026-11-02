@@ -72,9 +72,11 @@ def fetch(ctx, r, getter):
             if error.status == "resource_missing":
                 raise Unresolved("Flow Log ResourceId could not be resolved") from error
             raise
-        if not isinstance(resource_id, str) or not resource_id.startswith(
-            ("vpc-", "subnet-", "eni-")
-        ) or resource_id.endswith("-"):
+        if (
+            not isinstance(resource_id, str)
+            or not resource_id.startswith(("vpc-", "subnet-", "eni-"))
+            or resource_id.endswith("-")
+        ):
             raise Unresolved("Flow Log ResourceId is unresolved")
         inputs = {"Filter": [{"Name": "resource-id", "Values": [resource_id]}]}
     else:

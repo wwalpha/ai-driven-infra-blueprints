@@ -34,8 +34,8 @@ corrections may repair it along with every affected saved reference. New anchors
 Save the original Markdown Resource reference, for example
 `[lmda-venusinf-dev-inbound-detect](lambda.md#lambda-lmda-venusinf-dev-inbound-detect)`.
 Keep its label, relative path and fragment unless that occurrence is explicitly retargeted.
-Self links, parentReference, templateBucket and artifact buckets outside JSON bodies
-follow the same rule. Do not convert them to Resource URIs.
+Self links, parentReference, reference-form templateBucket and artifact buckets outside JSON bodies
+follow the same rule. A directly specified template bucket name is retained as a literal. Do not convert them to Resource URIs.
 
 `model.identity.parse_reference(value, consumer_scope)` uses the existing safe
 `model.references.link_scope()` to locate the producer scope. `Resolver(root, reads).resolve(

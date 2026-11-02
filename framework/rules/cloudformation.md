@@ -139,7 +139,7 @@ Follow [observed-values](observed-values.md) for current identifier collection/s
 
 ### Artifact declarations
 
-`deploy/delivery.py`が実行用copy・object配置を、`deploy/s3_delivery.py`が取得とkey別条件判定を担当する。正本は同targetのcloudformation-stacks.properties。templateBucketは同target S3 ModelのBucketName link、templateKeyPrefixは確定prefixで両方指定または両方省略する。project設定への重複保存は禁止。
+`deploy/delivery.py`が実行用copy・object配置を、`deploy/s3_delivery.py`が取得とkey別条件判定を担当する。正本は同targetのcloudformation-stacks.properties。templateBucketは既存バケット名を直接指定するか同target S3 ModelのBucketName参照を指定し、templateKeyPrefixと両方指定または両方省略する。直接指定にS3 Modelは不要。project設定への重複保存は禁止。
 
 artifactはstack/resource/property/source/bucket/keyPrefixを明示する。StackName・template LogicalId・同target S3 linkを使い、file名から推測しない。sourceはinfra/cloudformation/artifacts内の既存fileのみ。directory、外部path、外へ逃げるsymlinkは禁止。複数Resourceの同source共有は可。対応はLambda Function.Code/LayerVersion.Contentの構築済ZIP、Glue Job.Command.ScriptLocation、StepFunctions StateMachine.DefinitionS3Location、ApiGateway RestApi.BodyS3Location。container/nested/Transform/未知propertyへ拡張しない。未宣言S3参照は配置済み参照として維持する。
 
@@ -149,17 +149,19 @@ artifactはstack/resource/property/source/bucket/keyPrefixを明示する。Stac
 
 producer SUCCESS/observed反映/必要Exportsを確認し、同DeployOrderの全artifact、次に実byte数でS3が必要なtemplateを配置する。全配送確認後に新規Create/Executeへ進むbarrierを維持する。bucket作成は先行groupでinline実行し、同group bootstrap・bucket自動作成・代替bucket・scope拡張は禁止。
 
-同じprofile/Region/期待execution ownerでHeadBucket/GetBucketLocation/GetBucketEncryption/GetBucketPolicyを取得する。S3 Modelの一意なBucket/Region/暗号化を正本とし、AES256またはaws:kmsと設計keyを送る。明示deploymentEncryption=default時だけSSE headerを省略するが、formal暗号化行は必須。既存resolverでKey/current ID/Alias-parentを解決し、DescribeKeyのaccount/Region/Enabled/対称ENCRYPT_DECRYPTを確認する。key ARNは今回runの一時証拠のみ。AWS/policyから設計を補わず、欠損・曖昧・未知条件で停止する。
+Artifactでは同じprofile/Region/期待execution ownerでHeadBucket/GetBucketLocation/GetBucketEncryption/GetBucketPolicyを取得する。S3 Modelの一意なBucket/Region/暗号化を正本とし、AES256またはaws:kmsと設計keyを送る。明示deploymentEncryption=default時だけSSE headerを省略するが、formal暗号化行は必須。既存resolverでKey/current ID/Alias-parentを解決し、DescribeKeyのaccount/Region/Enabled/対称ENCRYPT_DECRYPTを確認する。key ARNは今回runの一時証拠のみ。AWS/policyから設計を補わず、欠損・曖昧・未知条件で停止する。
 
-policyはkeyごとにAction/Resource pattern、wildcard principalと暗号化条件StringEquals/NotEquals/Like/NotLike（IfExists含む）/Nullの論理積を評価する。未知の適用条件/principal/variable/否定scopeはINDETERMINATE。一般IAM engineに拡張せず、READ_DENIED/READ_UNCONFIRMED/MISMATCHを区別する。NoSuchBucketPolicyだけpolicyなしと扱う。403/timeout/壊れたpolicyを成功にしない。IAM/SCP/endpoint/実効PutObject・KMS権限は読取だけでPASSにしない。必要objectの実配置が書込確認であり、probe・IAM/KMS/policy緩和・public化は禁止。
+ArtifactのpolicyはkeyごとにAction/Resource pattern、wildcard principalと暗号化条件StringEquals/NotEquals/Like/NotLike（IfExists含む）/Nullの論理積を評価する。未知の適用条件/principal/variable/否定scopeはINDETERMINATE。一般IAM engineに拡張せず、READ_DENIED/READ_UNCONFIRMED/MISMATCHを区別する。NoSuchBucketPolicyだけpolicyなしと扱う。403/timeout/壊れたpolicyを成功にしない。IAM/SCP/endpoint/実効PutObject・KMS権限は読取だけでPASSにしない。必要objectの実配置が書込確認であり、probe・IAM/KMS/policy緩和・public化は禁止。
 
 取得共有はA同group配置準備、B各Stack Create直前、C各Stack Execute直前の関数呼出し内の明示dictだけ。context/bucket/ownerが同じ情報を共有してもkey別policy判定は残す。KMS selectorを共有しKeyId/Arnを正規化するが異なるaliasは個別解決し、request keyと検証Arnを区別する。API群を原子的snapshotと扱わない。return/承認待ち/resume/repair/入力変更/group移行を越えるcache・失敗時の古い成功へのfallbackは禁止。
 
-object keyはprefix+SHA256+拡張子。不存在HEAD→IfNoneMatch="*"/checksum/SSE/ExpectedBucketOwner付きPutObject→古いHEAD無効化→新しいHEADでchecksum/size/暗号化/必要versionを確認する。既存objectは一致時のみ再利用し、不一致/権限欠損で上書きしない。412は新HEAD一致時だけ再利用、409/timeout等の不明結果は上限付き確認/retryとし無条件PUTへ切り替えない。同じ準備内の確認済みobjectは共有し、Create/Execute境界はfresh HEADとする。
+object keyはprefix+SHA256+拡張子。不存在HEAD→IfNoneMatch="*"/checksum/ExpectedBucketOwner付きPutObject（Artifactは設計に従いSSEを指定）→古いHEAD無効化→新しいHEADでchecksum/size/必要versionとArtifactの暗号化を確認する。既存objectは一致時のみ再利用し、不一致/権限欠損で上書きしない。412は新HEAD一致時だけ再利用、409/timeout等の不明結果は上限付き確認/retryとし無条件PUTへ切り替えない。同じ準備内の確認済みobjectは共有し、Create/Execute境界はfresh HEADとする。
 
-Lambda/Layer/definition/template URLで固定versionを消費する場合と、versionless s3 URI/current key消費を区別する。古いVersionIdのHEADをcurrent確認に使わず、hash keyだけで他主体の上書き防止を保証しない。配置前に解決済暗号化条件/policy digestを今回run内へ記録し、境界/resumeで変更を検出したら停止する。旧objectに暗号化証拠がなければ停止。実行入力hash、copy hash、bucket/key/version/checksum、ChangeSetを維持し、変更object/ZIPを旧承認で実行しない。失敗時もpeer drainを維持する。
+Lambda/Layer/definition/template URLで固定versionを消費する場合と、versionless s3 URI/current key消費を区別する。古いVersionIdのHEADをcurrent確認に使わず、hash keyだけで他主体の上書き防止を保証しない。Artifactの配置前に解決済暗号化条件/policy digestを今回run内へ記録し、境界/resumeで変更を検出したら停止する。旧Artifact objectに暗号化証拠がなければ停止。実行入力hash、copy hash、bucket/key/version/checksum、ChangeSetを維持し、変更object/ZIPを旧承認で実行しない。失敗時もpeer drainを維持する。
 
-executorにHeadBucket/Location/Encryption/Policy、ListBucket、GetObject（固定versionはGetObjectVersion）、PutObjectと必要KMS DescribeKey/暗号化/checksum取得権限、consumerの読取権限を設計する。自動付与しない。rollback用の過去artifactを自動削除せず、retention/lifecycleは明示設計による。status/URL/version/checksumをModel/Gitへ保存しない。
+Template配置ではバケットのModel/Region/暗号化/Policy/KMSを事前照合せず、SSE headerを指定せずバケット既定の暗号化を使用する。HeadObject、checksum、size、ExpectedBucketOwner、条件付きPUTとversion確認は維持する。用途不明の旧記録はArtifactと同じ検証を行う。
+
+ArtifactのexecutorにHeadBucket/Location/Encryption/Policy、ListBucket、GetObject（固定versionはGetObjectVersion）、PutObjectと必要KMS DescribeKey/暗号化/checksum取得権限、consumerの読取権限を設計する。自動付与しない。rollback用の過去artifactを自動削除せず、retention/lifecycleは明示設計による。status/URL/version/checksumをModel/Gitへ保存しない。
 
 ## Independent controller runs and execution timing
 

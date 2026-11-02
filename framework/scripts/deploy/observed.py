@@ -412,13 +412,32 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     )
                     values = [outputs[key] for key in keys if key in outputs]
                     physical = actual.get("PhysicalResourceId") if primary else None
-                    if resource["resourceType"] in {"EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"}:
+                    if resource["resourceType"] in {
+                        "EC2.SecurityGroupIngress",
+                        "EC2.SecurityGroupEgress",
+                    }:
                         declarations = active_outputs(document, parameters, pseudo)
-                        id_keys = [key for key in keys if declarations[key] != {"Ref": logical}]
-                        if complete and id_keys and all(key in outputs for key in id_keys):
+                        id_keys = [
+                            key for key in keys if declarations[key] != {"Ref": logical}
+                        ]
+                        if (
+                            complete
+                            and id_keys
+                            and all(key in outputs for key in id_keys)
+                        ):
                             ids = {outputs[key] for key in id_keys}
                             if len(ids) == 1:
-                                value = security_group_rule_id(backend, stack, document, parameters, pseudo, actuals, logical, actual, ids.pop())
+                                value = security_group_rule_id(
+                                    backend,
+                                    stack,
+                                    document,
+                                    parameters,
+                                    pseudo,
+                                    actuals,
+                                    logical,
+                                    actual,
+                                    ids.pop(),
+                                )
                     elif values and (
                         len(set(values)) != 1
                         or physical is not None

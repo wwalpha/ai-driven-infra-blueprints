@@ -298,38 +298,73 @@ def check_step_diagnostics_do_not_expose_unknown_error_values():
     assert known["reason"] == "base advanced; review retained commit"
 
 
-@pytest.mark.parametrize("output,physical,expected", [
-    ("fl-new", "fl-new", "`fl-new`"),
-    (None, "fl-new", "`fl-new`"),
-    ("fl-other", "fl-new", None),
-])
+@pytest.mark.parametrize(
+    "output,physical,expected",
+    [
+        ("fl-new", "fl-new", "`fl-new`"),
+        (None, "fl-new", "`fl-new`"),
+        ("fl-other", "fl-new", None),
+    ],
+)
 def check_flowlog_observed_identifier(tmp_path, output, physical, expected):
     source = tmp_path / "model/dev/app/vpc.properties"
     resource = {"resourceType": "EC2.FlowLog", "logicalId": "EC2_FlowLog_001"}
     rows = [("001-001", {"property": "EC2.FlowLog.Id"})]
     mapped = {"A": {"Flow": (source, "001", resource, rows, {"EC2.FlowLog.Id"})}}
-    document = {"Resources": {"Flow": {"Type": "AWS::EC2::FlowLog"}},
-                "Outputs": {"FlowId": {"Value": {"Ref": "Flow"}}}}
-    stack = {"StackId": "stack", "StackStatus": "CREATE_COMPLETE",
-             "Outputs": [] if output is None else [{"OutputKey": "FlowId", "OutputValue": output}]}
-    backend = SimpleNamespace(root=tmp_path, environment="dev", directory="app",
+    document = {
+        "Resources": {"Flow": {"Type": "AWS::EC2::FlowLog"}},
+        "Outputs": {"FlowId": {"Value": {"Ref": "Flow"}}},
+    }
+    stack = {
+        "StackId": "stack",
+        "StackStatus": "CREATE_COMPLETE",
+        "Outputs": []
+        if output is None
+        else [{"OutputKey": "FlowId", "OutputValue": output}],
+    }
+    backend = SimpleNamespace(
+        root=tmp_path,
+        environment="dev",
+        directory="app",
         target={"awsRegion": "region", "awsAccountId": "account"},
-        templates={"A": (document, {})}, aws=Mock(side_effect=[
-            {"Stacks": [stack]}, {"StackResourceSummaries": [{"LogicalResourceId": "Flow",
-                "ResourceType": "AWS::EC2::FlowLog", "ResourceStatus": "CREATE_COMPLETE",
-                "PhysicalResourceId": physical}]}, {"Stacks": [stack]}]))
+        templates={"A": (document, {})},
+        aws=Mock(
+            side_effect=[
+                {"Stacks": [stack]},
+                {
+                    "StackResourceSummaries": [
+                        {
+                            "LogicalResourceId": "Flow",
+                            "ResourceType": "AWS::EC2::FlowLog",
+                            "ResourceStatus": "CREATE_COMPLETE",
+                            "PhysicalResourceId": physical,
+                        }
+                    ]
+                },
+                {"Stacks": [stack]},
+            ]
+        ),
+    )
     catalog = Mock()
     catalog.schema.return_value = {"primaryIdentifier": ["/properties/Id"]}
     loaded = {source: {"observed.row.001-001.value": "`PENDING_DEPLOY`"}}
     state = {"A": {"status": "SUCCESS"}}
-    with (patch.object(observed, "DesignSchemaCatalog", return_value=catalog),
-          patch.object(observed, "resolve_resources", return_value=(loaded, mapped)),
-          patch.object(observed, "own_key", return_value="self"),
-          patch.object(observed, "propagate_references"),
-          patch.object(observed, "observed_destinations", return_value=({}, [], None)) as destinations):
+    with (
+        patch.object(observed, "DesignSchemaCatalog", return_value=catalog),
+        patch.object(observed, "resolve_resources", return_value=(loaded, mapped)),
+        patch.object(observed, "own_key", return_value="self"),
+        patch.object(observed, "propagate_references"),
+        patch.object(
+            observed, "observed_destinations", return_value=({}, [], None)
+        ) as destinations,
+    ):
         observed.collect_successful(backend, [{"name": "A"}], state)
-    assert destinations.call_args.args[4][source]["observed.row.001-001.value"] == expected
-    assert state["A"]["observedCoverage"]["Flow"]["status"] == ("UPDATED" if expected else "UNCONFIRMED")
+    assert (
+        destinations.call_args.args[4][source]["observed.row.001-001.value"] == expected
+    )
+    assert state["A"]["observedCoverage"]["Flow"]["status"] == (
+        "UPDATED" if expected else "UNCONFIRMED"
+    )
 
 
 @pytest.mark.parametrize(
@@ -424,19 +459,81 @@ def check_every_identifier_is_confirmed(tmp_path, missing, already_matches):
         )
 
 
-@pytest.mark.parametrize("output,expected", [("policy-id", "`policy-id`"), (None, None)])
+@pytest.mark.parametrize(
+    "output,expected", [("policy-id", "`policy-id`"), (None, None)]
+)
 def test_queue_policy_getatt_observation(tmp_path, output, expected):
     source = tmp_path / "model/dev/app/sqs.properties"
     resource = {"resourceType": "SQS.QueuePolicy", "logicalId": "SQS_QueuePolicy_001"}
     rows = [("001-001", {"property": "SQS.QueuePolicy.Id", "value": "ref"})]
     mapped = {"A": {"Policy": (source, "001", resource, rows, {"SQS.QueuePolicy.Id"})}}
-    stack = {"StackId": "stack", "StackStatus": "CREATE_COMPLETE", "Outputs": [] if output is None else [{"OutputKey": "PolicyId", "OutputValue": output}]}
-    backend = SimpleNamespace(run_context={}, root=tmp_path, environment="dev", directory="app", target={"awsRegion": "region", "awsAccountId": "account"}, templates={"A": ({"Resources": {"Policy": {"Type": "AWS::SQS::QueuePolicy"}}, "Outputs": {"PolicyId": {"Value": {"Fn::GetAtt": ["Policy", "Id"]}}}}, {})}, aws=Mock(side_effect=[{"Stacks": [stack]}, {"StackResourceSummaries": [{"LogicalResourceId": "Policy", "ResourceType": "AWS::SQS::QueuePolicy", "ResourceStatus": "CREATE_COMPLETE", "PhysicalResourceId": "unproven-physical-id"}]}, {"Stacks": [stack]}]))
-    state = {"A": {"status": "SUCCESS", "stackId": "stack", "stackStatus": "CREATE_COMPLETE"}}
-    with (patch.object(observed, "DesignSchemaCatalog"), patch.object(observed, "resolve_resources", return_value=({source: {"observed.row.001-001.value": "`PENDING_DEPLOY`"}}, mapped)), patch.object(observed, "own_key", return_value="self"), patch.object(observed, "propagate_references"), patch.object(observed, "observed_destinations", return_value=({}, [], None)) as destinations):
+    stack = {
+        "StackId": "stack",
+        "StackStatus": "CREATE_COMPLETE",
+        "Outputs": []
+        if output is None
+        else [{"OutputKey": "PolicyId", "OutputValue": output}],
+    }
+    backend = SimpleNamespace(
+        run_context={},
+        root=tmp_path,
+        environment="dev",
+        directory="app",
+        target={"awsRegion": "region", "awsAccountId": "account"},
+        templates={
+            "A": (
+                {
+                    "Resources": {"Policy": {"Type": "AWS::SQS::QueuePolicy"}},
+                    "Outputs": {
+                        "PolicyId": {"Value": {"Fn::GetAtt": ["Policy", "Id"]}}
+                    },
+                },
+                {},
+            )
+        },
+        aws=Mock(
+            side_effect=[
+                {"Stacks": [stack]},
+                {
+                    "StackResourceSummaries": [
+                        {
+                            "LogicalResourceId": "Policy",
+                            "ResourceType": "AWS::SQS::QueuePolicy",
+                            "ResourceStatus": "CREATE_COMPLETE",
+                            "PhysicalResourceId": "unproven-physical-id",
+                        }
+                    ]
+                },
+                {"Stacks": [stack]},
+            ]
+        ),
+    )
+    state = {
+        "A": {"status": "SUCCESS", "stackId": "stack", "stackStatus": "CREATE_COMPLETE"}
+    }
+    with (
+        patch.object(observed, "DesignSchemaCatalog"),
+        patch.object(
+            observed,
+            "resolve_resources",
+            return_value=(
+                {source: {"observed.row.001-001.value": "`PENDING_DEPLOY`"}},
+                mapped,
+            ),
+        ),
+        patch.object(observed, "own_key", return_value="self"),
+        patch.object(observed, "propagate_references"),
+        patch.object(
+            observed, "observed_destinations", return_value=({}, [], None)
+        ) as destinations,
+    ):
         observed.sync_successful(backend, [{"name": "A"}], state)
-    assert destinations.call_args.args[4][source]["observed.row.001-001.value"] == expected
-    assert state["A"]["observedCoverage"]["Policy"]["status"] == ("UPDATED" if output else "UNCONFIRMED")
+    assert (
+        destinations.call_args.args[4][source]["observed.row.001-001.value"] == expected
+    )
+    assert state["A"]["observedCoverage"]["Policy"]["status"] == (
+        "UPDATED" if output else "UNCONFIRMED"
+    )
 
 
 def missing_changeset_aws(event, operation, **arguments):
@@ -1053,7 +1150,9 @@ class TestCurrentState(TestCase):
                 ),
                 patch.object(current_request, "settled", return_value=True),
             ):
-                with self.assertRaisesRegex(Blocked, "settled request needs durable progress"):
+                with self.assertRaisesRegex(
+                    Blocked, "settled request needs durable progress"
+                ):
                     current_request.send(
                         runtime,
                         "execute_change_set",

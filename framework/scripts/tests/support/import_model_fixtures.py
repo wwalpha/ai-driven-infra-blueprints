@@ -908,7 +908,8 @@ class CloudControlCli:
                 raise AssertionError("unmocked Cloud Control operation")
         elif service == "datazone" and operation == "get-domain":
             item = next(
-                item for item in self.resources["DataZone.Domain"]
+                item
+                for item in self.resources["DataZone.Domain"]
                 if item["identifier"] == inputs["identifier"]
             )
             response = {"domainVersion": item["properties"]["DomainVersion"]}

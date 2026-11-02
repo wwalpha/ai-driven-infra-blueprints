@@ -90,6 +90,7 @@ def _json(key, raw):
     if (
         key.endswith(".parentReference")
         or key == "desired.deployment.templateBucket"
+        and raw.lstrip().startswith("{")
         or key.startswith("desired.artifact.")
         and key.endswith(".bucket")
     ):

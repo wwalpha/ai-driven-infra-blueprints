@@ -187,7 +187,6 @@ if __name__ == "__main__":
 
 @pytest.mark.parametrize("case", ["found", "missing", "ambiguous", "denied", "known"])
 def test_datazone_domain_selector(tmp_path, case):
-
     module = m.service_module("datazone")
     account = "123456789012"
     resource = SimpleNamespace(
@@ -226,7 +225,6 @@ def test_datazone_domain_selector(tmp_path, case):
 
 
 def test_datazone_pagination(tmp_path):
-
     target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
     ctx = m.Context(tmp_path, target, services=["datazone"], import_mode=True)
     ctx.verified = True
@@ -254,7 +252,6 @@ def test_datazone_pagination(tmp_path):
 
 
 def test_datazone_pending_producer_remains_unresolved(tmp_path):
-
     with mapping_alias(FRAMEWORK, tmp_path):
         _, _, consumer, _ = project(tmp_path)
         resource(
@@ -291,7 +288,6 @@ def test_datazone_pending_producer_remains_unresolved(tmp_path):
 
 
 def test_datazone_id_mapping_uses_get_domain(tmp_path):
-
     ctx = m.Context(
         tmp_path,
         {

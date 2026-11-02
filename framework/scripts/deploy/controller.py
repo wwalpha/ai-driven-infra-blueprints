@@ -498,6 +498,8 @@ def current_satisfied(runtime: SimpleNamespace, unit: StackUnit) -> None:
         for (artifact, container, prop, fields), obj in zip(
             bindings, objects, strict=False
         ):
+            if obj.get("kind") == "template":
+                raise Blocked("artifact placement cannot use template verification")
             source = runtime.source_path(artifact)
             digest = runtime.file_digest(source, fresh=True)
             if (

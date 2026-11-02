@@ -226,7 +226,9 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
                     )
             else:
                 items = (
-                    [value] if linked else _display_common.subnet_list_items(prop, value)
+                    [value]
+                    if linked
+                    else _display_common.subnet_list_items(prop, value)
                 )
             field = prop.removesuffix("[]").removeprefix(kind + ".")
             for item in items or [value]:

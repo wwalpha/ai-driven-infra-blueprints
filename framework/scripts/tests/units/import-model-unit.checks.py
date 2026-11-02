@@ -888,7 +888,9 @@ def check_adapter_inventory_normalization(tmp_path):
         ),
         (
             AwsCli(
-                fail=json.dumps({"Code": "AccessDenied", "Message": "PRIVATE-CREDENTIAL"})
+                fail=json.dumps(
+                    {"Code": "AccessDenied", "Message": "PRIVATE-CREDENTIAL"}
+                )
             ),
             m.comparator().AcquisitionError,
             "AccessDenied",

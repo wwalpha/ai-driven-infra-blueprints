@@ -76,11 +76,13 @@ def head_object(placement, obj, boundary):
 
 def verify_object(placement, obj, boundary=None):
     boundary = {} if boundary is None else boundary
-    conditions = preflight(
-        placement, obj["bucket"], obj["prefix"], [obj["key"]], boundary
-    )
-    if "encryption" not in obj or conditions != obj["encryption"]:
-        raise Blocked("S3_PLACEMENT_CHANGED: object placement conditions changed")
+    conditions = None
+    if obj.get("kind") != "template":
+        conditions = preflight(
+            placement, obj["bucket"], obj["prefix"], [obj["key"]], boundary
+        )
+        if "encryption" not in obj or conditions != obj["encryption"]:
+            raise Blocked("S3_PLACEMENT_CHANGED: object placement conditions changed")
     current = head_object(placement, obj, boundary)
     if (
         current.get("ChecksumSHA256") != obj["checksum"]
@@ -89,12 +91,21 @@ def verify_object(placement, obj, boundary=None):
         raise Blocked("S3 artifact checksum/size changed; upload or execution blocked")
     if obj.get("consumeVersion") and current.get("VersionId") != obj.get("version"):
         raise Blocked("S3 artifact version changed")
-    verify_encryption(current, conditions)
+    if conditions is not None:
+        verify_encryption(current, conditions)
     return current
 
 
 def upload(
-    placement, file_digest, path, bucket, prefix, boundary, *, consume_version=False
+    placement,
+    file_digest,
+    path,
+    bucket,
+    prefix,
+    boundary,
+    *,
+    consume_version=False,
+    kind="artifact",
 ):
     digest = file_digest(path)
     obj = {
@@ -104,9 +115,11 @@ def upload(
         "checksum": base64.b64encode(bytes.fromhex(digest)).decode(),
         "size": path.stat().st_size,
     }
-    obj["encryption"] = preflight(placement, bucket, prefix, [obj["key"]], boundary)
+    obj["kind"] = kind
+    if kind != "template":
+        obj["encryption"] = preflight(placement, bucket, prefix, [obj["key"]], boundary)
     uploaded = boundary.setdefault("uploaded", {})
-    key = (placement.connection, bucket, obj["key"], digest)
+    key = (placement.connection, bucket, obj["key"], digest, kind)
     if key in uploaded:
         result = dict(uploaded[key])
         result["consumeVersion"] = consume_version and bool(result.get("version"))
@@ -136,7 +149,11 @@ def upload(
                         IfNoneMatch="*",
                         ChecksumAlgorithm="SHA256",
                         ChecksumSHA256=obj["checksum"],
-                        **upload_options(obj["encryption"]),
+                        **(
+                            upload_options(obj["encryption"])
+                            if kind != "template"
+                            else {}
+                        ),
                     )
                 put_error = None
             except Blocked as error:
@@ -307,7 +324,9 @@ def template_arguments(
         path, objects = Path(record["path"]), record["objects"]
         if file_digest(path) != record["templateSha256"]:
             raise Blocked("prepared deployment template changed")
-        for obj in objects:
+        for index, obj in enumerate(objects):
+            if obj.get("kind") == "template" and index < len(bindings):
+                raise Blocked("artifact placement cannot use template verification")
             verify_object(placement, obj, boundary)
         if record.get("arguments"):
             return (
@@ -373,6 +392,7 @@ def template_arguments(
             unit["templateKeyPrefix"],
             boundary,
             consume_version=True,
+            kind="template",
         )
         objects.append(obj)
         suffix = (

@@ -636,13 +636,17 @@ def check_import_compact_display_and_create_guards():
         for i, row in enumerate(rendered, 1)
     ]
     table = ReferenceTable(
-        "codebuild-new", (), tuple(lines[2:]),
+        "codebuild-new",
+        (),
+        tuple(lines[2:]),
         (HEADER, ALIGNMENT, "| 1 | " + " | ".join(rows[0][1:]) + " |"),
         tuple(lines[2:]),
     )
     with pytest.raises(ValueError, match="requires Model source rows"):
         expanded_display_rows(lines, ROOT, modes={"codebuild-new": "IMPORT"})
-    restored = expanded_display_rows(lines, ROOT, modes={"codebuild-new": "IMPORT"}, reference_tables=(table,))
+    restored = expanded_display_rows(
+        lines, ROOT, modes={"codebuild-new": "IMPORT"}, reference_tables=(table,)
+    )
     assert any(raw in line for line in restored)
     with pytest.raises(ValueError, match="must be a resource link"):
         display_rows("CodeBuild.Project", rows, ROOT)
@@ -726,7 +730,10 @@ def check_markdown_roundtrip_keeps_physical_values(
     first = generate_markdown(path, source, ROOT, reference_tables=tables)
     path.write_text(first)
     normalized = expanded_display_rows(
-        first.splitlines(), ROOT, modes={service + "-audit": "IMPORT"}, reference_tables=tables
+        first.splitlines(),
+        ROOT,
+        modes={service + "-audit": "IMPORT"},
+        reference_tables=tables,
     )
     if isinstance(desired, dict):
         expected = "$modelRef"

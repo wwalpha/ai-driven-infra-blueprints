@@ -201,6 +201,7 @@ def stage_inputs(
         if path.name == STACK_DESIGN and any(
             key.startswith("desired.artifact.")
             or key == "desired.deployment.templateBucket"
+            and values[key].lstrip().startswith("{")
             for key in values
         ):
             add_model(target / "s3.properties")

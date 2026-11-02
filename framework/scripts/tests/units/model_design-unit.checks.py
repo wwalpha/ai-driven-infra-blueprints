@@ -280,8 +280,19 @@ def check_subnet_list_display():
                 prop,
                 shown,
             )
-            document = ['<a id="list-owner"></a>', f"### {kind}: list-owner", "", *row_table(shown)]
-            table = ReferenceTable("list-owner", (), tuple(row_table(shown)), tuple(row_table(rows)), tuple(row_table(shown)))
+            document = [
+                '<a id="list-owner"></a>',
+                f"### {kind}: list-owner",
+                "",
+                *row_table(shown),
+            ]
+            table = ReferenceTable(
+                "list-owner",
+                (),
+                tuple(row_table(shown)),
+                tuple(row_table(rows)),
+                tuple(row_table(shown)),
+            )
             with pytest.raises(ValueError, match="requires Model source rows"):
                 expanded_display_rows(document)
             restored = expanded_display_rows(document, reference_tables=(table,))

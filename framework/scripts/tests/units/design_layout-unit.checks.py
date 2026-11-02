@@ -799,7 +799,11 @@ def _callback_check_codebuild_vpc_display_errors(
     validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
     validator.design_files = lambda: [path]
     with (
-        patch.object(DesignDocument, "reference_tables", property(lambda self: (table,) if self.path == path else ())),
+        patch.object(
+            DesignDocument,
+            "reference_tables",
+            property(lambda self: (table,) if self.path == path else ()),
+        ),
         patch("design.document.model_reference_tables", return_value=(table,)),
     ):
         validator.check_design_tables(
@@ -826,7 +830,9 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
         "| 12 | CodeBuild.Project.VpcConfig.Subnets | [subnet-00000000000000002](vpc.md#vpc-sbnt-two) | 2つ目のprivate subnet |",
         "| 13 | CodeBuild.Project.VpcConfig.SecurityGroupIds | [PENDING_DEPLOY](security-group.md#security-group-codebuild-sg) | buildに適用するSecurity Group |",
     ]
-    table = ReferenceTable("codebuild-buildproject", (), baseline, tuple(semantic), baseline)
+    table = ReferenceTable(
+        "codebuild-buildproject", (), baseline, tuple(semantic), baseline
+    )
     root = tmp_path
     design = root / "docs/designs/dev/123456789012"
     design.mkdir(parents=True)
@@ -885,7 +891,9 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
     )
 
     assert not errors(design_text), errors(design_text)
-    model = "\n".join(expanded_display_rows(design_text.splitlines(), reference_tables=(table,)))
+    model = "\n".join(
+        expanded_display_rows(design_text.splitlines(), reference_tables=(table,))
+    )
     assert model.count("| CodeBuild.Project.VpcConfig.Subnets |") == 2
     assert "[subnet-00000000000000001](vpc.md#vpc-sbnt-one)" in model
     assert "[subnet-00000000000000002](vpc.md#vpc-sbnt-two)" in model
@@ -954,16 +962,25 @@ def _callback_check_subnet_list_links_content(kind, prop, /, value):
     )
 
 
-def _callback_check_subnet_list_links_errors(content, outputs, path, root, prop, /, value):
+def _callback_check_subnet_list_links_errors(
+    content, outputs, path, root, prop, /, value
+):
     text = content(value)
     path.write_text(text, encoding="utf-8")
     kind = ".".join(prop.split(".")[:2])
-    anchor = "secretsmanager-key" if kind == "SecretsManager.RotationSchedule" else "owner"
+    anchor = (
+        "secretsmanager-key" if kind == "SecretsManager.RotationSchedule" else "owner"
+    )
     formal = [["1", prop, value, "配置先Subnet"]]
     if kind == "SecretsManager.RotationSchedule":
         formal = [
             ["1", "SecretsManager.Secret.Name", "`key`", "secretの名称"],
-            ["2", "SecretsManager.RotationSchedule.SecretId", "[key](#secretsmanager-key)", '<a id="resource-KeyRotation"></a><!-- logical-id: KeyRotation --> key-rotation：対象secret'],
+            [
+                "2",
+                "SecretsManager.RotationSchedule.SecretId",
+                "[key](#secretsmanager-key)",
+                '<a id="resource-KeyRotation"></a><!-- logical-id: KeyRotation --> key-rotation：対象secret',
+            ],
             ["3", prop, value, "配置先Subnet"],
         ]
     lines = text.splitlines()
@@ -972,7 +989,11 @@ def _callback_check_subnet_list_links_errors(content, outputs, path, root, prop,
     table = ReferenceTable(anchor, (), expected, tuple(row_table(formal)), expected)
     validator = VALIDATOR.Validator(root)
     validator.design_files = lambda: [path]
-    with patch.object(DesignDocument, "reference_tables", property(lambda self: (table,) if self.path == path else ())):
+    with patch.object(
+        DesignDocument,
+        "reference_tables",
+        property(lambda self: (table,) if self.path == path else ()),
+    ):
         validator.check_design_links(outputs)
     return diagnostics(validator)
 
@@ -2036,7 +2057,9 @@ def check_expansion_failure_preserves_raw_and_independent_resources(tmp_path, ca
     assert not good.findings.unverified
     body = CODEBUILD[CODEBUILD.index("<a id=") :]
     broken = CODEBUILD.replace("`hello:world`", "[bucket](s3.md#bucket)")
-    missing_source = broken + "| 11 | VpcConfig.Subnets[1] | [subnet](subnet.md#subnet) | 配置先 |\n"
+    missing_source = (
+        broken + "| 11 | VpcConfig.Subnets[1] | [subnet](subnet.md#subnet) | 配置先 |\n"
+    )
     with pytest.raises(ValueError, match="requires Model source rows"):
         expanded_display_rows(missing_source.splitlines())
     broken = broken.replace("projectの名前", "English comment").replace(

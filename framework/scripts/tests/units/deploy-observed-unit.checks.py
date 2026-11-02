@@ -43,12 +43,23 @@ def _sg_rule_result(backend, stack, document, actual, output="sgr-12345678"):
 
 
 def test_queue_policy_id_requires_getatt_output():
-    catalog = SimpleNamespace(schema=lambda kind: {"primaryIdentifier": ["/properties/Id"]})
+    catalog = SimpleNamespace(
+        schema=lambda kind: {"primaryIdentifier": ["/properties/Id"]}
+    )
     resource = {"resourceType": "SQS.QueuePolicy"}
     outputs = {"Id"}
     declarations = {"id": {"Fn::GetAtt": ["Policy", "Id"]}, "ref": {"Ref": "Policy"}}
-    assert identifier_source(catalog, resource, outputs, "Policy", "SQS.QueuePolicy.Id", declarations) == (False, ["id"])
-    assert identifier_source(catalog, resource, outputs, "Policy", "SQS.QueuePolicy.Id", {"ref": {"Ref": "Policy"}}) == (False, [])
+    assert identifier_source(
+        catalog, resource, outputs, "Policy", "SQS.QueuePolicy.Id", declarations
+    ) == (False, ["id"])
+    assert identifier_source(
+        catalog,
+        resource,
+        outputs,
+        "Policy",
+        "SQS.QueuePolicy.Id",
+        {"ref": {"Ref": "Policy"}},
+    ) == (False, [])
 
 
 def seed(root, kind, child_kind, setting):

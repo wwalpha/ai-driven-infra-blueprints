@@ -156,8 +156,7 @@ def identifier_source(catalog, resource, outputs, logical, prop, values):
     attribute = prop.removeprefix(resource["resourceType"] + ".")
     primary = (
         resource["resourceType"] != "SQS.QueuePolicy"
-        and
-        "/properties/" + attribute
+        and "/properties/" + attribute
         in catalog.schema(resource["resourceType"]).get("primaryIdentifier", [])
         and len(outputs) == 1
     )

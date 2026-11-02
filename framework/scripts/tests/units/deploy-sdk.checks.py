@@ -105,8 +105,14 @@ def check_boundary_sharing(tmp_path, large, artifact, count):
         operation for operation, _ in runtime.calls if operation != "execute_change_set"
     ]
     if large or artifact:
-        assert sum(op == "get_bucket_policy" for op in before_execute) == 3
-        assert sum(op == "get_bucket_encryption" for op in before_execute) == 3
+        TestCase().assertEqual(
+            sum(op == "get_bucket_policy" for op in before_execute),
+            3 if artifact else 0,
+        )
+        TestCase().assertEqual(
+            sum(op == "get_bucket_encryption" for op in before_execute),
+            3 if artifact else 0,
+        )
     # Delivery, Create, and Execute each acquire their own bucket snapshot.
     assert not any(op == "list_exports" for op in before_execute)
     assert state["executionEvidence"]["clientToken"] == "token"
@@ -162,8 +168,58 @@ def check_key_policy_and_current_objects(tmp_path):
             }
         ]
     }
-    with pytest.raises(RuntimeError, match="MISMATCH"):
-        runtime.prepare(selected[0], runtime.states["A"])
+    TestCase().assertEqual(runtime.prepare(selected[0], runtime.states["A"]), "READY")
+
+
+@pytest.mark.parametrize("size", [51200, 51201])
+def check_template_bucket_without_model(tmp_path, size):
+    runtime, selected = runtime_inputs(tmp_path, large=True)
+    (runtime.root / "model/dev/123456789012/s3.properties").unlink()
+    unit = selected[0]
+    template, _ = runtime.paths(unit)
+    content = json.dumps({"Resources": {}, "Description": ""})
+    template.write_text(content[:-2] + "x" * (size - len(content)) + content[-2:])
+    runtime.templates.clear()
+    runtime.load_inputs(unit)
+    runtime.expected_digests[unit["name"]] = runtime.input_digest(unit)
+    runtime.prepare_delivery_group(selected, runtime.states)
+    state = runtime.states[unit["name"]]
+    TestCase().assertEqual(runtime.prepare(unit, state), "READY")
+    operations = [operation for operation, _ in runtime.calls]
+    for operation in (
+        "head_bucket",
+        "get_bucket_location",
+        "get_bucket_encryption",
+        "get_bucket_policy",
+        "describe_key",
+    ):
+        TestCase().assertNotIn(operation, operations)
+    if size == 51200:
+        TestCase().assertNotIn("put_object", operations)
+    else:
+        TestCase().assertIn("put_object", operations)
+        TestCase().assertIn("head_object", operations)
+        put = next(
+            args for operation, args in runtime.calls if operation == "put_object"
+        )
+        TestCase().assertNotIn("ServerSideEncryption", put)
+        TestCase().assertEqual(put["IfNoneMatch"], "*")
+        obj = state["delivery"]["objects"][-1]
+        TestCase().assertEqual(obj["kind"], "template")
+        TestCase().assertIn(
+            "versionId=version%2B1", state["delivery"]["arguments"]["TemplateURL"]
+        )
+        runtime.objects[obj["bucket"], obj["key"]]["ChecksumSHA256"] = "wrong"
+        with pytest.raises(RuntimeError, match="checksum/size"):
+            runtime.prepare(unit, state)
+
+
+def check_template_put_denied(tmp_path):
+    runtime, selected = runtime_inputs(tmp_path, large=True)
+    runtime.fail = "put_object"
+    with pytest.raises(RuntimeError, match="AccessDenied"):
+        runtime.prepare_delivery_group(selected, runtime.states)
+    TestCase().assertNotIn("create_change_set", [op for op, _ in runtime.calls])
 
 
 def check_remove_without_startup_mapping(tmp_path):

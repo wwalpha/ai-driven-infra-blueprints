@@ -46,14 +46,11 @@ def subnet_list_items(prop: str, value: str) -> list[str]:
         items = [raw]
     else:
         items = json.loads(raw)
-    if (
-        not isinstance(items, list)
-        or any(
-            not isinstance(item, str)
-            or not item.strip()
-            or any(char in item for char in "|\n\r`")
-            for item in items
-        )
+    if not isinstance(items, list) or any(
+        not isinstance(item, str)
+        or not item.strip()
+        or any(char in item for char in "|\n\r`")
+        for item in items
     ):
         raise ValueError(f"{prop}: Subnet list must contain non-empty string elements")
     return [

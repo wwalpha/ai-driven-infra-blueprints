@@ -353,7 +353,9 @@ def check_v3_registry():
     assert metadata["s3"]["GETTERS"].pop("replication") == ("S3.Bucket",)
     metadata["s3"]["APIS"].remove(("s3", "get_bucket_replication"))
     for name in ("Tags[].Key", "Tags[].Value"):
-        field = baseline_properties["guardduty"]["GuardDuty.MalwareProtectionPlan"][name]["aws"]
+        field = baseline_properties["guardduty"]["GuardDuty.MalwareProtectionPlan"][
+            name
+        ]["aws"]
         assert field["getter"] == "plan"
         field["getter"] = "provider-guardduty-malwareprotectionplan"
     definitions["guardduty"]["provider-guardduty-malwareprotectionplan"] = {
