@@ -396,7 +396,28 @@ Acceptance checks. Keep the same Task type, Goal and target and do not bypass Re
 limits. A Human approval requirement, AWS or other safety boundary, unresolved check,
 unknown ownership or original content, conflict with another Task or Human change, or
 work beyond the current authority prevents autonomous resumption. Do not infer approval
-from recovery or from a valid contract. No new recovery history or state is recorded.
+from recovery or from a valid contract. No recovery history or approval ledger is recorded.
+
+For a fixed managed CloudFormation Deploy, use
+`task_contract.py --task-file tasks/<task-name>.md --correct-deploy-contract <external-candidate.md>`
+while suspended to correct omitted Modified files/Allowed paths. First compare the original
+Human request and the actual fixed contract text; the LLM must establish that each added
+file was necessary to the original requested observation/generation, not new work. The CLI
+checks exact additions against the existing service Models and their generated artifacts.
+It preserves all other contract content, including type/phase, Goal, environment/Account,
+Stack scope, validation/Acceptance, AWS permissions and delete/replacement consent. It does
+not approve a request or infer Human consent from matching hashes. Other declaration edits
+are outside this narrow correction path.
+
+The fixed text is retained in the existing managed lifecycle at bind. Older Tasks require
+matching text already available at their recorded Git tip/start; missing or inconsistent
+original evidence stops without guessing. The candidate is outside the repository and must
+retain the current suspended status/reason. A live contract already containing only those
+same additions is also accepted. See [Deploy correction conditions](cloudformation.md#managed-deploy-contract-correction)
+for progress, locks and interruption handling. Success keeps the Task suspended, retains
+execution evidence, and requires Snapshot validation again. Then use the ordinary
+`--check-resume-scope` and, only under Self recovery above, `--resume`; rerun failed checks,
+final validation and Acceptance. Correction never runs AWS, clears progress or completes a Task.
 
 ## Retry and stop
 

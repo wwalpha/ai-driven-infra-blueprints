@@ -38,6 +38,12 @@ def resume(root, name):
     )
 
 
+def correct_deploy_contract(root, name, source):
+    return module(
+        "task_contract_runtime.py", "task_contract_runtime"
+    ).correct_deploy_contract(root, name, source)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository-root", type=Path, default=Path.cwd().resolve())
@@ -48,6 +54,11 @@ def main():
         help="Register a new contract from a file outside the repository",
     )
     transition = parser.add_mutually_exclusive_group()
+    transition.add_argument(
+        "--correct-deploy-contract",
+        type=Path,
+        help="Correct only omitted Deploy output paths from an external candidate; keep suspended",
+    )
     transition.add_argument(
         "--suspend-reason", help="Suspend only this task and record the problem"
     )
@@ -77,6 +88,7 @@ def main():
             or args.complete
             or args.check_resume_scope
             or args.approve_out_of_task_failures
+            or args.correct_deploy_contract
         ):
             raise ValueError("--source cannot be combined with a status transition")
         if args.suspend_reason is not None:
@@ -85,7 +97,9 @@ def main():
                 f"Task contract: {args.task_file} ({'suspend' if changed else 'status unchanged'})"
             )
             return 0
-        if args.approve_out_of_task_failures:
+        if args.correct_deploy_contract:
+            correct_deploy_contract(root, args.task_file, args.correct_deploy_contract)
+        elif args.approve_out_of_task_failures:
             approve_out_of_task_failures(
                 root,
                 args.task_file,
@@ -108,11 +122,14 @@ def main():
             and not args.complete
             and not args.check_resume_scope
             and not args.approve_out_of_task_failures
+            and not args.correct_deploy_contract
         ):
             refresh(root, args.task_file)
         selected = (
             _core.contract_path(root, args.task_file)
-            if args.check_resume_scope or args.approve_out_of_task_failures
+            if args.check_resume_scope
+            or args.approve_out_of_task_failures
+            or args.correct_deploy_contract
             else _core.task_path(root, args.task_file)
         )
         print(f"Task contract: {selected.relative_to(root)}")

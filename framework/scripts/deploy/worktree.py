@@ -51,6 +51,10 @@ def require(root, snapshot=None):
         raise ws.Blocked("source write requires its managed worktree")
     if state.get("python_setup", {}).get("status") != "ready":
         raise ws.Blocked("Deploy requires successful managed Python setup")
+    if state.get("deployContractUpdate"):
+        raise ws.Blocked(
+            "unfinished Deploy contract correction; retry --correct-deploy-contract"
+        )
     if (
         state.get("deployIdentity", {}).get("taskDigest", snapshot.task_digest)
         != snapshot.task_digest
@@ -77,6 +81,7 @@ def bind(root, task, target, environment, stacks):
         if state.get("deployIdentity", identity) != identity:
             raise ws.Blocked("Deploy Task/Target/Stack/snapshot identity changed")
         state["deployIdentity"] = identity
+        state.setdefault("deployContract", task.text)
         wt.save(path, state)
         return copy.deepcopy(identity)
 

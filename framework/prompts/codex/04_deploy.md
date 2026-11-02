@@ -51,6 +51,29 @@ Git PENDING/CONFLICT は AWS 結果と独立する。保存済み commit のみ�
 
 Sub Agent、Model 背景 writer、固定間隔同期、Python によるエージェント制御は使わない。同じ Worktree の入力を保存中に編集しない。`--action` を明示し、状態確認には `status`、保存・公開には `sync` / `checkpoint` を選ぶ。
 
+## Correct this Task's preparation omissions
+
+固定後の契約訂正は[Self recovery](../../rules/task-contract.md#self-recovery)と
+[Deploy correction conditions](../../rules/cloudformation.md#managed-deploy-contract-correction)を読む。
+元Human依頼と固定時の原文を比較し、同じ対象serviceの観測保存・生成に必要だった
+Modified files／Allowed pathsの記載漏れだけを判断する。Goal・対象・実行入力・AWS権限・
+Human同意の拡大は訂正扱いしない。ハッシュ一致は意味判断や承認の証明ではない。
+
+同じTaskを既存操作でsuspendし、現在のstatus／Suspension reasonを保った外部候補を作る。
+内部状態を手動変更せず、次を使う。
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --correct-deploy-contract <absolute-candidate.md>
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --check-resume-scope
+```
+
+成功してもsuspendを維持する。全停止原因が安全に訂正済みの自分の準備ミスだけであり、
+他の阻害がないと確認したときだけ、既存の`--resume`を使い失敗した検査から再開する。
+AWS再実行やTask完了は訂正の結果として行わない。元契約原文や固定入力証拠の不足、未確定要求、
+保存途中のObserved／生成／checkpoint、未完了Git公開、修復handoff、同時変更はその理由で停止・保持する。
+保存中断のintentが残った場合だけ同じ候補・同じ訂正コマンドで安全性を再検証する。
+未対応の契約訂正や状態を別Taskへの付け替え・無条件再固定・進捗削除で回避しない。
+
 ## Confirm unapproved delete/replacement
 
 [Delete and replacement confirmation](../../rules/cloudformation.md#delete-and-replacement-confirmation)とTerraformの[Validation and execution](../../rules/terraform.md#validation-and-execution)が正本。Remove、Replacement=True/Conditional等の未承認変更がある場合だけHuman承認を待つ。Stack/ChangeSet IDまたは保存Plan、全対象・Action・Replacement・PolicyAction、既知の物理Resourceとデータ/アクセス/可用性への影響を説明する。不明な影響は未確認と明示する。部分承認で実行しない。

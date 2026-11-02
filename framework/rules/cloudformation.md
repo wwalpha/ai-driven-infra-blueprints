@@ -252,6 +252,44 @@ After verified publication, ordinary finalize verifies and performs guarded clea
 
 A settled current request may leave its attempt outcome UNKNOWN while the current Snapshot is saved and validated independently. Never persist UNKNOWN as an identifier. Exact root Stack events use the original StackId/token; later Stack replacement, repair or failure cannot rewrite the original attempt result or replace current observation fields.
 
+### Managed Deploy contract correction
+
+The suspended same-Task operation in [Self recovery](task-contract.md#self-recovery)
+corrects only omitted exact observation/Model and generated View paths within unchanged
+service scope. Existing observation writers still permit only observed fields; adding a
+path grants no desired-Model or IaC editing authority. Preserve the original contract's
+other content and fixed execution inputs. Changes to target/Account/Region/Stack, execution
+units/templates/parameters/artifacts, permissions or consent require their original Human
+authority and cannot be disguised as preparation omissions. The digest comparison in normal
+Deploy remains mandatory.
+
+Correction requires ready managed Python, valid unchanged lifecycle/HEAD/index, original
+contract text and readable saved progress. It verifies current project target, execution
+units, file identities/consumed hashes/unit digests, saved Model inputs, and closed checkpoint
+receipts. Requests must be locally settled: any current per-Stack request record, uncertain
+submission, active/unknown recorded Stack, unended token or active controller stops. No AWS
+read is used to settle requests on this path. Missing progress/input evidence stops.
+
+Pending Observed or generation plans/errors, a checkpoint candidate or commit intent,
+pending/conflicted/final Git publication, or repair failure/handoff/integration evidence
+stop with their concrete reason and retain all state. The operation supports pre-publication
+progress and verified already-published intermediate checkpoints; completed Tasks are not
+reopened. It does not rebind unfinished plans, reuse repair approvals or rewrite Git commits.
+
+The operation holds existing progress, per-Stack request, repair, Model publication and
+lifecycle locks. It compares candidate, contract, Git/index, project inputs, progress and
+temporary template owners again before saving. One rollback batch changes the current
+contract, lifecycle identity/text, progress identity, verified closed receipt identities and
+matching temporary template ownership; operation tokens/results/inputs remain unchanged.
+Snapshot validation becomes NOT_RUN. A transient intent in the existing lifecycle protects
+multi-file interruption, not a history or approval ledger. Normal Deploy rejects an unfinished
+intent. Retry the same correction command with the exact external candidate: only unchanged
+inputs and files individually matching recorded before/after bytes permit restoration of
+the prior batch and revalidation of the correction. Unknown/concurrent bytes stop and remain
+untouched; never hand-edit metadata or remove locks. Ordinary save failures roll back;
+unrecoverable interruption retains the intent and evidence for review. Correction does not
+resume execution, reissue AWS, erase progress, waive failed checks or complete the Task.
+
 ### Deployment execution
 
 Use current Task/target/account/Region/profile/scope/input guards before each mutation, original ChangeSet ID/Stack ID and full content re-fetch immediately before Execute, and one stable persisted Token for uncertain submissions. Human approval applies only to the current complete destructive ChangeSet. Hold new starts for actual authority/scope/concurrency violations and drain active requests. A failed Stack leaves independent same-Order peers eligible; later Orders still require their earlier AWS success conditions. The LLM explicitly saves current observations for any outcome and verifies current Output/Export facts. Retain/DELETE_SKIPPED/unknown destruction and integrated children without identifiers never reset identifiers. Do not change IaC, widen scope or infer missing evidence.

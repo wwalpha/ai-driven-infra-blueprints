@@ -40,6 +40,7 @@ from support.deploy_controller_fixtures import ACCOUNT, aws_state, invoke
 from support.pytest_cli import run
 from support.worktree_deploy_fixtures import seed
 from support.worktree_task_fixtures import fixture, git
+from task_contract import main as task_main
 from task_contract_core import read_task_snapshot, selected_task, set_status, start
 from utils.aws.client import AwsError
 from utils.json_format import fingerprint
@@ -426,6 +427,84 @@ def check_start_creates_and_reuses_official_worktree(monkeypatch):
         ):
             guards.call(runtime, "cloudformation", "execute_change_set", {})
         runtime.guard.assert_called_once()
+
+
+def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
+    report, aws = tmp_path / "report.json", tmp_path / "aws.json"
+    root = seed(tmp_path / "project", report, "orders")
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    monkeypatch.setattr(
+        operation_journal,
+        "location",
+        Mock(return_value=report.with_suffix(".operations.json")),
+    )
+    path = root / "tasks/deploy.md"
+    omitted = f"docs/designs/dev/{ACCOUNT}/s3/s3-bucket-001-bucket-policy.json"
+    old = path.read_text(encoding="utf-8")
+    assert old.count(f"- `{omitted}`\n") == 2
+    path.write_text(old.replace(f"- `{omitted}`\n", ""), encoding="utf-8")
+    aws_state(aws)
+    for _ in range(6):
+        assert invoke(root, report, aws, ["--action", "advance"]) == 0
+        if all(
+            s["status"] == "SUCCESS"
+            for s in json.loads(report.read_text(encoding="utf-8"))["states"].values()
+        ):
+            break
+    assert all(
+        s["status"] == "SUCCESS"
+        for s in json.loads(report.read_text(encoding="utf-8"))["states"].values()
+    )
+    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
+    transitions.suspend(
+        root, "tasks/deploy.md", "omitted necessary generated JSON path"
+    )
+    suspended = path.read_text(encoding="utf-8")
+    candidate = suspended.replace(
+        "## Modified files\n", f"## Modified files\n- `{omitted}`\n"
+    ).replace("## Allowed paths\n", f"## Allowed paths\n- `{omitted}`\n")
+    source = tmp_path / "corrected-contract.md"
+    source.write_text(candidate, encoding="utf-8")
+    before = worktree.read_progress(root, ws.load(root, "deploy")[3])["runContext"]
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "task_contract.py",
+            "--task-file",
+            "tasks/deploy.md",
+            "--correct-deploy-contract",
+            str(source),
+        ],
+    ):
+        assert task_main() == 0
+    assert json.loads(aws.read_text(encoding="utf-8"))["calls"] == calls
+    state = ws.load(root, "deploy")[3]
+    progress = worktree.read_progress(root, state)["runContext"]
+    assert progress["states"] == before["states"]
+    assert progress["inputIdentities"] == before["inputIdentities"]
+    assert read_task_snapshot(root, "tasks/deploy.md", live=True).status == "suspend"
+    transitions.check_resume_scope(root, "tasks/deploy.md")
+    transitions.resume(root, "tasks/deploy.md")
+    assert run_controller(root, report, aws) == 0
+    saved = json.loads(report.read_text(encoding="utf-8"))
+    assert all(
+        s["status"] == "SUCCESS" and s.get("observedSynced")
+        for s in saved["states"].values()
+    )
+    assert saved["gitPublication"]["status"] == "SUCCESS"
+    assert invoke(root, report, aws, ["--action", "checkpoint"]) == 0
+    assert (
+        read_task_snapshot(root, "tasks/deploy.md", live=True).task_digest
+        == state["deployIdentity"]["taskDigest"]
+    )
+    assert not any(
+        op in {"create_change_set", "execute_change_set"}
+        for _, op, _ in json.loads(aws.read_text(encoding="utf-8"))["calls"][
+            len(calls) :
+        ]
+    )
 
 
 @pytest.mark.parametrize("settled", [False, True])

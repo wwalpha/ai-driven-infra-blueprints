@@ -7,6 +7,21 @@ from pathlib import Path
 
 # Reviewed Worktree responsibilities, not a filename convention. Exact cases are checked.
 WORKTREE_CASES = {
+    "units/deploy-contract-correction-unit.checks.py": (
+        "check_correction_and_resume_preserve_execution",
+        "check_authority_changes_refused",
+        "check_unproven_paths_refused",
+        "check_inconsistent_states_refused",
+        "check_save_failure_rolls_back",
+        "check_concurrent_edits_preserved",
+        "check_old_git_evidence_and_live_candidate",
+        "check_template_cleanup_owner_is_updated",
+        "check_interrupted_correction_retries_same_operation",
+        "check_closed_checkpoint_is_verified_before_rebinding",
+        "check_resume_cannot_adopt_unreconciled_digest",
+        "check_active_controller_lock_prevents_correction",
+        "check_interrupted_correction_external_edit_is_retained",
+    ),
     "units/deploy-worktree-unit.checks.py": (
         "check_source_scope_shares_deploy_baseline",
         "check_zero_delta_checkpoint_returns_head",
@@ -37,6 +52,7 @@ WORKTREE_CASES = {
         "check_untracked_cleanup_uses_only_published_exact_task",
     ),
     "integrations/deploy-worktree.checks.py": (
+        "check_contract_preparation_correction_round_trip",
         "check_current_request_is_shared_without_history_or_duplicate_execute",
         "check_create_review_execute_uses_one_atomic_request",
         "check_start_creates_and_reuses_official_worktree",

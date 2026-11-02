@@ -4,6 +4,7 @@ import argparse as argparse
 from functools import wraps as wraps
 
 import import_guard as _imports_import_guard
+from deploy import contract_correction
 from deploy import worktree as deploy_worktree
 from model.importing.scope import (
     read_consumers,
@@ -89,6 +90,7 @@ from task_contract_core import task_snapshot as task_snapshot
 from task_contract_core import validate_contract as validate_contract
 from task_contract_core import verify_contract_reads as verify_contract_reads
 from task_contract_core import verify_snapshot as verify_snapshot
+from utils.cloudformation.inputs import Blocked as DeployBlocked
 from validation import acceptance
 from validation.findings import Findings
 from validation.runner import Validator
@@ -167,6 +169,8 @@ def check_import(
 
 def refresh(root, name, resuming=False):
     snapshot = task_snapshot(root, name, executable=False, live=True)
+    if deploy_worktree.is_deploy(snapshot.text):
+        deploy_worktree.require(root, snapshot)
     name = snapshot.name
     text = snapshot.text
     state = status(text)
@@ -274,3 +278,14 @@ def resume(root, name):
         check_resume_scope(root, name)
         verify_snapshot(snapshot)
     refresh(root, name, resuming=True)
+
+
+def correct_deploy_contract(root, name, source):
+    try:
+        return contract_correction.correct(root, name, source)
+    except DeployBlocked as error:
+        raise ValueError(str(error)) from error
+    except (KeyError, TypeError) as error:
+        raise ValueError(
+            f"Deploy correction evidence is incomplete or corrupt: {error}"
+        ) from error
