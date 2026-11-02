@@ -2615,8 +2615,8 @@ def check_unit_timing_parallel_receipts_and_summary(tmp_path):
     assert "Group process: PASS" in summary.getvalue()
     assert str(tests) not in summary.getvalue()
     assert "Slowest UT Cases" in summary.getvalue()
-    assert "Full case timings are available in the job log" in summary.getvalue()
-    assert "All UT cases" not in summary.getvalue()
+    assert "All UT cases" in summary.getvalue()
+    assert all(case["nodeid"] in summary.getvalue() for case in timing["cases"])
     large = dict(timing, files=[dict(timing["files"][0], path="あ" * 100000)])
     bounded = io.StringIO()
     run_it.display_unit_timing(large, bounded)
@@ -2624,6 +2624,64 @@ def check_unit_timing_parallel_receipts_and_summary(tmp_path):
     receipt = next(tmp_path.glob("pytest-*.json"))
     receipt.write_text("invalid", encoding="utf-8")
     assert run_it.unit_timing(tmp_path, commands, 4.5)["errors"]
+
+
+def check_unit_timing_summary_detail_and_capacity(capsys):
+    cases = [
+        {
+            "nodeid": f"tests/日本語.py::case_{index:04d}",
+            "status": "PASS",
+            "phases": {"setup": 0.1, "call": 0.2, "teardown": 0.3},
+            "total": 0.6,
+        }
+        for index in range(30)
+    ]
+    result = {
+        "wall": 5.0,
+        "cases": cases,
+        "files": [
+            {
+                "path": "/long/path/日本語.py",
+                "cases": cases,
+                "process": 5.0,
+                "status": "PASS",
+            }
+        ],
+        "groups": [
+            {"status": "fail", "duration": 5.0, "paths": ["/long/path/日本語.py"]}
+        ],
+        "errors": ["計測エラー"],
+    }
+    summary = io.StringIO()
+    run_it.display_unit_timing(result, summary)
+    output = summary.getvalue()
+    assert "UT timing: INCOMPLETE" in output
+    assert "Group process: FAIL (5.000s): 日本語.py" in output
+    assert "UT timing ERROR: 計測エラー" in output
+    assert "| 日本語.py |" in output and "/long/path/" not in output
+    assert (
+        "| tests/日本語.py::case_0029 | PASS | 0.100 | 0.200 | 0.300 | 0.600 |"
+        in output
+    )
+    assert output.count("| tests/日本語.py::case_") == 30
+    assert "omitted" not in output
+    capsys.readouterr()
+
+    result["cases"] = cases * 200
+    summary = io.StringIO()
+    run_it.display_unit_timing(result, summary)
+    output = summary.getvalue()
+    stdout = capsys.readouterr().out
+    assert len(output.encode("utf-8")) <= 65536
+    assert "UT timing: INCOMPLETE" in output and "UT timing ERROR: 計測エラー" in output
+    assert "Summary size limit:" in output and "case(s) omitted" in output
+    assert output.count("<details>") == output.count("</details>") == 1
+    detail = output.split("<details>", 1)[1].split("</details>", 1)[0]
+    rows = [line for line in detail.splitlines() if line.startswith("| tests/")]
+    assert all(row.endswith(" |") and row.count("|") == 7 for row in rows)
+    assert len(rows) < len(result["cases"])
+    assert stdout.count("| tests/日本語.py::case_") == len(result["cases"])
+    assert "�" not in output
 
 
 @pytest.mark.parametrize(

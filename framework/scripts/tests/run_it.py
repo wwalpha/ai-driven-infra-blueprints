@@ -798,7 +798,9 @@ def display_unit_timing(result, summary):
         case_time = f"{duration:.3f}" if row["cases"] else "—"
         process = f"{row['process']:.3f}" if row["process"] is not None else "—"
         status = row["status"] if row["cases"] else row["status"] + " (process only)"
-        lines.append(f"| {Path(row['path']).name} | {status} | {case_time} | {process} |")
+        lines.append(
+            f"| {Path(row['path']).name} | {status} | {case_time} | {process} |"
+        )
     for group in result["groups"]:
         lines.append(
             f"Group process: {group['status'].upper()} ({group['duration']:.3f}s): "
@@ -811,7 +813,7 @@ def display_unit_timing(result, summary):
         for case in cases[:20]
     )
     lines.extend(f"UT timing ERROR: {error}" for error in result["errors"])
-    compact = "\n".join(lines)
+    compact_lines = lines.copy()
     lines.extend(
         [
             "",
@@ -834,8 +836,55 @@ def display_unit_timing(result, summary):
     print(report, flush=True)
     if summary is not None:
         try:
-            summary.write(compact.encode("utf-8")[:65536].decode("utf-8", errors="ignore"))
-            summary.write("\n\nFull case timings are available in the job log.\n")
+            limit = 65536
+            detail_header = lines[len(compact_lines) : len(compact_lines) + 5]
+            detail_rows = lines[len(compact_lines) + 5 : -2]
+            footer = "\n</details>\n"
+            notice = "\nSummary size limit: {} case(s) omitted; full details are in the job log.\n"
+            compact_notice = "\nSummary size limit: some summary lines omitted.\n"
+            reserved = (
+                len(
+                    (
+                        "\n".join(detail_header)
+                        + footer
+                        + notice.format(len(cases))
+                        + compact_notice
+                    ).encode("utf-8")
+                )
+                + 2
+            )
+            selected_indexes = set()
+            used = reserved
+            error_start = len(compact_lines) - len(result["errors"])
+            priority = list(range(error_start, len(compact_lines))) + list(
+                range(error_start)
+            )
+            for index in priority:
+                size = len((compact_lines[index] + "\n").encode("utf-8"))
+                if used + size <= limit:
+                    selected_indexes.add(index)
+                    used += size
+            compact_omitted = len(selected_indexes) < len(compact_lines)
+            selected = [
+                line
+                for index, line in enumerate(compact_lines)
+                if index in selected_indexes
+            ]
+            selected.extend(detail_header)
+            omitted = 0
+            for row in detail_rows:
+                size = len((row + "\n").encode("utf-8"))
+                if used + size <= limit:
+                    selected.append(row)
+                    used += size
+                else:
+                    omitted += 1
+            if omitted:
+                selected.extend(["", notice.format(omitted).strip()])
+            selected.extend(["", "</details>"])
+            if compact_omitted:
+                selected.append(compact_notice.strip())
+            summary.write("\n".join(selected) + "\n")
         except OSError as error:
             print(f"UT timing summary write failed: {error}", file=sys.stderr)
 
