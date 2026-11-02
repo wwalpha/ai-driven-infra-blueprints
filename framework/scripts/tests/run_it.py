@@ -810,6 +810,8 @@ def display_unit_timing(result, summary):
         f"- {case['status']} {case['nodeid']}: {case['total']:.3f}s (call: {format(case['phases']['call'], '.3f') + 's' if 'call' in case['phases'] else '—'})"
         for case in cases[:20]
     )
+    lines.extend(f"UT timing ERROR: {error}" for error in result["errors"])
+    compact = "\n".join(lines)
     lines.extend(
         [
             "",
@@ -828,12 +830,12 @@ def display_unit_timing(result, summary):
             f"| {case['nodeid']} | {case['status']} | {' | '.join(phases)} | {case['total']:.3f} |"
         )
     lines.extend(["", "</details>"])
-    lines.extend(f"UT timing ERROR: {error}" for error in result["errors"])
     report = "\n".join(lines) + "\n"
     print(report, flush=True)
     if summary is not None:
         try:
-            summary.write(report)
+            summary.write(compact.encode("utf-8")[:65536].decode("utf-8", errors="ignore"))
+            summary.write("\n\nFull case timings are available in the job log.\n")
         except OSError as error:
             print(f"UT timing summary write failed: {error}", file=sys.stderr)
 

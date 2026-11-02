@@ -477,7 +477,8 @@ def check_invalid_model(invalid):
         properties(invalid)
 
 
-def check_temporary_roots(tmp_path):
+def check_temporary_roots(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLUEPRINT_UT_TIMING_DIR", raising=False)
     configure = load("conftest").pytest_configure
     cleanup = []
     configs = [

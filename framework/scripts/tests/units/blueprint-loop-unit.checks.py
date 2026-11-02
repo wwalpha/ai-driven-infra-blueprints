@@ -2612,7 +2612,12 @@ def check_unit_timing_parallel_receipts_and_summary(tmp_path):
     run_it.display_unit_timing(timing, summary)
     assert "UT total wall time: 4.500s" in summary.getvalue()
     assert "Slowest UT Cases" in summary.getvalue()
-    assert "All UT cases" in summary.getvalue()
+    assert "Full case timings are available in the job log" in summary.getvalue()
+    assert "All UT cases" not in summary.getvalue()
+    large = dict(timing, files=[dict(timing["files"][0], path="あ" * 100000)])
+    bounded = io.StringIO()
+    run_it.display_unit_timing(large, bounded)
+    assert len(bounded.getvalue().encode("utf-8")) < 66000
     receipt = next(tmp_path.glob("pytest-*.json"))
     receipt.write_text("invalid", encoding="utf-8")
     assert run_it.unit_timing(tmp_path, commands, 4.5)["errors"]
