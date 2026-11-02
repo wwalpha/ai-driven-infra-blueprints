@@ -30,3 +30,9 @@ def publish_edits(plans, context):
     """Publish prepared services as one guarded transaction."""
     _publish_plans = module("model/operations.py", "model.operations")._publish_plans
     return _publish_plans(tuple(plans), context)
+
+
+def __getattr__(name):
+    if name == "ModelView":
+        return module("model/view.py", "model.view").ModelView
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
