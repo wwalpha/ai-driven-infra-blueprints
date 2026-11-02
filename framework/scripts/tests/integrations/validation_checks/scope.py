@@ -112,6 +112,13 @@ def check_deployment_iac_scope():
                 validator.check_task_scope()
                 validator.accounts = {(env, "shared"): {"alias": "shared"}}
                 validator.check_validation_scope()
+                if env == "dev":
+                    validator.findings.evaluate(
+                        "validation.deployment-scope",
+                        validator.scope,
+                        validator.check_deployment_scope,
+                        isolate=True,
+                    )
                 validator.check_cloudformation_yaml_rules()
                 validator.check_cloudformation_environment_parameters()
                 TestCase().assertFalse(validator.errors, validator.errors)
