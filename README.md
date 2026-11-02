@@ -499,7 +499,7 @@ nonzero failure exits and `BLUEPRINT_PROFILE_DIR`; the local loop selects UT onl
 
 ### Integration tests in GitHub Actions
 
-[Framework UT](.github/workflows/framework-ut.yml) runs on PRs and manual dispatch
+[Framework UT](.github/workflows/framework-ut.yml) runs on pushes, PRs and manual dispatch
 with Python 3.14 and the existing requirements. It runs every UT through `python -B framework/scripts/tests/run_it.py --ut-only`,
 using the existing scheduler with at most 2 workers. PRs do not discover, collect or execute
 IT suites, prepare Terraform, or run the IT definition comparison.
@@ -548,7 +548,7 @@ Read [Conflict resolution and reproducible validation](framework/rules/loop-engi
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --staged --base <比較元commit>
 ```
 
-The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `task` mode validates the selected Task contract and Validation scope; it does not select or run Framework UT/IT, including with `--staged`. Framework CI runs all UT on PRs and all UT/IT on main/master pushes; separate manual workflows provide UT-only execution or IT on main/master. Both use `run_it.py` without changed-file selection. Framework task completion follows the classified [Validation policy](framework/rules/loop-engineering.md#validation-policy). See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
+The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `task` mode validates the selected Task contract and Validation scope; it does not select or run Framework UT/IT, including with `--staged`. Framework CI runs all UT on pushes and PRs and all UT/IT on main/master pushes; separate manual workflows provide UT-only execution or IT on main/master. Both use `run_it.py` without changed-file selection. Framework task completion follows the classified [Validation policy](framework/rules/loop-engineering.md#validation-policy). See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
 
 ### Local loop timing measurement
 

@@ -53,7 +53,7 @@ rerun the failed test or affected service; for a fixture fix, run its consuming 
 Do not run Full after each correction, repeat unchanged results, or retry Full with known
 failures left unfixed. If dependencies need investigation, directly invoke the relevant existing UT
 `framework/scripts/tests/units/<name>.checks.py` entrypoints or installed pytest test nodes during
-repair. CI runs all UT on PRs and all UT/IT on main/master; local narrowing does not replace a required final Full or prove unknown impact safe.
+repair. CI runs all UT on pushes and PRs and all UT/IT on main/master; local narrowing does not replace a required final Full or prove unknown impact safe.
 For bounded final validation, run these tests and the existing Project scoped loop or
 standalone scoped validator:
 
@@ -304,9 +304,9 @@ Ordinary `task` / `local` loops, including staged snapshots, do not
 automatically run Framework regression for changed files or missing Validation scope.
 Explicit `full` / `--all` runs all UTs and no IT, retaining validator scope and safety
 checks. Framework development runs related dedicated UTs and necessary
-IT cases under Validation policy. CI runs all UT on PRs and all UT/IT on main/master.
+IT cases under Validation policy. CI runs all UT on pushes and PRs and all UT/IT on main/master.
 
-[Framework UT](../../.github/workflows/framework-ut.yml) runs all UT on every pull request
+[Framework UT](../../.github/workflows/framework-ut.yml) runs all UT on every push and pull request
 and supports UT-only manual dispatch
 with `framework/scripts/tests/run_it.py --ut-only`. This path returns the UT result before
 IT discovery, collection, fixture-bundle creation or execution. PRs also skip Terraform

@@ -1,6 +1,7 @@
 name: Framework UT
 
 on:
+  push:
   pull_request:
   workflow_dispatch:
 

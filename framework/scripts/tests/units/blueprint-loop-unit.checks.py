@@ -802,7 +802,8 @@ def check_ci_workflow(tmp_path):
             encoding="utf-8"
         )
     )
-    assert set(unit_workflow[True]) == {"pull_request", "workflow_dispatch"}
+    assert set(unit_workflow[True]) == {"push", "pull_request", "workflow_dispatch"}
+    assert unit_workflow[True]["push"] is None
     assert unit_workflow[True]["pull_request"] is None
     unit_job = unit_workflow["jobs"]["framework-ut"]
     assert unit_job["name"] == "Framework UT"

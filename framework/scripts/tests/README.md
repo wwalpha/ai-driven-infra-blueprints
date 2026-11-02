@@ -209,7 +209,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 `blueprint-loop.py` の `task` / `local` はProjectのValidation scopeに従って検証し、Framework回帰UT／ITを自動実行しない。通常TaskではFrameworkを不変として扱い、FrameworkファイルのGit差分から回帰テストを選択しない。`full` / `--all` は `units/**/*.checks.py` と `units/**/test_*.py` の全UTを既存のPython直接実行入口で起動する。`full` は既存のProject Validation scopeを維持し、`--all` はProject全体を検証する。Scope `all` だけではFramework UTを実行しない。`blueprint-loop.py` からFramework ITは実行しない。
 
 
-[Framework UT](../../../.github/workflows/framework-ut.yml) をPR・UT専用の手動実行に使い、 `python -B framework/scripts/tests/run_it.py --ut-only` で全UTだけを既存schedulerの最大2並列で実行する。ITのDiscovery・collect・実行、Terraform準備、IT定義差分比較はPRでは行わない。UTの失敗をそのまま非0終了にし、IT/比較用オプションとの併用は拒否する。
+[Framework UT](../../../.github/workflows/framework-ut.yml) をpush・PR・UT専用の手動実行に使い、 `python -B framework/scripts/tests/run_it.py --ut-only` で全UTだけを既存schedulerの最大2並列で実行する。ITのDiscovery・collect・実行、Terraform準備、IT定義差分比較はPRでは行わない。UTの失敗をそのまま非0終了にし、IT/比較用オプションとの併用は拒否する。
 
 別の [Framework IT](../../../.github/workflows/framework-it.yml) はmain/masterへのpushと、そのブランチを指定した手動実行だけで、通常の `run_it.py` により全UTと全ITを実行する。IT側にUT専用の分岐は置かず、他ブランチでのIT手動実行はjob全体をskipする。Python 3.14、既存requirements、変更ファイルによる非選別とファイル種別による非除外は維持する。ITは `integrations/**/*.checks.py` を独立プロセスで全件実行し、UT失敗後もITを続け、いずれかの失敗でCIを失敗させる。既存のpytest・直接実行・トップレベル実行方式を維持する。手動baseline計測はmain/masterのみで使う。
 
@@ -240,7 +240,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/run_it.py 
 
 手動実行の `baseline_ref` は同じrunnerで旧コードの終了コードと時間を測定する。旧baselineには完了マーカーや台帳を要求せず、ケース到達性は「未検証」、旧profiler由来のfixture要求数・生成数は「比較不能」と明示する。依存パッケージが異なる場合は比較を拒否する。検証内容・スイートの同一性が確立していない時間差を、同条件での性能改善とは扱わない。
 
-ローカル修正では関連UTを実行し、ITの検証はGitHub Actionsへ委ねる。PRの現revisionではUTのPASSを確認してからマージする。ITの結果はmain/masterで確認し、PRのUT成功をITの検証完了と扱わない。CI未完了・未実行・キャンセル・FAILも検証完了と扱わない。PRのチェック名は `Framework UT`、main/masterのチェック名は `Framework IT` とする。ブランチ保護のRequired status checkに `Framework UT` を指定する設定は別途必要。
+ローカル修正では関連UTを実行し、ITの検証はGitHub Actionsへ委ねる。PRの現revisionではUTのPASSを確認してからマージする。ITの結果はmain/masterで確認し、PRのUT成功をITの検証完了と扱わない。CI未完了・未実行・キャンセル・FAILも検証完了と扱わない。pushとPRのUTチェック名は `Framework UT`、main/masterのITチェック名は `Framework IT` とする。ブランチ保護のRequired status checkに `Framework UT` を指定する設定は別途必要。
 
 契約の選択・通常の状態遷移・公開時の変更検出を既存UTで確認する。実Git、Atomic rollback、finalize/cleanupの安全停止は既存ITで検証する。予約と独自worktree identityだけを検証するケースは廃止した。
 
