@@ -27,6 +27,8 @@ from task_contract_core import (
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint as fingerprint
 
+from model import key_parts
+
 
 def selected_stack_values(values, names):
     """Keep global selection/collision checks and reuse full validation on selected rows."""
@@ -59,9 +61,9 @@ def selected_stack_values(values, names):
         for key, value in values.items()
         if not key.startswith(("desired.stack.", "display.stack.", "desired.artifact."))
         or key.startswith(("desired.stack.", "display.stack."))
-        and key.split(".")[2] in identities
+        and key_parts(key)[2] in identities
         or key.startswith("desired.artifact.")
-        and key.split(".")[2] in artifacts
+        and key_parts(key)[2] in artifacts
     }
     excluded = []
     for identity, _ in entries(values, "desired.reference."):

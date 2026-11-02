@@ -19,6 +19,7 @@ from utils.project_targets import load_target_directory
 from validation.change import check_references
 
 from deploy import deferred, inputs, worktree
+from model import row_resource
 
 
 def reference_write(root, task, change, row, mapped, target, authority_root):
@@ -158,10 +159,10 @@ def validate_selected(
             permitted = by_path.get(change.after.scope.path, set())
             for row in change.observed_rows:
                 logical = authority.get(
-                    f"desired.resource.{row.rpartition('-')[0]}.logicalId"
+                    f"desired.resource.{row_resource(row)}.logicalId"
                 )
                 cfn = authority.get(
-                    f"desired.resource.{row.rpartition('-')[0]}.cfn-logicalId"
+                    f"desired.resource.{row_resource(row)}.cfn-logicalId"
                 )
                 removed_owner = cfn_resource_identity(cfn) if cfn else (None, None)
                 removal = removed_owner[0] in templates and removed_owner[
@@ -208,7 +209,7 @@ def validate_selected(
         rows = {
             rid
             for rid, _ in structural_entries(values, "desired.row.")
-            if rid.rpartition("-")[0] in numbers
+            if row_resource(rid) in numbers
         }
         change = ServiceChange(
             snapshot,
@@ -221,7 +222,7 @@ def validate_selected(
             observed_rows=rows,
             properties={
                 (
-                    values[f"desired.resource.{rid.rpartition('-')[0]}.logicalId"],
+                    values[f"desired.resource.{row_resource(rid)}.logicalId"],
                     row["property"],
                 )
                 for rid, row in structural_entries(values, "desired.row.")

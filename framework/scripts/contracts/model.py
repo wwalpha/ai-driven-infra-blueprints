@@ -15,3 +15,13 @@ REFERENCE_LOGICAL_ID_KEY: Final[str] = "logicalId"
 CFN_LOGICAL_ID_KEY: Final[str] = "cfn-logicalId"
 MODEL_REF_KEY: Final[str] = "$modelRef"
 REFERENCE_RESOURCE_TYPE_KEY: Final[str] = "resourceType"
+
+
+def key_parts(key):
+    """Return the namespace, kind and identity components present in a Model key."""
+    return tuple(key.split(".")[:3])
+
+
+def row_resource(identity):
+    """Return the Resource portion of a Row identity, without validating it."""
+    return identity.rpartition("-")[0]

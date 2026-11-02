@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
 
 import utils.json_format as _imports_utils_json_format
+from contracts.model import key_parts, row_resource
 from utils.file_operations import atomic_files
 from utils.function_wrapper import FunctionWrapper
 from utils.input_cache import (
@@ -855,8 +856,8 @@ def model_refactor(text: str, *, operation=None) -> tuple[DependencyDetach, ...]
             key,
         ):
             raise ValueError("detach requires an exact expanded Model key")
-        parts = key.split(".")
-        owner = parts[2].rpartition("-")[0] if parts[1] == "row" else parts[2]
+        _, kind, identity = key_parts(key)
+        owner = row_resource(identity) if kind == "row" else identity
         if owner != consumer[3]:
             raise ValueError("detach key does not belong to its consumer")
         if "pointer" in value and (

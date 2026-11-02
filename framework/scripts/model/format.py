@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
+from contracts.model import key_parts, row_resource
 from utils.json_format import strict_json
 from validation.diagnostics import InputValidationError
 
@@ -161,7 +162,7 @@ def parse(text, *, require_header=True):
 
 def owner(key, values):
     """One indivisible owning block; reference metadata belongs to its consumer."""
-    fields = key.split(".")
+    fields = key_parts(key)
     if len(fields) < 3:
         raise InputValidationError("invalid Model key: " + key)
     namespace, kind, identity = fields[:3]
@@ -175,8 +176,11 @@ def owner(key, values):
     if kind in {"service", "deployment"}:
         return kind, "service"
     if kind == "row":
-        resource, separator, _ = identity.rpartition("-")
-        if not separator or f"desired.resource.{resource}.resourceType" not in values:
+        resource = row_resource(identity)
+        if (
+            "-" not in identity
+            or f"desired.resource.{resource}.resourceType" not in values
+        ):
             raise InputValidationError("orphan row: " + identity)
         return "resource", resource
     return kind, identity

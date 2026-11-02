@@ -1,5 +1,7 @@
 """Public Model API. The caller supplies read and authorized publication contexts."""
 
+from contracts.model import key_parts as key_parts
+from contracts.model import row_resource as row_resource
 from utils.script_loader import module
 
 from model.sources import list_models as list_models

@@ -15,6 +15,7 @@ from contracts.model import (
     RESOURCE_MODE_CREATE,
     RESOURCE_MODE_IMPORT,
     RESOURCE_TYPE_KEY,
+    row_resource,
 )
 from utils.iac_values import cfn_resource_identity
 from utils.input_cache import memo_table
@@ -567,7 +568,7 @@ def resource_row_index(
     resources = dict(entries(values, "desired.resource."))
     index = {identity: [] for identity in resources}
     for rid, row in entries(values, "desired.row."):
-        owner = rid.rpartition("-")[0]
+        owner = row_resource(rid)
         if owner not in resources:
             raise InputValidationError(f"orphan desired row: {rid}")
         index[owner].append((rid, row))
