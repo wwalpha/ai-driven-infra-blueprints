@@ -21,7 +21,7 @@ import generation_inputs
 import sync_files
 import task_contract_core as _imports_task_contract
 import task_contract_core as task_contract
-from contracts.repository import PROJECT_FILENAME
+from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
 from sync_progress import phase, thread_lock
 from utils.file_operations import atomic_replace_file
 from utils.input_cache import (
@@ -363,6 +363,34 @@ def _publish_transaction(
         if memo_table() is not None:
             memo_table().clear()
     journal.unlink()
+
+
+def publish_generated_views(root, output, obsolete, journal, *, originals):
+    """Publish only generated designs using the caller's locked, verified plan."""
+    paths = set(output) | set(obsolete)
+    if set(originals) != paths:
+        raise ValueError("generated publication originals do not match outputs")
+    if (
+        journal is None
+        or getattr(_local, "depths", {}).get(str(root.resolve())) != journal
+    ):
+        raise ValueError("generated publication requires publication lock")
+    for path in paths:
+        safe(root, path)
+        try:
+            parts = path.relative_to(root / DESIGNS_DIRECTORY).parts
+        except ValueError:
+            raise ValueError(
+                "generated path is outside design views: " + str(path)
+            ) from None
+        if not (
+            len(parts) == 3
+            and path.suffix == ".md"
+            or len(parts) >= 4
+            and path.suffix == ".json"
+        ):
+            raise ValueError("generated path is outside design views: " + str(path))
+    _publish_transaction(root, output, obsolete, journal, originals=originals)
 
 
 @dataclass(frozen=True)

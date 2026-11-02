@@ -86,7 +86,7 @@ from validation.findings import FindingsError
 from validation_scope import scoped_files
 
 import model as _model_api
-from model import publish_transaction as _publish_transaction
+from model import publish_generated_views as _publish_transaction
 
 
 def generation_failure(

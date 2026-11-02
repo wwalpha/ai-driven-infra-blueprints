@@ -126,6 +126,8 @@ class BoundaryVisitor(ast.NodeVisitor):
         return None
 
     def check_symbol(self, node, symbol):
+        if symbol == "model.publish_transaction":
+            self.reject(node, "model-unrestricted-write")
         if model_symbol(symbol) and any(
             p.startswith("_") for p in symbol.split(".")[1:]
         ):

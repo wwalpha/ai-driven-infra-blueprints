@@ -4,6 +4,9 @@ import sys
 from pathlib import Path
 
 import pytest
+from model.sources import publication_lock
+
+import model
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -18,6 +21,18 @@ if not __debug__:
     "source,rule",
     [
         ("from model.sources import _load_model as load", "model-private-api"),
+        (
+            "from model import publish_transaction as p\np(root, output, (), journal)",
+            "model-unrestricted-write",
+        ),
+        (
+            "import model as m\ngetattr(m, 'publish_transaction')(root, output, (), journal)",
+            "model-unrestricted-write",
+        ),
+        (
+            "import model.sources as s\ngetattr(s, '_publish_transaction')(root, output, (), journal)",
+            "model-private-api",
+        ),
         (
             "from model.core import (\n entries as enumerate_resources,\n)",
             "model-structural-api",
@@ -95,7 +110,8 @@ def check_forbidden_sources_fail(source, rule, tmp_path):
         "from contracts.model import key_parts, row_resource\nowner=row_resource(key_parts(key)[2])",
         "from model.sources import ModelSnapshot as S\ndef f(snapshot: S):\n return snapshot.authoritative.get('key')",
         "from model import load_model\ns=load_model(scope)\nv=dict(s.authoritative)\nv.update({'x':'v'})",
-        "from model import publish_transaction as _publish\n_publish(root, outputs, (), journal)",
+        "from model import publish_generated_views as publish\npublish(root, outputs, (), journal, originals=originals)",
+        "from model import prepare_edit, publish_edit, publish_edits",
         "label='desired.row.001.value'; print(label)",
         "visible=line.startswith('desired.resource.')",
         "owner=grid.rpartition('-')[0]",
@@ -121,6 +137,32 @@ def check_implementation_and_synthetic_fixtures_pass(path):
         violations("snapshot._replace(values={}); snapshot.values.update({})", path)
         == []
     )
+
+
+def check_generated_publication_rejects_model_authority(tmp_path):
+    assert not hasattr(model, "publish_transaction")
+    source = tmp_path / "model" / "dev" / "target" / "iam.properties"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"original\n")
+    with publication_lock(tmp_path) as journal:
+        with pytest.raises(ValueError, match="outside design views"):
+            model.publish_generated_views(
+                tmp_path,
+                {source: "changed\n"},
+                (),
+                journal,
+                originals={source: b"original\n"},
+            )
+    assert source.read_bytes() == b"original\n"
+
+
+def check_generated_publication_rejects_foreign_journal(tmp_path):
+    path = tmp_path / "docs" / "designs" / "dev" / "target" / "iam.md"
+    with pytest.raises(ValueError, match="requires publication lock"):
+        model.publish_generated_views(
+            tmp_path, {path: "text"}, (), path, originals={path: None}
+        )
+    assert not path.exists()
 
 
 def check_repository_model_boundary():
