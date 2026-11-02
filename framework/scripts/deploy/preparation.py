@@ -185,6 +185,7 @@ def candidate(
         "- Task type: `infrastructure`",
         "- Task status: `running`",
         "- Infrastructure phase: `deploy`",
+        "- Deploy execution method: `sdk`",
         f"- Target environment: `{env}`",
         f"- Target AWS account: `{target['awsAccountId']}`",
     ]
@@ -681,6 +682,7 @@ def main(argv=None):
             json.dumps(
                 {
                     "result": "REGISTERED" if args.register else "PREPARED_OFFLINE",
+                    "executionMethod": "sdk",
                     **cli_guidance.preparation_result(
                         root, plan_path, bool(args.register)
                     ),
@@ -700,6 +702,7 @@ def main(argv=None):
             json.dumps(
                 {
                     "result": "STOPPED",
+                    "executionMethod": "sdk",
                     **cli_guidance.stopped(
                         "CONTROLLER_LAUNCH"
                         if args.run_controller

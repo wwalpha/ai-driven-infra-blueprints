@@ -77,6 +77,7 @@ def check_preparation():
             "dev/123456789012/iam",
         ]
         text = (run / "contract.md").read_text(encoding="utf-8")
+        TestCase().assertEqual(text.count("- Deploy execution method: `sdk`\n"), 1)
         declared = paths_in(text, "## Modified files")
         assert "model/dev/123456789012/cloudformation-stacks.properties" not in declared
         model_parts = _imports_model_sources.model_parts
@@ -141,6 +142,7 @@ def check_preparation():
         (root / "AGENTS.md").write_text("changed instructions", encoding="utf-8")
         assert invoke(["--repository-root", str(root), "--register", str(path)]) == 0
         registered = contracts(root)["tasks/deploy-offline.md"]
+        TestCase().assertIn("- Deploy execution method: `sdk`\n", registered)
         assert paths_in(registered, "## Modified files") == paths_in(
             text, "## Modified files"
         )

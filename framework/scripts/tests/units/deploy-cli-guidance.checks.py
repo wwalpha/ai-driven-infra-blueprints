@@ -10,6 +10,7 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -183,6 +184,7 @@ def check_preparation_success_output(tmp_path, capsys, registered, filename):
         assert preparation.main(args) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["result"] == ("REGISTERED" if registered else "PREPARED_OFFLINE")
+    TestCase().assertEqual(report["executionMethod"], "sdk")
     assert {
         "plan",
         "contract",
@@ -215,7 +217,9 @@ def check_preparation_and_handoff_keep_failure_exit_codes(tmp_path, capsys):
             )
             == 1
         )
-    assert json.loads(capsys.readouterr().out)["nextAction"]["type"] == "PREPARE_AGAIN"
+    report = json.loads(capsys.readouterr().out)
+    TestCase().assertEqual(report["executionMethod"], "sdk")
+    assert report["nextAction"]["type"] == "PREPARE_AGAIN"
     with patch.object(
         deploy_handoff.handoff, "discard_failure", side_effect=ValueError("secret")
     ):
@@ -429,6 +433,7 @@ def check_preparation_dependency_json(tmp_path, capsys):
             == 1
         )
     report = json.loads(capsys.readouterr().out)
+    TestCase().assertEqual(report["executionMethod"], "sdk")
     assert report["cause"]["missingConditions"] == [
         "boto3",
         "botocore",
