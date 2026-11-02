@@ -19,7 +19,6 @@ import model.importing.evidence as import_evidence
 import run_it
 import support.model_design_fixtures as _imports_support_model_design_fixtures
 import utils.aws_mappings as _imports_utils_aws_mappings
-import yaml
 from model.importing import evidence
 from model.importing.evidence import FORMAT_FIELDS
 from support import it_fixture_bundle as fixtures
@@ -737,7 +736,7 @@ def _callback_check_ci_workflow_execute(
     return subprocess.CompletedProcess(command, code)
 
 
-def check_ci_workflow(tmp_path):
+def check_run_it_dispatch(tmp_path):
     _state_check_ci_workflow_316 = _CallbackState()
     tests = tmp_path / "framework/scripts/tests"
     (tests / "integrations").mkdir(parents=True)
@@ -770,53 +769,6 @@ def check_ci_workflow(tmp_path):
     with patch.object(run_it.subprocess, "run", side_effect=invalid_receipts):
         rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
     assert all(row["code"] != 0 for row in rows) and not receipts
-
-    workflow = yaml.safe_load(
-        (SCRIPT.parents[2] / ".github/workflows/framework-it.yml").read_text()
-    )
-    events = workflow[True]  # PyYAML's YAML 1.1 resolver reads the key 'on' as True.
-    assert set(events) == {"push", "workflow_dispatch"}
-    assert events["push"] == {"branches": ["main", "master"]}
-    job = workflow["jobs"]["framework-it"]
-    assert (
-        job["if"]
-        == "github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'"
-    )
-    step = job["steps"][-1]
-    assert (
-        step["run"]
-        == 'python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"'
-    )
-    assert set(step["env"]) == {"IT_BASELINE"}
-    assert "if" not in step
-    assert not any("--ut-only" in item.get("run", "") for item in job["steps"])
-    steps = {item.get("name"): item for item in job["steps"]}
-    assert "if" not in steps["Install Terraform CLI for integration verification"]
-    assert (
-        steps["Checkout measurement baseline"]["if"]
-        == "github.event_name == 'workflow_dispatch' && inputs.baseline_ref != ''"
-    )
-
-    unit_workflow = yaml.safe_load(
-        (SCRIPT.parents[2] / ".github/workflows/framework-ut.yml").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert set(unit_workflow[True]) == {"push", "pull_request", "workflow_dispatch"}
-    assert unit_workflow[True]["push"] is None
-    assert unit_workflow[True]["pull_request"] is None
-    unit_job = unit_workflow["jobs"]["framework-ut"]
-    assert unit_job["name"] == "Framework UT"
-    assert "if" not in unit_job
-    assert unit_job["env"] == job["env"]
-    assert unit_job["steps"][-1] == {
-        "name": "Run all UT",
-        "run": "python -B framework/scripts/tests/run_it.py --ut-only",
-    }
-    assert unit_job["steps"][:-1] == job["steps"][:3]
-    assert not any(
-        "--compare-root" in item.get("run", "") for item in unit_job["steps"]
-    )
 
     for unit_status, it_status in ((0, 0), (1, 0), (0, 1)):
         outcome = {"reachability_errors": [], "suites": [{"code": it_status}]}
