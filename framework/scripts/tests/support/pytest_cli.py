@@ -355,9 +355,12 @@ def unit_commands(paths):
     grouped, isolated = [], []
     for path in paths:
         (grouped if groupable(path) else isolated).append(str(path))
+    split = (len(grouped) + 1) // 2 if len(grouped) > 2 else len(grouped)
     return [
         [sys.executable, str(Path(__file__).resolve()), "--group", *group]
-        for group in (grouped[::2], grouped[1::2])
+        if len(group) > 1
+        else [sys.executable, *group]
+        for group in (grouped[:split], grouped[split:])
         if group
     ] + [[sys.executable, path] for path in isolated]
 

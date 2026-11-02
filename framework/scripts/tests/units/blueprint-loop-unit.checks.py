@@ -423,7 +423,11 @@ def check_pytest_group_selection(tmp_path, entry):
     check.assertEqual(len(commands), 3)
     check.assertEqual(commands[-1], [sys.executable, str(direct)])
     check.assertCountEqual(
-        [path for command in commands[:2] for path in command[3:]],
+        [
+            path
+            for command in commands[:2]
+            for path in (command[3:] if "--group" in command else command[1:])
+        ],
         [str(path) for path in paths[:-1]],
     )
     check.assertTrue(
@@ -501,6 +505,95 @@ def check_pytest_group_selection(tmp_path, entry):
             encoding="utf-8",
         )
         check.assertFalse(groupable(direct))
+
+
+@pytest.mark.parametrize("count", [0, 1, 2, 3, 4, 5])
+def check_pytest_group_distribution(tmp_path, count):
+    safe = []
+    for index in range(count):
+        path = tmp_path / f"{index}-unit.checks.py"
+        path.write_text(
+            "from support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
+            "def check_ok(): pass\n"
+            "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+            encoding="utf-8",
+        )
+        safe.append(path)
+    direct = tmp_path / "direct.py"
+    direct.write_text("assert True\n", encoding="utf-8")
+    commands = unit_commands([*safe, direct])
+    groups = commands[:-1]
+    assert len(groups) <= 2
+    assert commands[-1] == [sys.executable, str(direct)]
+    assert [
+        path
+        for command in groups
+        for path in (command[3:] if "--group" in command else command[1:])
+    ] == [str(path) for path in safe]
+    if count == 1:
+        assert groups == [[sys.executable, str(safe[0])]]
+    if count == 2:
+        assert len(groups) == 1 and groups[0][2:] == ["--group", *map(str, safe)]
+
+
+def check_pytest_group_runner_failure_and_isolation(tmp_path):
+    tests = Path(__file__).resolve().parents[1]
+    (tmp_path / "pytest.ini").write_text(
+        "[pytest]\npython_files = *-unit.checks.py\npython_functions = check_*\naddopts = --import-mode=importlib\n",
+        encoding="utf-8",
+    )
+    paths = [tmp_path / f"{name}-unit.checks.py" for name in ("a", "b")]
+    prefix = "import os\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
+    suffix = "if __name__ == '__main__': raise SystemExit(run(__file__))\n"
+    paths[0].write_text(
+        prefix + "def check_change(): os.environ['GROUP_TEST'] = 'changed'\n" + suffix,
+        encoding="utf-8",
+    )
+    paths[1].write_text(
+        prefix + "def check_clean(): assert 'GROUP_TEST' not in os.environ\n" + suffix,
+        encoding="utf-8",
+    )
+    # Use the real isolation fixture with synthetic suites.
+    (tmp_path / "conftest.py").write_text(
+        f"import importlib.util\nspec = importlib.util.spec_from_file_location('group_fixtures', {str(tests / 'conftest.py')!r})\n"
+        "module = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(module)\nprocess_state = module.process_state\n",
+        encoding="utf-8",
+    )
+    commands = unit_commands(paths)
+    env = dict(os.environ, PYTHONPATH=str(tests))
+    env.pop("GROUP_TEST", None)
+    assert MODULE.run_commands(tmp_path, commands, env, tmp_path, jobs=2) == 0
+    paths[1].write_text(
+        prefix + "def check_fail(): assert False\n" + suffix, encoding="utf-8"
+    )
+    assert (
+        MODULE.run_commands(tmp_path, unit_commands(paths), env, tmp_path, jobs=2) == 1
+    )
+
+
+def check_approved_suites_share_official_group():
+    tests = Path(__file__).resolve().parents[1]
+    paths = [
+        tests / "units" / name
+        for name in (
+            "glue_datazone_catalog-unit.checks.py",
+            "quicksight-display-unit.checks.py",
+        )
+    ]
+    commands = unit_commands(paths)
+    assert len(commands) == 1 and commands[0][2:] == ["--group", *map(str, paths)]
+    env = dict(os.environ, PYTEST_ADDOPTS="-vv")
+    result = subprocess.run(
+        commands[0], cwd=tests, env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    nodes = [
+        line
+        for line in result.stdout.splitlines()
+        if "::" in line and " PASSED" in line
+    ]
+    assert nodes and len(nodes) == len(set(nodes))
+    assert all(any(path.name in node for node in nodes) for path in paths)
 
 
 @pytest.mark.parametrize(
