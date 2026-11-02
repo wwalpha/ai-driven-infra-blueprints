@@ -1,11 +1,13 @@
 ---
 name: worktree
-description: Run a repository change task in an isolated linked Git worktree, then integrate only its completed result into the latest local base with rebase and fast-forward merge. Read-only investigation, analysis and review usually need no worktree.
+description: Run a repository change task in an isolated linked Git worktree, then rebase and fast-forward merge its completed result into the latest local base by default. Publish a PR only when the Human explicitly requests one for that Task. Read-only investigation, analysis and review usually need no worktree.
 ---
 
 # Isolated task execution
 
 Use `/worktree <task-id> <child skill/task and its inputs>` for a task that changes repository files. This skill wraps the selected task; it does not replace its logic, authorize another phase, or authorize AWS operations. Existing task types do not encode read-only intent: decide from the requested outputs. Investigation/review without saved changes runs in the current checkout; `/issues` with saved reports is a change task.
+
+**Default integration is local fast-forward merge followed by cleanup.** After the child workflow's required checks and completion conditions pass, continue through ordinary `finalize` without asking the Human to choose between merge and PR. Select `--create-pr` only when the Human explicitly requests PR publication for this Task; mentioning PRs, reviewing PR behavior or changing PR support does not select it. Retain the existing safety stops and recovery rules, including no automatic mode conversion for a Task already in PR mode.
 
 For `/import`, use the worktree selected by the Human; follow [08_import](../../../framework/prompts/codex/08_import.md) for its contract, evidence and validation requirements. Other change tasks retain this workflow.
 
