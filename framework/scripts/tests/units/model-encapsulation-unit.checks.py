@@ -3,15 +3,15 @@
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import pytest
 from model.sources import publication_lock
-
-import model
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 from support.model_encapsulation import check_sources as _check_sources
 from support.model_encapsulation import violations
+
+import model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
