@@ -9,7 +9,7 @@ import os
 import re
 import tempfile
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Collection, Iterator
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -368,7 +368,7 @@ def _publish_transaction(
 def publish_generated_views(
     root: Path,
     output: Mapping[Path, str],
-    obsolete: Iterable[Path],
+    obsolete: Collection[Path],
     journal: Path | None,
     *,
     originals: Mapping[Path, bytes | None],
