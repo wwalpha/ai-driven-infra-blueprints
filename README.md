@@ -589,6 +589,24 @@ Design update order is “confirm catalog selection items/naming rules → prepa
 
 ### S3 placement of CloudFormation templates and local artifacts
 
+CloudFormation Deploy has two independently selected execution procedures:
+the existing Python Controller + boto3 SDK method, and the LLM-direct AWS CLI
+method in [Direct AWS CLI deployment](framework/rules/cloudformation.md#direct-aws-cli-deployment).
+The CLI procedure covers context checks, fixed inputs, delivery, ChangeSet review/
+approval, execution and AWS-based recovery without a Python AWS executor. It never
+automatically switches to SDK. Common approval/order/Snapshot/Model/Validation/Git
+requirements apply to both; concurrent SDK/CLI mutation of the same Stack is not
+guaranteed and detected competition stops CLI starts.
+
+CLI uses ordinary non-AWS observation/generation/scoped validation, then
+`task_contract.py --complete` and Worktree `finalize`. Its completion and actual
+latest-base validation do not require SDK progress/receipts; local reference
+projection uses the CLI Task's STS-confirmed execution account/Region/Partition.
+AWS success, Model save, Snapshot Validation, Git publication and Task completion
+remain separate. The LLM must settle all AWS requests before completion; local
+validation is not AWS verification. Existing SDK Tasks cannot switch to this route.
+Repository development environments and Worktree setup remain unchanged.
+
 The controller passes templates directly as before when the submitted template is at most 51,200 bytes; above that through 1 MiB, upload to the specified bucket and create change sets from S3 URLs. Stop above 1 MiB. Small templates require no placement bucket configuration.
 
 Specify destinations in target `cloudformation-stacks.properties` as follows. The following is a format example; confirm bucket names, StackName, and sources in actual design. The template bucket may be an existing bucket name or a same-target S3 Model reference. Artifact buckets retain their S3 Model reference and validation requirements.
@@ -608,11 +626,11 @@ Determine files used by each Lambda from resource/property-to-source mappings. E
 
 After uploading local artifacts, generate an execution copy outside the repository replacing only declared S3 keys/versions with content hashes. Lambda ZIP placement and CFn template S3 submission are independent; ZIPs may be uploaded while small templates are submitted directly. Do not automatically build, create buckets, add permissions, or remove past artifacts during deploy. Create initial buckets with small templates; after success, execute consuming stacks.
 
-Validate the whole scope locally; perform upload/checksum confirmation, AWS template validation, and change set creation/execution in each stack's order. Keep current-run execution copies immutable. Retain only unfinished AWS/publication operations in the external account/Region Journal; recover original Tokens before new work and discard it on completion. Each new Deploy accepts latest committed IaC and checks current AWS ChangeSets/Outputs/Exports. Old Deploy Sessions and Workflow registries are ignored. See [CloudFormation rules](framework/rules/cloudformation.md#s3-deployment-artifacts) for corresponding properties, permissions, and retention policies, and [model rules](framework/rules/model-information.md#cloudformation-s3配置) for the authoritative format.
+Validate the whole scope locally; perform upload/checksum confirmation, AWS template validation, and change set creation/execution in each stack's order. Keep current-run execution copies immutable. For SDK, retain only unfinished AWS/publication operations in the external account/Region Journal; recover original Tokens before new work and discard it on completion. CLI retains its own private Task-local request/response evidence and reconciles the original identities/tokens through AWS CLI, without using the SDK Journal. Each new Deploy accepts latest committed IaC and checks current AWS ChangeSets/Outputs/Exports. Old Deploy Sessions and Workflow registries are ignored. See [CloudFormation rules](framework/rules/cloudformation.md#s3-deployment-artifacts) for corresponding properties, permissions, and retention policies, and [model rules](framework/rules/model-information.md#cloudformation-s3配置) for the authoritative format.
 
-For CloudFormation deploy failures, follow [Controlled deploy repair](framework/rules/cloudformation.md#controlled-deploy-repair); delegate only proved IaC defects to a separate isolated Implement Task, validate/integrate its exact commit, discard the one-shot handoff and start an independent current-input Deploy. Ask the Human about external information, design decisions, rollback that cannot be safely recovered, and unapproved delete/replacement.
+For SDK CloudFormation deploy failures, follow [Controlled deploy repair](framework/rules/cloudformation.md#controlled-deploy-repair); delegate only proved IaC defects to a separate isolated Implement Task, validate/integrate its exact commit, discard the one-shot handoff and start an independent current-input Deploy. CLI uses its independent AWS identity/token reconciliation and stops for repair without invoking SDK recovery/handoff. Ask the Human about external information, design decisions, rollback that cannot be safely recovered, and unapproved delete/replacement.
 
-CloudFormation execution and failure next actions are documented by `deploy_preparation.py --help`, `cloudformation-deploy.py --help` and `deploy_handoff.py --help` under `framework/scripts/`. Preparation returns the contract and target summary; `04_deploy.md` directs the LLM to applicable Rules and is outside execution snapshots. CLI JSON adds `stage`, safe `cause` and `nextAction`; a null command means review is required. AWS completion, Observed publication, generation and Git publication are distinct. Terraform's existing preflight and saved-plan/apply route is described by `check-deploy-context.py --help` and its Rules.
+SDK CloudFormation execution and failure next actions are documented by `deploy_preparation.py --help`, `cloudformation-deploy.py --help` and `deploy_handoff.py --help` under `framework/scripts/`. SDK Preparation returns the contract and target summary; `04_deploy.md` directs the LLM to applicable Rules and is outside execution snapshots. Python CLI JSON adds `stage`, safe `cause` and `nextAction`; a null command means review is required. Direct AWS CLI uses the separate Rules procedure and AWS JSON responses. AWS completion, Observed publication, generation and Git publication are distinct. Terraform's existing preflight and saved-plan/apply route is described by `check-deploy-context.py --help` and its Rules.
 
 ## Explicit CloudFormation Stack destroy
 

@@ -54,7 +54,7 @@
 
 - Preflight and controllers automatically use target `awsProfile` if present. Pass the same `--profile` and target region to direct AWS CLI too (including validate-template, list/get/describe, and observed value retrieval). Reject explicit profiles differing from settings before execution; do not fall back to another profile after authentication failure.
 - Before deploy, match target account/region stacks read-only and confirm designed stack existence, states, parameters, and resource ownership. Distinguish undesigned stacks, same-named stacks differing from design, and designed stacks absent from AWS; do not automatically adopt/change/delete undesigned stacks. Retrieve current stack status from AWS when needed and retain execution state in the existing execution management, not the Stack Model.
-- Framework SDK controllers perform authorized operations through `utils/aws/`; use AWS CLI only for explicitly directed CLI operations.
+- Framework SDK controllers perform authorized operations through `utils/aws/`. In the explicitly selected CLI method, the LLM performs authorized AWS operations directly through AWS CLI under [Direct AWS CLI deployment](#direct-aws-cli-deployment); do not route that method through a Python Controller or SDK.
 
 ## Design coverage and CloudFormation support
 
@@ -115,7 +115,7 @@ Runtime bootstrap remains separate and changes no IaC. Preserve original StackId
 
 ## Delete and replacement confirmation
 
-`deploy/change_sets.py` owns preparation, content approval and immediate execution checks. Approval identifies the saved ChangeSet and full content digest. Before execution, save StackId, ChangeSetId, changeDigest, clientToken, inputDigest and each change LogicalResourceId/ResourceType/PhysicalResourceId/Action/Replacement/PolicyAction. No Model mapping is required to save this evidence. Fill missing physical identities only from exact AWS resource information; unknown deletion never resets identifiers.
+For SDK, `deploy/change_sets.py` owns preparation, content approval and immediate execution checks. For CLI, the LLM performs the same content review and immediate rechecks directly using AWS JSON. Approval identifies the saved ChangeSet and full content digest. Before execution, save StackId, ChangeSetId, changeDigest, clientToken, inputDigest and each change LogicalResourceId/ResourceType/PhysicalResourceId/Action/Replacement/PolicyAction. No Model mapping is required to save this evidence. Fill missing physical identities only from exact AWS resource information; unknown deletion never resets identifiers.
 
 - `Remove`, `Replacement: True`, and `Replacement: Conditional` require confirmation regardless of resource type. If `Action` or `Replacement` values cannot be determined, stop without treating changes as approvable.
 - Do not treat unapproved delete/replacement as deployment failure/task completion; wait for human confirmation without executing created change sets.
@@ -139,7 +139,7 @@ Follow [observed-values](observed-values.md) for current identifier collection/s
 
 ### Artifact declarations
 
-`deploy/delivery.py`が実行用copy・object配置を、`deploy/s3_delivery.py`が取得とkey別条件判定を担当する。正本は同targetのcloudformation-stacks.properties。templateBucketは既存バケット名を直接指定するか同target S3 ModelのBucketName参照を指定し、templateKeyPrefixと両方指定または両方省略する。直接指定にS3 Modelは不要。project設定への重複保存は禁止。
+SDK方式では`deploy/delivery.py`が実行用copy・object配置を、`deploy/s3_delivery.py`が取得とkey別条件判定を担当する。CLI方式では以下の同じ配送条件をLLMが直接AWS CLIで確認する。Pythonの配送処理をAWS backendとして呼ばない。正本は同targetのcloudformation-stacks.properties。templateBucketは既存バケット名を直接指定するか同target S3 ModelのBucketName参照を指定し、templateKeyPrefixと両方指定または両方省略する。直接指定にS3 Modelは不要。project設定への重複保存は禁止。
 
 artifactはstack/resource/property/source/bucket/keyPrefixを明示する。StackName・template LogicalId・同target S3 linkを使い、file名から推測しない。sourceはinfra/cloudformation/artifacts内の既存fileのみ。directory、外部path、外へ逃げるsymlinkは禁止。複数Resourceの同source共有は可。対応はLambda Function.Code/LayerVersion.Contentの構築済ZIP、Glue Job.Command.ScriptLocation、StepFunctions StateMachine.DefinitionS3Location、ApiGateway RestApi.BodyS3Location。container/nested/Transform/未知propertyへ拡張しない。未宣言S3参照は配置済み参照として維持する。
 
@@ -163,7 +163,305 @@ Template配置ではバケットのModel/Region/暗号化/Policy/KMSを事前照
 
 ArtifactのexecutorにHeadBucket/Location/Encryption/Policy、ListBucket、GetObject（固定versionはGetObjectVersion）、PutObjectと必要KMS DescribeKey/暗号化/checksum取得権限、consumerの読取権限を設計する。自動付与しない。rollback用の過去artifactを自動削除せず、retention/lifecycleは明示設計による。status/URL/version/checksumをModel/Gitへ保存しない。
 
+## Direct AWS CLI deployment
+
+### Method and local lifecycle
+
+Select CLI explicitly before preparation; keep that choice on interruption/resume.
+The LLM invokes AWS CLI directly through its execution tool, reads each JSON result
+and chooses the next bounded operation. No Python subprocess wrapper, boto3/botocore
+API, Controller, SDK Scheduler/Journal or shared AWS lock participates. Do not add
+a shared backend/interface/state/lock or silently fall back to SDK. AWS CLI's own
+bundled implementation does not authorize importing its Python internals.
+
+Keep the Worktree Skill unchanged; repository development/setup is separate from
+the Deploy execution method. CLI AWS execution needs AWS CLI, not a Python SDK.
+Existing non-AWS Model/generation/validation/Git utilities remain usable. CLI Task
+completion uses the ordinary `task_contract.py --complete` local validator rather
+than SDK sealed progress/final-save receipts. Ordinary Worktree finalize validates
+the completed CLI candidate against the actual latest base before ff-only delivery.
+These local branches perform no AWS retrieval, submission, scheduling or recovery;
+the LLM remains responsible for all AWS decisions and unsettled-request tracking.
+Do not call SDK `sync`/`checkpoint`/`deploy-publish`, manufacture SDK receipts, edit
+lifecycle metadata or change the Task phase to complete CLI. SDK-bound lifecycle
+state cannot be converted to CLI; preserve the original Task and request evidence.
+
+### Preflight and fixed Snapshot
+
+1. Confirm AWS CLI v2 availability and required command options using local help.
+   Use the configured profile (omit only when genuinely unset), explicit target
+   Region and expected execution account under project configuration. Verify STS;
+   never change credentials after failure. A missing CLI/option or mismatched
+   profile/account/Region stops before mutation.
+2. Register/select the same infrastructure/deploy Task in its returned Worktree.
+   Confirm allowed AWS actions, exact StackNames, Model/View output paths and
+   destructive-change consent. Before fixing the Snapshot, record the following
+   Task context from the configured target and verified STS response; Partition
+   is the partition component of the caller ARN, not a guessed Region prefix.
+   Local Model reference projection checks account/Region and uses this confirmed
+   Partition without loading SDK endpoint metadata. Missing/mismatched fields stop.
+
+   ```md
+   - Deploy execution method: `cli`
+   - CLI AWS account: `<verified-execution-account>`
+   - CLI AWS region: `<configured-target-region>`
+   - CLI AWS partition: `<verified-caller-arn-partition>`
+   ```
+
+   Resolve StackName/template/parameters/DeployOrder/
+   MaxConcurrentStacks from authoritative stack properties, and verify generated
+   stack-design equality. Do not infer these from filenames or generated labels.
+3. Fix the start Snapshot: Task, project/target, desired Model/parts/references,
+   stack inventory, IaC, parameters and declared artifact bytes/file sets. Retain
+   a hash manifest and immutable execution copies outside the repository. Recheck
+   against those inputs before every mutation and after any interruption; only
+   authorized observation/View/status saves may differ. Preserve original hashes
+   across those saves; changes or missing evidence stop, never silently rebaseline.
+4. Decode templates/parameters with existing local, non-AWS utilities; check
+   required/default/unknown parameters, Conditions, Model ownership and CREATE-only
+   boundaries. ValidateTemplate does not validate supplied parameter values against
+   all constraints or replace local Model/provider-schema/mapping checks. Review
+   current scoped Stacks, resources, ChangeSets, Outputs and required Exports.
+   UNKNOWN is not ABSENT. `REVIEW_IN_PROGRESS` requires ChangeSet inspection.
+   Detect conflicting active/uncertain AWS operations before any new submission.
+
+Examples below use shell arrays (bash/zsh). Replace every placeholder with confirmed
+values; define the referenced IDs/paths/tokens only after the relevant checks. These
+are individual LLM operations, not a script to run through unattended. Keep JSON
+stdout, structured errors and exit status separate in private Task-local evidence
+outside Git. Do not display secret parameters, credentials or sensitive Outputs.
+
+```sh
+aws --version
+deploy_context=(--profile '<configured-profile>' --region '<target-region>' --output json --no-cli-pager)
+export AWS_CLI_ERROR_FORMAT=json
+aws "${deploy_context[@]}" sts get-caller-identity
+aws "${deploy_context[@]}" cloudformation describe-stacks --stack-name "$deploy_stack_name"
+aws "${deploy_context[@]}" cloudformation list-change-sets --stack-name "$deploy_stack_name"
+aws "${deploy_context[@]}" cloudformation list-stack-resources --stack-name "$deploy_stack_id"
+```
+
+Use automatic pagination for complete JSON inventories; never approve a truncated
+Changes list, exports, resources or events. A missing/failed page stops dependent
+decisions. Structured not-found for the exact identity may prove Stack absence;
+AccessDenied, generic ValidationError, non-JSON errors and timeout cannot. Pace reads
+within the existing API budgets (5 requests/s for scoped Stack/event/template/export
+reads, 1 request/s for ListImports), including CLI pagination/retries. Do not infer
+the SDK's in-process limiter protects direct CLI processes.
+
+### Order, dependencies and S3 delivery
+
+The LLM starts only the selected numeric DeployOrder group, ordered by StackName.
+Only independent same-Order Stacks may overlap, with RUNNING no greater than
+MaxConcurrentStacks; count existing accepted/uncertain requests against that limit.
+Reuse a free slot within that group. A failed Stack permits independent same-Order
+peers to continue but blocks dependent work and later Orders until required earlier
+attempts succeed. On authority/scope/concurrency violation, stop new starts and
+observe/drain active requests; do not abandon an accepted request. Serial execution
+is safe when independence or capacity cannot be proved.
+
+Resolve active `ImportValue` expressions with the local decoder and current
+parameters/Conditions. Perform the AWS side of Export resolution directly: known
+Producers use scoped DescribeStacks; unknown owners use only necessary complete
+ListExports discovery followed by scoped owner confirmation. Check actual values,
+owner StackId and success immediately before consumer Create and again at Execute.
+No out-of-scope producer deploy, guessed export or unresolved Transform/Condition.
+The SDK AWS-facing resolver is not a CLI backend.
+
+Apply [S3 deployment artifacts](#s3-deployment-artifacts) in full: same-Order artifact
+delivery then necessary template delivery must finish before Create/Execute. Fixed
+copies may replace only declared artifact keys/versions/URIs. Templates at most
+51,200 bytes may be inline; larger ones through 1 MiB require the designed S3
+destination. Validate and submit the exact same bytes or pinned URL. Never create
+buckets/permissions or build artifacts implicitly.
+
+For Artifact objects, directly inspect HeadBucket, GetBucketLocation, encryption,
+key-specific policy and, when applicable, KMS DescribeKey against approved Model.
+Stop for denied, unconfirmed, indeterminate or changed evidence. Template objects
+retain the existing exception: no bucket Model/Region/encryption/policy/KMS preflight
+and no SSE header. Both retain expected owner, checksum, size and version checks.
+This is a template-only upload example after proving the key is absent; for an
+Artifact add its exact designed SSE/KMS arguments. SHA256 is local hex for the key,
+Base64 for the checksum. Do not use ETag as a SHA256 substitute.
+
+```sh
+aws "${deploy_context[@]}" s3api head-object --bucket "$deploy_bucket" --key "$deploy_key" --expected-bucket-owner "$deploy_account" --checksum-mode ENABLED
+```
+
+Only after confirming absence and recording the fixed delivery intent:
+
+```sh
+AWS_MAX_ATTEMPTS=1 aws "${deploy_context[@]}" s3api put-object --bucket "$deploy_bucket" --key "$deploy_key" --body "$deploy_copy" --if-none-match '*' --checksum-sha256 "$deploy_checksum_base64" --expected-bucket-owner "$deploy_account"
+aws "${deploy_context[@]}" s3api head-object --bucket "$deploy_bucket" --key "$deploy_key" --expected-bucket-owner "$deploy_account" --checksum-mode ENABLED
+```
+
+Fresh HEAD must match checksum/size/required version and Artifact encryption before
+Create and Execute, including after approval/resume. Match 412 with a fresh HEAD;
+409/timeout require bounded reconciliation, never an unconditional overwrite. Do
+not use an old version's HEAD to prove a versionless current-key consumer. Retain
+the confirmed bucket/key/version/URL and input/copy hashes in private run evidence,
+never Model authority. Stop if policy/encryption/object evidence changes.
+
+### ChangeSet review and execution
+
+For a proven absent Stack use CREATE; for an eligible existing Stack use UPDATE.
+Pin StackId as soon as known. Preserve existing stack settings (including service
+role, capabilities, tags and rollback settings); include only confirmed required
+options. Never use IMPORT or `aws cloudformation deploy`, `create-stack` or
+`update-stack` to bypass explicit ChangeSet review. Do not execute a block of
+Create/Execute commands without examining the intervening responses.
+
+For an inline template, after local validation and required delivery:
+
+```sh
+aws "${deploy_context[@]}" cloudformation validate-template --template-body "file://$deploy_template_copy"
+```
+
+Inspect the returned Parameters/Capabilities. For S3 use `--template-url` with the
+verified pinned URL for both ValidateTemplate and Create instead of template-body.
+Record the unique ChangeSet name, Create client token and exact request/input digest
+before submitting. `$deploy_stack_selector` is the confirmed StackName only for a
+new CREATE and the pinned StackId for an existing Stack. Append required confirmed
+capabilities/role/tags only; do not add a blanket IAM capability.
+
+```sh
+AWS_MAX_ATTEMPTS=1 aws "${deploy_context[@]}" cloudformation create-change-set --stack-name "$deploy_stack_selector" --change-set-name "$deploy_change_set_name" --change-set-type "$deploy_change_set_type" --template-body "file://$deploy_template_copy" --parameters "file://$deploy_parameters_copy" --client-token "$deploy_create_token"
+```
+
+Inspect the returned StackId/ChangeSet Id; keep the original identities on a lost
+response. Poll the same ID until ChangeSet creation settles, with bounded waits:
+
+```sh
+aws "${deploy_context[@]}" cloudformation describe-change-set --stack-name "$deploy_stack_id" --change-set-name "$deploy_change_set_id"
+```
+
+Review the full Changes and input identity; execution requires `CREATE_COMPLETE`
+and `ExecutionStatus=AVAILABLE`. Under [Delete and replacement confirmation](#delete-and-replacement-confirmation),
+show every LogicalResourceId/ResourceType/PhysicalResourceId/Action/Replacement/
+PolicyAction, full content digest and known data/access/availability impact. Obtain
+Human approval for all unapproved Remove/Replacement=True/Conditional entries;
+unknown actions stop, partial approval cannot execute. Ordinary non-destructive
+changes do not require an additional uniform approval. No-change is accepted only
+when exact AWS reason and fixed-input comparison prove it, not for arbitrary
+`Status=FAILED` or an empty/incomplete Changes response.
+
+Immediately before Execute, re-fetch that same complete ChangeSet and Stack,
+compare all approved content, inputs/parameters and delivery/dependency evidence,
+check current Task/target/account/Region/authority and absence of competing operations.
+Expired/recreated/changed ChangeSets invalidate consent. Record the original Execute
+ClientRequestToken and submission intent before sending; do not generate a new token
+because a response was lost.
+
+```sh
+AWS_MAX_ATTEMPTS=1 aws "${deploy_context[@]}" cloudformation execute-change-set --stack-name "$deploy_stack_id" --change-set-name "$deploy_change_set_id" --client-request-token "$deploy_execute_token"
+```
+
+An exit 0/empty Execute response proves submission only. Inspect current StackStatus
+and root events scoped by original StackId/token, not a name or status suffix alone:
+
+```sh
+aws "${deploy_context[@]}" cloudformation describe-stacks --stack-name "$deploy_stack_id"
+aws "${deploy_context[@]}" cloudformation describe-stack-events --stack-name "$deploy_stack_id"
+```
+
+Report per-Stack SUCCESS/FAILED/BLOCKED/NOT_STARTED and current state separately.
+Confirm this operation's terminal evidence and current Outputs/Exports before
+success. CREATE_COMPLETE/UPDATE_COMPLETE predating Execute proves nothing about
+this attempt. Rollback is a failed attempt; UPDATE_ROLLBACK_COMPLETE may permit a
+later separately reviewed update, not automatic resubmission. ROLLBACK_COMPLETE,
+UPDATE_ROLLBACK_FAILED and other failed states retain AWS restrictions. Stop on
+failure requiring repair/Human action; do not delete, continue rollback, bootstrap,
+initialize secrets or redeploy successful Stacks automatically. SDK runtime cleanup
+and signed repair handoff are not available as CLI recovery shortcuts.
+
+### Interruption and independent recovery
+
+Retain Task-local input manifest, original request arguments/digests, StackId,
+ChangeSet name/ID, Create/Execute tokens, reviewed contents/consent and raw AWS
+responses privately outside Git. These are CLI evidence, not SDK Journal/progress
+or new cross-method coordination. Never persist credentials or secret values.
+
+On resume recheck fixed inputs and caller context, then directly read StackStatus,
+ChangeSet Status/ExecutionStatus, complete root Stack Events and matching
+ClientRequestToken, plus any unfinished operation. For a lost Create response,
+inspect the original unique ChangeSet name and Stack, rather than create another.
+For a lost Execute response, reconcile the original ChangeSet and original token
+events before considering anything else. IN_PROGRESS means observe, not resend.
+An old COMPLETE, AVAILABLE, ChangeSetNotFound, timeout or absence of an event alone
+does not settle an uncertain submission. Missing identity/evidence, incomplete
+reads, a replaced Stack or uncertain outcome stops new mutation and retains tracking.
+Never unconditionally reissue the change or recover via SDK Journal/Controller.
+
+Concurrent SDK/CLI mutations of the same Stack are outside the guarantee; there is
+no shared lock. Detect a competing active ChangeSet execution/Stack operation,
+unexpected identity/content or token events and stop new CLI mutations. Drain only
+requests proven to be this Task's. Absence of visible conflict is not atomic exclusion.
+
+### Observations, validation and publication
+
+Keep AWS result, current Stack, Model save, View generation, Snapshot Validation,
+Git publication and Task status independent. A successful AWS deploy cannot turn
+missing/failed local work into PASS; a failed attempt may have a consistent saved
+Snapshot. Active/uncertain requests retain tracking and prevent Task completion.
+
+Direct CLI DescribeStacks/ListStackResources and needed scoped resource reads
+collect Outputs/PhysicalResourceId under existing observation rules. Match explicit
+cfn-logicalId, formal types, active Conditions and Rows. Only approved primary-ID
+fallbacks are allowed; hidden/generated ARNs, IMPORT identities and secrets are
+not persisted. Confirmed uncreated/deleted uses PENDING_DEPLOY; unavailable means
+remove the old observed Row value, never UNKNOWN/lastKnownValue. Retain/DELETE_SKIPPED
+does not prove destruction. Account for every required resource/Row and incoming
+reference before saving; stop for ambiguous or out-of-scope writes.
+
+Existing non-AWS functions `model.observed.observed_outputs` and
+`publish_observed_candidates` can prepare/publish the exact observed-only candidate
+with fixed input bytes, explicit Row allowlist and the real Task/publication guard.
+Do not replace them with direct properties writes. They are local Model utilities,
+not an AWS executor. Generate affected Views through `sync-model.py`; run the
+existing scoped Snapshot/Task validator and task loop as required by Validation
+policy. Preserve Desired/reference/placement metadata, unknown absence and permitted
+bytes; never save runtime projections as authority. A generation failure retains
+the Model and successful Views and blocks completion for stale required Views.
+
+After the LLM confirms all AWS requests settled and every required observation,
+View and scoped task-loop check succeeded, complete through the local Task validator:
+
+```sh
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete
+python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id>
+```
+
+The CLI completion branch requires its own managed Task without SDK-bound identity;
+it does not require SDK progress or receipts and cannot convert a running SDK Task.
+The completed Model/View/Task candidate is checked against the actual latest local
+base before guarded ff-only delivery. CLI publication does not support `--create-pr`
+or a validation-failure bypass. Preserve pending/conflicted candidates for Human
+review; never force or silently resolve a conflict. While AWS is active/uncertain or
+approval is pending, do not invoke completion; Python local validation cannot prove
+AWS success or that the LLM has finished tracking requests.
+
+Report Model/View/Validation/Git/Task at their actual stage. On a local failure,
+retain the exact candidate, inspect current Git/Task state and use the existing
+same-Task recovery/finalize path only when safe. Do not invoke SDK `sync`,
+`checkpoint`, signed checkpoint internals or `deploy-publish`, or write SDK progress/
+receipts. Never use a Git/save failure as cause to redeploy. Intermediate Model saves
+keep Task running; the LLM chooses saving and finalization times, without a Python
+Scheduler or background writer.
+
+AWS command arguments follow the official CLI references for
+[CreateChangeSet](https://docs.aws.amazon.com/cli/latest/reference/cloudformation/create-change-set.html),
+[DescribeChangeSet](https://docs.aws.amazon.com/cli/latest/reference/cloudformation/describe-change-set.html),
+[ExecuteChangeSet](https://docs.aws.amazon.com/cli/latest/reference/cloudformation/execute-change-set.html),
+[PutObject](https://docs.aws.amazon.com/cli/latest/reference/s3api/put-object.html) and
+[HeadObject](https://docs.aws.amazon.com/cli/latest/reference/s3api/head-object.html).
+
 ## Independent controller runs and execution timing
+
+This section's Controller commands, Scheduler, shared AWS request records/locks,
+sealed progress, SDK repair handoff and receipts describe the existing **SDK method**.
+They are not CLI execution/recovery dependencies. The fixed-input Snapshot,
+Model/Observed/View, Validation and Git integrity requirements still apply to CLI;
+its independent procedure and non-AWS completion path are defined above.
 
 ### LLM-controlled short operations
 

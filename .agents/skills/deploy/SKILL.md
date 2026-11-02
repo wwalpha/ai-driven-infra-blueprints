@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Use for independent authorized infrastructure deployment, unfinished AWS operation recovery and a one-shot external Implement handoff.
+description: Use for authorized infrastructure deployment through the existing SDK controller or independent LLM-direct AWS CLI procedures, unfinished operation recovery and the SDK one-shot Implement handoff.
 ---
 
 Independent Deploy automatically uses a managed Worktree; the Human need not invoke `/worktree` separately. Resolve the Task ID and Target, follow the existing [permission inspection and continuation procedure](../worktree/SKILL.md#sandbox-permission-approval-and-continuation), then run the official lifecycle entrypoint from a surviving repository root:
@@ -15,7 +15,20 @@ Read `framework/prompts/codex/04_deploy.md` in full and follow its AI judgment a
 
 For large CloudFormation templates, `templateBucket` may name an existing bucket directly or use a same-target S3 Model reference. Template placement skips bucket preflight and retains object integrity and resume checks; Artifact bucket requirements remain unchanged. See [S3 deployment artifacts](../../../framework/rules/cloudformation.md#s3-deployment-artifacts).
 
-Use the existing Python entrypoints' `--help` for execution, registration, approval, Recovery and one-shot Implement handoff. Follow the prompt's Read section to read applicable Rules directly before each phase. Rules remain authoritative for safety; the prompt is not a Deploy execution input.
+## Select the execution method
+
+Before preparation or AWS access, declare `Deploy execution method` as the backticked value `sdk` or `cli` in `## Task contract`. Follow an explicit Human choice; otherwise the LLM chooses and reports it (existing invocations without the field retain SDK). The methods are independent. Never switch a CLI Task automatically to SDK, including for recovery, observations or publication. An SDK-bound Task cannot become a CLI Task.
+
+- **SDK**: Python Controller + boto3, using the existing `cloudformation-deploy.py` procedures below. Keep all existing behavior.
+- **CLI**: the LLM runs `aws` directly in its execution tool and decides each next operation from AWS JSON. Read [Direct AWS CLI deployment](../../../framework/rules/cloudformation.md#direct-aws-cli-deployment) and the prompt's CLI section. Do not invoke the Controller, its `sync`/`checkpoint`, SDK Preparation, Scheduler, Journal or AWS locks. Do not call AWS CLI from Python, import boto3/botocore, or add an AWS backend, common interface, common state or common lock. AWS CLI v2 is the AWS runtime; no separate Python SDK installation or SDK receipt is required for this execution path. Local observation, generation, validation, Task completion and Git utilities perform no AWS operations; use the CLI Task's confirmed account/Region/Partition for local Model references.
+
+Both methods retain Task authority, account/profile/Region, ChangeSet approval, DeployOrder/concurrency, fixed Snapshot, S3 integrity and existing Model/Validation/publication semantics. SDK and CLI concurrent mutation of the same Stack is outside the guarantee; stop CLI mutations on detected competing operations. No method selection authorizes AWS access in a governance task.
+
+CLI sequence: confirm CLI/context/Task and fixed inputs → inspect scoped Stacks and dependencies → validate inputs and deliver declared objects → create/read the complete ChangeSet → obtain required destructive-change consent → recheck and execute that exact ChangeSet → inspect current Stack/events → synchronize permitted observations and validate/publish through existing non-AWS utilities. Resume by current AWS identity/token evidence; stop on ambiguity. After all requests settle and required saves/checks pass, use `task_contract.py --complete`, then ordinary Worktree `finalize`; the CLI branch validates the actual latest-base candidate without SDK progress/receipts. Do not use SDK `deploy-publish` or PR publication for this path.
+
+## SDK execution
+
+Use the existing Python entrypoints' `--help` for SDK execution, registration, approval, Recovery and one-shot Implement handoff. Follow the prompt's Read section to read applicable Rules directly before each phase. Rules remain authoritative for safety; the prompt is not a Deploy execution input. The Controller commands, shared request records and locks, sealed progress, repair handoff and final-save procedures below apply only to SDK execution.
 
 Keep current Task/Target authority, immutable inputs, Human approval and AWS/Observed/generation completion distinct. A missing or null nextAction command requires review, never an inferred retry. [Managed Deploy snapshot and Git publication](../../../framework/rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) owns Deploy baseline checks, sealed progress, per-Stack checkpoints and Git-only conflict recovery. Worktree retains lifecycle/setup, repair-child validation and guarded cleanup. Do not expand into other phases or automatically chain unlimited independent Deploy attempts.
 

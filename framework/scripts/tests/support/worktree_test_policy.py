@@ -7,6 +7,17 @@ from pathlib import Path
 
 # Reviewed Worktree responsibilities, not a filename convention. Exact cases are checked.
 WORKTREE_CASES = {
+    "units/cli-deploy-local.checks.py": (
+        "check_explicit_method",
+        "check_completion_uses_local_validator",
+        "check_sdk_completion_route_is_unchanged",
+        "check_reference_projection_without_sdk",
+        "check_publication_validates_actual_latest_base",
+        "check_cli_completion_preserves_authority",
+        "check_cli_finalize_checks_even_zero_delta",
+        "check_cli_pr_refused_before_publication",
+        "check_local_imports_without_sdk",
+    ),
     "units/deploy-contract-correction-unit.checks.py": (
         "check_correction_and_resume_preserve_execution",
         "check_authority_changes_refused",

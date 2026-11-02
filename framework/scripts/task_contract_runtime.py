@@ -90,6 +90,7 @@ from task_contract_core import task_snapshot as task_snapshot
 from task_contract_core import validate_contract as validate_contract
 from task_contract_core import verify_contract_reads as verify_contract_reads
 from task_contract_core import verify_snapshot as verify_snapshot
+from utils import cli_deploy
 from utils.cloudformation.inputs import Blocked as DeployBlocked
 from validation import acceptance
 from validation.findings import Findings
@@ -191,6 +192,8 @@ def refresh(root, name, resuming=False):
 
 def complete(root, name):
     snapshot = task_snapshot(root, name, executable=False, live=True)
+    if cli_deploy.is_cli(snapshot.text):
+        return complete_selected(root, name)
     if deploy_worktree.is_deploy(snapshot.text):
         lifecycle = deploy_worktree.require(root, snapshot)
         if lifecycle.get("deployIdentity"):
@@ -206,8 +209,11 @@ def complete_selected(root, name):
     with task_reads(root, snapshot=snapshot):
         if status(text) != "running":
             raise ValueError("only a running task can complete")
-        deploy_worktree.prepare_complete(root, snapshot)
-        deploy_worktree.require_complete(root, snapshot)
+        if cli_deploy.is_cli(text):
+            cli_deploy.require_local_completion(root, snapshot)
+        else:
+            deploy_worktree.prepare_complete(root, snapshot)
+            deploy_worktree.require_complete(root, snapshot)
         if "- Workflow: `import`" in section(text, "## Task contract"):
             check_import(root, name)
             verify_snapshot(snapshot)

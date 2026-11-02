@@ -6,7 +6,7 @@
 
 承認済みIaCをTask範囲でDeployし、AWS・Observed・生成物を確認する。Human指定のenvironment・Target・Region/profile・StackName・service IDsを確定し、`project.json`の同一Targetと`tasks/<task-name>.md`を確認する。認証失敗時に別credentialへ切り替えない。DeployはIaC、意図した設計、scenarioを変更しない。
 
-CloudFormationは現在入力とAWS実状態から独立実行する。現在Taskを明示選択し、type/phase/status、AWS許可、Deployment scopeと出力Allowed pathsの不足は停止する。実行・案内はPython CLI、権限と安全制約はRulesを正本とする。
+CloudFormationは現在入力とAWS実状態から独立実行する。現在Taskを明示選択し、type/phase/status、AWS許可、Deployment scopeと出力Allowed pathsの不足は停止する。開始時にSDK方式またはCLI方式を明示し、Human指定があれば従い、指定がなければLLMが選択して報告する。既存呼出しはSDK方式を維持できる。SDKは既存Python Controller+boto3、CLIはLLMの実行ツールから直接AWS CLIを使う独立経路とし、途中・再開・保存障害で自動切替しない。権限と安全制約はRulesを正本とする。
 
 ## Read before changing files
 
@@ -19,7 +19,24 @@ AGENTSのセクション読込規則に従い、各段階の操作前に原本�
 - 該当時は操作前に[Delete and replacement confirmation](../../rules/cloudformation.md#delete-and-replacement-confirmation)、[S3 deployment artifacts](../../rules/cloudformation.md#s3-deployment-artifacts)、[Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair)、[Independent controller runs and execution timing](../../rules/cloudformation.md#independent-controller-runs-and-execution-timing)を読む。
 - Terraformは[Terraform Rules](../../rules/terraform.md)、[Properties format](../../rules/model-information.md#properties-format)、[Local loop](../../rules/loop-engineering.md#local-loop)と上記共通のTask・Model・Observed・完了条件を読む。
 
+CLI選択時はさらに[Direct AWS CLI deployment](../../rules/cloudformation.md#direct-aws-cli-deployment)を操作前に全て読む。上のSDK Controller専用実装手順はCLIへの呼出し命令ではない。共通の安全要件・Snapshot・Model正本・Observed・Validation・Gitの意味を維持し、AWS取得/変更は直接CLIで行う。次節から「Unfinished AWS operation recovery」までのController/Preparation/共有要求記録の手順、およびExternal IaC repair handoffと最終保存のSDK手順はSDK方式に限定する。
+
+## Direct AWS CLI method
+
+RulesのCLI手順を正本とし、各AWS JSON応答と終了コードを確認してからLLM自身が次の操作を決める。`cloudformation-deploy.py`の全action、SDK Preparation、boto3/botocore呼出し、PythonからのAWS CLI起動、SDK Scheduler/Journal/共有AWS排他は使わない。共通backend/interface/Journal/lockを作らない。
+
+1. `aws --version`、必要option、Task、Profile/Region/Accountを確認し、`aws sts get-caller-identity`で認証する。IaC/parameters/artifact/Model/Taskの開始Snapshotを固定し、Stack/依存・DeployOrder/MaxConcurrentStacksを確認する。AWS CLI runtimeはPython SDKの別途導入を要求しないが、CLI Taskに確認済みAccount/Region/Partitionを宣言し、ローカルModel参照でもSDKメタデータを使わない。
+2. 対象だけを`describe-stacks` / `list-change-sets` / `list-stack-resources`で確認する。固定Template/Parametersをローカル検証し、必要S3 objectを規則どおり配置・再確認する。`validate-template`にはCreateと同じ固定bytes/URLを渡す。
+3. 元tokenと送信意図を先に保持して`create-change-set`する。`describe-change-set`で作成完了と全Changes/入力を確認し、未承認Remove/Replacement=True/ConditionalはHumanの全体承認を待つ。ChangeSet確認前のExecuteや`aws cloudformation deploy`による迂回は禁止する。
+4. 同じStackId/ChangeSetIdの状態・承認内容・固定入力・配送/依存・競合を直前再確認し、元ClientRequestTokenで`execute-change-set`する。各Stackの`describe-stacks`と`describe-stack-events`を直接取得し、今回tokenのroot eventsと現在状態から成功/失敗/rollback/未確定を区別する。送信成功はDeploy成功ではない。
+5. LLMが同Orderの独立Stackだけを並列上限内で進める。失敗時は後Orderを進めず、停止が必要な場合も受付済み要求を追跡する。中断時は元Stack/ChangeSet/token、全eventsと未完了操作を再確認する。応答喪失を理由に無条件再送せず、証拠不足/他主体の競合で停止する。SDKとの同一Stack同時変更は保証しない。
+6. 現在Outputs/Physical IDを直接取得し、既存の非AWS Model writerで許可されたobserved Rowだけ保存する。View生成、Snapshot Validation、最新base候補検証、Git publication、Task完了を別々に判定する。SDK `sync`/`checkpoint`は代用しない。全AWS要求の確定と必要な保存・生成・scoped task loopの成功後に`task_contract.py --complete`、通常のWorktree `finalize`を使用する。CLI分岐はSDK進捗・証跡を要求せず、completedを含む実際の最新base候補を検証して公開する。SDK-bound TaskをCLIへ変換しない。
+
+CLIでrollback/delete/bootstrapや署名付きSDK修復handoffを推測で実行しない。安全に復旧できないときはAWS現在状態・元要求・不足証拠・必要なHuman判断を報告して停止する。AWS成功後の保存/生成/Git障害を理由に再Deployしない。実行例と全停止条件はRulesのCLI節に集約する。
+
 ## CLI entrypoints
+
+ここからのPython CLI entrypointは既存SDK方式用。直接AWS CLI方式は前節とRulesの実行例を使用する。
 
 Worktreeでは登録済み共通Pythonをwrapperで使用する。同じPython・PATH/PYTHONPATHを維持し、別Pythonで依存不足を回避しない。
 
@@ -35,6 +52,8 @@ Helpの例示Target・パス・IDは今回の確定値へ置換する。JSONの`
 Preparationはoffline。AIが契約候補と出力範囲を確認してから登録する。登録済みWorktreeでは起動先は短時間の`--action advance`。認証、Stack対応、入力検証、AWS取得、Observed同期・生成は既存Pythonを使い、AIが同種の処理を再実装しない。
 
 ## LLM-controlled Stack checkpoints
+
+この節はSDK方式専用。
 
 同じ Task・Target・完全な `--stack` 範囲を使い、LLM が操作を選ぶ。
 
@@ -52,6 +71,8 @@ Git PENDING/CONFLICT は AWS 結果と独立する。保存済み commit のみ�
 Sub Agent、Model 背景 writer、固定間隔同期、Python によるエージェント制御は使わない。同じ Worktree の入力を保存中に編集しない。`--action` を明示し、状態確認には `status`、保存・公開には `sync` / `checkpoint` を選ぶ。
 
 ## Correct this Task's preparation omissions
+
+この節はSDK方式で固定済みの契約訂正専用。CLI方式の不足証拠をSDK progressで補わない。
 
 固定後の契約訂正は[Self recovery](../../rules/task-contract.md#self-recovery)と
 [Deploy correction conditions](../../rules/cloudformation.md#managed-deploy-contract-correction)を読む。
@@ -82,6 +103,8 @@ AWS再実行やTask完了は訂正の結果として行わない。元契約原�
 
 ## Unfinished AWS operation recovery
 
+この節の共有要求記録・ロック・ResolverはSDK方式専用。CLIはRulesの独立した再開手順で同じ現在AWS/identity要件を確認する。
+
 通常開始・再開は対象 Stack の最新 AWS 状態を先に取得する。旧 Task、mode、StackStatus、expectedOutputs、Observed、checkpoint/Git、特定の修復経路の証明は現在状態の採用・次の試行の条件にしない。UPDATE_COMPLETE だけで今回の Desired 適用済みとは判断せず、固定入力から ChangeSet を判定する。
 
 共有記録は account/Region/StackName ごとの現在の未確定要求だけ。送信直前に同一 Stack ロック下で intent を保存し、応答喪失時は元の StackId・ChangeSetId・token を維持する。直前 Execute が不確定なら、単一の古い COMPLETE 読み取りで新 token の Execute を許可しない。現在 ChangeSet・token event を確認し、AWS 要求が決着したら Model/Git を待たず記録を終了する。破損時は当該 Stack の新しい変更だけを保留し、独立 Stack や Model 保存・Git 統合を止めない。
@@ -92,6 +115,8 @@ REVIEW_IN_PROGRESS は ChangeSet と合わせて判断する。UPDATE_ROLLBACK_C
 Export は共通 Resolver で必要名だけを解決する。既知 Producer は scoped DescribeStacks、未知だけ必要な ListExports を使う。古い Task の Outputs 一致を現在値保存条件にしない。同期や Git 障害を理由に AWS を再実行しない。
 
 ## External IaC repair handoff
+
+この署名付きhandoffはSDK方式専用。CLI失敗からSDK証跡を作り直す経路ではない。
 
 [Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair)と[Worktree repair lifecycle](../../../.agents/skills/worktree/SKILL.md#explicit-cloudformation-repair-handoff)が権限・ライフサイクルの正本。CloudFormationの現在Taskに`External IaC repair: allowed`がある場合だけ、今回の署名付き失敗証拠、正確なIaCと承認済Modelから原因を診断する。`repairFailure`の存在は修復の証明ではない。
 
@@ -110,6 +135,8 @@ AWS変更/No Change、Stack別SUCCESS/FAILED/BLOCKED/NOT_STARTED、未反映Outp
 Deploy 結果、現在 Stack 状態、Model 保存、Snapshot 検証、commit・merge、Task 状態を別々に報告する。PUBLICATION_PENDINGはAWS失敗ではなくGitのHuman判断/反映待ちであり、成功Stackを再Deployしない。AWS完了だけでTask全体の完了を報告しない。Task scope/Acceptanceと許可差分を確認し、[Validation policy](../../rules/loop-engineering.md#validation-policy)の最終検証と全保存/反映の成功後にのみTask完了とする。通常Deployはscoped task loopを使う。offline UTから実AWS成功を主張せず、次phase・scenarioを開始しない。
 
 ## 最終保存
+
+以下はSDK方式専用。CLI方式はRulesの非AWS保存・検証・完了・通常finalize手順に従い、これらのController actionへ切り替えない。
 
 LLMがTask終了を決めたときだけ、managed CloudFormationの `--action sync --final` を使う。
 完全な `--stack` はTask Scopeのまま、 `--sync-stack` は今回観測・保存する対象だけを指定する。

@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import task_contract_core as tasks
 import worktree_python as python_env
 import worktree_state
+from utils import cli_deploy
 from utils.file_operations import sha
 from utils.import_evidence import discard_import_proof
 from utils.script_loader import module
@@ -509,7 +510,13 @@ def cleanup(where, task_id):
 
 
 def _run_model_guard(
-    target, task_file, approved=False, *, sources=None, deploy_scope=False
+    target,
+    task_file,
+    approved=False,
+    *,
+    sources=None,
+    deploy_scope=False,
+    validation_base=None,
 ):
     runtime = python_env.runtime(target)
     if runtime is None:
@@ -545,10 +552,14 @@ def _run_model_guard(
         "        from validation.runner import Validator\n"
         "        validator = Validator(root, tasks.active_scope(root, task_file=sys.argv[1]), cache=False, model_validation='change')\n"
         "        validator.run()\n"
-        "        if validator.display_report(): raise ValueError('Task Acceptance FAIL; no integration')",
+        "        if validator.display_report(): raise ValueError('Task Acceptance FAIL; no integration')\n"
+        "    if len(sys.argv) > 4:\n"
+        "        from utils.cli_deploy import validate_candidate\n"
+        "        validate_candidate(root, sys.argv[1], sys.argv[4])",
         task_file,
         "approved" if approved else "normal",
         serialized_sources,
+        *([validation_base] if validation_base is not None else []),
     ]
     result = subprocess.run(
         command,
@@ -922,6 +933,18 @@ def finalize(
     where, task_id, human_approved_validation_failure=None, *, create_pr=False
 ):
     root, _, path, state = load(where, task_id)
+    if (
+        create_pr
+        and not (
+            state.get("deployIdentity") or state.get("deployRepair") or state["merged"]
+        )
+        and cli_deploy.is_cli(
+            tasks.read_task_snapshot(
+                Path(state["worktree"]), state["task_file"], live=True
+            ).text
+        )
+    ):
+        raise Blocked("PR publication is unavailable for Deploy tasks")
     if state.get("deployIdentity") or state.get("deployRepair") or state["merged"]:
         if create_pr:
             raise Blocked(
@@ -1022,13 +1045,19 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
             target, "diff", "--name-only", "--no-renames", "-z", latest, expected
         )
         contract = tasks.read_task_snapshot(target, state["task_file"], live=True).raw
+        direct_cli = cli_deploy.is_cli(contract.decode("utf-8"))
         if (
             any(p.startswith("model/") or p == "project.json" for p in model_paths)
             or b"- Workflow: `import`" in contract
             or b"## Out-of-task FAIL approvals" in contract
+            or direct_cli
         ):
             _run_model_guard(
-                target, state["task_file"], bool(approval), sources=model_paths
+                target,
+                state["task_file"],
+                bool(approval),
+                sources=model_paths,
+                **({"validation_base": latest} if direct_cli else {}),
             )
             if (
                 output(target, "rev-parse", "HEAD") != expected

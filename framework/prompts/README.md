@@ -142,7 +142,7 @@ Implementation scope:
 
 - Description: Deploy/apply created/validated IaC to authorized target AWS accounts; authoritative IaC changes belong to a separately verified implement Task, integrated through a one-shot verified handoff before an independent new Deploy.
 - Timing: IaC from `03_implement.md` is confirmed and target IaC has no uncommitted changes.
-- How to use: Pass environment, alias when present, AWS account, deployment scope, permitted delete/replacement, and AWS profile if needed. Perform preflight, change set/plan checks, execution, completion confirmation, and necessary observed value updates.
+- How to use: Pass environment, alias when present, AWS account, deployment scope, permitted delete/replacement, and AWS profile if needed. For CloudFormation, explicitly select the existing SDK Controller or the independent LLM-direct AWS CLI procedure; no automatic fallback. Perform preflight, change set/plan checks, execution, completion confirmation, and necessary observed value updates. Follow the [CLI local lifecycle](../rules/cloudformation.md#method-and-local-lifecycle) for confirmed execution context, ordinary local completion and actual latest-base validation without SDK progress/receipts. Keep AWS outcome separate from local publication; do not report unexecuted checks as success.
 
 Usage example:
 

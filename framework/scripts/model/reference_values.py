@@ -6,6 +6,7 @@ from functools import lru_cache
 from typing import Literal
 
 from design.services.definitions.registry import POLICY_FORMATS
+from utils import cli_deploy
 from utils.arn_components import ARN_COMPONENTS
 from utils.arn_values import context_value, generated_attribute, named_arn
 from utils.aws_sdk import aws_runtime
@@ -381,7 +382,8 @@ class ProducerValues:
         fields = identifier if isinstance(identifier, dict) else {identifier: "id"}
         target = self.resolver.target(self.snapshot.scope)
         pseudo = {
-            "AWS::Partition": partition_for(target.get("awsRegion")),
+            "AWS::Partition": cli_deploy.partition(self.resolver.root, target)
+            or partition_for(target.get("awsRegion")),
             "AWS::Region": target.get("awsRegion"),
             "AWS::AccountId": target.get(
                 "awsExecutionAccountId", target.get("awsAccountId")
