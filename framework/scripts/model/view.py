@@ -3,9 +3,13 @@
 from copy import deepcopy
 from functools import cached_property
 
+from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
+
 from model.configuration import ConfigurationIndex
 from model.core import SnapshotValues, entries, resource_row_index, structural_entries
 from model.format import owner
+from model.identity import display_anchor, resource_index
+from model.reference_nodes import parse
 from model.sources import ModelSnapshot
 
 
@@ -46,6 +50,44 @@ class ModelView:
 
     def all_artifacts(self):
         return entries(self._values, "desired.artifact.")
+
+    def resource_groups(self, grouped_types):
+        """Resolve parent ownership for the caller-selected grouped Resource types."""
+        resource_index(self._values)
+        self.row_index()
+        resources = dict(self.resources())
+        if not resources:
+            raise ValueError("Resource ownership unavailable")
+        anchors = {}
+        for identity, resource in resources.items():
+            anchor = display_anchor(resource)
+            if anchor in anchors:
+                raise ValueError("duplicate Model Resource anchor: " + anchor)
+            anchors[anchor] = identity
+        parents = {}
+        for identity, resource in resources.items():
+            if resource[RESOURCE_TYPE_KEY] not in grouped_types:
+                continue
+            parent = parse(resource.get("parentReference"))
+            candidates = [
+                rid
+                for rid, item in resources.items()
+                if item[RESOURCE_LOGICAL_ID_KEY] == parent.logical_id
+            ]
+            if len(candidates) != 1:
+                raise ValueError("grouped parent ownership unavailable: " + identity)
+            parents[identity] = candidates[0]
+        groups = {}
+        for identity in resources:
+            parent = identity
+            seen = set()
+            while parent in parents:
+                if parent in seen:
+                    raise ValueError("cyclic grouped parent ownership: " + identity)
+                seen.add(parent)
+                parent = parents[parent]
+            groups.setdefault(parent, set()).add(identity)
+        return resources, groups
 
     def rows(self, resource_id):
         return deepcopy(self._index.resource_rows(resource_id))

@@ -108,6 +108,38 @@ def check_structural_and_orphan_errors_remain_separate():
         orphan.row_index()
 
 
+def check_grouped_resources_preserve_order_errors_and_isolation(tmp_path):
+    scope, values = format_fixture(tmp_path)
+    values.update(
+        {
+            "desired.service.identity.lastAllocated": '{"EC2.VPC":1,"EC2.Subnet":1}',
+            "desired.resource.child.resourceType": "EC2.Subnet",
+            "desired.resource.child.logicalId": "EC2_Subnet_001",
+            "desired.resource.child.anchor": "child",
+            "desired.resource.child.parentReference": '{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}',
+        }
+    )
+    original = dict(values)
+    view = ModelView(values)
+    resources, groups = view.resource_groups({"EC2.Subnet"})
+    assert list(resources) == ["007", "child"]
+    assert groups == {"007": {"007", "child"}}
+    resources["007"].clear()
+    groups["007"].clear()
+    assert view.resource_groups({"EC2.Subnet"})[1] == {"007": {"007", "child"}}
+    assert values == original
+    values["desired.resource.child.parentReference"] = (
+        '{"$modelRef":{"logicalId":"EC2_VPC_999","attribute":"VpcId"}}'
+    )
+    with pytest.raises(ValueError, match="grouped parent ownership unavailable: child"):
+        ModelView(values).resource_groups({"EC2.Subnet"})
+    values["desired.resource.child.parentReference"] = (
+        '{"$modelRef":{"logicalId":"EC2_Subnet_001","attribute":"SubnetId"}}'
+    )
+    with pytest.raises(ValueError, match="cyclic grouped parent ownership: child"):
+        ModelView(values).resource_groups({"EC2.Subnet"})
+
+
 if __name__ == "__main__":
     from support.pytest_cli import run
 

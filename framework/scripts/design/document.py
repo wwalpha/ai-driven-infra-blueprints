@@ -17,7 +17,6 @@ from pathlib import Path
 from threading import RLock
 
 import model.display as _model_display
-import model.format as _model_format
 import model.identity as _model_identity
 import model.projection as _imports_model_projection
 import model.references as _model_references
@@ -27,7 +26,6 @@ import validation_scope as _dependency_validation_scope
 from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
 from contracts.repository import DESIGNS_DIRECTORY
 from model.core import SnapshotValues
-from model.reference_nodes import parse
 from task_contract_core import task_read_scope
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text, memoized
@@ -272,7 +270,8 @@ def _normalized_reference_tables(
 def _resource_selections(
     source: SnapshotValues, groups: Mapping[str, set[str]]
 ) -> dict[str, SnapshotValues]:
-    owned = {key: _model_format.owner(key, source) for key in source}
+    view = _model_api.ModelView(source)
+    owned = {key: view.owner(key) for key in source}
     parents = {
         member: parent for parent, members in groups.items() for member in members
     }
@@ -326,41 +325,7 @@ def resource_blocks(lines):
 
 def model_resource_groups(path, source):
     """Use Model ownership and grouped-parent addresses, never diagnostic prose."""
-    _model_identity.resource_index(source)
-    _model_api.ModelView(source).row_index()
-    resources = dict(_model_api.ModelView(source).resources())
-    if not resources:
-        raise ValueError("Resource ownership unavailable")
-    anchors = {}
-    for identity, resource in resources.items():
-        anchor = _model_identity.display_anchor(resource)
-        if anchor in anchors:
-            raise ValueError("duplicate Model Resource anchor: " + anchor)
-        anchors[anchor] = identity
-    parents = {}
-    for identity, resource in resources.items():
-        if resource[RESOURCE_TYPE_KEY] not in GROUPED:
-            continue
-        parent = parse(resource.get("parentReference"))
-        candidates = [
-            rid
-            for rid, item in resources.items()
-            if item[RESOURCE_LOGICAL_ID_KEY] == parent.logical_id
-        ]
-        if len(candidates) != 1:
-            raise ValueError("grouped parent ownership unavailable: " + identity)
-        parents[identity] = candidates[0]
-    groups = {}
-    for identity in resources:
-        parent = identity
-        seen = set()
-        while parent in parents:
-            if parent in seen:
-                raise ValueError("cyclic grouped parent ownership: " + identity)
-            seen.add(parent)
-            parent = parents[parent]
-        groups.setdefault(parent, set()).add(identity)
-    return resources, groups
+    return _model_api.ModelView(source).resource_groups(GROUPED)
 
 
 @task_read_scope(root=_task_root)

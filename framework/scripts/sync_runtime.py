@@ -36,7 +36,6 @@ from model.projection import resource_row_scope
 from model.render import generate_files as generate_files
 from model.render import render_validated_model as markdown_for
 from model.sources import (
-    _publish_transaction,
     load_model,
     model_exists,
     publication_lock,
@@ -87,6 +86,7 @@ from validation.findings import FindingsError
 from validation_scope import scoped_files
 
 import model as _model_api
+from model import publish_transaction as _publish_transaction
 
 
 def generation_failure(

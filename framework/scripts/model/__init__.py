@@ -10,6 +10,8 @@ import model.sources as _sources
 from model.sources import list_models as list_models
 from model.sources import load_model as load_model
 
+# Callers retain publication_lock, authorization and fixed-input checks.
+publish_transaction = _sources._publish_transaction
 invocation_reads = _sources._invocation_reads
 load_model_in_session = _sources._load_model
 read_source_in_session = _sources._read_source_snapshot

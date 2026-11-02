@@ -48,7 +48,6 @@ from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
 from design.services.ec2.security_groups import security_group_table_lines, table_at
 from design.services.macie import job_bucket_tables
 from model.core import ReferenceDiagnosticError, ReferenceResolutionError, literal
-from model.core import entries as entries
 from model.literal_values import literal_errors as row_literal_errors
 from model.projection import bound_resource_anchors, is_import_expression
 from model.reference_nodes import nodes
