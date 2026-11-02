@@ -1190,6 +1190,13 @@ def check_pr_remote_base(tmp_path, change):
     )
 
 
+def _pr_integration_git(failure, root, *args, **kwargs):
+    failed = (failure == "rewrite" and "--is-ancestor" in args) or (
+        failure == "conflict" and "merge-tree" in args
+    )
+    return SimpleNamespace(returncode=int(failed), stdout="", stderr="")
+
+
 def _check_pr_integration_guard(tmp_path, failure):
     text = contract("example", ["file.txt"])
     base, candidate, old = "a" * 40, "b" * 40, "c" * 40
@@ -1206,12 +1213,6 @@ def _check_pr_integration_guard(tmp_path, failure):
         ),
     )
 
-    def run_git(root, *args, **kwargs):
-        failed = (failure == "rewrite" and "--is-ancestor" in args) or (
-            failure == "conflict" and "merge-tree" in args
-        )
-        return SimpleNamespace(returncode=int(failed), stdout="", stderr="")
-
     with (
         patch.object(
             wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", state)
@@ -1220,7 +1221,7 @@ def _check_pr_integration_guard(tmp_path, failure):
         patch.object(pr, "update_refs", return_value=(base, old)),
         patch.object(pr, "existing_pr"),
         patch.object(wt.python_env, "runtime", return_value=(Path(sys.executable), {})),
-        patch.object(wt, "git", side_effect=run_git),
+        patch.object(wt, "git", side_effect=_bind_framework_callback(_pr_integration_git, failure)),
         patch.object(
             wt, "output", return_value="d" * 40 if failure == "fetch" else base
         ),
