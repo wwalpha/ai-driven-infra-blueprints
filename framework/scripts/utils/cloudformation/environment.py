@@ -3,6 +3,11 @@
 from functools import partial
 
 from contracts.model import MODEL_PENDING_DEPLOY
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from iac_evaluation import Evaluation
 from model.environment_values import inspect, mapping_for, state
 
@@ -95,8 +100,10 @@ def _environment_input(evaluator, stack, value):
 def validate_environment_inputs(root, template, parameters, target, stack):
     """Read no Models or source files; use the exact already decoded Template/Parameters."""
     pseudo = {
-        "AWS::Region": target["awsRegion"],
-        "AWS::AccountId": target.get("awsExecutionAccountId", target["awsAccountId"]),
+        "AWS::Region": target[AWS_REGION_KEY],
+        "AWS::AccountId": target.get(
+            AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY]
+        ),
         "AWS::StackName": stack,
         "AWS::Partition": "${AWS::Partition}",
         "AWS::URLSuffix": "${AWS::URLSuffix}",

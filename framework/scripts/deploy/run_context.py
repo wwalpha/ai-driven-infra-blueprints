@@ -8,6 +8,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 
+from contracts.target import AWS_ACCOUNT_ID_KEY
 from model.dependency_index import revision as file_revision
 from task_contract_core import TaskSnapshot, task_reads, task_snapshot
 from utils.cloudformation.inputs import Blocked
@@ -125,7 +126,7 @@ def _callback_run_guard(
             root,
             args.stack,
             args.environment,
-            selected["awsAccountId"],
+            selected[AWS_ACCOUNT_ID_KEY],
             args.alias,
             snapshot=snapshot,
             allow_saved=getattr(args, "action", None)

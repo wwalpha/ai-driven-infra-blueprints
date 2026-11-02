@@ -1,7 +1,13 @@
 import json
 from collections import Counter
 
-from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
+from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_MODE_CREATE,
+    RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
 from design.catalog import selected_properties
 from design.layout import (
     resource_has_name_property,
@@ -69,7 +75,7 @@ def naming_materials(comparison, *, service=None):
                 }
             )
         type_counts = Counter(
-            resource.get("resourceType")
+            resource.get(RESOURCE_TYPE_KEY)
             for resource in comparison.resources[service].values()
         )
         for identity, resource in comparison.resources[service].items():
@@ -89,7 +95,7 @@ def naming_materials(comparison, *, service=None):
                     }
                 )
                 continue
-            kind = resource.get("resourceType")
+            kind = resource.get(RESOURCE_TYPE_KEY)
             try:
                 comparison.catalog.schema(kind)
             except (ValueError, KeyError, TypeError, AttributeError):
@@ -107,7 +113,7 @@ def naming_materials(comparison, *, service=None):
             for rid, row in comparison.rows[service][identity]:
                 kind = ".".join(row.get("property", "").split(".")[:2])
                 owned.setdefault(kind, []).append((rid, row))
-            owned.setdefault(resource["resourceType"], [])
+            owned.setdefault(resource[RESOURCE_TYPE_KEY], [])
             for kind, rows in owned.items():
                 try:
                     comparison.catalog.schema(kind)
@@ -331,7 +337,11 @@ def naming_materials(comparison, *, service=None):
                         else None,
                         "identity": {
                             key: resource[key]
-                            for key in ("logicalId", "cfn-logicalId", "anchor")
+                            for key in (
+                                RESOURCE_LOGICAL_ID_KEY,
+                                CFN_LOGICAL_ID_KEY,
+                                "anchor",
+                            )
                             if key in resource
                         },
                     }

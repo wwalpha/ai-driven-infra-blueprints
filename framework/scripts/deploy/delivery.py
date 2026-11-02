@@ -11,6 +11,11 @@ from types import SimpleNamespace
 from urllib.parse import quote, urlencode
 
 from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from model.core import ARTIFACT_PROPERTIES
 from utils.cloudformation.inputs import Blocked, condition_active, resolve_value
 
@@ -54,7 +59,9 @@ def object_identity(placement, obj):
         placement.connection,
         obj["bucket"],
         obj["key"],
-        placement.target.get("awsExecutionAccountId", placement.target["awsAccountId"]),
+        placement.target.get(
+            AWS_EXECUTION_ACCOUNT_ID_KEY, placement.target[AWS_ACCOUNT_ID_KEY]
+        ),
         obj.get("version") if obj.get("consumeVersion") else None,
     )
 
@@ -145,7 +152,8 @@ def upload(
                         Key=obj["key"],
                         Body=stream,
                         ExpectedBucketOwner=placement.target.get(
-                            "awsExecutionAccountId", placement.target["awsAccountId"]
+                            AWS_EXECUTION_ACCOUNT_ID_KEY,
+                            placement.target[AWS_ACCOUNT_ID_KEY],
                         ),
                         IfNoneMatch="*",
                         ChecksumAlgorithm="SHA256",
@@ -205,8 +213,10 @@ def upload(
 
 def artifact_bindings(target, unit, document, parameters, exports):
     pseudo = {
-        "AWS::AccountId": target.get("awsExecutionAccountId", target["awsAccountId"]),
-        "AWS::Region": target["awsRegion"],
+        "AWS::AccountId": target.get(
+            AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY]
+        ),
+        "AWS::Region": target[AWS_REGION_KEY],
         "AWS::StackName": unit["name"],
     }
     bindings = []
@@ -398,10 +408,10 @@ def template_arguments(
         objects.append(obj)
         suffix = (
             "amazonaws.com.cn"
-            if placement.target["awsRegion"].startswith("cn-")
+            if placement.target[AWS_REGION_KEY].startswith("cn-")
             else "amazonaws.com"
         )
-        url = f"https://s3.{placement.target['awsRegion']}.{suffix}/{obj['bucket']}/{quote(obj['key'], safe='/')}"
+        url = f"https://s3.{placement.target[AWS_REGION_KEY]}.{suffix}/{obj['bucket']}/{quote(obj['key'], safe='/')}"
         if obj.get("version"):
             url += "?" + urlencode({"versionId": obj["version"]})
         arguments = {"TemplateURL": url}

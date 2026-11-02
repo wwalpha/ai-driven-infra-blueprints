@@ -3,6 +3,14 @@
 import json
 import re
 
+from contracts.repository import PROJECT_FILENAME
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+    IAC_ENGINE_KEY,
+)
+
 import utils.input_cache as _imports_validation_cache
 from utils.aws.identity import execution_account, select_profile, validate_account_id
 
@@ -36,7 +44,7 @@ def select_target(topology, environment, account_id=None, alias=None):
         and (
             target.get("alias") == alias
             if alias
-            else "alias" not in target and target.get("awsAccountId") == account_id
+            else "alias" not in target and target.get(AWS_ACCOUNT_ID_KEY) == account_id
         )
     ]
     if len(matches) != 1:
@@ -46,9 +54,9 @@ def select_target(topology, environment, account_id=None, alias=None):
         )
 
     target = matches[0]
-    resolved_account_id = target.get("awsAccountId")
-    region = target.get("awsRegion")
-    engine = target.get("iacEngine")
+    resolved_account_id = target.get(AWS_ACCOUNT_ID_KEY)
+    region = target.get(AWS_REGION_KEY)
+    engine = target.get(IAC_ENGINE_KEY)
     validate_account_id(resolved_account_id, "target AWS account ID")
     execution_account(target)
     select_profile(target)
@@ -61,13 +69,13 @@ def select_target(topology, environment, account_id=None, alias=None):
     resolved = {
         "environment": environment,
         "suffix": target.get("suffix"),
-        "awsAccountId": resolved_account_id,
-        "awsRegion": region,
-        "iacEngine": engine,
+        AWS_ACCOUNT_ID_KEY: resolved_account_id,
+        AWS_REGION_KEY: region,
+        IAC_ENGINE_KEY: engine,
     }
     if alias:
         resolved["alias"] = alias
-    for field in ("awsExecutionAccountId", "awsProfile"):
+    for field in (AWS_EXECUTION_ACCOUNT_ID_KEY, "awsProfile"):
         if field in target:
             resolved[field] = target[field]
     return resolved
@@ -82,7 +90,7 @@ def load_target(
     include_naming: bool = False,
 ) -> dict[str, str | None]:
     input_text = _imports_validation_cache.input_text
-    path = root / "project.json"
+    path = root / PROJECT_FILENAME
     try:
         topology = json.loads(input_text(path, encoding="utf-8"))
     except FileNotFoundError as error:

@@ -2,7 +2,11 @@
 
 from types import SimpleNamespace
 
-from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
+from contracts.model import (
+    RESOURCE_MODE_CREATE,
+    RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_schemas import schemas_for
 
@@ -37,7 +41,7 @@ def foreign_observation(snapshot, row, *, outputs=catalog_outputs):
     ):
         return False
 
-    kind = resource["resourceType"]
+    kind = resource[RESOURCE_TYPE_KEY]
     try:
         schema = schemas_for(snapshot.scope.root).cloudformation(
             "AWS::" + kind.replace(".", "::", 1)

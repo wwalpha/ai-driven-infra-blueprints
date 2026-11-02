@@ -1,5 +1,6 @@
 """Deploy runtime target/authentication checks, independent of read-only context CLIs."""
 
+from contracts.target import AWS_REGION_KEY
 from utils.aws.client import connection_context
 from utils.aws.identity import execution_account, select_profile, verify_account
 from utils.aws.sts import get_caller_identity
@@ -10,7 +11,7 @@ def check_deploy_context(root, environment, account_id=None, alias=None, profile
     target = load_target(root, environment, account_id, alias)
     selected = select_profile(target, profile)
     expected = execution_account(target)
-    context = connection_context(selected, target["awsRegion"], expected)
+    context = connection_context(selected, target[AWS_REGION_KEY], expected)
     caller = get_caller_identity(context).get("Account")
     verify_account(target, caller)
     return target

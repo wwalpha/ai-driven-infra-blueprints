@@ -11,6 +11,7 @@ from pathlib import Path
 import model.files as _imports_model_files
 import model.sources as _imports_model_sources
 import utils.aws_mappings as _imports_utils_aws_mappings
+from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
 from utils.input_cache import digest_files, input_select, memo_table
 
 
@@ -54,7 +55,7 @@ class PassCache:
         }
         paths.update(self.root / name for name in ("AGENTS.md", "README.md"))
         if self.include_project:
-            paths.add(self.root / "project.json")
+            paths.add(self.root / PROJECT_FILENAME)
         if snapshot is not None:
             for path in paths:
                 snapshot.read(path)
@@ -83,7 +84,7 @@ class PassCache:
         model_exists = _imports_model_sources.model_exists
         source_inputs = _imports_model_sources.source_inputs
         environment, target, service = entry
-        docs = self.root / "docs/designs"
+        docs = self.root / DESIGNS_DIRECTORY
         models = self.root / "model"
         pending = [docs / environment / target / f"{service}.md"]
         paths = set()

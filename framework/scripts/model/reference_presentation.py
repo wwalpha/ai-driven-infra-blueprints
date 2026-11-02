@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from functools import partial
 
 import json_intrinsics
+from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
+from contracts.repository import DESIGNS_DIRECTORY
 from design.services import reference_labels
 from design.services.definitions.registry import POLICY_FORMATS
 from utils.reference_contracts import ARN_SHAPES
@@ -71,7 +73,7 @@ class Presentation:
         self.values, self.root = values, root
         self.service_presentation = service_presentation
         self.scope = sources.scope_for(
-            (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+            (root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)).with_suffix(
                 ".properties"
             )
         )
@@ -202,7 +204,7 @@ class Presentation:
             displayed = projection._display_document_value(
                 {node: result}, self.resolver, self.scope, self.root, node
             )
-            kind = resource["resourceType"]
+            kind = resource[RESOURCE_TYPE_KEY]
             attribute = projection.reference_attribute(kind, node.attribute)
             field = projection.RETURN_ATTRIBUTE_PROPERTIES.get(
                 (kind, attribute), attribute
@@ -219,7 +221,7 @@ class Presentation:
                     policy_document
                     and result is not None
                     and result.status == "resolved"
-                    and name not in {None, kind, resource["logicalId"]}
+                    and name not in {None, kind, resource[RESOURCE_LOGICAL_ID_KEY]}
                 )
             )
             if (kind + "." + field in identifiers or identifier_arn) and isinstance(

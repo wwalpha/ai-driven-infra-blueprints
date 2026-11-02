@@ -12,6 +12,7 @@ import utils.aws_catalogs as _imports_utils_aws_catalogs
 import utils.aws_schemas as _imports_utils_aws_schemas
 import utils.aws_sdk as _imports_utils_aws_sdk
 import utils.mapping_runtime as _mapping_runtime
+from contracts.mapping import MAPPING_RESOURCE_TYPE_KEY
 from design.catalog import DesignSchemaCatalog as DesignSchemaCatalog
 from utils.aws_sdk import aws_runtime
 from utils.json_format import exact
@@ -160,12 +161,12 @@ def catalog_properties(
                 raise ValueError("adapter getter/resource mismatch")
             getters[name] = (kind, definition, adapter)
         elif kind in {"sdk", "cloudcontrol"}:
-            keys = {"kind", "service", "operation", "result", "resourceType"}
+            keys = {"kind", "service", "operation", "result", MAPPING_RESOURCE_TYPE_KEY}
             if kind == "cloudcontrol":
                 keys |= {"identifier"}
             exact(definition, keys, "AWS getter")
             shape = sdk_shape(sdk, definition)
-            resource = definition["resourceType"]
+            resource = definition[MAPPING_RESOURCE_TYPE_KEY]
             if resource not in document["resourceTypes"]:
                 raise ValueError("getter resource is outside mapping")
             if kind == "cloudcontrol":
@@ -218,7 +219,9 @@ def catalog_properties(
                 raise ValueError(resource + ": unknown identity getter")
             kind, getter, evidence = getters[getter_name]
             if resource not in (
-                getter["resources"] if kind == "adapter" else [getter["resourceType"]]
+                getter["resources"]
+                if kind == "adapter"
+                else [getter[MAPPING_RESOURCE_TYPE_KEY]]
             ):
                 raise ValueError(resource + ": identity getter/resource mismatch")
             try:
@@ -339,7 +342,7 @@ def catalog_properties(
                     if resource not in getter["resources"]:
                         raise ValueError(key + ": adapter getter/resource mismatch")
                     catalog.property_schema(resource, path)
-                elif getter["resourceType"] != resource:
+                elif getter[MAPPING_RESOURCE_TYPE_KEY] != resource:
                     raise ValueError("getter/resource mismatch")
                 elif kind == "sdk":
                     if (getter["service"], getter["operation"], field.path) == (

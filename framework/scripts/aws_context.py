@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY, IAC_ENGINE_KEY
 from deploy import cli_guidance
 from utils.aws.identity import (
     IdentityError,
@@ -33,7 +34,7 @@ def check_deploy_context(
     profile = select_profile(target, profile)
     execution_account(target)
     required_commands = ["aws"]
-    if not read_only and target["iacEngine"] == "terraform":
+    if not read_only and target[IAC_ENGINE_KEY] == "terraform":
         required_commands.append("terraform")
     command_paths = {command: shutil.which(command) for command in required_commands}
     missing = [command for command, path in command_paths.items() if path is None]
@@ -45,7 +46,7 @@ def check_deploy_context(
         command += ["--profile", profile]
     command += [
         "--region",
-        target["awsRegion"],
+        target[AWS_REGION_KEY],
         "sts",
         "get-caller-identity",
         "--output",
@@ -110,11 +111,11 @@ def main() -> int:
     print(f"- environment: {args.environment}")
     if args.alias:
         print(f"- alias: {args.alias}")
-    print(f"- AWS resource account: {target['awsAccountId']}")
+    print(f"- AWS resource account: {target[AWS_ACCOUNT_ID_KEY]}")
     print(f"- AWS execution account: {execution_account(target)}")
-    print(f"- AWS region: {target['awsRegion']}")
+    print(f"- AWS region: {target[AWS_REGION_KEY]}")
     profile = select_profile(target, args.profile)
     if profile:
         print(f"- AWS profile: {profile}")
-    print(f"- IaC engine: {target['iacEngine']}")
+    print(f"- IaC engine: {target[IAC_ENGINE_KEY]}")
     return 0

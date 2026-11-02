@@ -4,6 +4,7 @@ import json
 import re
 
 from contracts.model import (
+    MODEL_REF_KEY,
     REFERENCE_PENDING_DEPLOY,
     REFERENCE_UNRESOLVED,
     RESOURCE_MODE_IMPORT,
@@ -66,7 +67,7 @@ def reference_label(prop, field, name, displayed, snapshot, number):
             value = json.loads(literal(name))
         except ValueError:
             value = None
-        if isinstance(value, dict) and "$modelRef" in value:
+        if isinstance(value, dict) and MODEL_REF_KEY in value:
             return snapshot.authoritative.get(f"display.resource.{number}.label")
     return name
 

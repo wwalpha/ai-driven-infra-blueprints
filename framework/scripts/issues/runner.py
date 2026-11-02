@@ -6,6 +6,8 @@ import uuid
 from contextlib import contextmanager, redirect_stdout
 from functools import partial
 
+from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
+from contracts.repository import DESIGNS_DIRECTORY
 from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from model.core import ReferenceResolutionError, entries
 from model.references import codebuild_reference_errors
@@ -88,7 +90,7 @@ def scan_stage(findings, phase, scope):
 def review_materials(comparison, service):
     doc = (
         comparison.root
-        / "docs/designs"
+        / DESIGNS_DIRECTORY
         / comparison.environment
         / comparison.directory
         / (service + ".md")
@@ -157,7 +159,7 @@ def codebuild_plaintext_diagnostics(message, comparison):
             resources = [
                 (identity, resource)
                 for identity, resource in entries(model.values, "desired.resource.")
-                if resource["resourceType"] == "CodeBuild.Project"
+                if resource[RESOURCE_TYPE_KEY] == "CodeBuild.Project"
                 and resource.get("anchor") == anchor
             ]
             if len(resources) != 1:
@@ -171,9 +173,7 @@ def codebuild_plaintext_diagnostics(message, comparison):
                 / comparison.directory
                 / "codebuild.properties"
             )
-            diagnostic = (
-                f"Model={path}, Resource={resource['logicalId']} ({identity}), {detail}"
-            )
+            diagnostic = f"Model={path}, Resource={resource[RESOURCE_LOGICAL_ID_KEY]} ({identity}), {detail}"
             diagnostic = next(
                 (
                     error
@@ -370,7 +370,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     comparison = Comparison(root, environment, directory, services)
     stages = Findings(root)
     for service in services:
-        doc = root / "docs/designs" / environment / directory / (service + ".md")
+        doc = root / DESIGNS_DIRECTORY / environment / directory / (service + ".md")
         with scan_stage(stages, "view-preflight", {(environment, directory, service)}):
             view_text(comparison, doc, phase="view-preflight")
     warnings = list(comparison.warnings)
@@ -539,7 +539,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         dict(error, code="mechanical.view_unverified") for error in view_errors
     )
     for entry in sorted(scope):
-        view = root / "docs/designs" / entry[0] / entry[1] / (entry[2] + ".md")
+        view = root / DESIGNS_DIRECTORY / entry[0] / entry[1] / (entry[2] + ".md")
         with scan_stage(stages, "materials.view-availability", {entry}):
             if not view.is_file():
                 unverified.append(

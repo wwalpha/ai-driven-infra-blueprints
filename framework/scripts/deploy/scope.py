@@ -5,6 +5,8 @@ import re
 from functools import partial
 
 import model.adapters.observed as observed_adapter
+from contracts.model import RESOURCE_LOGICAL_ID_KEY
+from contracts.target import IAC_ENGINE_KEY
 from model.change_plan import ServiceChange
 from model.core import structural_entries
 from model.format import owner
@@ -54,7 +56,7 @@ def reference_write(root, task, change, row, mapped, target, authority_root):
         return False
     mappings = {
         name: {
-            logical: dict(service=path.stem, resource=resource["logicalId"])
+            logical: dict(service=path.stem, resource=resource[RESOURCE_LOGICAL_ID_KEY])
             for logical, (path, _, resource, _, _) in resources.items()
         }
         for name, resources in mapped.items()
@@ -79,7 +81,7 @@ def check_fixed_resources(root, mapped, *, task=None, keys=None):
     if task is None:
         return
     actual = {
-        (name, logical, path.stem, resource["logicalId"])
+        (name, logical, path.stem, resource[RESOURCE_LOGICAL_ID_KEY])
         for name, resources in mapped.items()
         for logical, (path, _, resource, _, _) in resources.items()
     }
@@ -114,7 +116,7 @@ def validate_selected(
     environment = value("Target environment")
     directory = value("Target alias", optional=True) or value("Target AWS account")
     target = load_target_directory(root, environment, directory)
-    if target["iacEngine"] != "cloudformation":
+    if target[IAC_ENGINE_KEY] != "cloudformation":
         return []
     scope_lines = [line for line in lines if line.startswith("- Deployment scope:")]
     if len(scope_lines) != 1:
@@ -147,7 +149,7 @@ def validate_selected(
     by_path = {}
     for resources in mapped.values():
         for path, _, resource, _, _ in resources.values():
-            by_path.setdefault(path, set()).add(resource["logicalId"])
+            by_path.setdefault(path, set()).add(resource[RESOURCE_LOGICAL_ID_KEY])
     if plan is not None:
         for change in plan.changes.values():
             if change.after is None:
@@ -187,7 +189,7 @@ def validate_selected(
         numbers = {
             number
             for number, resource in structural_entries(values, "desired.resource.")
-            if resource.get("logicalId") in logicals
+            if resource.get(RESOURCE_LOGICAL_ID_KEY) in logicals
         }
         keys = {
             key

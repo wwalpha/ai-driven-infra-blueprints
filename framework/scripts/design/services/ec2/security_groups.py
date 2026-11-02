@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 import aws_mapping_display as mapping_display
+from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
 from model.core import literal
 from utils.input_cache import input_scope
 
@@ -469,15 +470,15 @@ def sg_tables(
         output = ["<!-- security-group-tags: " + metadata + " -->", "", *output]
     for child, child_rows in children:
         values = {
-            row[1].removeprefix(child["resourceType"] + "."): row[2]
+            row[1].removeprefix(child[RESOURCE_TYPE_KEY] + "."): row[2]
             for row in child_rows
         }
         direction = (
-            "Inbound" if child["resourceType"].endswith("Ingress") else "Outbound"
+            "Inbound" if child[RESOURCE_TYPE_KEY].endswith("Ingress") else "Outbound"
         )
         identifier = values.pop("Id")
         values["Direction"] = (
-            f'{direction} <a id="{child["anchor"]}"></a><!-- logical-id: {child["logicalId"]} --><!-- rule-id: {identifier} -->'
+            f'{direction} <a id="{child["anchor"]}"></a><!-- logical-id: {child[RESOURCE_LOGICAL_ID_KEY]} --><!-- rule-id: {identifier} -->'
         )
         rules.append(values)
     for rule in rules:

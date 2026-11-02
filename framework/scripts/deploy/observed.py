@@ -5,7 +5,12 @@ import re
 import design.layout as _imports_design_layout
 import utils.cloudformation.format as _imports_cfn_format
 import utils.cloudformation.inputs as _imports_cfn_inputs
-from contracts.model import MODEL_PENDING_DEPLOY
+from contracts.model import MODEL_PENDING_DEPLOY, RESOURCE_TYPE_KEY
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from design.catalog import DesignSchemaCatalog
 from model.adapters.aws import Unresolved, service_module
 from model.adapters.observed import (
@@ -217,9 +222,9 @@ def readiness(backend, unit, state=None):
             return
         pseudo = {
             "AWS::StackName": name,
-            "AWS::Region": backend.target["awsRegion"],
+            "AWS::Region": backend.target[AWS_REGION_KEY],
             "AWS::AccountId": backend.target.get(
-                "awsExecutionAccountId", backend.target["awsAccountId"]
+                AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
             ),
         }
         grouped = {
@@ -325,9 +330,9 @@ def collect_successful(backend, units, states, *, generated_views=None):
         document, parameters = backend.templates[name]
         pseudo = {
             "AWS::StackName": name,
-            "AWS::Region": backend.target["awsRegion"],
+            "AWS::Region": backend.target[AWS_REGION_KEY],
             "AWS::AccountId": backend.target.get(
-                "awsExecutionAccountId", backend.target["awsAccountId"]
+                AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
             ),
         }
         selected[name] = selected_resources(
@@ -403,9 +408,9 @@ def collect_successful(backend, units, states, *, generated_views=None):
         pseudo = {
             "AWS::StackName": name,
             "AWS::AccountId": backend.target.get(
-                "awsExecutionAccountId", backend.target["awsAccountId"]
+                AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
             ),
-            "AWS::Region": backend.target["awsRegion"],
+            "AWS::Region": backend.target[AWS_REGION_KEY],
         }
         coverage = {}
         state["observedCoverage"] = coverage
@@ -472,7 +477,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     )
                     values = [outputs[key] for key in keys if key in outputs]
                     physical = actual.get("PhysicalResourceId") if primary else None
-                    if resource["resourceType"] in {
+                    if resource[RESOURCE_TYPE_KEY] in {
                         "EC2.SecurityGroupIngress",
                         "EC2.SecurityGroupEgress",
                     }:

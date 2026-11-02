@@ -3,6 +3,13 @@
 import re
 from functools import partial as _bind_framework_callback
 
+from contracts.model import CFN_LOGICAL_ID_KEY
+from contracts.repository import PROJECT_FILENAME
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from design.layout_schema import GROUPED
 from utils.cloudformation.inputs import Blocked as Blocked
 from utils.cloudformation.inputs import output_value, resolve_value
@@ -10,11 +17,11 @@ from utils.iac_values import cfn_resource_identity
 
 
 def correspondence(resource, stacks):
-    if not resource.get("cfn-logicalId"):
+    if not resource.get(CFN_LOGICAL_ID_KEY):
         raise Blocked(
             "explicit cfn-logicalId is required; Model logicalId cannot establish CFn correspondence"
         )
-    name, logical = cfn_resource_identity(resource["cfn-logicalId"])
+    name, logical = cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])
     if name not in stacks:
         raise Blocked(f"cfn-logicalId stack is not declared: {name}")
     return name, logical, stacks[name]
@@ -231,15 +238,15 @@ def _recursive_inactive_evidence_visit(
                     )
                 elif key in {"AWS::Region", "AWS::AccountId"}:
                     field = (
-                        "awsRegion"
+                        AWS_REGION_KEY
                         if key == "AWS::Region"
-                        else "awsExecutionAccountId"
-                        if "awsExecutionAccountId" in target
-                        else "awsAccountId"
+                        else AWS_EXECUTION_ACCOUNT_ID_KEY
+                        if AWS_EXECUTION_ACCOUNT_ID_KEY in target
+                        else AWS_ACCOUNT_ID_KEY
                     )
                     input_source = {
                         "kind": "project-target",
-                        "path": "project.json",
+                        "path": PROJECT_FILENAME,
                         "key": field,
                         "environment": environment,
                         "target": directory,

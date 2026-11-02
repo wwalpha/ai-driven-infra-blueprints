@@ -1,7 +1,7 @@
 """KMS display selection."""
 
 import model.references as references
-from contracts.model import MODEL_PENDING_DEPLOY
+from contracts.model import MODEL_PENDING_DEPLOY, RESOURCE_TYPE_KEY
 
 
 def alias_display_name(rows, selected_label):
@@ -28,9 +28,9 @@ def alias_display_name(rows, selected_label):
 def reference_label(
     values, position, node, scope, resolver, resource, attribute, name, displayed
 ):
-    if resource["resourceType"] not in {"KMS.Key", "KMS.Alias"}:
+    if resource[RESOURCE_TYPE_KEY] not in {"KMS.Key", "KMS.Alias"}:
         return name
-    if resource["resourceType"] == "KMS.Alias" and attribute == "AliasName":
+    if resource[RESOURCE_TYPE_KEY] == "KMS.Alias" and attribute == "AliasName":
         if isinstance(displayed, str):
             name = displayed
     if position.source_field != "value" or position.pointer:

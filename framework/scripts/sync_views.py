@@ -8,6 +8,7 @@ from pathlib import Path
 import validation.runner
 import validation_scope as _imports_validation_scope
 from aws_mapping_display import _validation_projection_scope
+from contracts.repository import DESIGNS_DIRECTORY
 from design.document import DesignIndex
 from design.layout_schema import STACK_DESIGN
 from utils.aws_mappings import definition_root
@@ -85,7 +86,7 @@ def validation_context(
     validator = view_validator(stage, root, definitions_root)
     paths = [stage / p.relative_to(root) for p in generated]
     validator.scope = {
-        (*p.relative_to(stage / "docs/designs").parts[:2], p.stem) for p in paths
+        (*p.relative_to(stage / DESIGNS_DIRECTORY).parts[:2], p.stem) for p in paths
     }
     validator.design_sources = {
         stage / p.relative_to(root): values for p, values in sources.items()
@@ -103,7 +104,8 @@ def validation_context(
         lambda: validator.check(
             set(services) == set(validator.design_files())
             and {
-                p.with_suffix("").relative_to(stage / "docs/designs") for p in services
+                p.with_suffix("").relative_to(stage / DESIGNS_DIRECTORY)
+                for p in services
             }
             == {
                 p.with_suffix("").relative_to(stage / "model")
@@ -152,7 +154,7 @@ def validate_views(
     if deferred is not None:
         expected = (
             stage
-            / "docs/designs"
+            / DESIGNS_DIRECTORY
             / deferred[1][0]
             / deferred[1][1]
             / (deferred[1][2] + ".md")
@@ -171,7 +173,7 @@ def validate_views(
     for path, values in validator.design_sources.items():
         design_index.get(path, values=values)
     validator.scope = {
-        (*p.relative_to(stage / "docs/designs").parts[:2], p.stem) for p in paths
+        (*p.relative_to(stage / DESIGNS_DIRECTORY).parts[:2], p.stem) for p in paths
     }
     if context is not None:
         validator.findings.candidate = context.findings.candidate
@@ -180,9 +182,9 @@ def validate_views(
         validator.check_project_topology()
     evaluate = _bind_framework_callback(_lambda_validate_views_evaluate_102, validator)
     for path in paths:
-        validator.check_target_file(path, stage / "docs/designs")
+        validator.check_target_file(path, stage / DESIGNS_DIRECTORY)
         validator.check_target_file(
-            (stage / "model" / path.relative_to(stage / "docs/designs")).with_suffix(
+            (stage / "model" / path.relative_to(stage / DESIGNS_DIRECTORY)).with_suffix(
                 ".properties"
             ),
             stage / "model",

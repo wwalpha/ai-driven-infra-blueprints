@@ -2,6 +2,8 @@
 
 import re
 
+from contracts.repository import DESIGNS_DIRECTORY
+
 
 def selected_scope(environment, directory, services):
     values = [environment, directory, *services]
@@ -17,7 +19,7 @@ def target_services(root, environment, directory):
     selected_scope(environment, directory, ["scope"])
     services = {
         path.stem
-        for base, suffix in (("model", ".properties"), ("docs/designs", ".md"))
+        for base, suffix in (("model", ".properties"), (DESIGNS_DIRECTORY, ".md"))
         for path in (root / base / environment / directory).glob("*" + suffix)
         if path.is_file()
     }

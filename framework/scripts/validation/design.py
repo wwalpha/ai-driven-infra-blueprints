@@ -26,9 +26,12 @@ import validation_scope as _dependency_validation_scope
 from contracts.model import (
     MODEL_PENDING_DEPLOY,
     MODEL_UNSET,
+    RESOURCE_LOGICAL_ID_KEY,
     RESOURCE_MODE_CREATE,
     RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
 )
+from contracts.repository import DESIGNS_DIRECTORY
 from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from design.catalog import (
     DesignSchemaCatalog,
@@ -715,9 +718,10 @@ def check_resource_names(
             )
             bound_anchors.update(
                 {
-                    (resource["resourceType"], resource["logicalId"]): resource[
-                        "anchor"
-                    ]
+                    (
+                        resource[RESOURCE_TYPE_KEY],
+                        resource[RESOURCE_LOGICAL_ID_KEY],
+                    ): resource["anchor"]
                     for _, resource in entries(values or {}, "desired.resource.")
                     if resource.get("anchor")
                 }
@@ -741,7 +745,10 @@ def check_resource_names(
                 )
             values = values or {}
             resources = {
-                (resource["resourceType"], resource["logicalId"]): (identity, resource)
+                (resource[RESOURCE_TYPE_KEY], resource[RESOURCE_LOGICAL_ID_KEY]): (
+                    identity,
+                    resource,
+                )
                 for identity, resource in entries(values, "desired.resource.")
             }
             model_anchors = {
@@ -965,7 +972,7 @@ def check_observed_values(
             if not _dependency_model_sources.model_exists(path):
                 continue
             view = (
-                root / "docs/designs" / path.relative_to(root / "model")
+                root / DESIGNS_DIRECTORY / path.relative_to(root / "model")
             ).with_suffix(".md")
             values = (design_sources or {}).get(view)
             if values is None:
@@ -998,7 +1005,7 @@ def design_files(root, scope) -> list[Path]:
     return [
         path
         for path in _dependency_validation_scope.scoped_files(
-            root, "docs/designs", ".md", scope
+            root, DESIGNS_DIRECTORY, ".md", scope
         )
         if path.name != STACK_DESIGN
     ]
@@ -1008,7 +1015,7 @@ def stack_design_files(root, scope) -> list[Path]:
     return [
         path
         for path in _dependency_validation_scope.scoped_files(
-            root, "docs/designs", ".md", scope
+            root, DESIGNS_DIRECTORY, ".md", scope
         )
         if path.name == STACK_DESIGN
     ]

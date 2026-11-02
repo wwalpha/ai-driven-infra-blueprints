@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from contracts.repository import DESIGNS_DIRECTORY
 from validation.findings import Findings
 
 import model.references as _imports_model_references
@@ -24,7 +25,7 @@ def _callback_check_model_inputs_references(
     model_path = (
         root
         / "model"
-        / _state_check_model_inputs_337.view.relative_to(root / "docs/designs")
+        / _state_check_model_inputs_337.view.relative_to(root / DESIGNS_DIRECTORY)
     ).with_suffix(".properties")
     candidate = SimpleNamespace(
         scope=scope_for(model_path), authoritative=values, dependencies={}

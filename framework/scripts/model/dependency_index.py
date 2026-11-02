@@ -2,6 +2,7 @@
 
 from contextlib import nullcontext
 
+from contracts.model import CFN_LOGICAL_ID_KEY, RESOURCE_LOGICAL_ID_KEY
 from utils.input_cache import read_only_inputs
 from utils.local_evidence import evidence_store, read_sealed, write_sealed
 
@@ -71,8 +72,12 @@ def snapshot_record(snapshot, *, quality=True, errors=None):
         errors.update(diagnostics)
     return {
         "files": sorted(p.relative_to(scope.root).as_posix() for p in snapshot.files),
-        "owners": [r["cfn-logicalId"] for r in resources if "cfn-logicalId" in r],
-        "logical": [r["logicalId"] for r in resources if "logicalId" in r],
+        "owners": [r[CFN_LOGICAL_ID_KEY] for r in resources if CFN_LOGICAL_ID_KEY in r],
+        "logical": [
+            r[RESOURCE_LOGICAL_ID_KEY]
+            for r in resources
+            if RESOURCE_LOGICAL_ID_KEY in r
+        ],
         "links": sorted(links),
         "typed": sorted(logical),
         "errors": diagnostics,

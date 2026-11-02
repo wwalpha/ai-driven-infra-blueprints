@@ -7,6 +7,7 @@ import re
 import design.catalog as _imports_design_catalog
 import utils.aws_catalogs as _imports_utils_aws_catalogs
 import utils.reference_contracts as _imports_reference_contracts
+from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
 from utils.reference_contracts import reference_attribute
 
 import model.change_scope as change_plan
@@ -41,9 +42,9 @@ def allocate(values, resource_ids):
         raise ValueError("duplicate allocation selection")
     for number in selected:
         resource = resources[number]
-        if resource.get("logicalId"):
+        if resource.get(RESOURCE_LOGICAL_ID_KEY):
             raise ValueError("cannot reallocate a saved logicalId: " + number)
-        kind = resource["resourceType"]
+        kind = resource[RESOURCE_TYPE_KEY]
         state[kind] = state.get(kind, 0) + 1
         result[f"desired.resource.{number}.logicalId"] = (
             f"{prefix(kind)}_{state[kind]:03d}"
@@ -72,14 +73,17 @@ def preserve_allocation(before, after):
     additions = {}
     for number, resource in current.items():
         if number in previous:
-            if resource.get("logicalId") != previous[number].get("logicalId"):
+            if resource.get(RESOURCE_LOGICAL_ID_KEY) != previous[number].get(
+                RESOURCE_LOGICAL_ID_KEY
+            ):
                 raise ValueError("saved logicalId cannot change: " + number)
         else:
-            kind = resource["resourceType"]
-            serial = sequence(kind, resource.get("logicalId"))
+            kind = resource[RESOURCE_TYPE_KEY]
+            serial = sequence(kind, resource.get(RESOURCE_LOGICAL_ID_KEY))
             if serial <= old.get(kind, 0):
                 raise ValueError(
-                    "logicalId sequence was already allocated: " + resource["logicalId"]
+                    "logicalId sequence was already allocated: "
+                    + resource[RESOURCE_LOGICAL_ID_KEY]
                 )
             additions.setdefault(kind, []).append(serial)
     for kind in old.keys() | new.keys():
@@ -106,7 +110,7 @@ def address(scope, resource, *, consumer_scope=None, label=None):
                 "/".join((consumer_scope.environment, consumer_scope.target)),
             )
         )
-    return f"[{label or resource['logicalId']}]({filename}#{resource['anchor']})"
+    return f"[{label or resource[RESOURCE_LOGICAL_ID_KEY]}]({filename}#{resource['anchor']})"
 
 
 def parse_reference(value, scope):
@@ -193,7 +197,7 @@ class Resolver:
     def resolve(self, value, scope):
         node = parse(value)
         snapshot, number, resource = self.resolve_logical(node.logical_id, scope)
-        self.validate_attribute(resource["resourceType"], node.attribute)
+        self.validate_attribute(resource[RESOURCE_TYPE_KEY], node.attribute)
         return snapshot, number, resource
 
     def resolve_logical(self, logical_id, scope):
@@ -278,7 +282,7 @@ class Resolver:
                     )
                     raise
                 for number, resource in resources:
-                    index.setdefault(resource.get("logicalId"), []).append(
+                    index.setdefault(resource.get(RESOURCE_LOGICAL_ID_KEY), []).append(
                         (snapshot, number, resource)
                     )
             self.logical_indexes[key] = index

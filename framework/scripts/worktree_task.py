@@ -17,6 +17,8 @@ from types import SimpleNamespace
 import task_contract_core as tasks
 import worktree_python as python_env
 import worktree_state
+from contracts.repository import PROJECT_FILENAME
+from contracts.target import AWS_ACCOUNT_ID_KEY
 from utils import cli_deploy
 from utils.file_operations import sha
 from utils.import_evidence import discard_import_proof
@@ -800,7 +802,7 @@ def _prepare_commit(root, path, state, target, approval, *, pr_update=False):
     if (not operation or approval) and (
         "- Workflow: `import`" in tasks.section(contract, "## Task contract")
         or "## Out-of-task FAIL approvals" in contract
-        or any(p.startswith("model/") or p == "project.json" for p in model_changes)
+        or any(p.startswith("model/") or p == PROJECT_FILENAME for p in model_changes)
     ):
         integration_task(target, state, approval)
         index = output(
@@ -1226,7 +1228,7 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
         contract = tasks.read_task_snapshot(target, state["task_file"], live=True).raw
         direct_cli = cli_deploy.is_cli(contract.decode("utf-8"))
         if (
-            any(p.startswith("model/") or p == "project.json" for p in model_paths)
+            any(p.startswith("model/") or p == PROJECT_FILENAME for p in model_paths)
             or b"- Workflow: `import`" in contract
             or b"## Out-of-task FAIL approvals" in contract
             or direct_cli
@@ -1399,7 +1401,7 @@ def deploy_child_contract(target, state, request):
         "- Deploy/apply: `forbidden`",
         f"- Deploy repair request: `{request['requestPath']}`",
         f"- Target environment: `{request['environment']}`",
-        f"- Target AWS account: `{request['target']['awsAccountId']}`",
+        f"- Target AWS account: `{request['target'][AWS_ACCOUNT_ID_KEY]}`",
     ):
         if line not in lines:
             raise Blocked("child repair contract must contain " + line)

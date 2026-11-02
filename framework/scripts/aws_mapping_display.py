@@ -10,6 +10,7 @@ import aws_mapping as _imports_aws_mapping
 import design.layout_schema as _imports_design_layout
 import model.display as _imports_model_display
 import model.projection as _imports_model_projection
+from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
 from design.catalog import DesignSchemaCatalog
 from design.services.definitions.lambda_permission import LAMBDA_PERMISSION
 from model.core import entries
@@ -246,7 +247,7 @@ def projection(source, root=ROOT):
     hidden_resources = {
         identity
         for identity, resource in entries(source, "desired.resource.")
-        if resource["resourceType"] in GROUPED
+        if resource[RESOURCE_TYPE_KEY] in GROUPED
         and not any(row.startswith(identity + "-") for row in retained)
     }
     return {
@@ -266,9 +267,9 @@ def projection(source, root=ROOT):
 def validate_mappings(source, root=ROOT):
     registry = _imports_aws_mapping.registry
     services = {
-        owners(root).get(resource["resourceType"])
+        owners(root).get(resource[RESOURCE_TYPE_KEY])
         for _, resource in entries(source, "desired.resource.")
-        if resource["resourceType"] != "CloudFormation.Stack"
+        if resource[RESOURCE_TYPE_KEY] != "CloudFormation.Stack"
     }
     for service in services:
         if service is None:
@@ -292,7 +293,8 @@ def validation_rows(rows, source, kind, logical_id, root=ROOT, *, scope=None):
     targets = [
         (identity, resource)
         for identity, resource in resources.items()
-        if resource["resourceType"] == kind and resource["logicalId"] == logical_id
+        if resource[RESOURCE_TYPE_KEY] == kind
+        and resource[RESOURCE_LOGICAL_ID_KEY] == logical_id
     ]
     if not targets:
         return rows
@@ -302,14 +304,15 @@ def validation_rows(rows, source, kind, logical_id, root=ROOT, *, scope=None):
         (rid, child)
         for rid, child in resources.items()
         if child.get("parentReference")
-        and parse(child["parentReference"]).logical_id == resource["logicalId"]
+        and parse(child["parentReference"]).logical_id
+        == resource[RESOURCE_LOGICAL_ID_KEY]
     ]
     ordered = [
         row
         for rid, child in targets
         for row in catalog_display_rows(
-            resource_rows(source, rid, child["resourceType"], root),
-            child["resourceType"],
+            resource_rows(source, rid, child[RESOURCE_TYPE_KEY], root),
+            child[RESOURCE_TYPE_KEY],
             root,
         )
     ]
@@ -372,7 +375,11 @@ def validation_lines(lines, source, root=ROOT):
         result += [
             "| " + " | ".join(row) + " |"
             for row in validation_rows(
-                rows, source, resource["resourceType"], resource["logicalId"], root
+                rows,
+                source,
+                resource[RESOURCE_TYPE_KEY],
+                resource[RESOURCE_LOGICAL_ID_KEY],
+                root,
             )
         ]
     return result

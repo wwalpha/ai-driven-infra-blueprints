@@ -8,6 +8,7 @@ import worktree_python
 import worktree_state as ws
 import worktree_task as wt
 from contracts.deploy import DEPLOY_SUCCESS
+from contracts.target import IAC_ENGINE_KEY
 from contracts.validation import VALIDATION_PASS
 from utils.local_evidence import evidence_store, read_sealed, write_sealed
 from utils.project_targets import load_target_directory
@@ -302,7 +303,7 @@ def require_complete(root, task):
         }
         if (
             len(targets) == 1
-            and load_target_directory(root, *next(iter(targets)))["iacEngine"]
+            and load_target_directory(root, *next(iter(targets)))[IAC_ENGINE_KEY]
             == "terraform"
         ):
             return

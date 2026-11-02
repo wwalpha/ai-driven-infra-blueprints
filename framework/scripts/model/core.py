@@ -6,10 +6,15 @@ import sys
 from pathlib import Path
 
 from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
+    MODEL_REF_KEY,
+    REFERENCE_LOGICAL_ID_KEY,
     REFERENCE_PENDING_DEPLOY,
     REFERENCE_UNRESOLVED,
+    RESOURCE_LOGICAL_ID_KEY,
     RESOURCE_MODE_CREATE,
     RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
 )
 from utils.iac_values import cfn_resource_identity
 from utils.input_cache import memo_table
@@ -170,14 +175,14 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
     if prefix == "desired.resource.":
         for _identity, fields in result:
             if "deploymentEncryption" in fields and (
-                fields.get("resourceType") != "S3.Bucket"
+                fields.get(RESOURCE_TYPE_KEY) != "S3.Bucket"
                 or fields["deploymentEncryption"] != "default"
             ):
                 raise InputValidationError(
                     "deploymentEncryption is only default on an S3.Bucket"
                 )
-            if "cfn-logicalId" in fields:
-                cfn_resource_identity(fields["cfn-logicalId"])
+            if CFN_LOGICAL_ID_KEY in fields:
+                cfn_resource_identity(fields[CFN_LOGICAL_ID_KEY])
     return result
 
 
@@ -209,7 +214,9 @@ def resource_groups(values):
     """Retain missing and duplicate identities for scoped comparison/resolution."""
     result = {}
     for number, resource in structural_entries(values, "desired.resource."):
-        result.setdefault(resource.get("logicalId"), []).append((number, resource))
+        result.setdefault(resource.get(RESOURCE_LOGICAL_ID_KEY), []).append(
+            (number, resource)
+        )
     return result
 
 
@@ -222,11 +229,11 @@ def validate_model_keys(values: dict[str, str]) -> None:
             "lastAllocated",
         },
         ("desired", "resource"): {
-            "resourceType",
-            "logicalId",
+            RESOURCE_TYPE_KEY,
+            RESOURCE_LOGICAL_ID_KEY,
             "anchor",
             "resourceMode",
-            "cfn-logicalId",
+            CFN_LOGICAL_ID_KEY,
             "parentProperty",
             "parentReference",
             "deploymentEncryption",
@@ -252,7 +259,7 @@ def validate_model_keys(values: dict[str, str]) -> None:
             "producerScope",
             "producerId",
             "producerLogicalId",
-            "resourceType",
+            RESOURCE_TYPE_KEY,
             "format",
             "property",
             "labelPolicy",
@@ -475,11 +482,11 @@ def validate_bucket_reference(value: str) -> None:
         raise InputValidationError("deployment bucket requires $modelRef") from error
     if (
         not isinstance(document, dict)
-        or set(document) != {"$modelRef"}
-        or not isinstance(document["$modelRef"], dict)
-        or set(document["$modelRef"]) != {"logicalId", "attribute"}
-        or document["$modelRef"]["attribute"] != "BucketName"
-        or not isinstance(document["$modelRef"]["logicalId"], str)
+        or set(document) != {MODEL_REF_KEY}
+        or not isinstance(document[MODEL_REF_KEY], dict)
+        or set(document[MODEL_REF_KEY]) != {REFERENCE_LOGICAL_ID_KEY, "attribute"}
+        or document[MODEL_REF_KEY]["attribute"] != "BucketName"
+        or not isinstance(document[MODEL_REF_KEY][REFERENCE_LOGICAL_ID_KEY], str)
     ):
         raise InputValidationError("deployment bucket requires $modelRef BucketName")
 
@@ -528,7 +535,7 @@ def validate_authority(values):
     validate_model_keys(values)
     for identity, resource in entries(values, "desired.resource."):
         if not re.fullmatch(
-            r"[A-Za-z0-9_]+\.[A-Za-z0-9_]+", resource.get("resourceType", "")
+            r"[A-Za-z0-9_]+\.[A-Za-z0-9_]+", resource.get(RESOURCE_TYPE_KEY, "")
         ):
             raise InputValidationError(
                 "Resource requires a valid resourceType: " + identity
@@ -620,7 +627,10 @@ def resource_index(values):
     state, result = counters(values), {}
     prefixes = {prefix(kind): kind for kind in state}
     for number, resource in entries(values, "desired.resource."):
-        kind, logical = resource["resourceType"], resource.get("logicalId")
+        kind, logical = (
+            resource[RESOURCE_TYPE_KEY],
+            resource.get(RESOURCE_LOGICAL_ID_KEY),
+        )
         head = prefix(kind)
         if head in prefixes and prefixes[head] != kind:
             raise InputValidationError(
@@ -638,7 +648,7 @@ def resource_index(values):
                 resourceIds=[
                     candidate
                     for candidate, fields in entries(values, "desired.resource.")
-                    if fields.get("logicalId") == logical
+                    if fields.get(RESOURCE_LOGICAL_ID_KEY) == logical
                 ],
             )
         if state.get(kind, -1) < serial:

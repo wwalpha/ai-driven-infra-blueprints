@@ -1,6 +1,7 @@
 """sqs: selected properties -> read-only SDK responses; inputs in fetch()."""
 
 import model.adapters.aws as _imports_model_adapters_aws
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
 from model.adapters.aws import MISSING, Unresolved
 
 APIS = {("sqs", "get_queue_url"), ("sqs", "get_queue_attributes")}
@@ -18,7 +19,7 @@ def fetch(ctx, r, getter):
             "get_queue_url",
             QueueName=name,
             QueueOwnerAWSAccountId=ctx.target.get(
-                "awsExecutionAccountId", ctx.target["awsAccountId"]
+                AWS_EXECUTION_ACCOUNT_ID_KEY, ctx.target[AWS_ACCOUNT_ID_KEY]
             ),
         )["QueueUrl"]
         return {

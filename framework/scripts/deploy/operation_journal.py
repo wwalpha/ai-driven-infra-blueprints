@@ -7,6 +7,11 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 
@@ -63,8 +68,8 @@ OPERATION_FIELDS = {
 
 def location(target):
     identity = [
-        target.get("awsExecutionAccountId", target["awsAccountId"]),
-        target["awsRegion"],
+        target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY]),
+        target[AWS_REGION_KEY],
     ]
     return (
         Path(tempfile.gettempdir()).resolve()
@@ -131,8 +136,8 @@ def locked(path):
 
 def target_identity(target):
     return (
-        target.get("awsExecutionAccountId", target["awsAccountId"]),
-        target["awsRegion"],
+        target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY]),
+        target[AWS_REGION_KEY],
     )
 
 

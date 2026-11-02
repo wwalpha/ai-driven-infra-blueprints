@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from contracts.model import MODEL_PENDING_DEPLOY, REFERENCE_PENDING_DEPLOY
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    REFERENCE_PENDING_DEPLOY,
+    RESOURCE_LOGICAL_ID_KEY,
+)
 
 import model.core as _imports_model_core
 import model.environment_values as environment_values
@@ -66,7 +70,7 @@ def validate_environment_settings(
         invalid = environment_values.pending_errors(
             kind, row["property"], value, mappings[kind], context=contexts.get(rid)
         )
-        logical = resources.get(rid.rpartition("-")[0], {}).get("logicalId")
+        logical = resources.get(rid.rpartition("-")[0], {}).get(RESOURCE_LOGICAL_ID_KEY)
         if invalid:
             raise _imports_model_core.ModelNeedsFixError(
                 "PENDING_DEPLOY is permitted only in environment Values, not this desired field",

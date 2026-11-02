@@ -10,6 +10,7 @@ from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY
 from task_contract_core import paths_in, safe_path, task_snapshot
 from utils.aws import cloudformation
 from utils.aws.client import connection_context
@@ -297,7 +298,9 @@ def dependency_reader(root: Path, request: JsonObject) -> Callable[..., JsonObje
     target = context.check_deploy_context(
         root,
         request["environment"],
-        request["target"]["awsAccountId"] if request["directory"].isdigit() else None,
+        request["target"][AWS_ACCOUNT_ID_KEY]
+        if request["directory"].isdigit()
+        else None,
         None if request["directory"].isdigit() else request["directory"],
     )
     if target != request["target"]:
@@ -305,7 +308,7 @@ def dependency_reader(root: Path, request: JsonObject) -> Callable[..., JsonObje
     return partial(
         dependency_read,
         connection_context(
-            select_profile(target), target["awsRegion"], execution_account(target)
+            select_profile(target), target[AWS_REGION_KEY], execution_account(target)
         ),
     )
 

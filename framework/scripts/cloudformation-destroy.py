@@ -17,6 +17,12 @@ from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 import deploy.context as _imports_aws_context
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+    IAC_ENGINE_KEY,
+)
 from model.adapters.observed import destroy_plan, sync_destroyed
 from model.core import stack_model
 from model.files import load_model
@@ -77,7 +83,7 @@ def task_snapshot(root, environment, target, requested, plan):
         "- AWS API execution: `allowed`",
         "- Destroy: `allowed`",
         f"- Target environment: `{environment}`",
-        f"- Target AWS account: `{target['awsAccountId']}`",
+        f"- Target AWS account: `{target[AWS_ACCOUNT_ID_KEY]}`",
     ]
     if target.get("alias"):
         required.append(f"- Target alias: `{target['alias']}`")
@@ -123,7 +129,7 @@ class AwsBackend:
         )
         self.profile = select_profile(target, profile)
         self.context = connection_context(
-            self.profile, target["awsRegion"], execution_account(target)
+            self.profile, target[AWS_REGION_KEY], execution_account(target)
         )
         self.timing_log = timing_log
 
@@ -207,11 +213,11 @@ class AwsBackend:
 def validate_identity(stack, name, target, pinned=None):
     identity = stack.get("StackId", "")
     parts = identity.split(":", 5)
-    account = target.get("awsExecutionAccountId", target["awsAccountId"])
+    account = target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY])
     if (
         len(parts) != 6
         or parts[0] != "arn"
-        or parts[2:5] != ["cloudformation", target["awsRegion"], account]
+        or parts[2:5] != ["cloudformation", target[AWS_REGION_KEY], account]
         or not re.fullmatch(r"stack/" + re.escape(name) + r"/[A-Za-z0-9-]+", parts[5])
         or stack.get("StackName") != name
         or pinned
@@ -590,7 +596,7 @@ def controller_main(argv=None, root=None):
             root, args.environment, args.aws_account_id, args.alias
         )
         profile = select_profile(target, args.profile)
-        if target["iacEngine"] != "cloudformation":
+        if target[IAC_ENGINE_KEY] != "cloudformation":
             raise Blocked("destroy requires CloudFormation target")
         directory = args.alias or args.aws_account_id
         plan = local_plan(
@@ -682,7 +688,7 @@ def controller_main(argv=None, root=None):
         save = persist
         save()
         auth_context = connection_context(
-            profile, target["awsRegion"], execution_account(target)
+            profile, target[AWS_REGION_KEY], execution_account(target)
         )
         started = time.perf_counter()
         authenticated = context.check_deploy_context(
@@ -712,7 +718,7 @@ def controller_main(argv=None, root=None):
             raise Blocked("AWS authentication context changed during authentication")
         session["context"] = {
             "account": execution_account(target),
-            "region": target["awsRegion"],
+            "region": target[AWS_REGION_KEY],
             "profile": backend.profile,
         }
         _state_controller_main_355.pinned = {}

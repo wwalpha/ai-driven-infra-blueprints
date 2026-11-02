@@ -7,6 +7,11 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from utils.cloudformation.export_resolution import resolve_exports, stack_exports
 from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import Blocked, condition_active, resolve_value
@@ -117,9 +122,9 @@ def check_imports(target, templates, states, aws, unit, exports=None):
         parameters,
         {
             "AWS::AccountId": target.get(
-                "awsExecutionAccountId", target["awsAccountId"]
+                AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY]
             ),
-            "AWS::Region": target["awsRegion"],
+            "AWS::Region": target[AWS_REGION_KEY],
             "AWS::StackName": unit["name"],
         },
     )
@@ -523,8 +528,10 @@ class OutputNotReflected(Blocked):
 def required_outputs(document, parameters, target, name):
     pseudo = {
         "AWS::StackName": name,
-        "AWS::Region": target["awsRegion"],
-        "AWS::AccountId": target.get("awsExecutionAccountId", target["awsAccountId"]),
+        "AWS::Region": target[AWS_REGION_KEY],
+        "AWS::AccountId": target.get(
+            AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY]
+        ),
     }
     result = {}
     for key, definition in document.get("Outputs", {}).items():

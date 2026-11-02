@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 import utils.markdown_format as _imports_utils_markdown_format
+from contracts.repository import DESIGNS_DIRECTORY
 from task_contract_core import TASK_TYPES
 from utils.aws_mappings import definition_root
 from utils.cloudformation.schema import CloudFormationSchemaCatalog, snapshot_errors
@@ -23,7 +24,7 @@ REQUIRED_RULES = {
     "terraform.md",
 }
 REQUIRED_DIRECTORIES = (
-    "docs/designs",
+    DESIGNS_DIRECTORY,
     "infra",
     "tests/scenarios",
     "tests/results",

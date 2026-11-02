@@ -9,6 +9,13 @@ from contracts.model import (
     MODEL_PENDING_DEPLOY,
     REFERENCE_PENDING_DEPLOY,
     REFERENCE_UNRESOLVED,
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_TYPE_KEY,
+)
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
 )
 from design.services.definitions.registry import POLICY_FORMATS
 from utils import cli_deploy
@@ -57,14 +64,14 @@ def resolve(node, scope, resolver, *, field=None, property_name=None, context=No
     try:
         operand = any(token.startswith("Fn::") for token in node.pointer.split("/"))
         resolver.validate_attribute(
-            resource["resourceType"],
+            resource[RESOURCE_TYPE_KEY],
             node.attribute,
             field=field,
             context=context,
             operand=operand,
         )
         if operand and node.pointer.endswith("/Fn::Select/1"):
-            kind = resource["resourceType"]
+            kind = resource[RESOURCE_TYPE_KEY]
             if (
                 field
                 in {
@@ -97,7 +104,7 @@ def resolve(node, scope, resolver, *, field=None, property_name=None, context=No
                 )
         if field and not operand:
             resolver.validate_reference_type(
-                resource["resourceType"], node.attribute, field
+                resource[RESOURCE_TYPE_KEY], node.attribute, field
             )
         terminal = next(
             (
@@ -110,8 +117,8 @@ def resolve(node, scope, resolver, *, field=None, property_name=None, context=No
         if (
             POLICY_FORMATS.get(property_name) in {"statement", "wrapped-statement"}
             and terminal in {"Resource", "NotResource", "AWS"}
-            and reference_attribute(resource["resourceType"], node.attribute)
-            != reference_attribute(resource["resourceType"], "Arn")
+            and reference_attribute(resource[RESOURCE_TYPE_KEY], node.attribute)
+            != reference_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
         ):
             raise ModelNeedsFixError(
                 "policy Resource/Principal requires the ARN attribute",
@@ -163,7 +170,7 @@ class ProducerValues:
             resource,
             resolver,
         )
-        self.kind = resource["resourceType"]
+        self.kind = resource[RESOURCE_TYPE_KEY]
         self.rows = [
             (rid, row)
             for rid, row in entries(snapshot.authoritative, "desired.row.")
@@ -222,7 +229,8 @@ class ProducerValues:
                 node, self.snapshot.scope, self.resolver, field=row["property"]
             )
             if (
-                target["logicalId"] == self.resource["logicalId"]
+                target[RESOURCE_LOGICAL_ID_KEY]
+                == self.resource[RESOURCE_LOGICAL_ID_KEY]
                 and RETURN_ATTRIBUTE_PROPERTIES.get(
                     (self.kind, reference_attribute(self.kind, attribute)),
                     reference_attribute(self.kind, attribute),
@@ -388,10 +396,10 @@ class ProducerValues:
         target = self.resolver.target(self.snapshot.scope)
         pseudo = {
             "AWS::Partition": cli_deploy.partition(self.resolver.root, target)
-            or partition_for(target.get("awsRegion")),
-            "AWS::Region": target.get("awsRegion"),
+            or partition_for(target.get(AWS_REGION_KEY)),
+            "AWS::Region": target.get(AWS_REGION_KEY),
             "AWS::AccountId": target.get(
-                "awsExecutionAccountId", target.get("awsAccountId")
+                AWS_EXECUTION_ACCOUNT_ID_KEY, target.get(AWS_ACCOUNT_ID_KEY)
             ),
         }
         properties = {}
@@ -509,15 +517,15 @@ def reference_value(resolver, scope, node, **contract):
             node, scope, resolver, **contract
         )
         producer = ProducerValues(snapshot, number, resource, resolver)
-        attribute = reference_attribute(resource["resourceType"], attribute)
+        attribute = reference_attribute(resource[RESOURCE_TYPE_KEY], attribute)
         try:
             value = (
                 producer.arn(attribute)
-                if resource["resourceType"] in ARN_SHAPES
-                and attribute == reference_attribute(resource["resourceType"], "Arn")
+                if resource[RESOURCE_TYPE_KEY] in ARN_SHAPES
+                and attribute == reference_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
                 else producer.value(
                     RETURN_ATTRIBUTE_PROPERTIES.get(
-                        (resource["resourceType"], attribute), attribute
+                        (resource[RESOURCE_TYPE_KEY], attribute), attribute
                     )
                 )
             )
@@ -544,7 +552,7 @@ def reference_value(resolver, scope, node, **contract):
             )
         if value is None:
             field = RETURN_ATTRIBUTE_PROPERTIES.get(
-                (resource["resourceType"], attribute), attribute
+                (resource[RESOURCE_TYPE_KEY], attribute), attribute
             )
             pending = producer.waiting([field])
             if not pending and producer.logical_only((field,)):

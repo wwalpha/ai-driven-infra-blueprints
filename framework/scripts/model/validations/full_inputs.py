@@ -11,6 +11,8 @@ from types import SimpleNamespace as _CallbackState
 import aws_mapping_display as _imports_aws_mapping_display
 import validation.design as _imports_validation_design
 import validation.findings as _imports_validation_findings
+from contracts.model import RESOURCE_TYPE_KEY
+from contracts.repository import DESIGNS_DIRECTORY
 from design.catalog import (
     DesignSchemaCatalog,
 )
@@ -134,7 +136,7 @@ def _check_full_resources(
             "model.api-constraints." + state.identity,
             None,
             lambda selected=selected,
-            kind=state.resource["resourceType"]: validate_api_constraints(
+            kind=state.resource[RESOURCE_TYPE_KEY]: validate_api_constraints(
                 selected, kind, catalog
             ),
         )
@@ -177,14 +179,14 @@ def _check_full_observed_identity_presentation(
     check_observed_values = _imports_validation_design.check_observed_values
     resource_details = _imports_model_render.resource_details
     model = (
-        (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+        (root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)).with_suffix(
             ".properties"
         )
-        if path.is_relative_to(root / "docs/designs")
+        if path.is_relative_to(root / DESIGNS_DIRECTORY)
         else path
     )
     state.view = (
-        root / "docs/designs" / model.relative_to(root / "model")
+        root / DESIGNS_DIRECTORY / model.relative_to(root / "model")
     ).with_suffix(".md")
     if observations:
         findings.evaluate(
@@ -260,15 +262,15 @@ def _check_model_inputs(
 
     definitions = definitions_root or definition_root(root)
     _state_check_model_inputs_337.view = (
-        (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+        (root / DESIGNS_DIRECTORY / path.relative_to(root / "model")).with_suffix(".md")
         if path.is_relative_to(root / "model")
         else path
     )
     model_path = (
-        (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+        (root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)).with_suffix(
             ".properties"
         )
-        if path.is_relative_to(root / "docs/designs")
+        if path.is_relative_to(root / DESIGNS_DIRECTORY)
         else path
     )
     findings = Findings(root, source_path=model_path)

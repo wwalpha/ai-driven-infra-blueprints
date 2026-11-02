@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from contracts.repository import DESIGNS_DIRECTORY
 from validation.findings import Findings
 
 import model.sources as _imports_model_sources
@@ -26,12 +27,12 @@ def _callback_check_model_inputs_presentation(
     """Resource の表示情報と保存済みアンカーを検証する。"""
     scope_for = _imports_model_sources.scope_for
     view = (
-        (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+        (root / DESIGNS_DIRECTORY / path.relative_to(root / "model")).with_suffix(".md")
         if path.is_relative_to(root / "model")
         else path
     )
     scope = scope_for(
-        (root / "model" / view.relative_to(root / "docs/designs")).with_suffix(
+        (root / "model" / view.relative_to(root / DESIGNS_DIRECTORY)).with_suffix(
             ".properties"
         )
     )

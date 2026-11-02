@@ -16,6 +16,7 @@ import model.sources as _dependency_model_sources
 import task_contract_core as _imports_task_contract
 import utils.sealed_evidence as _sealed_evidence
 import validation_scope as _imports_validation_scope
+from contracts.repository import PROJECT_FILENAME
 from model.change_scope import index_stage
 from sync_files import save_files
 from task_contract_core import (
@@ -88,7 +89,7 @@ def changed_sources(root, supplied=None, *, contract_file=None):
     return {
         str(p)
         for p in supplied
-        if str(p).startswith("model/") or str(p) == "project.json"
+        if str(p).startswith("model/") or str(p) == PROJECT_FILENAME
     }
 
 
@@ -147,7 +148,7 @@ def snapshots(
         before = Path(directory).resolve() / "before"
         paths = source_paths or [
             "model",
-            "project.json",
+            PROJECT_FILENAME,
             *(["infra/cloudformation"] if identity_inputs else []),
         ]
         cache = _baselines.get()
@@ -172,7 +173,7 @@ def snapshots(
             lifetime.enter_context(index_stage(root, after))
             for path in (
                 *input_select(root / "model", "*", recursive=True, kinds=("file",)),
-                root / "project.json",
+                root / PROJECT_FILENAME,
                 *(
                     input_select(
                         root / "infra/cloudformation",
@@ -230,7 +231,7 @@ def require_import_changes(
         {
             p
             for p in final_candidate.changed_paths
-            if p.startswith(("model/", "project.json"))
+            if p.startswith(("model/", PROJECT_FILENAME))
         }
         if final_candidate is not None
         else changed_sources(root, supplied, contract_file=contract_file)

@@ -13,6 +13,13 @@ from functools import partialmethod
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+from contracts.model import (
+    MODEL_REF_KEY,
+    REFERENCE_LOGICAL_ID_KEY,
+    RESOURCE_LOGICAL_ID_KEY,
+)
+from contracts.target import AWS_REGION_KEY
+
 
 def _callback_engine_load_model(m, snapshot, /, path):
     address = path.relative_to(m.ROOT / "model").with_suffix("").as_posix()
@@ -48,7 +55,7 @@ def _callback_engine_resolve_json(self, m, original_resolve, /, value, norm="typ
 
 def contains_reference(value):
     if isinstance(value, dict):
-        return "$modelRef" in value or any(
+        return MODEL_REF_KEY in value or any(
             contains_reference(v) for v in value.values()
         )
     if isinstance(value, list):
@@ -157,7 +164,7 @@ def _callback_engine_reference(self, m, snapshot, /, value):
         for resource in self.ctx.model(
             m.ROOT / "model" / (name + ".properties")
         ).resources
-        if resource.spec["logicalId"] == node.logical_id
+        if resource.spec[RESOURCE_LOGICAL_ID_KEY] == node.logical_id
     ]
     if len(matches) != 1:
         raise m.Unresolved("Design reference has no unique producer in audit snapshot")
@@ -606,8 +613,8 @@ def resolve_endpoint_aliases(m, ctx, snapshot):
             if row["status"] not in {"logical_only", "unresolved"} or not endpoint:
                 continue
             ref = {
-                "$modelRef": {
-                    "logicalId": producer["logicalId"],
+                MODEL_REF_KEY: {
+                    REFERENCE_LOGICAL_ID_KEY: producer["logicalId"],
                     "attribute": "DnsEntries",
                 }
             }
@@ -702,7 +709,7 @@ def audit(snapshot, profile=None, cli_runner=None):
                             ctx,
                             resource,
                             {
-                                "resource": resource.spec["logicalId"],
+                                "resource": resource.spec[RESOURCE_LOGICAL_ID_KEY],
                                 "propertiesKey": prop,
                                 "status": "acquisition_failed",
                                 "reason": reason,
@@ -786,7 +793,7 @@ def audit(snapshot, profile=None, cli_runner=None):
                             ctx,
                             resource,
                             {
-                                "resource": resource.spec["logicalId"],
+                                "resource": resource.spec[RESOURCE_LOGICAL_ID_KEY],
                                 "propertiesKey": prop,
                                 "status": "design_unresolved",
                                 "reason": "comparison failed: " + type(error).__name__,
@@ -818,7 +825,7 @@ def report(snapshot, profile, account, records, timestamp):
         ("Alias", target["directory"]),
         ("Service", snapshot["service"]),
         ("Profile", profile or "(default credential chain)"),
-        ("Region", target["awsRegion"]),
+        ("Region", target[AWS_REGION_KEY]),
         ("Account", account),
         ("Design SHA256", snapshot["modelHash"]),
     ]:

@@ -10,7 +10,11 @@ import design.layout as _dependency_design_layout
 import design.layout as _imports_design_layout
 import design.policy_tables as _dependency_policy_tables
 import validation.design as _imports_validation_design
-from contracts.model import RESOURCE_MODE_IMPORT
+from contracts.model import (
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
 from design.catalog import (
     DesignSchemaCatalog,
     property_paths_with_parents,
@@ -64,7 +68,7 @@ def validate_required_properties(
     warnings = [] if warnings is None else warnings
     for identity, resource in entries(values, "desired.resource."):
         _dependency_design_layout.resource_mode(resource)
-        kind = resource["resourceType"]
+        kind = resource[RESOURCE_TYPE_KEY]
         rows = resource_rows(values, identity, kind, root)
         rule = _imports_aws_mapping_display.rule
         RESOURCE_REFERENCE_PROPERTIES = (
@@ -160,7 +164,7 @@ def validate_required_properties(
                 required - present - IMPLICIT_GROUPED_PROPERTIES.get(schema_kind, set())
             )
             errors.extend(
-                f"{resource['logicalId']}: required provider schema property missing: {schema_kind}.{prop}"
+                f"{resource[RESOURCE_LOGICAL_ID_KEY]}: required provider schema property missing: {schema_kind}.{prop}"
                 for prop in sorted(missing)
             )
     if errors:

@@ -13,9 +13,12 @@ from aws_mapping_display import validation_rows
 from contracts.model import (
     MODEL_PENDING_DEPLOY,
     MODEL_UNSET,
+    RESOURCE_LOGICAL_ID_KEY,
     RESOURCE_MODE_CREATE,
     RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
 )
+from contracts.repository import DESIGNS_DIRECTORY
 from contracts.validation import VALIDATION_FAIL
 from design.catalog import property_paths_with_parents
 from design.layout import (
@@ -113,7 +116,7 @@ def check_generated_identifier(
         findings.canonical_root
         / "model"
         / path.resolve()
-        .relative_to(findings.canonical_root / "docs/designs")
+        .relative_to(findings.canonical_root / DESIGNS_DIRECTORY)
         .with_suffix(".properties")
     )
     try:
@@ -122,7 +125,7 @@ def check_generated_identifier(
         for rid, resource in entries(values, "desired.resource."):
             if (
                 resource.get("resourceMode") == RESOURCE_MODE_IMPORT
-                and resource.get("logicalId") == logical_id
+                and resource.get(RESOURCE_LOGICAL_ID_KEY) == logical_id
             ):
                 acquired.update(
                     (
@@ -686,9 +689,10 @@ def check_design_tables(
             bound_anchors = bound_resource_anchors(path) if values is None else {}
             bound_anchors.update(
                 {
-                    (resource["resourceType"], resource["logicalId"]): resource[
-                        "anchor"
-                    ]
+                    (
+                        resource[RESOURCE_TYPE_KEY],
+                        resource[RESOURCE_LOGICAL_ID_KEY],
+                    ): resource["anchor"]
                     for _, resource in entries(values or {}, "desired.resource.")
                     if resource.get("anchor")
                 }
@@ -804,20 +808,20 @@ def check_design_tables(
         for lines, children in units:
             children_ready = True
             for child in children.values():
-                resource_type = child["resourceType"]
+                resource_type = child[RESOURCE_TYPE_KEY]
                 try:
                     child["rows"] = validation_rows(
                         child["rows"],
                         values,
                         resource_type,
-                        child["logicalId"],
+                        child[RESOURCE_LOGICAL_ID_KEY],
                         definitions_root,
                         scope=(*path.parent.parts[-2:], path.stem),
                     )
                 except (ReferenceResolutionError, ValueError) as error:
                     design_dependency_not_run(
                         path,
-                        child["logicalId"],
+                        child[RESOURCE_LOGICAL_ID_KEY],
                         "invalid Model display projection",
                         error,
                         findings=findings,
@@ -826,7 +830,7 @@ def check_design_tables(
             if not children_ready:
                 continue
             for child in children.values():
-                resource_type = child["resourceType"]
+                resource_type = child[RESOURCE_TYPE_KEY]
                 if schema_catalog is not None:
                     present = {
                         resource_property_path(resource_type, prop)
@@ -841,14 +845,14 @@ def check_design_tables(
                         ):
                             findings.check(
                                 required in present,
-                                f"required grouped property missing: {findings.relative(path)}: {child['logicalId']}: {required}",
+                                f"required grouped property missing: {findings.relative(path)}: {child[RESOURCE_LOGICAL_ID_KEY]}: {required}",
                                 source_path=path,
                                 cause_kind="input_invalid",
                             )
                 check_generated_identifier(
                     path,
                     resource_type,
-                    child["logicalId"],
+                    child[RESOURCE_LOGICAL_ID_KEY],
                     child["rows"],
                     identifier_outputs,
                     findings=findings,

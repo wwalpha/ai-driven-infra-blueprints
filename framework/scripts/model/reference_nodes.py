@@ -4,7 +4,11 @@ import json
 import re
 from dataclasses import dataclass
 
-from contracts.model import MODEL_PENDING_DEPLOY
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    MODEL_REF_KEY,
+    REFERENCE_LOGICAL_ID_KEY,
+)
 from utils.json_format import strict_json
 from utils.reference_contracts import reference_context
 
@@ -21,7 +25,7 @@ class ReferenceNode:
 
 
 def is_reference(value):
-    return isinstance(value, dict) and "$modelRef" in value
+    return isinstance(value, dict) and MODEL_REF_KEY in value
 
 
 def parse(value, pointer=""):
@@ -34,29 +38,32 @@ def parse(value, pointer=""):
                 code="MODEL_REF_INVALID_SYNTAX",
                 pointer=pointer,
             ) from error
-    body = value.get("$modelRef") if isinstance(value, dict) else None
+    body = value.get(MODEL_REF_KEY) if isinstance(value, dict) else None
     details = {"pointer": pointer}
     if isinstance(body, dict):
         for source, name in (
-            ("logicalId", "targetLogicalId"),
+            (REFERENCE_LOGICAL_ID_KEY, "targetLogicalId"),
             ("attribute", "attribute"),
         ):
             if isinstance(body.get(source), str):
                 details[name] = body[source]
-    if not is_reference(value) or set(value) != {"$modelRef"}:
+    if not is_reference(value) or set(value) != {MODEL_REF_KEY}:
         raise ModelNeedsFixError(
             f"invalid $modelRef object: JSON Pointer={pointer!r}",
             code="MODEL_REF_INVALID_SYNTAX",
             **details,
         )
-    body = value["$modelRef"]
-    if not isinstance(body, dict) or set(body) != {"logicalId", "attribute"}:
+    body = value[MODEL_REF_KEY]
+    if not isinstance(body, dict) or set(body) != {
+        REFERENCE_LOGICAL_ID_KEY,
+        "attribute",
+    }:
         raise ModelNeedsFixError(
             f"$modelRef requires exactly logicalId and attribute: JSON Pointer={pointer!r}",
             code="MODEL_REF_INVALID_SYNTAX",
             **details,
         )
-    for key in ("logicalId", "attribute"):
+    for key in (REFERENCE_LOGICAL_ID_KEY, "attribute"):
         if (
             not isinstance(body[key], str)
             or re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:-]*", body[key]) is None
@@ -66,7 +73,7 @@ def parse(value, pointer=""):
                 code="MODEL_REF_INVALID_SYNTAX",
                 **details,
             )
-    return ReferenceNode(body["logicalId"], body["attribute"], pointer)
+    return ReferenceNode(body[REFERENCE_LOGICAL_ID_KEY], body["attribute"], pointer)
 
 
 def nodes(value, pointer="", *, errors=None):
@@ -125,7 +132,12 @@ def context_at(value, property_name, pointer, context=None):
 
 def reference_document(node):
     """Reproduce the existing Model reference declaration for a display leaf."""
-    return {"$modelRef": {"logicalId": node.logical_id, "attribute": node.attribute}}
+    return {
+        MODEL_REF_KEY: {
+            REFERENCE_LOGICAL_ID_KEY: node.logical_id,
+            "attribute": node.attribute,
+        }
+    }
 
 
 def project(value, render=None, pointer=""):

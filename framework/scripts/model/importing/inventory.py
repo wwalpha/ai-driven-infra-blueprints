@@ -9,6 +9,9 @@ from typing import Any
 import aws_mapping_compare as mapping_compare
 from aws_mapping import readonly
 from aws_mapping_catalog import project
+from contracts.mapping import MAPPING_RESOURCE_TYPE_KEY
+from contracts.model import RESOURCE_LOGICAL_ID_KEY
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
 from utils.aws_mappings import owners
 from utils.aws_schemas import schemas_for
 from utils.json_format import policy_json
@@ -63,7 +66,7 @@ def cloudcontrol_value(ctx, resource, getter):
     if (
         getter.get("service") != "cloudcontrol"
         or getter.get("operation") != "get_resource"
-        or getter.get("resourceType") != resource.kind
+        or getter.get(MAPPING_RESOURCE_TYPE_KEY) != resource.kind
     ):
         raise ValueError("invalid Cloud Control getter")
     inventory = inventory_for(ctx)
@@ -81,7 +84,7 @@ def cloudcontrol_value(ctx, resource, getter):
         if current is None:
             rows = resource.rows_for(prop)
             if any(
-                node.logical_id == resource.spec["logicalId"]
+                node.logical_id == resource.spec[RESOURCE_LOGICAL_ID_KEY]
                 for _, row in rows
                 for node in nodes(row["value"].strip("`"))
             ):
@@ -469,8 +472,8 @@ class ImportInventory:
             )
         required = handlers["list"].get("handlerSchema", {}).get("required", ())
         if kind == "Glue.Connection" and tuple(required) == ("CatalogId",):
-            account = self.ctx.target.get("awsAccountId")
-            execution = self.ctx.target.get("awsExecutionAccountId", account)
+            account = self.ctx.target.get(AWS_ACCOUNT_ID_KEY)
+            execution = self.ctx.target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, account)
             if not isinstance(account, str) or not account or account != execution:
                 raise m.AcquisitionError(
                     "cloudcontrol.list_resources",
@@ -599,7 +602,7 @@ class ImportInventory:
             name: props
             for name, definition in mapping.getters.items()
             if definition.get("kind") == "cloudcontrol"
-            and definition.get("resourceType") == kind
+            and definition.get(MAPPING_RESOURCE_TYPE_KEY) == kind
         }
         seeds = {
             key: m.select(props, key.removeprefix(kind + "."))
@@ -663,7 +666,7 @@ def adapter_inventory(ctx, service, resource_types):
         inputs = (
             {
                 "AwsAccountId": ctx.target.get(
-                    "awsExecutionAccountId", ctx.target["awsAccountId"]
+                    AWS_EXECUTION_ACCOUNT_ID_KEY, ctx.target[AWS_ACCOUNT_ID_KEY]
                 )
             }
             if api == "quicksight"

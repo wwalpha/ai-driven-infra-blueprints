@@ -5,7 +5,15 @@ from dataclasses import dataclass
 from functools import partial as _bind_framework_callback
 from pathlib import PurePosixPath
 
-from contracts.model import MODEL_PENDING_DEPLOY
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    MODEL_REF_KEY,
+    REFERENCE_LOGICAL_ID_KEY,
+    REFERENCE_RESOURCE_TYPE_KEY,
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_TYPE_KEY,
+)
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
 from utils.json_format import strict_json
 from utils.model_addresses import resource_address as resource_address
 from utils.reference_contracts import reference_error, row_contexts
@@ -41,7 +49,7 @@ FIELDS = {
     "producerScope",
     "producerId",
     "producerLogicalId",
-    "resourceType",
+    REFERENCE_RESOURCE_TYPE_KEY,
     "format",
     "property",
     "labelPolicy",
@@ -160,14 +168,18 @@ def declarations(values):
         kind, mode = spec["producerKind"], spec["format"]
         required, forbidden = set(), set()
         if kind == "resource":
-            required = {"producerLogicalId", "resourceType"}
+            required = {"producerLogicalId", REFERENCE_RESOURCE_TYPE_KEY}
             forbidden = {"contextProperty", "producerId"}
             if mode not in {"name", "identifier"} or len(scope.parts) != 3:
                 raise ValueError("invalid resource reference format/scope: " + identity)
             required.add("property")
         elif kind == "stack":
             required = {"producerId", "property"}
-            forbidden = {"resourceType", "contextProperty", "producerLogicalId"}
+            forbidden = {
+                REFERENCE_RESOURCE_TYPE_KEY,
+                "contextProperty",
+                "producerLogicalId",
+            }
             if (
                 mode != "name"
                 or spec.get("property") != "name"
@@ -176,7 +188,12 @@ def declarations(values):
                 raise ValueError("invalid stack reference: " + identity)
         elif kind == "context":
             required = {"contextProperty"}
-            forbidden = {"producerId", "producerLogicalId", "resourceType", "property"}
+            forbidden = {
+                "producerId",
+                "producerLogicalId",
+                REFERENCE_RESOURCE_TYPE_KEY,
+                "property",
+            }
             if (
                 mode != "literal"
                 or len(scope.parts) != 2
@@ -364,7 +381,10 @@ def usages(
             )
             if _producer_scope is None or scope == _producer_scope:
                 text = {
-                    "$modelRef": {"logicalId": node.logical_id, "attribute": attribute}
+                    MODEL_REF_KEY: {
+                        REFERENCE_LOGICAL_ID_KEY: node.logical_id,
+                        "attribute": attribute,
+                    }
                 }
                 result.append(
                     Usage(
@@ -427,7 +447,7 @@ def kms_observation(values, row_id, node, scope, resolver):
     if mapping is None or mapping.field.norm != "kms":
         return None
     target, number, resource, _ = resolve(node, scope, resolver, field=prop)
-    if resource["resourceType"] not in {"KMS.Key", "KMS.Alias"}:
+    if resource[RESOURCE_TYPE_KEY] not in {"KMS.Key", "KMS.Alias"}:
         return None
     if target.scope == scope and number == row_id.rpartition("-")[0]:
         return None
@@ -446,7 +466,7 @@ def kms_observation(values, row_id, node, scope, resolver):
     ):
         return "unproven", observed
     try:
-        if resource["resourceType"] == "KMS.Alias":
+        if resource[RESOURCE_TYPE_KEY] == "KMS.Alias":
             if resource.get(
                 "parentProperty"
             ) != "KMS.Alias.TargetKeyId" or not resource.get("parentReference"):
@@ -456,7 +476,7 @@ def kms_observation(values, row_id, node, scope, resolver):
             target, number, resource, _ = resolve(
                 parent, alias_scope, resolver, field="KMS.Alias.TargetKeyId"
             )
-            if target.scope != alias_scope or resource["resourceType"] != "KMS.Key":
+            if target.scope != alias_scope or resource[RESOURCE_TYPE_KEY] != "KMS.Key":
                 return "unproven", observed
         rows = [
             (rid, row)
@@ -470,7 +490,12 @@ def kms_observation(values, row_id, node, scope, resolver):
         ):
             return "unproven", observed
         key_node = parse(
-            {"$modelRef": {"logicalId": resource["logicalId"], "attribute": "KeyId"}}
+            {
+                MODEL_REF_KEY: {
+                    REFERENCE_LOGICAL_ID_KEY: resource[RESOURCE_LOGICAL_ID_KEY],
+                    "attribute": "KeyId",
+                }
+            }
         )
         key = reference_value(resolver, target.scope, key_node)
         if key.status != "resolved":
@@ -522,7 +547,9 @@ def diagnose(
                 snapshot.scope.root, env, target, snapshot.scope.service
             )
             context, project = source_models.target_for(selected, reads)
-            expected = context.get("awsExecutionAccountId", context["awsAccountId"])
+            expected = context.get(
+                AWS_EXECUTION_ACCOUNT_ID_KEY, context[AWS_ACCOUNT_ID_KEY]
+            )
             if usage.text != expected:
                 _callback_diagnose_warn(
                     usage, warnings, "context value differs from saved text"
@@ -554,7 +581,7 @@ def diagnose(
         resource = resources[identity]
         if usage.attribute is not None:
             if (
-                resource["resourceType"] in {"KMS.Key", "KMS.Alias"}
+                resource[RESOURCE_TYPE_KEY] in {"KMS.Key", "KMS.Alias"}
                 and usage.attribute in {"Arn", "KeyId"}
                 and usage.consumer_key.startswith("desired.row.")
                 and usage.consumer_key.endswith(".value")
@@ -590,12 +617,12 @@ def diagnose(
                         if state[0] == "unproven":
                             warnings[-1]["code"] = "reference.unresolved"
             continue
-        if spec and resource["resourceType"] != spec["resourceType"]:
+        if spec and resource[RESOURCE_TYPE_KEY] != spec[REFERENCE_RESOURCE_TYPE_KEY]:
             _callback_diagnose_warn(usage, warnings, "producer Resource Type differs")
         if spec.get("format") in {"name", "identifier"}:
             REFERENCE_NAME_SUFFIXES = _imports_model_projection.REFERENCE_NAME_SUFFIXES
             prop = spec["property"]
-            if prop.rsplit(".", 1)[0] != spec["resourceType"]:
+            if prop.rsplit(".", 1)[0] != spec[REFERENCE_RESOURCE_TYPE_KEY]:
                 _callback_diagnose_warn(
                     usage,
                     warnings,
@@ -790,7 +817,7 @@ def symbolic(snapshot, read_context=None):
         record = Reference(
             address,
             usage.producer_kind,
-            spec.get("resourceType"),
+            spec.get(REFERENCE_RESOURCE_TYPE_KEY),
             "model" if usage.attribute else spec.get("format"),
             usage.attribute or spec.get("property"),
             None,
@@ -850,7 +877,7 @@ def codebuild_reference_errors(path, values, *, findings=None, context_values=No
     errors = {}
     rows = entries(values, "desired.row.")
     for identity, resource in entries(values, "desired.resource."):
-        if resource["resourceType"] != "CodeBuild.Project":
+        if resource[RESOURCE_TYPE_KEY] != "CodeBuild.Project":
             continue
         selected = [
             (rid, row) for rid, row in rows if rid.rpartition("-")[0] == identity
@@ -889,7 +916,7 @@ def codebuild_reference_errors(path, values, *, findings=None, context_values=No
                     context = context_at(value, prop, pointer, contexts.get(rid, {}))
                     if error := reference_error(field, context):
                         errors[rid, source_field, pointer] = (
-                            f"Model={path}, Resource={resource['logicalId']} ({identity}), "
+                            f"Model={path}, Resource={resource[RESOURCE_LOGICAL_ID_KEY]} ({identity}), "
                             f"Name={context.get('Name', '')}, Type=PLAINTEXT, Property={field}: {error}"
                         )
     if findings is not None:

@@ -2,6 +2,8 @@
 
 import json
 
+from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
+
 import model.identity as _dependency_model_identity
 import model.operations as _dependency_model_operations
 import model.references as _dependency_model_references
@@ -32,7 +34,7 @@ def configurations(model):
     index = _dependency_model_operations.ConfigurationIndex(values)
     resources = {}
     for number, resource in entries(values, "desired.resource."):
-        logical = resource.get("logicalId")
+        logical = resource.get(RESOURCE_LOGICAL_ID_KEY)
         if not logical or logical in resources:
             raise ValueError("Resource logicalId absent or ambiguous")
         config = _dependency_model_operations.resource_configuration(
@@ -110,14 +112,17 @@ def allocation_only(old, new):
     )
     expected = dict(previous)
     old_ids = {
-        resource.get("logicalId") for _, resource in entries(old, "desired.resource.")
+        resource.get(RESOURCE_LOGICAL_ID_KEY)
+        for _, resource in entries(old, "desired.resource.")
     }
     for _, resource in entries(new, "desired.resource."):
-        if resource.get("logicalId") not in old_ids:
-            kind = resource["resourceType"]
+        if resource.get(RESOURCE_LOGICAL_ID_KEY) not in old_ids:
+            kind = resource[RESOURCE_TYPE_KEY]
             expected[kind] = max(
                 expected.get(kind, 0),
-                _dependency_model_identity.sequence(kind, resource["logicalId"]),
+                _dependency_model_identity.sequence(
+                    kind, resource[RESOURCE_LOGICAL_ID_KEY]
+                ),
             )
     return current == expected
 

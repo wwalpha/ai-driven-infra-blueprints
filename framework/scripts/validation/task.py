@@ -10,6 +10,7 @@ import import_guard as _imports_import_guard
 import model.importing.repository as repository
 import model.observed as _imports_model_observed
 import worktree_state
+from contracts.repository import PROJECT_FILENAME
 from contracts.validation import VALIDATION_PASS
 from model.core import properties as properties
 from model.impact import task_impact
@@ -312,7 +313,7 @@ class TaskValidation:
         changed = {path for path in self.changed_paths if not TASK_NAME.fullmatch(path)}
         if self.task_type == "initialization":
             self.check(
-                "project.json" in changed,
+                PROJECT_FILENAME in changed,
                 "initialization task must change project.json",
             )
         elif self.task_type == "design":

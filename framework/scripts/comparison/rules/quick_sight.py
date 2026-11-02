@@ -1,5 +1,6 @@
 """Static QuickSight comparison methods; container rules include their recursive contents."""
 
+from contracts.target import AWS_REGION_KEY
 from design.policy_tables import literal
 from model.importing.references import known
 from utils.cloudformation.inputs import Blocked
@@ -27,7 +28,7 @@ def imported_group_arn(all_rows, catalog, partition, target, stack_inputs):
             )
         fields[field] = candidate
     # stack_input establishes partition from the target's recorded SDK Region.
-    region = target.get("awsRegion")
+    region = target.get(AWS_REGION_KEY)
     if (
         not partition
         or not region

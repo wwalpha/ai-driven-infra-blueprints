@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 from botocore.validate import ParamValidator
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
 from model.adapters.aws import MISSING, AcquisitionError, Field, one
 from utils.aws_sdk import Sdk
 
@@ -48,7 +49,7 @@ def fetch(ctx, r, getter):
             "get_bucket_location",
             Bucket=name,
             ExpectedBucketOwner=ctx.target.get(
-                "awsExecutionAccountId", ctx.target["awsAccountId"]
+                AWS_EXECUTION_ACCOUNT_ID_KEY, ctx.target[AWS_ACCOUNT_ID_KEY]
             ),
         ).get("LocationConstraint")
         if not bucket.get("BucketArn"):
@@ -83,7 +84,7 @@ def fetch(ctx, r, getter):
             operations[getter],
             Bucket=name,
             ExpectedBucketOwner=ctx.target.get(
-                "awsExecutionAccountId", ctx.target["awsAccountId"]
+                AWS_EXECUTION_ACCOUNT_ID_KEY, ctx.target[AWS_ACCOUNT_ID_KEY]
             ),
         )
     except AcquisitionError as error:

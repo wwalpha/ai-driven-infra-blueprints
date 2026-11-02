@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
+from contracts.repository import DESIGNS_DIRECTORY
 from validation.findings import Findings
 
 if TYPE_CHECKING:
@@ -56,15 +58,15 @@ def _select_changed_inputs(
     selected_resources = {
         rid: resource
         for rid, resource in resources.items()
-        if resource.get("logicalId") in change.resources
+        if resource.get(RESOURCE_LOGICAL_ID_KEY) in change.resources
     }
     # 既存メタデータは文脈として使い、Change では変更項目と必須 Identity だけを検証する。
     metadata = {
         key: value
         for key, value in authority.items()
         if not key.startswith("desired.resource.")
-        or key.rsplit(".", 1)[-1] in {"resourceType", "logicalId"}
-        or resources[key.split(".")[2]].get("logicalId") in change.added
+        or key.rsplit(".", 1)[-1] in {RESOURCE_TYPE_KEY, RESOURCE_LOGICAL_ID_KEY}
+        or resources[key.split(".")[2]].get(RESOURCE_LOGICAL_ID_KEY) in change.added
         or key in change.keys
     }
     selected = {
@@ -107,7 +109,7 @@ def _check_changed_resources(
 ) -> None:
     """変更 Resource の必須・Schema・Mapping・命名・Identity・Literal を検証する。"""
     for number, resource in selected_resources.items():
-        logical, kind = resource["logicalId"], resource["resourceType"]
+        logical, kind = resource[RESOURCE_LOGICAL_ID_KEY], resource[RESOURCE_TYPE_KEY]
         resource_values = {
             key: value
             for key, value in values.items()
@@ -313,7 +315,9 @@ def check_change_inputs(
     values = _imports_model_sources.projected_values(quality_values)
     rows = {rid: row for rid, row in entries(values, "desired.row.")}
     catalog = DesignSchemaCatalog(definitions) if selected_resources else None
-    view = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+    view = (root / DESIGNS_DIRECTORY / path.relative_to(root / "model")).with_suffix(
+        ".md"
+    )
     # 既存 Resource は変更属性のみ、新規 Resource は必須属性全体を検証する。
     _check_changed_resources(
         authority,

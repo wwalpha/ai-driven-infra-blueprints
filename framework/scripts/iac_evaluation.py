@@ -7,7 +7,12 @@ AWS/deploy mode deliberately retains its existing narrower evaluation contract.
 import re
 from functools import partial as _bind_framework_callback
 
-from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
+from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
+    MODEL_PENDING_DEPLOY,
+    MODEL_UNSET,
+    RESOURCE_TYPE_KEY,
+)
 from utils.cloudformation.format import intrinsic_shape_error
 from utils.cloudformation.inputs import Blocked, resolve_value
 from utils.comparison_rows import MISSING, select
@@ -65,7 +70,7 @@ class Evaluation:
     def symbolic_schema(self, value, *, element=False):
         if isinstance(value, ResourceReference):
             service, identity = value["$resource"]
-            kind = self.resources[service][identity]["resourceType"]
+            kind = self.resources[service][identity][RESOURCE_TYPE_KEY]
             if (kind, value["$attribute"]) in RETURN_TYPES and not element:
                 return {"type": RETURN_TYPES[kind, value["$attribute"]]}
             if not element and (
@@ -104,9 +109,9 @@ class Evaluation:
             service, identity = value["$resource"]
             attribute = value["$attribute"]
             resource = self.resources[service][identity]
-            if not resource.get("cfn-logicalId"):
+            if not resource.get(CFN_LOGICAL_ID_KEY):
                 raise Blocked("resource substitution requires explicit cfn-logicalId")
-            name, logical = cfn_resource_identity(resource["cfn-logicalId"])
+            name, logical = cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])
             token = ("resource", name, logical, attribute)
             if token in seen:
                 raise Blocked(
@@ -117,16 +122,16 @@ class Evaluation:
                 raise Blocked("Transform requires external evaluation")
             properties = document["Resources"][logical].get("Properties", {})
             setting = RETURN_ATTRIBUTE_PROPERTIES.get(
-                (resource["resourceType"], attribute), attribute
+                (resource[RESOURCE_TYPE_KEY], attribute), attribute
             )
             explicit = select(properties, setting)
             readonly = "/properties/" + setting.replace(
                 ".", "/"
-            ) in self.resource_schema(resource["resourceType"]).get(
+            ) in self.resource_schema(resource[RESOURCE_TYPE_KEY]).get(
                 "readOnlyProperties", ()
             )
             # Local comparison retains Producer evidence until the shared literal resolver runs.
-            arn = attribute == reference_attribute(resource["resourceType"], "Arn")
+            arn = attribute == reference_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
             if (
                 explicit == MISSING
                 or self.local_comparison

@@ -15,9 +15,12 @@ import utils.aws_mappings as _imports_utils_aws_mappings
 from contracts.model import (
     MODEL_PENDING_DEPLOY,
     MODEL_UNSET,
+    RESOURCE_LOGICAL_ID_KEY,
     RESOURCE_MODE_CREATE,
     RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
 )
+from contracts.repository import DESIGNS_DIRECTORY
 from model.core import ReferenceResolutionError, literal, positive_integer
 from model.reference_nodes import nodes
 from utils.aws_catalogs import catalogs_for
@@ -183,7 +186,7 @@ def design_model_values(path: Path, root: Path) -> dict[str, str] | None:
     load_model = _imports_model_sources.load_model
     model_exists = _imports_model_sources.model_exists
     try:
-        relative = path.relative_to(root / "docs/designs")
+        relative = path.relative_to(root / DESIGNS_DIRECTORY)
     except ValueError:
         return None
     source = (root / "model" / relative).with_suffix(".properties")
@@ -1116,8 +1119,8 @@ def expanded_design(
                         if not pending_rule:
                             child_names.add((resource_type, name))
                         active_child = {
-                            "resourceType": resource_type,
-                            "logicalId": logical_id,
+                            RESOURCE_TYPE_KEY: resource_type,
+                            RESOURCE_LOGICAL_ID_KEY: logical_id,
                             "anchor": anchor,
                             "parentLogicalId": parent_id,
                             "parentAnchor": parent_anchor,
@@ -1132,7 +1135,7 @@ def expanded_design(
                     elif (
                         marker
                         or not active_child
-                        or active_child["resourceType"] != resource_type
+                        or active_child[RESOURCE_TYPE_KEY] != resource_type
                     ):
                         raise ValueError(
                             "grouped child rows require anchor and logical ID"
@@ -1149,7 +1152,7 @@ def expanded_design(
                             and "[]" not in prop
                         ):
                             raise ValueError(
-                                f"{resource_type}: {active_child['logicalId']}: duplicate property: {prop}"
+                                f"{resource_type}: {active_child[RESOURCE_LOGICAL_ID_KEY]}: duplicate property: {prop}"
                             )
                         if prop == active_child["parentProperty"]:
                             reference = re.fullmatch(
@@ -1164,7 +1167,7 @@ def expanded_design(
                             )
                             if not matches_parent:
                                 raise ReferenceResolutionError(
-                                    f"{resource_type}: {active_child['logicalId']}: {prop} must reference enclosing {parent_type}: {parent_id}"
+                                    f"{resource_type}: {active_child[RESOURCE_LOGICAL_ID_KEY]}: {prop} must reference enclosing {parent_type}: {parent_id}"
                                 )
                     active_child["rows"].append(cells)
                 else:
@@ -1196,18 +1199,18 @@ def expanded_design(
         for number, cells in enumerate(parent_rows, 1):
             result.append("| " + " | ".join([str(number), *cells[1:]]) + " |")
         for child in table_children:
-            if child["resourceType"] in {
+            if child[RESOURCE_TYPE_KEY] in {
                 ROTATION_SCHEDULE,
                 LAMBDA_PERMISSION,
             } and not any(row[1] == child["parentProperty"] for row in child["rows"]):
                 raise ValueError(
-                    f"{child['resourceType']}: {child['logicalId']}: required property missing: {child['parentProperty']}"
+                    f"{child[RESOURCE_TYPE_KEY]}: {child[RESOURCE_LOGICAL_ID_KEY]}: required property missing: {child['parentProperty']}"
                 )
             result.extend(
                 (
                     "",
                     f'<a id="{child["anchor"]}"></a>',
-                    f"### {child['resourceType']}: {child['logicalId']}",
+                    f"### {child[RESOURCE_TYPE_KEY]}: {child[RESOURCE_LOGICAL_ID_KEY]}",
                     "",
                     HEADER,
                     ALIGNMENT,

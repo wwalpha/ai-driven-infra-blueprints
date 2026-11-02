@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY
 from model.core import literal
 from model.validations.naming import (
     NAMING_EXEMPT_PROPERTIES,
@@ -233,8 +234,8 @@ def component_facts(artifact, name):
         component: target[key]
         for component, key in (
             ("environment", "environment"),
-            ("account_id", "awsAccountId"),
-            ("region", "awsRegion"),
+            ("account_id", AWS_ACCOUNT_ID_KEY),
+            ("region", AWS_REGION_KEY),
             ("target_alias", "alias"),
             ("suffix", "suffix"),
         )
@@ -529,7 +530,7 @@ def review_names(artifact, rule_index=None):
     if artifact["naming"]["names"] and (
         not isinstance(target, dict)
         or target.get("environment") != artifact.get("environment")
-        or target.get("alias", target.get("awsAccountId")) != artifact.get("target")
+        or target.get("alias", target.get(AWS_ACCOUNT_ID_KEY)) != artifact.get("target")
         or "suffix" not in target
     ):
         raise IncompleteNamingScan(

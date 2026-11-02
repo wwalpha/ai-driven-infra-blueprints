@@ -3,6 +3,7 @@
 import re
 from typing import Any
 
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY
 from model.adapters.aws import (
     AcquisitionError,
     IdentityError,
@@ -30,11 +31,11 @@ def datasource_account(ctx, r):
         account = (
             execution_account(ctx.target)
             if omitted
-            else execution_account({"awsAccountId": r.value("AwsAccountId")})
+            else execution_account({AWS_ACCOUNT_ID_KEY: r.value("AwsAccountId")})
         )
     except IdentityError as error:
         raise Unresolved(str(error)) from error
-    if account not in {execution_account(ctx.target), ctx.target["awsAccountId"]}:
+    if account not in {execution_account(ctx.target), ctx.target[AWS_ACCOUNT_ID_KEY]}:
         raise Unresolved("QuickSight account is outside the configured target accounts")
     return account, omitted
 
@@ -46,7 +47,8 @@ def group_account(ctx, r):
         account = execution_account(ctx.target)
         if (
             r.rows_for("AwsAccountId")
-            and execution_account({"awsAccountId": r.value("AwsAccountId")}) != account
+            and execution_account({AWS_ACCOUNT_ID_KEY: r.value("AwsAccountId")})
+            != account
         ):
             raise Unresolved("QuickSight Group account differs from execution account")
     except IdentityError as error:
@@ -90,7 +92,7 @@ def fetch(ctx, r, getter):
             or parts[2] != "quicksight"
         ):
             raise Unresolved("QuickSight Group ARN is missing or malformed")
-        region = ctx.target["awsRegion"]
+        region = ctx.target[AWS_REGION_KEY]
         partition = next(
             (
                 name

@@ -4,7 +4,7 @@ from functools import partial
 
 import model.projection as _model_validation_projection
 import model.validations.change_inputs as _model_validation_change_inputs
-from contracts.model import REFERENCE_PENDING_DEPLOY
+from contracts.model import REFERENCE_PENDING_DEPLOY, RESOURCE_TYPE_KEY
 from contracts.validation import VALIDATION_PASS
 from design.catalog import DesignSchemaCatalog
 from model.change_scope import change_reads
@@ -250,12 +250,12 @@ def validate_producer_inputs(snapshot, details, reads, findings, *, context_valu
             context = _model_validation_projection.reference_context_for(
                 context_values, rid, row, row.get("value"), "", snapshot.scope.root
             )
-        forms = contract(prop, context).get(resource["resourceType"], ())
+        forms = contract(prop, context).get(resource[RESOURCE_TYPE_KEY], ())
         if spec.get("property"):
             forms = (spec["property"].split(".", 2)[-1],)
         if len(forms) != 1:
             continue  # A display-only link grants no authority to infer an output attribute.
-        attribute = reference_attribute(resource["resourceType"], forms[0])
+        attribute = reference_attribute(resource[RESOURCE_TYPE_KEY], forms[0])
         key = producer.scope.path, usage.producer_id, attribute
         if key in checked:
             continue
@@ -263,7 +263,7 @@ def validate_producer_inputs(snapshot, details, reads, findings, *, context_valu
         values = ProducerValues(producer, usage.producer_id, resource, resolver)
         evaluate = (
             partial(values.arn, attribute)
-            if attribute == reference_attribute(resource["resourceType"], "Arn")
+            if attribute == reference_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
             else partial(values.value, attribute)
         )
 

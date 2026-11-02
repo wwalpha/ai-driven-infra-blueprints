@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
 from utils.input_cache import input_scope
 
 import model.core as _imports_model_core
@@ -68,7 +69,7 @@ def resource_keys(text: str, selector: str, *, scope=None) -> set[str]:
     matches = [
         identity
         for identity, resource in resources.items()
-        if selector and selector in (identity, resource.get("logicalId"))
+        if selector and selector in (identity, resource.get(RESOURCE_LOGICAL_ID_KEY))
     ]
     if len(matches) != 1:
         raise ValueError(
@@ -88,7 +89,7 @@ def resource_keys(text: str, selector: str, *, scope=None) -> set[str]:
         field = resource.get("parentProperty")
         if not field:
             raise ValueError("grouped parentProperty is absent: " + identity)
-        kind = logical[node.logical_id][1]["resourceType"]
+        kind = logical[node.logical_id][1][RESOURCE_TYPE_KEY]
         resolver.validate_attribute(kind, node.attribute, field=field)
         resolver.validate_reference_type(kind, node.attribute, field)
         parent = logical[node.logical_id][0]

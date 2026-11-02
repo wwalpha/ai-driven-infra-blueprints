@@ -6,6 +6,12 @@ from contextvars import ContextVar
 
 import task_contract_core as tasks
 import worktree_state
+from contracts.repository import PROJECT_FILENAME
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 
 from utils.project_targets import load_target_directory
 from utils.script_loader import module
@@ -56,10 +62,10 @@ def partition(root, target, *, text=None):
         text = tasks.task_snapshot(root, executable=False).text
     if not is_cli(text):
         return None
-    account = target.get("awsExecutionAccountId", target.get("awsAccountId"))
+    account = target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, target.get(AWS_ACCOUNT_ID_KEY))
     if field(text, "CLI AWS account") != account or field(
         text, "CLI AWS region"
-    ) != target.get("awsRegion"):
+    ) != target.get(AWS_REGION_KEY):
         raise ValueError("CLI AWS context differs from the selected Model target")
     value = field(text, "CLI AWS partition")
     if re.fullmatch(r"aws(?:-[a-z]+)*", value) is None:
@@ -77,7 +83,9 @@ def require_local_completion(root, snapshot, *, base=None):
         raise ValueError("CLI Deploy requires a scoped target")
     for environment, directory in {(e, d) for e, d, _ in snapshot.scope}:
         partition(
-            root, load_target_directory(root, environment, directory), text=snapshot.text
+            root,
+            load_target_directory(root, environment, directory),
+            text=snapshot.text,
         )
     wt = module("worktree_task.py", "worktree_task")
     verify_observed_outputs = module(
@@ -87,7 +95,7 @@ def require_local_completion(root, snapshot, *, base=None):
     changed = wt.paths(
         root, "diff", "--name-only", "--no-renames", "-z", baseline, "--"
     ) | wt.changed_paths(root)
-    if "project.json" in changed:
+    if PROJECT_FILENAME in changed:
         raise ValueError("CLI Deploy cannot change project configuration")
     sources = {root / p for p in changed if p.startswith("model/")}
     verify_observed_outputs(

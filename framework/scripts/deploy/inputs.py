@@ -6,6 +6,7 @@ from functools import partial as _bind_framework_callback
 
 import utils.cloudformation.inputs as _imports_cfn_inputs
 import utils.project_targets as _imports_project_targets
+from contracts.target import AWS_ACCOUNT_ID_KEY, IAC_ENGINE_KEY
 from model.core import (
     deployment_settings,
     entries,
@@ -225,9 +226,9 @@ def task_deployment_input_paths(root):
     account, alias = value("Target AWS account"), value("Target alias", optional=True)
     try:
         target = load_target(root, environment, alias or account)
-        if target["awsAccountId"] != account:
+        if target[AWS_ACCOUNT_ID_KEY] != account:
             raise ValueError("task AWS account does not match project target")
-        if target["iacEngine"] != "cloudformation":
+        if target[IAC_ENGINE_KEY] != "cloudformation":
             return None
         scopes = [line for line in lines if line.startswith("- Deployment scope:")]
         if len(scopes) != 1:

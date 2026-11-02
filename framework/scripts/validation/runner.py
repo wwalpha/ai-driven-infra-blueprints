@@ -28,6 +28,7 @@ import utils.aws_mappings as _imports_utils_aws_mappings
 import validation.change as change_validation
 import validation.task as _dependency_validation_task
 from contracts.model import RESOURCE_MODE_CREATE
+from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
 from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from design.catalog import DesignSchemaCatalog
 from design.document import DesignIndex
@@ -142,7 +143,7 @@ def _callback_Validator_check_unavailable_design(self, entry, info, /):
         ),
         isolate=True,
     )
-    path = self.root / "docs/designs" / entry[0] / entry[1] / (entry[2] + ".md")
+    path = self.root / DESIGNS_DIRECTORY / entry[0] / entry[1] / (entry[2] + ".md")
     try:
         if path in self.unavailable_views:
             raise OSError(str(self.unavailable_views[path]))
@@ -715,7 +716,7 @@ class Validator:
                     ),
                     f"generated path is outside task scope: {relative}",
                 )
-                parts = path.relative_to(self.root / "docs/designs").parts
+                parts = path.relative_to(self.root / DESIGNS_DIRECTORY).parts
                 identity = (
                     *parts[:2],
                     Path(parts[2]).stem if len(parts) == 3 else parts[2],
@@ -799,7 +800,7 @@ class Validator:
         self.unavailable_views = view_errors if view_errors is not None else {}
         self.view_reader = view_reader
         unreadable = {
-            (*path.relative_to(self.root / "docs/designs").parts[:2], path.stem)
+            (*path.relative_to(self.root / DESIGNS_DIRECTORY).parts[:2], path.stem)
             for path in self.unavailable_views
         }
         if unreadable:
@@ -1264,7 +1265,7 @@ class Validator:
     def check_project_topology(self) -> None:
         if self.scope == set():
             return
-        self.template_mode = not input_is_file(self.root / "project.json")
+        self.template_mode = not input_is_file(self.root / PROJECT_FILENAME)
         project.check_project_topology(
             self.accounts, self.findings, self.root, self.template_mode
         )
@@ -1634,7 +1635,7 @@ class Validator:
             authority_root=self.task.attribution_root,
         )
         environment, directory, _ = next(iter(task.scope))
-        design = self.root / "docs/designs" / environment / directory / STACK_DESIGN
+        design = self.root / DESIGNS_DIRECTORY / environment / directory / STACK_DESIGN
         self.iac_paths = set(
             _imports_deploy_inputs.task_deployment_input_paths(self.root) or ()
         ) | {

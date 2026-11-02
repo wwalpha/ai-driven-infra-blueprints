@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import worktree_task as wt
 from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
 from contracts.model import REFERENCE_PENDING_DEPLOY
+from contracts.target import AWS_ACCOUNT_ID_KEY, IAC_ENGINE_KEY
 from contracts.validation import VALIDATION_PASS
 from model.sources import model_session
 from task_contract_core import TaskSnapshot, selected_task, set_status, task_snapshot
@@ -129,7 +130,7 @@ def guard_local_publication(backend, task):
         or context.load_target(
             backend.root,
             backend.environment,
-            None if alias else backend.target["awsAccountId"],
+            None if alias else backend.target[AWS_ACCOUNT_ID_KEY],
             alias,
         )
         != backend.target
@@ -698,7 +699,7 @@ def run(
             root,
             args.stack,
             args.environment,
-            selected["awsAccountId"],
+            selected[AWS_ACCOUNT_ID_KEY],
             args.alias,
             snapshot=task,
             allow_saved=args.action in {"status", "checkpoint", "sync"},
@@ -706,7 +707,7 @@ def run(
         if getattr(args, "final", False) and (
             args.action != "sync"
             or phase != "deploy"
-            or selected["iacEngine"] != "cloudformation"
+            or selected[IAC_ENGINE_KEY] != "cloudformation"
         ):
             raise Blocked(
                 "--final requires managed CloudFormation Deploy --action sync"
@@ -732,7 +733,7 @@ def run(
                 if args.action == "advance":
                     raise
                 target, authentication_error = selected, error.code
-        if target["iacEngine"] != "cloudformation":
+        if target[IAC_ENGINE_KEY] != "cloudformation":
             raise Blocked("step operations require CloudFormation")
         directory = args.alias or args.aws_account_id
         journal = operation_journal.location(target)

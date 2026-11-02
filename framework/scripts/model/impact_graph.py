@@ -3,6 +3,7 @@
 from collections import defaultdict
 from pathlib import Path
 
+from contracts.model import RESOURCE_LOGICAL_ID_KEY
 from utils.source_reads import FileReads as FileReads
 
 import model.identity as _dependency_model_identity
@@ -78,7 +79,7 @@ class Graph:
                 for _, resource in entries(model.authoritative, "desired.resource."):
                     self.members[scope].add(
                         _dependency_model_impact_changes.node(
-                            scope, "resource", resource["logicalId"]
+                            scope, "resource", resource[RESOURCE_LOGICAL_ID_KEY]
                         )
                     )
                 self.members[scope].update(

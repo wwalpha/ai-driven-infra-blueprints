@@ -12,10 +12,20 @@ import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 import utils.cloudformation.format as _imports_cfn_format
 from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
     MODEL_PENDING_DEPLOY,
     MODEL_UNSET,
+    RESOURCE_LOGICAL_ID_KEY,
     RESOURCE_MODE_CREATE,
     RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
+from contracts.repository import PROJECT_FILENAME
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+    IAC_ENGINE_KEY,
 )
 from design.catalog import DesignSchemaCatalog
 from design.layout import resource_mode
@@ -92,7 +102,7 @@ class Inputs:
         self.view_errors = {}
         self.load_errors, self.warnings = [], []
         self.reference_unavailable = {}
-        self.inputs = {root / "project.json"}
+        self.inputs = {root / PROJECT_FILENAME}
         self.metrics = {
             "model_loads": 0,
             "model_parses": 0,
@@ -330,9 +340,9 @@ class Inputs:
         pseudo = {
             "AWS::StackName": name,
             "AWS::AccountId": self.target.get(
-                "awsExecutionAccountId", self.target["awsAccountId"]
+                AWS_EXECUTION_ACCOUNT_ID_KEY, self.target[AWS_ACCOUNT_ID_KEY]
             ),
-            "AWS::Region": self.target["awsRegion"],
+            "AWS::Region": self.target[AWS_REGION_KEY],
             "AWS::NoValue": {"$noValue": True},
         }
         if not hasattr(self, "partition"):
@@ -341,7 +351,7 @@ class Inputs:
                 (
                     part
                     for part in Loader().load_data("endpoints")["partitions"]
-                    if self.target["awsRegion"] in part["regions"]
+                    if self.target[AWS_REGION_KEY] in part["regions"]
                 ),
                 None,
             )
@@ -378,7 +388,7 @@ class Inputs:
                 ):
                     continue
                 for number, resource in resources.items():
-                    index.setdefault(resource["logicalId"], []).append(
+                    index.setdefault(resource[RESOURCE_LOGICAL_ID_KEY], []).append(
                         (self.models[producer], number, resource)
                     )
             resolver.logical_indexes.update(
@@ -400,7 +410,7 @@ class Inputs:
                 {
                     "$resource": [snapshot.scope.service, number],
                     "$attribute": reference_attribute(
-                        resource["resourceType"], attribute
+                        resource[RESOURCE_TYPE_KEY], attribute
                     ),
                 }
             )
@@ -414,7 +424,7 @@ class Inputs:
                 ) from error
             if (
                 expected_attribute is not None
-                and reference_attribute(resource["resourceType"], expected_attribute)
+                and reference_attribute(resource[RESOURCE_TYPE_KEY], expected_attribute)
                 != value["$attribute"]
             ):
                 raise Blocked(
@@ -424,7 +434,7 @@ class Inputs:
             resolver.catalog = self.catalog
             try:
                 resolver.validate_attribute(
-                    resource["resourceType"], value["$attribute"]
+                    resource[RESOURCE_TYPE_KEY], value["$attribute"]
                 )
             except (ReferenceResolutionError, ValueError) as error:
                 raise Blocked(str(error)) from error
@@ -440,10 +450,11 @@ class Inputs:
         if resource_mode(resource) == RESOURCE_MODE_IMPORT:
             if (
                 self.local_comparison
-                and registry.resource(resource["resourceType"]).imported_arn is not None
+                and registry.resource(resource[RESOURCE_TYPE_KEY]).imported_arn
+                is not None
                 and REFERENCE_PROPERTIES.get(consumer_property)
-                == (resource["resourceType"], expected_attribute)
-                and self.target["iacEngine"] == "cloudformation"
+                == (resource[RESOURCE_TYPE_KEY], expected_attribute)
+                and self.target[IAC_ENGINE_KEY] == "cloudformation"
             ):
                 self.reference_literal(symbol)
                 return symbol
@@ -477,8 +488,8 @@ class Inputs:
             raise
         path, identity, resource, _ = entry
         if attribute is None:
-            ref_rule = registry.resource(resource["resourceType"]).ref_attribute
-            ref_property = registry.resource(resource["resourceType"]).ref_property
+            ref_rule = registry.resource(resource[RESOURCE_TYPE_KEY]).ref_attribute
+            ref_property = registry.resource(resource[RESOURCE_TYPE_KEY]).ref_property
             if self.local_comparison and ref_rule and ref_property:
                 self.symbols[cachekey] = None
                 try:
@@ -493,33 +504,35 @@ class Inputs:
                 finally:
                     self.symbols.pop(cachekey, None)
             else:
-                attribute = REF_ATTRIBUTES.get(resource["resourceType"])
+                attribute = REF_ATTRIBUTES.get(resource[RESOURCE_TYPE_KEY])
             if attribute is None:
                 raise Blocked(
-                    f"Ref return attribute is unproven: {resource['resourceType']}"
+                    f"Ref return attribute is unproven: {resource[RESOURCE_TYPE_KEY]}"
                 )
         elif not (
             derived
             and (
-                attribute == reference_attribute(resource["resourceType"], "Arn")
-                and resource["resourceType"] in ARN_SHAPES
-                or attribute == REF_ATTRIBUTES.get(resource["resourceType"])
+                attribute == reference_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
+                and resource[RESOURCE_TYPE_KEY] in ARN_SHAPES
+                or attribute == REF_ATTRIBUTES.get(resource[RESOURCE_TYPE_KEY])
             )
         ):
             if self.local_comparison and not getatt_attribute(
-                resource["resourceType"],
+                resource[RESOURCE_TYPE_KEY],
                 attribute,
-                self.catalog.schema(resource["resourceType"]),
+                self.catalog.schema(resource[RESOURCE_TYPE_KEY]),
             ):
                 raise Blocked(
                     f"unproven GetAtt return attribute: {logical}.{attribute}"
                 )
             if not self.local_comparison:
-                self.catalog.property_schema(resource["resourceType"], attribute)
+                self.catalog.property_schema(resource[RESOURCE_TYPE_KEY], attribute)
         result = ResourceReference(
             {
                 "$resource": [path.stem, identity],
-                "$attribute": reference_attribute(resource["resourceType"], attribute),
+                "$attribute": reference_attribute(
+                    resource[RESOURCE_TYPE_KEY], attribute
+                ),
             }
         )
         self.symbols[cachekey] = result
@@ -678,19 +691,21 @@ class Inputs:
             raise Blocked("cyclic reference literal dependency")
         seen = seen | {token}
         resource = self.resources[service][identity]
-        suffix = ATTRIBUTE_SUFFIXES.get((resource["resourceType"], value["$attribute"]))
+        suffix = ATTRIBUTE_SUFFIXES.get(
+            (resource[RESOURCE_TYPE_KEY], value["$attribute"])
+        )
         if suffix:
             base = ResourceReference(dict(value, **{"$attribute": suffix[0]}))
             return (
                 self.reference_literal(base, recorded=recorded, seen=seen) + suffix[1]
             )
-        imported_arn = registry.resource(resource["resourceType"]).imported_arn
+        imported_arn = registry.resource(resource[RESOURCE_TYPE_KEY]).imported_arn
         if (
             self.local_comparison
             and imported_arn
             and resource_mode(resource) == RESOURCE_MODE_IMPORT
             and value["$attribute"] == "Arn"
-            and self.target["iacEngine"] == "cloudformation"
+            and self.target[IAC_ENGINE_KEY] == "cloudformation"
         ):
             return imported_arn(
                 self.rows[service][identity],
@@ -702,25 +717,27 @@ class Inputs:
         name, logical, document, pseudo = self.reference_context(value)
         attribute = value["$attribute"]
         secret_name = (
-            attribute == registry.resource(resource["resourceType"]).explicit_name
+            attribute == registry.resource(resource[RESOURCE_TYPE_KEY]).explicit_name
         )
         evaluator = self.evaluator()
         properties = document["Resources"][logical].get("Properties", {})
-        if resource["resourceType"] in ARN_SHAPES and attribute == reference_attribute(
-            resource["resourceType"], "Arn"
+        if resource[
+            RESOURCE_TYPE_KEY
+        ] in ARN_SHAPES and attribute == reference_attribute(
+            resource[RESOURCE_TYPE_KEY], "Arn"
         ):
             if resource_mode(resource) != RESOURCE_MODE_CREATE:
                 raise Blocked(
                     "named ARN requires CREATE resource correspondence; IMPORT requires approved handoff"
                 )
             return named_arn(
-                resource["resourceType"],
+                resource[RESOURCE_TYPE_KEY],
                 properties,
                 pseudo,
                 evaluate=partial(
                     self.reference_component, name, recorded=recorded, seen=seen
                 ),
-                schema=self.catalog.schema(resource["resourceType"]),
+                schema=self.catalog.schema(resource[RESOURCE_TYPE_KEY]),
                 recorded=(
                     lambda field: recorded(
                         ResourceReference(dict(value, **{"$attribute": field}))
@@ -734,7 +751,7 @@ class Inputs:
                             value,
                             **{
                                 "$attribute": reference_attribute(
-                                    resource["resourceType"], field
+                                    resource[RESOURCE_TYPE_KEY], field
                                 )
                             },
                         )
@@ -743,14 +760,18 @@ class Inputs:
                 if symbolic_arn
                 else None,
             )
-        setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource["resourceType"], attribute))
+        setting = RETURN_ATTRIBUTE_PROPERTIES.get(
+            (resource[RESOURCE_TYPE_KEY], attribute)
+        )
         explicit_path = setting or attribute
         readonly = "/properties/" + explicit_path.replace(
             ".", "/"
-        ) in self.catalog.schema(resource["resourceType"]).get("readOnlyProperties", ())
+        ) in self.catalog.schema(resource[RESOURCE_TYPE_KEY]).get(
+            "readOnlyProperties", ()
+        )
         if (
             (
-                attribute != REF_ATTRIBUTES.get(resource["resourceType"])
+                attribute != REF_ATTRIBUTES.get(resource[RESOURCE_TYPE_KEY])
                 and not secret_name
                 and setting is None
             )
@@ -811,7 +832,7 @@ class Inputs:
     def reference_context(self, value):
         service, identity = value["$resource"]
         resource = self.resources[service][identity]
-        name, logical = cfn_resource_identity(resource["cfn-logicalId"])
+        name, logical = cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])
         units = [unit for _, unit in self.templates() if unit["name"] == name]
         if len(units) != 1:
             raise Blocked("reference stack correspondence is unproven")
@@ -822,7 +843,7 @@ class Inputs:
                 "opaque Ref requires the same proven Producer; no local literal contract"
             )
         secret_name = (
-            attribute == registry.resource(resource["resourceType"]).explicit_name
+            attribute == registry.resource(resource[RESOURCE_TYPE_KEY]).explicit_name
         )
         bound = self.symbol(
             name, logical, None if secret_name else attribute, derived=not secret_name
@@ -877,7 +898,7 @@ class Inputs:
 
     def resource_type(self, reference):
         service, identity = reference["$resource"]
-        return self.resources[service][identity]["resourceType"]
+        return self.resources[service][identity][RESOURCE_TYPE_KEY]
 
     def redacted(self, value, prop=""):
         return redacted(value, prop, sensitive_values=self.sensitive_values)
@@ -1167,7 +1188,7 @@ class Inputs:
                 and row_id.rpartition("-")[0] in self.resources[service]
             ):
                 number = row_id.rpartition("-")[0]
-                kind = self.resources[service][number]["resourceType"]
+                kind = self.resources[service][number][RESOURCE_TYPE_KEY]
                 contexts = row_contexts(kind, self.rows[service][number])
                 prop = (
                     self.model(service)

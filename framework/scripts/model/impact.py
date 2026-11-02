@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from contracts.repository import PROJECT_FILENAME
 from task_contract_core import task_read_scope, task_reads
 
 import model.change_plan as change_plan
@@ -43,7 +44,8 @@ def _service_affected(root, changed, *, before=None, read_context=None, raw=Fals
     root = Path(root)
     changed = {Path(path) for path in changed}
     if not any(
-        path.parts[:1] == ("model",) or path == Path("project.json") for path in changed
+        path.parts[:1] == ("model",) or path == Path(PROJECT_FILENAME)
+        for path in changed
     ):
         return set()
     reads = read_context or _dependency_model_sources.FileReads()
@@ -56,7 +58,7 @@ def _service_affected(root, changed, *, before=None, read_context=None, raw=Fals
         if path.parts[:1] == ("model",):
             scope = _dependency_model_sources.source_scope(root, root / path)
             result.add((scope.environment, scope.target, scope.service))
-    if Path("project.json") in changed:
+    if Path(PROJECT_FILENAME) in changed:
         result.update(graph)
     pending = set(result)
     while pending:
@@ -90,7 +92,7 @@ def analyze(root, changed, *, before=None, read_context=None, raw=False):
         root = Path(root).absolute()
         changed = {Path(path) for path in changed}
         sources = {path for path in changed if path.parts[:1] == ("model",)}
-        if not sources and Path("project.json") not in changed:
+        if not sources and Path(PROJECT_FILENAME) not in changed:
             return Impact(frozenset())
         if before is None or selected(root) is not None:
             return Impact(
@@ -121,7 +123,7 @@ def analyze(root, changed, *, before=None, read_context=None, raw=False):
             graph.include(previous, old_reads)
         graph.include(current, reads)
         seeds = changed_nodes(scopes, previous, current, graph.reasons)
-        if Path("project.json") in changed:
+        if Path(PROJECT_FILENAME) in changed:
             seeds.update(node(scope) for scope in previous.keys() | current.keys())
         visited = graph.traverse(seeds)
         return Impact(

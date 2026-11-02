@@ -1,9 +1,14 @@
 """Route 53 endpoint DNS reference presentation."""
 
 import model.references as references
-from contracts.model import MODEL_PENDING_DEPLOY
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    MODEL_REF_KEY,
+    REFERENCE_LOGICAL_ID_KEY,
+    RESOURCE_TYPE_KEY,
+)
 from model.core import ReferenceDiagnosticError
-from model.reference_nodes import nodes, parse
+from model.reference_nodes import nodes, parse, reference_document
 from model.reference_values import reference_value
 
 ALIAS_PROPERTY = "Route53.RecordSet.AliasTarget.DNSName"
@@ -37,9 +42,7 @@ def endpoint_nodes(values, row_id, field, raw):
         ):
             continue
         node = found[0]
-        target = {
-            "$modelRef": {"logicalId": node.logical_id, "attribute": node.attribute}
-        }
+        target = reference_document(node)
         expected = {
             "Fn::Select": [1, {"Fn::Split": [":", {"Fn::Select": [0, target]}]}]
         }
@@ -58,7 +61,14 @@ def endpoint_id(node, scope, resolver):
         value = reference_value(
             resolver,
             scope,
-            parse({"$modelRef": {"logicalId": node.logical_id, "attribute": "Id"}}),
+            parse(
+                {
+                    MODEL_REF_KEY: {
+                        REFERENCE_LOGICAL_ID_KEY: node.logical_id,
+                        "attribute": "Id",
+                    }
+                }
+            ),
         )
     except ReferenceDiagnosticError:
         return None
@@ -74,9 +84,9 @@ def endpoint_id(node, scope, resolver):
 def reference_label(
     values, position, node, scope, resolver, resource, attribute, name, displayed
 ):
-    if resource["resourceType"] != "EC2.VPCEndpoint" or not position.pointer.endswith(
-        POINTER
-    ):
+    if resource[
+        RESOURCE_TYPE_KEY
+    ] != "EC2.VPCEndpoint" or not position.pointer.endswith(POINTER):
         return name
     raw, structured = references._json(
         f"desired.row.{position.row_id}.{position.source_field}",

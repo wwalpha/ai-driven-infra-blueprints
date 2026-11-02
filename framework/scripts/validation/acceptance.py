@@ -3,6 +3,7 @@
 import json
 
 import worktree_state
+from contracts.repository import PROJECT_FILENAME
 from contracts.validation import VALIDATION_FAIL
 from task_contract_core import (
     atomic_files,
@@ -187,7 +188,7 @@ def unchanged_model_evidence(task, failure):
     }
     dependencies.add(source)
     # Context (account, region, topology) is part of the reference contract too.
-    dependencies.add("project.json")
+    dependencies.add(PROJECT_FILENAME)
     if not task.baseline:
         raise ValueError("baseline is required to prove an existing Model failure")
     for name in sorted(dependencies):

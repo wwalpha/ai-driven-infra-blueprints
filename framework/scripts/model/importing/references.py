@@ -8,7 +8,18 @@ from pathlib import Path
 import aws_mapping as _imports_aws_mapping
 import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.project_targets as _imports_project_targets
-from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    MODEL_UNSET,
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_TYPE_KEY,
+)
+from contracts.repository import PROJECT_FILENAME
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from utils.aws_mappings import mappings_for, owners
 from utils.aws_sdk import aws_runtime
 from utils.reference_contracts import (
@@ -227,7 +238,7 @@ class Resolver:
             name
             for name, model in self.local.items()
             if any(
-                resource.get("resourceType") == kind
+                resource.get(RESOURCE_TYPE_KEY) == kind
                 for _, resource in entries(model.values, "desired.resource.")
             )
         ]
@@ -274,7 +285,7 @@ class Resolver:
             resource_row_index = _imports_model_core.resource_row_index
             rows = resource_row_index(values)
             for rid, resource in entries(values, "desired.resource."):
-                if resource.get("resourceType") != kind:
+                if resource.get(RESOURCE_TYPE_KEY) != kind:
                     continue
                 physical = {}
                 for row_id, row in rows[rid]:
@@ -299,7 +310,7 @@ class Resolver:
                 candidate = {
                     "service": service,
                     "id": rid,
-                    "logicalId": resource["logicalId"],
+                    "logicalId": resource[RESOURCE_LOGICAL_ID_KEY],
                     "uri": _dependency_model_identity.address(model.scope, resource),
                     "anchor": resource.get("anchor"),
                     "scope": model.scope,
@@ -336,12 +347,12 @@ class Resolver:
         if self.context is None:
             load_target = _imports_project_targets.load_target_directory
             self.context = load_target(self.root, self.environment, self.target)
-            self.files[self.root / "project.json"] = (
-                (self.root / "project.json").read_bytes().decode("utf-8")
+            self.files[self.root / PROJECT_FILENAME] = (
+                (self.root / PROJECT_FILENAME).read_bytes().decode("utf-8")
             )
             get_session = aws_runtime().sdk_session
             self.partition = get_session().get_partition_for_region(
-                self.context["awsRegion"]
+                self.context[AWS_REGION_KEY]
             )
         if parts["partition"] != self.partition:
             return None
@@ -350,10 +361,10 @@ class Resolver:
                 "account" in parts
                 and parts["account"]
                 != self.context.get(
-                    "awsExecutionAccountId", self.context["awsAccountId"]
+                    AWS_EXECUTION_ACCOUNT_ID_KEY, self.context[AWS_ACCOUNT_ID_KEY]
                 )
                 or "region" in parts
-                and parts["region"] != self.context["awsRegion"]
+                and parts["region"] != self.context[AWS_REGION_KEY]
             ):
                 return None
         return (

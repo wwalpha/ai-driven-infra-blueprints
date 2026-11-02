@@ -2,7 +2,13 @@
 
 import re
 
-from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET, RESOURCE_MODE_IMPORT
+from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
+    MODEL_PENDING_DEPLOY,
+    MODEL_UNSET,
+    RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
 from design.layout import resource_mode
 from design.policy_tables import literal
 from model.adapters.observed import identifier_source
@@ -115,13 +121,13 @@ class Evidence:
         inputs = self.inputs
         service, identity = value["$resource"]
         resource = inputs.resources[service][identity]
-        kind, attribute = resource["resourceType"], value["$attribute"]
+        kind, attribute = resource[RESOURCE_TYPE_KEY], value["$attribute"]
         if resource_mode(resource) == RESOURCE_MODE_IMPORT:
             raise Blocked("attribute_format_unproven: IMPORT requires approved handoff")
         prop = kind + "." + attribute
         outputs = catalog_outputs(inputs.root, kind)
         if prop not in outputs:
-            stack, logical = cfn_resource_identity(resource["cfn-logicalId"])
+            stack, logical = cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])
             if not same(inputs.symbol(stack, logical), value):
                 raise Blocked("attribute_format_unproven: not an identifier output")
             candidates = [

@@ -7,6 +7,7 @@ import aws_mapping as _imports_aws_mapping
 import model.importing.inventory as _imports_model_importing_inventory
 from aws_mapping import Property, registry
 from aws_mapping_catalog import project
+from contracts.mapping import MAPPING_RESOURCE_TYPE_KEY
 from utils.comparison_rows import select
 from utils.input_cache import memoized
 from utils.script_loader import module
@@ -50,7 +51,7 @@ def compile_comparison(root, service, mapping, importing=False):
             getter = mapping.getters[field.getter]
             if getter.get("kind") == "cloudcontrol" and (
                 importing
-                or getter["resourceType"]
+                or getter[MAPPING_RESOURCE_TYPE_KEY]
                 in getattr(adapter, "CLOUDCONTROL_RESOURCE_TYPES", ())
             ):
                 pass
@@ -64,7 +65,9 @@ def compile_comparison(root, service, mapping, importing=False):
                         + ".".join(api),
                     )
                 elif (
-                    getattr(adapter, "SDK_OPERATIONS", {}).get(getter["resourceType"])
+                    getattr(adapter, "SDK_OPERATIONS", {}).get(
+                        getter[MAPPING_RESOURCE_TYPE_KEY]
+                    )
                     != getter["operation"]
                 ):
                     field = replace(

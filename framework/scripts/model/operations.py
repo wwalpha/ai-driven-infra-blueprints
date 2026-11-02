@@ -18,7 +18,15 @@ import task_contract_core as _imports_task_contract
 import task_contract_core as _imports_task_contract_core
 import utils.input_cache as _imports_utils_input_cache
 import validation.change as change_validation
-from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
+from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
+    MODEL_REF_KEY,
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_MODE_CREATE,
+    RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
+from contracts.repository import PROJECT_FILENAME
 from task_contract_core import DependencyDetach, ModelOperation
 from utils.source_reads import CandidateReads as CandidateReads
 from utils.type_contracts import JsonObject
@@ -141,11 +149,11 @@ def preserve_fixed_fields(
     old_observed = new_observed = None
     for rid in previous.keys() & current.keys():
         fields = {
-            "resourceType",
-            "logicalId",
+            RESOURCE_TYPE_KEY,
+            RESOURCE_LOGICAL_ID_KEY,
             "anchor",
             "resourceMode",
-            "cfn-logicalId",
+            CFN_LOGICAL_ID_KEY,
             "parentProperty",
         }
         if rid not in parent_changes:
@@ -474,7 +482,7 @@ _REFERENCE = object()
 def _self_value(value, reference):
     if is_reference(value):
         node = parse(value)
-        if node.logical_id == reference[1]["logicalId"]:
+        if node.logical_id == reference[1][RESOURCE_LOGICAL_ID_KEY]:
             return (_SELF, node.attribute)
         return value
     if isinstance(value, dict):
@@ -668,7 +676,7 @@ def _compare_field(
                 raise ValueError(
                     "typed reference retarget requires proven declared producers"
                 )
-            a = b = {"$modelRef": {"attribute": old_node.attribute}}
+            a = b = {MODEL_REF_KEY: {"attribute": old_node.attribute}}
         else:
             a, b = (
                 _mask_references(old_leaf, previous),
@@ -994,7 +1002,9 @@ def verify_model_operation(
     source_scope = _imports_model_sources.source_scope
     _require_declared_sources(before, after, sources)
     # Source identity is independent of changes to a mutable Stack name.
-    if (before / "project.json").read_bytes() != (after / "project.json").read_bytes():
+    if (before / PROJECT_FILENAME).read_bytes() != (
+        after / PROJECT_FILENAME
+    ).read_bytes():
         raise ValueError("Model-only operation cannot change project configuration")
     selected = set(operation.scopes)
     readable = (
@@ -1184,17 +1194,18 @@ def verify_model_operation(
             ]
             if pair and (
                 old_resources[rid].get("resourceMode") != RESOURCE_MODE_IMPORT
-                or source_resource["resourceType"] != old_resources[rid]["resourceType"]
+                or source_resource[RESOURCE_TYPE_KEY]
+                != old_resources[rid][RESOURCE_TYPE_KEY]
             ):
                 raise ValueError(
                     "Model merge requires matching existing IMPORT Resource Types"
                 )
             fixed = {
-                "resourceType",
-                "logicalId",
+                RESOURCE_TYPE_KEY,
+                RESOURCE_LOGICAL_ID_KEY,
                 "anchor",
                 "resourceMode",
-                "cfn-logicalId",
+                CFN_LOGICAL_ID_KEY,
                 "parentProperty",
                 "parentReference",
             }
@@ -1426,7 +1437,9 @@ def verify_model_refactor(
         raise ValueError(
             "Model refactor requires all direct consumers in Validation scope"
         )
-    if (before / "project.json").read_bytes() != (after / "project.json").read_bytes():
+    if (before / PROJECT_FILENAME).read_bytes() != (
+        after / PROJECT_FILENAME
+    ).read_bytes():
         raise ValueError("Model refactor cannot change project configuration")
     readable = direct | {
         tuple(declaration.producer.split("/")[:3]) for declaration in detaches

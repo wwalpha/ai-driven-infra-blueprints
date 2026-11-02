@@ -23,7 +23,19 @@ from aws_mapping_catalog import under
 from aws_mapping_compare import comparison
 from comparison.rules.cloud_trail import cloudtrail_rows
 from comparison.rules.code_pipeline import prepare_rows as pipeline_rows
-from contracts.model import REFERENCE_UNRESOLVED
+from contracts import mapping as _mapping_contract
+from contracts import model as _model_contract
+from contracts import repository as _repository_contract
+from contracts import target as _target_contract
+from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
+    MODEL_REF_KEY,
+    REFERENCE_LOGICAL_ID_KEY,
+    REFERENCE_UNRESOLVED,
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_TYPE_KEY,
+)
+from contracts.repository import PROJECT_FILENAME
 from design.array_display import indexed_rows
 from design.catalog import DesignSchemaCatalog
 from design.layout import confirmed_display_name
@@ -254,6 +266,27 @@ def embed_adapter(source, service, engine_source):
         )
         for imported_module in modules:
             if (
+                imported_module
+                in {
+                    "contracts.model",
+                    "contracts.target",
+                    "contracts.repository",
+                    "contracts.mapping",
+                }
+                and isinstance(node, ast.ImportFrom)
+                and not node.level
+            ):
+                missing = [
+                    item.name for item in node.names if item.name not in available
+                ]
+                if missing:
+                    raise ValueError(
+                        f"{service}: {imported_module}: unresolved dependency {', '.join(missing)}"
+                    )
+                replacement = ast.unparse(
+                    ast.ImportFrom(module="audit_comparison", names=node.names, level=0)
+                )
+            elif (
                 imported_module == "model.adapters.aws"
                 and isinstance(node, ast.ImportFrom)
                 and not node.level
@@ -394,8 +427,8 @@ def dependencies(root, target, selected, *, model_references=True):
         for number in sorted(new):
             spec = specs[number]
             stack = (
-                cfn_resource_identity(spec["cfn-logicalId"])[0]
-                if "cfn-logicalId" in spec
+                cfn_resource_identity(spec[CFN_LOGICAL_ID_KEY])[0]
+                if CFN_LOGICAL_ID_KEY in spec
                 else None
             )
             values = [
@@ -429,8 +462,8 @@ def dependencies(root, target, selected, *, model_references=True):
                             read(producer).values, "desired.resource."
                         ):
                             identity = (
-                                cfn_resource_identity(item["cfn-logicalId"])
-                                if "cfn-logicalId" in item
+                                cfn_resource_identity(item[CFN_LOGICAL_ID_KEY])
+                                if CFN_LOGICAL_ID_KEY in item
                                 else (None, None)
                             )
                             if identity[0] == stack and identity[1] in names:
@@ -479,7 +512,7 @@ def reference_rows(root, models):
                 resolver=resolver,
                 scope=data.scope,
                 property_name=row["property"],
-                logical_id=resources[rid.rpartition("-")[0]]["logicalId"],
+                logical_id=resources[rid.rpartition("-")[0]][RESOURCE_LOGICAL_ID_KEY],
                 model_key="desired.row."
                 + rid
                 + (".document" if "document" in row else ".value"),
@@ -504,7 +537,7 @@ def reference_rows(root, models):
                             node.logical_id, data.scope
                         )
                         if (
-                            spec["resourceType"] == "EC2.VPCEndpoint"
+                            spec[RESOURCE_TYPE_KEY] == "EC2.VPCEndpoint"
                             and node.attribute == "DnsEntries"
                         ):
                             identity = reference_value(
@@ -512,8 +545,8 @@ def reference_rows(root, models):
                                 data.scope,
                                 parse(
                                     {
-                                        "$modelRef": {
-                                            "logicalId": node.logical_id,
+                                        MODEL_REF_KEY: {
+                                            REFERENCE_LOGICAL_ID_KEY: node.logical_id,
                                             "attribute": "Id",
                                         }
                                     }
@@ -627,7 +660,7 @@ def disambiguate_names(names, kinds, identities, primary):
 @input_scope
 def generate(root, environment, selector, service):
     m = module("model/adapters/aws.py", "model.adapters.aws")
-    project_source = (root / "project.json").read_bytes().decode("utf-8")
+    project_source = (root / PROJECT_FILENAME).read_bytes().decode("utf-8")
     (target,) = m.targets(root, environment, selector)
     if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", selector):
         raise ValueError("unsafe target selector")
@@ -761,7 +794,7 @@ def generate(root, environment, selector, service):
         for data in models.values()
         for file, content in data.dependencies.items()
     }
-    files["project.json"] = project_source
+    files[PROJECT_FILENAME] = project_source
     model_hash = hashlib.sha256(
         m.stable({"sources": files, "target": target}).encode("utf-8")
     ).hexdigest()
@@ -779,6 +812,41 @@ def generate(root, environment, selector, service):
         'LINK = re.compile(r"^\\[([^\\]]+)\\]\\(([^)]*?)#([^)]+)\\)$")\n'
         "def memo_table(): return None\n"
     )
+    contract_bindings = ""
+    for contract, names in (
+        (
+            _model_contract,
+            (
+                "MODEL_PENDING_DEPLOY",
+                "MODEL_UNSET",
+                "REFERENCE_PENDING_DEPLOY",
+                "REFERENCE_UNRESOLVED",
+                "RESOURCE_MODE_CREATE",
+                "RESOURCE_MODE_IMPORT",
+                "RESOURCE_TYPE_KEY",
+                "RESOURCE_LOGICAL_ID_KEY",
+                "REFERENCE_LOGICAL_ID_KEY",
+                "REFERENCE_RESOURCE_TYPE_KEY",
+                "CFN_LOGICAL_ID_KEY",
+                "MODEL_REF_KEY",
+            ),
+        ),
+        (
+            _target_contract,
+            (
+                "AWS_ACCOUNT_ID_KEY",
+                "AWS_REGION_KEY",
+                "AWS_EXECUTION_ACCOUNT_ID_KEY",
+                "IAC_ENGINE_KEY",
+            ),
+        ),
+        (_repository_contract, ("DESIGNS_DIRECTORY", "PROJECT_FILENAME")),
+        (_mapping_contract, ("MAPPING_RESOURCE_TYPE_KEY",)),
+    ):
+        contract_bindings += "".join(
+            f"{name} = {getattr(contract, name)!r}\n" for name in names
+        )
+    engine += contract_bindings
     engine += definitions(
         scripts / "validation/diagnostics.py", ["InputValidationError"]
     )
@@ -951,11 +1019,11 @@ def generate(root, environment, selector, service):
     primary = {}
     selected_values = selected_model.values
     logical_ids = {
-        resource["logicalId"]
+        resource[RESOURCE_LOGICAL_ID_KEY]
         for _, resource in entries(selected_values, "desired.resource.")
     }
     for number, resource in entries(selected_values, "desired.resource."):
-        if resource["resourceType"] == "CodePipeline.Pipeline":
+        if resource[RESOURCE_TYPE_KEY] == "CodePipeline.Pipeline":
             pipeline_indexed_rows_by_resource[number] = pipeline_indexed_rows(
                 [
                     (rid, row)
@@ -963,7 +1031,7 @@ def generate(root, environment, selector, service):
                     if rid.startswith(number + "-")
                 ]
             )
-        if resource["resourceType"] == "CloudTrail.Trail":
+        if resource[RESOURCE_TYPE_KEY] == "CloudTrail.Trail":
             leaves = [
                 (rid, row)
                 for rid, row in entries(selected_values, "desired.row.")
@@ -989,7 +1057,7 @@ def generate(root, environment, selector, service):
         name, _ = display_name(
             selected_values, number, resource, rows, ROOT, projection=True
         )
-        kind = resource["resourceType"]
+        kind = resource[RESOURCE_TYPE_KEY]
         primary[kind] = tuple(
             kind + "." + pointer.removeprefix("/properties/").replace("/", ".")
             for pointer in catalog.schema(kind).get("primaryIdentifier", ())
@@ -1015,13 +1083,13 @@ def generate(root, environment, selector, service):
         if (
             not name
             or name in logical_ids
-            or name == resource["resourceType"]
+            or name == resource[RESOURCE_TYPE_KEY]
             or not confirmed_display_name(name)
         ):
             name = identity or "（名前未設定）"
-        logical = resource["logicalId"]
+        logical = resource[RESOURCE_LOGICAL_ID_KEY]
         names[logical] = name
-        kinds[logical] = resource["resourceType"]
+        kinds[logical] = resource[RESOURCE_TYPE_KEY]
         identities[logical] = candidates
     disambiguate_names(names, kinds, identities, primary)
     snapshot = {
@@ -1045,6 +1113,14 @@ def generate(root, environment, selector, service):
         "mapped": mapped,
     }
     runtime = input_text(scripts / "model/audit_runtime.py", encoding="utf-8")
+    runtime_lines = runtime.splitlines(keepends=True)
+    for node in reversed(ast.parse(runtime).body):
+        if isinstance(node, ast.ImportFrom) and node.module in {
+            "contracts.model",
+            "contracts.target",
+        }:
+            del runtime_lines[node.lineno - 1 : node.end_lineno]
+    runtime = contract_bindings + "".join(runtime_lines)
     result = (
         "#!/usr/bin/env python3\n# Generated offline by /model-test; regenerate after Model changes.\n"
         "import json\nSNAPSHOT = json.loads("
@@ -1090,7 +1166,7 @@ def generate(root, environment, selector, service):
         if field["classification"] != "supported":
             unsupported.append((key, field["reason"]))
     for number, resource in entries(selected_values, "desired.resource."):
-        for prop in outputs.get(resource["resourceType"], []):
+        for prop in outputs.get(resource[RESOURCE_TYPE_KEY], []):
             rows = [
                 (rid, row)
                 for rid, row in entries(selected_values, "desired.row.")

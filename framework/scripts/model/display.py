@@ -14,7 +14,12 @@ import design.services.codepipeline
 import design.services.config as _imports_design_layout
 import design.services.definitions.registry as _display_definitions
 import design.services.glue
-from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
+from contracts.model import (
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_MODE_CREATE,
+    RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
 from design.common import row_table as row_table
 from design.services.cloudtrail import display_row as cloudtrail_display_row
 from design.services.definitions.cloudtrail import (
@@ -76,9 +81,9 @@ def reference_rows(values):
             (rid, row["property"], row["value"], row.get("comment", ""))
             for rid, row in rows_by_resource[identity]
         )
-        result[resource["logicalId"]] = ReferenceRows(
-            resource["logicalId"],
-            resource["resourceType"],
+        result[resource[RESOURCE_LOGICAL_ID_KEY]] = ReferenceRows(
+            resource[RESOURCE_LOGICAL_ID_KEY],
+            resource[RESOURCE_TYPE_KEY],
             resource.get("resourceMode", RESOURCE_MODE_CREATE),
             rows,
             tuple(

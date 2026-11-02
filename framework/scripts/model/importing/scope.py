@@ -6,6 +6,7 @@ from contextvars import ContextVar
 
 import task_contract_core as _imports_task_contract
 import task_contract_core as _imports_validation_scope
+from contracts.repository import DESIGNS_DIRECTORY
 from task_contract_core import _selected_contract, task_read_scope, task_snapshot
 from utils.function_wrapper import FunctionWrapper
 from utils.input_cache import memoized
@@ -169,7 +170,7 @@ def outside_design(root, path):
     if identity is None:
         return False
     documents = {
-        root / "docs/designs" / env / target / (service + ".md")
+        root / DESIGNS_DIRECTORY / env / target / (service + ".md")
         for env, target, service in (_views.get() or {identity})
     }
     return not any(
@@ -206,7 +207,9 @@ def allowed_source(root, file, identity):
 
 
 def require_write_scope(root, paths, identity):
-    document = root / "docs/designs" / identity[0] / identity[1] / (identity[2] + ".md")
+    document = (
+        root / DESIGNS_DIRECTORY / identity[0] / identity[1] / (identity[2] + ".md")
+    )
     for relative in paths:
         file = root / relative
         if relative.startswith("model/") and not allowed_source(root, file, identity):

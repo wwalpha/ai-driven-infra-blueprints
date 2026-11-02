@@ -5,6 +5,8 @@ import json
 import math
 import re
 
+from contracts.model import MODEL_REF_KEY
+
 
 def exact(value, keys, label):
     if not isinstance(value, dict) or set(value) != set(keys):
@@ -26,7 +28,7 @@ def _recursive_validate_aws_document_visit(value, pointer, template):
             child_pointer = (
                 pointer + "/" + str(key).replace("~", "~0").replace("/", "~1")
             )
-            if key == "$modelRef":
+            if key == MODEL_REF_KEY:
                 raise AwsDocumentError(
                     child_pointer,
                     {key: child},

@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Collection
 from pathlib import Path
 
+from contracts.repository import DESIGNS_DIRECTORY
+
 from model.projection import (
     validate_json_documents,
 )
@@ -26,7 +28,7 @@ def validate_json_settings(
         path = (
             path.parents[4]
             / "model"
-            / path.relative_to(path.parents[4] / "docs/designs")
+            / path.relative_to(path.parents[4] / DESIGNS_DIRECTORY)
         ).with_suffix(".properties")
     context = {} if context_values is None else {"context_values": context_values}
     validate_environment_settings(

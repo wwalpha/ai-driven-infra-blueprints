@@ -17,6 +17,7 @@ import model.projection as _model_projection
 import model.render as _model_render
 import utils.aws_mappings as _imports_utils_aws_mappings
 from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
+from contracts.repository import DESIGNS_DIRECTORY
 from model.core import literal
 from model.identity import Resolver
 from model.reference_nodes import is_reference, nodes, project, reference_document
@@ -448,7 +449,7 @@ def policy_lines(
     if any(nodes(document)):
         root = path.parents[4]
         scope = scope_for(
-            (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+            (root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)).with_suffix(
                 ".properties"
             )
         )

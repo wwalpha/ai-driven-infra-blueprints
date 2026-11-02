@@ -6,7 +6,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 import design.layout as _dependency_design_layout
-from contracts.model import RESOURCE_MODE_CREATE
+from contracts.model import CFN_LOGICAL_ID_KEY, RESOURCE_MODE_CREATE, RESOURCE_TYPE_KEY
+from contracts.repository import DESIGNS_DIRECTORY
+from contracts.target import IAC_ENGINE_KEY
 from design.catalog import (
     DesignSchemaCatalog,
 )
@@ -38,8 +40,8 @@ def validate_resource_identities(
 ) -> None:
     """Resource の配置と CloudFormation Identity を検証する。"""
     relative = (
-        path.parent.relative_to(root / "docs/designs")
-        if path.is_relative_to(root / "docs/designs")
+        path.parent.relative_to(root / DESIGNS_DIRECTORY)
+        if path.is_relative_to(root / DESIGNS_DIRECTORY)
         else None
     )
     target = design_target(path, root)
@@ -50,20 +52,20 @@ def validate_resource_identities(
         else None
     )
     identity_catalog = DesignSchemaCatalog(definitions_root or definition_root(root))
-    if target.get("iacEngine") == "terraform":
+    if target.get(IAC_ENGINE_KEY) == "terraform":
         _validate_terraform_identities(resources)
         return
     stack_names = None
     for identity, resource in resources:
         # CloudFormation 専用の必須条件は確定したエンジンからのみ検証する。
-        if target.get("iacEngine") == "cloudformation":
+        if target.get(IAC_ENGINE_KEY) == "cloudformation":
             _validate_cloudformation_identities(
                 root, stack_source, identity, resource, identity_catalog
             )
-        elif "cfn-logicalId" in resource:
+        elif CFN_LOGICAL_ID_KEY in resource:
             # エンジン未解決でも宣言済み Identity の共通検証は維持する。
             _validate_declared_identity(identity, resource, identity_catalog)
-        if "cfn-logicalId" in resource:
+        if CFN_LOGICAL_ID_KEY in resource:
             stack_names = _validate_identity_stack(
                 root, stack_source, identity, resource, resources, stack_names
             )
@@ -74,7 +76,7 @@ def _validate_terraform_identities(
 ) -> None:
     """Terraform では CloudFormation Identity を許可しない。"""
     for identity, resource in resources:
-        if "cfn-logicalId" in resource:
+        if CFN_LOGICAL_ID_KEY in resource:
             raise InputValidationError(
                 f"{identity}: cfn-logicalId is forbidden for Terraform"
             )
@@ -88,12 +90,12 @@ def _validate_cloudformation_identities(
     identity_catalog: DesignSchemaCatalog,
 ) -> None:
     """CloudFormation Resource の Identity と Stack 宣言を必須検証する。"""
-    if "cfn-logicalId" not in resource:
+    if CFN_LOGICAL_ID_KEY not in resource:
         # IMPORT と API 専用 Resource は必須 Identity の対象外。
         if _dependency_design_layout.resource_mode(resource) != RESOURCE_MODE_CREATE:
             return
         try:
-            cfn_type = identity_catalog.cloudformation_type(resource["resourceType"])
+            cfn_type = identity_catalog.cloudformation_type(resource[RESOURCE_TYPE_KEY])
         except ValueError:
             return
         if cfn_type:
@@ -124,7 +126,7 @@ def _validate_declared_identity(
         raise InputValidationError(
             f"{identity}: cfn-logicalId requires CREATE with a formal CFn type"
         )
-    identity_catalog.cloudformation_type(resource["resourceType"])
+    identity_catalog.cloudformation_type(resource[RESOURCE_TYPE_KEY])
 
 
 def _validate_identity_stack(
@@ -144,9 +146,9 @@ def _validate_identity_stack(
             stack_names = _imports_model_importing_scope.placement_names(
                 stack_source,
                 {
-                    iac_values.cfn_resource_identity(spec["cfn-logicalId"])[0]
+                    iac_values.cfn_resource_identity(spec[CFN_LOGICAL_ID_KEY])[0]
                     for _, spec in resources
-                    if spec.get("cfn-logicalId")
+                    if spec.get(CFN_LOGICAL_ID_KEY)
                 },
             )[0]
     elif stack_source is not None and input_is_file(stack_source):
@@ -161,7 +163,7 @@ def _validate_identity_stack(
         # エンジン未解決時の Stack ファイル欠落は従来どおり許容する。
         return stack_names
     if (
-        iac_values.cfn_resource_identity(resource["cfn-logicalId"])[0]
+        iac_values.cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])[0]
         not in stack_names
     ):
         raise ReferenceResolutionError(

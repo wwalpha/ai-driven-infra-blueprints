@@ -6,7 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 import model.sources as _imports_model_sources
-from contracts.model import RESOURCE_MODE_IMPORT
+from contracts.model import CFN_LOGICAL_ID_KEY, RESOURCE_MODE_IMPORT, RESOURCE_TYPE_KEY
+from contracts.target import AWS_REGION_KEY, IAC_ENGINE_KEY
 from design.layout import resource_mode
 from model.core import entries
 from utils.cfn_lint import POLICY, lint_session, validate_template
@@ -108,7 +109,7 @@ def _callback_plan_add(comparison, coverage, jobs, parameter_cache, /, unit, ori
         [
             str(path),
             str(parameters) if parameters else str(filename),
-            comparison.target["awsRegion"],
+            comparison.target[AWS_REGION_KEY],
             POLICY,
         ]
     )
@@ -119,7 +120,7 @@ def _callback_plan_add(comparison, coverage, jobs, parameter_cache, /, unit, ori
             template=str(path),
             parameters=str(parameters) if parameters and not problem else None,
             fallback=bool(problem),
-            region=comparison.target["awsRegion"],
+            region=comparison.target[AWS_REGION_KEY],
             policy=POLICY,
             origins=[],
             status="planned" if path.is_file() else "input_missing",
@@ -145,7 +146,7 @@ def _callback_plan_declared_stacks(_state_plan_32, comparison, /):
 def plan(comparison):
     _state_plan_32 = _CallbackState()
     jobs, coverage = {}, []
-    if comparison.target["iacEngine"] != "cloudformation":
+    if comparison.target[IAC_ENGINE_KEY] != "cloudformation":
         return [], [dict(status="not_applicable", reason="Terraform scope")]
     _state_plan_32.stacks, _state_plan_32.stack_error = None, None
     declared_stacks = _bind_framework_callback(
@@ -189,7 +190,7 @@ def plan(comparison):
                 mode = resource_mode(resource)
                 if (
                     mode == RESOURCE_MODE_IMPORT
-                    or resource.get("resourceType") in comparison.catalog.api_schemas
+                    or resource.get(RESOURCE_TYPE_KEY) in comparison.catalog.api_schemas
                 ):
                     coverage.append(
                         dict(
@@ -201,9 +202,9 @@ def plan(comparison):
                         )
                     )
                     continue
-                if not resource.get("cfn-logicalId"):
+                if not resource.get(CFN_LOGICAL_ID_KEY):
                     raise ValueError("explicit cfn-logicalId unavailable")
-                name, logical = cfn_resource_identity(resource["cfn-logicalId"])
+                name, logical = cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])
                 units = declared_stacks().get(name, [])
                 if _state_plan_32.stack_error:
                     coverage.append(
@@ -272,8 +273,10 @@ def owner(comparison, job, match):
         try:
             comparison.model(source.stem)
             for resource in comparison.resources[source.stem].values():
-                if resource.get("cfn-logicalId"):
-                    stack, candidate = cfn_resource_identity(resource["cfn-logicalId"])
+                if resource.get(CFN_LOGICAL_ID_KEY):
+                    stack, candidate = cfn_resource_identity(
+                        resource[CFN_LOGICAL_ID_KEY]
+                    )
                     if candidate == logical and any(
                         origin["stack"] == stack for origin in job["origins"]
                     ):

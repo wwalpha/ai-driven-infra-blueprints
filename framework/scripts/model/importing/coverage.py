@@ -15,6 +15,7 @@ from typing import Any
 
 from aws_mapping import response_shape, runtime_registry
 from aws_mapping_catalog import sdk_shape, under
+from contracts.mapping import MAPPING_RESOURCE_TYPE_KEY
 from design.catalog import DesignSchemaCatalog
 from utils.aws_mappings import owners
 from utils.aws_schemas import schemas_for
@@ -228,7 +229,9 @@ class Coverage:
                 missing = "Registered SDK inventory has no Mapping identity; "
             else:
                 getter = mapping.getters.get(descriptor.getter, {})
-                if kind not in getter.get("resources", (getter.get("resourceType"),)):
+                if kind not in getter.get(
+                    "resources", (getter.get(MAPPING_RESOURCE_TYPE_KEY),)
+                ):
                     return diagnostic(
                         "broken",
                         "IDENTITY_GETTER_UNREGISTERED",
@@ -636,7 +639,7 @@ class Coverage:
                     + ".".join(api),
                 )
             if (
-                getter.get("resourceType") != kind
+                getter.get(MAPPING_RESOURCE_TYPE_KEY) != kind
                 or getattr(adapter, "SDK_OPERATIONS", {}).get(kind)
                 != getter["operation"]
                 or not callable(getattr(adapter, "fetch_sdk", None))
@@ -660,7 +663,7 @@ class Coverage:
                 getter.get("service"),
                 getter.get("operation"),
                 getter.get("result"),
-                getter.get("resourceType"),
+                getter.get(MAPPING_RESOURCE_TYPE_KEY),
             ) != (
                 "cloudcontrol",
                 "get_resource",

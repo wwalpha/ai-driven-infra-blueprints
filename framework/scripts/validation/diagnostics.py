@@ -5,6 +5,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from contracts.repository import DESIGNS_DIRECTORY
+
 CAUSE_KINDS = frozenset(
     {"input_invalid", "check_failure", "dependency_wait", "unclassified"}
 )
@@ -23,7 +25,7 @@ def service_scope(root, path):
         return None
     path = Path(path)
     path = (root / path).resolve() if not path.is_absolute() else path.resolve()
-    for base, suffix in (("model", ".properties"), ("docs/designs", ".md")):
+    for base, suffix in (("model", ".properties"), (DESIGNS_DIRECTORY, ".md")):
         directory = root.resolve() / base
         if not path.is_relative_to(directory):
             continue

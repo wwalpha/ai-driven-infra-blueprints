@@ -10,6 +10,13 @@ import model.core as _imports_model_core
 import model.importing.scope as _imports_model_importing_scope
 import model.sources as _imports_model_sources
 import sync_progress as _imports_sync_progress
+from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+    IAC_ENGINE_KEY,
+)
 from model.change_plan import assemble, task_plan
 from model.impact import scope_diagnostic
 from utils.aws.identity import IdentityError, select_profile, validate_account_id
@@ -105,7 +112,7 @@ def check_validation_scope(
             )
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid validation properties input: {error}")
-        for design_base, suffix in () if candidates else (("docs/designs", ".md"),):
+        for design_base, suffix in () if candidates else ((DESIGNS_DIRECTORY, ".md"),):
             relative = f"{design_base}/{environment}/{target}/{service}{suffix}"
             if not input_is_file(root / relative):
                 ReferenceResolutionError = _imports_model_core.ReferenceResolutionError
@@ -176,7 +183,7 @@ def check_project_topology(
     accounts, findings, root, template_mode, *, scope_import=True
 ):
     selected = _imports_model_importing_scope.selected
-    path = root / "project.json"
+    path = root / PROJECT_FILENAME
     if template_mode:
         return
     text = input_text(path, encoding="utf-8")
@@ -216,7 +223,7 @@ def check_project_topology(
             if isinstance(target, dict)
             and (
                 target.get("environment"),
-                target.get("alias", target.get("awsAccountId")),
+                target.get("alias", target.get(AWS_ACCOUNT_ID_KEY)),
             )
             in target_scope
         ]
@@ -228,8 +235,8 @@ def check_project_topology(
     environment_targets: dict[str, list[dict[str, str]]] = {}
     account_engines: dict[tuple[str, str], str] = {}
     execution_account_engines: dict[tuple[str, str], str] = {}
-    required = {"environment", "awsAccountId", "awsRegion", "iacEngine"}
-    allowed = required | {"alias", "awsProfile", "awsExecutionAccountId", "suffix"}
+    required = {"environment", AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY, IAC_ENGINE_KEY}
+    allowed = required | {"alias", "awsProfile", AWS_EXECUTION_ACCOUNT_ID_KEY, "suffix"}
     for index, target_values in enumerate(targets, 1):
         findings.check(
             isinstance(target_values, dict), f"target {index} must be an object"
@@ -250,16 +257,16 @@ def check_project_topology(
         if not all(isinstance(value, str) for value in values):
             continue
         environment = target_values["environment"]
-        account = target_values["awsAccountId"]
-        region = target_values["awsRegion"]
-        engine = target_values["iacEngine"]
+        account = target_values[AWS_ACCOUNT_ID_KEY]
+        region = target_values[AWS_REGION_KEY]
+        engine = target_values[IAC_ENGINE_KEY]
         alias = target_values.get("alias", "")
         target_directory = alias or account
         target = f"{environment}/{target_directory}"
-        execution_account = target_values.get("awsExecutionAccountId", account)
+        execution_account = target_values.get(AWS_EXECUTION_ACCOUNT_ID_KEY, account)
         for field, label in (
-            ("awsAccountId", "account"),
-            ("awsExecutionAccountId", "execution account"),
+            (AWS_ACCOUNT_ID_KEY, "account"),
+            (AWS_EXECUTION_ACCOUNT_ID_KEY, "execution account"),
             ("awsProfile", "profile"),
         ):
             if field not in target_values:

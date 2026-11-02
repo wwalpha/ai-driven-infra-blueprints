@@ -3,6 +3,7 @@
 import re
 from dataclasses import dataclass
 
+from contracts.model import RESOURCE_TYPE_KEY
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same
 from utils.reference_contracts import reference_attribute
@@ -15,7 +16,7 @@ from ..methods import properties
 def kms_format(value, resources, *, project_arn=None):
     if isinstance(value, ResourceReference):
         service, identity = value["$resource"]
-        kind = resources.get(service, {}).get(identity, {}).get("resourceType")
+        kind = resources.get(service, {}).get(identity, {}).get(RESOURCE_TYPE_KEY)
         if kind is None:
             return None
         return {

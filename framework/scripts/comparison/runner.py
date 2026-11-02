@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import TypeAlias
 
 import model.environment_values as environment_values
-from contracts.model import RESOURCE_MODE_IMPORT
+from contracts.model import RESOURCE_MODE_IMPORT, RESOURCE_TYPE_KEY
+from contracts.target import IAC_ENGINE_KEY
 from design.catalog import DesignSchemaCatalog
 from design.layout import resource_mode
 from design.layout_schema import GROUPED
@@ -173,7 +174,7 @@ class Comparison(Inputs):
             )
         for service, error in self.load_errors:
             self.record("error", service, "*", "*", error)
-        if self.target["iacEngine"] != "cloudformation":
+        if self.target[IAC_ENGINE_KEY] != "cloudformation":
             for service in self.services:
                 self.record(
                     "uncompared",
@@ -198,7 +199,7 @@ class Comparison(Inputs):
                     )
                     continue
                 try:
-                    kind = resource.get("resourceType")
+                    kind = resource.get(RESOURCE_TYPE_KEY)
                     if not isinstance(kind, str) or not kind:
                         raise ValueError("resourceType is missing or malformed")
                     if kind in self.catalog.api_schemas:
@@ -343,7 +344,7 @@ class Comparison(Inputs):
             batch = self.compare_group(
                 service,
                 identity,
-                resource["resourceType"],
+                resource[RESOURCE_TYPE_KEY],
                 rowkind,
                 rows,
                 name,

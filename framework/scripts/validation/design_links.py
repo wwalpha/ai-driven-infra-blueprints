@@ -13,7 +13,12 @@ import model.projection as _model_projection
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
 from aws_mapping_display import validation_lines
-from contracts.model import RESOURCE_MODE_IMPORT
+from contracts.model import (
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
+from contracts.repository import DESIGNS_DIRECTORY
 from contracts.validation import VALIDATION_FAIL
 from design.document import DesignIndex, DisplayMismatchError
 from design.layout import (
@@ -498,7 +503,7 @@ def check_design_links(
                     continue
                 model_scope = _imports_model_sources.scope_for(
                     (
-                        root / "model" / source.relative_to(root / "docs/designs")
+                        root / "model" / source.relative_to(root / DESIGNS_DIRECTORY)
                     ).with_suffix(".properties")
                 )
                 resolver = _model_projection.reference_resolver(
@@ -546,7 +551,7 @@ def check_design_links(
                     row_key = "desired.row." + rows.popleft() + ".value"
                     if not _imports_model_references.has_reference(values[row_key]):
                         candidate[row_key] = cells[2]
-            relative = source.relative_to(root / "docs/designs")
+            relative = source.relative_to(root / DESIGNS_DIRECTORY)
             load_model = _imports_model_sources.load_model
             resolver = Resolver(
                 root,
@@ -608,7 +613,7 @@ def check_design_links(
                 if (
                     (input_is_file(linked) or view_reader is not None)
                     and linked.suffix == ".md"
-                    and linked.is_relative_to(root / "docs/designs")
+                    and linked.is_relative_to(root / DESIGNS_DIRECTORY)
                 ):
                     references.add(linked)
                     consumers.setdefault(linked, set()).add(source)
@@ -710,11 +715,13 @@ def check_design_links(
             lines, children = view.expanded
             lines = validation_lines(lines, source_values.get(path), definitions_root)
             for anchor, child in children.items():
-                identity = GROUPED[child["resourceType"]]["identityProperty"]
+                identity = GROUPED[child[RESOURCE_TYPE_KEY]]["identityProperty"]
                 if identity != "Id":
                     value = unquoted(child["rows"][0][2])
-                    if value != child["logicalId"]:
-                        hidden_ids[path.resolve(), anchor] = child["logicalId"]
+                    if value != child[RESOURCE_LOGICAL_ID_KEY]:
+                        hidden_ids[path.resolve(), anchor] = child[
+                            RESOURCE_LOGICAL_ID_KEY
+                        ]
         except (ReferenceResolutionError, ValueError) as error:
             unavailable_semantics(
                 findings,
@@ -756,7 +763,7 @@ def check_design_links(
             for row_id, row in resource_row_index(values).get(identity, ()):
                 observed = values.get(f"observed.row.{row_id}.value")
                 if observed is not None and row["property"] in identifier_outputs.get(
-                    resource["resourceType"], set()
+                    resource[RESOURCE_TYPE_KEY], set()
                 ):
                     resources[current][1][row["property"]] = literal(observed)
     for source in sources:

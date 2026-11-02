@@ -19,7 +19,13 @@ from pathlib import Path
 import task_contract_core as _imports_task_contract
 import worktree_python
 import worktree_state
-from contracts.model import RESOURCE_MODE_CREATE
+from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_MODE_CREATE,
+)
+from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY, IAC_ENGINE_KEY
 from model.adapters.observed import resolve_resources
 from model.core import structural_entries
 from model.dependency_index import inventory as model_inventory
@@ -110,7 +116,10 @@ def owning_resources(root, env, directory, target, units):
         )
         result = {
             name: {
-                logical: {"service": path.stem, "resource": resource["logicalId"]}
+                logical: {
+                    "service": path.stem,
+                    "resource": resource[RESOURCE_LOGICAL_ID_KEY],
+                }
                 for logical, (path, _, resource, _, _) in resources.items()
             }
             for name, resources in mapped.items()
@@ -128,9 +137,9 @@ def owning_resources(root, env, directory, target, units):
             for _, resource in structural_entries(
                 snapshot.authoritative, "desired.resource."
             ):
-                if resource.get("cfn-logicalId") not in identities:
+                if resource.get(CFN_LOGICAL_ID_KEY) not in identities:
                     continue
-                name, logical = cfn_resource_identity(resource["cfn-logicalId"])
+                name, logical = cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])
                 if logical in templates[name][0].get("Resources", {}):
                     continue
                 if (
@@ -140,7 +149,10 @@ def owning_resources(root, env, directory, target, units):
                     raise ValueError(
                         f"StackName={name} Resource={logical}: cfn-logicalId requires CREATE"
                     )
-                entry = {"service": path.stem, "resource": resource["logicalId"]}
+                entry = {
+                    "service": path.stem,
+                    "resource": resource[RESOURCE_LOGICAL_ID_KEY],
+                }
                 if logical in result[name] and result[name][logical] != entry:
                     raise ValueError(
                         f"StackName={name} Resource={logical}: duplicate removal ownership"
@@ -168,7 +180,7 @@ def candidate(
     for service in services:
         if service == "cloudformation-stacks":
             continue
-        design = root / "docs/designs" / env / directory / (service + ".md")
+        design = root / DESIGNS_DIRECTORY / env / directory / (service + ".md")
         files.update(model_input_paths(root, [f"{env}/{directory}/{service}"]))
         source = root / "model" / env / directory / (service + ".properties")
         service_snapshot = load_model(source)
@@ -191,7 +203,7 @@ def candidate(
         "- Infrastructure phase: `deploy`",
         "- Deploy execution method: `sdk`",
         f"- Target environment: `{env}`",
-        f"- Target AWS account: `{target['awsAccountId']}`",
+        f"- Target AWS account: `{target[AWS_ACCOUNT_ID_KEY]}`",
     ]
     if "alias" in target:
         lines.append(f"- Target alias: `{target['alias']}`")
@@ -258,12 +270,12 @@ def prepare(root, args, run, timing):
         runtime = environment(root)
     with timing.phase("contractPreparation"):
         target = load_target(root, args.environment, args.aws_account_id, args.alias)
-        if target["iacEngine"] != "cloudformation":
+        if target[IAC_ENGINE_KEY] != "cloudformation":
             raise ValueError(
                 "offline preparation currently supports CloudFormation only"
             )
         profile = select_profile(target, args.profile)
-        directory = args.alias or target["awsAccountId"]
+        directory = args.alias or target[AWS_ACCOUNT_ID_KEY]
         snapshot = stack_snapshot(
             root
             / "model"
@@ -343,7 +355,7 @@ def prepare(root, args, run, timing):
         contract = run / "contract.md"
         contract.write_text(text, encoding="utf-8")
     with timing.phase("inputSnapshot"):
-        sources.add(root / "project.json")
+        sources.add(root / PROJECT_FILENAME)
         if generated_views & sources:
             raise ValueError("generated view conflicts with execution/required input")
         deferred = (
@@ -361,9 +373,9 @@ def prepare(root, args, run, timing):
         summary = {
             "environment": args.environment,
             "alias": target.get("alias"),
-            "resourceAccount": target["awsAccountId"],
+            "resourceAccount": target[AWS_ACCOUNT_ID_KEY],
             "executionAccount": execution_account(target),
-            "region": target["awsRegion"],
+            "region": target[AWS_REGION_KEY],
             "profile": profile,
             "maxConcurrentStacks": 1 if args.sequential else limit,
             "stacks": units,

@@ -7,6 +7,13 @@ from tempfile import TemporaryDirectory
 
 import design.layout as layout
 import import_guard
+from contracts.model import MODEL_REF_KEY, RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
+from contracts.repository import PROJECT_FILENAME
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from utils.arn_components import ARN_COMPONENTS
 from utils.input_cache import memo_table
 from utils.reference_contracts import (
@@ -220,7 +227,12 @@ def compare(before, after):
                     )
         if number is not None and before is not None and logical in change.resources:
             dependent = context_changes(
-                old, new, old_number, number, resource["resourceType"], after.scope.root
+                old,
+                new,
+                old_number,
+                number,
+                resource[RESOURCE_TYPE_KEY],
+                after.scope.root,
             )
             change.rows.update(dependent)
             change.reference_keys.update(
@@ -272,7 +284,7 @@ def signature(values, logical, attribute=None):
     number, resource = matches[0] if matches else (None, {})
     if number is None:
         return None
-    kind = resource["resourceType"]
+    kind = resource[RESOURCE_TYPE_KEY]
     attribute = reference_attribute(kind, attribute) if attribute is not None else None
     fields = (
         {RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute)}
@@ -300,7 +312,9 @@ def signature(values, logical, attribute=None):
             if field
         )
     ]
-    identity = {key: resource.get(key) for key in ("resourceType", "logicalId")}
+    identity = {
+        key: resource.get(key) for key in (RESOURCE_TYPE_KEY, RESOURCE_LOGICAL_ID_KEY)
+    }
     if attribute is None:
         identity.update((key, resource.get(key)) for key in ("anchor", "resourceMode"))
     return impact_changes.frozen(
@@ -515,7 +529,7 @@ def task_plan(
             identities.add((scope.environment, scope.target, scope.service))
     reads = read_context or sources._invocation_reads(root)
     reads = sources.CandidateReads(reads, output) if output else reads
-    if not identities and "project.json" not in changed:
+    if not identities and PROJECT_FILENAME not in changed:
         return ChangePlan(reads=reads)
     base = (
         base or import_guard.base_revision(root, contract_file=contract_file)
@@ -523,7 +537,7 @@ def task_plan(
         else base
     )
     paths = [
-        "project.json",
+        PROJECT_FILENAME,
         *[f"model/{e}/{t}/{s}.properties" for e, t, s in identities],
         *[f"model/{e}/{t}/{s}" for e, t, s in identities],
     ]
@@ -546,7 +560,7 @@ def task_plan(
                     identities,
                     Path(directory),
                     reads,
-                    context="project.json" in changed,
+                    context=PROJECT_FILENAME in changed,
                 )
         elif base is None:
             plan = assemble(
@@ -554,7 +568,7 @@ def task_plan(
                 identities,
                 root if output else None,
                 reads,
-                context="project.json" in changed,
+                context=PROJECT_FILENAME in changed,
             )
         else:
             with import_guard.snapshots(root, base, {}, source_paths=paths) as (
@@ -562,7 +576,7 @@ def task_plan(
                 _,
             ):
                 plan = assemble(
-                    root, identities, before, reads, context="project.json" in changed
+                    root, identities, before, reads, context=PROJECT_FILENAME in changed
                 )
     if memo is not None:
         memo[key] = plan
@@ -574,9 +588,16 @@ def target_contexts(raw):
         return {}
     topology = json.loads(raw)
     return {
-        (target["environment"], target.get("alias", target.get("awsAccountId"))): tuple(
+        (
+            target["environment"],
+            target.get("alias", target.get(AWS_ACCOUNT_ID_KEY)),
+        ): tuple(
             target.get(field)
-            for field in ("awsRegion", "awsAccountId", "awsExecutionAccountId")
+            for field in (
+                AWS_REGION_KEY,
+                AWS_ACCOUNT_ID_KEY,
+                AWS_EXECUTION_ACCOUNT_ID_KEY,
+            )
         )
         for target in topology.get("targets", [])
     }
@@ -584,11 +605,11 @@ def target_contexts(raw):
 
 def context_contracts(root, before, reads, plan):
     old = (
-        target_contexts(sources.FileReads().read(before / "project.json"))
+        target_contexts(sources.FileReads().read(before / PROJECT_FILENAME))
         if before is not None
         else {}
     )
-    new = target_contexts(reads.read(root / "project.json"))
+    new = target_contexts(reads.read(root / PROJECT_FILENAME))
     targets = {
         identity
         for identity in old.keys() | new.keys()
@@ -617,7 +638,7 @@ def context_contracts(root, before, reads, plan):
             if (
                 not key.startswith("desired.row.")
                 or not key.endswith((".value", ".document"))
-                or "$modelRef" not in raw
+                or MODEL_REF_KEY not in raw
             ):
                 continue
             value, _ = references._json(key, raw)

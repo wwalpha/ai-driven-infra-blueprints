@@ -3,6 +3,8 @@
 import re
 from collections.abc import Mapping
 
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
+
 
 class IdentityError(ValueError):
     """A pure authentication failure, retaining its code for CLI reports."""
@@ -49,11 +51,11 @@ def validate_account_id(value: object, field: str = "AWS account ID") -> str:
 
 
 def execution_account(target: Mapping[str, object]) -> str:
-    if "awsExecutionAccountId" in target:
+    if AWS_EXECUTION_ACCOUNT_ID_KEY in target:
         return validate_account_id(
-            target["awsExecutionAccountId"], "target AWS execution account ID"
+            target[AWS_EXECUTION_ACCOUNT_ID_KEY], "target AWS execution account ID"
         )
-    return validate_account_id(target.get("awsAccountId"), "target AWS account ID")
+    return validate_account_id(target.get(AWS_ACCOUNT_ID_KEY), "target AWS account ID")
 
 
 def verify_account(target: Mapping[str, object], caller_account: object) -> str:

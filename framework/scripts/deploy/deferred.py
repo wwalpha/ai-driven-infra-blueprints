@@ -2,6 +2,7 @@
 
 import re
 
+from contracts.model import CFN_LOGICAL_ID_KEY, RESOURCE_LOGICAL_ID_KEY
 from model.configuration import foreign_observation
 from model.core import structural_entries
 from model.references import usages
@@ -20,11 +21,11 @@ def producer_owner(path, logical):
         for _, resource in structural_entries(
             raw_model(path).authoritative, "desired.resource."
         )
-        if resource.get("logicalId") == logical
+        if resource.get(RESOURCE_LOGICAL_ID_KEY) == logical
     ]
     if len(resources) != 1:
         raise Blocked("deferred Producer ownership is ambiguous")
-    return cfn_resource_identity(resources[0].get("cfn-logicalId", ""))
+    return cfn_resource_identity(resources[0].get(CFN_LOGICAL_ID_KEY, ""))
 
 
 def verify(root, record, mappings, target):

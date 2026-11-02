@@ -9,6 +9,11 @@ from typing import Any
 import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import utils.import_evidence as _receipt_storage
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from generation_inputs import GenerationInputs
 from task_contract_core import task_reads
 from utils.input_cache import recording_inputs
@@ -270,15 +275,15 @@ def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, sourc
                 for key in (
                     "environment",
                     "directory",
-                    "awsExecutionAccountId",
-                    "awsAccountId",
-                    "awsRegion",
+                    AWS_EXECUTION_ACCOUNT_ID_KEY,
+                    AWS_ACCOUNT_ID_KEY,
+                    AWS_REGION_KEY,
                     "awsProfile",
                 )
             },
             "sts": {
                 "account": ctx.target.get(
-                    "awsExecutionAccountId", ctx.target["awsAccountId"]
+                    AWS_EXECUTION_ACCOUNT_ID_KEY, ctx.target[AWS_ACCOUNT_ID_KEY]
                 ),
                 "verified": True,
             },

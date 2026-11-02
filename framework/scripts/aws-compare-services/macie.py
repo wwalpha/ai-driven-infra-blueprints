@@ -1,5 +1,6 @@
 """macie: selected properties -> read-only SDK responses; inputs in fetch()."""
 
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
 from model.adapters.aws import one
 
 APIS = {
@@ -18,7 +19,7 @@ def fetch(ctx, r, getter):
         return dict(
             ctx.call("macie2", "get_macie_session"),
             AwsAccountId=ctx.target.get(
-                "awsExecutionAccountId", ctx.target["awsAccountId"]
+                AWS_EXECUTION_ACCOUNT_ID_KEY, ctx.target[AWS_ACCOUNT_ID_KEY]
             ),
         )
     current = r.current("jobId")

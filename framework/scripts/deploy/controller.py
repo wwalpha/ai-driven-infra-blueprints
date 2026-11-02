@@ -15,6 +15,11 @@ from types import SimpleNamespace
 
 import utils.aws.client as _imports_utils_aws_client
 from contracts.deploy import DEPLOY_SUCCESS
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from model.core import ARTIFACT_PROPERTIES
 from model.projection import deployment_bucket
 from model.references import has_reference
@@ -128,7 +133,7 @@ def create_runtime(
     runtime.repair = partial(repair, runtime)
     runtime.poll = partial(poll, runtime)
     runtime.connection = connection_context(
-        runtime.profile, target["awsRegion"], account
+        runtime.profile, target[AWS_REGION_KEY], account
     )
     return runtime
 
@@ -317,9 +322,9 @@ def exports_for(
             document, parameters = runtime.templates[unit["name"]]
             pseudo = {
                 "AWS::AccountId": runtime.target.get(
-                    "awsExecutionAccountId", runtime.target["awsAccountId"]
+                    AWS_EXECUTION_ACCOUNT_ID_KEY, runtime.target[AWS_ACCOUNT_ID_KEY]
                 ),
-                "AWS::Region": runtime.target["awsRegion"],
+                "AWS::Region": runtime.target[AWS_REGION_KEY],
                 "AWS::StackName": unit["name"],
             }
             names[unit["name"]] = change_sets.import_names(document, parameters, pseudo)
@@ -366,9 +371,9 @@ def artifact_bindings(
             parameters,
             {
                 "AWS::StackName": unit["name"],
-                "AWS::Region": runtime.target["awsRegion"],
+                "AWS::Region": runtime.target[AWS_REGION_KEY],
                 "AWS::AccountId": runtime.target.get(
-                    "awsExecutionAccountId", runtime.target["awsAccountId"]
+                    AWS_EXECUTION_ACCOUNT_ID_KEY, runtime.target[AWS_ACCOUNT_ID_KEY]
                 ),
             },
         )

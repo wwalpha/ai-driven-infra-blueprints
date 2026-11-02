@@ -12,6 +12,7 @@ import task_contract_core as tasks
 import worktree_state as ws
 import worktree_task as wt
 from contracts.deploy import DEPLOY_SUCCESS
+from contracts.target import AWS_ACCOUNT_ID_KEY, IAC_ENGINE_KEY
 from model.dependency_index import revision as file_revision
 from model.render import owned_artifacts
 from model.sources import load_model, publication_lock, source_scope
@@ -177,14 +178,14 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         or identity.get("snapshot") != state["start"]
         or {(env, directory) for env, directory, _ in task.scope or ()}
         != {(identity["environment"], context.get("directory"))}
-        or identity["target"].get("iacEngine") != "cloudformation"
+        or identity["target"].get(IAC_ENGINE_KEY) != "cloudformation"
     ):
         raise ws.Blocked("fixed Deploy identity differs from the Task target/snapshot")
     run_context.active_scope(
         root,
         identity["stacks"],
         identity["environment"],
-        identity["target"]["awsAccountId"],
+        identity["target"][AWS_ACCOUNT_ID_KEY],
         identity["target"].get("alias"),
         snapshot=tasks.replace(task, text=tasks.set_status(task.text, "running")),
     )

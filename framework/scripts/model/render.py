@@ -15,7 +15,14 @@ import design.policy_tables as _dependency_policy_tables
 import design.policy_tables as _imports_policy_tables
 import design.services.cloudtrail as _cloudtrail_presentation
 import design.services.ec2.security_groups as _ec2_security_groups
-from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET, RESOURCE_MODE_CREATE
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    MODEL_UNSET,
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_MODE_CREATE,
+    RESOURCE_TYPE_KEY,
+)
+from contracts.repository import DESIGNS_DIRECTORY
 from design.catalog import DesignSchemaCatalog as DesignSchemaCatalog
 from design.layout_schema import GROUPED
 from design.layout_schema import resource_anchor as resource_anchor
@@ -169,14 +176,14 @@ def display_name(
     resource_count: int | None = None,
 ) -> tuple[str | None, str | None]:
     """Pure final display selection, shared by rendering and reference diagnostics."""
-    kind = resource["resourceType"]
+    kind = resource[RESOURCE_TYPE_KEY]
     label = values.get(f"display.resource.{identity}.label")
     if GROUPED.get(kind, {}).get("display") == "rule-table":
-        return label or resource["logicalId"], None
+        return label or resource[RESOURCE_LOGICAL_ID_KEY], None
     mode = _dependency_design_layout.resource_mode(resource)
     count = (
         sum(
-            item["resourceType"] == kind
+            item[RESOURCE_TYPE_KEY] == kind
             for _, item in entries(values, "desired.resource.")
         )
         if resource_count is None
@@ -189,7 +196,7 @@ def display_name(
         label,
         mode,
         count,
-        fallback=resource["logicalId"] if projection else None,
+        fallback=resource[RESOURCE_LOGICAL_ID_KEY] if projection else None,
     )
 
 
@@ -203,7 +210,7 @@ def resource_presentation(
     projection=False,
     resource_count: int | None = None,
 ):
-    kind = resource["resourceType"]
+    kind = resource[RESOURCE_TYPE_KEY]
     rows = _dependency_model_display.catalog_display_rows(
         _dependency_model_projection.resource_rows(values, identity, kind, root),
         kind,
@@ -241,7 +248,7 @@ def _callback_resource_details_inspect(
 ):
     display_anchor = _imports_model_identity.display_anchor
     pass
-    kind = _state_resource_details_122.resource["resourceType"]
+    kind = _state_resource_details_122.resource[RESOURCE_TYPE_KEY]
     if kind not in owned:
         raise InputValidationError(f"resource is outside service ownership: {kind}")
     name, configured_name, rows = resource_presentation(
@@ -311,18 +318,18 @@ def resource_details(
 
 def grouped_resources(values, details, by_anchor, *, scope=None):
     resolver = _imports_model_projection.reference_resolver(values, scope, scope.root)
-    by_logical = {item[1]["logicalId"]: item for item in details}
+    by_logical = {item[1][RESOURCE_LOGICAL_ID_KEY]: item for item in details}
     grouped: dict[str, list] = {}
     for item in details:
         identity, resource, name, rows = item
-        if resource["resourceType"] not in GROUPED:
+        if resource[RESOURCE_TYPE_KEY] not in GROUPED:
             continue
-        kind = resource["resourceType"]
+        kind = resource[RESOURCE_TYPE_KEY]
         rule = GROUPED[kind]
         for field in ("parentReference", "parentProperty"):
             if not resource.get(field):
                 raise InputValidationError(
-                    f"{kind}: {resource['logicalId']}: required metadata missing: desired.resource.{identity}.{field} ({kind}.{rule['parentProperty']})"
+                    f"{kind}: {resource[RESOURCE_LOGICAL_ID_KEY]}: required metadata missing: desired.resource.{identity}.{field} ({kind}.{rule['parentProperty']})"
                 )
         node = parse(resource["parentReference"])
         snapshot, _, target, _ = resolve(
@@ -331,9 +338,9 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
         parent = by_logical.get(node.logical_id) if snapshot.scope == scope else None
         if resource["parentProperty"] != kind + "." + rule["parentProperty"]:
             raise InputValidationError("invalid grouped parentProperty: " + identity)
-        if not parent or parent[1]["resourceType"] != rule["parent"]:
+        if not parent or parent[1][RESOURCE_TYPE_KEY] != rule["parent"]:
             raise ReferenceResolutionError(
-                f"{kind}: {resource['logicalId']}: invalid grouped parent: parentReference / parentProperty ({kind}.{rule['parentProperty']})"
+                f"{kind}: {resource[RESOURCE_LOGICAL_ID_KEY]}: invalid grouped parent: parentReference / parentProperty ({kind}.{rule['parentProperty']})"
             )
         if kind in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
             parent_rows = [
@@ -344,7 +351,7 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
             ]
             if len(parent_rows) != 1:
                 raise InputValidationError(
-                    f"{kind}: {resource['logicalId']}: {resource['parentProperty']} requires exactly one formal row matching parentReference"
+                    f"{kind}: {resource[RESOURCE_LOGICAL_ID_KEY]}: {resource['parentProperty']} requires exactly one formal row matching parentReference"
                 )
             same = parse(parent_rows[0]["value"]) == node
             if not same:
@@ -357,17 +364,17 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
                 not rows or rows[0][1] != kind + ".Id"
             ):
                 raise InputValidationError(
-                    f"{kind}: {resource['logicalId']}: required first property: {kind}.Id"
+                    f"{kind}: {resource[RESOURCE_LOGICAL_ID_KEY]}: required first property: {kind}.Id"
                 )
         grouped.setdefault(parent[0], []).append(item)
         maximum = rule["maxCount"]
         if (
             maximum is not None
-            and sum(child[1]["resourceType"] == kind for child in grouped[parent[0]])
+            and sum(child[1][RESOURCE_TYPE_KEY] == kind for child in grouped[parent[0]])
             > maximum
         ):
             raise InputValidationError(
-                f"{kind}: {resource['logicalId']}: too many grouped children for {parent[1]['logicalId']}: {resource['parentProperty']}"
+                f"{kind}: {resource[RESOURCE_LOGICAL_ID_KEY]}: too many grouped children for {parent[1][RESOURCE_LOGICAL_ID_KEY]}: {resource['parentProperty']}"
             )
     return grouped
 
@@ -376,7 +383,7 @@ def resource_table_lines(
     resource, name, rows, children, root, *, references=None, formal=False, indexed=True
 ):
     sources = references or {}
-    source = sources.get(resource.get("logicalId"))
+    source = sources.get(resource.get(RESOURCE_LOGICAL_ID_KEY))
     if formal:
         originals = {
             row[0]: row
@@ -406,7 +413,7 @@ def resource_table_lines(
         raise ValueError("duplicate selected Model row IDs")
     consumed = []
     output = []
-    kind = resource["resourceType"]
+    kind = resource[RESOURCE_TYPE_KEY]
     if kind == "EC2.SecurityGroup":
         rules = [
             (child, _dependency_aws_mapping_display.selected_rows(child_rows, root))
@@ -440,7 +447,7 @@ def resource_table_lines(
             child_rows = _dependency_aws_mapping_display.selected_rows(child_rows, root)
             if not child_rows:
                 continue
-            if child["resourceType"] == ROTATION_SCHEDULE:
+            if child[RESOURCE_TYPE_KEY] == ROTATION_SCHEDULE:
                 child_rows = [
                     [
                         rid,
@@ -452,14 +459,14 @@ def resource_table_lines(
                     ]
                     for rid, prop, value, comment in child_rows
                 ]
-            child_source = sources.get(child["logicalId"])
+            child_source = sources.get(child[RESOURCE_LOGICAL_ID_KEY])
             child_display = (
                 [list(row) for row in child_rows]
                 if formal
                 else display_rows(
                     kind
-                    if child["resourceType"] == ROTATION_SCHEDULE
-                    else child["resourceType"],
+                    if child[RESOURCE_TYPE_KEY] == ROTATION_SCHEDULE
+                    else child[RESOURCE_TYPE_KEY],
                     child_rows,
                     root,
                     mode=_dependency_design_layout.resource_mode(child),
@@ -469,10 +476,10 @@ def resource_table_lines(
             )
             if formal:
                 consumed.extend(row[0] for row in child_display)
-            if not formal and child["resourceType"] != ROTATION_SCHEDULE:
+            if not formal and child[RESOURCE_TYPE_KEY] != ROTATION_SCHEDULE:
                 for row in child_display:
-                    row[1] = child["resourceType"] + "." + row[1]
-            if not formal and child["resourceType"] == LAMBDA_PERMISSION:
+                    row[1] = child[RESOURCE_TYPE_KEY] + "." + row[1]
+            if not formal and child[RESOURCE_TYPE_KEY] == LAMBDA_PERMISSION:
                 hidden = [
                     row[1:]
                     for row in child_rows
@@ -498,11 +505,11 @@ def resource_table_lines(
                 child_display[0][3] = (
                     f"<!-- lambda-permission: {metadata} --> " + child_display[0][3]
                 )
-            prefix = f'<a id="{child["anchor"]}"></a><!-- logical-id: {child["logicalId"]} --> '
+            prefix = f'<a id="{child["anchor"]}"></a><!-- logical-id: {child[RESOURCE_LOGICAL_ID_KEY]} --> '
             if (
-                child["resourceType"] == ROTATION_SCHEDULE
+                child[RESOURCE_TYPE_KEY] == ROTATION_SCHEDULE
                 or formal
-                and child["resourceType"] == LAMBDA_PERMISSION
+                and child[RESOURCE_TYPE_KEY] == LAMBDA_PERMISSION
             ):
                 prefix += child_name + "："
             child_display[0][3] = prefix + child_display[0][3]
@@ -606,14 +613,14 @@ def _generate_markdown(
     details = []
     # Partial Views retain the full candidate's naming context without rendering its other rows.
     resource_counts = Counter(
-        resource["resourceType"]
+        resource[RESOURCE_TYPE_KEY]
         for _, resource in entries(
             values if reference_values is None else reference_values,
             "desired.resource.",
         )
     )
     for identity, resource in entries(values, "desired.resource."):
-        kind = resource["resourceType"]
+        kind = resource[RESOURCE_TYPE_KEY]
         Scope = _imports_model_sources.Scope
         scope = Scope(
             path.parents[4], path.parent.parent.name, path.parent.name, path.stem
@@ -636,7 +643,7 @@ def _generate_markdown(
         (
             path.parents[4]
             / "model"
-            / path.relative_to(path.parents[4] / "docs/designs")
+            / path.relative_to(path.parents[4] / DESIGNS_DIRECTORY)
         ).with_suffix(".properties")
     )
     grouped = grouped_resources(reference_values, details, by_anchor, scope=scope)
@@ -684,8 +691,8 @@ def render_markdown(
         "- Owned catalog resource types: " + ", ".join(f"`{kind}`" for kind in owned),
     ]
     output += ["", "## リソース一覧"]
-    for kind in dict.fromkeys(item[1]["resourceType"] for item in independent):
-        items = [item for item in independent if item[1]["resourceType"] == kind]
+    for kind in dict.fromkeys(item[1][RESOURCE_TYPE_KEY] for item in independent):
+        items = [item for item in independent if item[1][RESOURCE_TYPE_KEY] == kind]
         output += [
             "",
             "### " + kind,
@@ -705,7 +712,7 @@ def render_markdown(
         ]
     output += ["", "## リソース詳細"]
     for identity, resource, name, rows in independent:
-        kind = resource["resourceType"]
+        kind = resource[RESOURCE_TYPE_KEY]
         heading = (
             f"### {kind}"
             if name == kind
@@ -720,7 +727,7 @@ def render_markdown(
         )
         output += [
             "",
-            f"<!-- resource-logical-id: {resource['logicalId']} -->",
+            f"<!-- resource-logical-id: {resource[RESOURCE_LOGICAL_ID_KEY]} -->",
             f'<a id="{resource["anchor"]}"></a>',
             "",
             heading,
@@ -748,7 +755,7 @@ def render_markdown(
         output += table
         sources = (
             tuple(
-                references[item["logicalId"]]
+                references[item[RESOURCE_LOGICAL_ID_KEY]]
                 for item in [resource, *(child[1] for child in children)]
             )
             if references
@@ -885,7 +892,7 @@ def model_policy_views(values, *, presentation=None):
         if policies:
             start, end = (
                 (IAM_START, IAM_END)
-                if resource["resourceType"] == "IAM.Role"
+                if resource[RESOURCE_TYPE_KEY] == "IAM.Role"
                 else (START, END)
             )
             result[identity] = ["", start, *policies, "", end]
@@ -899,7 +906,7 @@ def generate_files(path, values, root, *, warnings=None):
     safe = _imports_model_sources.safe
     scope_for = _imports_model_sources.scope_for
     scope = scope_for(
-        (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+        (root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)).with_suffix(
             ".properties"
         )
     )
@@ -955,7 +962,7 @@ def render_model(snapshot, context):
     context = context if context is not None else input_recorder(root)
     document = (
         root
-        / "docs/designs"
+        / DESIGNS_DIRECTORY
         / snapshot.scope.environment
         / snapshot.scope.target
         / (snapshot.scope.service + ".md")

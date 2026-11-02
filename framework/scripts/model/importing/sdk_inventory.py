@@ -6,6 +6,11 @@ from typing import Any
 from urllib.parse import urlparse
 
 from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from utils.aws_sdk import aws_runtime
 from utils.json_format import policy_json
 
@@ -13,12 +18,12 @@ from model.importing.discovery import SCOPED_INVENTORIES
 
 
 def account_for(ctx: Any) -> str:
-    account = ctx.target.get("awsAccountId")
+    account = ctx.target.get(AWS_ACCOUNT_ID_KEY)
     if (
         not isinstance(account, str)
         or len(account) != 12
         or not account.isdigit()
-        or ctx.target.get("awsExecutionAccountId", account) != account
+        or ctx.target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, account) != account
     ):
         raise ValueError(
             "Import target account differs from verified execution account"
@@ -133,7 +138,7 @@ def glue_tables(ctx: Any) -> list[dict[str, Any]]:
         arn = identifier(catalog.get("ResourceArn"))
         if (
             catalog_id.split(":")[0] != account
-            or arn.split(":")[3:5] != [ctx.target["awsRegion"], account]
+            or arn.split(":")[3:5] != [ctx.target[AWS_REGION_KEY], account]
             or catalog_id in seen
         ):
             raise ValueError("Glue catalog ownership/scope is unknown or duplicate")
@@ -199,7 +204,7 @@ def datazone_projects(ctx: Any) -> list[dict[str, Any]]:
         domain_id = identifier(domain.get("id"))
         arn = identifier(domain.get("arn"))
         if (
-            arn.split(":")[3:5] != [ctx.target["awsRegion"], account]
+            arn.split(":")[3:5] != [ctx.target[AWS_REGION_KEY], account]
             or domain_id in domains_seen
         ):
             raise ValueError("DataZone domain scope mismatch or duplicate")
@@ -239,7 +244,7 @@ def datazone_projects(ctx: Any) -> list[dict[str, Any]]:
 def queue_policies(ctx: Any, parents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     account = account_for(ctx)
     records = []
-    region = ctx.target["awsRegion"]
+    region = ctx.target[AWS_REGION_KEY]
     resolver = aws_runtime().sdk_session().get_component("endpoint_resolver")
     endpoint = resolver.construct_endpoint("sqs", region)
     if (

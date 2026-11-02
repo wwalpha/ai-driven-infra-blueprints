@@ -18,6 +18,7 @@ import task_contract_core as _imports_task_contract
 import validation_cache as _imports_validation_cache
 from aws_mapping_display import validate_mappings as validate_mappings
 from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED
+from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
 from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from design.document import DisplayMismatchError, require_saved_identity
 from design.layout_schema import STACK_DESIGN
@@ -128,7 +129,9 @@ def local_design_links(root, path, texts):
                 continue
             target = raw.partition("#")[0]
             linked = (path.parent / target if target else path).resolve()
-            if linked.is_relative_to(root / "docs/designs") and input_is_file(linked):
+            if linked.is_relative_to(root / DESIGNS_DIRECTORY) and input_is_file(
+                linked
+            ):
                 safe(root, path.parent / target if target else path)
                 result.add(linked)
     return result
@@ -178,7 +181,7 @@ def stage_inputs(
     """Copy the consumed project dependencies; definitions always stay at their source."""
     FileReads = _imports_model_sources.FileReads
     source_scope = _imports_model_sources.source_scope
-    docs, models = root / "docs/designs", root / "model"
+    docs, models = root / DESIGNS_DIRECTORY, root / "model"
     views = set(markdown_paths)
     targets = {p.parent.relative_to(docs) for p in destinations}
     links = _bind_framework_callback(_callback_stage_inputs_links, root)
@@ -239,8 +242,8 @@ def stage_inputs(
                 kinds=("file", "symlink"),
             )
         )
-    if input_is_file(root / "project.json"):
-        inputs.add(root / "project.json")
+    if input_is_file(root / PROJECT_FILENAME):
+        inputs.add(root / PROJECT_FILENAME)
     with phase("stage-placement", total=len(inputs)):
         for path in sorted(inputs):
             if snapshot is not None:
@@ -288,9 +291,9 @@ def generate_views(
         failure_start = len(failures)
         try:
             model = _imports_model_sources.raw_model(
-                (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
-                    ".properties"
-                )
+                (
+                    root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)
+                ).with_suffix(".properties")
             )
             diagnostics = []
             resolver = _imports_model_projection.reference_resolver(
@@ -627,7 +630,7 @@ class Generation:
     @property
     def generated_scope(self):
         return {
-            (*p.relative_to(self.root / "docs/designs").parts[:2], p.stem)
+            (*p.relative_to(self.root / DESIGNS_DIRECTORY).parts[:2], p.stem)
             for p in self.generated
         }
 
@@ -673,7 +676,7 @@ def prepare_generation(
                 )
         if definitions_root != root and definition_root(root) != definitions_root:
             lifetime.enter_context(mapping_alias(definitions_root, root))
-        docs, models = root / "docs/designs", root / "model"
+        docs, models = root / DESIGNS_DIRECTORY, root / "model"
         model_paths = [
             p
             for p in scoped_files(root, "model", ".properties", scope)
@@ -681,7 +684,7 @@ def prepare_generation(
         ]
         markdown_paths = [
             p
-            for p in scoped_files(root, "docs/designs", ".md", scope)
+            for p in scoped_files(root, DESIGNS_DIRECTORY, ".md", scope)
             if selected(p, docs, environment, target_directory)
         ]
         if snapshot is not None:
@@ -818,7 +821,7 @@ def publish_generation(plan):
             safe(root, file)
         for file in planned_outputs(plan) if task is not None else ():
             relative = file.relative_to(root).as_posix()
-            parts = file.relative_to(root / "docs/designs").parts
+            parts = file.relative_to(root / DESIGNS_DIRECTORY).parts
             identity = (*parts[:2], Path(parts[2]).stem)
             if (
                 relative not in declared
@@ -888,7 +891,9 @@ def generation_failures(plan, selected=None):
             | set(plan.unavailable)
             | {
                 (
-                    plan.root / "docs/designs" / path.relative_to(plan.root / "model")
+                    plan.root
+                    / DESIGNS_DIRECTORY
+                    / path.relative_to(plan.root / "model")
                 ).with_suffix(".md")
                 for path in plan.model_paths
             }
@@ -911,7 +916,7 @@ def generation_unavailable(plan):
 
 def pending_view_states(root, unavailable):
     return {
-        "/".join((*path.relative_to(root / "docs/designs").parts[:2], path.stem)): (
+        "/".join((*path.relative_to(root / DESIGNS_DIRECTORY).parts[:2], path.stem)): (
             "RETAINED_PENDING_DEPLOY"
             if info.get("retainedView")
             else "NOT_GENERATED_PENDING_DEPLOY"
@@ -945,7 +950,7 @@ def generation_metadata(plan):
         "generated": sorted("/".join(scope) for scope in plan.generated_scope),
         "unavailable_services": {
             "/".join(
-                (*p.relative_to(plan.root / "docs/designs").parts[:2], p.stem)
+                (*p.relative_to(plan.root / DESIGNS_DIRECTORY).parts[:2], p.stem)
             ): info
             for p, info in unavailable.items()
         },
@@ -953,11 +958,17 @@ def generation_metadata(plan):
             **{"/".join(scope): "GENERATED" for scope in plan.generated_scope},
             **{
                 "/".join(
-                    (*path.relative_to(plan.root / "docs/designs").parts[:2], path.stem)
+                    (
+                        *path.relative_to(plan.root / DESIGNS_DIRECTORY).parts[:2],
+                        path.stem,
+                    )
                 ): "FAILED"
                 for path in set(failed) | set(unavailable)
                 if "/".join(
-                    (*path.relative_to(plan.root / "docs/designs").parts[:2], path.stem)
+                    (
+                        *path.relative_to(plan.root / DESIGNS_DIRECTORY).parts[:2],
+                        path.stem,
+                    )
                 )
                 not in pending
             },
@@ -974,15 +985,17 @@ def generation_metadata(plan):
 
 def report_generation(plan):
     for path in plan.saved:
-        completed((*path.relative_to(plan.root / "docs/designs").parts[:2], path.stem))
+        completed(
+            (*path.relative_to(plan.root / DESIGNS_DIRECTORY).parts[:2], path.stem)
+        )
         print(
             f"Design Markdown sync: PASS ({path.relative_to(plan.root)})",
             file=output_file(),
         )
     selected = set(plan.markdown_paths) | {
-        (plan.root / "docs/designs" / p.relative_to(plan.root / "model")).with_suffix(
-            ".md"
-        )
+        (
+            plan.root / DESIGNS_DIRECTORY / p.relative_to(plan.root / "model")
+        ).with_suffix(".md")
         for p in plan.model_paths
     }
     not_run = set(generation_unavailable(plan))
@@ -1063,9 +1076,9 @@ def _compare_generation(plan):
     root = plan.root
     for path, expected in plan.expected_outputs.items():
         stale = False
-        source = (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
-            ".properties"
-        )
+        source = (
+            root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)
+        ).with_suffix(".properties")
         for target, text in expected.items():
             saved_bytes = plan.snapshot.read(target)
             if saved_bytes != (None if text is None else text.encode("utf-8")):

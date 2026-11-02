@@ -13,6 +13,12 @@ from typing import Any
 from aws_mapping_catalog import project
 from aws_mapping_compare import value as mapping_value
 from botocore.validate import ParamValidator
+from contracts.model import (
+    MODEL_REF_KEY,
+    REFERENCE_LOGICAL_ID_KEY,
+    RESOURCE_LOGICAL_ID_KEY,
+)
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
 from utils.aws_sdk import aws_runtime
 
 from model.importing import cli, inventory, limitations
@@ -59,15 +65,23 @@ def fixture_resource(root: Path, ctx: Any, service: str, record: Any, number="fi
 
 def fixture_parent(parent, attribute, value):
     node = parse(value)
-    if (node.logical_id, node.attribute) != (parent.spec["logicalId"], attribute):
+    if (node.logical_id, node.attribute) != (
+        parent.spec[RESOURCE_LOGICAL_ID_KEY],
+        attribute,
+    ):
         raise ValueError("fixture parent reference differs")
     return parent
 
 
 def bind_fixture_parent(child, parent, attribute):
-    parent.spec["logicalId"] = parent.kind.replace(".", "_") + "_001"
+    parent.spec[RESOURCE_LOGICAL_ID_KEY] = parent.kind.replace(".", "_") + "_001"
     child.spec["parentReference"] = json.dumps(
-        {"$modelRef": {"logicalId": parent.spec["logicalId"], "attribute": attribute}}
+        {
+            MODEL_REF_KEY: {
+                REFERENCE_LOGICAL_ID_KEY: parent.spec[RESOURCE_LOGICAL_ID_KEY],
+                "attribute": attribute,
+            }
+        }
     )
     child.reference = partial(fixture_parent, parent, attribute)
 
@@ -922,13 +936,13 @@ def macie_session_fixture(
     if fake.calls != [("macie2", "get_macie_session", {})]:
         raise ValueError("Macie session request differs from fixture")
     missing_values(ctx, fake, resource, mapping, items, payload)
-    ctx.target["awsExecutionAccountId"] = "999999999999"
+    ctx.target[AWS_EXECUTION_ACCOUNT_ID_KEY] = "999999999999"
     if (
         resource.module.fetch(ctx, resource, "session").get("AwsAccountId")
         != "999999999999"
     ):
         raise ValueError("Macie session execution account was not preserved")
-    ctx.target.pop("awsExecutionAccountId")
+    ctx.target.pop(AWS_EXECUTION_ACCOUNT_ID_KEY)
     fake.error = cli.comparator().AcquisitionError(
         "macie2.get_macie_session", "AccessDenied"
     )
@@ -3252,7 +3266,7 @@ def sqs_policy_fixture(
         raise ValueError("Different SQS policies were accepted as one group")
     fake.different = False
     resource.rows[:] = [row for row in resource.rows if row[0] != "fixture-999"]
-    ctx.target["awsAccountId"] = "999999999999"
+    ctx.target[AWS_ACCOUNT_ID_KEY] = "999999999999"
     try:
         inventory.sdk_inventory.collect(ctx, kind, parents=[parent])
     except ValueError as error:
@@ -3260,7 +3274,7 @@ def sqs_policy_fixture(
             raise
     else:
         raise ValueError("SQS queue account mismatch was accepted")
-    ctx.target["awsAccountId"] = ACCOUNT
+    ctx.target[AWS_ACCOUNT_ID_KEY] = ACCOUNT
     failure_branches(
         ctx,
         fake,
@@ -5896,7 +5910,7 @@ def datazone_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[st
         "datazone.get_project",
         "DomainIdentifier",
     )
-    ctx.target["awsAccountId"] = "999999999999"
+    ctx.target[AWS_ACCOUNT_ID_KEY] = "999999999999"
     try:
         inventory.sdk_inventory.collect(ctx, "DataZone.Project")
     except ValueError as error:

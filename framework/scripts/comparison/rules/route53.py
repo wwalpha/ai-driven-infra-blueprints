@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 
+from contracts.model import CFN_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
 from model.core import entries, literal
 from utils.arn_values import context_value
 from utils.cloudformation.inputs import Blocked
@@ -13,7 +14,7 @@ from ..methods import OBJECT, properties
 
 
 def model_property(inputs, service, identity, field):
-    kind = inputs.resources[service][identity]["resourceType"]
+    kind = inputs.resources[service][identity][RESOURCE_TYPE_KEY]
     rows = [
         row
         for rid, row in entries(inputs.model(service).authoritative, "desired.row.")
@@ -27,7 +28,7 @@ def model_property(inputs, service, identity, field):
 
 def stack_property(inputs, service, identity, field):
     resource = inputs.resources[service][identity]
-    stack, logical = cfn_resource_identity(resource["cfn-logicalId"])
+    stack, logical = cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])
     units = [unit for _, unit in inputs.templates() if unit["name"] == stack]
     if len(units) != 1:
         raise Blocked("Endpoint DNS stack correspondence is unproven")
@@ -121,7 +122,7 @@ def selected_decision(inputs, left, right, path, *, export_origins):
             [left, right], getattr(inputs, "select_provenance", {}), direct=True
         )
         consumer_stack, _ = cfn_resource_identity(
-            inputs.resources[consumer[0]][consumer[1]]["cfn-logicalId"]
+            inputs.resources[consumer[0]][consumer[1]][CFN_LOGICAL_ID_KEY]
         )
         if direct and any(
             origin["stack"] != consumer_stack or origin.get("scope") != scope
@@ -179,7 +180,7 @@ def selected_decision(inputs, left, right, path, *, export_origins):
                 consumer[0], row, "Route53.RecordSet", stack=consumer_stack, row_id=rid
             ).require_value()
             _, logical = cfn_resource_identity(
-                inputs.resources[consumer[0]][consumer[1]]["cfn-logicalId"]
+                inputs.resources[consumer[0]][consumer[1]][CFN_LOGICAL_ID_KEY]
             )
             unit = next(
                 unit for _, unit in inputs.templates() if unit["name"] == consumer_stack

@@ -29,7 +29,16 @@ from urllib.parse import unquote
 import aws_mapping_compare as _imports_aws_mapping_compare
 import utils.iac_values as _imports_iac_values
 import utils.project_targets as _imports_project_targets
-from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
+from contracts.mapping import MAPPING_RESOURCE_TYPE_KEY
+from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
+    MODEL_PENDING_DEPLOY,
+    MODEL_UNSET,
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_TYPE_KEY,
+)
+from contracts.repository import PROJECT_FILENAME
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY
 from design.catalog import DesignSchemaCatalog, selected_properties
 from design.policy_tables import literal
 from task_contract_core import task_read_scope
@@ -294,7 +303,7 @@ def _callback_Context_client_create(self, service, /):
         else {}
     )
     self.clients[service] = self.session.client(
-        service, region_name=self.target["awsRegion"], **options
+        service, region_name=self.target[AWS_REGION_KEY], **options
     )
     return self.clients[service]
 
@@ -361,7 +370,7 @@ class Context:
             {"s3": "s3api", "config": "configservice"}.get(service, service),
             operation.replace("_", "-"),
             "--region",
-            self.target["awsRegion"],
+            self.target[AWS_REGION_KEY],
             "--output",
             "json",
             "--no-cli-pager",
@@ -461,7 +470,7 @@ class Context:
                 self.cache[key] = (
                     read_api(
                         execution_account(self.target),
-                        self.target["awsRegion"],
+                        self.target[AWS_REGION_KEY],
                         operation,
                         send,
                         deadline=_deadline,
@@ -730,7 +739,7 @@ class Resource:
             spec,
             rows,
         )
-        self.kind = spec["resourceType"]
+        self.kind = spec[RESOURCE_TYPE_KEY]
         if getattr(self.ctx, "import_mode", False) and model.service not in SERVICES:
             self.module = SimpleNamespace(
                 APIS=frozenset(), sensitive=lambda prop: False
@@ -807,7 +816,7 @@ class Resource:
                 definition
                 for definition in mapping.getters.values()
                 if definition.get("kind") == "cloudcontrol"
-                and definition.get("resourceType") == self.kind
+                and definition.get(MAPPING_RESOURCE_TYPE_KEY) == self.kind
             ]
             if len(getters) != 1:
                 raise Unresolved("resource has no unique provider identity getter")
@@ -904,14 +913,14 @@ class Resource:
         if value == {"Ref": "AWS::AccountId"}:
             return self.ctx.call("sts", "get_caller_identity")["Account"]
         if value == {"Ref": "AWS::Region"}:
-            return self.ctx.target["awsRegion"]
+            return self.ctx.target[AWS_REGION_KEY]
         if "Fn::GetAtt" in value or "Ref" in value:
             item = value.get("Fn::GetAtt", value.get("Ref"))
             logical = item[0] if isinstance(item, list) else item.split(".")[0]
             cfn_resource_identity = _imports_iac_values.cfn_resource_identity
             stack = (
-                cfn_resource_identity(self.spec["cfn-logicalId"])[0]
-                if "cfn-logicalId" in self.spec
+                cfn_resource_identity(self.spec[CFN_LOGICAL_ID_KEY])[0]
+                if CFN_LOGICAL_ID_KEY in self.spec
                 else None
             )
             matches = []
@@ -921,9 +930,9 @@ class Resource:
                 self.model.path.parent.name,
             ):
                 for resource in self.ctx.model(path).resources:
-                    if "cfn-logicalId" in resource.spec:
+                    if CFN_LOGICAL_ID_KEY in resource.spec:
                         matched = stack is not None and cfn_resource_identity(
-                            resource.spec["cfn-logicalId"]
+                            resource.spec[CFN_LOGICAL_ID_KEY]
                         ) == (stack, logical)
                     else:
                         matched = False
@@ -944,7 +953,7 @@ class Resource:
             substitutions.update(
                 {
                     "AWS::AccountId": caller["Account"],
-                    "AWS::Region": self.ctx.target["awsRegion"],
+                    "AWS::Region": self.ctx.target[AWS_REGION_KEY],
                     "AWS::Partition": caller["Arn"].split(":")[1],
                 }
             )
@@ -1049,7 +1058,7 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
     )
     for prop, rows in grouped.items():
         item = {
-            "resource": resource.spec.get("logicalId", resource.number),
+            "resource": resource.spec.get(RESOURCE_LOGICAL_ID_KEY, resource.number),
             "resourceType": resource.kind,
             "parent": resource.spec.get("parentReference"),
             "propertiesKey": prop,
@@ -1247,11 +1256,11 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
 
 def targets(root, environment=None, selector=None, all_targets=False):
     resolver = _imports_project_targets
-    topology = json.loads((root / "project.json").read_text(encoding="utf-8"))
+    topology = json.loads((root / PROJECT_FILENAME).read_text(encoding="utf-8"))
     found = []
     seen = set()
     for entry in topology["targets"]:
-        name = entry.get("alias", entry["awsAccountId"])
+        name = entry.get("alias", entry[AWS_ACCOUNT_ID_KEY])
         if not all_targets and (
             entry["environment"] != environment or name != selector
         ):
@@ -1326,12 +1335,12 @@ def coverage(root, items):
             comparison_types[service] = sorted(resource_types)
             values = properties(read_model(path))
             for _, resource in entries(values, "desired.resource."):
-                types.add((service, resource["resourceType"]))
-                if resource["resourceType"] not in resource_types:
+                types.add((service, resource[RESOURCE_TYPE_KEY]))
+                if resource[RESOURCE_TYPE_KEY] not in resource_types:
                     problems.append(
                         {
                             "service": service,
-                            "resourceType": resource["resourceType"],
+                            "resourceType": resource[RESOURCE_TYPE_KEY],
                             "reason": "unimplemented resource type",
                         }
                     )
@@ -1469,7 +1478,7 @@ def run(root, items, profile=None, session_factory=None):
             try:
                 session = (
                     session_factory(
-                        profile_name=selected, region_name=target["awsRegion"]
+                        profile_name=selected, region_name=target[AWS_REGION_KEY]
                     )
                     if session_factory
                     else None

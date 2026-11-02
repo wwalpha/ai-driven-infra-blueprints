@@ -17,7 +17,11 @@ from contracts.model import (
     MODEL_PENDING_DEPLOY,
     REFERENCE_PENDING_DEPLOY,
     REFERENCE_UNRESOLVED,
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_TYPE_KEY,
 )
+from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
+from contracts.target import AWS_ACCOUNT_ID_KEY
 from design.catalog import design_material_files
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
@@ -104,7 +108,10 @@ def bound_resource_anchors(path):
     if path.suffix != ".properties" or not input_is_file(path):
         return {}
     return {
-        (resource["resourceType"], resource["logicalId"]): display_anchor(resource)
+        (
+            resource[RESOURCE_TYPE_KEY],
+            resource[RESOURCE_LOGICAL_ID_KEY],
+        ): display_anchor(resource)
         for _, resource in entries(load_model(path).authoritative, "desired.resource.")
     }
 
@@ -154,14 +161,14 @@ def deployment_bucket(reference: str, path: Path, root: Path) -> str:
     snapshot, identity, resource = _dependency_model_identity.Resolver(root).resolve(
         reference,
         scope_for(
-            (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+            (root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)).with_suffix(
                 ".properties"
             )
-            if path.is_relative_to(root / "docs/designs")
+            if path.is_relative_to(root / DESIGNS_DIRECTORY)
             else path
         ),
     )
-    if resource["resourceType"] != "S3.Bucket":
+    if resource[RESOURCE_TYPE_KEY] != "S3.Bucket":
         raise ReferenceResolutionError("deployment bucket must identify one S3.Bucket")
     result = reference_value(
         reference_resolver(snapshot.authoritative, snapshot.scope, root),
@@ -250,9 +257,9 @@ def resource_rows(
 
 
 def design_target(path: Path, root: Path) -> dict:
-    project = root / "project.json"
-    if input_is_file(project) and path.is_relative_to(root / "docs/designs"):
-        relative = path.parent.relative_to(root / "docs/designs")
+    project = root / PROJECT_FILENAME
+    if input_is_file(project) and path.is_relative_to(root / DESIGNS_DIRECTORY):
+        relative = path.parent.relative_to(root / DESIGNS_DIRECTORY)
         if len(relative.parts) == 2:
             environment, directory = relative.parts
             return next(
@@ -262,7 +269,7 @@ def design_target(path: Path, root: Path) -> dict:
                         "targets", []
                     )
                     if item.get("environment") == environment
-                    and item.get("alias", item.get("awsAccountId")) == directory
+                    and item.get("alias", item.get(AWS_ACCOUNT_ID_KEY)) == directory
                 ),
                 {},
             )
@@ -278,15 +285,16 @@ def resource_display_rows(
     scope=None,
 ) -> list[list[str]]:
     """Include a Key's own grouped aliases when resolving its display name."""
-    rows = resource_rows(values, identity, resource["resourceType"], root)
-    if resource["resourceType"] == "KMS.Key":
+    rows = resource_rows(values, identity, resource[RESOURCE_TYPE_KEY], root)
+    if resource[RESOURCE_TYPE_KEY] == "KMS.Key":
         for child_id, child in entries(values, "desired.resource."):
             parent = child.get("parentReference")
             same = (
-                parent is not None and parse(parent).logical_id == resource["logicalId"]
+                parent is not None
+                and parse(parent).logical_id == resource[RESOURCE_LOGICAL_ID_KEY]
             )
-            if child["resourceType"] == "KMS.Alias" and same:
-                rows += resource_rows(values, child_id, child["resourceType"], root)
+            if child[RESOURCE_TYPE_KEY] == "KMS.Alias" and same:
+                rows += resource_rows(values, child_id, child[RESOURCE_TYPE_KEY], root)
     return rows
 
 
@@ -296,10 +304,10 @@ def reference_display(
     """Preserve saved links/anchors and project only execution documents for display."""
     scope_for = _imports_model_sources.scope_for
     model_path = (
-        (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+        (root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)).with_suffix(
             ".properties"
         )
-        if path.is_relative_to(root / "docs/designs")
+        if path.is_relative_to(root / DESIGNS_DIRECTORY)
         else path
     )
     scope = scope_for(model_path)
@@ -396,7 +404,7 @@ def _display_document_value(resolutions, resolver, scope, root, node):
     result = resolutions.get(node)
     if result is not None and result.status == "logical_only":
         _, _, resource = resolver.resolve_logical(node.logical_id, scope)
-        kind = resource["resourceType"]
+        kind = resource[RESOURCE_TYPE_KEY]
         attribute = reference_attribute(kind, node.attribute)
         field = RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute)
         if kind + "." + field in identifier_outputs(root).get(kind, ()):
@@ -706,7 +714,7 @@ def validate_json_documents(
         path = (
             path.parents[4]
             / "model"
-            / path.relative_to(path.parents[4] / "docs/designs")
+            / path.relative_to(path.parents[4] / DESIGNS_DIRECTORY)
         ).with_suffix(".properties")
     resolver = None
     diagnostics = []

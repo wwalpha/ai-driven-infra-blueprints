@@ -3,7 +3,13 @@
 import json
 from pathlib import Path
 
-from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET, RESOURCE_MODE_IMPORT
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    MODEL_UNSET,
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
 from utils.json_format import document_sha256
 from utils.json_format import strict_json as json_read
 
@@ -112,7 +118,7 @@ def selection_records(
             component_properties[record["kind"]] = props
     owners, unknown = {}, {}
     for rid, resource in old_resources.items():
-        kind = resource["resourceType"]
+        kind = resource[RESOURCE_TYPE_KEY]
         if kind in component_properties:
             components = []
             for prop in component_properties[kind]:
@@ -141,7 +147,7 @@ def selection_records(
         known = False
         for row_id, row in rows.get(rid, []):
             prop = row["property"]
-            if prop not in identity_properties.get(resource["resourceType"], set()):
+            if prop not in identity_properties.get(resource[RESOURCE_TYPE_KEY], set()):
                 continue
             for raw in (row["value"], old.get("observed.row." + row_id + ".value")):
                 if raw is None or has_reference(raw):
@@ -154,9 +160,11 @@ def selection_records(
                     and not has_reference(value)
                 ):
                     known = True
-                    owners.setdefault((resource["resourceType"], value), set()).add(rid)
+                    owners.setdefault((resource[RESOURCE_TYPE_KEY], value), set()).add(
+                        rid
+                    )
         if not known:
-            unknown.setdefault(resource["resourceType"], []).append(rid)
+            unknown.setdefault(resource[RESOURCE_TYPE_KEY], []).append(rid)
     correspondences = {}
     for record in records:
         key = (
@@ -206,7 +214,7 @@ def selection_records(
             raise ValueError("IMPORT duplicate or unknown resource correspondence")
         if (
             new_resources[rid].get("resourceMode") != RESOURCE_MODE_IMPORT
-            or record["kind"] != new_resources[rid]["resourceType"]
+            or record["kind"] != new_resources[rid][RESOURCE_TYPE_KEY]
         ):
             raise ValueError(
                 "IMPORT correspondence cannot change CREATE or resource type"
@@ -223,7 +231,7 @@ def selection_records(
         if action != "add" and (
             rid not in old_resources
             or old_resources[rid].get("resourceMode") != RESOURCE_MODE_IMPORT
-            or old_resources[rid]["resourceType"] != record["kind"]
+            or old_resources[rid][RESOURCE_TYPE_KEY] != record["kind"]
         ):
             raise ValueError(
                 "IMPORT refresh/replace/bind requires an existing IMPORT Resource of the acquired type; CREATE is protected"
@@ -240,7 +248,7 @@ def selection_records(
                     "IMPORT QueuePolicy candidate has unknown queue identity"
                 )
             for prior_id, prior_resource in old_resources.items():
-                if prior_resource["resourceType"] != record["kind"]:
+                if prior_resource[RESOURCE_TYPE_KEY] != record["kind"]:
                     continue
                 prior_queues = property_values(
                     old,
@@ -716,7 +724,8 @@ def verify_values(
                     if (
                         row["property"] == prop
                         and refs
-                        and refs[0].logical_id != new_resources[rid]["logicalId"]
+                        and refs[0].logical_id
+                        != new_resources[rid][RESOURCE_LOGICAL_ID_KEY]
                     ):
                         warnings.append(
                             {

@@ -6,7 +6,12 @@ from functools import partial
 from pathlib import Path
 
 import sync_runtime
-from contracts.model import REFERENCE_PENDING_DEPLOY, RESOURCE_MODE_CREATE
+from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
+    REFERENCE_PENDING_DEPLOY,
+    RESOURCE_MODE_CREATE,
+)
+from contracts.repository import DESIGNS_DIRECTORY
 from generation_inputs import GenerationInputs
 from model.core import ReferenceResolutionError
 from model.identity import Resolver
@@ -212,7 +217,7 @@ def producers(backend, view, info, stage, resolver):
         ):
             raise Blocked("pending Producer identity/mode differs from diagnostic")
         stack, template_logical = cfn_resource_identity(
-            resource.get("cfn-logicalId", "")
+            resource.get(CFN_LOGICAL_ID_KEY, "")
         )
         if stack not in run_context["states"]:
             raise Blocked("pending Producer is outside Deploy run: " + stack)
@@ -254,7 +259,7 @@ def ready(run_context, record):
 
 def retry_manifest(root, run_context, view):
     """Reuse checked Model dependencies; unknown references wait for explicit Resume."""
-    entrance = (root / "model" / Path(view).relative_to("docs/designs")).with_suffix(
+    entrance = (root / "model" / Path(view).relative_to(DESIGNS_DIRECTORY)).with_suffix(
         ".properties"
     )
     shared = session_reads(root)

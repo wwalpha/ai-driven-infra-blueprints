@@ -13,7 +13,14 @@ import task_contract_core as task_contract
 import utils.project_targets as _imports_project_targets
 from aws_mapping_compare import MODEL_ONLY
 from aws_mapping_compare import value as mapping_value
-from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET, RESOURCE_MODE_IMPORT
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    MODEL_UNSET,
+    RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
+from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY
 from generation_inputs import GenerationInputs
 from import_guard import (
     file_hash,
@@ -100,7 +107,7 @@ def import_context(root, target, runner=None, service=None, *, no_profile=False)
     target.pop("awsProfile", None)
     if profile is not None:
         target["awsProfile"] = profile
-    region = target.get("awsRegion")
+    region = target.get(AWS_REGION_KEY)
     if not isinstance(region, str) or not re.fullmatch(
         r"[a-z]{2}(?:-[a-z]+)+-[1-9][0-9]*", region
     ):
@@ -125,7 +132,7 @@ def target_for(root, environment, service, selector=None):
         )
     ):
         raise ValueError("environment and service are required exact identifiers")
-    topology = json_read((root / "project.json").read_text(encoding="utf-8"))
+    topology = json_read((root / PROJECT_FILENAME).read_text(encoding="utf-8"))
     choices = [
         t
         for t in topology["targets"]
@@ -141,7 +148,7 @@ def target_for(root, environment, service, selector=None):
                 root
                 / "model"
                 / environment
-                / t.get("alias", t["awsAccountId"])
+                / t.get("alias", t[AWS_ACCOUNT_ID_KEY])
                 / (service + ".properties")
             ).is_file()
         ]
@@ -150,8 +157,10 @@ def target_for(root, environment, service, selector=None):
             raise ValueError(
                 "target is required when the environment has multiple targets for this service"
             )
-        selector = choices[0].get("alias", choices[0]["awsAccountId"])
-    choices = [t for t in choices if t.get("alias", t.get("awsAccountId")) == selector]
+        selector = choices[0].get("alias", choices[0][AWS_ACCOUNT_ID_KEY])
+    choices = [
+        t for t in choices if t.get("alias", t.get(AWS_ACCOUNT_ID_KEY)) == selector
+    ]
     if len(choices) != 1:
         raise ValueError("target must resolve exactly once")
     entry = choices[0]
@@ -213,7 +222,7 @@ def record_outputs(root, identity, sources, views, consumers=None):
     allowed_source = _imports_model_importing_scope.allowed_source
     consumers = set(consumers or {identity})
     environment, target, service = identity
-    document = root / "docs/designs" / environment / target / (service + ".md")
+    document = root / DESIGNS_DIRECTORY / environment / target / (service + ".md")
     for file in sources:
         if not allowed_source(root, file, identity):
             raise ValueError(
@@ -318,7 +327,7 @@ def selector_resource(model, record_id, record, mapped):
     proxy = m.Resource(
         model,
         record_id,
-        {"resourceType": kind, "resourceMode": RESOURCE_MODE_IMPORT},
+        {RESOURCE_TYPE_KEY: kind, "resourceMode": RESOURCE_MODE_IMPORT},
         seed_rows,
     )
     for prop, item in mapped.items():
@@ -1057,7 +1066,7 @@ def publish_acquisition(
                 import_approval.verify_review(reviewed, expected)
                 document = (
                     root
-                    / "docs/designs"
+                    / DESIGNS_DIRECTORY
                     / identity[0]
                     / identity[1]
                     / (identity[2] + ".md")
@@ -1257,7 +1266,7 @@ def recover_display(root, environment, service, selector=None):
                 snapshot = load_model(model_path(root, identity), inputs)
                 document = (
                     root
-                    / "docs/designs"
+                    / DESIGNS_DIRECTORY
                     / environment
                     / identity[1]
                     / (service + ".md")

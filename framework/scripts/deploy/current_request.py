@@ -5,6 +5,11 @@ import json
 import uuid
 
 from contracts.deploy import DEPLOY_SUCCESS
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from utils.aws.client import AwsError
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import Blocked
@@ -432,10 +437,10 @@ def send(
                     evidence = state.get("executionEvidence", {})
                     stack_arn = str(state.get("stackId") or "").split(":", 5)
                     change_arn = str(state.get("changeSetId") or "").split(":", 5)
-                    region = runtime.target.get("awsRegion")
+                    region = runtime.target.get(AWS_REGION_KEY)
                     account = runtime.target.get(
-                        "awsExecutionAccountId"
-                    ) or runtime.target.get("awsAccountId")
+                        AWS_EXECUTION_ACCOUNT_ID_KEY
+                    ) or runtime.target.get(AWS_ACCOUNT_ID_KEY)
                     partition = (
                         aws_runtime().sdk_session().get_partition_for_region(region)
                         if region

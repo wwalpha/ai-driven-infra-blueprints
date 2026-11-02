@@ -25,6 +25,8 @@ import model.references as _model_references
 import model.render as _model_render
 import model.sources as _imports_model_sources
 import validation_scope as _dependency_validation_scope
+from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
+from contracts.repository import DESIGNS_DIRECTORY
 from model.core import SnapshotValues
 from model.reference_nodes import parse
 from task_contract_core import task_read_scope
@@ -234,7 +236,9 @@ def _model_reference_display(
     reference_values: SnapshotValues | None = None,
 ) -> tuple[str, tuple[_model_display.ReferenceTable, ...]]:
     model_path = (
-        path.parents[4] / "model" / path.relative_to(path.parents[4] / "docs/designs")
+        path.parents[4]
+        / "model"
+        / path.relative_to(path.parents[4] / DESIGNS_DIRECTORY)
     ).with_suffix(".properties")
     findings = Findings(path.parents[4])
     if _model_references.codebuild_reference_errors(
@@ -335,13 +339,13 @@ def model_resource_groups(path, source):
         anchors[anchor] = identity
     parents = {}
     for identity, resource in resources.items():
-        if resource["resourceType"] not in GROUPED:
+        if resource[RESOURCE_TYPE_KEY] not in GROUPED:
             continue
         parent = parse(resource.get("parentReference"))
         candidates = [
             rid
             for rid, item in resources.items()
-            if item["logicalId"] == parent.logical_id
+            if item[RESOURCE_LOGICAL_ID_KEY] == parent.logical_id
         ]
         if len(candidates) != 1:
             raise ValueError("grouped parent ownership unavailable: " + identity)
@@ -397,7 +401,7 @@ def model_resource_reference_tables(path, text, values, root):
             if (
                 len(expected_blocks) != 1
                 or anchor not in saved
-                or saved[anchor][0] != resource["logicalId"]
+                or saved[anchor][0] != resource[RESOURCE_LOGICAL_ID_KEY]
             ):
                 raise ValueError(
                     "Markdown Resource logicalId/anchor differs from Model: " + anchor
@@ -618,8 +622,8 @@ class DesignDocument:
                     and any(line.startswith("### ") for line in lines)
                     else {
                         (
-                            resource["resourceType"],
-                            resource["logicalId"],
+                            resource[RESOURCE_TYPE_KEY],
+                            resource[RESOURCE_LOGICAL_ID_KEY],
                         ): _model_identity.display_anchor(resource)
                         for _, resource in _model_display.entries(
                             self.model_values or {}, "desired.resource."
@@ -646,7 +650,7 @@ class DesignDocument:
             model = (
                 model_root
                 / "model"
-                / self.path.relative_to(model_root / "docs/designs")
+                / self.path.relative_to(model_root / DESIGNS_DIRECTORY)
             ).with_suffix(".properties")
             if model_exists(model):
                 values = load_model(model).values
@@ -735,8 +739,8 @@ class DesignDocument:
                     root,
                     bound_anchors={
                         (
-                            resource["resourceType"],
-                            resource["logicalId"],
+                            resource[RESOURCE_TYPE_KEY],
+                            resource[RESOURCE_LOGICAL_ID_KEY],
                         ): _model_identity.display_anchor(resource)
                         for _, resource in _model_display.entries(
                             selected or {}, "desired.resource."

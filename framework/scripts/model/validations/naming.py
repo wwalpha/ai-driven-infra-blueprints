@@ -9,7 +9,11 @@ from types import MappingProxyType, SimpleNamespace
 
 import design.layout as _dependency_design_layout
 import design.layout as _imports_design_layout
-from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
+from contracts.model import (
+    RESOURCE_MODE_CREATE,
+    RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
 from design.catalog import (
     DesignSchemaCatalog,
     selected_properties,
@@ -362,12 +366,12 @@ def _callback_check_model_inputs_names(
     rows = resource_rows(
         values,
         _state_check_model_inputs_337.identity,
-        _state_check_model_inputs_337.resource["resourceType"],
+        _state_check_model_inputs_337.resource[RESOURCE_TYPE_KEY],
         definitions,
     )
     for error in naming_errors(
         definitions,
-        _state_check_model_inputs_337.resource["resourceType"],
+        _state_check_model_inputs_337.resource[RESOURCE_TYPE_KEY],
         rows,
         _dependency_design_layout.resource_mode(_state_check_model_inputs_337.resource),
         _state_check_model_inputs_337.view,

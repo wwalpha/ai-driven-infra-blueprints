@@ -8,9 +8,19 @@ from pathlib import Path
 import deploy.inputs as _imports_deploy_inputs
 import sync_runtime as _imports_sync_runtime
 from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
     MODEL_PENDING_DEPLOY,
+    RESOURCE_LOGICAL_ID_KEY,
     RESOURCE_MODE_CREATE,
     RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
+from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+    IAC_ENGINE_KEY,
 )
 from deploy.model_cache import RunModels
 from design.catalog import DesignSchemaCatalog
@@ -67,13 +77,18 @@ def reference_key(value, path, resolver=None):
         producer.scope.environment,
         producer.scope.target,
         producer.scope.service,
-        resource["logicalId"],
+        resource[RESOURCE_LOGICAL_ID_KEY],
     )
 
 
 def own_key(path, resource):
     scope = scope_for(path)
-    return (scope.environment, scope.target, scope.service, resource["logicalId"])
+    return (
+        scope.environment,
+        scope.target,
+        scope.service,
+        resource[RESOURCE_LOGICAL_ID_KEY],
+    )
 
 
 def ambiguous(detail):
@@ -103,13 +118,13 @@ def resource_index(loaded, catalog):
     for path, values in loaded.items():
         for identity, resource in entries(values, "desired.resource."):
             try:
-                cfn_type = catalog.cloudformation_type(resource["resourceType"])
+                cfn_type = catalog.cloudformation_type(resource[RESOURCE_TYPE_KEY])
             except (KeyError, ValueError):
                 cfn_type = None
             entry = (path, identity, resource, cfn_type)
-            if "cfn-logicalId" in resource:
+            if CFN_LOGICAL_ID_KEY in resource:
                 direct.setdefault(
-                    cfn_resource_identity(resource["cfn-logicalId"]), []
+                    cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY]), []
                 ).append(entry)
     return direct
 
@@ -163,11 +178,11 @@ def active_outputs(document, parameters, pseudo):
 
 
 def identifier_source(catalog, resource, outputs, logical, prop, values):
-    attribute = prop.removeprefix(resource["resourceType"] + ".")
+    attribute = prop.removeprefix(resource[RESOURCE_TYPE_KEY] + ".")
     primary = (
-        resource["resourceType"] != "SQS.QueuePolicy"
+        resource[RESOURCE_TYPE_KEY] != "SQS.QueuePolicy"
         and "/properties/" + attribute
-        in catalog.schema(resource["resourceType"]).get("primaryIdentifier", [])
+        in catalog.schema(resource[RESOURCE_TYPE_KEY]).get("primaryIdentifier", [])
         and len(outputs) == 1
     )
     keys = []
@@ -311,12 +326,12 @@ def _mappings(
         for values in loaded.values():
             for _, resource in entries(values, "desired.resource."):
                 try:
-                    cfn_type = catalog.cloudformation_type(resource["resourceType"])
+                    cfn_type = catalog.cloudformation_type(resource[RESOURCE_TYPE_KEY])
                 except (KeyError, ValueError):
                     continue
                 mode = (
                     "mapped"
-                    if "cfn-logicalId" in resource
+                    if CFN_LOGICAL_ID_KEY in resource
                     else resource.get("resourceMode", RESOURCE_MODE_CREATE)
                 )
                 modes.setdefault(cfn_type, set()).add(mode)
@@ -356,7 +371,7 @@ def _mappings(
         stack_model(values)
     target = target or (
         load_target(root, environment, directory)
-        if (root / "project.json").is_file()
+        if (root / PROJECT_FILENAME).is_file()
         else {}
     )
     result, owners, errors = {}, {}, {}
@@ -376,11 +391,14 @@ def _mappings(
         document, parameters = templates[name]
         pseudo = {"AWS::StackName": name} | {
             "AWS::" + key: target[value]
-            for key, value in (("AccountId", "awsAccountId"), ("Region", "awsRegion"))
+            for key, value in (
+                ("AccountId", AWS_ACCOUNT_ID_KEY),
+                ("Region", AWS_REGION_KEY),
+            )
             if value in target
         }
-        if "awsExecutionAccountId" in target:
-            pseudo["AWS::AccountId"] = target["awsExecutionAccountId"]
+        if AWS_EXECUTION_ACCOUNT_ID_KEY in target:
+            pseudo["AWS::AccountId"] = target[AWS_EXECUTION_ACCOUNT_ID_KEY]
         result[name] = {}
         definitions = document.get("Resources", {}) | (removed or {}).get(name, {})
         try:
@@ -444,7 +462,7 @@ def _mappings(
                     raise ValueError(
                         f"task scope violation: stack resource outside Validation scope: {'/'.join(service)}"
                     )
-                owner = (path, identity, kind or resource["resourceType"])
+                owner = (path, identity, kind or resource[RESOURCE_TYPE_KEY])
                 if owner in owners:
                     previous = owners[owner]
                     errors.setdefault(previous[0], []).append(
@@ -457,7 +475,7 @@ def _mappings(
                 outputs = (
                     set()
                     if rule
-                    else catalog_outputs(root, resource["resourceType"])
+                    else catalog_outputs(root, resource[RESOURCE_TYPE_KEY])
                     - HIDDEN_PROPERTIES
                 )
                 if path not in row_indexes:
@@ -549,7 +567,7 @@ def resolve_resources(
     wanted, required_types = set(), set()
     target = target or (
         load_target(root, environment, directory)
-        if (root / "project.json").is_file()
+        if (root / PROJECT_FILENAME).is_file()
         else {}
     )
     catalog = DesignSchemaCatalog(root)
@@ -557,11 +575,14 @@ def resolve_resources(
         document, parameters = templates[unit["name"]]
         pseudo = {"AWS::StackName": unit["name"]} | {
             "AWS::" + key: target[value]
-            for key, value in (("AccountId", "awsAccountId"), ("Region", "awsRegion"))
+            for key, value in (
+                ("AccountId", AWS_ACCOUNT_ID_KEY),
+                ("Region", AWS_REGION_KEY),
+            )
             if value in target
         }
-        if "awsExecutionAccountId" in target:
-            pseudo["AWS::AccountId"] = target["awsExecutionAccountId"]
+        if AWS_EXECUTION_ACCOUNT_ID_KEY in target:
+            pseudo["AWS::AccountId"] = target[AWS_EXECUTION_ACCOUNT_ID_KEY]
         definitions = document.get("Resources", {}) | (removed or {}).get(
             unit["name"], {}
         )
@@ -704,7 +725,7 @@ def propagate_references(
     for path in paths:
         if path in loaded or path.stem == "cloudformation-stacks":
             continue
-        _ = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(
+        _ = (root / DESIGNS_DIRECTORY / path.relative_to(root / "model")).with_suffix(
             ".md"
         )
         linked = False
@@ -835,9 +856,9 @@ def observed_destinations(
         )
     views = set()
     for path in changes:
-        design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(
-            ".md"
-        )
+        design = (
+            root / DESIGNS_DIRECTORY / path.relative_to(root / "model")
+        ).with_suffix(".md")
         views.add(design)
         for _, row in entries(loaded[path], "desired.row."):
             if match := model_projection.JSON_LINK.fullmatch(row["value"]):
@@ -897,15 +918,15 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
             ):
                 continue
             try:
-                formal = catalog.cloudformation_type(resource["resourceType"])
+                formal = catalog.cloudformation_type(resource[RESOURCE_TYPE_KEY])
             except (KeyError, ValueError):
                 formal = None
             if not formal:
                 continue
             outputs = (
-                catalog_outputs(root, resource["resourceType"]) - HIDDEN_PROPERTIES
+                catalog_outputs(root, resource[RESOURCE_TYPE_KEY]) - HIDDEN_PROPERTIES
             )
-            if not resource.get("cfn-logicalId"):
+            if not resource.get(CFN_LOGICAL_ID_KEY):
                 for rid, row in rows[identity]:
                     if row["property"] in outputs and values.get(
                         f"observed.row.{rid}.value"
@@ -917,12 +938,12 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                     {
                         "model": path.relative_to(root).as_posix(),
                         "resource": identity,
-                        "logicalId": resource.get("logicalId"),
+                        "logicalId": resource.get(RESOURCE_LOGICAL_ID_KEY),
                         "reason": "no cfn-logicalId; no observed identifier",
                     }
                 )
                 continue
-            name, logical = cfn_resource_identity(resource["cfn-logicalId"])
+            name, logical = cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])
             if name not in changes_by_stack:
                 continue
             if len(direct[name, logical]) != 1:
@@ -939,9 +960,9 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                     "logicalId": logical,
                 }
             )
-            _ = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(
-                ".md"
-            )
+            _ = (
+                root / DESIGNS_DIRECTORY / path.relative_to(root / "model")
+            ).with_suffix(".md")
             for prop in outputs:
                 selected = [
                     (rid, row) for rid, row in rows[identity] if row["property"] == prop
@@ -1099,7 +1120,7 @@ def preflight(root, environment, directory, stack_names):
 
 def _preflight(root, environment, directory, stack_names):
     target = load_target(root, environment, directory)
-    if target["iacEngine"] != "cloudformation":
+    if target[IAC_ENGINE_KEY] != "cloudformation":
         raise ValueError("mapping preflight requires CloudFormation target")
     values = properties(
         read_model(

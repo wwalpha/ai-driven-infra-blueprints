@@ -8,7 +8,12 @@ from functools import partial as _bind_framework_callback
 import model.adapters.observed as _imports_model_adapters_observed
 import utils.cloudformation.format as _imports_cfn_format
 from contracts.deploy import DEPLOY_SUCCESS
-from contracts.model import RESOURCE_MODE_CREATE
+from contracts.model import CFN_LOGICAL_ID_KEY, RESOURCE_MODE_CREATE
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from task_contract_core import task_snapshot
 from utils.cloudformation.export_resolution import (
     describe_exports,
@@ -165,8 +170,10 @@ def bootstrap_plan(
     scope = validation_scope(root)
     document, parameters = templates[unit["name"]]
     pseudo = {
-        "AWS::AccountId": target.get("awsExecutionAccountId", target["awsAccountId"]),
-        "AWS::Region": target["awsRegion"],
+        "AWS::AccountId": target.get(
+            AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY]
+        ),
+        "AWS::Region": target[AWS_REGION_KEY],
         "AWS::StackName": unit["name"],
     }
     failed = [
@@ -337,7 +344,7 @@ def bootstrap_plan(
     source, identity, resource = mapping[:3]
     if (
         resource.get("resourceMode", RESOURCE_MODE_CREATE) != RESOURCE_MODE_CREATE
-        or resource.get("cfn-logicalId") != name + "-" + logical
+        or resource.get(CFN_LOGICAL_ID_KEY) != name + "-" + logical
         or (environment, directory, source.stem) not in scope
         or name not in units
     ):
@@ -350,7 +357,7 @@ def bootstrap_plan(
         stack_id != states[name].get("stackId")
         or not isinstance(stack_id, str)
         or stack_id.split(":", 5)[2:5]
-        != ["cloudformation", target["awsRegion"], pseudo["AWS::AccountId"]]
+        != ["cloudformation", target[AWS_REGION_KEY], pseudo["AWS::AccountId"]]
         or current.get("ParentId")
         or current.get("RootId")
         or current.get("StackStatus") not in SUCCESS | {"UPDATE_ROLLBACK_COMPLETE"}
@@ -432,7 +439,7 @@ def bootstrap_plan(
         "secretId": arn,
         "secretName": metadata["Name"],
         "account": pseudo["AWS::AccountId"],
-        "region": target["awsRegion"],
+        "region": target[AWS_REGION_KEY],
         "owner": {
             "stack": name,
             "stackId": stack_id,
@@ -452,16 +459,17 @@ def check_secret_arn(target, arn):
     )
     partition = (
         "aws-cn"
-        if target["awsRegion"].startswith("cn-")
+        if target[AWS_REGION_KEY].startswith("cn-")
         else "aws-us-gov"
-        if target["awsRegion"].startswith("us-gov-")
+        if target[AWS_REGION_KEY].startswith("us-gov-")
         else "aws"
     )
     if (
         not match
-        or match[2] != target["awsRegion"]
+        or match[2] != target[AWS_REGION_KEY]
         or match[1] != partition
-        or match[3] != target.get("awsExecutionAccountId", target["awsAccountId"])
+        or match[3]
+        != target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY])
     ):
         raise Blocked("Secret account/region/identity mismatch")
 

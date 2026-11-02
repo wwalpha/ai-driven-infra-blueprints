@@ -10,7 +10,8 @@ from types import SimpleNamespace as _CallbackState
 
 import design.layout as _dependency_design_layout
 import design.policy_tables as _dependency_policy_tables
-from contracts.model import RESOURCE_MODE_CREATE
+from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_TYPE_KEY
+from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
 from design.services.definitions.registry import POLICY_FORMATS
 from utils.json_format import policy_json
 from validation.diagnostics import Diagnostic, InputValidationError, service_scope
@@ -25,11 +26,11 @@ def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
     """CREATE の KMS Policy についてアカウントと明示された例外を確認する。"""
     if not target:
         return
-    execution = target.get("awsExecutionAccountId", target["awsAccountId"])
+    execution = target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY])
     keys = {
         identity
         for identity, resource in entries(values, "desired.resource.")
-        if resource["resourceType"] == "KMS.Key"
+        if resource[RESOURCE_TYPE_KEY] == "KMS.Key"
         and _dependency_design_layout.resource_mode(resource) == RESOURCE_MODE_CREATE
     }
     for identity, row in entries(values, "desired.row."):

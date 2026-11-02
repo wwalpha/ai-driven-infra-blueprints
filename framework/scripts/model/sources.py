@@ -21,6 +21,7 @@ import generation_inputs
 import sync_files
 import task_contract_core as _imports_task_contract
 import task_contract_core as task_contract
+from contracts.repository import PROJECT_FILENAME
 from sync_progress import phase, thread_lock
 from utils.file_operations import atomic_replace_file
 from utils.input_cache import (
@@ -497,7 +498,7 @@ def target_for(scope: Scope, reads: ReadContext) -> tuple[dict[str, str], bytes]
     for name in (scope.environment, scope.target, scope.service):
         if not name or name in {".", ".."} or "/" in name or "\\" in name:
             raise ValueError("invalid Model scope component")
-    project = scope.root / "project.json"
+    project = scope.root / PROJECT_FILENAME
     _safe(scope.root, project, reads)
     raw = reads.read(project)
     if raw is None:
@@ -658,7 +659,7 @@ def _read_model(scope, read_context=None):
             MappingProxyType(files),
             MappingProxyType(
                 {
-                    scope.root / "project.json": project,
+                    scope.root / PROJECT_FILENAME: project,
                     **{p: text.encode("utf-8") for p, text in files.items()},
                 }
             ),
@@ -978,7 +979,7 @@ def edit_base(path: Path, reads: ReadContext) -> ModelSnapshot:
         MappingProxyType(files),
         MappingProxyType(
             {
-                scope.root / "project.json": project,
+                scope.root / PROJECT_FILENAME: project,
                 path: reads.read(path),
                 **{
                     file: text.encode("utf-8", errors="surrogateescape")
@@ -1045,7 +1046,7 @@ def candidate_base(path: Path, reads: ReadContext) -> ModelSnapshot:
         MappingProxyType({}),
         MappingProxyType({}),
         MappingProxyType({}),
-        MappingProxyType({scope.root / "project.json": project, path: None}),
+        MappingProxyType({scope.root / PROJECT_FILENAME: project, path: None}),
         (),
     )
 

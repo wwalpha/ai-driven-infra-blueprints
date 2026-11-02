@@ -1,6 +1,6 @@
 """IMPORT waits and normal exclusions within the six comparison categories."""
 
-from contracts.model import MODEL_PENDING_DEPLOY
+from contracts.model import MODEL_PENDING_DEPLOY, RESOURCE_TYPE_KEY
 from design.policy_tables import literal
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.arn_values import generated_attribute
@@ -67,7 +67,7 @@ def defer_import_reference(inputs, symbol, resource, consumer_property):
             "IMPORT reference requires a proven receiving contract and approved handoff; no physical ID inference"
         )
     service, identity = symbol["$resource"]
-    kind, attribute = resource["resourceType"], symbol["$attribute"]
+    kind, attribute = resource[RESOURCE_TYPE_KEY], symbol["$attribute"]
     rows = [
         (rid, row)
         for rid, row in inputs.rows[service][identity]

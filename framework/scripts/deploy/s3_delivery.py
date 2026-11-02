@@ -6,6 +6,11 @@ from functools import partial as _bind_framework_callback
 from types import SimpleNamespace
 
 from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
+from contracts.target import (
+    AWS_ACCOUNT_ID_KEY,
+    AWS_EXECUTION_ACCOUNT_ID_KEY,
+    AWS_REGION_KEY,
+)
 from design.policy_tables import literal
 from model.references import has_reference
 from utils.cloudformation.inputs import Blocked
@@ -92,12 +97,12 @@ def key_metadata(backend, key, boundary):
     arn = metadata.get("Arn", "")
     parts = arn.split(":")
     account = backend.target.get(
-        "awsExecutionAccountId", backend.target["awsAccountId"]
+        AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
     )
     if len(parts) != 6 or parts[2] != "kms" or not parts[5].startswith("key/"):
         fail("INDETERMINATE", "DescribeKey did not return a key ARN")
     if (
-        parts[3] != backend.target["awsRegion"]
+        parts[3] != backend.target[AWS_REGION_KEY]
         or parts[4] != account
         or metadata.get("AWSAccountId") != account
     ):
@@ -186,7 +191,7 @@ def model_conditions(backend, bucket, boundary=None):
             fail("INDETERMINATE", "placement must identify one approved S3 bucket")
         resource = candidates[0]
         selected(resource, "BucketName")
-        if selected(resource, "Region") != backend.target["awsRegion"]:
+        if selected(resource, "Region") != backend.target[AWS_REGION_KEY]:
             fail("MISMATCH", "designed bucket region differs from target")
         mode = resource.spec.get("deploymentEncryption")
         if mode not in {None, "default"}:
@@ -228,9 +233,9 @@ def model_conditions(backend, bucket, boundary=None):
             "requestKey": request_key,
             "mode": mode or "explicit",
             "account": backend.target.get(
-                "awsExecutionAccountId", backend.target["awsAccountId"]
+                AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
             ),
-            "region": backend.target["awsRegion"],
+            "region": backend.target[AWS_REGION_KEY],
         }
         rows = resource.rows_for(
             "BucketEncryption.ServerSideEncryptionConfiguration[].BucketKeyEnabled"
@@ -381,7 +386,7 @@ def preflight(backend, bucket, prefix, keys, boundary=None):
     reports = backend.run_context.setdefault("placementPreflight", {})
     try:
         account = backend.target.get(
-            "awsExecutionAccountId", backend.target["awsAccountId"]
+            AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
         )
         identity_key = (getattr(backend, "connection", None), bucket, account)
         designs = boundary.setdefault("bucketDesigns", {})

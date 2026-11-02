@@ -1,6 +1,10 @@
 """Select saved literal declarations from the authoritative snapshot, once per service."""
 
-from contracts.model import RESOURCE_MODE_IMPORT
+from contracts.model import (
+    REFERENCE_RESOURCE_TYPE_KEY,
+    RESOURCE_MODE_IMPORT,
+    RESOURCE_TYPE_KEY,
+)
 from design.layout import resource_mode
 from design.policy_tables import literal
 from model.identity import Resolver
@@ -112,7 +116,7 @@ class ModelReferences:
                     {
                         "$resource": [service, number],
                         "$attribute": reference_attribute(
-                            resource["resourceType"], attribute
+                            resource[RESOURCE_TYPE_KEY], attribute
                         ),
                     }
                 )
@@ -275,16 +279,21 @@ class ModelReferences:
             )
         inputs.model(service)
         resource = inputs.resources[service].get(usage.producer_id)
-        if not resource or resource["resourceType"] != spec["resourceType"]:
+        if (
+            not resource
+            or resource[RESOURCE_TYPE_KEY] != spec[REFERENCE_RESOURCE_TYPE_KEY]
+        ):
             raise Blocked("attribute_format_unproven: producer Resource Type differs")
-        prefix = resource["resourceType"] + "."
+        prefix = resource[RESOURCE_TYPE_KEY] + "."
         if not spec["property"].startswith(prefix):
             raise Blocked("attribute_format_unproven: producer Property differs")
         attribute = spec["property"][len(prefix) :]
         symbol = ResourceReference(
             {
                 "$resource": [service, usage.producer_id],
-                "$attribute": reference_attribute(resource["resourceType"], attribute),
+                "$attribute": reference_attribute(
+                    resource[RESOURCE_TYPE_KEY], attribute
+                ),
             }
         )
         symbol.saved_property = spec["property"]
