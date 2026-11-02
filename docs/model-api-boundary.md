@@ -1132,3 +1132,17 @@ These existing lazy loads preserve initialization order. AWS adapter Model is an
 | `deploy/s3_delivery.py` | 159 | `model.adapters.aws` | `models[path] = module("model/adapters/aws.py", "model.adapters.aws").Model(`; existing mapping acquisition/selection or verified Observed validation. |
 | `utils/cli_deploy.py` | 91 | `model.observed` | `verify_observed_outputs = module(`; existing mapping acquisition/selection or verified Observed validation. |
 | `utils/mapping_runtime.py` | 11 | `model.adapters.aws` | `comparator = module("model/adapters/aws.py", "model.adapters.aws")`; existing mapping acquisition/selection or verified Observed validation. |
+
+## Static consumer gate (Phase 5)
+
+`framework/scripts/tests/units/model-encapsulation-unit.checks.py` runs automatically through the existing Framework UT discovery. Its standard-library AST helper is `tests/support/model_encapsulation.py`; it imports no Model code and executes no scanned source. The inventory above records the Phase 4 review, not a permanent exception list or a line-number-based allowlist.
+
+The gate rejects private qualified Model symbols (including aliases and literal script-loader references), legacy structural enumeration/index entrypoints, ModelSnapshot construction and `dataclasses.replace`/`copy.replace` of recognized snapshots, external `_replace` access, ModelView private state, assignment/deletion/augmented assignment and mutating methods on recognized Snapshot state and its aliases. Literal `getattr`/`setattr` access is included. Type imports alone remain allowed.
+
+Known structural parser patterns are also rejected: Key-variable splitting on `.`, Row identity extraction using `rpartition('-')`, structural-prefix tests on Model Key expressions and capturing regexes that extract Model Row/Resource/Reference identities. Noncapturing regular expressions used only to restrict permitted Task/Deferred fields are business authorization policy and remain allowed; they neither resolve ownership nor reconstruct Model structure. Display strings, literal business-property lookups, property-path parsing, unrelated dataclass replacement and independent copies of values remain allowed.
+
+Model implementation sources, `contracts/model.py` and synthetic test fixtures are implementation/test boundaries rather than Runtime consumers. Every other Framework Python source is checked; no existing-violation file or line exceptions are stored. The real-source gate currently finds zero violations. Snapshot tracking covers known Model loader calls, annotated parameters, conventional snapshot parameters and simple assignments/aliases within lexical function scopes. This is a regression gate for known AST patterns, not an interprocedural Python type checker or a proof about arbitrary dynamic code.
+
+The first real-source run found `FileReads.fork()` reconstructing a ModelSnapshot to deep-copy warnings. That exact operation now lives in Model's `copy_snapshot_warnings()` API. A lazy package import preserves the lower-level FileReads/Model initialization order. Only diagnostic dictionaries are copied; authority, dependency identity, caches, warnings contents and fork conditions retain the previous behavior. No Runtime monkey patch or new dependency is introduced.
+
+Guard tests feed prohibited and permitted synthetic sources to the same repository-scan function, assert violations raise AssertionError and check the production Framework tree. Regressions in the guard's failure path therefore fail UT rather than merely proving that a visitor was called.

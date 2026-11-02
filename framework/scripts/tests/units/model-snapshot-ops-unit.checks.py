@@ -16,7 +16,12 @@ from model.sources import raw_model
 from support.model_v2_fixtures import format_fixture
 from validation.change import reference_inputs
 
-from model import rebase_snapshot, reference_snapshot, update_observed_snapshot
+from model import (
+    copy_snapshot_warnings,
+    rebase_snapshot,
+    reference_snapshot,
+    update_observed_snapshot,
+)
 
 
 def check_rebase_paths_identity_and_errors(tmp_path):
@@ -134,6 +139,17 @@ def check_observed_dependencies_and_error_compatibility(tmp_path):
     )
     with pytest.raises(ValueError):
         update_observed_snapshot(snapshot, {scope.path: invalid})
+
+
+def check_warning_fork_preserves_inputs_and_isolates_diagnostics(tmp_path):
+    scope, _ = format_fixture(tmp_path)
+    snapshot = replace(raw_model(scope), warnings=({"details": ["original"]},))
+    fork = copy_snapshot_warnings(snapshot)
+    assert fork == snapshot and fork is not snapshot
+    assert fork.dependencies is snapshot.dependencies
+    assert fork.authoritative is snapshot.authoritative
+    fork.warnings[0]["details"].append("local")
+    assert snapshot.warnings == ({"details": ["original"]},)
 
 
 if __name__ == "__main__":

@@ -69,3 +69,9 @@ def update_observed_snapshot(snapshot, outputs):
 
 def parse_reference_field(key, raw):
     return module("model/references.py", "model.references")._json(key, raw)
+
+
+def copy_snapshot_warnings(snapshot):
+    return module("model/snapshot_ops.py", "model.snapshot_ops").copy_snapshot_warnings(
+        snapshot
+    )

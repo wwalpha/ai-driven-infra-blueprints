@@ -1,8 +1,7 @@
 """Recorded source reads and candidate overlays, independent of Model operations."""
 
 from concurrent.futures import Future
-from copy import deepcopy
-from dataclasses import replace
+from importlib import import_module
 from pathlib import Path
 from threading import RLock
 
@@ -94,7 +93,7 @@ class FileReads:
         reads.cache_identity = self.cache_identity
         reads.lock = self.lock
         reads.models = {
-            key: replace(snapshot, warnings=deepcopy(snapshot.warnings))
+            key: import_module("model").copy_snapshot_warnings(snapshot)
             if snapshot is not None and snapshot.warnings
             else snapshot
             for key, snapshot in self.models.items()

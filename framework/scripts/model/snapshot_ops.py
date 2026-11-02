@@ -1,5 +1,7 @@
 """Purpose-specific transformations of existing Model snapshots."""
 
+from copy import deepcopy
+from dataclasses import replace
 from types import MappingProxyType
 
 from model.core import structural_entries
@@ -74,3 +76,8 @@ def update_observed_snapshot(snapshot, outputs):
         },
     }
     return candidate._replace(dependencies=MappingProxyType(dependencies))
+
+
+def copy_snapshot_warnings(snapshot):
+    """Fork diagnostic dictionaries while retaining fixed inputs and authority."""
+    return replace(snapshot, warnings=deepcopy(snapshot.warnings))
