@@ -1028,7 +1028,8 @@ def _callback_check_ci_workflow_execute(
     return subprocess.CompletedProcess(command, code)
 
 
-def check_run_it_dispatch(tmp_path):
+def check_run_it_dispatch(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
     _state_check_ci_workflow_316 = _CallbackState()
     tests = tmp_path / "framework/scripts/tests"
     (tests / "integrations").mkdir(parents=True)
@@ -1117,7 +1118,10 @@ def check_run_it_dispatch(tmp_path):
 @pytest.mark.parametrize(
     "unit_status,timing_errors", [(0, []), (1, []), (0, ["missing"])]
 )
-def check_ut_only_never_reaches_it(unit_status, timing_errors, capsys):
+def check_ut_only_never_reaches_it(
+    unit_status, timing_errors, capsys, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
     with (
         patch.object(sys, "argv", ["run_it.py", "--ut-only"]),
         patch.object(MODULE, "authorize_full_regression") as authorize,
@@ -1146,6 +1150,7 @@ def check_ut_only_never_reaches_it(unit_status, timing_errors, capsys):
     compare.assert_not_called()
     inventory.assert_not_called()
     assert "1 UT suites" in capsys.readouterr().out
+    assert "UT timing:" in (tmp_path / "summary.md").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(

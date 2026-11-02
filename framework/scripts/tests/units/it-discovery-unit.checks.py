@@ -243,7 +243,8 @@ def check_helper_direct_real_receipt(tmp_path):
     assert not run_it.reachability(discovery.cases, receipts, owners=discovery.owners)
 
 
-def check_comparison_cli_does_not_run_suites(tmp_path, capsys):
+def check_comparison_cli_does_not_run_suites(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
     with (
         patch.object(sys, "argv", ["run_it.py", "--compare-root", str(tmp_path)]),
         patch.object(
@@ -255,6 +256,9 @@ def check_comparison_cli_does_not_run_suites(tmp_path, capsys):
     compare.assert_called_once_with(tmp_path / "framework/scripts/tests", run_it.TESTS)
     execute.assert_not_called()
     assert '"review_required": true' in capsys.readouterr().out
+    assert '"review_required": true' in (tmp_path / "summary.md").read_text(
+        encoding="utf-8"
+    )
 
 
 def _callback_change_collection_input(tests, suite, output):
