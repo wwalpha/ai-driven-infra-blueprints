@@ -255,13 +255,8 @@ A settled current request may leave its attempt outcome UNKNOWN while the curren
 ### Managed Deploy contract correction
 
 The suspended same-Task operation in [Self recovery](task-contract.md#self-recovery)
-corrects omitted service declarations and exact observation/Model and generated View paths.
-Services may only be added to the unchanged environment/target; existing scope is retained.
-The existing offline mapping preflight must prove added service ownership in the fixed
-Stack set, and each added service source/part must match its committed fixed snapshot.
-No guessed mapping or new service design is accepted. This structural proof does not
-replace the LLM's original Human-request/authority review.
-Existing observation writers still permit only observed fields; adding a
+corrects only omitted exact observation/Model and generated View paths within unchanged
+service scope. Existing observation writers still permit only observed fields; adding a
 path grants no desired-Model or IaC editing authority. Preserve the original contract's
 other content and fixed execution inputs. Changes to target/Account/Region/Stack, execution
 units/templates/parameters/artifacts, permissions or consent require their original Human
@@ -276,24 +271,16 @@ submission, active/unknown recorded Stack, unended token or active controller st
 read is used to settle requests on this path. Missing progress/input evidence stops.
 
 Pending Observed or generation plans/errors, a checkpoint candidate or commit intent,
-pending/conflicted/final Git publication, or repair handoff/integration evidence
+pending/conflicted/final Git publication, or repair failure/handoff/integration evidence
 stop with their concrete reason and retain all state. The operation supports pre-publication
 progress and verified already-published intermediate checkpoints; completed Tasks are not
 reopened. It does not rebind unfinished plans, reuse repair approvals or rewrite Git commits.
-
-For a service omission, the exact unissued current failure may be retained and rebound only
-when its unchanged input/state evidence proves BLOCKED, PREPARATION, NOT_EXECUTED,
-NEEDS_HUMAN and a scope violation naming an added service. The operation preserves all
-failure content except its current contract digest; it does not erase the failed check or
-turn it into PASS. Other failures, unknown/mismatched evidence, additional failure records
-or an issued repair request stop. Resume still requires the LLM's Self recovery assessment.
 
 The operation holds existing progress, per-Stack request, repair, Model publication and
 lifecycle locks. It compares candidate, contract, Git/index, project inputs, progress and
 temporary template owners again before saving. One rollback batch changes the current
 contract, lifecycle identity/text, progress identity, verified closed receipt identities and
-matching temporary template ownership and verified unissued preparation failure identity;
-operation tokens/results/inputs and the failure itself remain unchanged.
+matching temporary template ownership; operation tokens/results/inputs remain unchanged.
 Snapshot validation becomes NOT_RUN. A transient intent in the existing lifecycle protects
 multi-file interruption, not a history or approval ledger. Normal Deploy rejects an unfinished
 intent. Retry the same correction command with the exact external candidate: only unchanged

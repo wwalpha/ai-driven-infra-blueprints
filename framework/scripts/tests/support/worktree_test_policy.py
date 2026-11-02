@@ -21,9 +21,6 @@ WORKTREE_CASES = {
         "check_resume_cannot_adopt_unreconciled_digest",
         "check_active_controller_lock_prevents_correction",
         "check_interrupted_correction_external_edit_is_retained",
-        "check_omitted_service_and_paths_can_resume",
-        "check_omitted_service_rejects_unproven_changes",
-        "check_service_preparation_failure_keeps_evidence",
     ),
     "units/deploy-worktree-unit.checks.py": (
         "check_source_scope_shares_deploy_baseline",
