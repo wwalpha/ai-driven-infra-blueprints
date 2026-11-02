@@ -390,16 +390,14 @@ def check_regression_discovery(tmp_path):
     ):
         MODULE.select_checks(tmp_path)
     root = Path(__file__).resolve().parents[4]
-    all_checks = {p.name for p in MODULE.select_checks(root)[0]}
+    checks = MODULE.select_checks(root)[0]
+    all_checks = {p.name for p in checks}
     assert all_checks == {
         p.name for p in (root / "framework/scripts/tests/units").rglob("*.checks.py")
     } | {"test_issues_iac.py"}
     assert "service-parameter-inputs.checks.py" not in all_checks
     assert "git-changes-unit.checks.py" in all_checks
-    assert all(
-        p.is_relative_to(root / "framework/scripts/tests/units")
-        for p in MODULE.select_checks(root)[0]
-    )
+    assert all(p.is_relative_to(root / "framework/scripts/tests/units") for p in checks)
 
 
 @pytest.mark.parametrize("entry", ["run(__file__)", "main()"])
