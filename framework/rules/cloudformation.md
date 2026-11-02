@@ -15,12 +15,12 @@
 
 ## Template implementation
 
-Before selecting additional rules, inspect the relevant Model Resources, Stack placement and dependency relationships. Read each applicable section below; if the configuration cannot be classified or cycle risk is unknown, read all potentially applicable sections. These reads are mandatory when the condition applies:
+Before selecting additional rules, inspect relevant Model Resources, Stack placement and dependencies, and the existing template’s Resources, Parameters and Outputs; for a new template inspect its authorized planned structure. Read each applicable section; if classification or cycle risk is uncertain, read all potentially applicable sections:
 
 - Roles with no directly using resource: [Standalone IAM Role stacks](#standalone-iam-role-stacks).
 - Security Group mutual references or uncertain cycle risk: [Security Group cycle rules](#security-group-cycle-rules).
-- Static Parameter Export templates: [Static Parameter Export](#static-parameter-export).
-- KMS Key or Alias resources: [KMS Key and Alias](#kms-key-and-alias).
+- Possible Static Parameter Export scaffold in Resources, Parameters and Outputs: [Static Parameter Export](#static-parameter-export).
+- KMS Key or Alias resources, or consumers referencing an Alias (including S3): [KMS Key and Alias](#kms-key-and-alias).
 - Environment-based naming or selection: [Environment composition and selection](#environment-composition-and-selection).
 
 - In YAML CloudFormation templates, use `!` form for every intrinsic function with AWS shorthand; corresponding long-form `Ref:` and `Fn::...:` are prohibited except for the following combinations. Permit `Fn::ImportValue: !Sub 'VpcId${Suffix}'`, with `!Sub` on the same line or an indented following line, and `!ImportValue {Fn::Sub: 'VpcId${Suffix}'}` (including flow-form variable maps); Export bases and parameter names are not fixed. Import names must not depend on resource values, and final Export names must satisfy the existing naming rules. Also permit `!ImportValue {Fn::Join: ['', ['ExportBase', !Ref ParameterName]]}` joining a fixed PascalCase Export name base with a parameter value using an empty delimiter. Select the parameter whose value preserves the confirmed Export name. YAML cannot directly nest shorthand tags, so only the outer `Fn::ImportValue` with `!Sub`, the inner `Fn::Sub` with `!ImportValue`, and this expression's inner `Fn::Join` may use long form. Array arguments also use shorthand flow form such as `JobId: !Select [0, !Split ['|', !Ref GlueJobDefinition075]]`.
@@ -177,7 +177,7 @@ Artifactでは同じprofile/Region/期待execution ownerでHeadBucket/GetBucketL
 
 ArtifactのpolicyはkeyごとにAction/Resource pattern、wildcard principalと暗号化条件StringEquals/NotEquals/Like/NotLike（IfExists含む）/Nullの論理積を評価する。未知の適用条件/principal/variable/否定scopeはINDETERMINATE。一般IAM engineに拡張せず、READ_DENIED/READ_UNCONFIRMED/MISMATCHを区別する。NoSuchBucketPolicyだけpolicyなしと扱う。403/timeout/壊れたpolicyを成功にしない。IAM/SCP/endpoint/実効PutObject・KMS権限は読取だけでPASSにしない。必要objectの実配置が書込確認であり、probe・IAM/KMS/policy緩和・public化は禁止。
 
-During group preparation and each Stack Create/Execute boundary, share reads only through an explicit dictionary within one function call, retaining per-key policy checks. Normalize KeyId/ARN, resolve different aliases separately, and distinguish the requested key from the verified ARN. Do not treat APIs as an atomic snapshot, reuse cached results across return, approval, resume, repair, input changes or group transitions, or fall back to stale success after failure.
+Use fresh evidence at group preparation and each Stack Create/Execute boundary; evaluate policy per key. Resolve aliases separately and distinguish the requested key from the verified ARN. Do not treat APIs as an atomic snapshot or reuse evidence across return, approval, resume, repair, input changes or group transitions. Stop on failure; never reuse stale success.
 
 object keyはprefix+SHA256+拡張子。不存在HEAD→IfNoneMatch="*"/checksum/ExpectedBucketOwner付きPutObject（Artifactは設計に従いSSEを指定）→古いHEAD無効化→新しいHEADでchecksum/size/必要versionとArtifactの暗号化を確認する。既存objectは一致時のみ再利用し、不一致/権限欠損で上書きしない。412は新HEAD一致時だけ再利用、409/timeout等の不明結果は上限付き確認/retryとし無条件PUTへ切り替えない。同じ準備内の確認済みobjectは共有し、Create/Execute境界はfresh HEADとする。
 
