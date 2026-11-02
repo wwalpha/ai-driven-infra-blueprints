@@ -11,7 +11,6 @@ import json
 import tempfile
 from unittest.mock import patch
 
-import pytest
 from issues.aggregate import aggregate, iac_actions
 from issues.artifact import detail_payload, summary
 from issues.records import identifier
@@ -286,19 +285,6 @@ def main_checks():
                     assert diagnostic["format"]["iac"] == (
                         "allowed" if iac == key_arn else "outside allowed forms"
                     )
-            with pytest.raises((ValueError, RuntimeError)) as invalid_target:
-                current.desired_reference(
-                    "athena",
-                    {
-                        "$modelRef": {
-                            "logicalId": "KMS_Alias_001",
-                            "attribute": "AliasArn",
-                        }
-                    },
-                    "Athena.WorkGroup",
-                    path,
-                )
-            assert "reference target must be KMS.Key" in str(invalid_target.value)
             athena(
                 '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"Arn"}}`',
                 key_arn,

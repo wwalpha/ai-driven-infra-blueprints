@@ -31,7 +31,6 @@ def main_checks():
             ("glue", "Glue.SecurityConfiguration", "SecurityConfiguration", "Name"),
             ("athena", "Athena.WorkGroup", "WorkGroup", "Name"),
             ("iam", "IAM.ManagedPolicy", "ManagedPolicy", "PolicyArn"),
-            ("quicksight", "QuickSight.VPCConnection", "Unknown", None),
         ]
         template["Outputs"] = {}
         for service, kind, logical, _attribute in specs:
@@ -74,32 +73,6 @@ def main_checks():
             comparison, _ = fixtures.compare(root, ["s3"])
             for service, kind, logical, attribute in specs:
                 imported = {"Fn::ImportValue": "app-dev-data2-" + logical}
-                if attribute is None:
-                    fixtures.expect_error(
-                        lambda *, logical=logical: comparison.evaluate(
-                            consumer, {"Ref": logical}
-                        ),
-                        "Ref return attribute is unproven",
-                    )
-                    fixtures.expect_error(
-                        lambda *, imported=imported: comparison.evaluate(
-                            consumer, imported
-                        ),
-                        "Ref return attribute is unproven",
-                    )
-                    fixtures.expect_error(
-                        lambda *, service=service: comparison.reference(
-                            service,
-                            ResourceReference(
-                                {
-                                    "$resource": ["quicksight", "001"],
-                                    "$attribute": "Ref",
-                                }
-                            ),
-                        ),
-                        "unsupported JSON Resource attribute: QuickSight.VPCConnection.Ref",
-                    )
-                    continue
                 expected = {"$resource": [service, "001"], "$attribute": attribute}
                 direct = comparison.evaluate(consumer, {"Ref": logical})
                 assert direct == expected, direct

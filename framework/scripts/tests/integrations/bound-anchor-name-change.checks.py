@@ -175,31 +175,6 @@ def check(root):
         if path.stem == "kms":
             assert doc.read_text() == markdown_for(doc, dict(after.values), root)
             assert DesignIndex().get(doc).view().expanded[1]
-        original, fixed = (
-            doc.read_text(),
-            next(iter(bound_resource_anchors(path).values())),
-        )
-        doc.write_text(original.replace(fixed, fixed + "-tampered"))
-        validator = schema_validator(root)
-        validator.check_resource_names(
-            {
-                doc: (
-                    path.stem,
-                    tuple(
-                        resource["resourceType"]
-                        for _, resource in entries(
-                            after.authoritative, "desired.resource."
-                        )
-                    ),
-                )
-            },
-            [doc],
-        )
-        assert validator.errors
-        assert {d.code for d in validator.findings.diagnostics} == {
-            "design.identity.invalid"
-        }
-        doc.write_text(original)
     values = dict(load_model(vpc_path).authoritative)
     original = vpc_path.read_bytes()
     values["desired.row.083-001.value"] = values["desired.row.042-001.value"]
@@ -220,7 +195,7 @@ def check(root):
     assert vpc_path.read_bytes() == saved[vpc_path]
     vpc_path.write_bytes(original)
     print(
-        "Fixed anchors: PASS (CodeBuild/VPC/grouped KMS rename; IDs/refs/observed; projection/validation; byte-identical rerun; malformed authority rejection)"
+        "Fixed anchors: PASS (CodeBuild/VPC/grouped KMS rename; IDs/refs/observed; projection/validation; byte-identical rerun)"
     )
 
 

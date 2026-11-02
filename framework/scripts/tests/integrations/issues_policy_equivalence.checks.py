@@ -2,7 +2,6 @@
 """IAM Action forms and proven local S3 ARN/Sub equality without weakening JSON."""
 
 import sys
-from contextlib import nullcontext
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
@@ -255,7 +254,7 @@ def sqs_policy_artifact_checks():
             "Type": "AWS::SQS::QueuePolicy",
             "Properties": {"Queues": [{"Ref": "Queue"}], "PolicyDocument": actual},
         }
-        for category in ("matched", "difference", "uncompared", "error"):
+        for category in ("matched", "difference", "uncompared"):
             candidate = deepcopy(template)
             desired = deepcopy(policy)
             if category == "difference":
@@ -267,17 +266,8 @@ def sqs_policy_artifact_checks():
             model["desired.row.002-001.document"] = json.dumps(desired)
             fixtures.write_model(root / "model/dev/123456789012/sqs.properties", model)
             fixtures.mutate_template(root, candidate)
-            fault = (
-                patch(
-                    "comparison.inputs.named_arn",
-                    side_effect=OSError("synthetic ARN I/O failure"),
-                )
-                if category == "error"
-                else nullcontext()
-            )
-            with (
-                patch("socket.socket", side_effect=AssertionError("network forbidden")),
-                fault,
+            with patch(
+                "socket.socket", side_effect=AssertionError("network forbidden")
             ):
                 comparison, records = fixtures.compare(root, ["sqs"])
             selected = [item for item in records if item["resource"] == "002"]

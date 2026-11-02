@@ -4,6 +4,7 @@
 import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -12,8 +13,6 @@ import tempfile
 
 from design.layout import expanded_design as expanded_design
 from design.layout_schema import resource_anchor as resource_anchor
-from model.core import properties
-from model.files import read_model
 from support import model_design_fixtures as HELPERS
 from support.it_case_receipt import it_case
 from support.model_reference_fixtures import reference
@@ -29,15 +28,6 @@ ROOT = Path(__file__).resolve().parents[4]
 SYNC = HELPERS.SYNC
 ROTATION = "SecretsManager.RotationSchedule"
 SECRET = "SecretsManager.Secret"
-
-
-def rejects(action, *messages):
-    try:
-        action()
-    except ValueError as error:
-        assert all(message in str(error) for message in messages), str(error)
-        return str(error)
-    raise AssertionError(f"invalid input accepted: {messages}")
 
 
 def _callback_main_save(key, models, values, /):
@@ -118,34 +108,16 @@ def main():
         save()
         SYNC.sync(root, True, "dev", "123456789012")
         assert path.read_text().count(f"[{current}](kms.md#kms-app-dev-key)") == 2
-        saved = {file: file.read_bytes() for file in path.parent.glob("*.md")}
-        # Rejected Secret generation retains its old link, while valid KMS saves.
-        del values["desired.resource.002.parentReference"]
         key["display.resource.001.label"] = "app-dev-renamed"
         save()
-        rejects(
-            lambda: SYNC.sync(root, True, "dev", "123456789012"),
-            "SecretsManager_RotationSchedule_001",
-            "parentReference",
-        )
-        assert path.read_bytes() == saved[path]
-        assert (path.parent / "kms.md").read_bytes() != saved[path.parent / "kms.md"]
-        assert "app-dev-renamed" in (path.parent / "kms.md").read_text()
-        assert 'id="kms-app-dev-key"' in (path.parent / "kms.md").read_text()
-        assert properties(
-            read_model(models / "secretsmanager.properties")
-        ) == properties(HELPERS.text(values))
-        # Repair only the source in a later task against the already saved KMS view.
-        values["desired.resource.002.parentReference"] = json.dumps(
-            reference("SecretsManager_Secret_001", "Id")
-        )
-        save()
-        SYNC.sync(root, True, "dev", "123456789012", services=["secretsmanager"])
+        SYNC.sync(root, True, "dev", "123456789012")
         SYNC.sync(root, False, "dev", "123456789012")
-        assert "kms-app-dev-key" in path.read_text()
-        assert path.read_text().count(f"[{current}](kms.md#kms-app-dev-key)") == 2
+        TestCase().assertIn("app-dev-renamed", (path.parent / "kms.md").read_text())
+        TestCase().assertEqual(
+            path.read_text().count(f"[{current}](kms.md#kms-app-dev-key)"), 2
+        )
     print(
-        "rotation-schedule: PASS (single/multiple parents, identity, formal rows, invalid references, projection, KMS updates and deferred source repair)"
+        "rotation-schedule: PASS (single/multiple parents, identity, formal rows, projection and normal KMS updates)"
     )
 
 

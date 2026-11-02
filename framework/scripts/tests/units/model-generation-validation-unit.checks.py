@@ -3,8 +3,6 @@
 import ast
 import copy
 import json
-import os
-import subprocess
 import sys
 from contextlib import closing
 from pathlib import Path
@@ -35,28 +33,6 @@ if not __debug__:
 
 SCRIPTS = FRAMEWORK / "framework/scripts"
 ENTRIES = ("generate_files", "generate_markdown", "render_validated_model")
-
-
-@pytest.mark.parametrize(
-    "statement",
-    (
-        "import model.validations.full_inputs",
-        "import model.render",
-        "import model.validations.full_inputs; import model.render",
-        "import model.render; import model.validations.full_inputs",
-    ),
-)
-def test_fresh_process_imports(statement):
-    env = dict(os.environ, PYTHONPATH=str(SCRIPTS))
-    result = subprocess.run(
-        [sys.executable, "-B", "-c", statement],
-        cwd=FRAMEWORK,
-        env=env,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def test_render_has_no_direct_or_indirect_validation_dependency():

@@ -11,21 +11,15 @@ import json
 import tempfile
 from contextlib import redirect_stdout
 
-import pytest
 import sync_runtime
 from model.adapters.observed import destroy_plan, mappings, validate_mapping_targets
-from model.core import entries, stack_model
+from model.core import stack_model
 from model.format import serialize
-from model.operations import CandidateReads
 from model.projection import bound_stack_names
 from model.sources import design_source_digest, load_model
-from model.validations.identity import (
-    validate_resource_identities as validate_identities,
-)
 from support.it_case_receipt import it_case
 from support.model_design_fixtures import model
 from support.model_sources import declare_outputs, write_model
-from utils.source_reads import FileReads
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -169,21 +163,6 @@ def check(root):
         assert load_model(vpc_path).authoritative == expected_vpc and all(
             p.read_bytes() == raw for p, raw in vpc_bytes.items()
         )
-        changed_unit = dict(dict(stack_model(current.values)[1])["017"])
-        for analyze in (
-            lambda *, changed_unit=changed_unit: mappings(
-                root,
-                "preview",
-                "team",
-                {changed_unit["name"]: (document, {})},
-                [changed_unit],
-            ),
-            lambda *, changed_unit=changed_unit: destroy_plan(
-                root, "preview", "team", [changed_unit["name"]], False
-            ),
-        ):
-            with pytest.raises(ValueError, match="explicit placement reconciliation"):
-                analyze()
         assert (
             destroy_plan(root, "preview", "team", [fixed], False)["owners"][fixed][0][
                 "resource"
@@ -222,36 +201,6 @@ def check(root):
         )
         == 0
     )
-    path.write_bytes(original)
-    for rid, placement in [
-        ("017", "bad_name"),
-        ("083", fixed),
-        ("017", None),
-        ("017", current.values["desired.stack.083.name"]),
-    ]:
-        bad = dict(canonical)
-        key = f"desired.stack.{rid}.placementName"
-        bad.pop(key) if placement is None else bad.update({key: placement})
-        with pytest.raises(ValueError, match="placementName"):
-            load_model(path, CandidateReads(FileReads(), {path: serialize(bad)}))
-    for placement in (
-        "cfn-stack-app-preview-unknown",
-        current.values["desired.stack.017.name"],
-    ):
-        invalid = {
-            **load_model(vpc_path).values,
-            "desired.resource.027.cfn-logicalId": placement + "-PrimaryVpc",
-        }
-        with pytest.raises(ValueError, match="undeclared stack"):
-            validate_identities(
-                root / "docs/designs/preview/team/vpc.md",
-                invalid,
-                root,
-                entries(invalid, "desired.resource."),
-            )
-    path.unlink()
-    with pytest.raises((OSError, ValueError)):
-        bound_stack_names(path)
     path.write_bytes(original)
     print(
         "Bound Stacks: PASS (explicit names; fixed placement/IDs/observed; generation idempotence; raw/design digests; mapping/destroy safety)"

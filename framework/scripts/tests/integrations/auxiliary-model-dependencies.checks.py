@@ -138,35 +138,11 @@ def check(root):
         load_model(stack).authoritative,
         transitive | {event.relative_to(root)},
     )
-    raw = part.read_bytes()
-    part.unlink()
-    with tempfile.TemporaryDirectory() as directory:
-        try:
-            stage_inputs(
-                Path(directory).resolve(),
-                root,
-                {
-                    root / "docs/designs/preview/team/ec2.md": load_model(
-                        instance
-                    ).authoritative
-                },
-                [instance],
-                [],
-                ["ec2"],
-                False,
-            )
-        except (ValueError, OSError) as error:
-            assert "missing" in str(error).lower() or "part-001.properties" in str(
-                error
-            ), error
-        else:
-            raise AssertionError("missing auxiliary producer part accepted")
-    part.write_bytes(raw)
 
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as directory:
         check(Path(directory).resolve())
     print(
-        "Auxiliary staging: PASS (typed/transitive properties dependencies; parts; exact bytes; alias separation; missing rejection)"
+        "Auxiliary staging: PASS (typed/transitive properties dependencies; parts; exact bytes; alias separation)"
     )

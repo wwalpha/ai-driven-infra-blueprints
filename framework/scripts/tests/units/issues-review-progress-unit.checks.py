@@ -1,26 +1,35 @@
 #!/usr/bin/env python3
 """Review progress mechanics; naming/Human/diagnostic semantics stay in their own UTs."""
 
+import ast
+import io
 import json
+import os
+import runpy
 import subprocess
 import sys
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from copy import deepcopy
+from functools import partial
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest import TestCase
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+from issues import cli as issues_cli
+from issues import review_cli, review_progress
 from issues.artifact import validate_artifact
 from issues.materials import rule_section
 from issues.reader import read_scan_artifact
 from issues.records import identifier
 from issues.review import naming_decision, review_names
 from issues.review_progress import ReviewController, encoded
-from model.sources import publication_lock
-from support.issues_review_progress_fixtures import cli, controller, finish, submission
+from support.issues_review_progress_fixtures import cli as process_cli
+from support.issues_review_progress_fixtures import controller, finish, submission
 from support.issues_scan_fixtures import (
     review_for,
     snapshot_artifact,
@@ -31,6 +40,39 @@ from utils.json_format import fingerprint
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+def invoke_cli(command, **kwargs):
+    stdout, stderr = io.StringIO(), io.StringIO()
+    main = review_cli.main if "review" in command else issues_cli.main
+    with (
+        patch.object(sys, "argv", command[2:]),
+        patch.dict(os.environ, kwargs.get("env", os.environ)),
+        redirect_stdout(stdout),
+        redirect_stderr(stderr),
+    ):
+        code = main()
+    return subprocess.CompletedProcess(
+        command, code, stdout.getvalue(), stderr.getvalue()
+    )
+
+
+cli = partial(process_cli, runner=invoke_cli)
+
+
+@contextmanager
+def review_lock(active, path, *, read_only):
+    TestCase().assertTrue(read_only)
+    active.append(path)
+    try:
+        yield
+    finally:
+        active.pop()
+
+
+def load_under_lock(active, load):
+    TestCase().assertEqual(len(active), 1)
+    return load()
 
 
 def named_artifact(tmp_path, count=23):
@@ -204,7 +246,7 @@ def check_incomplete_naming_cli_preserves_files(tmp_path):
         ["detail", "--artifact", str(review.artifact_path), "--section", "naming"],
         ["save", "--artifact", str(review.artifact_path), "--review", str(review_file)],
     ):
-        result = subprocess.run(
+        result = invoke_cli(
             common + args, capture_output=True, text=True, encoding="utf-8", check=False
         )
         assert result.returncode == 2
@@ -998,29 +1040,28 @@ def check_cli_inspect_and_revision_contract(tmp_path):
 
 
 def check_process_lock_serializes_checkpoint_updates(tmp_path):
+    check = TestCase()
     review = controller(tmp_path)
     review.initialize()
-    with publication_lock(review.path, read_only=True):
-        process = subprocess.Popen(
-            [
-                sys.executable,
-                "-B",
-                "-c",
-                "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); from issues.review_progress import ReviewController; ReviewController(*map(Path, sys.argv[2:])).next_batch()",
-                str(Path(__file__).resolve().parents[2]),
-                str(review.root),
-                str(review.artifact_path),
-                str(review.path),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        with pytest.raises(subprocess.TimeoutExpired):
-            process.wait(timeout=0.5)
-    stdout, stderr = process.communicate(timeout=10)
-    assert process.returncode == 0, (stdout, stderr)
-    assert review.status()["sections"]["naming_context"]["reviewed"] == 0
-    review.submit(submission(review.next_batch()))
+    before = review.path.read_bytes()
+    lock = Mock(side_effect=ValueError("lock unavailable"))
+    with (
+        patch.object(review_progress, "publication_lock", lock),
+        pytest.raises(ValueError, match="lock unavailable"),
+    ):
+        review.next_batch()
+    lock.assert_called_once_with(review.path, read_only=True)
+    check.assertEqual(review.path.read_bytes(), before)
+    active = []
+    with (
+        patch.object(review_progress, "publication_lock", partial(review_lock, active)),
+        patch.object(
+            review, "_load", side_effect=partial(load_under_lock, active, review._load)
+        ) as load,
+    ):
+        review.next_batch()
+        check.assertEqual(active, [])
+        check.assertEqual(load.call_count, 1)
 
 
 def check_verified_checkpoint_reuse_and_external_changes(tmp_path):
@@ -1062,21 +1103,23 @@ def check_scan_and_returned_material_are_isolated(tmp_path):
 
 def check_review_entrypoint_avoids_scan_imports():
     entry = Path(__file__).resolve().parents[2] / "issues_scan.py"
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            "-c",
-            "import runpy,sys; from pathlib import Path; path=sys.argv[1]; sys.path.insert(0,str(Path(path).parent)); sys.argv=[path, 'review', '--help']; runpy.run_path(path); print(any(x in sys.modules for x in ('issues.runner','issues.publication','comparison.runner')))",
-            str(entry),
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=False,
+    check = TestCase()
+    tree = ast.parse(entry.read_text(encoding="utf-8"))
+    selected = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.If)
+        and ast.unparse(node.test) == "selected.command == 'review'"
     )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "False"
+    check.assertEqual(
+        [node.module for node in selected.body if isinstance(node, ast.ImportFrom)],
+        ["issues.review_cli"],
+    )
+    with (
+        patch.object(sys, "argv", [str(entry), "review", "--help"]),
+        patch.object(sys, "dont_write_bytecode", sys.dont_write_bytecode),
+    ):
+        check.assertIs(runpy.run_path(str(entry))["main"], review_cli.main)
 
 
 def check_invalid_snapshot_material_cannot_complete(tmp_path):

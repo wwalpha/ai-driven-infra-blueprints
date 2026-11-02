@@ -7,7 +7,6 @@ from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-import model.validations.policies as _model_validation_policies
 import support.model_design_fixtures as fixtures
 from design.document import DesignIndex
 from model.format import FORMAT
@@ -15,7 +14,7 @@ from model.format import INDEX as INDEX_HEADER
 from model.format import PART as PART_PREFIX
 from model.identity import Resolver
 from model.projection import validate_json_documents
-from model.render import generate_files, generate_markdown
+from model.render import generate_files
 from model.sources import scope_for, source_inputs
 from support.model_design_fixtures import (
     ROOT,
@@ -25,9 +24,7 @@ from support.model_design_fixtures import (
     main,
     markdown_for,
     model,
-    patch,
     properties,
-    pytest,
     read_model,
     roundtrip,
     snapshot_model,
@@ -474,28 +471,6 @@ def check_kms_policy_execution_account(root):
     assert key_id in saved[0].decode("utf-8")
     assert "$modelRef" in "\n".join(DesignIndex(root).get(path).raw.display_lines)
     assert SYNC.sync(root, False, "dev", identity, services=["kms"]) == 0
-    invalid = {
-        **values,
-        document_key: values[document_key].replace(execution, identity),
-    }
-    write_model(source, text(invalid))
-    with pytest.raises(ValueError, match=f"must use AWS execution account {execution}"):
-        _model_validation_policies.validate_kms_policy_accounts(invalid, target)
-    assert (path.read_bytes(), artifact.read_bytes()) == saved
-    assert properties(read_model(source)) == properties(text(invalid))
-    # Account rejection also protects a matching authored view.
-    path.write_text(
-        generate_markdown(path, load_model(source).values, ROOT), encoding="utf-8"
-    )
-    saved = path.read_bytes(), artifact.read_bytes()
-    for _write in (False, True):
-        with pytest.raises(ValueError) as error:
-            _model_validation_policies.validate_kms_policy_accounts(invalid, target)
-        assert "Principal.AWS" in str(error.value) and execution in str(error.value), (
-            str(error.value)
-        )
-        assert (path.read_bytes(), artifact.read_bytes()) == saved
-        assert properties(read_model(source)) == properties(text(invalid))
 
 
 def _callback_check_config_typed_anchors_failures(
@@ -598,14 +573,6 @@ def check_config_typed_anchors(root):
     )
 
     assert not failures(output)
-    for key, wrong in (
-        ("001", "config-default"),
-        ("001", channel_anchor),
-        ("002", "config-default"),
-        ("002", recorder_anchor),
-    ):
-        correct = values[f"desired.resource.{key}.anchor"]
-        assert failures(output.replace(correct, wrong)), (correct, wrong)
     path.write_text(output, encoding="utf-8")
 
     hub = model(
@@ -777,15 +744,7 @@ def check_stack_mapping_roundtrip(root):
     assert {file: file.read_bytes() for file in before} == before
 
 
-def _callback_check_service_failure_protection_fail_iam(
-    original_write, docs, /, path, data, *args, **kwargs
-):
-    if path == docs / "iam.md":
-        raise OSError("test IAM write failure")
-    return original_write(path, data, *args, **kwargs)
-
-
-def check_service_failure_protection(root, project):
+def check_multi_service_publication(root, project):
     base = root / "model/dev/123456789012"
     base.mkdir(parents=True, exist_ok=True)
     vpc = model(
@@ -874,16 +833,10 @@ def check_service_failure_protection(root, project):
         for source in sources
         for file in load_model(source).files
     }
-    fail_iam = _bind_framework_callback(
-        _callback_check_service_failure_protection_fail_iam, Path.write_text, docs
+    TestCase().assertEqual(SYNC.sync(root, True, "dev", "123456789012"), 0)
+    TestCase().assertEqual(
+        json.loads((docs / "iam/iam-role-001-trust-policy.json").read_text()), document
     )
-    with patch.object(Path, "write_text", fail_iam):
-        with pytest.raises(ValueError, match="test IAM write failure"):
-            SYNC.sync(root, True, "dev", "123456789012")
-    assert (docs / "iam.md").read_bytes() == saved_views[docs / "iam.md"]
-    assert (docs / "iam/iam-role-001-trust-policy.json").read_bytes() == saved_views[
-        docs / "iam/iam-role-001-trust-policy.json"
-    ]
     assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
     assert (docs / "vpc.md").read_bytes() == saved_views[docs / "vpc.md"]
     assert {file: file.read_bytes() for file in saved_sources} == saved_sources

@@ -1,5 +1,7 @@
 """Scenario/Result metadata and state handoff without running scenarios."""
 
+from unittest import TestCase
+
 from support.validator import MODULE
 from support.validator import project as project
 from support.validator import write as write
@@ -92,3 +94,19 @@ def check_records():
             "result target is not defined in project.json: tests/results/fixture/dev/123456789012",
             "template mode cannot contain scenario results: tests/results/fixture/dev/123456789012",
         ]
+
+    check_audit_log_rejection()
+
+
+def check_audit_log_rejection():
+    with project() as root:
+        directory = root / "tests/results/dev/team"
+        directory.mkdir(parents=True)
+        (directory / "vpc-invalid.log").write_text("normal audit output\n")
+        validator = MODULE.Validator(root)
+        validator.accounts = {("dev", "team"): {}}
+        validator.template_mode = False
+        validator.check_results()
+        TestCase().assertTrue(
+            any("invalid audit log" in error for error in validator.errors)
+        )

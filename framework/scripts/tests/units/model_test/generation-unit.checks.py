@@ -3,6 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -33,6 +34,7 @@ from support.model_test_runner import (
 )
 from support.model_test_runtime import runtime
 from support.pytest_cli import run
+from support.repository_fixtures import contract
 
 from model import audit as generator
 
@@ -692,6 +694,69 @@ def test_fixture_comparator_rejects_mismatches():
             candidate[0]["report"] = "[OK] secret"
         with pytest.raises(AssertionError):
             assert_result(candidate, ({}, expected))
+
+
+def _audit_cli_source(task, change, *args):
+    if change:
+        task.write_bytes(task.read_bytes() + b"# concurrent contract edit\n")
+    return "generated source", {}, []
+
+
+@pytest.mark.parametrize(
+    "failure", ["completed", "suspend", "missing", "scope", "changed"]
+)
+@pytest.mark.parametrize("existing", [False, True])
+def test_audit_cli_failure_preserves_output(tmp_path, failure, existing):
+    check = TestCase()
+    task = tmp_path / "tasks/audit.md"
+    task.parent.mkdir()
+    text = (
+        contract("audit", ["tests/dev/cde/vpc.py"])
+        .replace("`governance`", "`migration`")
+        .replace("`framework`", "`dev/cde/vpc`")
+    )
+    if failure in {"completed", "suspend"}:
+        text = text.replace("`running`", "`" + failure + "`")
+        if failure == "suspend":
+            text += "\n## Suspension reason\nExplicit stop\n"
+    if failure == "scope":
+        text = text.replace("tests/dev/cde/vpc.py", "tests/dev/cde/other.py")
+    if failure != "missing":
+        task.write_text(text)
+    output = tmp_path / "tests/dev/cde/vpc.py"
+    output.parent.mkdir(parents=True)
+    if existing:
+        output.write_bytes(b"preserve existing output")
+    with (
+        patch.object(generator._imports_task_contract, "validate_contract"),
+        patch.object(
+            generator,
+            "generate",
+            side_effect=partial(_audit_cli_source, task, failure == "changed"),
+        ) as generate,
+    ):
+        check.assertEqual(
+            generator.main(
+                [
+                    "--repository-root",
+                    str(tmp_path),
+                    "--environment",
+                    "dev",
+                    "--target",
+                    "cde",
+                    "--service",
+                    "vpc",
+                    "--task-file",
+                    "tasks/audit.md",
+                ]
+            ),
+            2,
+        )
+    check.assertEqual(
+        output.read_bytes() if output.exists() else None,
+        b"preserve existing output" if existing else None,
+    )
+    check.assertEqual(generate.call_count, int(failure == "changed"))
 
 
 if __name__ == "__main__":

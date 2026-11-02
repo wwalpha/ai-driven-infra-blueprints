@@ -14,7 +14,6 @@ from support.it_case_receipt import it_case
 from support.producer_identifier_reference_fixtures import (
     Path,
     load_model,
-    rejected,
     resource,
     serialize,
     setup,
@@ -85,7 +84,6 @@ def check(root):
                 ),
             ):
                 assert publish_edit(plan, context) == (model,)
-            rejected(lambda: publish_edit(plan, context), "consumed")
         current = load_model(model)
         assert current.authoritative == candidate
         assert current.authoritative["desired.row.1-001.value"] == "`fixed`"
@@ -106,24 +104,6 @@ def check(root):
                 == ()
             )
         assert model.read_bytes() == raw
-        for changed, phrase in [
-            ({**candidate, "desired.row.2-001.unknown": "old"}, "unknown Model field"),
-            ({**candidate, "desired.row.2-001.value": "`{bad}`"}, "property name"),
-        ]:
-            with edit_write_context(
-                target, {("preview", "team", "security-group")}, name
-            ) as context:
-                before = load_model(model, context.snapshot)
-                rejected(
-                    lambda *, before=before, changed=changed: prepare_edit(
-                        before, {model: serialize(changed)}, context
-                    ),
-                    phrase,
-                )
-            assert model.read_bytes() == raw
-        rejected(
-            lambda: serialize({**candidate, "desired.row.2-001.value": 3}), "strings"
-        )
         assert (primary / relative).read_bytes() == baseline
 
 

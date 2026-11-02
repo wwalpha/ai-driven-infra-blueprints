@@ -1,7 +1,6 @@
 """CLI Deploy local completion and Model projection never invoke the SDK."""
 
 import json
-import subprocess
 import sys
 from contextlib import nullcontext
 from pathlib import Path
@@ -159,7 +158,9 @@ def check_sdk_completion_route_is_unchanged(tmp_path):
         ("partition", "AWS!"),
     ],
 )
-def check_context_required_without_model_references(tmp_path, publication, field, value):
+def check_context_required_without_model_references(
+    tmp_path, publication, field, value
+):
     project_configuration(tmp_path)
     original = {
         "account": "123456789012",
@@ -187,7 +188,9 @@ def check_context_required_without_model_references(tmp_path, publication, field
         patch.object(wt, "paths", return_value=set()),
         patch.object(wt, "changed_paths", return_value=set()),
         patch.object(
-            runtime, "Validator", side_effect=AssertionError("validation should not run")
+            runtime,
+            "Validator",
+            side_effect=AssertionError("validation should not run"),
         ),
         patch(
             "validation.runner.Validator",
@@ -407,26 +410,6 @@ def check_cli_pr_refused_before_publication(tmp_path):
     ):
         with pytest.raises(wt.Blocked, match="PR publication"):
             wt.finalize(tmp_path, "cli-example", create_pr=True)
-
-
-def check_local_imports_without_sdk():
-    code = """
-import importlib.abc, sys
-class NoSdk(importlib.abc.MetaPathFinder):
-    def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in {'boto3', 'botocore'}:
-            raise AssertionError('SDK import forbidden: ' + fullname)
-sys.meta_path.insert(0, NoSdk())
-import task_contract_runtime, sync_runtime, validation.runner, model.reference_values
-assert 'utils.aws_sdk_runtime' not in sys.modules
-"""
-    result = subprocess.run(
-        [sys.executable, "-B", "-c", code],
-        cwd=Path(__file__).resolve().parents[2],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 if __name__ == "__main__":

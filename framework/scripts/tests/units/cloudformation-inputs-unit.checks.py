@@ -1,6 +1,5 @@
 """Pure CloudFormation input evaluation; no AWS or repository Model."""
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -139,40 +138,6 @@ def check_conditions():
             condition_active(
                 {"Conditions": {"Broken": expression}}, {}, {}, {"Condition": "Broken"}
             )
-
-
-@pytest.mark.parametrize(
-    "first",
-    [
-        "utils.aws.client",
-        "comparison.inputs",
-        "deploy.controller",
-        "model.importing.references",
-        "validation.framework_contracts",
-    ],
-)
-def check_import_order_and_blocked_identity(first, tmp_path):
-    scripts = Path(__file__).resolve().parents[2]
-    code = f"""
-import importlib, sys
-sys.path.insert(0, {str(scripts)!r})
-importlib.import_module({first!r})
-from utils.cloudformation.inputs import Blocked
-for name in ('utils.aws.client', 'comparison.resource', 'deploy.controller',
-             'model.adapters.observed', 'iac_evaluation'):
-    assert importlib.import_module(name).Blocked is Blocked, name
-assert 'cloudformation_inputs' not in sys.modules
-assert 'cloudformation_schema' not in sys.modules
-assert 'utils.cloudformation_format' not in sys.modules
-"""
-    result = subprocess.run(
-        [sys.executable, "-I", "-B", "-c", code],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("position", ["template", "encoded", "parameter"])

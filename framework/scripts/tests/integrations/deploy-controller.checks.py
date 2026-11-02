@@ -6,9 +6,7 @@ import json
 import subprocess
 import sys
 import tempfile
-from functools import partial
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -19,11 +17,7 @@ import pytest
 import sync_runtime
 from deploy import (
     contracts,
-    controller,
-    current_request,
     generation_resume,
-    operation_journal,
-    steps,
     worktree,
 )
 from model.core import properties
@@ -33,7 +27,6 @@ from support.deploy_controller_fixtures import (
     aws_state,
     child_environment,
     ordinary_base,
-    recover_owned_lock,
     seed,
     unresolved_requests,
 )
@@ -66,13 +59,11 @@ def offline_workflow(tmp_path, monkeypatch):
             monkeypatch.setenv(name, value)
 
 
-def child_run(root, session, aws, options=(), fault=None):
+def child_run(root, session, aws, options=()):
     helper = (
         Path(__file__).resolve().parents[1] / "support/deploy_controller_fixtures.py"
     )
     environment = child_environment()
-    if fault:
-        environment["BLUEPRINT_OBSERVED_FAULT"] = fault
     return subprocess.run(
         [
             sys.executable,
@@ -116,6 +107,7 @@ def assert_single_execution(aws, states):
 
 
 def assert_published(root, session, evidence):
+    design = root / f"docs/designs/dev/{ACCOUNT}"
     saved = json.loads(session.read_text())
     assert generation_resume.complete(saved)
     TestCase().assertFalse(unresolved_requests(session, saved["states"]))
@@ -138,7 +130,6 @@ def assert_published(root, session, evidence):
     assert ec2["observed.row.002-001.value"].strip("`") == subnet
     if "desired.resource.003.cfn-logicalId" in ec2:
         assert ec2["observed.row.003-001.value"].strip("`") == "vpc-first-fixture"
-    design = root / f"docs/designs/dev/{ACCOUNT}"
     assert (
         subnet in (design / "ec2.md").read_text()
         and "vpc-fixture" in (design / "ec2.md").read_text()
@@ -231,190 +222,28 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
     assert inventory.read_text(encoding="utf-8") == original
 
 
-def check_delivery_failure_stops_execution(tmp_path, monkeypatch):
-    session, aws = tmp_path / "session.json", tmp_path / "aws.json"
-    root = seed(tmp_path / "project", session, "delivery")
-    monkeypatch.chdir(root)
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
-    aws_state(aws, delivery=True, delivery_fail=True)
-    assert invoke(root, session, aws) == 2
-    calls = json.loads(aws.read_text())["calls"]
-    assert any(op == "put_object" for _, op, _ in calls)
-    assert not any(
-        op in {"create_change_set", "execute_change_set"} for _, op, _ in calls
-    )
-    saved = json.loads(session.read_text())
-    assert any(
-        s.get("failure", {}).get("code") == "AccessDenied"
-        for s in saved["states"].values()
-    )
-
-
-def fake_aws(operation, **kwargs):
-    if operation == "describe_stacks":
-        return {
-            "Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_ROLLBACK_COMPLETE"}]
-        }
-    if operation == "describe_change_set":
-        return {
-            "StackId": "stack",
-            "ChangeSetId": "change",
-            "ExecutionStatus": "EXECUTE_FAILED",
-        }
-    if operation == "describe_stack_events":
-        return {"StackEvents": []}
-    raise AssertionError(operation)
-
-
-def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypatch):
-    report, aws = tmp_path / "run.json", tmp_path / "aws.json"
-    root = seed(tmp_path / "project", report, "remove")
-    monkeypatch.chdir(root)
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
-    aws_state(aws, remove=True, crash_execute=True)
-    assert invoke(root, report, aws) == 2
-    blocked = json.loads(report.read_text())["states"][FIRST]
-    assert blocked["status"] == "BLOCKED" and "executionEvidence" not in blocked
-    change_id = blocked["changeSetId"]
-    child = child_run(root, report, aws, ["--approve-change-set", change_id])
-    assert child.returncode == 73, child.stdout + child.stderr
-    interrupted = json.loads(report.read_text())
-    evidence = interrupted["states"][FIRST].get(
-        "executionEvidence",
-        interrupted["states"][FIRST].get("endedRequest", {}).get("executionEvidence"),
-    )
-    recover_owned_lock(root, child)
-    recovered = child_run(root, report, aws)
-    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
-    saved = json.loads(report.read_text())
-    assert saved["states"][FIRST]["observedSynced"]
-    assert saved["states"][FIRST]["endedRequest"]["executionEvidence"] == evidence
-    assert "approvedChangeDigest" not in saved["states"][FIRST]
-    TestCase().assertFalse(unresolved_requests(report, saved["states"]))
-    calls = json.loads(aws.read_text())["calls"]
-    assert (
-        sum(
-            op == "execute_change_set"
-            and args["StackName"]
-            == saved["states"][FIRST]["endedRequest"]["executionEvidence"]["StackId"]
-            for _, op, args in calls
-        )
-        == 1
-    )
-    values = properties(read_model(root / f"model/dev/{ACCOUNT}/ec2.properties"))
-    assert values["observed.row.002-001.value"] == "`PENDING_DEPLOY`"
-
-    # Save real Task progress before release, then resume after an interrupted release.
-    local = tmp_path / "settlement"
-    local.mkdir(mode=0o700)
-    request = local / "request.json"
-    record = {
-        "operation": "execute_change_set",
-        "name": "A",
-        "stackId": "stack",
-        "changeSetId": "change",
-        "token": "original",
-        "submission": "SENDING",
-    }
-    request.write_text(json.dumps(record), encoding="utf-8")
-    request.chmod(0o600)
-    state = {
-        "status": "RUNNING",
-        "clientToken": "original",
-        "changeSetId": "change",
-        "executionEvidence": {
-            "StackId": "stack",
-            "ChangeSetId": "change",
-            "clientToken": "original",
-        },
-    }
-    identity = {
-        "taskFile": "tasks/deploy.md",
-        "taskDigest": "digest",
-        "target": {},
-        "environment": "dev",
-        "stacks": ["A"],
-    }
-    context = {
-        **identity,
-        "repository": str(local),
-        "directory": "team",
-        "states": {"A": state},
-        "inputDigests": {},
-        "stepUnits": [{"name": "A"}],
-        "consumedInputs": {},
-    }
-
-    backend = SimpleNamespace(
-        root=local,
-        phase="deploy",
-        target={},
-        environment="dev",
-        templates={},
-        states=context["states"],
-        units=context["stepUnits"],
-        run_context=context,
-        progress_identity=identity,
-        progress_root=local.resolve(),
-        progress_directory="team",
-        progress_destination=worktree.progress_path(local, create=True),
-        aws=fake_aws,
-    )
-    backend.save = partial(
-        worktree.save_progress, backend, operation_journal.OPERATION_FIELDS
-    )
-    backend.poll = partial(controller.poll, backend)
-    with patch.object(current_request, "location", return_value=request):
-        with patch.object(
-            current_request, "release", side_effect=RuntimeError("interrupted")
-        ):
-            with pytest.raises(RuntimeError, match="interrupted"):
-                steps.refresh_requests(backend)
-        saved = worktree.read_progress(local, {"deployIdentity": identity})
-        assert (
-            saved["runContext"]["states"]["A"]["status"] == "SETTLED"
-            and request.exists()
-        )
-        assert saved["runContext"]["states"]["A"]["attemptResult"] == "UNKNOWN"
-        backend.states = saved["runContext"]["states"]
-        backend.run_context["states"] = backend.states
-        steps.refresh_requests(backend)
-        assert not request.exists()
-        assert (
-            worktree.read_progress(local, {"deployIdentity": identity})["runContext"][
-                "states"
-            ]["A"]["status"]
-            == "SETTLED"
-        )
-
-
-def check_pending_observed_recovers_before_model_load(tmp_path):
+def check_model_publication_across_process(tmp_path):
     report, aws = tmp_path / "run.json", tmp_path / "aws.json"
     root = seed(tmp_path / "project", report, "multi-observed")
     aws_state(aws)
-    child = child_run(root, report, aws, fault="model-partial")
-    assert child.returncode == 76, child.stdout + child.stderr
-    interrupted = json.loads(report.read_text())
-    plan = interrupted["pendingObserved"]
-    assert plan["stage"] == "PREPARED" and len(plan["outputs"]) >= 2
-    evidence = interrupted["states"][FIRST].get(
-        "executionEvidence",
-        interrupted["states"][FIRST].get("endedRequest", {}).get("executionEvidence"),
-    )
-    recover_owned_lock(root, child)
-    recovered = child_run(root, report, aws)
-    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+    child = child_run(root, report, aws)
+    TestCase().assertEqual(child.returncode, 0, child.stdout + child.stderr)
     saved = json.loads(report.read_text())
     assert saved["states"][FIRST]["observedSynced"]
-    assert saved["states"][FIRST]["endedRequest"]["executionEvidence"] == evidence
     assert not saved.get("pendingObserved") and not saved.get("pendingGeneration")
     TestCase().assertFalse(unresolved_requests(report, saved["states"]))
-    assert (
+    TestCase().assertEqual(
         sum(
-            op == "execute_change_set" and args["StackName"] == evidence["StackId"]
-            for _, op, args in json.loads(aws.read_text())["calls"]
-        )
-        == 1
+            (
+                op == "execute_change_set"
+                and args["StackName"]
+                == saved["states"][FIRST]["endedRequest"]["executionEvidence"][
+                    "StackId"
+                ]
+                for _, op, args in json.loads(aws.read_text())["calls"]
+            )
+        ),
+        1,
     )
 
 

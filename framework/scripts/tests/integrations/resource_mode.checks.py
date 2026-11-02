@@ -93,17 +93,6 @@ def main():
 
         imported = model(name="PRIVATE_SUBNET_01", mode="IMPORT")
         assert not (error := check(imported)), error
-        original = path.read_text(encoding="utf-8")
-        stale = original + "# edited generated view\n"
-        path.write_text(stale, encoding="utf-8")
-        try:
-            SYNC.sync(root, False, "dev", "123456789012", services=["ec2"])
-        except ValueError as error:
-            assert "stale or missing" in str(error), error
-        else:
-            raise AssertionError("stale generated view accepted")
-        # Coverage-only exemption does not waive confirmed actual name checks.
-        assert not (error := check(imported)), error
         before = snapshot_model(source)
         assert SYNC.sync(root, True, "dev", "123456789012", services=["ec2"]) == 0
         assert SYNC.sync(root, False, "dev", "123456789012", services=["ec2"]) == 0

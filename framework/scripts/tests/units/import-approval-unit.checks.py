@@ -10,6 +10,7 @@ import copy
 import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 import import_guard
@@ -664,7 +665,17 @@ def check_view_failure_does_not_block_approved_source_save(tmp_path, receipt_fai
 
 
 @pytest.mark.parametrize(
-    "failure", [None, "review", "draft", "acquisition", "task", "source-set"]
+    "failure",
+    [
+        None,
+        "review",
+        "draft",
+        "acquisition",
+        "task",
+        "source-set",
+        "source",
+        "consumer-set",
+    ],
 )
 def check_publication_current_inputs(tmp_path, failure):
     case = source_review_case(tmp_path)
@@ -696,6 +707,23 @@ def check_publication_current_inputs(tmp_path, failure):
         part = case.source.with_suffix("") / "part-001.properties"
         part.parent.mkdir()
         part.write_text("# unexpected part", encoding="utf-8")
+    elif failure == "source":
+        case.source.write_bytes(
+            case.source.read_bytes() + b"# concurrent source edit\n"
+        )
+    elif failure == "consumer-set":
+        case.acquisition["sourceSets"] = [
+            dict(
+                base="model/dev/cde",
+                pattern="*.properties",
+                recursive=False,
+                kinds=["file"],
+                paths=[case.source.relative_to(case.root).as_posix()],
+            )
+        ]
+        case.source.with_name("new-consumer.properties").write_text(
+            "# model-format: 2\n", encoding="utf-8"
+        )
     with (
         patch.object(
             m.task_contract,
@@ -726,7 +754,10 @@ def check_publication_current_inputs(tmp_path, failure):
         )
         if failure:
             with pytest.raises(
-                ValueError, match="changed before publication|file set changed"
+                ValueError,
+                match="sources changed"
+                if failure == "source"
+                else "changed before publication|file set changed",
             ):
                 m._callback_publish_acquisition_current(*args)
             outputs.assert_not_called()
@@ -735,7 +766,67 @@ def check_publication_current_inputs(tmp_path, failure):
             outputs.assert_called_once_with(
                 case.root, ("dev", "cde", "vpc"), {case.source}, set()
             )
-    assert case.source.read_bytes() == case.original
+    TestCase().assertEqual(
+        case.source.read_bytes(),
+        case.original + b"# concurrent source edit\n"
+        if failure == "source"
+        else case.original,
+    )
+
+
+@pytest.mark.parametrize(
+    "failure", [None, "review", "candidate-set", "acquisition", "selection"]
+)
+def check_publication_finish_rejects_late_changes(tmp_path, failure):
+    check = TestCase()
+    case = source_review_case(tmp_path)
+    review = case.evidence.parent / "review.json"
+    review.write_bytes(b"review")
+    selection = case.evidence.parent / "selection.json"
+    external = {selection: selection.read_bytes()}
+    if failure == "review":
+        review.write_bytes(b"changed Review")
+    elif failure == "selection":
+        selection.write_bytes(b"changed Selection")
+    after = SimpleNamespace(files={case.source: "candidate"})
+    with (
+        patch.object(
+            m,
+            "read_acquisition",
+            return_value={} if failure == "acquisition" else case.acquisition,
+        ),
+        patch.object(
+            m,
+            "candidate_sources",
+            return_value=(
+                {},
+                SimpleNamespace(
+                    files={} if failure == "candidate-set" else after.files
+                ),
+            ),
+        ),
+        patch.object(m, "finish_import") as finish,
+    ):
+        args = (
+            case.acquisition,
+            after,
+            case.before,
+            case.evidence,
+            external,
+            ("dev", "cde", "vpc"),
+            {case.source: "candidate"},
+            review,
+            b"review",
+            case.root,
+        )
+        if failure:
+            with pytest.raises(ValueError, match="changed during publication"):
+                m._callback_publish_acquisition_finish_model(*args)
+            finish.assert_not_called()
+        else:
+            m._callback_publish_acquisition_finish_model(*args)
+            finish.assert_called_once_with(case.root, model="reflected")
+    check.assertEqual(case.source.read_bytes(), case.original)
 
 
 @pytest.mark.parametrize(

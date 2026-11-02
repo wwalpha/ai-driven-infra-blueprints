@@ -6,8 +6,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from unittest import TestCase
+from unittest.mock import patch
+
 import pytest
 from comparison import Comparison
+from design.catalog import main as catalog_main
 from issues.aggregate import aggregate, iac_summary
 from issues.artifact import summary
 from issues.reports import iac_report
@@ -98,6 +102,23 @@ def check_api_record_classification():
         )
         artifact = dict(version=6, **aggregate(records, "dev", "123456789012", ["s3"]))
         assert summary(artifact)["iac_status"] == "error"
+
+
+def check_catalog_cli_rejects_api_only_type(capsys):
+    kind = next(iter(DesignSchemaCatalog(ROOT).api_schemas))
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "design_catalog.py",
+            "--repository-root",
+            str(ROOT),
+            "--cloudformation-type",
+            kind,
+        ],
+    ):
+        TestCase().assertEqual(catalog_main(), 1)
+    TestCase().assertIn("CloudFormation unsupported", capsys.readouterr().out)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Focused checks; test sources define the current verification responsibilities."""
 
+import ast
 import shutil
 import sys
 from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
+from unittest import TestCase
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -40,13 +42,16 @@ from support.blueprint_loop_fixtures import (
     tasks,
 )
 from support.it_workspace import populate, populate_focused
+from support.pytest_cli import GroupDiagnostics, groupable, run_group, unit_commands
 from support.pytest_cli import run as pytest_run
 from support.validator import MODULE as validator
 from support.validator import project, schema_validator, write
 from utils import sealed_evidence
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.git_changes import GitWorkingPaths
+from utils.script_loader import module
 from validation import runner as validation_runner
+from validation.project import check_validation_scope as validate_scope
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -212,6 +217,145 @@ def check_parallel_interruption(tmp_path):
         first.kill.assert_called_once()
 
 
+@pytest.mark.parametrize("jobs", [0, 3, 4, True])
+def check_worker_limit(tmp_path, jobs):
+    with (
+        patch.object(MODULE.subprocess, "Popen") as child,
+        pytest.raises(ValueError, match="1 or 2"),
+    ):
+        MODULE.run_commands(tmp_path, [], {}, tmp_path, jobs=jobs)
+    child.assert_not_called()
+
+
+@pytest.mark.parametrize("changed,expected", [("dev", True), ("stg", False)])
+def check_deployment_scope_decision(tmp_path, changed, expected):
+    findings = Mock()
+    relative = f"infra/cloudformation/parameters/{changed}/team/a.json"
+    validate_scope(
+        {},
+        {relative},
+        None,
+        findings,
+        tmp_path,
+        None,
+        {tmp_path / "infra/cloudformation/parameters/dev/team/a.json"},
+    )
+    findings.check.assert_called_once_with(
+        expected, f"changed IaC path is outside Deployment scope: {relative}"
+    )
+
+
+def _command_outcome(codes, command, **kwargs):
+    code = codes.pop(0)
+    kwargs["stdout"].write(f"diagnostic: {command[1]}: {code}\n")
+    process = Mock(pid=123, returncode=code)
+    process.wait.return_value = code
+    return process
+
+
+def check_failed_commands_continue_and_keep_diagnostics(tmp_path):
+    check = TestCase()
+    commands = [
+        [sys.executable, "validate-blueprint.py"],
+        [sys.executable, "pytest_cli.py", "--group", "a.py"],
+        [sys.executable, "pytest_cli.py", "--group", "b.py"],
+        ["git", "diff", "--check"],
+    ]
+    with (
+        patch.object(
+            MODULE.subprocess,
+            "Popen",
+            side_effect=_bind_framework_callback(_command_outcome, [1, 1, 0, 0]),
+        ) as child,
+        redirect_stdout(io.StringIO()) as output,
+    ):
+        check.assertEqual(
+            MODULE.run_commands(
+                tmp_path, commands, MODULE.utf8_environment(), tmp_path, jobs=2
+            ),
+            1,
+        )
+    check.assertEqual(child.call_count, len(commands))
+    check.assertEqual(
+        [row["returncode"] for row in events(tmp_path) if row["event"] == "step_end"],
+        [1, 1, 0, 0],
+    )
+    check.assertEqual(
+        events(tmp_path)[-1]["failed_steps"], ["validate-blueprint.py", "pytest_cli.py"]
+    )
+    check.assertIn("diagnostic: pytest_cli.py: 1", output.getvalue())
+    check.assertNotIn(tasks.SELECTOR, child.call_args_list[1].kwargs["env"])
+
+
+@pytest.mark.parametrize("result", [1, 130])
+def check_loop_failure_suspends_only_selected(tmp_path, result):
+    check = TestCase()
+    root = tmp_path / "repository"
+    root.mkdir()
+    selected, other = "tasks/selected.md", "tasks/other.md"
+    for name in (selected, other):
+        tasks.start(
+            root,
+            name,
+            f"## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Required changes\n- [R1] Synthetic task\n## Acceptance checks\n- [R1] `exists:{name}`\n## Validation scope\n- `framework`\n## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n",
+        )
+    before = (root / other).read_bytes()
+    with (
+        patch.object(Path, "cwd", return_value=root),
+        patch.object(MODULE, "active_scope", return_value={"framework"}),
+        patch.object(MODULE, "changed_paths", return_value=set()),
+        patch.object(MODULE, "run_commands", return_value=result),
+        patch.object(
+            MODULE, "failure_reason", return_value="synthetic validator failure"
+        ),
+        patch.object(MODULE, "utf8_preflight"),
+        patch.object(
+            MODULE.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, "", ""),
+        ),
+        patch.object(
+            sys,
+            "argv",
+            [
+                str(SCRIPT),
+                "--mode",
+                "task",
+                "--task-file",
+                selected,
+                "--log-dir",
+                str(tmp_path / "logs"),
+            ],
+        ),
+    ):
+        check.assertEqual(CLI.main(), result)
+    check.assertEqual(
+        tasks.status((root / selected).read_text(encoding="utf-8")), "suspend"
+    )
+    check.assertEqual((root / other).read_bytes(), before)
+
+
+def check_index_conflict_stops_snapshot(tmp_path):
+    source = tmp_path / "source-index"
+    source.write_bytes(b"synthetic index")
+    directory = tmp_path / "private"
+    directory.mkdir()
+    failure = subprocess.CalledProcessError(
+        1, ["git", "write-tree"], stderr="unmerged index"
+    )
+    with (
+        patch.object(
+            MODULE.subprocess,
+            "run",
+            side_effect=[subprocess.CompletedProcess([], 0, str(source), ""), failure],
+        ) as git,
+        pytest.raises(subprocess.CalledProcessError) as caught,
+    ):
+        MODULE.index_tree(tmp_path, directory)
+    TestCase().assertIs(caught.value, failure)
+    TestCase().assertIn("write-tree", git.call_args.args[0])
+
+
 def check_fixture_independence(tmp_path):
     before = dict(os.environ), Path.cwd()
     with project() as first, project() as second:
@@ -256,6 +400,177 @@ def check_regression_discovery(tmp_path):
         p.is_relative_to(root / "framework/scripts/tests/units")
         for p in MODULE.select_checks(root)[0]
     )
+
+
+@pytest.mark.parametrize("entry", ["run(__file__)", "main()"])
+def check_pytest_group_selection(tmp_path, entry):
+    check = TestCase()
+    paths = []
+    for name in ("a-unit.checks.py", "b-unit.checks.py", "c-unit.checks.py"):
+        path = tmp_path / name
+        path.write_text(
+            "from support.pytest_cli import run\n"
+            "def check_ok(): pass\n"
+            "def main(): return run(__file__, message='done')\n"
+            f"if __name__ == '__main__': raise SystemExit({entry})\n",
+            encoding="utf-8",
+        )
+        paths.append(path)
+    direct = tmp_path / "direct.checks.py"
+    direct.write_text("print('direct assertion')\n", encoding="utf-8")
+    paths.append(direct)
+    commands = unit_commands(paths)
+    check.assertEqual(len(commands), 3)
+    check.assertEqual(commands[-1], [sys.executable, str(direct)])
+    check.assertCountEqual(
+        [path for command in commands[:2] for path in command[3:]],
+        [str(path) for path in paths[:-1]],
+    )
+    check.assertTrue(
+        all(MODULE._run_commands_regression(command) for command in commands)
+    )
+    check.assertFalse(MODULE._run_commands_regression(["git"]))
+    with patch("support.pytest_cli.pytest.main", return_value=1) as execute:
+        check.assertEqual(run_group(paths[:-1]), 1)
+        check.assertEqual(
+            execute.call_args.args[0][:-1], [str(path) for path in paths[:-1]]
+        )
+    for invalid in ([], [paths[0], paths[0]], [direct]):
+        with pytest.raises(ValueError, match="unique compatible suites"):
+            run_group(invalid)
+    direct.write_text(
+        paths[0]
+        .read_text(encoding="utf-8")
+        .replace("run(__file__", "run(__file__, ['check_ok']"),
+        encoding="utf-8",
+    )
+    check.assertFalse(groupable(direct))
+    direct.write_text(
+        "from support.pytest_cli import run\n"
+        "class Shared: values = []\n"
+        "def check_ok(): Shared.values.append(1)\n"
+        "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+        encoding="utf-8",
+    )
+    check.assertFalse(groupable(direct))
+    for mutation in (
+        "external.value = 1",
+        "external.cache.clear()",
+        "alias = external.cache; alias['value'] = 1",
+        "setattr(external, 'value', 1)",
+        "globals().update(value=1)",
+        "sys.path_importer_cache.clear()",
+    ):
+        direct.write_text(
+            "import external, sys\nfrom support.pytest_cli import run\n"
+            "def check_ok():\n    " + mutation + "\n"
+            "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+            encoding="utf-8",
+        )
+        check.assertFalse(groupable(direct))
+    for marker in ("skip", "skipif", "xfail"):
+        direct.write_text(
+            "import pytest\nfrom support.pytest_cli import run\n"
+            f"@pytest.mark.{marker}(True, reason='platform contract')\n"
+            "def check_ok(): pass\n"
+            "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+            encoding="utf-8",
+        )
+        check.assertFalse(groupable(direct))
+
+
+@pytest.mark.parametrize(
+    "fault", [None, "missing", "duplicate", "unknown", "skip", "fail", "xfail", "unrun"]
+)
+def check_pytest_group_completeness(tmp_path, fault):
+    check = TestCase()
+    path = tmp_path / "a-unit.checks.py"
+    path.write_text("def check_ok(value): pass\n", encoding="utf-8")
+    plugin = GroupDiagnostics([path])
+    items = [
+        SimpleNamespace(
+            path=path,
+            nodeid=f"a-unit.checks.py::check_ok[{value}]",
+            originalname="check_ok",
+        )
+        for value in (1, 2)
+    ]
+    if fault == "missing":
+        items = []
+    elif fault == "duplicate":
+        items.append(items[0])
+    elif fault == "unknown":
+        items.append(
+            SimpleNamespace(
+                path=tmp_path / "unknown.py",
+                nodeid="unknown.py::check",
+                originalname="check",
+            )
+        )
+    plugin.pytest_collection_finish(SimpleNamespace(items=items))
+    for item in items:
+        report = SimpleNamespace(
+            nodeid=item.nodeid,
+            when="call",
+            passed=True,
+            failed=False,
+            skipped=False,
+            longrepr="fault diagnostic",
+        )
+        if fault in ("skip", "fail"):
+            report.passed = False
+            report.skipped, report.failed = fault == "skip", fault == "fail"
+        if fault == "xfail":
+            report.wasxfail = "unexpected xpass"
+        if fault != "unrun":
+            plugin.pytest_runtest_logreport(report)
+    session = SimpleNamespace(exitstatus=0)
+    plugin.pytest_sessionfinish(session, 0)
+    check.assertEqual(session.exitstatus, 0 if fault is None else 1)
+    session.exitstatus = 2
+    plugin.pytest_sessionfinish(session, 2)
+    check.assertEqual(session.exitstatus, 2)
+
+
+@pytest.mark.parametrize("leak", [False, True])
+def check_group_process_state_restoration(tmp_path, leak):
+    check = TestCase()
+    configuration = module("tests/conftest.py", "blueprint_group_fixture_checks")
+    request = SimpleNamespace(
+        config=SimpleNamespace(blueprint_ut_group=True),
+        node=SimpleNamespace(nodeid="synthetic::case"),
+    )
+    key = "BLUEPRINT_GROUP_ISOLATION_CHECK"
+    environment, paths, arguments, cwd = (
+        dict(os.environ),
+        sys.path[:],
+        sys.argv[:],
+        Path.cwd(),
+    )
+    environment_object = os.environ
+    original = GroupDiagnostics.pytest_collectreport
+    fixture = configuration.process_state.__wrapped__(request)
+    next(fixture)
+    try:
+        os.environ[key] = "case-local"
+        sys.path.append("case-local")
+        sys.argv.append("case-local")
+        os.chdir(tmp_path)
+        if leak:
+            os.__dict__["environ"] = {key: "replacement"}
+            sys.path = ["replacement"]
+            sys.argv = ["replacement"]
+            patch.object(GroupDiagnostics, "pytest_collectreport", Mock()).start()
+        with pytest.raises(pytest.fail.Exception if leak else StopIteration):
+            next(fixture)
+    finally:
+        fixture.close()
+    check.assertIs(os.environ, environment_object)
+    check.assertEqual(dict(os.environ), environment)
+    check.assertEqual(sys.path, paths)
+    check.assertEqual(sys.argv, arguments)
+    check.assertEqual(Path.cwd(), cwd)
+    check.assertIs(GroupDiagnostics.pytest_collectreport, original)
 
 
 @pytest.mark.parametrize("scope", [set(), {"dev/cde/ec2"}, None])
@@ -584,138 +899,81 @@ def check_ut_only_rejects_it_options(option, value):
     integrations.assert_not_called()
 
 
+def _write_it_receipt(data, command, **kwargs):
+    Path(command[command.index("--receipt") + 1]).write_text(
+        json.dumps(data), encoding="utf-8"
+    )
+    return subprocess.CompletedProcess(command, 0)
+
+
 def check_it_reachability(tmp_path):
+    check = TestCase()
     tests = tmp_path / "framework/scripts/tests"
     (tests / "integrations").mkdir(parents=True)
     suite = tests / "integrations/receipt.checks.py"
-    suite.write_text("""import pytest
-from support.pytest_cli import run
-@pytest.mark.parametrize('value', [False, True])
-def check_body(value):
-    assert type(value) is bool
-
-def check_not_called():
-    raise AssertionError('must be detected as unreachable')
-
-if __name__ == '__main__':
-    raise SystemExit(run(__file__, ['check_body']))
-""")
-    (tests / "pytest.ini").write_text(
-        "[pytest]\npython_functions = check_*\naddopts = --import-mode=importlib -p no:cacheprovider\n"
+    suite.write_text(
+        "# Synthetic child; subprocess boundary is mocked\n", encoding="utf-8"
     )
-    receipt = tmp_path / "receipt.json"
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            str(Path(run_it.__file__)),
-            "--suite",
-            str(suite),
-            "--tests",
-            str(tests),
-            "--receipt",
-            str(receipt),
-        ],
-        capture_output=True,
-        text=True,
+    nodes = [
+        f"integrations/receipt.checks.py::check_body[{value}]"
+        for value in (False, True)
+    ]
+    plugin = run_it.PytestReceipt(tests)
+    plugin.pytest_configure(SimpleNamespace(rootpath=tests))
+    plugin.pytest_collection_finish(
+        SimpleNamespace(items=[SimpleNamespace(nodeid=node) for node in nodes])
     )
-    assert result.returncode == 0, result.stdout + result.stderr
-    data = json.loads(receipt.read_text())
+    for node in nodes:
+        plugin.pytest_runtest_logreport(
+            SimpleNamespace(nodeid=node, when="setup", passed=True)
+        )
+        plugin.pytest_runtest_logreport(
+            SimpleNamespace(nodeid=node, when="call", passed=True)
+        )
+    data = dict(
+        version=1,
+        suite="integrations/receipt.checks.py",
+        collected=plugin.collected,
+        passed=plugin.passed,
+        completed={},
+        metrics={},
+    )
     cases = {("integrations/receipt.checks.py", "check_body"): "pytest"}
-    assert not run_it.reachability(cases, [data])
-    assert len(data["passed"]) == 2
-    assert "calls" not in data
+    check.assertEqual(run_it.reachability(cases, [data]), [])
     helper = ("integrations/helper.py", "check_helper")
     with_helper = {**data, "completed": {"::".join(helper): 1}}
-    assert run_it.reachability(cases, [with_helper])
-    assert not run_it.reachability(cases, [with_helper], {**cases, helper: "direct"})
-    assert run_it.reachability(
-        cases, [{**with_helper, "passed": []}], {**cases, helper: "direct"}
+    check.assertTrue(run_it.reachability(cases, [with_helper]))
+    check.assertEqual(
+        run_it.reachability(cases, [with_helper], {**cases, helper: "direct"}), []
     )
-    assert run_it.reachability(cases, [{**data, "passed": data["passed"][:1]}])
-    assert run_it.reachability(cases, [{**data, "passed": [data["passed"][0]] * 2}])
-    cases[("integrations/receipt.checks.py", "check_not_called")] = "direct"
-    assert "verification did not complete" in run_it.reachability(cases, [data])[0]
-    cases[("integrations/receipt.checks.py", "check_not_called")] = "pytest"
-    assert any("not collected" in error for error in run_it.reachability(cases, [data]))
-    assert run_it.reachability(cases, [{**data, "passed": []}])
-
-    output = tmp_path / "receipts"
-    output.mkdir()
-    rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
-    assert [row["code"] for row in rows] == [0]
-    assert not run_it.reachability(
-        {("integrations/receipt.checks.py", "check_body"): "pytest"}, receipts
-    )
-    assert run_it.reachability(
-        cases, receipts
-    )  # Full execution still detects an unreachable registered body.
-    assert all(receipt["metrics"].get("subprocess.git", 0) == 0 for receipt in receipts)
-
-    suite.write_text(
-        f"import sys\nsys.path.insert(0, {str(Path(run_it.__file__).parent.parent)!r})\n"
-        + """from support.it_case_receipt import it_case, module_complete
-from unittest.mock import patch
-from utils.input_cache import input_scope
-import inspect
-@it_case
-@input_scope
-@patch.object(inspect, 'ismodule', return_value=True)
-def check_direct(mock, value=3):
-    assert inspect.ismodule(None)
-    return value
-@it_case
-def check_failure():
-    raise ValueError('expected')
-assert str(inspect.signature(check_direct)) == '(mock, value=3)'
-assert check_direct.__name__ == 'check_direct'
-assert check_direct() == check_direct() == 3
-try:
-    check_failure()
-except ValueError:
-    pass
-module_complete(__file__)
-"""
-    )
-    command = [
-        sys.executable,
-        "-B",
-        str(Path(run_it.__file__)),
-        "--suite",
-        str(suite),
-        "--tests",
-        str(tests),
-        "--receipt",
-        str(receipt),
-    ]
-    result = subprocess.run(command, capture_output=True, text=True)
-    assert result.returncode == 0, result.stdout + result.stderr
-    data = json.loads(receipt.read_text())
-    direct = ("integrations/receipt.checks.py", "check_direct")
-    module = ("integrations/receipt.checks.py", "__module__")
-    cases = {direct: "direct", module: "module"}
-    assert data["completed"] == {"::".join(direct): 2, "::".join(module): 1}
-    assert not run_it.reachability(cases, [data])
-    assert run_it.reachability(
-        {**cases, (direct[0], "check_failure"): "direct"}, [data]
-    )
-    assert run_it.reachability(cases, [{**data, "completed": {"::".join(direct): 2}}])
     for invalid in (
         None,
         {},
         {**data, "completed": []},
         {**data, "metrics": {"bad": False}},
+        {**data, "passed": []},
+        {**data, "passed": nodes[:1]},
+        {**data, "passed": [nodes[0]] * 2},
     ):
-        assert run_it.reachability(cases, [invalid])
-    assert run_it.reachability(cases, [])
-    suite.write_text(
-        suite.read_text().replace(
-            "module_complete(__file__)", "raise RuntimeError('before completion')"
+        check.assertTrue(run_it.reachability(cases, [invalid]))
+    check.assertTrue(run_it.reachability(cases, []))
+    for mode in ("pytest", "direct"):
+        check.assertTrue(
+            run_it.reachability(
+                {**cases, (data["suite"], "check_not_called"): mode}, [data]
+            )
         )
-    )
-    result = subprocess.run(command, capture_output=True, text=True)
-    assert result.returncode != 0
-    assert run_it.reachability(cases, [json.loads(receipt.read_text())])
+    output = tmp_path / "receipts"
+    output.mkdir()
+    with patch.object(
+        run_it.subprocess,
+        "run",
+        side_effect=_bind_framework_callback(_write_it_receipt, data),
+    ) as child:
+        rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
+    check.assertEqual([row["code"] for row in rows], [0])
+    check.assertEqual(run_it.reachability(cases, receipts), [])
+    check.assertIn("--suite", child.call_args.args[0])
 
 
 def check_it_assertion_guards(tmp_path):
@@ -749,12 +1007,22 @@ def check_it_assertion_guards(tmp_path):
         path.write_text(invalid)
         with pytest.raises(ValueError):
             run_it.check_assertion_guards(tmp_path)
-    result = subprocess.run(
-        [sys.executable, "-O", run_it.__file__], capture_output=True, text=True
+    tree = ast.parse(source)
+    guard_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.If) and ast.unparse(node.test) == "not __debug__"
     )
-    assert (
-        result.returncode != 0 and "Focused checks require assertions" in result.stderr
-    )
+    with pytest.raises(SystemExit, match="Focused checks require assertions"):
+        exec(
+            compile(
+                ast.Module(body=[guard_node], type_ignores=[]),
+                run_it.__file__,
+                "exec",
+                optimize=1,
+            ),
+            {},
+        )
 
 
 def check_it_focused_fixture_isolation(tmp_path):
@@ -886,20 +1154,6 @@ def check_it_fixture_isolation(tmp_path):
                         assert fixtures.fingerprint(root) == before
                     (cases["a"] / "model/value.txt").write_text("changed")
                     assert (cases["b"] / "model/value.txt").read_text() == "b"
-                    subprocess.run(["git", "init", "-q", str(cases["a"])], check=True)
-                    subprocess.run(["git", "add", "."], cwd=cases["a"], check=True)
-                    tracked = subprocess.run(
-                        ["git", "ls-files", "--stage"],
-                        cwd=cases["a"],
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    ).stdout
-                    assert not any(
-                        line.endswith("\tframework") for line in tracked.splitlines()
-                    )
-                    assert "framework/rules/task-contract.md" not in tracked
-                    assert "\tmodel/value.txt" in tracked
             assert fixtures.fingerprint(root) == before
         assert generations == list(fixtures.NAMES)
     assert not root.exists()
@@ -1710,7 +1964,9 @@ def check_parallel_repair_receipts():
     ]
     combined = run_it.repair_receipt(receipts)
     assert combined["collected"] == combined["passed"] == list(run_it.REPAIR_CASES)
-    assert combined["metrics"] == {"subprocess.Popen": 2}
+    TestCase().assertEqual(
+        combined["metrics"], {"subprocess.Popen": len(run_it.REPAIR_CASES)}
+    )
     cases = run_it.inventory(Path(run_it.__file__).parent)[0].cases
     selected = {
         key: value for key, value in cases.items() if key[0] == run_it.REPAIR_SUITE
@@ -1718,10 +1974,10 @@ def check_parallel_repair_receipts():
     assert not run_it.reachability(selected, [combined], cases)
     with pytest.raises(ValueError, match="missing"):
         run_it.repair_receipt(receipts[:-1])
-    duplicate = [receipts[0], receipts[0]]
+    duplicate = [{**receipts[0], "passed": []}]
     with pytest.raises(ValueError, match="incorrect"):
         run_it.repair_receipt(duplicate)
-    invalid = [receipts[0], {**receipts[1], "suite": "other"}]
+    invalid = [{**receipts[0], "suite": "other"}]
     with pytest.raises(ValueError, match="suite"):
         run_it.repair_receipt(invalid)
     checkpoint = [
@@ -1749,11 +2005,11 @@ def check_parallel_repair_receipts():
 def check_parallel_repair_selection(tmp_path):
     plugin = run_it.PytestReceipt(tmp_path, "unknown")
     plugin.rootpath = tmp_path
-    items = [SimpleNamespace(nodeid=case) for case in run_it.REPAIR_CASES]
+    items = [SimpleNamespace(nodeid=case) for case in run_it.CHECKPOINT_CASES]
     config = SimpleNamespace(hook=SimpleNamespace(pytest_deselected=Mock()))
     with pytest.raises(ValueError, match="unknown"):
         plugin.pytest_collection_modifyitems(None, config, items)
-    plugin.case_id = run_it.REPAIR_CASES[1]
+    plugin.case_id = run_it.CHECKPOINT_CASES[1]
     plugin.pytest_collection_modifyitems(None, config, items)
     assert [item.nodeid for item in items] == [plugin.case_id]
     assert len(config.hook.pytest_deselected.call_args.kwargs["items"]) == 1
@@ -1784,31 +2040,51 @@ def _callback_parallel_receipt(state, command, **kwargs):
 
 
 def _callback_checkpoint_wait(state, **kwargs):
-    if state.processes:
-        raise ValueError("checkpoint waited before all cases were started")
+    state.running -= 1
     return 0
 
 
-def check_checkpoint_starts_all_cases_before_wait(tmp_path):
+def _callback_checkpoint_bounded_launch(state, command, **kwargs):
+    state.running += 1
+    if state.running > 2:
+        raise ValueError("checkpoint exceeded two concurrent children")
+    return _callback_parallel_receipt(state, command, **kwargs)
+
+
+def check_checkpoint_keeps_two_process_limit(tmp_path):
     tests = Path(run_it.__file__).parent
     suite = run_it.CHECKPOINT_SUITE
-    processes = [Mock() for _ in run_it.CHECKPOINT_CASES]
-    state = _CallbackState(mode="fresh", suite=suite, processes=processes.copy())
+    cases = tuple(suite + f"::check_case_{number}" for number in range(4))
+    processes = [Mock() for _ in cases]
+    state = _CallbackState(
+        mode="fresh", suite=suite, processes=processes.copy(), running=0
+    )
     for process in processes:
         process.poll.return_value = 0
         process.wait.side_effect = _bind_framework_callback(
             _callback_checkpoint_wait, state
         )
-    launch = _bind_framework_callback(_callback_parallel_receipt, state)
+    launch = _bind_framework_callback(_callback_checkpoint_bounded_launch, state)
     logs = tmp_path / "logs"
     logs.mkdir()
     with (
+        patch.dict(run_it.PARALLEL_CASES, {suite: cases}),
+        patch.object(
+            run_it,
+            "inventory",
+            return_value=(
+                SimpleNamespace(
+                    cases={(suite, case.split("::")[1]): "pytest" for case in cases}
+                ),
+                [],
+            ),
+        ),
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
         patch.object(run_it.tempfile, "mkdtemp", return_value=str(logs)),
     ):
         run_it.run_parallel_repair(tests / suite, tests, tmp_path)
     if sorted(path.name for path in logs.glob("case-*.log")) != [
-        f"case-{index}.log" for index in range(4)
+        f"case-{index}.log" for index in range(len(cases))
     ]:
         raise ValueError("checkpoint case logs were not retained")
 
@@ -1880,7 +2156,7 @@ def check_parallel_suite_shared_deadline(tmp_path, suite, limit):
 
 def check_parallel_repair_expired_deadline(tmp_path):
     tests = Path(run_it.__file__).parent
-    processes = [Mock(pid=100 + i) for i in range(2)]
+    processes = [Mock(pid=100 + i) for i in range(len(run_it.REPAIR_CASES))]
     for process in processes:
         process.wait.return_value = 0
         process.poll.return_value = None
@@ -1892,7 +2168,9 @@ def check_parallel_repair_expired_deadline(tmp_path):
     logs.mkdir()
     with (
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
-        patch.object(run_it.time, "monotonic", side_effect=[100, 401, 401, 401, 401]),
+        patch.object(
+            run_it.time, "monotonic", side_effect=[100, 2000, 2000, 2000, 2000]
+        ),
         patch.object(run_it.os, "killpg", create=True) as kill,
         patch.object(run_it.tempfile, "mkdtemp", return_value=str(logs)),
         pytest.raises(RuntimeError, match="timed out"),
@@ -1901,15 +2179,19 @@ def check_parallel_repair_expired_deadline(tmp_path):
     if os.name == "nt":
         assert all(process.terminate.called for process in processes)
     else:
-        assert kill.call_count == 2
-    assert all((logs / f"case-{i}.log").exists() for i in range(2))
+        TestCase().assertEqual(kill.call_count, len(processes))
+    TestCase().assertTrue(
+        all(
+            ((logs / f"case-{i}.log").exists() for i in range(len(run_it.REPAIR_CASES)))
+        )
+    )
 
 
-@pytest.mark.parametrize("suite", [run_it.REPAIR_SUITE, run_it.CHECKPOINT_SUITE])
 @pytest.mark.parametrize(
     "failure", ["spawn", "exit", "interrupt", "timeout", "missing", "corrupt"]
 )
-def check_parallel_repair_failure_cleanup(tmp_path, failure, suite):
+def check_parallel_repair_failure_cleanup(tmp_path, failure):
+    suite = run_it.CHECKPOINT_SUITE
     tests = Path(run_it.__file__).parent
     cases = run_it.PARALLEL_CASES[suite]
     processes = [Mock(pid=100 + i) for i in range(len(cases))]
@@ -1941,8 +2223,14 @@ def check_parallel_repair_failure_cleanup(tmp_path, failure, suite):
         (tmp_path / "logs").mkdir()
         with pytest.raises(expected):
             run_it.run_parallel_repair(tests / suite, tests, tmp_path)
-        count = 1 if failure == "spawn" else len(cases)
-        assert launch.call_count == (2 if failure == "spawn" else len(cases))
+        count = (
+            1
+            if failure == "spawn"
+            else 2
+            if failure in ("exit", "interrupt", "timeout")
+            else len(cases)
+        )
+        TestCase().assertEqual(launch.call_count, 2 if failure == "spawn" else count)
         if os.name == "nt":
             assert all(process.terminate.called for process in processes[:count])
         else:

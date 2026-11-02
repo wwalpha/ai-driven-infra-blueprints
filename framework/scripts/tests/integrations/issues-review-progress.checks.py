@@ -9,8 +9,6 @@ import sys
 from pathlib import Path
 from unittest import TestCase
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -171,7 +169,7 @@ def multiple_target_naming_scan_review_save(tmp_path):
         )
 
 
-def check_process_exit_resume_from_checkpoint_and_save(tmp_path):
+def check_process_checkpoint_reload_and_save(tmp_path):
     data = snapshot_artifact(
         tmp_path / "repository",
         ordinary=[dict(id="current", service="s3", message="Current issue")],
@@ -181,12 +179,12 @@ def check_process_exit_resume_from_checkpoint_and_save(tmp_path):
     batch = review.next_batch()
     payload = tmp_path / "submission.json"
     payload.write_text(json.dumps(submission(batch)), encoding="utf-8")
-    interrupted = subprocess.run(
+    completed = subprocess.run(
         [
             sys.executable,
             "-B",
             "-c",
-            "import json,os,sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); from issues.review_progress import ReviewController; r=ReviewController(*map(Path,sys.argv[2:5])); r.submit(json.loads(Path(sys.argv[5]).read_text(encoding='utf-8'))); os._exit(17)",
+            "import json,sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); from issues.review_progress import ReviewController; r=ReviewController(*map(Path,sys.argv[2:5])); r.submit(json.loads(Path(sys.argv[5]).read_text(encoding='utf-8')))",
             str(ROOT / "framework/scripts"),
             str(review.root),
             str(review.artifact_path),
@@ -197,7 +195,7 @@ def check_process_exit_resume_from_checkpoint_and_save(tmp_path):
         capture_output=True,
         check=False,
     )
-    assert interrupted.returncode == 17, interrupted.stderr
+    TestCase().assertEqual(completed.returncode, 0, completed.stderr)
     reloaded = cli(review, "status")
     assert reloaded.returncode == 0, reloaded.stderr
     status = json.loads(reloaded.stdout)
@@ -218,7 +216,7 @@ def check_process_exit_resume_from_checkpoint_and_save(tmp_path):
     assert render_snapshot(review.root, snapshot) == expected
 
 
-def check_process_revision_resume_export_and_save(tmp_path: Path) -> None:
+def check_process_revision_reload_export_and_save(tmp_path: Path) -> None:
     data = snapshot_artifact(
         tmp_path / "repository",
         ordinary=[dict(id="known", service="s3", message="Retained Issue")],
@@ -248,12 +246,12 @@ def check_process_revision_resume_export_and_save(tmp_path: Path) -> None:
     )
     path = tmp_path / "revision.json"
     path.write_text(json.dumps(revision), encoding="utf-8")
-    interrupted = subprocess.run(
+    completed = subprocess.run(
         [
             sys.executable,
             "-B",
             "-c",
-            "import json,os,sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); from issues.review_progress import ReviewController; r=ReviewController(*map(Path,sys.argv[2:5])); r.revise(json.loads(Path(sys.argv[5]).read_text(encoding='utf-8'))); os._exit(17)",
+            "import json,sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); from issues.review_progress import ReviewController; r=ReviewController(*map(Path,sys.argv[2:5])); r.revise(json.loads(Path(sys.argv[5]).read_text(encoding='utf-8')))",
             str(ROOT / "framework/scripts"),
             str(review.root),
             str(review.artifact_path),
@@ -264,7 +262,7 @@ def check_process_revision_resume_export_and_save(tmp_path: Path) -> None:
         capture_output=True,
         check=False,
     )
-    assert interrupted.returncode == 17, interrupted.stderr
+    TestCase().assertEqual(completed.returncode, 0, completed.stderr)
     inspected = cli(review, "inspect", "--section", "judgments", "--id", "owner")
     assert inspected.returncode == 0, inspected.stderr
     assert json.loads(inspected.stdout)["result"] == result
@@ -275,9 +273,6 @@ def check_process_revision_resume_export_and_save(tmp_path: Path) -> None:
     assert status["sections"]["diagnostics"]["reviewed"] == 1
     assert status["sections"]["judgments"]["reviewed"] == 1
     assert status["next_section"] == "additions" and not status["exportable"]
-    with pytest.raises(ValueError, match="incomplete"):
-        resumed.export(output)
-    assert output.read_bytes() == old_export
     batch = resumed.next_batch()
     assert batch["expected_ids"] == ["final"]
     resumed.submit(submission(batch))

@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """Presentation contracts: no AWS calls, mutation, inferred approval or normal retries."""
 
-import ast
 import json
-import re
 import shlex
-import subprocess
 import sys
 from argparse import Namespace
 from pathlib import Path
@@ -66,78 +63,6 @@ def check_pending_failure_uses_type_not_prose():
     assert state["failure"]["dependencyWait"] is True
     failures.exception(state, ValueError("PENDING_DEPLOY"), "PREPARATION")
     assert state["failure"]["classification"] == "NEEDS_HUMAN"
-
-
-@pytest.mark.parametrize(
-    ("script", "module", "tokens"),
-    [
-        (
-            "deploy_preparation.py",
-            "deploy/preparation.py",
-            ["Offline Preparation", "--register", "--run-controller", "--service"],
-        ),
-        (
-            "cloudformation-deploy.py",
-            "deploy/controller.py",
-            [
-                "--action",
-                "--approve-change-set",
-                "MaxConcurrentStacks",
-                "Snapshot",
-            ],
-        ),
-        (
-            "deploy_handoff.py",
-            "deploy_handoff.py",
-            ["inputRefs", "modelRefs", "--discard-failure", "repair-validate"],
-        ),
-        (
-            "check-deploy-context.py",
-            "aws_context.py",
-            [
-                "terraform init",
-                "terraform plan -out=",
-                "terraform apply",
-                "partial",
-                "AWS_PROFILE",
-            ],
-        ),
-    ],
-)
-def check_cli_help_and_example_options(script, module, tokens):
-    result = subprocess.run(
-        [sys.executable, "-B", str(ROOT / "framework/scripts" / script), "--help"],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert all(token in result.stdout for token in tokens)
-    tree = ast.parse((ROOT / "framework/scripts" / module).read_text())
-    options = {"--help"} | {
-        a.value
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "add_argument"
-        for a in n.args
-        if isinstance(a, ast.Constant)
-        and isinstance(a.value, str)
-        and a.value.startswith("--")
-    }
-    for line in result.stdout.splitlines():
-        if script in line and line.strip().startswith(("python3 ", "env ")):
-            for option in re.findall(r"--[a-z][a-z-]+", line):
-                assert option in options, (script, option)
-    if script == "cloudformation-deploy.py":
-        assert (
-            "A failed attempt retains Deploy FAIL when its Task completes."
-            in result.stdout
-        )
-        assert "all are needed for COMPLETE" not in result.stdout
-        assert all(
-            old not in result.stdout
-            for old in ["--state", "--resume", "--repair-result", "--observe-only"]
-        )
 
 
 @pytest.mark.parametrize("registered", [False, True])

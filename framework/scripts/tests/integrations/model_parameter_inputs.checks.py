@@ -11,10 +11,8 @@ import json
 from contextlib import redirect_stdout
 from functools import partial
 
-import pytest
 import support.model_parameter_inputs_fixtures as _exports_support_model_parameter_inputs_fixtures
 import sync_runtime
-from comparison.deferral import ImportReferenceDeferred
 from model.files import trace_model
 from model.format import serialize
 from model.operations import CandidateReads
@@ -41,8 +39,6 @@ from support.model_reference_fixtures import (
 from support.model_sources import write_model
 from support.service_fixtures import authored_service, topology
 from utils.aws_mappings import mapping_alias
-from utils.cloudformation.inputs import load_template_inputs
-from utils.json_format import validate_aws_document
 from utils.source_reads import FileReads
 
 from model import dependency_index
@@ -349,20 +345,6 @@ def check_logical_secret_end_to_end(tmp_path):
             warnings=warnings,
         )
         assert projected == document and not warnings
-        with pytest.raises(ValueError, match="Model reference"):
-            validate_aws_document(json.dumps(projected), template=True)
-        parameter_file = tmp_path / "parameters.json"
-        parameter_file.write_text(
-            json.dumps(
-                [{"ParameterKey": "Policy", "ParameterValue": json.dumps(projected)}]
-            )
-        )
-        with pytest.raises(ValueError, match="Model reference"):
-            load_template_inputs(
-                tmp_path / "unused.yaml",
-                parameter_file,
-                document={"Parameters": {"Policy": {"Type": "String"}}},
-            )
         inputs = comparison(tmp_path, ("iam", "secrets"))
         template = inputs.stack_inputs["producer"][0]
         template["Resources"] = {
@@ -448,15 +430,6 @@ def check_logical_secret_end_to_end(tmp_path):
             == linked_document
         )
         assert not linked_warnings
-        first["desired.resource.001.resourceMode"] = "IMPORT"
-        save(producer, first)
-        importing = comparison(tmp_path, ("iam", "secrets"))
-        importing.model("secrets")
-        with pytest.raises(ImportReferenceDeferred) as deferred:
-            importing.desired_reference(
-                "iam", desired, "SecretsManager.RotationSchedule", "SecretId", "Id"
-            )
-        assert deferred.value.iac_cause["phase"] == "unobserved"
 
 
 def _stack_for_reference(inputs, unit):

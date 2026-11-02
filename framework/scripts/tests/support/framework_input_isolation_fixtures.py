@@ -11,6 +11,20 @@ from contextlib import ExitStack, redirect_stdout
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from model.validations import (
+    change_inputs,
+    environment,
+    full_inputs,
+    identity,
+    json_settings,
+    naming,
+    policies,
+    presentation,
+    references,
+    schema,
+    stacks,
+    structure,
+)
 from support.validator import MODULE
 from validation.findings import Findings
 from validation.framework_contracts import check_structure
@@ -21,6 +35,8 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 __all__ = [
+    "PUBLIC_API_MODULES",
+    "VALIDATION_MODULES",
     "ExitStack",
     "Findings",
     "MODULE",
@@ -35,3 +51,32 @@ __all__ = [
     "redirect_stdout",
     "sys",
 ]
+
+
+PUBLIC_API_MODULES = (
+    "deploy.scheduler",
+    "deploy.run_context",
+    "deploy.controller",
+    "deploy.handoff",
+    "deploy.failures",
+    "model.sources",
+    "model.operations",
+    "model.importing.approval",
+    "comparison.runner",
+)
+
+
+VALIDATION_MODULES = (
+    full_inputs,
+    change_inputs,
+    structure,
+    naming,
+    schema,
+    json_settings,
+    environment,
+    references,
+    policies,
+    identity,
+    stacks,
+    presentation,
+)

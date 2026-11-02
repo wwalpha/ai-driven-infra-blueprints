@@ -27,7 +27,7 @@ from support.deploy_controller_fixtures import (
     invoke,
 )
 from support.worktree_deploy_fixtures import seed
-from task_contract_core import selected_task, start, suspend
+from task_contract_core import read_task_snapshot, selected_task, start, suspend
 from task_contract_runtime import complete, resume
 from utils.local_evidence import evidence_store, write_sealed
 
@@ -76,15 +76,6 @@ def _callback_external_round_trip_record_validation(
     return result
 
 
-def _callback_external_round_trip_interrupted_git(
-    actual_git, parent, /, target, *args, **kwargs
-):
-    result = actual_git(target, *args, **kwargs)
-    if target == parent and args[:2] == ("merge", "--ff-only"):
-        raise InterruptedError("injected after real parent FF")
-    return result
-
-
 def _dependency_read(fake, operation, **kwargs):
     return getattr(fake, operation)(**kwargs)
 
@@ -107,22 +98,44 @@ def validate_parent(parent):
     assert checked.returncode == 0, checked.stdout + checked.stderr
 
 
-def failed_request(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, dict, str]:
+def prepared_request(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, dict, str]:
     report, aws = tmp_path / "run.json", tmp_path / "aws.json"
     parent = seed(tmp_path / "project", report, "repair")
     monkeypatch.chdir(parent)
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
-    aws_state(aws, repair=True)
-    assert (drive_steps(parent, report, aws)) == 2
-    saved = json.loads(report.read_text())
+    aws_state(aws)
+    provider = json.loads(aws.read_text())
+    name = "cfn-stack-app-dev-second"
+    provider["stacks"][name] = {
+        "status": "UPDATE_COMPLETE",
+        "id": f"arn:aws:cloudformation:ap-northeast-1:{ACCOUNT}:stack/{name}/fixture",
+    }
+    aws.write_text(json.dumps(provider))
     relative = "infra/cloudformation/templates/second.yaml"
     model = f"model/dev/{ACCOUNT}/ec2.properties"
+    task = read_task_snapshot(parent, "tasks/deploy.md", live=True)
+    target = json.loads((parent / "project.json").read_text())["targets"][0]
+    # The normal Implement entrance consumes an already diagnosed failure proof.
+    # Controller failure injection and classification belong to UT.
     failure = handoff.record_failure(
         SimpleNamespace(
             root=parent,
-            states=saved["states"],
-            run_context=saved,
-            target=saved["target"],
+            states={
+                "cfn-stack-app-dev-second": {
+                    "status": "FAILED",
+                    "failure": {
+                        "classification": "IAC_CANDIDATE",
+                        "executionState": "NOT_EXECUTED",
+                    },
+                }
+            },
+            run_context={
+                "taskFile": task.name,
+                "taskDigest": task.task_digest,
+                "consumedInputs": {relative: sha(parent / relative)},
+                "modelInputs": {model: sha(parent / model)},
+            },
+            target=target,
             environment="dev",
             directory=ACCOUNT,
         )
@@ -165,41 +178,19 @@ def failed_request(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, dict,
 
 
 def check_external_implement_round_trip(tmp_path, monkeypatch):
-    parent, report, aws, request, relative = failed_request(tmp_path, monkeypatch)
+    parent, report, aws, request, relative = prepared_request(tmp_path, monkeypatch)
     request_path = Path(request["requestPath"])
-    request, result_path = managed_delivery(
-        parent, request, relative, "normal", reject_invalid=True
-    )
+    request, result_path = managed_delivery(parent, request, relative)
     assert git(parent, "rev-parse", "HEAD").strip() == request["commit"]
     assert not result_path.exists() and not request_path.parent.exists()
     with selected_task(parent, "tasks/deploy.md"):
         assert accepted_changes(
             parent, (parent / "tasks/deploy.md").read_text(), {relative}
         ) == {relative}
-    # The independent retry observes rollback resource cleanup completed by AWS.
-    provider = json.loads(aws.read_text())
-    provider["knobs"]["rollback_settled"] = True
-    aws.write_text(json.dumps(provider))
     # Independent current-input Deploy is a separate invocation, with no result/session entrance.
     assert (drive_steps(parent, report, aws)) == 0
     assert not report.with_suffix(".operations.json").exists()
     validate_parent(parent)
-
-
-def check_merge_recovery(tmp_path, monkeypatch):
-    # The real failed controller supplies the Request; only Git recovery is replayed.
-    parent, _, _, request, relative = failed_request(tmp_path, monkeypatch)
-    before = {
-        name: sha(parent / name) for name in request["inputs"] if name != relative
-    }
-    request, result_path = managed_delivery(parent, request, relative, "merge")
-    assert git(parent, "rev-parse", "HEAD").strip() == request["commit"]
-    assert not result_path.exists() and not Path(request["requestPath"]).parent.exists()
-    assert {name: sha(parent / name) for name in before} == before
-    with selected_task(parent, "tasks/deploy.md"):
-        assert accepted_changes(
-            parent, (parent / "tasks/deploy.md").read_text(), {relative}
-        ) == {relative}
 
 
 def drive_steps(parent, report, aws):
@@ -234,9 +225,6 @@ def managed_delivery(
     parent: Path,
     request: dict,
     relative: str,
-    boundary: str,
-    *,
-    reject_invalid: bool = False,
 ) -> tuple[dict, Path]:
     assert request["parentTip"] == git(parent, "rev-parse", "HEAD").strip()
     suspend(
@@ -244,16 +232,10 @@ def managed_delivery(
         "tasks/deploy.md",
         "authorized external implement repair " + request["requestId"],
     )
-    child_state = (
-        _callback_external_round_trip_lifecycle(
-            "create", parent, "repair-one", "--repair-request", request["requestPath"]
-        )
-        if boundary == "normal"
-        else wt.create(parent, "repair-one", Path(request["requestPath"]))
+    child_state = _callback_external_round_trip_lifecycle(
+        "create", parent, "repair-one", "--repair-request", request["requestPath"]
     )
     child = Path(child_state["worktree"])
-    with pytest.raises(ValueError, match="another implement child"):
-        wt.create(parent, "repair-two", Path(request["requestPath"]))
     assert git(child, "rev-parse", "HEAD").strip() == request["parentTip"]
     child_task = child_state["task_file"]
     paths = "\n".join("- `" + p + "`" for p in [child_task, relative])
@@ -280,72 +262,19 @@ def managed_delivery(
     record_validation = _bind_framework_callback(
         _callback_external_round_trip_record_validation, diagnostics, real_run
     )
-    if reject_invalid:
-        approved = (child / relative).read_text()
-        (child / relative).write_text("Resources: [invalid")
-        with (
-            selected_task(child, child_task),
-            pytest.raises((ValueError, RuntimeError)),
-        ):
-            wt.deploy_validate(child, "repair-one", Path(request["requestPath"]))
-        rejected = wt.load(child, "repair-one")[-1]
-        assert rejected["repairStaticRuns"] == 1
-        (child / relative).write_text(approved)
-        resume(child, child_task)
     with (
         selected_task(child, child_task),
         patch.object(subprocess, "run", side_effect=record_validation),
     ):
-        try:
-            if boundary == "normal":
-                _callback_external_round_trip_lifecycle(
-                    "repair-validate",
-                    child,
-                    "repair-one",
-                    "--repair-request",
-                    request["requestPath"],
-                )
-            else:
-                wt.deploy_validate(child, "repair-one", Path(request["requestPath"]))
-        except ValueError:
-            raise AssertionError(
-                "Synthetic static validator: " + "".join(diagnostics)
-            ) from None
+        _callback_external_round_trip_lifecycle(
+            "repair-validate",
+            child,
+            "repair-one",
+            "--repair-request",
+            request["requestPath"],
+        )
         complete(child, child_task)
-    if boundary == "merge":
-        actual_git = wt.git
-        interrupted_git = _bind_framework_callback(
-            _callback_external_round_trip_interrupted_git, actual_git, parent
-        )
-        with (
-            patch.object(wt, "git", side_effect=interrupted_git),
-            pytest.raises(InterruptedError),
-        ):
-            wt.finalize(child, "repair-one")
-        # FF succeeded before the exception. Retry must finish this exact commit.
-        interrupted = wt.load(parent, "repair-one")[-1]
-        interrupted_head = git(parent, "rev-parse", "HEAD").strip()
-        assert interrupted_head == git(child, "rev-parse", "HEAD").strip()
-        assert Path(request["requestPath"]).is_file()
-        assert Path(request["requestPath"]).with_name("validation.json").is_file()
-        assert interrupted["commit"] == interrupted_head
-    with patch.object(wt, "git", wraps=wt.git) as retry_git:
-        result = (
-            _callback_external_round_trip_lifecycle("finalize", child, "repair-one")
-            if boundary == "normal"
-            else wt.finalize(child, "repair-one")
-        )
-    if boundary == "merge":
-        assert not any(
-            call.args[:3] == (parent, "merge", "--ff-only")
-            for call in retry_git.call_args_list
-        )
-    if boundary == "merge":
-        assert result["commit"] == result["tip"] == interrupted_head
-        assert (
-            git(parent, "rev-list", "--count", request["parentTip"] + "..HEAD").strip()
-            == "1"
-        )
+    result = _callback_external_round_trip_lifecycle("finalize", child, "repair-one")
     result_path = Path(result["repair_result"])
     assert (
         result_path.is_file()

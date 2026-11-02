@@ -211,7 +211,7 @@ def check_implementation_preflight_prompt() -> None:
     assert "git --no-optional-locks status --porcelain --untracked-files=all" in sandbox
     assert "git status --porcelain --untracked-files=all" not in sandbox
     for required in (
-        "create, setup (when needed), normal Deploy checkpoint, finalize and cleanup",
+        "create, setup (when needed), normal Deploy checkpoint, finalize, PR operations, orphan branch deletion and cleanup",
         "effective Sandbox restrictions",
         "protected exceptions and symlinks",
         "prior denial is not required",
@@ -227,7 +227,7 @@ def check_implementation_preflight_prompt() -> None:
         "never use escalation to bypass them",
         "one escalated reexecution per denied invocation",
         "Never delete a lock",
-        "Finalize/cleanup guards and the Python helper remain unchanged",
+        "Permission approval does not relax the Python helper's guards",
     ):
         assert required in sandbox, required
 

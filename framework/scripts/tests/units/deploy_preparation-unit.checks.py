@@ -6,6 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import io
+from contextlib import nullcontext, redirect_stderr
 from functools import partial
 from types import SimpleNamespace
 from unittest import TestCase
@@ -22,6 +24,7 @@ from support.deploy_preparation_fixtures import (
     TARGET,
     M,
     Path,
+    arguments,
     fixture,
     json,
     patch,
@@ -227,6 +230,221 @@ def check_candidate_paths_come_from_model_without_reading_views(tmp_path):
 
 
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "runtime",
+        "input",
+        "deferred",
+        "inventory",
+        "owner",
+        "file-set",
+        "candidate",
+        "candidate-location",
+        "registration",
+        "none",
+    ],
+)
+def test_preparation_registration_boundaries(tmp_path, failure):
+    check = TestCase()
+    root = tmp_path / "repo"
+    root.mkdir()
+    source = root / "project.json"
+    source.write_text("input")
+    deferred = root / "model.properties"
+    deferred.write_text("deferred")
+    candidate = tmp_path / "contract.md"
+    candidate.write_text("reviewed contract")
+    task = root / "tasks/prepare.md"
+    task.parent.mkdir()
+    task.write_text("registered contract")
+    plan = dict(
+        repository=str(root),
+        runtime=dict(python=sys.executable, tools={}),
+        environment={"PATH": M.os.environ.get("PATH")},
+        reviewStarted=0,
+        inputs={"project.json": M.sha(source)},
+        inputIdentities={"model.properties": M.file_revision(deferred)},
+        scope=["dev/team/iam"],
+        ownership=dict(
+            environment="dev", directory="team", target={}, units=[], resources={}
+        ),
+        modelInputPaths=["model.properties"],
+        contract=str(candidate),
+        contractDigest=M.sha(candidate),
+        taskFile="tasks/prepare.md",
+        preparationSeconds=0,
+    )
+    if failure == "runtime":
+        plan["environment"]["PATH"] = "changed"
+    elif failure == "input":
+        source.write_text("changed")
+    elif failure == "deferred":
+        deferred.write_text("changed")
+    elif failure == "candidate":
+        candidate.write_text("unreviewed candidate")
+    elif failure == "candidate-location":
+        plan["contract"] = str(source)
+        plan["contractDigest"] = M.sha(source)
+    path = tmp_path / "preparation.json"
+    path.write_text(json.dumps(plan))
+    timing = SimpleNamespace(phase=lambda *args, **kwargs: nullcontext())
+    with (
+        patch.object(
+            M,
+            "model_inventory",
+            side_effect=[{}, {"changed": True}] if failure == "inventory" else None,
+            return_value={},
+        ),
+        patch.object(
+            M,
+            "owning_resources",
+            return_value={"changed": True} if failure == "owner" else {},
+        ),
+        patch.object(
+            M,
+            "model_input_paths",
+            return_value=[] if failure == "file-set" else ["model.properties"],
+        ),
+        patch.object(
+            M.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess(
+                [], int(failure == "registration"), "registration failed", ""
+            ),
+        ) as launch,
+    ):
+        if failure == "none":
+            result = M.register(root, path, timing)
+            check.assertEqual(result["registeredContractDigest"], M.sha(task))
+        else:
+            with pytest.raises(ValueError):
+                M.register(root, path, timing)
+    check.assertEqual(launch.call_count, int(failure in {"registration", "none"}))
+    check.assertEqual(task.read_text(), "registered contract")
+    if failure != "none":
+        check.assertEqual(json.loads(path.read_text()), plan)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "repository",
+        "python",
+        "controller",
+        "root-argument",
+        "root-equals",
+        "contract",
+        "runtime",
+        "child",
+        "none",
+    ],
+)
+def test_preparation_controller_launch_boundaries(tmp_path, failure):
+    check = TestCase()
+    command = [
+        sys.executable,
+        str(M.definition_root(tmp_path) / "framework/scripts/cloudformation-deploy.py"),
+        "--action",
+        "advance",
+    ]
+    plan = dict(
+        repository=str(tmp_path),
+        controllerArgv=command,
+        taskFile="tasks/prepare.md",
+        registeredContractDigest="digest",
+        environment={"PATH": M.os.environ.get("PATH")},
+    )
+    if failure == "repository":
+        plan["repository"] += "-other"
+    elif failure == "python":
+        command[0] = "other-python"
+    elif failure == "controller":
+        command[1] = "other-controller.py"
+    elif failure.startswith("root-"):
+        command.extend(
+            ["--repository-root", str(tmp_path)]
+            if failure == "root-argument"
+            else ["--repository-root=" + str(tmp_path)]
+        )
+    elif failure == "runtime":
+        plan["environment"]["PATH"] = "changed"
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(plan))
+    with (
+        patch.object(
+            M._imports_task_contract,
+            "task_snapshot",
+            return_value=SimpleNamespace(
+                raw_digest="changed" if failure == "contract" else "digest"
+            ),
+        ),
+        patch.object(
+            M.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess(
+                [], 2 if failure == "child" else 0
+            ),
+        ) as launch,
+    ):
+        if failure in {"child", "none"}:
+            check.assertEqual(
+                M.run_controller(tmp_path, path), 2 if failure == "child" else 0
+            )
+            launch.assert_called_once_with(
+                command, cwd=tmp_path, env=M.os.environ | plan["environment"]
+            )
+        else:
+            with pytest.raises(ValueError):
+                M.run_controller(tmp_path, path)
+            launch.assert_not_called()
+
+
+def test_generated_execution_conflict_and_symlink(tmp_path):
+    base = tmp_path
+    root = base / "repo"
+    fixture(root)
+    artifacts = root / "infra/cloudformation/artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    with (
+        patch.object(
+            M,
+            "owning_resources",
+            return_value={"a": {"x": {"service": "iam"}, "y": {"service": "ec2"}}},
+        ),
+        patch.object(
+            M,
+            "paths",
+            return_value=(
+                root
+                / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json",
+                artifacts / "execution.json",
+            ),
+        ),
+        patch.object(
+            M,
+            "deployment_input_paths",
+            return_value=[
+                root / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json"
+            ],
+        ),
+    ):
+        output = io.StringIO()
+        with redirect_stderr(output):
+            TestCase().assertEqual(M.main(arguments(root, base)), 1)
+        TestCase().assertIn(
+            "generated view conflicts with execution/required input", output.getvalue()
+        )
+    parameter = root / "infra/cloudformation/parameters/dev/123456789012/1.json"
+    parameter.unlink()
+    parameter.symlink_to(parameter.with_name("2.json"))
+    output = io.StringIO()
+    with redirect_stderr(output):
+        TestCase().assertEqual(M.main(arguments(root, base)), 1)
+    TestCase().assertIn("task path must not use symlinks", output.getvalue())
+
 
 if __name__ == "__main__":
     from support.pytest_cli import run

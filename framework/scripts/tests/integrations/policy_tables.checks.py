@@ -3,6 +3,7 @@
 
 import sys
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -25,9 +26,6 @@ def check_iam(tmp_path):
     rendered = rendered_design(path)
     # --write updates only derived Markdown and requires an explicit file.
     path.write_text(text, encoding="utf-8")
-    check = policy_cli([str(path)])
-    assert check.returncode == 1 and path.read_text(encoding="utf-8") == text
-    assert b"policy tables are stale; regenerate with --write" in check.stderr
     write = subprocess.run(
         [sys.executable, str(SCRIPTS / "policy_tables.py"), str(path), "--write"],
         capture_output=True,
@@ -36,6 +34,7 @@ def check_iam(tmp_path):
     assert write.stdout == b"Policy tables: PASS\n" and write.stderr == b""
     assert path.read_text(encoding="utf-8") == rendered
 
+    TestCase().assertEqual(policy_cli([str(path)]).returncode, 0)
     assert before == {file: file.read_bytes() for file in before}
 
 

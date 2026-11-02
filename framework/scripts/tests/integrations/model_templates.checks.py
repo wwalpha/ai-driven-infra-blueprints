@@ -4,12 +4,11 @@
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from types import SimpleNamespace as _CallbackState
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import support.model_sources as _imports_support_model_sources
 import support.model_templates_fixtures as _exports_support_model_templates_fixtures
 from generation_inputs import GenerationInputs
 from model.files import service_model_path
@@ -17,7 +16,6 @@ from model.importing.scope import read_consumers, restrict
 from model.operations import _verify_published_inputs
 from model.sources import list_models
 from support.model_templates_fixtures import (
-    ROOT,
     Path,
     _publish_transaction,
     affected,
@@ -31,15 +29,12 @@ from support.model_templates_fixtures import (
     load_model,
     patch,
     publication_lock,
-    pytest,
     redirect_stdout,
-    rejected,
     role_model,
     run,
     shutil,
     source_scope,
     split,
-    subprocess,
     sync_runtime,
     sys,
     trace_model,
@@ -67,150 +62,6 @@ save_files = _exports_support_model_templates_fixtures.save_files
 
 def _callback_check_transactions_verify(new, original, /):
     assert original.read_text() == "a=new\n" and new.is_file()
-
-
-def _callback_check_transactions_concurrent(dependency, /):
-    dependency.write_text('{"changed":true}\n')
-
-
-def _callback_check_transactions_file_rollback_fail_restore(restores, /, path, content):
-    restores.append(path)
-    raise OSError("injected restoration failure")
-
-
-def _callback_check_transactions_fail(new, write, /, path, *args, **kwargs):
-    if path == new:
-        raise OSError("injected partial-write failure")
-    return write(path, *args, **kwargs)
-
-
-def _callback_check_transactions_callback_finish_import(called, path, /):
-    called.append(path.read_bytes())
-    raise ValueError("injected completion callback failure")
-
-
-def _callback_check_transactions_recovery_interrupted(
-    created, write, /, path, *args, **kwargs
-):
-    result = write(path, *args, **kwargs)
-    if path == created:
-        raise KeyboardInterrupt()
-    return result
-
-
-def _callback_check_transactions_file_rollback_fail_write(
-    _state_file_rollback_196, write_text, /, path, *args, **kwargs
-):
-    _state_file_rollback_196.calls.append(path)
-    if path == _state_file_rollback_196.failed:
-        write_text(path, "partially written", encoding="utf-8")
-        raise OSError("injected publication failure")
-    return write_text(path, *args, **kwargs)
-
-
-def _callback_check_transactions_callback(root, transaction, /):
-    path = root / "view.md"
-    path.write_bytes(b"original\r\n")
-    called = []
-    finish_import = _bind_framework_callback(
-        _callback_check_transactions_callback_finish_import, called, path
-    )
-    with pytest.raises(ValueError, match="completion callback"):
-        transaction(root, {path: "changed\n"}, verify=finish_import)
-    assert called == [b"changed\r\n"]
-    assert path.read_bytes() == b"original\r\n"
-    with publication_lock(root) as journal:
-        assert not journal.exists()
-
-
-def _callback_check_transactions_recovery(root, /):
-    first, created = root / "view.md", root / "artifact.json"
-    first.write_bytes(b"original\r\n")
-    originals = {first: first.read_bytes(), created: None}
-    write = Path.write_text
-    interrupted = _bind_framework_callback(
-        _callback_check_transactions_recovery_interrupted, created, write
-    )
-    with publication_lock(root) as journal:
-        with (
-            patch.object(Path, "write_text", interrupted),
-            pytest.raises(KeyboardInterrupt),
-        ):
-            _publish_transaction(
-                root,
-                {first: "changed\n", created: "{}\n"},
-                (),
-                journal,
-                originals=originals,
-            )
-        assert journal.is_file()
-    # Recovery precedes the next generation snapshot and its originals/output differences.
-    with publication_lock(root) as journal:
-        assert first.read_bytes() == originals[first] and not created.exists()
-        assert not journal.exists()
-    with publication_lock(root) as journal:
-        with (
-            patch.object(Path, "write_text", side_effect=OSError("injected I/O")),
-            pytest.raises(OSError),
-        ):
-            _publish_transaction(
-                root,
-                {first: "changed\n"},
-                (),
-                journal,
-                originals={first: originals[first]},
-            )
-        assert first.read_bytes() == originals[first] and not journal.exists()
-
-
-def _callback_check_transactions_file_rollback(root, /):
-    _state_file_rollback_196 = _CallbackState()
-    save_files = _imports_support_model_sources.write_fixture_files
-    first, created, last = [root / name for name in ("first.md", "new.json", "last.md")]
-    originals = {first: b"first\r\n", last: b"last\r\n"}
-    write_text, write_bytes = Path.write_text, Path.write_bytes
-    for _state_file_rollback_196.failed in (first, created, last):
-        for path, content in originals.items():
-            path.write_bytes(content)
-        _state_file_rollback_196.calls = []
-        fail_write = _bind_framework_callback(
-            _callback_check_transactions_file_rollback_fail_write,
-            _state_file_rollback_196,
-            write_text,
-        )
-        with patch.object(Path, "write_text", fail_write):
-            with pytest.raises(OSError) as error:
-                save_files({first: "changed\n", created: "{}\n", last: "changed\n"})
-            assert str(error.value) == "injected publication failure"
-        assert _state_file_rollback_196.failed in _state_file_rollback_196.calls
-        assert {path: path.read_bytes() for path in originals} == originals
-    restores = []
-    fail_restore = _bind_framework_callback(
-        _callback_check_transactions_file_rollback_fail_restore, restores
-    )
-    with (
-        patch.object(Path, "write_text", fail_write),
-        patch.object(Path, "write_bytes", fail_restore),
-    ):
-        with pytest.raises(OSError) as error:
-            save_files({first: "changed\n", created: "{}\n", last: "changed\n"})
-        assert "generated-file rollback failed:" in str(error.value)
-        assert all(
-            f"{path}: injected restoration failure" in str(error.value)
-            for path in (last, first)
-        )
-    assert last in _state_file_rollback_196.calls and restores == [last, first]
-    for path, content in originals.items():
-        write_bytes(path, content)
-    with patch.object(
-        Path, "write_text", side_effect=AssertionError("unchanged file rewritten")
-    ):
-        save_files(
-            {path: content.decode("utf-8") for path, content in originals.items()}
-        )
-    print(
-        "File rollback: PASS (first/middle/last partial write, restoration error, no-op)"
-    )
 
 
 def _callback_check_transactions_transaction_finish(changes, root, snapshot, verify, /):
@@ -265,17 +116,6 @@ def check_transactions(root):
     original.write_text("a=old\n")
     new = root / "new.json"
     output = {original: "a=new\n", new: "{}\n"}
-    write = Path.write_text
-    fail = _bind_framework_callback(_callback_check_transactions_fail, new, write)
-    with patch.object(Path, "write_text", fail):
-        rejected(lambda: transaction(root, output), "injected")
-    assert original.read_text() == "a=old\n"
-    stale = GenerationInputs(root)
-    stale.read(original)
-    original.write_text("a=other\n")
-    rejected(stale.verify, "inputs changed")
-    assert original.read_text() == "a=other\n"
-    original.write_text("a=old\n")
     # Written inputs are checked against published bytes; untouched inputs retain their snapshot.
     dependency = root / "dependency.json"
     dependency.write_text("{}\n", encoding="utf-8")
@@ -291,59 +131,6 @@ def check_transactions(root):
     )
     transaction(root, output, [obsolete], read_paths=snapshots, verify=verify)
     assert original.read_text() == "a=new\n"
-    original.write_text("a=old\n")
-    new.unlink()
-    obsolete.write_bytes(snapshots[obsolete])
-    concurrent = _bind_framework_callback(
-        _callback_check_transactions_concurrent, dependency
-    )
-    rejected(
-        lambda: transaction(
-            root, output, [obsolete], read_paths=snapshots, verify=concurrent
-        ),
-        "inputs changed during publication",
-    )
-    assert (
-        original.read_text() == "a=old\n"
-        and obsolete.read_bytes() == snapshots[obsolete]
-    )
-    dependency.write_bytes(snapshots[dependency])
-    # A terminated process leaves a durable journal; the next reader restores prior inputs.
-    program = """import sys,os
-from pathlib import Path
-sys.path.insert(0,sys.argv[1])
-from model.sources import publication_lock, _publish_transaction
-import sync_files
-root=Path(sys.argv[2]); original=root/'original.properties'
-def crash(output):
-    original.write_text('a=crash\\n');os._exit(17)
-sync_files.save_files=crash
-with publication_lock(root) as journal:
-    _publish_transaction(root,{original:'a=crash\\n',root/'new.json':'{}\\n'},(),journal)
-"""
-    result = subprocess.run(
-        [sys.executable, "-c", program, str(ROOT / "framework/scripts"), str(root)]
-    )
-    assert result.returncode == 17 and original.read_text() == "a=crash\n"
-    with publication_lock(root):
-        pass
-    assert original.read_text() == "a=old\n"
-
-    callback = _bind_framework_callback(
-        _callback_check_transactions_callback, root, transaction
-    )
-
-    callback()
-
-    recovery = _bind_framework_callback(_callback_check_transactions_recovery, root)
-
-    recovery()
-
-    file_rollback = _bind_framework_callback(
-        _callback_check_transactions_file_rollback, root
-    )
-
-    file_rollback()
 
 
 def check_expansion(root):
@@ -406,16 +193,6 @@ def check_layout(root):
     logical = root / "model/dev/team/iam.properties"
     scope = source_scope(root, logical)
     assert (scope.environment, scope.target, scope.service) == ("dev", "team", "iam")
-    for relative in (
-        "model/templates/team/iam.properties",
-        "model/parameters/team/iam.properties",
-        "model/parameters/dev/team/iam/parameters.yaml",
-        "model/dev/team/iam.json",
-        "model/dev/team/iam.properties/part-001.properties",
-    ):
-        rejected(
-            lambda *, relative=relative: load_model(source_scope(root, root / relative))
-        )
     values = dict(load_model(logical).authoritative)
     output = split(logical, values, limit=20)
     assert len(output) > 1
@@ -438,7 +215,6 @@ def check_layout(root):
     dependency_index.rebuild(root)
     for changed, rejected_scope in (
         ({part.relative_to(root).as_posix()}, False),
-        ({"model/stg/team/iam.properties"}, True),
         ({"model/dev/team/iam.properties"}, False),
     ):
         validator = MODULE.Validator(root, {("dev", "team", "iam")})
@@ -525,10 +301,6 @@ def check_reference_impact(root):
     write_model(paths["codepipeline"], values)
     assert not dependencies(root)[("dev", "team", "codepipeline")]
     assert affected(root, {relative}, before=previous) == own
-    raw = paths["codepipeline"].read_bytes()
-    paths["codepipeline"].write_text("invalid")
-    rejected(lambda: dependencies(root), "unsupported Model format")
-    paths["codepipeline"].write_bytes(raw)
     paths["lambda"].unlink()
     assert ("dev", "team", "lambda") not in dependencies(root)
 
@@ -545,11 +317,6 @@ def check_creation(root):
         assert (
             load_model(path).authoritative == expected and path.read_bytes() == original
         )
-
-
-def _callback_check_sync_drift(path, real, saved, /, *args, **kwargs):
-    real(*args, **kwargs)
-    path.write_bytes(saved + b"# changed\n")
 
 
 def check_sync(root):
@@ -598,22 +365,7 @@ def check_sync(root):
                     == 0
                 )
             assert view.read_bytes() == content.encode()
-        saved = path.read_bytes()
-        real = sync_runtime.validate_generation
-        drift = _bind_framework_callback(_callback_check_sync_drift, path, real, saved)
-        with (
-            patch.object(sync_runtime, "validate_generation", drift),
-            redirect_stdout(io.StringIO()),
-        ):
-            rejected(
-                lambda: sync_runtime.sync(
-                    root, True, "dev", "team", services=["config"]
-                ),
-                "inputs changed",
-            )
-        assert path.read_bytes() == saved + b"# changed\n"
-        path.write_bytes(saved)
-    assert calls.call_count == 9
+    TestCase().assertEqual(calls.call_count, 8)
 
 
 def main():

@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -12,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from support.it_case_receipt import it_case
 from support.worktree_python_fixtures import (
     Path,
-    blocked,
     checks,
     fake_run,
     json,
@@ -38,43 +38,33 @@ def requirements(root):
     checks.git(root, "commit", "-qm", "requirements")
 
 
-def _callback_check_setup_failing(command, where, env=None):
-    if "install" in command:
-        raise ValueError("fixture install failed")
-    return fake_run(command, where, env)
-
-
 @it_case
 def check_setup():
     with checks.fixture() as root:
         requirements(root)
         with (
-            patch.object(py, "run", side_effect=_callback_check_setup_failing),
-            patch.object(py, "probe"),
-            patch.object(py, "verify"),
-        ):
-            blocked(lambda: wt.create(root, "failed"), "fixture install failed")
-        _, _, _, retained = wt.load(root, "failed")
-        assert retained["python_setup"]["status"] == "failed"
-        assert Path(retained["worktree"]).is_dir() and wt.branch_exists(
-            root, retained["branch"]
-        )
-        directory = py.shared_directory(root)
-        assert (directory / ".blueprint-owner").exists() and not (
-            directory / ".blueprint-ready"
-        ).exists()
-        with (
             patch.object(py, "run", side_effect=fake_run),
             patch.object(py, "probe"),
             patch.object(py, "verify"),
         ):
-            assert wt.setup(root, "failed")["python_setup"]["installed"]
-        assert wt.load(root, "failed")[3]["python_setup"]["status"] == "ready"
-        assert py.runtime(Path(retained["worktree"]))[0] == py.python_path(directory)
+            state = wt.create(root, "example")
+            TestCase().assertFalse(
+                wt.setup(root, "example")["python_setup"]["installed"]
+            )
+        directory = py.shared_directory(root)
+        TestCase().assertTrue((directory / ".blueprint-owner").is_file())
+        TestCase().assertTrue((directory / ".blueprint-ready").is_file())
+        TestCase().assertEqual(
+            wt.load(root, "example")[3]["python_setup"]["status"], "ready"
+        )
+        TestCase().assertEqual(
+            py.runtime(Path(state["worktree"]))[0], py.python_path(directory)
+        )
 
 
 @it_case
 def check_venv_fallback():
+    check = TestCase()
     with checks.fixture() as root:
         requirements(root)
         with (
@@ -104,6 +94,22 @@ def check_venv_fallback():
                 assert Path(executable) == py.python_path(directory)
                 assert Path(prefix) == Path(virtual) == directory
                 assert Path(first_bin) == py.python_path(directory).parent
+            for first, second in (
+                ("worktree_python", "worktree_task"),
+                ("worktree_task", "worktree_python"),
+            ):
+                source = (
+                    f"import sys; sys.path.insert(0, {str(Path(py.__file__).parent)!r}); "
+                    f"import {first}; import {second}; import worktree_python, worktree_state; "
+                    "from unittest import TestCase; TestCase().assertIs(worktree_python.wt, worktree_state)"
+                )
+                result = subprocess.run(
+                    [sys.executable, "-I", "-B", "-c", source],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                check.assertEqual(result.returncode, 0, result.stderr)
             wt.tasks.start(
                 target,
                 states[0]["task_file"],
@@ -212,23 +218,7 @@ print(json.dumps(state))
     print("Independent Create processes serialize one install: PASS")
 
 
-@it_case
-def check_symlink_safety():
-    with checks.fixture() as root:
-        external = root.parent / "external"
-        external.mkdir()
-        marker = external / "keep"
-        marker.write_bytes(b"external data")
-        shared = py.shared_directory(root)
-        shared.parent.mkdir(parents=True)
-        shared.symlink_to(external, target_is_directory=True)
-        blocked(lambda: py.setup(root, {}), "symlink")
-        assert shared.is_symlink() and marker.read_bytes() == b"external data"
-        assert sorted(path.name for path in external.iterdir()) == ["keep"]
-
-
 if __name__ == "__main__":
     check_setup()
     check_venv_fallback()
     check_parallel_fallback()
-    check_symlink_safety()

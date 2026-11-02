@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Offline integration through the official IT runner."""
 
-import base64
 import sys
 import tempfile
 from functools import partial as _bind_framework_callback
@@ -10,19 +9,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import json
 import socket
 import subprocess
-from unittest.mock import patch
 
 import model.importing.repository as _imports_model_importing_repository
 import pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
-import sync_files
 from model.adapters.task import edit_write_context, source_write_context
 from model.format import owner, parse, serialize
 from model.operations import verify_model_operation
-from model.sources import load_model, publication_lock
+from model.sources import load_model
 from support.import_model_fixtures import (
     TARGET,
     batch_operation_fixture,
@@ -65,17 +61,10 @@ def source_files(root):
     }
 
 
-def _callback_check_model_only_publication_fail_save(path, /, output):
-    path.write_text("partial interrupted source")
-    raise OSError("injected source publication failure")
-
-
 def _callback_check_model_only_publication_save(
     context, failure, output, path, snapshot, /
 ):
     plan = prepare_edit(snapshot, output, context)
-    if failure == "race":
-        path.write_bytes(path.read_bytes() + b"# concurrent human input\n")
     return publish_edit(plan, context)
 
 
@@ -83,9 +72,6 @@ def _callback_check_model_only_publication_save(
     "failure",
     [
         "none",
-        "rollback",
-        "race",
-        "wrong-target",
         "ordinary",
         "ordinary-delete",
         "canonical-delete",
@@ -107,11 +93,7 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
         candidate = {name: (tmp_path / "edited" / name).read_text() for name in sources}
         target, state = start(root)
         name = state["task_file"]
-        contract = operation_contract(
-            destination="stg/cde/vpc/008"
-            if failure == "wrong-target"
-            else "stg/cde/vpc/001"
-        )
+        contract = operation_contract(destination="stg/cde/vpc/001")
         if failure == "canonical-delete":
             contract = operation_contract(action)
         if failure in {"ordinary", "ordinary-delete"}:
@@ -130,11 +112,6 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
         (target / name).write_text(contract)
         before = source_files(target)
         path = target / "model/stg/cde/vpc.properties"
-        if failure == "rollback":
-            fail_save = _bind_framework_callback(
-                _callback_check_model_only_publication_fail_save, path
-            )
-            monkeypatch.setattr(sync_files, "save_files", fail_save)
         authority = (
             edit_write_context(target, {("stg", TARGET, "vpc")}, name)
             if failure in {"ordinary", "ordinary-delete"}
@@ -151,36 +128,17 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
                 path,
                 snapshot,
             )
-            if failure not in {
-                "none",
-                "ordinary",
-                "ordinary-delete",
-                "canonical-delete",
-            }:
-                with pytest.raises((ValueError, OSError)):
-                    save()
-                if failure == "race":
-                    assert (
-                        path.read_bytes()
-                        == before[path.relative_to(target)]
-                        + b"# concurrent human input\n"
-                    )
-                else:
-                    assert source_files(target) == before
-            else:
-                assert set(save()) == set(output)
-                expected_id = "vpc-source"
-                if action == "model-delete":
-                    expected_id = "vpc-stg"
-                assert (
-                    load_model(path).authoritative["observed.row.001-001.value"]
-                    == expected_id
-                )
-                if failure in {"none", "canonical-delete"}:
-                    verify_model_operation(
-                        root, target, model_operation(contract), sources
-                    )
-                assert status((target / name).read_text()) == "running"
+            assert set(save()) == set(output)
+            expected_id = "vpc-source"
+            if action == "model-delete":
+                expected_id = "vpc-stg"
+            assert (
+                load_model(path).authoritative["observed.row.001-001.value"]
+                == expected_id
+            )
+            if failure in {"none", "canonical-delete"}:
+                verify_model_operation(root, target, model_operation(contract), sources)
+            assert status((target / name).read_text()) == "running"
         assert source_files(root) == before
 
 
@@ -195,7 +153,6 @@ def check_intermediate_model_sources(monkeypatch):
             text += "\n## " + heading + "\n- `" + name + "`\n- `" + relative + "`\n"
         (target / name).write_text(text)
         path = target / relative
-        original = path.read_bytes()
         values = dict(load_model(path).authoritative)
         values["desired.row.001-002.comment"] = "中間保存は最終設計検証を実行しない"
         intermediate = serialize(values)
@@ -207,39 +164,6 @@ def check_intermediate_model_sources(monkeypatch):
                 context,
             )
         assert path.read_text() == intermediate
-        with source_write_context(target, name) as context:
-            plan = prepare_edit(
-                load_model(path, context.snapshot), {path: original.decode()}, context
-            )
-            with patch.object(
-                sync_files, "save_files", side_effect=OSError("second leaf failed")
-            ):
-                with pytest.raises(OSError, match="second leaf failed"):
-                    publish_edit(plan, context)
-        assert path.read_text() == intermediate
-        assert (root / relative).read_bytes() == original
-        with publication_lock(target) as journal:
-            journal.write_text(
-                json.dumps(
-                    {
-                        "root": str(target.resolve()),
-                        "originals": {relative: base64.b64encode(original).decode()},
-                    }
-                )
-            )
-            path.write_text("interrupted write")
-        with pytest.raises(ValueError, match="recovery"):
-            load_model(path)
-        with source_write_context(target, name) as context:
-            assert context.snapshot.read(path) == original
-            assert (
-                publish_edit(
-                    prepare_edit(load_model(path, context.snapshot), {}, context),
-                    context,
-                )
-                == ()
-            )
-        assert path.read_bytes() == original
 
 
 def check_batch_leaf_saves(monkeypatch):

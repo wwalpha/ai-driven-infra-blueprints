@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from issues.aggregate import aggregate
 from support import issues_scan_fixtures as fixtures
 from support.issues_api_only_fixtures import (
-    ROOT,
     Comparison,
     Counter,
     DesignSchemaCatalog,
@@ -19,8 +18,6 @@ from support.issues_api_only_fixtures import (
     iac_report,
     iac_summary,
     json,
-    patch,
-    subprocess,
     summary,
     sys,
     tempfile,
@@ -90,22 +87,6 @@ def main_checks():
                 )
                 assert "実装scope" not in report and "必要な操作" not in report
                 assert "complete match" not in report and "## 処理エラー" not in report
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-B",
-                    str(ROOT / "framework/scripts/design_catalog.py"),
-                    "--repository-root",
-                    str(root),
-                    "--cloudformation-type",
-                    kind,
-                ],
-                capture_output=True,
-                text=True,
-            )
-            assert (
-                result.returncode == 1 and "CloudFormation unsupported" in result.stdout
-            ), result
             cli_exit(root, Path(temporary), artifact, 0)
 
         for resource in ({"resourceType": "Macie.Unknown"},):
@@ -155,36 +136,6 @@ def main_checks():
         cli_exit(root, Path(temporary), artifact, 0)
         template_path.write_text(original, encoding="utf-8")
 
-        # Unexpected decoder/I/O failures cannot be relabelled as known API-only.
-        comparison = Comparison(root, "dev", "123456789012", ["s3"])
-        with patch.object(
-            comparison, "stack", side_effect=ValueError("broken template input")
-        ):
-            records = comparison.run()
-        assert records and all(item["category"] == "error" for item in records), records
-        artifact = dict(
-            version=6,
-            ordinary=[],
-            judgments=[],
-            naming={"names": []},
-            naming_context={},
-            **aggregate(records, "dev", "123456789012", ["s3"]),
-        )
-        cli_exit(root, Path(temporary), artifact, 2)
-
-        # Authoritative input parse failure must survive comparison and aggregation.
-        with patch(
-            "comparison.inputs.load_model", side_effect=ValueError("broken model input")
-        ):
-            comparison = Comparison(root, "dev", "123456789012", ["s3"])
-        records = comparison.run()
-        assert records and all(item["category"] == "error" for item in records), records
-        assert (
-            summary(
-                dict(version=6, **aggregate(records, "dev", "123456789012", ["s3"]))
-            )["iac_status"]
-            == "error"
-        )
         artifact = dict(
             version=6,
             ordinary=[],

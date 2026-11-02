@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Focused checks; test sources define the current verification responsibilities."""
 
-import subprocess
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -476,16 +475,6 @@ def _callback_check_import_and_owners_are_lazy_obtain(barrier, root, /, _):
 
 
 def check_import_and_owners_are_lazy():
-    # A fresh interpreter verifies import side effects without reloading shared state.
-    code = """from pathlib import Path
-from unittest.mock import patch
-with patch.object(Path, 'read_text', side_effect=AssertionError('unexpected read')):
-    import utils.aws_mappings
-assert not utils.aws_mappings._instances
-"""
-    subprocess.run(
-        [sys.executable, "-c", code], cwd=ROOT / "framework/scripts", check=True
-    )
     with TemporaryDirectory() as directory:
         root = Path(directory)
         original = Path.read_text

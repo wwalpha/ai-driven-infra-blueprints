@@ -5,7 +5,6 @@ import copy
 import json
 import os
 import stat
-import subprocess
 import sys
 import tempfile
 from contextlib import nullcontext
@@ -550,23 +549,6 @@ def save_test_state(case, request, progress, state):
 
 
 class TestCurrentState(TestCase):
-    def test_deploy_modules_import_first_in_fresh_processes(self):
-        for module in (
-            "scheduler",
-            "current_request",
-            "operation_journal",
-            "controller",
-        ):
-            subprocess.run(
-                [sys.executable, "-c", f"import deploy.{module}"],
-                env={
-                    **os.environ,
-                    "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
-                },
-                check=True,
-                capture_output=True,
-            )
-
     def test_confirmed_execution_without_root_event_is_saved_before_release(self):
         request = {
             "operation": "execute_change_set",

@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 from contextlib import nullcontext
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,10 +19,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 import worktree_checkpoint as checkpoints
 import worktree_state as ws
-from deploy import controller, guards, inputs, operation_journal, run_context, worktree
+from deploy import (
+    controller,
+    current_request,
+    guards,
+    inputs,
+    operation_journal,
+    run_context,
+    scheduler,
+    steps,
+    worktree,
+)
 from deploy import git_publication as publication
 from support.pytest_cli import run
+from support.worktree_deploy_fixtures import pin_progress
 from task_contract_core import task_digest
+from utils.json_format import fingerprint
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -487,7 +500,13 @@ def check_completion_keeps_states_separate(tmp_path, monkeypatch, pending):
                 "status": "FAILED",
                 "observedSynced": True,
                 "currentStack": {"StackStatus": "UPDATE_ROLLBACK_COMPLETE"},
-            }
+            },
+            "B": {
+                "status": "SUCCESS",
+                "observedSynced": True,
+                "checkpointed": True,
+                "currentStack": {"StackStatus": "CREATE_COMPLETE"},
+            },
         },
         "snapshotValidation": "PASS",
     }
@@ -499,7 +518,7 @@ def check_completion_keeps_states_separate(tmp_path, monkeypatch, pending):
     }
     state = {
         "tip": "tip",
-        "deployIdentity": {"stacks": ["A"]},
+        "deployIdentity": {"stacks": ["A", "B"]},
         "deployPublication": {"status": "CONFLICT", "finalCandidate": final},
     }
     if pending in {"pendingObserved", "pendingGeneration", "checkpointPending"}:
@@ -524,6 +543,15 @@ def check_completion_keeps_states_separate(tmp_path, monkeypatch, pending):
             worktree.require_complete(tmp_path, snapshot)
     else:
         worktree.require_complete(tmp_path, snapshot)
+    TestCase().assertEqual(
+        context["states"]["B"],
+        {
+            "status": "SUCCESS",
+            "observedSynced": True,
+            "checkpointed": True,
+            "currentStack": {"StackStatus": "CREATE_COMPLETE"},
+        },
+    )
 
 
 @pytest.fixture
@@ -758,20 +786,6 @@ def check_conflict_records_model_values(tmp_path, monkeypatch, deleted):
             "deployed": "`aws`",
         }
     ]
-
-
-def check_startup_needs_only_standard_library():
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-S",
-            "-c",
-            f"import sys; sys.path.insert(0, {str(Path(worktree.__file__).resolve().parents[1])!r}); from deploy.worktree import start; assert 'yaml' not in sys.modules; assert 'boto3' not in sys.modules",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def progress_backend(root, context):
@@ -1113,6 +1127,758 @@ def check_untracked_cleanup_uses_only_published_exact_task(
     else:
         assert publication.wt.deploy_cleanup_task(tmp_path, state) == path
         assert path.read_text(encoding="utf-8") == after
+
+
+@pytest.mark.parametrize("replacement_request", [False, True])
+def check_old_worktree_reconciles_released_identity_without_removing_new_request(
+    tmp_path, replacement_request
+):
+    # Two local progress stores share only the current request, never each other's files.
+    target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
+    roots = [tmp_path / "original", tmp_path / "peer"]
+    for root in roots:
+        root.mkdir()
+    request = tmp_path / "request.json"
+    original = {
+        "operation": "execute_change_set",
+        "name": "A",
+        "service": "cloudformation",
+        "resourceId": None,
+        "stackId": "old-id",
+        "changeSetId": "old-change",
+        "token": "old-token",
+    }
+    request.write_text(json.dumps(original), encoding="utf-8")
+    request.chmod(0o600)
+    backends = []
+    for root in roots:
+        identity = {
+            "taskFile": "tasks/deploy.md",
+            "taskDigest": "fixed",
+            "target": target,
+            "environment": "dev",
+            "stacks": ["A"],
+        }
+        state = {
+            "status": "RUNNING",
+            "clientToken": "old-token",
+            "changeSetId": "old-change",
+            "executionEvidence": {"StackId": "old-id"},
+        }
+        context = {
+            "stepUnits": [{"name": "A", "deployOrder": 1}],
+            "directory": "app",
+            "states": {"A": state},
+            "inputDigests": {"A": "fixed"},
+        }
+        backend = SimpleNamespace(
+            root=root,
+            phase="deploy",
+            target=target,
+            units=context["stepUnits"],
+            states=context["states"],
+            run_context=context,
+            templates={},
+            aws=Mock(
+                return_value={
+                    "Stacks": [{"StackId": "new-id", "StackStatus": "UPDATE_COMPLETE"}]
+                }
+            ),
+        )
+        pin_progress(backend, identity)
+        backend.save = partial(
+            worktree.save_progress, backend, operation_journal.OPERATION_FIELDS
+        )
+        backend.poll = partial(controller.poll, backend)
+        backend.save()
+        backends.append(backend)
+    with patch.object(current_request, "location", return_value=request):
+        steps.refresh_requests(backends[1])
+        TestCase().assertTrue(not request.exists())
+        if replacement_request:
+            new = original | {
+                "stackId": "new-id",
+                "changeSetId": "new-change",
+                "token": "new-token",
+            }
+            request.write_text(json.dumps(new), encoding="utf-8")
+            request.chmod(0o600)
+        steps.refresh_requests(backends[0])
+        saved = worktree.read_progress(
+            roots[0], {"deployIdentity": backends[0].progress_identity}
+        )["runContext"]["states"]["A"]
+        TestCase().assertTrue(
+            saved["attemptResult"] == saved["endedRequest"]["result"] == "UNKNOWN"
+        )
+        TestCase().assertTrue(
+            not {"clientToken", "changeSetId", "executionEvidence"} & saved.keys()
+        )
+        TestCase().assertTrue(saved["requestPending"] == replacement_request)
+        if replacement_request:
+            TestCase().assertTrue(
+                json.loads(request.read_text(encoding="utf-8")) == new
+            )
+        else:
+            TestCase().assertTrue(not request.exists())
+
+
+def atomic_test_save(tmp_path, progress, state, request, saves):
+    worktree.write_sealed(tmp_path, progress, state)
+    saves.append(
+        (
+            json.loads(request.read_text()) if request.exists() else None,
+            json.loads(json.dumps(state)),
+        )
+    )
+
+
+def atomic_test_transport(
+    calls, request, missing_stack, stack, _runtime, _service, operation, arguments
+):
+    calls.append((operation, dict(arguments), json.loads(request.read_text())))
+    return (
+        {"StackId": None if missing_stack else stack}
+        if operation == "create_change_set"
+        else {}
+    )
+
+
+def atomic_test_aws(runtime, transport, stack, observed, operation, **arguments):
+    if operation in {"create_change_set", "execute_change_set"}:
+        return current_request.send(runtime, operation, arguments, transport)
+    if operation == "describe_stacks":
+        return {"Stacks": [{"StackId": stack, "StackStatus": "UPDATE_COMPLETE"}]}
+    if operation == "describe_change_set":
+        return dict(observed)
+    if operation == "describe_stack_events":
+        return {"StackEvents": []}
+    raise AssertionError(operation)
+
+
+@pytest.mark.parametrize(
+    "released,missing_stack", [(False, False), (False, True), (True, False)]
+)
+def check_create_review_execute_uses_one_atomic_request(
+    tmp_path, released, missing_stack
+):
+    name = "Example"
+    stack = "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Example/stack-id"
+    change = "arn:aws:cloudformation:ap-northeast-1:123456789012:changeSet/change/id"
+    observed = {
+        "StackId": stack,
+        "ChangeSetId": change,
+        "Status": "CREATE_COMPLETE",
+        "ExecutionStatus": "AVAILABLE",
+        "Changes": [],
+    }
+    unit = {"name": name, "deployOrder": 1}
+    state = {
+        "status": "CHANGESET_CREATING",
+        "stackId": stack,
+        "changeSetId": "change",
+        "preparationId": "create-token",
+    }
+    request = tmp_path / "request.json"
+    progress = tmp_path / "progress.json"
+    calls = []
+    saves = []
+    runtime = SimpleNamespace(
+        target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
+        states={name: state},
+        templates={name: ({}, None)},
+        expected_digests={name: "input"},
+    )
+
+    save = partial(atomic_test_save, tmp_path, progress, state, request, saves)
+    transport = partial(atomic_test_transport, calls, request, missing_stack, stack)
+    aws = partial(atomic_test_aws, runtime, transport, stack, observed)
+
+    runtime.aws = aws
+    runtime.save = save
+    runtime.describe_change_set = lambda _unit, _state: dict(observed)
+    runtime.approvals = set()
+    runtime.review_prepared = partial(controller.review_prepared, runtime)
+    runtime.execute = partial(controller.execute, runtime)
+    runtime.prepare = Mock()
+    runtime.load_inputs = Mock()
+    runtime.observed_readiness = Mock()
+    runtime.input_digest = lambda _unit, fresh=False: "input"
+    runtime.file_digest = Mock()
+    runtime.template_arguments = Mock()
+    runtime.check_imports = Mock()
+    runtime.poll = Mock()
+    with patch.object(current_request, "location", return_value=request):
+        aws(
+            "create_change_set",
+            StackName=name,
+            ChangeSetName="change",
+            ClientToken="create-token",
+        )
+        if released:
+            state["currentStack"] = {"StackId": stack, "StackStatus": "UPDATE_COMPLETE"}
+            settled = current_request.reconcile(runtime, unit)
+            TestCase().assertTrue(settled["settled"])
+            current_request.end_tracking(state, settled)
+            save()
+            current_request.release(runtime, settled)
+            TestCase().assertTrue(not request.exists())
+        TestCase().assertTrue(
+            current_request.current_state.same_change_set("change", change)
+        )
+        TestCase().assertTrue(
+            not current_request.current_state.same_change_set(change, "change")
+        )
+        TestCase().assertTrue(
+            scheduler.run_group([unit], 1, runtime.states, runtime, save) == "ACTIVE"
+        )
+        TestCase().assertTrue(
+            [call[0] for call in calls] == ["create_change_set", "execute_change_set"]
+        )
+        TestCase().assertTrue(calls[-1][2]["submission"] == "SENDING")
+        TestCase().assertTrue(calls[-1][1]["ClientRequestToken"] != "create-token")
+        TestCase().assertTrue(
+            any(
+                (
+                    item[0]
+                    and item[0]["operation"] == "create_change_set"
+                    and item[1].get("endedRequest")
+                    for item in saves
+                )
+            )
+        )
+        TestCase().assertTrue(json.loads(request.read_text())["submission"] == "SENT")
+        TestCase().assertTrue(state["changeDigest"] == fingerprint([]))
+        with pytest.raises(current_request.Blocked):
+            aws(
+                "execute_change_set",
+                StackName=stack,
+                ChangeSetName=change,
+                ClientRequestToken=state["clientToken"],
+            )
+        TestCase().assertTrue(len(calls) == 2)
+
+
+def _checkpoint_output(trace, root, *args):
+    if args == ("write-tree",) or args == ("rev-parse", "HEAD^{tree}"):
+        return "tree"
+    if args == ("rev-parse", "HEAD^"):
+        return "old"
+    if args == ("rev-parse", "HEAD"):
+        return trace.head
+    raise AssertionError(f"unexpected checkpoint read: {args}")
+
+
+def _checkpoint_git(trace, root, *args, **kwargs):
+    if args[0] == "commit":
+        if trace.failure == "before-commit" and not trace.failed:
+            trace.failed = True
+            raise OSError("interrupted before commit")
+        trace.head, trace.changed = "new", set()
+        trace.commits += 1
+        if trace.failure == "after-commit" and not trace.failed:
+            trace.failed = True
+            raise OSError("interrupted after commit")
+    return subprocess.CompletedProcess([], 0, "", "")
+
+
+def _checkpoint_save(trace, path, state):
+    if (
+        trace.failure == "receipt-save"
+        and not trace.failed
+        and "deployCheckpointIntent" not in state
+    ):
+        trace.failed = True
+        raise OSError("interrupted receipt save")
+    trace.saved.append(copy.deepcopy(state))
+    if trace.failure == "intent-save" and not trace.failed:
+        trace.failed = True
+        raise OSError("interrupted intent acknowledgement")
+
+
+@pytest.mark.parametrize(
+    "failure", ["before-commit", "after-commit", "intent-save", "receipt-save"]
+)
+def check_saved_checkpoint_intent_reconciles_once(tmp_path, monkeypatch, failure):
+    check = TestCase()
+    relative = "model/a.properties"
+    source = tmp_path / relative
+    source.parent.mkdir()
+    source.write_bytes(b"adopted observations")
+    state = dict(task_file="tasks/deploy.md", task_id="deploy", tip="old")
+    trace = SimpleNamespace(
+        failure=failure,
+        failed=False,
+        head="old",
+        changed={relative},
+        commits=0,
+        saved=[],
+    )
+    snapshot = SimpleNamespace(raw=b"task")
+    monkeypatch.setattr(
+        publication.tasks, "read_task_snapshot", Mock(return_value=snapshot)
+    )
+    monkeypatch.setattr(publication.worktree, "require", Mock())
+    monkeypatch.setattr(publication, "output_changes", lambda *a: set(trace.changed))
+    monkeypatch.setattr(
+        publication.contracts,
+        "validation_snapshot",
+        Mock(return_value={relative: "adopted"}),
+    )
+    monkeypatch.setattr(publication.wt, "output", partial(_checkpoint_output, trace))
+    monkeypatch.setattr(publication.wt, "git", partial(_checkpoint_git, trace))
+    monkeypatch.setattr(publication.wt, "save", partial(_checkpoint_save, trace))
+    preflight = dict(
+        task=b"task",
+        head="old",
+        index="tree",
+        changed={relative},
+        candidate={relative: "adopted"},
+    )
+    with pytest.raises(OSError, match="interrupted"):
+        publication.checkpoint(
+            tmp_path, tmp_path / "state.json", state, preflight=preflight
+        )
+    state = copy.deepcopy(trace.saved[-1])
+    check.assertIn("deployCheckpointIntent", state)
+    preflight.update(head=trace.head, changed=set(trace.changed))
+    check.assertEqual(
+        publication.checkpoint(
+            tmp_path, tmp_path / "state.json", state, preflight=preflight
+        ),
+        "new",
+    )
+    check.assertEqual(trace.commits, 1)
+    check.assertNotIn("deployCheckpointIntent", state)
+    check.assertEqual(state["tip"], "new")
+    check.assertEqual(source.read_bytes(), b"adopted observations")
+
+
+def _final_checkpoint_output(trace, root, *args):
+    return trace.head if args == ("rev-parse", "HEAD") else trace.index
+
+
+def _final_checkpoint_change(trace, failure, metadata, root, tree, head, candidate):
+    if failure == "validation":
+        raise ValueError("candidate validation failed")
+    if failure == "task":
+        trace.task = replace(trace.task, raw=b"external Task bytes")
+    elif failure in ("input", "candidate"):
+        trace.snapshot[
+            "infra/parameters.json" if failure == "input" else "model/a.properties"
+        ] = "external"
+    elif failure == "head":
+        trace.head = "external"
+    elif failure == "index":
+        trace.index = "external"
+    else:
+        metadata.write_text(
+            json.dumps({"deployCheckpointIntent": {"foreign": True}}), encoding="utf-8"
+        )
+
+
+@pytest.mark.parametrize(
+    "failure", ["task", "input", "candidate", "head", "index", "intent", "validation"]
+)
+def check_final_checkpoint_rejects_changes_before_adoption(
+    tmp_path, monkeypatch, failure
+):
+    check = TestCase()
+    name = "tasks/deploy.md"
+    text = task(tmp_path).text
+    source = tmp_path / name
+    source.parent.mkdir()
+    source.write_text(text, encoding="utf-8")
+    snapshot = publication.tasks.TaskSnapshot(
+        name,
+        tmp_path,
+        source,
+        text,
+        text.encode(),
+        hashlib.sha256(text.encode()).hexdigest(),
+        (None, None),
+    )
+    after = {"model/a.properties": "new", "infra/parameters.json": "fixed"}
+    pending = dict(
+        stacks=["A"],
+        before={**after, "model/a.properties": "old"},
+        after=dict(after),
+        final=dict(
+            taskBefore=text, taskAfter=publication.tasks.set_status(text, "completed")
+        ),
+    )
+    state = dict(
+        task_file=name,
+        tip="head",
+        deployIdentity=dict(stacks=["A"], taskDigest=snapshot.task_digest),
+    )
+    metadata = tmp_path / "state.json"
+    metadata.write_text("{}", encoding="utf-8")
+    trace = SimpleNamespace(
+        task=snapshot, head="head", index="index", snapshot=dict(after)
+    )
+    backend = SimpleNamespace(
+        root=tmp_path,
+        run_context={"checkpointPending": pending},
+        states={"A": {"status": "SUCCESS"}},
+        target={},
+        save=Mock(),
+        guard=Mock(),
+    )
+    monkeypatch.setattr(
+        checkpoints.tasks, "read_task_snapshot", lambda *a, **k: trace.task
+    )
+    monkeypatch.setattr(checkpoints.worktree, "final_blockers", Mock(return_value=[]))
+    monkeypatch.setattr(
+        checkpoints.contracts, "validation_snapshot", lambda *a: dict(trace.snapshot)
+    )
+    monkeypatch.setattr(
+        publication, "output_changes", Mock(return_value={"model/a.properties"})
+    )
+    monkeypatch.setattr(
+        current_request, "location", Mock(return_value=tmp_path / "request.json")
+    )
+    monkeypatch.setattr(
+        current_request.journal, "locked", Mock(return_value=nullcontext())
+    )
+    monkeypatch.setattr(current_request, "read", Mock(return_value=None))
+    monkeypatch.setattr(
+        checkpoints.wt, "output", partial(_final_checkpoint_output, trace)
+    )
+    monkeypatch.setattr(publication, "final_tree", Mock(return_value="tree"))
+    monkeypatch.setattr(
+        publication,
+        "validate_candidate",
+        partial(_final_checkpoint_change, trace, failure, metadata),
+    )
+    with (
+        patch.object(checkpoints.tasks, "atomic_files") as adopt,
+        patch.object(publication, "checkpoint") as commit,
+    ):
+        with pytest.raises(
+            ValueError, match="changed during validation|candidate validation failed"
+        ):
+            checkpoints.final_checkpoint(backend, tmp_path, metadata, state, pending)
+    adopt.assert_not_called()
+    commit.assert_not_called()
+    check.assertEqual(source.read_text(encoding="utf-8"), text)
+    check.assertNotIn("validated", pending["final"])
+    check.assertEqual(backend.run_context["snapshotValidation"], "FAIL")
+
+
+def _publication_output(trace, root, *args):
+    return "index" if args == ("write-tree",) else "merged" if trace.merged else "base"
+
+
+def _publication_merge(trace, root, *args, **kwargs):
+    TestCase().assertEqual(args[:2], ("merge", "--ff-only"))
+    if trace.failure == "before-merge" and not trace.failed:
+        trace.failed = True
+        raise OSError("interrupted before merge")
+    trace.merged = True
+    trace.merges += 1
+    if trace.failure == "after-merge" and not trace.failed:
+        trace.failed = True
+        raise OSError("interrupted after merge")
+    return subprocess.CompletedProcess([], 0, "", "")
+
+
+def _publication_save(trace, path, state):
+    if trace.failure == "receipt" and not trace.failed:
+        trace.failed = True
+        raise OSError("interrupted publication receipt")
+    trace.saved = copy.deepcopy(state)
+
+
+@pytest.mark.parametrize("failure", ["before-merge", "after-merge", "receipt"])
+def check_publication_merge_intent_reconciles_once(tmp_path, monkeypatch, failure):
+    check = TestCase()
+    state = dict(
+        worktree=str(tmp_path),
+        task_file="tasks/deploy.md",
+        branch="deploy",
+        base="main",
+        start="start",
+        tip="source",
+        deployPublication=dict(
+            status="PENDING",
+            publishedSource="start",
+            intent=dict(commit="merged", base="base", source="source"),
+        ),
+    )
+    trace = SimpleNamespace(
+        failure=failure,
+        failed=False,
+        merged=False,
+        merges=0,
+        saved=copy.deepcopy(state),
+    )
+    monkeypatch.setattr(
+        publication.wt,
+        "load",
+        lambda *a: (tmp_path, None, tmp_path / "state.json", state),
+    )
+    monkeypatch.setattr(
+        publication.wt, "lifecycle_lock", Mock(return_value=nullcontext())
+    )
+    monkeypatch.setattr(publication.worktree, "require", Mock())
+    monkeypatch.setattr(
+        publication.tasks, "read_task_snapshot", Mock(return_value=task(tmp_path))
+    )
+    monkeypatch.setattr(
+        publication.worktree, "read_progress", Mock(return_value={"runContext": {}})
+    )
+    monkeypatch.setattr(publication, "checkpoint_source", Mock(return_value="source"))
+    monkeypatch.setattr(
+        publication.contracts, "validation_snapshot", Mock(return_value={})
+    )
+    monkeypatch.setattr(publication, "require_checkpoint_intent", Mock())
+    monkeypatch.setattr(publication.wt, "base_worktree", Mock(return_value=tmp_path))
+    monkeypatch.setattr(publication.wt, "output", partial(_publication_output, trace))
+    monkeypatch.setattr(publication.wt, "ancestor", lambda *a: trace.merged)
+    monkeypatch.setattr(publication.wt, "git", partial(_publication_merge, trace))
+    monkeypatch.setattr(publication.wt, "save", partial(_publication_save, trace))
+    monkeypatch.setattr(
+        publication, "describe", lambda *a: dict(state["deployPublication"])
+    )
+    with pytest.raises(OSError, match="interrupted"):
+        publication.publish(tmp_path, "deploy")
+    state = copy.deepcopy(trace.saved)
+    check.assertIn("intent", state["deployPublication"])
+    result = publication.publish(tmp_path, "deploy")
+    check.assertEqual(result["status"], "SUCCESS")
+    check.assertEqual(result["publishedSource"], "source")
+    check.assertNotIn("intent", state["deployPublication"])
+    check.assertEqual(trace.merges, 1)
+
+
+@pytest.mark.parametrize("status", ["SUCCESS", "FAILED", "SETTLED", "NOT_STARTED"])
+def check_checkpoint_receipt_preserves_terminal_facts(tmp_path, monkeypatch, status):
+    relative = "infra/parameters.json"
+    unit = dict(name="A", deployOrder=1)
+    state = dict(deployIdentity={"taskDigest": "task"})
+    saved = dict(
+        status=status,
+        stackId="stack-id",
+        stackStatus="UPDATE_COMPLETE",
+        observedCoverage={"row": "known"},
+        observedServices=["vpc"],
+    )
+    backend = SimpleNamespace(
+        root=tmp_path,
+        states={"A": saved},
+        run_context=dict(
+            stepUnits=[unit],
+            consumedInputs={relative: "hash"},
+            taskDigest="task",
+            inputDigests={"A": "digest"},
+        ),
+        deployment_input_paths=lambda units: [tmp_path / relative],
+    )
+    monkeypatch.setattr(checkpoints.wt, "output", Mock(return_value="tree"))
+    receipt = checkpoints.checkpoint_receipt(backend, state, "A", "commit")
+    TestCase().assertEqual(
+        (receipt["deployStatus"], receipt["stackStatus"], receipt["stackId"]),
+        (status, "UPDATE_COMPLETE", "stack-id"),
+    )
+    TestCase().assertEqual(receipt["inputs"], {relative: "hash"})
+    saved["observedCoverage"]["row"] = "changed"
+    TestCase().assertEqual(receipt["coverage"], {"row": "known"})
+
+
+def _resolution_command(command, **kwargs):
+    return subprocess.CompletedProcess(
+        command, 0, "resolved-tree" if command[1] == "write-tree" else "oid", ""
+    )
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "approval",
+        "base",
+        "source",
+        "files",
+        "location",
+        "mode",
+        "iac",
+        "transport",
+        "none",
+    ],
+)
+def check_reviewed_conflict_tree_uses_private_index(tmp_path, failure):
+    check = TestCase()
+    root = tmp_path / "repo"
+    root.mkdir()
+    relative = (
+        "infra/template.yaml" if failure == "iac" else "model/dev/team/ec2.properties"
+    )
+    review = tmp_path / "review.json"
+    document = dict(
+        approval="" if failure == "approval" else "Human accepts observation delta",
+        base="other" if failure == "base" else "base",
+        source="other" if failure == "source" else "source",
+        files={} if failure == "files" else {relative: "reviewed contents"},
+    )
+    review.write_text(json.dumps(document))
+    original = review.read_bytes()
+    record = dict(conflictTree="conflict-tree", conflicts=[dict(path=relative)])
+    with (
+        patch.object(
+            publication.ws, "repository", return_value=(root, root / ".git", root)
+        ),
+        patch.object(
+            publication.wt.python_env,
+            "runtime",
+            return_value=(sys.executable, {"GIT_DIR": "must-not-propagate"}),
+        ),
+        patch.object(
+            publication.wt,
+            "output",
+            return_value="120000 blob" if failure == "mode" else "100644 blob",
+        ),
+        patch.object(publication, "blob", return_value="original IaC"),
+        patch.object(
+            publication.subprocess,
+            "run",
+            side_effect=OSError("transport")
+            if failure == "transport"
+            else _resolution_command,
+        ) as git,
+    ):
+        if failure == "none":
+            check.assertEqual(
+                publication.resolved_tree(root, "base", "source", record, review),
+                "resolved-tree",
+            )
+            environments = [
+                call.kwargs["env"]
+                for call in git.call_args_list
+                if "env" in call.kwargs
+            ]
+            check.assertTrue(
+                all(
+                    "GIT_DIR" not in env
+                    and not Path(env["GIT_INDEX_FILE"]).is_relative_to(root)
+                    for env in environments
+                )
+            )
+        else:
+            with pytest.raises(OSError if failure == "transport" else ValueError):
+                publication.resolved_tree(
+                    root,
+                    "base",
+                    "source",
+                    record,
+                    Path("relative.json") if failure == "location" else review,
+                )
+    if failure in {"approval", "base", "source", "files", "location"}:
+        git.assert_not_called()
+    check.assertEqual(review.read_bytes(), original)
+    check.assertEqual(list(root.iterdir()), [])
+
+
+def _conflict_publication_output(trace, primary, root, *args):
+    if root == primary:
+        return trace["head"]
+    if args == ("write-tree",):
+        return "index"
+    if args[:1] == ("commit-tree",):
+        return "candidate"
+    return "source" if args == ("rev-parse", "HEAD") else "base-tree"
+
+
+def _conflict_publication_git(trace, primary, root, *args, **kwargs):
+    if args[0] == "merge-tree":
+        return subprocess.CompletedProcess(
+            [], 1, "conflict-tree\0model/dev/team/ec2.properties\0\0", ""
+        )
+    if root == primary and args[:2] == ("merge", "--ff-only"):
+        trace["head"] = args[-1]
+        trace["merges"] += 1
+    return subprocess.CompletedProcess([], 0, "", "")
+
+
+def check_conflict_review_publishes_without_repeating_aws(tmp_path, monkeypatch):
+    check = TestCase()
+    primary, root = tmp_path / "primary", tmp_path / "task"
+    primary.mkdir()
+    root.mkdir()
+    state = dict(
+        worktree=str(root), task_file="tasks/deploy.md", start="start", base="main"
+    )
+    progress = {
+        "runContext": {
+            "states": {
+                "A": {
+                    "status": "SUCCESS",
+                    "executionEvidence": {"clientToken": "fixed"},
+                }
+            }
+        }
+    }
+    before = copy.deepcopy(progress)
+    task = SimpleNamespace(name="tasks/deploy.md", raw=b"contract")
+    trace = dict(head="base", merges=0)
+    monkeypatch.setattr(
+        publication.wt,
+        "load",
+        Mock(return_value=(primary, None, tmp_path / "state.json", state)),
+    )
+    monkeypatch.setattr(
+        publication.wt, "lifecycle_lock", Mock(return_value=nullcontext())
+    )
+    monkeypatch.setattr(
+        publication.tasks, "read_task_snapshot", Mock(return_value=task)
+    )
+    monkeypatch.setattr(publication.worktree, "require", Mock())
+    monkeypatch.setattr(
+        publication.worktree, "read_progress", Mock(return_value=progress)
+    )
+    monkeypatch.setattr(publication, "checkpoint_source", Mock(return_value="source"))
+    monkeypatch.setattr(
+        publication.contracts, "validation_snapshot", Mock(return_value={})
+    )
+    monkeypatch.setattr(publication.wt, "base_worktree", Mock(return_value=primary))
+    monkeypatch.setattr(
+        publication.wt,
+        "output",
+        Mock(side_effect=partial(_conflict_publication_output, trace, primary)),
+    )
+    monkeypatch.setattr(
+        publication.wt,
+        "git",
+        Mock(side_effect=partial(_conflict_publication_git, trace, primary)),
+    )
+    monkeypatch.setattr(publication.wt, "save", Mock())
+    monkeypatch.setattr(publication.wt, "ancestor", Mock(return_value=False))
+    monkeypatch.setattr(publication.wt, "changed_paths", Mock(return_value=set()))
+    monkeypatch.setattr(
+        publication.wt, "paths", Mock(return_value={"model/dev/team/ec2.properties"})
+    )
+    monkeypatch.setattr(
+        publication,
+        "conflicts",
+        Mock(return_value=[{"path": "model/dev/team/ec2.properties"}]),
+    )
+    monkeypatch.setattr(
+        publication, "describe", lambda *args: state["deployPublication"].copy()
+    )
+    validate, resolve = Mock(), Mock(return_value="resolved-tree")
+    monkeypatch.setattr(publication, "validate_candidate", validate)
+    monkeypatch.setattr(publication, "resolved_tree", resolve)
+    check.assertEqual(publication.publish(root, "deploy")["status"], "CONFLICT")
+    check.assertEqual(trace["merges"], 0)
+    validate.assert_not_called()
+    resolve.assert_not_called()
+    check.assertEqual(
+        publication.publish(root, "deploy", tmp_path / "review.json")["status"],
+        "SUCCESS",
+    )
+    check.assertEqual(trace["merges"], 1)
+    validate.assert_called_once()
+    resolve.assert_called_once()
+    check.assertEqual(progress, before)
+    check.assertNotIn("conflicts", state["deployPublication"])
 
 
 if __name__ == "__main__":

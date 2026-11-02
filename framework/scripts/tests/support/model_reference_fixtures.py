@@ -92,8 +92,8 @@ def project_configuration(root):
 
 def project(root):
     project_configuration(root)
-    producer, values = resource(root, "kms", "KMS.Key")
-    consumer, policy = resource(
+    producer, values = resource_values(root, "kms", "KMS.Key")
+    consumer, policy = resource_values(
         root, "iam", "IAM.ManagedPolicy", attribute="ManagedPolicyName"
     )
     policy.update(
@@ -117,7 +117,9 @@ def project(root):
         }
     )
     policy["desired.resource.001.cfn-logicalId"] = "consumer-Policy"
-    save(consumer, policy)
+    write(producer, values)
+    write(consumer, policy)
+    dependency_index.rebuild(root)
     return producer, values, consumer, policy
 
 
@@ -177,10 +179,10 @@ def pipeline(root):
     ]
     actions = []
     for service, kind, setting, category, provider, key, attribute in producers:
-        scope, first = resource(
+        scope, first = resource_values(
             root, service, kind, attribute=setting, observed="PENDING_DEPLOY"
         )
-        _, second = resource(
+        _, second = resource_values(
             root,
             service,
             kind,
@@ -191,7 +193,7 @@ def pipeline(root):
         first.update(second)
         first["desired.row.001-001.value"] = "`synthetic-" + service + "-a`"
         first["desired.row.002-001.value"] = "`synthetic-" + service + "-b`"
-        save(scope, first)
+        write(scope, first)
         actions.append(
             {
                 "Name": provider,
@@ -207,7 +209,7 @@ def pipeline(root):
         {"Name": "First", "Actions": actions[:2]},
         {"Name": "Second", "Actions": actions[2:]},
     ]
-    scope, values = resource(
+    scope, values = resource_values(
         root, "codepipeline", "CodePipeline.Pipeline", attribute="Name"
     )
     values.update(
@@ -218,7 +220,7 @@ def pipeline(root):
             "desired.row.001-002.comment": "合成Stages",
         }
     )
-    save(scope, values)
+    write(scope, values)
     pseudo = {
         "AWS::Region": "ap-northeast-1",
         "AWS::AccountId": "123456789012",
@@ -243,7 +245,7 @@ def pipeline(root):
                     + ("a" if number == "001" else "b")
                 },
             }
-        save(producer_scope, authored)
+        write(producer_scope, authored)
         document = {"Resources": definitions}
         if service == "codecommit":
             document["Outputs"] = {
@@ -253,6 +255,7 @@ def pipeline(root):
                 }
             }
         stack_inputs[service] = (document, {}, pseudo)
+    dependency_index.rebuild(root)
     result = comparison(root, ("codepipeline", "codecommit", "codebuild", "s3"))
     result.stack_inputs = stack_inputs
     result._templates = [(name, {"name": name}) for name in stack_inputs]

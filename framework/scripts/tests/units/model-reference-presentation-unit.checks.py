@@ -52,6 +52,8 @@ from support.model_reference_fixtures import (
 from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
 
+from model import dependency_index
+
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
@@ -62,7 +64,6 @@ def models(tmp_path):
         mapping_alias(FRAMEWORK, tmp_path),
         patch("socket.socket", side_effect=AssertionError("network forbidden")),
     ):
-        project(tmp_path)
         for service, kind, field, name in (
             ("s3", "S3.Bucket", "BucketName", "shared-name"),
             ("codebuild", "CodeBuild.Project", "Name", "shared-name"),
@@ -74,7 +75,42 @@ def models(tmp_path):
             values["desired.row.001-001.value"] = "`" + name + "`"
             values["desired.resource.001.anchor"] = service + "-saved-anchor"
             save(scope, values)
+        project(tmp_path)
         yield tmp_path
+
+
+def test_fixture_initialization_and_normal_save_are_independent(tmp_path):
+    check = TestCase()
+    context = models.__wrapped__(tmp_path)
+    with patch.object(
+        dependency_index, "rebuild", wraps=dependency_index.rebuild
+    ) as rebuild:
+        try:
+            root = next(context)
+            check.assertEqual(rebuild.call_count, 1)
+            before = {
+                path: path.read_bytes()
+                for path in (root / "model").rglob("*.properties")
+            }
+            check.assertEqual(len(dependency_index.load(root)["models"]), 7)
+            scope = Scope(root, "qa", "team", "s3")
+            values = dict(load_model(scope).authoritative)
+            values["desired.row.001-001.value"] = "`changed-bucket`"
+            save(scope, values)
+            check.assertEqual(rebuild.call_count, 2)
+            check.assertEqual(
+                load_model(scope).authoritative["desired.row.001-001.value"],
+                "`changed-bucket`",
+            )
+            check.assertTrue(dependency_index.load(root)["models"])
+            check.assertTrue(
+                all(
+                    path == scope.path or path.read_bytes() == raw
+                    for path, raw in before.items()
+                )
+            )
+        finally:
+            context.close()
 
 
 def consumer(root, service="glue", kind="Glue.Job"):

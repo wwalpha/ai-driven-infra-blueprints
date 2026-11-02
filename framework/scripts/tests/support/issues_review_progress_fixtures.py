@@ -61,10 +61,10 @@ def finish(review: ReviewController, limit: int = 20) -> dict[str, Any]:
 
 
 def cli(
-    review: ReviewController, operation: str, *args: str
+    review: ReviewController, operation: str, *args: str, runner=None
 ) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
-    return subprocess.run(
+    return (subprocess.run if runner is None else runner)(
         [
             sys.executable,
             "-B",

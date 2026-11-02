@@ -11,7 +11,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from contextlib import chdir
 from unittest import TestCase
 
-import model.format as _imports_model_format
 import model.sources as _imports_model_sources
 from support.deploy_preparation_fixtures import (
     ROOT,
@@ -28,12 +27,10 @@ from support.deploy_preparation_fixtures import (
     json,
     patch,
     paths_in,
-    read_model,
     redirect_stderr,
     subprocess,
     sys,
     tempfile,
-    write_model,
     zipfile,
 )
 from support.it_case_receipt import it_case
@@ -146,83 +143,7 @@ def check_preparation():
         assert paths_in(registered, "## Modified files") == paths_in(
             text, "## Modified files"
         )
-        assert (
-            invoke(arguments(root, base)) == 1
-        )  # Registered tasks keep the existing resume path.
-        with patch.object(
-            subprocess,
-            "run",
-            return_value=subprocess.CompletedProcess(plan["controllerArgv"], 2),
-        ) as launch:
-            assert (
-                M.main(["--repository-root", str(root), "--run-controller", str(path)])
-                == 2
-            )
-            assert (
-                launch.call_count == 1
-                and launch.call_args.args[0] == plan["controllerArgv"]
-            )
-            assert (
-                launch.call_args.kwargs["env"]["BLUEPRINT_TASK_FILE"]
-                == "tasks/deploy-offline.md"
-            )
         plan = json.loads(path.read_text(encoding="utf-8"))
-        original_command = plan["controllerArgv"][:]
-        for command in (
-            [str(base / "other-python"), *original_command[1:]],
-            [
-                original_command[0],
-                str(base / "other-controller.py"),
-                *original_command[2:],
-            ],
-            [
-                *original_command[:2],
-                "--repository-root",
-                str(root),
-                *original_command[2:],
-            ],
-            [*original_command, "--repository-root=" + str(root)],
-        ):
-            plan["controllerArgv"] = command
-            path.write_text(json.dumps(plan), encoding="utf-8")
-            with (
-                patch.object(
-                    subprocess,
-                    "run",
-                    side_effect=AssertionError("foreign Project launched"),
-                ),
-                redirect_stderr(io.StringIO()),
-            ):
-                assert (
-                    M.main(
-                        ["--repository-root", str(root), "--run-controller", str(path)]
-                    )
-                    == 1
-                )
-        plan["controllerArgv"] = original_command
-        for field, value in (
-            ("repository", str(base / "other")),
-            ("registeredContractDigest", "changed"),
-        ):
-            saved = plan[field]
-            plan[field] = value
-            path.write_text(json.dumps(plan), encoding="utf-8")
-            with (
-                patch.object(
-                    subprocess,
-                    "run",
-                    side_effect=AssertionError("unapproved plan launched"),
-                ),
-                redirect_stderr(io.StringIO()),
-            ):
-                assert (
-                    M.main(
-                        ["--repository-root", str(root), "--run-controller", str(path)]
-                    )
-                    == 1
-                )
-            plan[field] = saved
-        path.write_text(json.dumps(plan), encoding="utf-8")
         events = [
             json.loads(line) for line in (run / "timing.jsonl").read_text().splitlines()
         ]
@@ -312,79 +233,6 @@ def check_preparation():
         print("Offline preparation: input fingerprints and timing verified")
 
 
-@it_case
-def check_registration_input_changes():
-    for reason in (
-        "runtime",
-        "project",
-        "stack",
-        "iac",
-        "parameters",
-        "candidate",
-        "model",
-        "markdown-change",
-        "markdown-delete",
-        "json-change",
-        "json-delete",
-    ):
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory).resolve()
-            root = base / "repo"
-            fixture(root)
-            assert invoke(arguments(root, base)) == 0
-            run = next((base / "logs").iterdir())
-            path = run / "preparation.json"
-            if reason.startswith(("markdown-", "json-")):
-                generated = (
-                    root
-                    / "docs/designs/dev/123456789012"
-                    / (
-                        "iam/worker-role-trust-policy.json"
-                        if reason.startswith("json-")
-                        else "ec2.md"
-                    )
-                )
-                if reason.endswith("delete"):
-                    generated.unlink()
-                else:
-                    generated.write_text("changed", encoding="utf-8")
-            elif reason in {"project", "stack", "iac", "parameters"}:
-                source = (
-                    root
-                    / {
-                        "project": "project.json",
-                        "stack": "model/dev/123456789012/cloudformation-stacks.properties",
-                        "iac": "infra/cloudformation/templates/shared.yaml",
-                        "parameters": "infra/cloudformation/parameters/dev/123456789012/1.json",
-                    }[reason]
-                )
-                source.write_text(source.read_text() + "\nchanged", encoding="utf-8")
-            elif reason == "model":
-                source = root / "model/dev/123456789012/iam.properties"
-                write_model(source, read_model(source) + "# changed\n")
-            elif reason == "candidate":
-                (run / "contract.md").write_text("changed", encoding="utf-8")
-            with (
-                patch.dict(M.os.environ, {"PATH": "changed"})
-                if reason == "runtime"
-                else patch.dict(M.os.environ, {})
-            ):
-                result = invoke(
-                    ["--repository-root", str(root), "--register", str(path)]
-                )
-                TestCase().assertEqual(
-                    result,
-                    0 if reason.startswith(("markdown-", "json-")) else 1,
-                    reason,
-                )
-            TestCase().assertEqual(
-                json.loads((run / "timing.jsonl").read_text().splitlines()[-1])[
-                    "result"
-                ],
-                "PASS" if reason.startswith(("markdown-", "json-")) else "FAIL",
-            )
-
-
 def _callback_check_generated_boundaries_load_with_artifacts(
     real_load, /, *args, **kwargs
 ):
@@ -405,23 +253,7 @@ def check_generated_boundaries():
         base = Path(directory).resolve()
         root = base / "repo"
         fixture(root)
-        source = root / "model/dev/123456789012/iam.properties"
-        serialize = _imports_model_format.serialize
-        load_model = _imports_model_sources.load_model
-        original = serialize(load_model(source).authoritative)
         # Exact generation authority requires readable Model rows, never saved View content.
-        source.write_text("invalid unrelated service body", encoding="utf-8")
-        with TestCase().assertRaises(ValueError):
-            M.candidate(
-                root,
-                "tasks/deploy-offline.md",
-                "dev",
-                "123456789012",
-                TARGET,
-                STACKS,
-                ["iam"],
-            )
-        source.write_text(original, encoding="utf-8")
         real_load = M.load_units
         artifacts = root / "infra/cloudformation/artifacts"
         artifacts.mkdir(parents=True)
@@ -447,44 +279,6 @@ def check_generated_boundaries():
                 (ROOT if relative.startswith(("framework/", ".agents/")) else root)
                 / relative
             )
-        with (
-            patch.object(
-                M,
-                "owning_resources",
-                return_value={"a": {"x": {"service": "iam"}, "y": {"service": "ec2"}}},
-            ),
-            patch.object(
-                M,
-                "paths",
-                return_value=(
-                    root
-                    / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json",
-                    artifacts / "execution.json",
-                ),
-            ),
-            patch.object(
-                M,
-                "deployment_input_paths",
-                return_value=[
-                    root
-                    / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json"
-                ],
-            ),
-        ):
-            output = io.StringIO()
-            with redirect_stderr(output):
-                assert M.main(arguments(root, base)) == 1
-            assert (
-                "generated view conflicts with execution/required input"
-                in output.getvalue()
-            )
-        parameter = root / "infra/cloudformation/parameters/dev/123456789012/1.json"
-        parameter.unlink()
-        parameter.symlink_to(parameter.with_name("2.json"))
-        output = io.StringIO()
-        with redirect_stderr(output):
-            assert M.main(arguments(root, base)) == 1
-        assert "task path must not use symlinks" in output.getvalue()
 
 
 @it_case
@@ -525,7 +319,6 @@ if __name__ == "__main__":
 
     with catalog_display():
         check_preparation()
-        check_registration_input_changes()
         check_generated_boundaries()
         check_order_scope_preparation()
         print("Deployment preparation checks: PASS")

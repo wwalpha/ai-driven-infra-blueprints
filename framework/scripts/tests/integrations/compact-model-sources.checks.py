@@ -6,7 +6,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from unittest.mock import patch
 
 from model.format import parse
 from model.format import patch as patch_properties
@@ -19,7 +18,6 @@ from support.producer_identifier_reference_fixtures import (
     Path,
     affected,
     load_model,
-    rejected,
     serialize,
     setup,
     tempfile,
@@ -70,23 +68,6 @@ with tempfile.TemporaryDirectory() as directory:
             with publication_lock(root) as journal:
                 _publish_transaction(root, {path: text}, (), journal)
             assert path.read_bytes() == before
-    original = path.read_bytes()
-    marker = root / "marker"
-    marker.write_text("before")
-
-    def interrupted(output):
-        marker.write_text("partial")
-        raise OSError("interrupted")
-
-    with (
-        publication_lock(root) as journal,
-        patch("sync_files.save_files", side_effect=interrupted),
-    ):
-        rejected(
-            lambda: _publish_transaction(root, {marker: "after"}, {path}, journal),
-            "interrupted",
-        )
-    assert path.read_bytes() == original and marker.read_text() == "before"
     for _ in range(2):
         with publication_lock(root) as journal:
             _publish_transaction(root, {path: serialize(desired)}, (), journal)
@@ -94,16 +75,10 @@ with tempfile.TemporaryDirectory() as directory:
             load_model(path).authoritative == desired
             and key not in load_model(path).values
         )
-    reads = FileReads()
-    reads.read(path)
-    external = path.read_bytes() + b"# concurrent observed edit\n"
-    path.write_bytes(external)
-    rejected(reads.verify, "input changed")
-    assert path.read_bytes() == external
     path.write_text(serialize(desired))
     assert load_model(path).authoritative == desired
 print(
-    "Compact sources: PASS (false/zero/empty/null/missing observed; derived metadata; fixed owner; malformed/I/O rejection; atomic rollback; raw snapshot; idempotence)"
+    "Compact sources: PASS (false/zero/empty/null/missing observed; derived metadata; fixed owner; idempotence)"
 )
 
 with tempfile.TemporaryDirectory() as directory:

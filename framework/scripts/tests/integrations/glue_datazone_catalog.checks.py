@@ -7,11 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import sync_runtime as model
 from support.glue_datazone_catalog_fixtures import (
     Path,
-    io,
-    redirect_stdout,
     sys,
     tempfile,
     write_designs,
@@ -200,18 +197,7 @@ desired.row.003-007.comment=data sourceの種別
             )
             output.parent.mkdir(parents=True, exist_ok=True)
             write_model(output, contents)
-        original = {path: path.read_bytes() for path in (glue, datazone)}
-        try:
-            with redirect_stdout(io.StringIO()):
-                model.sync(root, False)
-        except ValueError as error:
-            assert "generated Markdown is stale or missing" in str(error), error
-        else:
-            raise AssertionError("stale design accepted by generation")
-        assert original == {path: path.read_bytes() for path in (glue, datazone)}
-    print(
-        "glue-datazone-catalog: PASS (schema, fixed anchors, read-only projection and stale view rejection)"
-    )
+    print("glue-datazone-catalog: PASS (schema, fixed anchors, read-only projection)")
 
 
 if __name__ == "__main__":

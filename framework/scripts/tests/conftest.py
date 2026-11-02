@@ -1,5 +1,6 @@
 """Keep concurrent Pilot invocations from sharing pytest cleanup state."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -8,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 import tempfile
+from unittest.mock import _patch, patch
 
 import pytest
 import support.model_sources as _imports_support_model_sources
@@ -47,6 +49,34 @@ def catalog_display_fixture():
     catalog_display = _imports_support_model_sources.catalog_display
     with catalog_display():
         yield
+
+
+@pytest.fixture(autouse=True)
+def process_state(request):
+    if not getattr(request.config, "blueprint_ut_group", False):
+        yield
+        return
+    cwd = Path.cwd()
+    active_patches = tuple(_patch._active_patches)
+    with (
+        patch.object(os, "environ", os.environ),
+        patch.dict(os.environ),
+        patch.object(sys, "path", list(sys.path)),
+        patch.object(sys, "argv", list(sys.argv)),
+    ):
+        try:
+            yield
+        finally:
+            os.chdir(cwd)
+            leaked = [
+                item for item in _patch._active_patches if item not in active_patches
+            ]
+            for item in reversed(leaked):
+                item.stop()
+            if leaked:
+                pytest.fail(
+                    f"UT leaked {len(leaked)} started patches: {request.node.nodeid}"
+                )
 
 
 @pytest.fixture(autouse=True)

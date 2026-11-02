@@ -4,6 +4,7 @@
 import subprocess
 import sys
 from pathlib import Path
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -50,35 +51,27 @@ def check_cfn_selector():
             resource_keys(text, selector)
 
 
-def check_cli_entrypoints():
-    scripts = Path(__file__).resolve().parents[2]
-    direct = subprocess.run(
-        [sys.executable, "-B", str(scripts / "model/cli.py"), "--help"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    imported = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            "-c",
-            "import sys; sys.argv[0] = 'cli.py'; from model.cli import main; main(['--help'])",
-        ],
-        cwd=scripts,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert direct.stdout == imported.stdout
-    module = subprocess.run(
-        [sys.executable, "-B", "-m", "model.cli", "--help"],
-        cwd=scripts,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert module.stdout == ""  # Preserve the existing module execution contract.
+def check_cli_entrypoints(capsys):
+    with pytest.raises(SystemExit) as result:
+        cli_main(["--help"])
+    TestCase().assertEqual(result.value.code, 0)
+    TestCase().assertIn("usage:", capsys.readouterr().out)
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        [],
+        ["--environment", "dev"],
+        ["--service", "vpc"],
+        ["--environment", "dev", "--service", "vpc"],
+    ],
+)
+def check_import_cli_preflight(arguments, capsys):
+    with pytest.raises(SystemExit) as result:
+        cli_main(["import", *arguments])
+    TestCase().assertEqual(result.value.code, 2)
+    TestCase().assertTrue(capsys.readouterr().err)
 
 
 def check_journal_precedes_publication(tmp_path: Path) -> None:
@@ -106,6 +99,7 @@ def check_journal_precedes_publication(tmp_path: Path) -> None:
         )
         assert [call[0] for call in calls.mock_calls] == ["journal", "model"]
         assert not journal.exists()
+
     with sources.publication_lock(tmp_path) as journal:
         with (
             patch.object(
@@ -119,6 +113,64 @@ def check_journal_precedes_publication(tmp_path: Path) -> None:
             )
         publish.assert_not_called()
         assert not journal.exists()
+
+
+def _receipt_write(receipt, failure):
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_bytes(b"new receipt")
+    if failure == "start":
+        raise OSError("start failure")
+
+
+def _partial_publication(output):
+    path, text = next(iter(output.items()))
+    path.write_text(text, encoding="utf-8")
+    raise OSError("partial publication failure")
+
+
+@pytest.mark.parametrize("failure", ["start", "model", "finish"])
+@pytest.mark.parametrize("old_receipt", [None, b"previous receipt"])
+def check_import_transaction_rolls_back_sources_views_and_receipt(
+    tmp_path, failure, old_receipt
+):
+    check = TestCase()
+    root = tmp_path / "repository"
+    source = root / "model/dev/team/logs.properties"
+    view = root / "docs/designs/dev/team/logs.md"
+    for path in (source, view):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"old bytes\r\n")
+    name = "tasks/import.md"
+    receipt = sources.evidence_store(root) / "import.json"
+    if old_receipt is not None:
+        receipt.write_bytes(old_receipt)
+    with sources.publication_lock(root) as journal:
+        start = _bind_framework_callback(_receipt_write, receipt, failure)
+        with (
+            patch.object(
+                sources.sync_files,
+                "save_files",
+                side_effect=_partial_publication
+                if failure == "model"
+                else sources.sync_files.save_files,
+            ),
+            pytest.raises(OSError, match="failure"),
+        ):
+            sources._publish_transaction(
+                root,
+                {source: "new source", view: "new view"},
+                (),
+                journal,
+                start=start,
+                finish=Mock(side_effect=OSError("finish failure"))
+                if failure == "finish"
+                else None,
+                receipt=(name, old_receipt),
+            )
+        check.assertFalse(journal.exists())
+    check.assertEqual(source.read_bytes(), b"old bytes\r\n")
+    check.assertEqual(view.read_bytes(), b"old bytes\r\n")
+    check.assertEqual(receipt.read_bytes() if receipt.exists() else None, old_receipt)
 
 
 def check_loader_rejects_corrupt_and_unreadable_sources(tmp_path):
@@ -550,6 +602,29 @@ def check_parts_and_large_resource():
             output[scope.path].replace("part-002", "part-003"), encoding="utf-8"
         )
         assert load_model(scope).authoritative == values
+
+
+def check_interrupted_journal_restores_before_next_publication(tmp_path):
+    check = TestCase()
+    original, created = tmp_path / "model.properties", tmp_path / "view.json"
+    original.write_bytes(b"original\r\n")
+    with sources.publication_lock(tmp_path) as journal:
+        with (
+            patch.object(
+                sources.sync_files, "save_files", side_effect=KeyboardInterrupt
+            ),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            sources._publish_transaction(
+                tmp_path, {original: "changed", created: "{}"}, (), journal
+            )
+        check.assertTrue(journal.is_file())
+        original.write_bytes(b"partial child bytes")
+        created.write_bytes(b"partial")
+    with sources.publication_lock(tmp_path) as journal:
+        check.assertEqual(original.read_bytes(), b"original\r\n")
+        check.assertFalse(created.exists())
+        check.assertFalse(journal.exists())
 
 
 if __name__ == "__main__":

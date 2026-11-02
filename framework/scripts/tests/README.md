@@ -7,6 +7,61 @@
 - `support/`: 共通fixture、loader、pytestの診断補助。UTはITテストモジュールをimportしない。
 - `unknown/`: 分類対象を残さない。分類済みかどうかはディレクトリ名だけで判断しない。
 
+## 現行の実行・責務契約
+
+`run_it.py` のUT段階は `select_checks()` が発見する全UTを選択する。変更ファイルによる選別やskip/xfailへの置換は行わない。
+`support/pytest_cli.py` は通常の `run(__file__)` 入口だけをASTで判別し、互換スイートを2グループへ分配する。
+Worktreeケース、独自の直接入口、クラスを定義するスイート、audit hook、global/nonlocal、module/importオブジェクトへの直接書込、既存platform skip等の隔離対象は従来の独立起動を維持する。
+新しいスイート登録台帳は設けない。既存のWorktree責務表だけは、その実ケースと同期する。
+
+スケジューラは最大2並列。pytestグループも既存の回帰コマンド判定・ログ・失敗伝播・中断処理を通す。
+Repair/Checkpointのケース起動も同時に2つまでとする。ケースID・収集重複・未収集・未実行・skip/xfailを失敗として診断し、pytestの非0終了コードを保持する。
+グループでは各ケースの環境変数・cwd・sys.path・sys.argvを戻し、残留した `patch.start()` を停止して当該ケースを失敗させる。
+変更可能なModelやFixtureをケース間で共有しない。
+
+UTは正常・異常・境界・状態遷移・例外・引数/dispatchを所有し、プロセスやAWS応答はMock/Fakeで検証する。
+ITは正常なCLI・Git・保存・再読込・コンポーネント接続を所有する。故障注入・強制終了・Timeout・失敗復旧の組合せはUTに置く。
+既存の結果レコードにおけるdifference/uncompared等は業務上の比較結果であり、ITへ実行障害を注入する理由にしない。
+
+| 移管・統合した保証 | 判定・失敗を所有するUT | 残す正常連携IT |
+| --- | --- | --- |
+| Runnerの中断、子終了、収集/Receipt、全選択、2並列 | blueprint-loop-unit | blueprint-loop、既存run_it Receipt |
+| Issuesの入力、revision、Lock、保存失敗 | issues-review-progress-unit、issues-snapshot-unit | issues-review-progress、issues_scan |
+| lintのschema/protocol/期限/強制回収 | issues-lint-unit | issues-lintの実CLI一致とWorker設定隔離 |
+| Deployのcheckpoint/receipt、Git競合・公開intent、完了状態 | deploy-worktree-unit、deploy-steps-unit、deploy-runtime-unit、observed-mapping | deploy-worktree、Checkpoint、controller、CloudFormationの正常保存/公開 |
+| Observedのjournal所有者、部分書込、復元順序 | deploy-observed-resume-unit | controllerの別プロセス正常公開（旧observed-recovery ITは削除） |
+| Worktreeの作成拒否、Git引数/競合、cleanup、修復/PR中断と再開 | worktree-guard-unit、既存worktree-model-guard-unit | worktree_task、model-operation、Python setup、修復の通常CLI→検証→親統合 |
+| ImportのReview/Scope/入力変更、Schema、保存/Receipt rollback | import-approval-unit、import-model-unit、model_files-unit | import-model、import-cli、import-worktree-contract |
+| Modelのone-use、同時変更、生成/保存失敗、JSON/復元エラー | model-format-v2、sync-model-unit、file_operations-unit、model_files-unit、既存Model/参照UT | model-properties-v2、sync-model、model_templates、model_design |
+| 新規Python起動・import順序・API注釈・CLI help・依存不要の正常入口 | API/引数/型の判定は既存各UT | python-startup（既存pytest/Discovery/Receiptを使用） |
+| 監査CLIのTask状態・変更・出力保護 | model_test/generation-unit | model_test/cli-contract、監査生成→独立実行→ログ再読込 |
+| AWS取得失敗・不存在・任意設定なし、Importエラー分類 | aws_mapping-unit、check-model-aws-adapter-unit、import-adapter-contracts-unit | aws_mappingの正常取得→比較/Import/表示 |
+| Scope/Schema/命名/参照・anchor・parts欠落・cache競合・audit log不正 | sync-model-unit、model-format-v2、model-reference-display-unit、validation_cache-unit、validation-units、model_test/comparison-unit | validation_scope、validate-blueprint、resource_mode、model_files、参照・auditの正常保存/CLI |
+| 共通assetコピーの部分失敗rollback・symlink・必須引数 | sync-existing-files-unit（既存故障ケースを移動） | sync-existing-filesの実CLIコピー→dry-run→更新 |
+| PDFリンク不正・native依存エラー時の出力保持 | export-design-pdf-unit | export-design-pdfの複数文書bundle |
+
+最新baseのPR update/merge応答・失敗Validationはworktree-guard-unitのFakeで保証し、ITはDraft/Ready・更新・各正常終了と明示cleanupを保持する。Deploy owner補正/参照同期の故障は既存contract-correction/observed/generation-resume UTが所有し、ITには正常な範囲指定と承認済み参照同期を残す。
+
+Importの未使用な故障注入Fixture/Mockは削除し、共有 `import_publication_case()` はAPI/CLIの正常公開だけを扱う。
+修復ITの入口は診断済みの既存Task資料であり、新しいController故障や中断を注入しない。
+実OSでの強制終了・子孫回収をFakeで完全には再現できない。UTは送信signal・handle・保存状態・順序と再開判断を保証し、ITは正常なWorker起動/終了を保証する。
+既存の実Git index/commitを使うTask・retarget境界UTと、最適化Pythonでのcapacity拒否UTは、物理的な契約をMockで同等に証明できない例外として独立起動を維持する。正常なGit/CLI接続のIT保証は別に残す。
+
+## Fixture初期化と重複整理
+
+`model_reference_fixtures.project()` / `pipeline()` は初期Modelを全て書いてから依存indexを1回構築する。
+Presentationの追加サービスも同じ初期化に含める。通常の `save()` の即時rebuild、変更後の再読込・参照更新は変えない。
+初期化回数、保存後の再構築、別Modelのbytes不変を関連UTで確認する。共有の万能キャッシュは追加しない。
+
+Runnerの同じcleanup故障をRepair/Checkpointの両スイートで繰り返した直積は、2子を扱う共通UTへ統合する。
+スイート別dispatch・期限と、4つの合成ケースでも同時起動が2つを超えない判定は別UTに残す。
+Reference/ARN/Projectionの直積は、[Issue #92](https://github.com/wwalpha/ai-driven-infra-blueprints/issues/92) の前提である#80〜#91の同等移行が未完了のため削らない。
+例えばreference-evidenceのSecurity Groupは、受信サービスの配線、式の型/欠落/順序、異なるProducerの同一性を区別する。
+同じExpected値やcoverageだけでは、同じ故障を検出する証拠にしない。新しいCase RunnerやExpected管理は追加しない。
+
+実装修正では関連UT、必要な収集/到達性、静的チェックと変更した代表ITを確認する。全量UT/IT、CIの起動、性能比較・達成判定は別Taskで行う。
+以下の旧移管記録にあるケース数・異常系IT・計測手順は当時の記録であり、現行の責務と実行上限は本節を優先する。
+
 ## UTの重複実行
 
 `task-contract-unit` は128→115条件に整理する。Importの `integration` は証跡guardへの引数だけを変えるため、
@@ -15,7 +70,7 @@ registered Acceptanceの正常系で両方の呼出引数を明示確認し、�
 共有seed全ファイルの不変、parts形式の独立commit、実Gitによる変更・依存・承認の再検証は維持する。
 
 `issues_scan-unit` のstage/material障害隔離9条件は、実lint計画・結果集約を通し、lint workerだけを合成成功結果に置き換える。
-lint起動・失敗・復旧は既存 `issues-lint-unit` と専用ITが担当する。障害隔離の各条件と既存の完了確認は維持する。
+lintの失敗・復旧判断は `issues-lint-unit`、正常起動と設定隔離は専用ITが担当する。障害隔離の各条件と既存の完了確認は維持する。
 
 CodeBuildのScan/Saveは18→14条件、Scanは36→15回、Saveは32→14回に整理する。
 通常表示の6条件を維持し、読取り不能ViewはModel違反の有無・複数変数・所有権違反の4条件、
@@ -115,13 +170,13 @@ pytestと公式IT runnerには実操作/管理書込の実行時guardもある�
 read-only discoveryは許可する。公開Reviewの `worktree` フィールドは証跡の入力データとして保持する。
 
 
-Worktree関連5 ITは27関数・29入口。実Git/Worktree、CLI連携、状態の永続化、失敗復旧、独立プロセス間Lockだけを検証する。
+Worktree ITは実Git/Worktree、正常なCLI連携、状態の保存/再読込と正常なsetup排他を検証する。
 入力条件は既存Import/Model/Worktree UTへ集約し、Python decodingとglobal wrapperのIT関数は廃止した。
 実venv初回生成・再利用とプロセス間排他を保持する。Fake AWSも本番と同じ1回のbounded操作を使い、テストsupervisorが必要な追加pollを明示する。schedulerのsleep注入・連続実行modeは使用しない。
 
 ローカルで長時間ITや性能比較を再実行しない。関連短時間UT・構文・Discovery静的整合性を確認し、ITと時間測定は既存Framework ITに委ねる。30%以上の時間削減は実測前には達成扱いにしない。
 
-Deploy repair専用ITは2関数2入口（明示actionによる通常修復とMerge復旧）。通常修復は現行の独立Deployと実CLI・fresh Validationまで通し、Merge復旧は正式Requestと実Git FF直後中断・永続State再開・証拠/入力保持・Cleanupを検証する。異常YAMLは通常修復で一度確認する。progress/current requestの永続化地点は維持し、性能未計測や10秒未達を達成扱いにしない。
+Deploy repair ITは通常の子作成・修正・実CLI検証・親統合・cleanupと独立Deployを検証する。拒否・中断・再開判断はWorktree/Deploy UTが所有する。
 
 ## Dependency index（v3のみ）
 
@@ -149,7 +204,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/vali
 python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test_issues_iac.py
 ```
 
-`pytest.ini`は既存のpytest型ファイル、`*-unit.checks.py`、deploy SDK/client/controller/observed-recoveryの明示したpytest型suiteを対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`cloudformation-inputs-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は既存unittestメソッドをpytestでも収集する。
+`pytest.ini`は既存のpytest型ファイル、`*-unit.checks.py`、deploy SDK/client/controllerの明示したpytest型suiteを対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`cloudformation-inputs-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は既存unittestメソッドをpytestでも収集する。
 
 `blueprint-loop.py` の `task` / `local` はProjectのValidation scopeに従って検証し、Framework回帰UT／ITを自動実行しない。通常TaskではFrameworkを不変として扱い、FrameworkファイルのGit差分から回帰テストを選択しない。`full` / `--all` は `units/**/*.checks.py` と `units/**/test_*.py` の全UTを既存のPython直接実行入口で起動する。`full` は既存のProject Validation scopeを維持し、`--all` はProject全体を検証する。Scope `all` だけではFramework UTを実行しない。`blueprint-loop.py` からFramework ITは実行しない。
 
@@ -160,7 +215,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 
-`worktree-deploy-repair.checks.py` の通常修復、Merge復旧は、各ケースを独立Pythonプロセスで同時実行する。各プロセスは全ケースを収集して固定された2 node IDとの一致を確認し、指定ケースだけを実行する。親は正常終了とケース別Receiptを検証して一つに統合し、既存のReceipt到達性検査に渡す。一時領域と検証キャッシュはケースごとに分離し、共有Fixtureは読み取り専用とする。失敗・中断時は残存プロセスを停止してケース別ログを保存する。baselineと他のスイートは従来の実行経路を使う。
+Repair/Checkpointのケース別Python起動は最大2つ。親は実収集とケース別Receiptを照合し、失敗・中断時は子を停止して各ログを保持する。通常修復は1ケース、Checkpointは個別/一括の正常ケースで、固定総数を新しい成功条件にしない。
 
 ## IT入口の自動発見と差分レビュー
 
@@ -233,7 +288,7 @@ loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体
 
 issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。現行 `issues-lint-unit.checks.py` はlint/Artifact境界を、`issues-lint.checks.py` は4関数5条件の接続を検証する。旧report notice保持UTはSnapshot UTへ置換した。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。CLI同等性・状態隔離の検証結果は実行時に使用したcfn-lintについてのみ適用する。
 
-ITは実行環境のCLI一致（正常/異常の各代表1件）、Worker設定隔離、schema障害と新Worker復旧、実OS Timeout回収の4契約。
+ITは実行環境の正常CLI一致、Worker設定隔離、パラメータ/秘匿の正常接続を検証する。schema障害・復旧・Timeout回収判断はUTが所有する。
 設定隔離の4連続要求でHOME/cwd設定、custom ruleの状態、registry/overrideの再読込、NoEcho、output非書込をまとめる。
 Scan→Lint→Artifact→Review→Saveと入力変更後の保存許容の実接続は既存 `issues_scan::check_scan_publish_mismatch` に一本化し、重いケースを他suiteへ追加しない。
 View障害別分類・独立Service継続・非Cache・入力変更許容は `issues_scan-unit`、設定/入力/schema分類・期限/protocol/fatal・終了エスカレーションは `issues-lint-unit` が受け持つ。
@@ -296,7 +351,7 @@ Profile条件表をITへ追加せず、実AWS接続を行わない。
 
 controller ITは6関数6フロー。Order 10の2Stack配送・成功・実Model反映後にOrder 20を開始する正常系、配送AccessDenied、承認済RemoveのExecute直後中断、Observed公開I/O失敗とpeer drain、Model部分書込からの起動時復旧、署名済外部修復のcleanup中断/再開を通す。複数peerの最終生成物は最終Modelからsync(False)で整合を確認し、古いplanのbytesを最終期待にしない。
 
-`deploy-observed-recovery.checks.py` の1フローは、小さいModel/planとMarkdown/JSONの部分書込journalを使い、実reconcile・所有者検証・publication_lock・復元を通す。controller/AWS/Git/seed/renderer/子processは使わない。小型ITからUTをimportしない。
+`deploy-observed-resume-unit.checks.py` の移管フローは、小さいModel/planとMarkdown/JSONの部分書込journalを使い、実reconcile・所有者検証・publication_lock・復元を通す。controller/AWS/Git/seed/renderer/子processは使わない。小型ITからUTをimportしない。
 
 組み合わせは既存SDK/runtime/observed-resume/handoff UTへ集約し、不足する削除イベント照合、応答喪失と保存状態、guard停止、公開stageのI/O失敗、署名/accept/request/未実行失敗だけ直接呼出しで補強する。
 

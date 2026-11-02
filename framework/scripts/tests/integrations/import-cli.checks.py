@@ -3,6 +3,7 @@
 
 import sys
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -12,7 +13,6 @@ from contextlib import contextmanager
 
 import import_guard
 import model.importing.evidence as import_evidence
-import pytest
 from support.import_model_fixtures import fixture as import_fixture
 from support.import_model_fixtures import (
     logs_edit,
@@ -42,32 +42,6 @@ def fixture(root):
         "Import seed",
     )
     return path
-
-
-def check_cli_preflight(tmp_path):
-    for args in [
-        [],
-        ["--environment", "dev"],
-        ["--service", "vpc"],
-        ["--environment", "dev", "--service", "vpc"],
-    ]:
-        command = [
-            sys.executable,
-            "-B",
-            str(m.ROOT / "framework/scripts/model/cli.py"),
-            "import",
-            *args,
-        ]
-        assert subprocess.run(command, capture_output=True).returncode == 2
-    assert not any(
-        hasattr(m, name)
-        for name in (
-            "refresh",
-            "snapshot_values",
-            "snapshot_sources",
-            "promoted_sources",
-        )
-    )
 
 
 def check_cross_process_evidence(tmp_path):
@@ -137,11 +111,41 @@ def git_publication_workspace():
         yield root, begin, advance
 
 
-@pytest.mark.parametrize(
-    "failure", ["head", "subprocess", "source-crash", "receipt-crash", "display-crash"]
-)
-def check_properties_import_git_boundary(monkeypatch, failure):
-    import_publication_case(monkeypatch, failure, workspace=git_publication_workspace)
+def check_properties_import_git_boundary(monkeypatch):
+    import_publication_case(
+        monkeypatch, subprocess_cli=True, workspace=git_publication_workspace
+    )
+
+
+def check_cli_help_entrypoints():
+    scripts = Path(__file__).resolve().parents[2]
+    direct = subprocess.run(
+        [sys.executable, "-B", str(scripts / "model/cli.py"), "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    imported = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            "import sys; sys.argv[0] = 'cli.py'; from model.cli import main; main(['--help'])",
+        ],
+        cwd=scripts,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    TestCase().assertTrue(direct.stdout == imported.stdout)
+    module = subprocess.run(
+        [sys.executable, "-B", "-m", "model.cli", "--help"],
+        cwd=scripts,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    TestCase().assertTrue(module.stdout == "")
 
 
 if __name__ == "__main__":

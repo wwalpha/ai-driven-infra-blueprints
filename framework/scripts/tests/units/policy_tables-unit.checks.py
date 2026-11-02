@@ -3,6 +3,7 @@
 
 import sys
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -1040,6 +1041,18 @@ def check_macie_resource_additional_display(tmp_path):
     path.write_text(text, encoding="utf-8")
     assert "#### 対象S3 bucket" in text
     assert rendered_design(path, definitions_root=REPOSITORY) == text
+
+
+def check_policy_cli_rejects_stale_tables_without_writing(tmp_path):
+    check = TestCase()
+    path, artifacts, _, _, text = iam_fixture(tmp_path)
+    path.write_text(text, encoding="utf-8")
+    before = {file: file.read_bytes() for file in artifacts.iterdir()}
+    result = policy_cli([str(path)])
+    check.assertEqual(result.returncode, 1)
+    check.assertIn(b"policy tables are stale; regenerate with --write", result.stderr)
+    check.assertEqual(path.read_text(encoding="utf-8"), text)
+    check.assertEqual({file: file.read_bytes() for file in before}, before)
 
 
 if __name__ == "__main__":

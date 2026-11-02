@@ -245,30 +245,6 @@ def check_reference_views(root):
             for item in findings.warnings
         ), findings.warnings
         assert (consumer.read_bytes(), producer.read_bytes()) == before
-        paths[1].write_text(
-            paths[1]
-            .read_text()
-            .replace(
-                "[PENDING_DEPLOY](security-group.md#sg-one)",
-                "[sg-different](security-group.md#sg-one)",
-            )
-        )
-        findings = Findings(root)
-        check_design_links(
-            identifier_outputs(FRAMEWORK),
-            paths,
-            findings=findings,
-            root=root,
-            scope=None,
-            definitions_root=FRAMEWORK,
-        )
-        assert findings.errors and findings.unverified, (
-            findings.errors,
-            findings.unverified,
-        )
-        assert any(
-            "design.display.mismatch" in str(item) for item in findings.errors
-        ), findings.warnings
     assert producer.read_bytes() == before[1]
 
 

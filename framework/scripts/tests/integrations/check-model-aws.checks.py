@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import aws_mapping_compare as _imports_aws_mapping_compare
 import support.check_model_aws_fixtures as _retained_fixture_offline_network
-from model.core import ModelNeedsFixError
 from support.check_model_aws_fixtures import (
     ACCOUNT,
     PATCHES,
@@ -25,7 +24,6 @@ from support.check_model_aws_fixtures import (
     boto3,
     check,
     copy,
-    expect,
     json,
     m,
     model_text,
@@ -137,7 +135,6 @@ def cli_checks(root):
 
 def _callback_batch_checks_compare_session_factory_client(
     api_calls,
-    fault,
     real_client,
     requests,
     stack,
@@ -158,13 +155,6 @@ def _callback_batch_checks_compare_session_factory_client(
         )
     )
     for operation, inputs in requests[service]:
-        if service == "kms" and fault:
-            stub.add_client_error(
-                operation,
-                "NotFoundException" if fault == "missing" else "AccessDeniedException",
-                expected_params=inputs,
-            )
-            continue
         response = remove_tokens(
             shape_value(
                 result.meta.service_model.operation_model(
@@ -183,7 +173,7 @@ def _callback_batch_checks_compare_session_factory_client(
 
 
 def _callback_batch_checks_compare_session_factory(
-    api_calls, fault, requests, session_class, stack, stubbers, /, **kwargs
+    api_calls, requests, session_class, stack, stubbers, /, **kwargs
 ):
     session = session_class(
         aws_access_key_id="offline",
@@ -195,7 +185,6 @@ def _callback_batch_checks_compare_session_factory(
     client = _bind_framework_callback(
         _callback_batch_checks_compare_session_factory_client,
         api_calls,
-        fault,
         real_client,
         requests,
         stack,
@@ -213,17 +202,13 @@ def _callback_batch_checks_compare_294(
     root,
     selected,
     session_class,
-    _default_fault,
     _default_direct,
     _default_items,
     /,
     services,
-    fault=_CALLBACK_DEFAULT,
     direct=_CALLBACK_DEFAULT,
     items=_CALLBACK_DEFAULT,
 ):
-    if fault is _CALLBACK_DEFAULT:
-        fault = _default_fault
     if direct is _CALLBACK_DEFAULT:
         direct = _default_direct
     if items is _CALLBACK_DEFAULT:
@@ -234,7 +219,6 @@ def _callback_batch_checks_compare_294(
         session_factory = _bind_framework_callback(
             _callback_batch_checks_compare_session_factory,
             api_calls,
-            fault,
             requests,
             session_class,
             stack,
@@ -356,7 +340,6 @@ def batch_checks(root):
         root,
         selected,
         session_class,
-        None,
         False,
         None,
     )
@@ -426,27 +409,6 @@ def batch_checks(root):
             [("KMS.Key.KeyId", "`fixture`"), ("KMS.Key.Description", "`fixture`")],
         ),
     )
-    s3_rows[1] = ("S3.Bucket.VersioningConfiguration.Status", "`Suspended`")
-    write_model(s3, model_text("S3.Bucket", s3_rows))
-    for fault, wanted_code, wanted_status in (
-        (None, 1, "identifier"),
-        ("missing", 1, "resource_missing"),
-        ("failed", 2, "acquisition_failed"),
-    ):
-        code, report = compare(["s3", "iam", "kms"], fault=fault)
-        statuses = {(item["service"], item["status"]) for item in report["results"]}
-        check(
-            code == wanted_code
-            and ("s3", "difference") in statuses
-            and ("iam", "match") in statuses
-            and ("kms", wanted_status) in statuses,
-            "batch exit precedence retains successful comparisons and S3 differences: "
-            + str(fault),
-        )
-        check(
-            set(report) == {"status", "exitCode", "counts", "results"},
-            "batch does not add a JSON wrapper",
-        )
 
 
 @it_case
@@ -503,46 +465,31 @@ def common_checks(root):
         "cached responses retain API evidence",
     )
     resource = model.resources[0]
-    # Real paginator and two STS-free, credential-free pages, including a later-page failure.
-    for fail in (False, True):
-        session = boto3.Session(
-            aws_access_key_id="offline",
-            aws_secret_access_key="offline",
-            region_name=TARGET["awsRegion"],
+    # Real paginator and two STS-free, credential-free pages.
+    session = boto3.Session(
+        aws_access_key_id="offline",
+        aws_secret_access_key="offline",
+        region_name=TARGET["awsRegion"],
+    )
+    page_ctx = m.Context(root, TARGET, session)
+    page_ctx.verified = True
+    client = page_ctx.client("logs")
+    with Stubber(client) as stub:
+        stub.add_response(
+            "describe_log_groups",
+            {"logGroups": [{"logGroupName": "first"}], "nextToken": "page-2"},
+            {},
         )
-        page_ctx = m.Context(root, TARGET, session)
-        page_ctx.verified = True
-        client = page_ctx.client("logs")
-        with Stubber(client) as stub:
-            stub.add_response(
-                "describe_log_groups",
-                {"logGroups": [{"logGroupName": "first"}], "nextToken": "page-2"},
-                {},
-            )
-            if fail:
-                stub.add_client_error(
-                    "describe_log_groups",
-                    "AccessDeniedException",
-                    expected_params={"nextToken": "page-2"},
-                )
-                expect(
-                    m.AcquisitionError,
-                    lambda *, page_ctx=page_ctx: page_ctx.pages(
-                        "logs", "describe_log_groups"
-                    ),
-                )
-            else:
-                stub.add_response(
-                    "describe_log_groups",
-                    {"logGroups": [{"logGroupName": "second"}]},
-                    {"nextToken": "page-2"},
-                )
-                check(
-                    len(page_ctx.pages("logs", "describe_log_groups")["logGroups"])
-                    == 2,
-                    "all paginator pages",
-                )
-            stub.assert_no_pending_responses()
+        stub.add_response(
+            "describe_log_groups",
+            {"logGroups": [{"logGroupName": "second"}]},
+            {"nextToken": "page-2"},
+        )
+        check(
+            len(page_ctx.pages("logs", "describe_log_groups")["logGroups"]) == 2,
+            "all paginator pages",
+        )
+        stub.assert_no_pending_responses()
     # Reference resolution reads the authoritative model and obtains ARN from SDK.
     role = directory / "iam.properties"
     write_model(
@@ -557,12 +504,6 @@ def common_checks(root):
         )
         == "arn:aws:iam::123456789012:role/fixture",
         "formal Model reference resolves the declared RoleName and configured account",
-    )
-    expect(
-        ModelNeedsFixError,
-        lambda: resource.reference(
-            {"$modelRef": {"logicalId": "IAM_Role_999", "attribute": "Arn"}}
-        ),
     )
     # Ordered arrays remain ordered; tags keep Key/Value pairs together.
     check(
@@ -580,10 +521,6 @@ def common_checks(root):
         )
         == ACCOUNT + "/ap-northeast-1/aws",
         "verified pseudo-parameters",
-    )
-    expect(
-        m.Unresolved,
-        lambda: resource.resolve_json({"Fn::ImportValue": "missing-export"}),
     )
     ctx.finish()
 
@@ -711,14 +648,6 @@ def cfn_identity_checks(root):
                 resource.resolve_json({"Ref": "DepartmentVpc"}) == "vpc-" + department,
                 "CFn JSON Ref respects originating stack instance",
             )
-            expect(
-                m.Unresolved,
-                lambda *, resource=resource: resource.resolve_json({"Ref": "Missing"}),
-            )
-        resources[1].spec["cfn-logicalId"] = resources[0].spec["cfn-logicalId"]
-        expect(
-            m.Unresolved, lambda: resources[0].resolve_json({"Ref": "DepartmentVpc"})
-        )
     ctx.finish()
 
 

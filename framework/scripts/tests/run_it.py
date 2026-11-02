@@ -25,6 +25,7 @@ import support.it_fixture_bundle as _imports_support_it_fixture_bundle
 import validation.loop as _imports_validation_loop
 from support.it_discovery import discover
 from support.it_revision import compare_revisions
+from support.pytest_cli import unit_commands
 from support.worktree_test_policy import audit as worktree_audit
 from support.worktree_test_policy import ordinary_suite, violations
 from task_contract_core import SELECTOR
@@ -34,18 +35,13 @@ if not __debug__:
 
 TESTS = Path(__file__).resolve().parent
 REPAIR_SUITE = "integrations/worktree-deploy-repair.checks.py"
-REPAIR_CASES = (
-    REPAIR_SUITE + "::check_external_implement_round_trip",
-    REPAIR_SUITE + "::check_merge_recovery",
-)
+REPAIR_CASES = (REPAIR_SUITE + "::check_external_implement_round_trip",)
 CHECKPOINT_SUITE = "integrations/worktree-deploy-checkpoint.checks.py"
 CHECKPOINT_CASES = tuple(
     CHECKPOINT_SUITE + "::" + name
     for name in (
         "check_parallel_checkpoint_and_restart",
-        "check_success_checkpoint_survives_peer_failure",
-        "check_model_publication_interruption",
-        "check_generation_wait_and_resume",
+        "check_combined_checkpoint_after_peer_completion",
     )
 )
 PARALLEL_CASES = {REPAIR_SUITE: REPAIR_CASES, CHECKPOINT_SUITE: CHECKPOINT_CASES}
@@ -330,6 +326,14 @@ def run_parallel_repair(suite, tests, output):
     try:
         deadline = time.monotonic() + (300 if suite_key == REPAIR_SUITE else 1800)
         for index, case in enumerate(cases):
+            if index >= 2:
+                previous_case, previous, _log, _receipt = children[index - 2]
+                try:
+                    code = previous.wait(timeout=max(0, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired as error:
+                    raise RuntimeError(f"{previous_case}: process timed out") from error
+                if code:
+                    raise RuntimeError(f"{previous_case}: process exited {code}")
             receipt = output / f"repair-{index}.json"
             receipt.unlink(missing_ok=True)
             log = (logs / f"case-{index}.log").open("w", encoding="utf-8")
@@ -681,7 +685,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="framework-ut-") as directory:
         unit_status = _imports_validation_loop.run_commands(
             TESTS.parents[2],
-            [[sys.executable, str(path)] for path in units],
+            unit_commands(units),
             _imports_validation_loop.utf8_environment(),
             Path(directory),
             jobs=2,

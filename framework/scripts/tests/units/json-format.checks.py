@@ -7,7 +7,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import math
-import subprocess
 
 import pytest
 from utils.json_format import (
@@ -97,48 +96,6 @@ def check_output_bytes_and_hashes():
     # Existing canonical/hash writers deliberately retain json.dumps allow_nan defaults.
     assert canonical_json(float("inf")) == "Infinity\n"
     assert len(document_sha256(float("nan"))) == len(fingerprint(float("nan"))) == 64
-
-
-@pytest.mark.parametrize(
-    "first",
-    [
-        "utils.aws_mappings",
-        "model.sources",
-        "model.adapters.aws",
-        "design.policy_tables",
-    ],
-)
-def check_isolated_imports_and_standalone_audit(first, tmp_path):
-    scripts = Path(__file__).resolve().parents[2]
-    code = f"""
-import sys, importlib, json
-sys.path.insert(0, {str(scripts)!r})
-importlib.import_module({first!r})
-for name in ('model.format', 'model.render', 'model.validations.full_inputs', 'model.importing.inventory',
-             'utils.cloudformation.inputs', 'sync_runtime', 'utils.json_format'):
-    importlib.import_module(name)
-from model.audit import definitions
-from pathlib import Path
-source = definitions(Path({str(scripts / "utils/json_format.py")!r}),
-                     ['unique_object', 'invalid_constant', 'policy_json'])
-namespace = {{'json': json}}
-exec(source, namespace)
-assert namespace['policy_json']('{{"日本語":1}}') == {{'日本語': 1}}
-try:
-    namespace['policy_json']('{{"x":1,"x":2}}')
-except ValueError as error:
-    assert str(error) == 'duplicate policy JSON key: x'
-else:
-    raise AssertionError('standalone parser accepted duplicate key')
-"""
-    result = subprocess.run(
-        [sys.executable, "-I", "-B", "-c", code],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("template", [False, True])

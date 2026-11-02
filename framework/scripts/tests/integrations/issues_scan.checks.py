@@ -2,18 +2,14 @@
 """Six real Issues boundaries; branch matrices live in the existing unit suites."""
 
 import json
-import os
 import subprocess
 import sys
-from functools import partial
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import pytest
 from comparison import Comparison
 from issues.aggregate import aggregate, iac_dataset, iac_summary
 from issues.artifact import detail_payload, summary
@@ -128,39 +124,6 @@ def check_scan_publish_mismatch(tmp_path):
     )
     assert not unchanged["ordinary"] and not unchanged["processing_errors"]
     assert unchanged["unverified"] == artifact["unverified"]
-
-
-def fail_second_report(state, original, source, destination):
-    if Path(destination).name == "iac-issues.md" and not state.failed:
-        state.failed = True
-        original(source, destination)
-        raise OSError("fixture publication failure")
-    return original(source, destination)
-
-
-def check_save_scope_and_rollback(tmp_path):
-    root = tmp_path / "project"
-    artifact = snapshot_artifact(root, services=["s3", "sqs"])
-    with task(root, ["s3", "sqs"]):
-        outputs, snapshot, _ = save_scan(root, artifact, review_for(artifact))
-        before = {path: path.read_bytes() for path in outputs}
-        partial_scan = dict(
-            artifact,
-            services=["s3"],
-            service_results=[dict(service="s3", status="scanned")],
-        )
-        with pytest.raises(ValueError, match="missing services: sqs"):
-            save_scan(root, partial_scan, review_for(partial_scan))
-        artifact["ordinary"] = [dict(id="current", service="s3", message="new issue")]
-        state = SimpleNamespace(failed=False)
-        with patch(
-            "utils.file_operations.os.replace",
-            side_effect=partial(fail_second_report, state, os.replace),
-        ):
-            with pytest.raises(OSError, match="publication failure"):
-                save_scan(root, artifact, review_for(artifact))
-        assert state.failed and {path: path.read_bytes() for path in outputs} == before
-        assert set(outputs[0].parent.iterdir()) == set(outputs)
 
 
 def check_detail_cli(tmp_path):

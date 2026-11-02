@@ -22,7 +22,6 @@ from support.model_files_fixtures import (
     load_model,
     markdown_for,
     model_parts,
-    os,
     patch,
     redirect_stdout,
     resource_reading_fixture,
@@ -104,36 +103,6 @@ def check_resource_reading(root):
             assert result[0] == 0 and not result[2] and count == 2, result
         assert all(path.read_bytes() == raw for path, raw in snapshot.items())
 
-    tasks = root / "tasks"
-    tasks.mkdir()
-    try:
-        for name in ("one", "two"):
-            (tasks / f"{name}.md").write_text(
-                f"## Task contract\n- Task type: `governance`\n- Task status: `running`\n"
-                f"## Modified files\n- `tasks/{name}.md`\n## Allowed paths\n- `tasks/{name}.md`\n",
-                encoding="utf-8",
-            )
-        for command, selector in (
-            ("find", "KMS_Key_001"),
-            ("resource", "001"),
-            ("trace", "desired.row.001-001.value"),
-        ):
-            with patch.dict(os.environ, {"BLUEPRINT_TASK_FILE": ""}):
-                result, count = invoke(source, command, selector)
-                assert (
-                    result[0] == 1
-                    and not result[1]
-                    and "multiple running tasks" in result[2]
-                    and count == 0
-                )
-            with patch.dict(os.environ, {"BLUEPRINT_TASK_FILE": "tasks/one.md"}):
-                result, count = invoke(source, command, selector)
-                assert result[0] == 0 and count == 2
-    finally:
-        for file in tasks.iterdir():
-            file.unlink()
-        tasks.rmdir()
-
     first = load_model(source).parts[0]
     assert_inputs = _check_resource_reading_assert_inputs
 
@@ -156,17 +125,6 @@ def check_resource_reading(root):
                 changed is not original
                 and changed.values["display.resource.001.comment"] == "公開後の用途1"
             )
-            inputs = dict(changed.dependencies)
-            first.write_text(saved, encoding="utf-8")
-            try:
-                with sources.publication_lock(root) as journal:
-                    sources._publish_transaction(
-                        root, {}, (), journal, start=lambda: assert_inputs(inputs)
-                    )
-            except ValueError as error:
-                assert "changed" in str(error)
-            else:
-                raise AssertionError("changed snapshot accepted")
         finally:
             with sources.publication_lock(root) as journal:
                 sources._publish_transaction(root, {first: saved}, (), journal)

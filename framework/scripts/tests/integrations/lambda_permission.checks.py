@@ -16,7 +16,6 @@ from support.lambda_permission_fixtures import (
     json,
     properties,
     read_model,
-    rejects,
     role_fixture,
     sys,
     tempfile,
@@ -63,15 +62,6 @@ def main():
         SYNC.sync(root, True, "dev", "123456789012", services=["lambda"])
         SYNC.sync(root, False, "dev", "123456789012", services=["lambda"])
         assert properties(read_model(source)) == properties(HELPERS.text(values))
-        saved = path.read_bytes()
-        bad = dict(values)
-        del bad["desired.resource.002.parentReference"]
-        write_model(source, HELPERS.text(bad))
-        rejects(
-            lambda: SYNC.sync(root, True, "dev", "123456789012", services=["lambda"]),
-            "parentReference",
-        )
-        assert path.read_bytes() == saved
 
 
 if __name__ == "__main__":

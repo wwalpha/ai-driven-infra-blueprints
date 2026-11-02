@@ -5,6 +5,7 @@ from concurrent.futures import Future
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -20,6 +21,7 @@ from unittest.mock import patch as mock_patch
 import model.core as _imports_model_core
 import model.identity as _imports_model_identity
 import model.importing.approval as _imports_model_importing_approval
+import model.operations as _imports_model_operations
 import model.projection as projection
 import model.references as _imports_model_references
 import model.render as _imports_model_render
@@ -1259,6 +1261,80 @@ def check_snapshot_row_index_and_mutable_entries():
     ):
         projection._resource_row_entries(fixed)
         assert parse_rows.call_count == 1
+
+
+def _fail_model_write(source, original, path, *args, **kwargs):
+    if path == source:
+        original(path, "partial write", encoding="utf-8")
+        raise OSError("injected publication")
+    return original(path, *args, **kwargs)
+
+
+def _finish_model_publication(failure, path, task):
+    if failure == "callback":
+        raise ValueError("injected finish callback")
+    if failure == "post-source":
+        path.write_bytes(path.read_bytes() + b"# concurrent edit\n")
+    elif failure == "post-task":
+        task.write_bytes(task.read_bytes() + b"# concurrent edit\n")
+
+
+@pytest.mark.parametrize(
+    "failure", ["source", "task", "io", "callback", "post-source", "post-task", "none"]
+)
+def test_source_publication_boundaries_without_processes(
+    tmp_path, monkeypatch, failure
+):
+    check = TestCase()
+    scope, _ = format_fixture(tmp_path)
+    snapshot, context = source_context(scope)
+    original = scope.path.read_bytes()
+    task = tmp_path / "tasks/example.md"
+    plan = _imports_model.prepare_observed(
+        snapshot, {"observed.row.007-001.value": "vpc-new"}, context
+    )
+    with pytest.raises(AttributeError):
+        context.operation = SimpleNamespace(action="import")
+    with pytest.raises(AttributeError):
+        context.closed = False
+    with pytest.raises(TypeError, match="constructor grants no save authority"):
+        _imports_model_operations.EditPlan(approved=True)
+    if failure == "source":
+        scope.path.write_bytes(original + b"# concurrent edit\n")
+    elif failure == "task":
+        task.write_bytes(task.read_bytes() + b"# concurrent edit\n")
+    elif failure == "io":
+        monkeypatch.setattr(
+            Path,
+            "write_text",
+            _bind_framework_callback(_fail_model_write, scope.path, Path.write_text),
+        )
+    elif failure in {"callback", "post-source", "post-task"}:
+        context._finish = _bind_framework_callback(
+            _finish_model_publication, failure, scope.path, task
+        )
+    try:
+        if failure == "none":
+            _imports_model.publish_edit(plan, context)
+            check.assertEqual(
+                scope.path.read_bytes(),
+                original.replace(
+                    b"observed.row.007-001.value=\n",
+                    b"observed.row.007-001.value=vpc-new\n",
+                ),
+            )
+            with pytest.raises(ValueError, match="consumed"):
+                _imports_model.publish_edit(plan, context)
+        else:
+            with pytest.raises((ValueError, OSError), match="changed|injected"):
+                _imports_model.publish_edit(plan, context)
+            check.assertTrue(context.closed)
+            check.assertEqual(
+                scope.path.read_bytes(),
+                original + (b"# concurrent edit\n" if failure == "source" else b""),
+            )
+    finally:
+        context.close()
 
 
 if __name__ == "__main__":

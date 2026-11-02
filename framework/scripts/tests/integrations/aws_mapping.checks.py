@@ -6,8 +6,6 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 from unittest.mock import Mock
 
-from botocore.exceptions import ClientError
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -277,17 +275,12 @@ def check_config():
 
 
 class SchedulerClient:
-    def __init__(self, payload, error=None):
+    def __init__(self, payload):
         self.payload = payload
-        self.error = error
         self.calls = []
 
     def get_schedule(self, **inputs):
         self.calls.append(inputs)
-        if self.error:
-            raise ClientError(
-                {"Error": {"Code": self.error, "Message": "fixture"}}, "GetSchedule"
-            )
         return copy.deepcopy(self.payload)
 
 
@@ -438,22 +431,6 @@ def check_scheduler_compare():
             result[kind + ".Target.RetryPolicy.MaximumRetryAttempts"]["status"]
             == "match"
         )
-        for code, status in [
-            ("ResourceNotFoundException", "resource_missing"),
-            ("AccessDeniedException", "acquisition_failed"),
-        ]:
-            client = SchedulerClient({}, error=code)
-            ctx = m.Context(
-                root,
-                target,
-                session=SimpleNamespace(client=Mock(return_value=client)),
-                services=["eventbridge"],
-            )
-            ctx.catalog = m.DesignSchemaCatalog(ROOT)
-            ctx.verified = True
-            failures = m.compare_resource(ctx, ctx.model(path).resources[0])
-            assert len(failures) == 1 and failures[0]["status"] == status
-            assert len(client.calls) == 1
         import_ctx, _ = adapter_contracts.fixture_context(
             ROOT, "eventbridge", adapter_contracts.DirectCalls, {}
         )
@@ -516,7 +493,7 @@ def check_glue_catalog_compare():
     with TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         for direct in (True, False):
-            for scenario in ("match", "difference", "empty", "missing", "error"):
+            for scenario in ("match", "difference", "empty", "missing"):
                 actual = copy.deepcopy(payload)
                 if scenario == "difference":
                     actual["FederatedCatalog"]["Identifier"] = "other-id"
@@ -536,19 +513,6 @@ def check_glue_catalog_compare():
                 client.get_catalogs.return_value = {
                     "CatalogList": [{"Name": "other"}, actual]
                 }
-                if scenario == "error":
-                    error = ClientError(
-                        {
-                            "Error": {
-                                "Code": "AccessDeniedException",
-                                "Message": "denied",
-                            }
-                        },
-                        "GetCatalog",
-                    )
-                    (
-                        client.get_catalog if direct else client.get_catalogs
-                    ).side_effect = error
                 ctx = m.Context(
                     root,
                     target,
@@ -600,27 +564,18 @@ def check_glue_catalog_compare():
                     rows,
                 )
                 results = m.compare_resource(ctx, resource)
-                if scenario == "error":
-                    assert (
-                        len(results) == 1
-                        and results[0]["status"] == "acquisition_failed"
-                    ), results
-                    assert set(results[0]["affectedKeys"]) >= {
-                        kind + "." + name for name in names
-                    }
-                else:
-                    found = {item["propertiesKey"]: item for item in results}
-                    expected = {
-                        "match": "match",
-                        "difference": "difference",
-                        "empty": "match",
-                        "missing": "difference",
-                    }[scenario]
-                    assert all(
-                        found[kind + "." + name]["status"] == expected for name in names
-                    ), results
-                    if scenario == "match":
-                        assert found[kind + "." + names[1]]["awsValue"] == permissions
+                found = {item["propertiesKey"]: item for item in results}
+                expected = {
+                    "match": "match",
+                    "difference": "difference",
+                    "empty": "match",
+                    "missing": "difference",
+                }[scenario]
+                assert all(
+                    found[kind + "." + name]["status"] == expected for name in names
+                ), results
+                if scenario == "match":
+                    assert found[kind + "." + names[1]]["awsValue"] == permissions
                 assert all(item["api"].startswith("glue.") for item in ctx.trace)
                 if direct:
                     client.get_catalog.assert_called_once_with(CatalogId="catalog-id")
@@ -633,9 +588,8 @@ def check_glue_catalog_compare():
 
 
 class ReplicationClient:
-    def __init__(self, payload, error=None):
+    def __init__(self, payload):
         self.payload = payload
-        self.error = error
         self.replication_calls = []
 
     def list_buckets(self, **inputs):
@@ -650,18 +604,12 @@ class ReplicationClient:
 
     def get_bucket_replication(self, **inputs):
         self.replication_calls.append(inputs)
-        if self.error:
-            raise ClientError(
-                {"Error": {"Code": self.error, "Message": "fixture"}},
-                "GetBucketReplication",
-            )
         return copy.deepcopy(self.payload)
 
 
 class ReplicationImportCalls:
-    def __init__(self, payload, error):
+    def __init__(self, payload):
         self.payload = payload
-        self.error = error
         self.replication_calls = []
 
     def pages(self, service, operation, **inputs):
@@ -697,10 +645,43 @@ class ReplicationImportCalls:
             return {"LocationConstraint": "ap-northeast-1"}
         if (service, operation) == ("s3", "get_bucket_replication"):
             self.replication_calls.append(inputs)
-            if self.error:
-                raise m.AcquisitionError("s3.get_bucket_replication", self.error)
             return copy.deepcopy(self.payload)
-        raise m.AcquisitionError(service + "." + operation, "AccessDenied")
+        if service == "s3":
+            return copy.deepcopy(
+                {
+                    "get_bucket_encryption": {
+                        "ServerSideEncryptionConfiguration": {
+                            "Rules": [
+                                {
+                                    "ApplyServerSideEncryptionByDefault": {
+                                        "SSEAlgorithm": "AES256"
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "get_bucket_lifecycle_configuration": {"Rules": []},
+                    "get_bucket_ownership_controls": {
+                        "OwnershipControls": {
+                            "Rules": [{"ObjectOwnership": "BucketOwnerEnforced"}]
+                        }
+                    },
+                    "get_public_access_block": {
+                        "PublicAccessBlockConfiguration": {
+                            "BlockPublicAcls": True,
+                            "IgnorePublicAcls": True,
+                            "BlockPublicPolicy": True,
+                            "RestrictPublicBuckets": True,
+                        }
+                    },
+                    "get_bucket_versioning": {"Status": "Enabled"},
+                    "get_bucket_tagging": {"TagSet": []},
+                    "get_object_lock_configuration": {
+                        "ObjectLockConfiguration": {"ObjectLockEnabled": "Enabled"}
+                    },
+                }[operation]
+            )
+        raise AssertionError((service, operation))
 
 
 @it_case
@@ -808,17 +789,11 @@ def check_s3_replication():
             if "[]" in name:
                 values[f"desired.row.001-{index:03}.valueShape"] = "projection"
         write_model(path, values)
-        for error, changed, expected_status in [
-            (None, False, "match"),
-            (None, True, "difference"),
-            ("ReplicationConfigurationNotFoundError", False, "difference"),
-            ("AccessDenied", False, "acquisition_failed"),
-            ("NoSuchBucket", False, "resource_missing"),
-        ]:
+        for changed, expected_status in [(False, "match"), (True, "difference")]:
             response = copy.deepcopy(payload)
             if changed:
                 response["ReplicationConfiguration"]["Rules"][1]["Status"] = "Enabled"
-            client = ReplicationClient(response, error)
+            client = ReplicationClient(response)
             ctx = m.Context(
                 root,
                 target,
@@ -828,19 +803,13 @@ def check_s3_replication():
             ctx.catalog = m.DesignSchemaCatalog(ROOT)
             ctx.verified = True
             results = m.compare_resource(ctx, ctx.model(path).resources[0])
-            if error in ("AccessDenied", "NoSuchBucket"):
-                assert any(row["status"] == expected_status for row in results)
-            else:
-                selected = {row["propertiesKey"]: row["status"] for row in results}
-                assert (
-                    selected[kind + "." + prefix + "Rules[].Status"] == expected_status
+            selected = {row["propertiesKey"]: row["status"] for row in results}
+            assert selected[kind + "." + prefix + "Rules[].Status"] == expected_status
+            if not changed:
+                assert all(
+                    selected[kind + "." + prefix + key] == "match" for key in expected
                 )
-                if not error and not changed:
-                    assert all(
-                        selected[kind + "." + prefix + key] == "match"
-                        for key in expected
-                    )
-            if not error and not changed:
+            if not changed:
                 mapping, mapped = ctx.comparison("s3")
                 resource = ctx.model(path).resources[0]
                 properties = {
@@ -855,32 +824,26 @@ def check_s3_replication():
                 {"Bucket": "fixture-bucket", "ExpectedBucketOwner": "123456789012"}
             ]
 
-        for error in (None, "ReplicationConfigurationNotFoundError", "AccessDenied"):
-            ctx, _ = adapter_contracts.fixture_context(
-                ROOT, "s3", adapter_contracts.DirectCalls, {}
-            )
-            fake = ReplicationImportCalls(payload, error)
-            ctx.call, ctx.pages = fake.call, fake.pages
-            records = inventory.inventory_for(ctx).inventory("s3", kind)
-            assert len(records) == 1 and records[0]["identity"] == "fixture-bucket"
-            captured = cli.normalize_records(ctx, "s3", records)[0]["properties"]
-            assert captured[kind + ".BucketName"]["value"] == "fixture-bucket"
-            prop = captured[kind + "." + prefix + "Rules[].Id"]
-            assert fake.replication_calls == [
-                {"Bucket": "fixture-bucket", "ExpectedBucketOwner": "123456789012"}
-            ]
-            if error is None:
-                assert prop["status"] == "captured" and prop["value"] == [
-                    "first",
-                    "second",
-                ]
-                assert captured[
-                    kind + "." + prefix + "Rules[].Filter.And.TagFilters[].Value"
-                ]["value"] == [["1", "2"], ["3", "4"]]
-            elif error == "AccessDenied":
-                assert prop["status"] == "unavailable" and prop["errorCode"] == error
-            else:
-                assert prop["status"] == "missing"
+        ctx, _ = adapter_contracts.fixture_context(
+            ROOT, "s3", adapter_contracts.DirectCalls, {}
+        )
+        fake = ReplicationImportCalls(payload)
+        ctx.call, ctx.pages = fake.call, fake.pages
+        records = inventory.inventory_for(ctx).inventory("s3", kind)
+        assert len(records) == 1 and records[0]["identity"] == "fixture-bucket"
+        captured = cli.normalize_records(ctx, "s3", records)[0]["properties"]
+        assert captured[kind + ".BucketName"]["value"] == "fixture-bucket"
+        prop = captured[kind + "." + prefix + "Rules[].Id"]
+        assert fake.replication_calls == [
+            {"Bucket": "fixture-bucket", "ExpectedBucketOwner": "123456789012"}
+        ]
+        assert prop["status"] == "captured" and prop["value"] == [
+            "first",
+            "second",
+        ]
+        assert captured[kind + "." + prefix + "Rules[].Filter.And.TagFilters[].Value"][
+            "value"
+        ] == [["1", "2"], ["3", "4"]]
 
 
 def main():

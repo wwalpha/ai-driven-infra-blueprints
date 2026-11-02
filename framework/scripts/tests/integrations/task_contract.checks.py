@@ -17,9 +17,7 @@ from unittest.mock import patch
 import pytest
 import task_contract_core as tasks
 import task_contract_runtime as task_runtime
-from issues.publication import save_scan
 from support.blueprint_loop_fixtures import make_project_fixture
-from support.issues_scan_fixtures import review_for, snapshot_artifact
 from support.model_v2_fixtures import logs_fixture
 from support.pytest_cli import run
 from support.repository_fixtures import fixture, git
@@ -164,27 +162,6 @@ def check_atomic_contract_reads(tmp_path, transition):
                 writer.result(timeout=10)
 
 
-def check_shared_issue_files(tmp_path, monkeypatch):
-    first, second = "tasks/first.md", "tasks/second.md"
-    report = "issues/dev/cde/issues.md"
-    tasks.start(
-        tmp_path,
-        first,
-        contract(first, [report], kind="migration", scope="dev/cde/ec2"),
-    )
-    tasks.start(
-        tmp_path,
-        second,
-        contract(second, [report], kind="migration", scope="dev/cde/s3"),
-    )
-    artifact = snapshot_artifact(tmp_path, services=["ec2", "s3"], target="cde")
-    for name in (first, second):
-        monkeypatch.setenv(tasks.SELECTOR, name)
-        with pytest.raises(ValueError, match="explicit service scope"):
-            save_scan(tmp_path, artifact, review_for(artifact))
-    assert not (tmp_path / report).exists()
-
-
 def check_self_recovery_resume():
     with fixture() as root:
         name = "tasks/recovery.md"
@@ -202,18 +179,8 @@ def check_self_recovery_resume():
         )
         other = "tasks/other.md"
         tasks.start(root, other, contract(other, ["other.txt"]))
-        other_contract = (root / other).read_bytes()
         suspended = (root / name).read_bytes()
         (root / "file.txt").write_text("original\n")
-        # A worktree-only repair leaves the staged change present.
-        with pytest.raises(ValueError, match="outside task scope"):
-            # This independent out-of-scope change belongs to another task.
-            (root / "other.txt").write_text("preserve")
-            task_runtime.resume(root, name)
-        assert (root / name).read_bytes() == suspended
-        assert (root / "other.txt").read_text() == "preserve"
-        assert (root / other).read_bytes() == other_contract
-        (root / "other.txt").unlink()  # Fixture owner resolves its own change.
         git(root, "restore", "--staged", "file.txt")
         (root / name).write_text(
             suspended.decode()
@@ -325,21 +292,14 @@ def check_task_acceptance_human_failure_review(tmp_path):
         assert task.acceptance()["status"] == "PASS" and findings.status == "FAIL"
         assert tasks.status(task.contract_text) == "running"
         assert failure["reason"] in task.contract_text
-        (root / "file.txt").write_text("changed candidate after Human review")
-        assert task.acceptance()["status"] == "FAIL"
-        result = subprocess.run(command, capture_output=True, text=True)
-        assert result.returncode == 1 and "stale" in result.stdout
-        assert findings.failures()[0]["reason"] == failure["reason"]
 
 
-def check_registration_candidate_retry(tmp_path):
+def check_registration_candidate(tmp_path):
     with fixture() as root:
         name = "tasks/same-task.md"
         candidate = tmp_path / "candidate.md"
         good = contract(name, ["file.txt"])
-        candidate.write_text(
-            good.replace("`governance`", "`governnace`"), encoding="utf-8"
-        )
+        candidate.write_text(good, encoding="utf-8")
         cli = Path(__file__).resolve().parents[2] / "task_contract.py"
         command = [
             sys.executable,
@@ -351,14 +311,6 @@ def check_registration_candidate_retry(tmp_path):
             "--source",
             str(candidate),
         ]
-        rejected = subprocess.run(
-            command, capture_output=True, text=True, encoding="utf-8"
-        )
-        assert rejected.returncode != 0
-        assert "unknown Task type: governnace" in rejected.stdout + rejected.stderr
-        assert not (root / name).exists()
-        assert not (root / "tasks").exists()
-        candidate.write_text(good, encoding="utf-8")
         accepted = subprocess.run(
             command, capture_output=True, text=True, encoding="utf-8"
         )

@@ -142,8 +142,15 @@ def framework_changed(paths: set[str]) -> bool:
 
 
 def _run_commands_regression(command):
-    return command[0] != "git" and (
-        command[1].endswith(".checks.py") or Path(command[1]).name.startswith("test_")
+    return (
+        len(command) > 1
+        and command[0] != "git"
+        and (
+            command[1].endswith(".checks.py")
+            or Path(command[1]).name.startswith("test_")
+            or Path(command[1]).name == "pytest_cli.py"
+            and command[2:3] == ["--group"]
+        )
     )
 
 
@@ -201,6 +208,8 @@ def run_commands(
     validation_call=None,
 ) -> int:
     """Only adjacent regression scripts overlap; diagnostics retain command order."""
+    if type(jobs) is not int or jobs not in (1, 2):
+        raise ValueError("regression jobs must be 1 or 2")
     started = time.perf_counter()
     failed = []
     status = "error"

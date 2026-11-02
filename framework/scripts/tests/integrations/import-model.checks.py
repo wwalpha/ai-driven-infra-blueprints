@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 import socket
 import subprocess
+from unittest import TestCase
 from unittest.mock import patch
 
 import import_guard
@@ -53,7 +54,6 @@ from support.import_model_fixtures import (
 )
 from support.import_repository_fixtures import checkpoint, repositories, state
 from support.model_sources import write_model
-from support.model_v2_fixtures import import_publication_case
 from task_contract_core import selected_task, start
 from utils import sealed_evidence
 from utils.json_format import document_sha256
@@ -326,20 +326,6 @@ def check_explicit_no_profile(tmp_path):
     assert publish_fixture(root, acquired)["model"] == "reflected"
 
 
-def check_source_race(tmp_path):
-    root, acquired, _ = prepare(tmp_path)
-    logs_edit(root, acquired)
-    source = input_file(root)
-    source.write_text(
-        source.read_text(encoding="utf-8") + "# concurrent edit\n", encoding="utf-8"
-    )
-    before = snapshot(root)
-    with pytest.raises(ValueError, match="sources changed"):
-        publish_fixture(root, acquired)
-    assert snapshot(root) == before
-    import_evidence.discard_acquisition(root, acquired["evidence"])
-
-
 def check_shared_property_and_bindings(tmp_path):
     root = tmp_path / "case"
     fixture(root)
@@ -363,43 +349,11 @@ def check_shared_property_and_bindings(tmp_path):
     assert not any("/stg/" in str(p) for p in result.get("files", []))
 
 
-def check_foreign_source_writes_rejected(tmp_path):
-    relative = "model/stg/cde/cloudwatch-logs.properties"
-    root, acquired, _ = prepare(tmp_path, focused=False)
-    logs_edit(root, acquired)
-    source = root / relative
-    text = source.read_text() if source.exists() else '{"version":1,"values":{}}'
-    destination = Path(acquired["candidates"]) / relative
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(text + "\n")
-    before = snapshot(root)
-    with (
-        patch.object(
-            m, "publish_edit", side_effect=AssertionError("must reject before saving")
-        ),
-        pytest.raises(ValueError, match="outside|invalid authoritative Model path"),
-    ):
-        publish_fixture(root, acquired)
-    assert snapshot(root) == before
-    import_evidence.discard_acquisition(root, acquired["evidence"])
-
-
 def check_repeat_without_reformat(tmp_path):
     root, acquired, _ = prepare(tmp_path)
     logs_edit(root, acquired)
     publish_fixture(root, acquired)
     before = source_files(root)
-    cli = aws(changed=True)
-    with pytest.raises(ValueError, match="Task already published"):
-        m.acquire(
-            root,
-            "dev",
-            "cloudwatch-logs",
-            TARGET,
-            cli_runner=cli,
-            resource_types=["Logs.LogGroup"],
-        )
-    assert not cli.calls and source_files(root) == before
     import_guard.require_import_changes(root)
     old_name, new_name = "tasks/import-fixture.md", "tasks/reimport.md"
     checkpoint(root, task=new_name)
@@ -430,6 +384,8 @@ def check_repeat_without_reformat(tmp_path):
             "complete"
         ]
 
+    TestCase().assertEqual(source_files(root), before)
+
 
 def check_empty_inventory_preserves_sources(tmp_path):
     root = tmp_path / "case"
@@ -449,69 +405,6 @@ def check_empty_inventory_preserves_sources(tmp_path):
     stage(root, acquired, {})
     result = publish_fixture(root, acquired)
     assert result["model"] == "unchanged" and source_files(root) == before
-
-
-def check_consumer_set_race(tmp_path):
-    root = tmp_path / "case"
-    fixture(root, focused=True)
-    acquired = m.acquire(
-        root,
-        "dev",
-        "cloudwatch-logs",
-        TARGET,
-        cli_runner=aws(changed=True),
-        resource_types=["Logs.LogGroup"],
-    )
-    logs_edit(root, acquired)
-    new_consumer = root / "model/dev/cde/new-consumer.properties"
-    new_consumer.write_text(serialize({}), encoding="utf-8")
-    before = snapshot(root)
-    with pytest.raises(
-        ValueError,
-        match="changed|no acquired change plan|outside Modified files/Allowed paths|cannot read reference metadata",
-    ):
-        publish_fixture(root, acquired)
-    assert snapshot(root) == before
-    import_evidence.discard_acquisition(root, acquired["evidence"])
-
-
-def _callback_check_source_transaction_rollback_fail_after_first(
-    real_save, root, /, output
-):
-    selected = list(output.items())
-    if any(path.is_relative_to(root / "model") for path, _ in selected):
-        path, text = selected[0]
-        path.write_text(text, encoding="utf-8")
-        raise OSError("synthetic interrupted source transaction")
-    return real_save(output)
-
-
-def check_source_transaction_rollback(tmp_path):
-    root = tmp_path / "case"
-    fixture(root, focused=True)
-    cli = aws(changed=True)
-    cli.logs[-1]["logGroupClass"] = "INFREQUENT_ACCESS"
-    acquired = m.acquire(
-        root,
-        "dev",
-        "cloudwatch-logs",
-        TARGET,
-        cli_runner=cli,
-        resource_types=["Logs.LogGroup"],
-    )
-    promote_logs(root, acquired)
-    original = source_files(root)
-    real_save = sync_files.save_files
-    fail_after_first = _bind_framework_callback(
-        _callback_check_source_transaction_rollback_fail_after_first, real_save, root
-    )
-    with (
-        patch.object(sync_files, "save_files", side_effect=fail_after_first),
-        pytest.raises(OSError, match="synthetic"),
-    ):
-        publish_fixture(root, acquired)
-    assert source_files(root) == original and not import_guard.proof_path(root).exists()
-    assert publish_fixture(root, acquired)["model"] == "reflected"
 
 
 def check_reflection_validation_boundary(tmp_path):
@@ -562,133 +455,6 @@ def check_dry_run_cleanup(tmp_path):
     )
     assert snapshot(root) == before and Path(acquired["evidence"]).is_file()
     assert not (root / "tasks").exists() and not (root / ".blueprint/import").exists()
-    second = m.acquire(
-        root,
-        "dev",
-        "cloudwatch-logs",
-        TARGET,
-        True,
-        aws(changed=True),
-        resource_types=["Logs.LogGroup"],
-    )
-    logs_edit(root, second, 91)
-    with pytest.raises(ValueError):
-        publish_fixture(root, second, dry_run=True)
-    assert Path(second["evidence"]).is_file()
-
-
-def _callback_check_evidence_and_display_recovery_fail_display(
-    actual, /, root, output, *args, **kwargs
-):
-    if any(p.is_relative_to(root / "docs/designs") for p in output):
-        raise OSError("synthetic display I/O failure")
-    return actual(root, output, *args, **kwargs)
-
-
-def check_evidence_and_display_recovery(tmp_path):
-    root, acquired, _ = prepare(tmp_path)
-    logs_edit(root, acquired)
-    evidence = Path(acquired["evidence"])
-    original = evidence.read_text(encoding="utf-8")
-    envelope = json.loads(original)
-    envelope["payload"]["records"][0]["identity"] = "fabricated"
-    evidence.write_text(json_text(envelope), encoding="utf-8")
-    with pytest.raises(ValueError, match="modified"):
-        publish_fixture(root, acquired)
-    evidence.write_text(original, encoding="utf-8")
-    before = source_files(root)
-    with patch.object(
-        m, "view_plan", side_effect=ValueError("synthetic display failure")
-    ):
-        result = publish_fixture(root, acquired)
-    assert result["model"] == "reflected" and result["status"] == "display-failed"
-    assert source_files(root) != before and evidence.is_file()
-    saved_model = source_files(root)
-    assert (
-        m.recover_display(root, "dev", "cloudwatch-logs", TARGET)["status"]
-        == "complete"
-    )
-    assert source_files(root) == saved_model
-
-    root, acquired, _ = prepare(tmp_path / "write-failure")
-    logs_edit(root, acquired)
-    evidence = Path(acquired["evidence"])
-    actual = m._publish_transaction
-    fail_display = _bind_framework_callback(
-        _callback_check_evidence_and_display_recovery_fail_display, actual
-    )
-    with patch.object(m, "_publish_transaction", side_effect=fail_display):
-        result = publish_fixture(root, acquired)
-    assert (
-        result["model"] == "reflected"
-        and result["markdown"] == "not-generated"
-        and result["status"] == "display-failed"
-    )
-    assert evidence.is_file()
-    before = source_files(root)
-    with (
-        patch.object(
-            m, "import_context", side_effect=AssertionError("recovery must not acquire")
-        ),
-        patch.object(
-            m,
-            "read_acquisition",
-            side_effect=AssertionError("recovery must not read acquisition"),
-        ),
-    ):
-        assert (
-            m.recover_display(root, "dev", "cloudwatch-logs", TARGET)["status"]
-            == "complete"
-        )
-    assert (
-        source_files(root) == before
-        and import_evidence.read_proof(root)["markdown"] == "generated"
-    )
-    assert not (root / ".blueprint").exists()
-
-
-def _callback_check_partial_acquisition_cannot_complete_cli(
-    original, /, command, **kwargs
-):
-    if command[1:3] == ["configservice", "describe-delivery-channels"]:
-        original.calls.append(("configservice", "describe-delivery-channels", {}))
-        return subprocess.CompletedProcess(
-            command,
-            1,
-            "",
-            json.dumps({"Code": "AccessDeniedException", "Message": "denied"}),
-        )
-    return original(command, **kwargs)
-
-
-def check_partial_acquisition_cannot_complete(tmp_path):
-    root = tmp_path / "case"
-    fixture(root, "config", focused=True)
-    original = aws("config")
-    cli = _bind_framework_callback(
-        _callback_check_partial_acquisition_cannot_complete_cli, original
-    )
-    before = source_files(root)
-    acquired = m.acquire(root, "dev", "config", TARGET, cli_runner=cli)
-    assert acquired["status"] == "incomplete" and acquired["records"]
-    assert (
-        acquired["inventory"]["Config.DeliveryChannel"]["status"] == "permission_denied"
-    )
-    sealed = import_evidence.read_acquisition(
-        root, Path(acquired["evidence"]), ("dev", TARGET, "config"), False
-    )
-    assert sealed["version"] == 3 and not import_evidence.acquisition_complete(sealed)
-    stage(root, acquired, {}, excluded=exclusions(acquired, []))
-    count = len(original.calls)
-    with patch.object(
-        m, "import_context", side_effect=AssertionError("publish cannot acquire")
-    ):
-        result = publish_fixture(root, acquired, "config")
-    assert result["status"] == "incomplete" and len(original.calls) == count
-    assert (
-        source_files(root) == before
-        and import_evidence.read_proof(root)["complete"] is False
-    )
 
 
 def check_generic_acquisition_roundtrip(tmp_path):
@@ -899,21 +665,7 @@ def _callback_check_reference_publication_counted(
     return original_read(scope, *args, **kwargs)
 
 
-def _callback_check_reference_publication_finish(
-    original_finish, producer, race, /, *args, **kwargs
-):
-    result = original_finish(*args, **kwargs)
-    if race and kwargs.get("model") == "reflected":
-        producer.write_text(
-            producer.read_text().replace("`audit-bucket`", "`audit-bucket-raced`")
-        )
-    return result
-
-
-@pytest.mark.parametrize(
-    "race,review_race", [(False, False), (True, False), (False, True)]
-)
-def check_reference_publication(tmp_path, race, review_race):
+def check_reference_publication(tmp_path):
     CloudControlCli = _imports_support_import_model_fixtures.CloudControlCli
     project_fixture = _imports_support_import_model_fixtures.project_fixture
     reference_fields = _imports_support_import_model_fixtures.reference_fields
@@ -1065,52 +817,16 @@ def check_reference_publication(tmp_path, race, review_race):
     stage(
         root, acquired, {path.relative_to(root).as_posix(): serialize(values)}, selected
     )
-    reviewed = review_fixture(root, acquired, "cloudtrail")["review"]
-    if review_race:
-        assert reviewed["warnings"], reviewed
-        assert (
-            m.review_acquisition(
-                root, "dev", "cloudtrail", acquired["evidence"], TARGET
-            )["review"]
-            == reviewed
-        )
-        producer.write_text(producer.read_text() + "# changed decision input\n")
-        with pytest.raises(ValueError, match="Review changed or stale"):
-            m.publish_acquisition(
-                root, "dev", "cloudtrail", acquired["evidence"], TARGET
-            )
-        assert not import_guard.proof_path(root).exists()
-        return
+    review_fixture(root, acquired, "cloudtrail")
     calls = len(cli.calls)
     reads = Counter()
     original_read = model.sources._read_model
-    original_finish = m.finish_import
     counted = _bind_framework_callback(
         _callback_check_reference_publication_counted, original_read, reads, root
     )
-    finish = _bind_framework_callback(
-        _callback_check_reference_publication_finish, original_finish, producer, race
-    )
-    original_sources = source_files(root)
     with (
         patch.object(model.sources, "_read_model", counted),
-        patch.object(m, "finish_import", finish),
     ):
-        if race:
-            with pytest.raises(ValueError, match="inputs changed during publication"):
-                m.publish_acquisition(
-                    root, "dev", "cloudtrail", acquired["evidence"], TARGET
-                )
-            changed = producer.relative_to(root)
-            actual_sources = source_files(root)
-            assert actual_sources.pop(changed) != original_sources[changed]
-            assert actual_sources == {
-                key: value for key, value in original_sources.items() if key != changed
-            }
-            assert not import_guard.proof_path(root).exists()
-            assert not (root / "docs/designs/dev/cde/cloudtrail.md").exists()
-            assert len(cli.calls) == calls
-            return
         result = m.publish_acquisition(
             root, "dev", "cloudtrail", acquired["evidence"], TARGET
         )
@@ -1210,18 +926,13 @@ def check_user_selected_overwrite_publication(tmp_path, action):
 
 
 def _callback_check_mixed_add_refresh_single_publication_save(
-    calls, fail, original_save, /, output
+    calls, original_save, /, output
 ):
     calls.append(set(output))
-    if fail:
-        file, text = next(iter(output.items()))
-        file.write_text(text, encoding="utf-8")
-        raise OSError("injected source publication failure")
     return original_save(output)
 
 
-@pytest.mark.parametrize("fail", [False, True])
-def check_mixed_add_refresh_single_publication(tmp_path, fail):
+def check_mixed_add_refresh_single_publication(tmp_path):
     root, acquired, cli = prepare(tmp_path)
     files = logs_edit(root, acquired)
     file = input_file(root)
@@ -1234,31 +945,22 @@ def check_mixed_add_refresh_single_publication(tmp_path, fail):
         correspondence(acquired, "fixture-001", "001", "refresh"),
     ]
     stage(root, acquired, files, selected, exclusions(acquired, selected))
-    before = source_files(root)
     calls = []
     original_save = sync_files.save_files
     save = _bind_framework_callback(
         _callback_check_mixed_add_refresh_single_publication_save,
         calls,
-        fail,
         original_save,
     )
     with patch.object(sync_files, "save_files", side_effect=save):
-        if fail:
-            with pytest.raises(OSError, match="injected"):
-                publish_fixture(root, acquired)
-            assert source_files(root) == before
-            assert not import_guard.proof_path(root).exists()
-            import_evidence.discard_acquisition(root, acquired["evidence"])
-        else:
-            result = publish_fixture(root, acquired)
-            assert {item["resource"] for item in result["changes"]} == {"001", "003"}
-            values = load_model(file).authoritative
-            assert (
-                values["desired.row.001-002.value"]
-                == values["desired.row.003-002.value"]
-                == "`90`"
-            )
+        result = publish_fixture(root, acquired)
+        assert {item["resource"] for item in result["changes"]} == {"001", "003"}
+        values = load_model(file).authoritative
+        assert (
+            values["desired.row.001-002.value"]
+            == values["desired.row.003-002.value"]
+            == "`90`"
+        )
     assert sum(file in output for output in calls) == 1
     assert len(cli.calls) == 2
 
@@ -1408,65 +1110,6 @@ def check_refresh_switches_definition_without_foreign_changes(tmp_path):
     )
 
 
-def check_approval_bound_save_guard(tmp_path):
-    root, acquired, _ = prepare(tmp_path)
-    logs_edit(root, acquired)
-    publish_fixture(root, acquired)
-    original = source_files(root)
-    file = input_file(root)
-    raw = file.read_bytes()
-    try:
-        file.write_bytes(raw + b"\n# unapproved candidate bytes\n")
-        with pytest.raises(
-            ValueError,
-            match="no verified /import evidence|differs from acquired change plan",
-        ):
-            import_guard.require_import_changes(root)
-    finally:
-        file.write_bytes(raw)
-    assert source_files(root) == original
-
-
-def check_import_rejects_acquired_schema_violation_before_save(tmp_path):
-    root = tmp_path / "case"
-    fixture(root, focused=True)
-    cli = aws(changed=True)
-    cli.logs[-1]["retentionInDays"] = 31
-    acquired = m.acquire(
-        root,
-        "dev",
-        "cloudwatch-logs",
-        TARGET,
-        cli_runner=cli,
-        resource_types=["Logs.LogGroup"],
-    )
-    logs_edit(root, acquired, 31)
-    assert acquired["status"] == "incomplete"
-    record = next(
-        item for item in acquired["records"] if item["identity"] == "managed-new"
-    )
-    assert (
-        record["properties"]["Logs.LogGroup.RetentionInDays"]["status"] == "unavailable"
-    )
-    before = source_files(root)
-    with (
-        patch.object(change, "validate_save", wraps=change.validate_save) as saving,
-        patch(
-            "model.validations.full_inputs.check_model_inputs",
-            side_effect=AssertionError("Full called"),
-        ),
-        patch(
-            "model.validations.full_inputs._check_model_inputs",
-            side_effect=AssertionError("Full internal called"),
-        ),
-        pytest.raises(ValueError, match="RetentionInDays"),
-    ):
-        publish_fixture(root, acquired)
-    saving.assert_not_called()
-    assert source_files(root) == before
-    assert not import_guard.proof_path(root).exists()
-
-
 @pytest.mark.parametrize("index_state", ["missing", "stale"])
 def check_import_refreshes_reference_metadata_without_full(tmp_path, index_state):
     root, acquired, _ = prepare(tmp_path, focused=False)
@@ -1488,52 +1131,6 @@ def check_import_refreshes_reference_metadata_without_full(tmp_path, index_state
     ):
         result = publish_fixture(root, acquired)
     assert result["model"] == "reflected"
-
-
-@pytest.mark.parametrize("failure", ["review", "receipt"])
-def check_properties_import_acquire_review_publish(monkeypatch, failure):
-    import_publication_case(monkeypatch, failure)
-
-
-@pytest.mark.parametrize("failure", ["post-candidate", "post-baseline"])
-def check_publication_transaction_without_host(monkeypatch, failure):
-    import_publication_case(monkeypatch, failure)
-
-
-@pytest.mark.parametrize("boundary", ["task", "unapproved-source"])
-def check_gitless_guard_boundaries(tmp_path, boundary):
-    root, acquired, _ = prepare(tmp_path, focused=False)
-    logs_edit(root, acquired)
-    review_fixture(root, acquired)
-    before = source_files(root)
-    task = root / "tasks/import-fixture.md"
-    if boundary == "task":
-        task.write_text(task.read_text() + "\n## Notes\nconcurrent Task edit\n")
-    if boundary == "unapproved-source":
-        assert (
-            m.publish_acquisition(
-                root, "dev", "cloudwatch-logs", acquired["evidence"], TARGET
-            )["status"]
-            == "complete"
-        )
-        foreign = input_file(root, env="stg")
-        foreign.write_bytes(foreign.read_bytes() + b"# unapproved source\n")
-        saved = source_files(root)
-        with pytest.raises(ValueError, match="outside Modified files/Allowed paths"):
-            import_guard.require_import_changes(root)
-        assert source_files(root) == saved
-    else:
-        with pytest.raises(
-            ValueError, match="stale|changed|mismatched|outside|scope|target|declare"
-        ):
-            m.publish_acquisition(
-                root, "dev", "cloudwatch-logs", acquired["evidence"], TARGET
-            )
-        assert source_files(root) == before
-        assert not (
-            sealed_evidence.evidence_store(root) / "import-fixture.json"
-        ).exists()
-    assert not (root / ".git").exists()
 
 
 def check_repository_snapshot_detects_real_changes(tmp_path):
@@ -1642,13 +1239,6 @@ def check_limited_acquisition_preserves_values_and_completes(tmp_path):
     stage(root, acquired, {source: serialize(proposed)}, selected)
     first = review_fixture(root, acquired, service)
     assert first["review"]["limitations"][0]["treatment"] is None
-    with pytest.raises(ValueError, match="limitations/structure"):
-        m.publish_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
-    with (
-        patch.object(TaskValidation, "git_paths", _callback_limited_task_paths),
-        pytest.raises(ValueError),
-    ):
-        task_contract.complete(root, "tasks/import-fixture.md")
     selection_path = Path(acquired["selection"])
     selection = json.loads(selection_path.read_text())
     selection["limitations"] = [

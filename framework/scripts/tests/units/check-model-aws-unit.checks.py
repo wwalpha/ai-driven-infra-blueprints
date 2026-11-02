@@ -13,6 +13,7 @@ from unittest.mock import Mock
 import support.check_model_aws_fixtures as _retained_fixture_offline_network
 import support.model_reference_fixtures as reference_fixtures
 from aws_mapping import Identity
+from botocore.exceptions import ClientError
 from model.validations.schema import validate_required_properties
 from support.aws_mapping_compare_fixtures import (
     ROOT,
@@ -1365,6 +1366,33 @@ def check_lakeformation_resource_comparison(tmp_path):
         )
         with pytest.raises(ValueError):
             selected.value("ResourceArn", "arn")
+
+
+def check_sdk_later_page_failure_never_returns_partial_results(tmp_path):
+    client = Mock()
+    client.can_paginate.return_value = True
+    paginator = client.get_paginator.return_value
+    paginator.paginate.return_value.build_full_result.side_effect = [
+        ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": "denied"}},
+            "DescribeLogGroups",
+        ),
+        {"logGroups": [{"logGroupName": "complete"}]},
+    ]
+    context = m.Context(tmp_path, TARGET, Mock(client=Mock(return_value=client)))
+    context.verified = True
+    with pytest.raises(m.AcquisitionError) as failure:
+        context.pages("logs", "describe_log_groups")
+    check(
+        failure.value.code == "AccessDeniedException",
+        "later SDK page failure retains its code",
+    )
+    with pytest.raises(m.AcquisitionError) as repeated:
+        context.pages("logs", "describe_log_groups")
+    check(repeated.value is failure.value, "cached SDK failure stays a failure")
+    check(
+        paginator.paginate.call_count == 1, "failed pages never expose partial results"
+    )
 
 
 if __name__ == "__main__":

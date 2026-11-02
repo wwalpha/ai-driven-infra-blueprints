@@ -1,8 +1,6 @@
 """Model 検証モジュールの接続・診断順序と移管した命名検証を確認する。"""
 
 import ast
-import os
-import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,16 +12,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from model.validations import (
     change_inputs,
-    environment,
     full_inputs,
     identity,
     json_settings,
     naming,
-    policies,
     presentation,
     references,
     schema,
-    stacks,
     structure,
 )
 from model.validations.naming import (
@@ -33,6 +28,7 @@ from model.validations.naming import (
     naming_target_matches,
     naming_targets,
 )
+from support.framework_input_isolation_fixtures import VALIDATION_MODULES
 from support.producer_identifier_reference_fixtures import resource, setup
 from support.pytest_cli import run
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
@@ -44,20 +40,7 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 ROOT = Path(__file__).resolve().parents[4]
-MODULES = (
-    full_inputs,
-    change_inputs,
-    structure,
-    naming,
-    schema,
-    json_settings,
-    environment,
-    references,
-    policies,
-    identity,
-    stacks,
-    presentation,
-)
+MODULES = VALIDATION_MODULES
 
 
 @pytest.mark.parametrize(
@@ -83,20 +66,6 @@ def check_module_structure_and_imports(module):
             for statement in node.body
             for child in ast.walk(statement)
         )
-
-
-def check_imports_in_one_process():
-    modules = [module.__name__ for module in MODULES]
-    modules.extend(["model.render", "validation.change", "validation.runner"])
-    statement = "; ".join(f"import {name}" for name in modules)
-    result = subprocess.run(
-        [sys.executable, "-B", "-c", statement],
-        env=dict(os.environ, PYTHONPATH=str(ROOT / "framework/scripts")),
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(

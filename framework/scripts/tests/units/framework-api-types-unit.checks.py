@@ -4,8 +4,6 @@ import ast
 import importlib
 import inspect
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import get_args, get_origin, get_type_hints
@@ -17,21 +15,12 @@ import pytest
 from deploy import controller, failures
 from deploy.typing import DeliveryBoundary, DeployRunContext, StackUnit
 from model.sources import ModelSnapshot
+from support.framework_input_isolation_fixtures import PUBLIC_API_MODULES
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-MODULES = (
-    "deploy.scheduler",
-    "deploy.run_context",
-    "deploy.controller",
-    "deploy.handoff",
-    "deploy.failures",
-    "model.sources",
-    "model.operations",
-    "model.importing.approval",
-    "comparison.runner",
-)
+MODULES = PUBLIC_API_MODULES
 
 
 def public_apis(module):
@@ -113,25 +102,6 @@ def check_typed_records_keep_json_and_runtime_shape(tmp_path):
     assert (
         state["status"] == "RUNNING" and state["failure"]["executionState"] == "UNKNOWN"
     )
-
-
-@pytest.mark.parametrize("name", MODULES)
-def check_fresh_import_and_hints(name):
-    code = """
-import importlib, inspect, sys, typing
-module = importlib.import_module(sys.argv[1])
-for value in vars(module).values():
-    if inspect.isfunction(value) and value.__module__ == module.__name__ and not value.__name__.startswith('_'):
-        typing.get_type_hints(value)
-"""
-    result = subprocess.run(
-        [sys.executable, "-B", "-c", code, name],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},
-        timeout=30,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 if __name__ == "__main__":

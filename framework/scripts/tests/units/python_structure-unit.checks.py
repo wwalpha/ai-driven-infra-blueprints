@@ -1,10 +1,10 @@
 """Standard-library-only checks for the Python structure gate."""
 
 import importlib.util
-import subprocess
-import sys
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 if not __debug__:
@@ -44,21 +44,12 @@ class StructureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "example.py"
             source.write_text("def outer():\n import os\n", encoding="utf-8")
-            result = subprocess.run(
-                [sys.executable, "-B", str(CHECKER), directory],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(result.returncode, 1)
-            self.assertIn(f"{source}:2: function-import", result.stdout)
+            with redirect_stdout(io.StringIO()) as output:
+                result = STRUCTURE.main([directory])
+            self.assertEqual(result, 1)
+            self.assertIn(f"{source}:2: function-import", output.getvalue())
             source.write_text("import os\n", encoding="utf-8")
-            self.assertEqual(
-                subprocess.run(
-                    [sys.executable, "-B", str(CHECKER), directory], check=False
-                ).returncode,
-                0,
-            )
+            self.assertEqual(STRUCTURE.main([directory]), 0)
 
 
 if __name__ == "__main__":

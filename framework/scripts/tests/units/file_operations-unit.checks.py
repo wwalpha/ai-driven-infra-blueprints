@@ -14,6 +14,7 @@ from typing import TextIO
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 import pytest
@@ -206,42 +207,80 @@ def check_batch_stages_before_publish(tmp_path: Path) -> None:
     assert set(tmp_path.iterdir()) == set(contents)
 
 
-def _callback_check_save_rollback_patch_fail(new, write, /, path, *args, **kwargs):
-    if path == new:
-        path.write_bytes(b"partial")
-        raise OSError("injected write")
-    return write(path, *args, **kwargs)
+def _callback_check_transactions_file_rollback_fail_restore(restores, /, path, content):
+    restores.append(path)
+    raise OSError("injected restoration failure")
+
+
+def _callback_check_transactions_file_rollback_fail_write(
+    _state_file_rollback_196, write_text, /, path, *args, **kwargs
+):
+    _state_file_rollback_196.calls.append(path)
+    if path == _state_file_rollback_196.failed:
+        write_text(path, "partially written", encoding="utf-8")
+        raise OSError("injected publication failure")
+    return write_text(path, *args, **kwargs)
 
 
 def check_save_rollback_patch(tmp_path):
-    old, new = tmp_path / "old", tmp_path / "new"
-    old.write_bytes(b"old\r\n\x00")
-    write = Path.write_text
-    fail = _bind_framework_callback(
-        _callback_check_save_rollback_patch_fail, new, write
+    root = tmp_path
+    _state_file_rollback_196 = SimpleNamespace()
+    save_files = sync_files.save_files
+    first, created, last = [root / name for name in ("first.md", "new.json", "last.md")]
+    originals = {first: b"first\r\n", last: b"last\r\n"}
+    write_text, write_bytes = (Path.write_text, Path.write_bytes)
+    for _state_file_rollback_196.failed in (first, created, last):
+        for path, content in originals.items():
+            path.write_bytes(content)
+        _state_file_rollback_196.calls = []
+        fail_write = _bind_framework_callback(
+            _callback_check_transactions_file_rollback_fail_write,
+            _state_file_rollback_196,
+            write_text,
+        )
+        with patch.object(Path, "write_text", fail_write):
+            with pytest.raises(OSError) as error:
+                save_files({first: "changed\n", created: "{}\n", last: "changed\n"})
+            TestCase().assertTrue(str(error.value) == "injected publication failure")
+        TestCase().assertTrue(
+            _state_file_rollback_196.failed in _state_file_rollback_196.calls
+        )
+        TestCase().assertTrue(
+            {path: path.read_bytes() for path in originals} == originals
+        )
+    restores = []
+    fail_restore = _bind_framework_callback(
+        _callback_check_transactions_file_rollback_fail_restore, restores
     )
+    with (
+        patch.object(Path, "write_text", fail_write),
+        patch.object(Path, "write_bytes", fail_restore),
+    ):
+        with pytest.raises(OSError) as error:
+            save_files({first: "changed\n", created: "{}\n", last: "changed\n"})
+        TestCase().assertTrue("generated-file rollback failed:" in str(error.value))
+        TestCase().assertTrue(
+            all(
+                (
+                    f"{path}: injected restoration failure" in str(error.value)
+                    for path in (last, first)
+                )
+            )
+        )
+    TestCase().assertTrue(
+        last in _state_file_rollback_196.calls and restores == [last, first]
+    )
+    for path, content in originals.items():
+        write_bytes(path, content)
     with patch.object(
-        Path, "write_text", side_effect=AssertionError("unchanged write")
+        Path, "write_text", side_effect=AssertionError("unchanged file rewritten")
     ):
-        sync_files.save_files({old: "old\r\n\x00"})
-    with (
-        patch.object(Path, "write_text", fail),
-        patch.object(sync_files, "restore_files", wraps=files.restore_files) as restore,
-        pytest.raises(OSError, match="injected write"),
-    ):
-        sync_files.save_files({old: "changed", new: "new"})
-    assert list(restore.call_args.args[0]) == [new, old]
-    assert old.read_bytes() == b"old\r\n\x00" and not new.exists()
-    with (
-        patch.object(Path, "write_text", fail),
-        patch.object(
-            sync_files, "restore_files", side_effect=OSError("injected rollback")
-        ),
-        pytest.raises(
-            OSError, match="generated-file rollback failed: injected rollback"
-        ),
-    ):
-        sync_files.save_files({new: "new"})
+        save_files(
+            {path: content.decode("utf-8") for path, content in originals.items()}
+        )
+    print(
+        "File rollback: PASS (first/middle/last partial write, restoration error, no-op)"
+    )
 
 
 if __name__ == "__main__":

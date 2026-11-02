@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Focused checks; test sources define the current verification responsibilities."""
 
-import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -69,41 +68,6 @@ if not __debug__:
 # Preserve shared fixtures and compatibility exports under their historical names.
 catalog = _exports_support_design_layout_fixtures.catalog
 resource_logical_ids = _exports_support_design_layout_fixtures.resource_logical_ids
-
-
-@pytest.mark.parametrize(
-    "module",
-    [
-        "design.layout",
-        "design.policy_tables",
-        "design.services.ec2.security_groups",
-        "design.document",
-        "model.display",
-        "model.validations.full_inputs",
-        "model.render",
-        "model.change_plan",
-        "design.array_display",
-        "design.common",
-        "design.services.codebuild",
-        "design.services.codepipeline",
-        "design.services.cloudtrail",
-        "design.services.guardduty",
-        "design.services.secrets_manager",
-    ],
-)
-def check_import_order(module):
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            "-c",
-            "import importlib; importlib.import_module(" + repr(module) + ")",
-        ],
-        cwd=REPOSITORY / "framework/scripts",
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def check_import_pending_reference():

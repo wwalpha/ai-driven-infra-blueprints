@@ -10,6 +10,7 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
+from unittest import TestCase
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -1748,6 +1749,36 @@ def check_tgw_provider_and_composite_identity():
         for record in result
         for prop in record["properties"]
     )
+
+
+def check_invalid_acquired_schema_property_cannot_be_selected():
+    cli = aws(changed=True)
+    cli.logs[-1]["retentionInDays"] = 31
+    target = dict(
+        awsAccountId=ACCOUNT,
+        awsRegion="ap-northeast-1",
+        awsProfile="confirmed",
+        environment="dev",
+        directory="cde",
+    )
+    ctx = m.import_context(m.ROOT, target, cli, "cloudwatch-logs")
+    ctx.verify()
+    records = m.normalize_records(
+        ctx, "cloudwatch-logs", m.inventory(ctx, "cloudwatch-logs", ["Logs.LogGroup"])
+    )
+    captured = next(item for item in records if item["identity"] == "managed-new")
+    TestCase().assertEqual(
+        captured["properties"]["Logs.LogGroup.RetentionInDays"]["status"], "unavailable"
+    )
+    values = resource_values(
+        "001",
+        "Logs.LogGroup",
+        "managed-new",
+        "IMPORT",
+        [("LogGroupName", "`managed-new`"), ("RetentionInDays", "`31`")],
+    )
+    with pytest.raises(ValueError, match="acquired"):
+        verify_values(expansion({}), expansion(values), {"001": captured}, schema_for)
 
 
 def check_inventory_status_and_partial_retention():

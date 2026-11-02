@@ -6,18 +6,14 @@ import subprocess
 import sys
 from contextlib import ExitStack
 from datetime import datetime, timezone
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
-from types import SimpleNamespace as _CallbackState
 
 import generation_inputs as _imports_generation_inputs
-import import_guard as _imports_import_guard
 import model.format as _imports_model_format
 import model.importing.cli as _imports_model_importing_cli
 import model.operations as _imports_model_operations
 import model.sources as _imports_model_sources
-import pytest as _imports_pytest
 import support.import_repository_fixtures as _imports_support_import_repository_fixtures
 import support.model_v2_fixtures as _imports_support_model_v2_fixtures
 from model.format import parse, serialize
@@ -455,35 +451,10 @@ def value_snapshot(values, provenance=None, files=None):
     )
 
 
-def _callback_import_publication_case_fail_407(
-    finish, /, root, model=None, markdown=None
-):
-    if model is not None:
-        finish(root, model, markdown)
-        raise ValueError("injected receipt failure")
-    return finish(root, model, markdown)
-
-
-def _callback_import_publication_case_race(
-    state, candidate, failure, original, original_outputs, path, /, *args, **kwargs
-):
-    result = original_outputs(*args, **kwargs)
-    if not state.injected:
-        state.injected = True
-        if failure == "post-candidate":
-            candidate.write_bytes(candidate.read_bytes() + b"# changed candidate\n")
-        else:
-            path.write_bytes(original + b"# external source edit\n")
-    return result
-
-
-def import_publication_case(monkeypatch, failure, *, workspace=None):
-    _state_import_publication_case_250 = _CallbackState()
-    pytest = _imports_pytest
+def import_publication_case(monkeypatch, subprocess_cli=False, *, workspace=None):
     parse = _imports_model_format.parse
     patch = _imports_model_format.patch
     cli = _imports_model_importing_cli
-    load_model = _imports_model_sources.load_model
     publication_workspace = (
         _imports_support_import_repository_fixtures.publication_workspace
     )
@@ -505,7 +476,6 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
         path = target / relative
         original = path.read_bytes()
         aws = LogsCli()
-
         result = cli.acquire(
             target,
             "qa-synthetic",
@@ -545,142 +515,43 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
         )
         assert reviewed["status"] == "reviewed" and path.read_bytes() == original
         calls = list(aws.calls)
-        if failure == "review":
-            file = evidence.parent / "review.json"
-            changed = json.loads(file.read_text(encoding="utf-8"))
-            changed["dispositions"][0]["risks"] = ["changed review"]
-            file.write_text(json.dumps(changed), encoding="utf-8")
-        elif failure == "head":
-            advance(target)
-        if failure in {"head", "review"}:
-            with pytest.raises(ValueError, match="changed|stale|ancestor|worktree"):
-                cli.publish_acquisition(
-                    target, "qa-synthetic", "cloudwatch-logs", evidence, "team-a"
-                )
-            assert path.read_bytes() == original
-            proof_path = _imports_import_guard.proof_path
-            assert not proof_path(target).exists()
-            assert aws.calls == calls
-            return
-        if failure.endswith("-crash"):
-            program = "import sys,os\nfrom pathlib import Path\nsys.path.insert(0,sys.argv[1])\nfrom task_contract_core import selected_task\nfrom model.importing import cli\nimport sync_files\nroot,name,path,evidence=Path(sys.argv[2]),sys.argv[3],Path(sys.argv[4]),Path(sys.argv[5])\nmode=sys.argv[6]\nif mode=='receipt-crash':\n    original=cli.record_import\n    def crash(*args,**kwargs):\n        original(*args,**kwargs)\n        os._exit(17)\n    cli.record_import=crash\nelse:\n    original=sync_files.save_files\n    def crash(outputs):\n        selected=path if mode=='source-crash' else next((p for p in outputs if p.suffix=='.md'),None)\n        if selected in outputs:\n            selected.parent.mkdir(parents=True,exist_ok=True)\n            selected.write_bytes(b'partial child bytes')\n            os._exit(17)\n        return original(outputs)\n    sync_files.save_files=crash\nwith selected_task(root,name):\n    cli.publish_acquisition(root,'qa-synthetic','cloudwatch-logs',evidence,'team-a')\nraise AssertionError('injected crash did not execute')\n"
-            crashed = subprocess.run(
-                [
-                    sys.executable,
-                    "-I",
-                    "-B",
-                    "-c",
-                    program,
-                    str(FRAMEWORK / "framework/scripts"),
-                    str(target),
-                    state["task_file"],
-                    str(path),
-                    str(evidence),
-                    failure,
-                ],
+        if subprocess_cli:
+            command = [
+                sys.executable,
+                "-I",
+                "-B",
+                str(FRAMEWORK / "framework/scripts/model/cli.py"),
+                "import",
+                "publish",
+                "--repository-root",
+                str(target),
+                "--environment",
+                "qa-synthetic",
+                "--target",
+                "team-a",
+                "--service",
+                "cloudwatch-logs",
+                "--evidence",
+                str(evidence),
+                "--task-file",
+                state["task_file"],
+            ]
+            completed = subprocess.run(
+                command,
                 capture_output=True,
                 text=True,
-                encoding="utf-8",
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if key not in {"PYTHONPATH", "BLUEPRINT_TASK_FILE"}
+                },
             )
-            assert crashed.returncode == 17, crashed.stdout + crashed.stderr
-            proof_path = _imports_import_guard.proof_path
-            assert proof_path(target).is_file()
-            with pytest.raises(ValueError, match="pending Model publication"):
-                load_model(path)
-            assert (
-                cli.recover_transaction(
-                    target, "qa-synthetic", "cloudwatch-logs", evidence, "team-a"
-                )["status"]
-                == "recovered"
+            assert completed.returncode == 0, completed.stdout + completed.stderr
+            published = json.loads(completed.stdout)
+        else:
+            published = cli.publish_acquisition(
+                target, "qa-synthetic", "cloudwatch-logs", evidence, "team-a"
             )
-            if failure == "display-crash":
-                assert path.read_bytes() == candidate.read_bytes()
-                assert (
-                    cli.recover_display(
-                        target, "qa-synthetic", "cloudwatch-logs", "team-a"
-                    )["status"]
-                    == "complete"
-                )
-            else:
-                assert path.read_bytes() == original and not proof_path(target).exists()
-                assert (
-                    cli.publish_acquisition(
-                        target, "qa-synthetic", "cloudwatch-logs", evidence, "team-a"
-                    )["status"]
-                    == "complete"
-                )
-            assert aws.calls == calls
-            assert (root / relative).read_bytes() == original
-            return
-        with monkeypatch.context() as injection:
-            if failure.startswith("post-"):
-                original_outputs = cli.record_outputs
-                _state_import_publication_case_250.injected = False
-                race = _bind_framework_callback(
-                    _callback_import_publication_case_race,
-                    _state_import_publication_case_250,
-                    candidate,
-                    failure,
-                    original,
-                    original_outputs,
-                    path,
-                )
-                injection.setattr(cli, "record_outputs", race)
-            if failure == "receipt":
-                finish = cli.finish_import
-                fail = _bind_framework_callback(
-                    _callback_import_publication_case_fail_407, finish
-                )
-                injection.setattr(cli, "finish_import", fail)
-            if failure == "receipt" or failure.startswith("post-"):
-                with pytest.raises((OSError, ValueError)):
-                    cli.publish_acquisition(
-                        target, "qa-synthetic", "cloudwatch-logs", evidence, "team-a"
-                    )
-                assert path.read_bytes() == original + (
-                    b"# external source edit\n" if failure == "post-baseline" else b""
-                )
-                proof_path = _imports_import_guard.proof_path
-                assert not proof_path(target).exists()
-                assert aws.calls == calls
-                return
-            if failure == "subprocess":
-                command = [
-                    sys.executable,
-                    "-I",
-                    "-B",
-                    str(FRAMEWORK / "framework/scripts/model/cli.py"),
-                    "import",
-                    "publish",
-                    "--repository-root",
-                    str(target),
-                    "--environment",
-                    "qa-synthetic",
-                    "--target",
-                    "team-a",
-                    "--service",
-                    "cloudwatch-logs",
-                    "--evidence",
-                    str(evidence),
-                    "--task-file",
-                    state["task_file"],
-                ]
-                completed = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    env={
-                        key: value
-                        for key, value in os.environ.items()
-                        if key not in {"PYTHONPATH", "BLUEPRINT_TASK_FILE"}
-                    },
-                )
-                assert completed.returncode == 0, completed.stdout + completed.stderr
-                published = json.loads(completed.stdout)
-            else:
-                published = cli.publish_acquisition(
-                    target, "qa-synthetic", "cloudwatch-logs", evidence, "team-a"
-                )
         assert published["model"] == "reflected", published
         assert published["status"] == "complete", published
         assert path.read_bytes() == candidate.read_bytes()

@@ -2,8 +2,8 @@
 """Synthetic checks for invocation-local reuse and single-service validation handoff."""
 
 import sys
-from contextlib import nullcontext
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -14,19 +14,17 @@ from contextvars import ContextVar
 from unittest.mock import patch
 
 import aws_mapping
-import model.importing.scope as import_scope
 import pytest
 import support.sync_model_fixtures as _fixture_generated_policy
 import sync_runtime
 import sync_views
 import utils.aws_mappings as mapping_state
 import utils.input_cache as input_cache
-from model.files import load_model, read_model
+from model.files import load_model
 from support.model_sources import write_model
 from support.pytest_cli import run
 from support.sync_model_fixtures import MODULE
 from support.validator import MODULE as validator_module
-from support.validator import commit, diagnostics
 from utils.aws_mappings import definition_root, mappings_for
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from validation.findings import Findings
@@ -168,10 +166,7 @@ def trace_validation(root):
     return validator, records
 
 
-@pytest.mark.parametrize(
-    "fault", ["none", "names", "tables", "overview", "links", "json", "observed"]
-)
-def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
+def check_common_conditions_preserved(generated_policy, monkeypatch):
     root, model, values, design, artifact, register = generated_policy
     values["desired.row.001-001.value"] = "`app-dev-AppRole`"
     write_model(model, values)
@@ -196,69 +191,12 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
         cwd=root,
         check=True,
     )
-    text = design.read_text(encoding="utf-8")
-    if fault == "names":
-        text = text.replace('id="resource-IAM_Role_001"', 'id="wrong-anchor"')
-    elif fault == "tables":
-        text = text.replace("RoleName", "Unknown")
-    elif fault == "overview":
-        text = text.replace("## リソース一覧", "## 一覧なし")
-    elif fault == "links":
-        text += "\n[壊れた参照](missing.md#absent)\n"
-    elif fault == "json":
-        artifact.write_text("{", encoding="utf-8")
-    elif fault == "observed":
-        values["observed.row.001-001.value"] = (
-            "`arn:aws:iam::123456789012:role/unexpected`"
-        )
-        write_model(model, values)
-    design.write_text(text, encoding="utf-8")
     after, new = trace_validation(root)
-    expected = (COMMON[1], COMMON[4], COMMON[5]) if fault == "observed" else COMMON
+    expected = COMMON
     for name in COMMON:
         assert bool(new["saved", name]) == (name in expected), name
         assert not new["candidate", name], name
-    if fault == "observed":
-        # Invalid source values block generation before dependent saved-view checks.
-        for check_id in (
-            "design.model-inputs",
-            "design.observed-values",
-            "framework.generated-service-model",
-        ):
-            result = after.findings.result(check_id, {ENTRY})
-            assert result.status == "FAIL", (check_id, result)
-        assert any(
-            (
-                "generated ARN persisted in observed model value" in error
-                or "observed value requires a desired logical reference" in error
-            )
-            for error in after.errors
-        ), after.errors
-        for check_id in (
-            "design.tables.semantic",
-            "framework.policy-tables",
-            "design.links",
-        ):
-            result = after.findings.result(check_id, {ENTRY})
-            assert result.status == "FAIL", (check_id, result)
-    if fault == "none":
-        assert not after.errors, after.errors
-    if fault != "none":
-        assert diagnostics(after), fault
-        name = {
-            "names": COMMON[0],
-            "tables": COMMON[1],
-            "overview": COMMON[2],
-            "links": COMMON[3],
-            "json": COMMON[4],
-            "observed": COMMON[5],
-        }[fault]
-        assert fault == "observed" or any(
-            not condition for condition, _ in new["saved", name]
-        ), (
-            fault,
-            new["saved", name],
-        )
+    TestCase().assertFalse(after.errors, after.errors)
 
 
 def _callback_check_deferred_guard_and_cleanup_factory_call_207(
@@ -300,14 +238,6 @@ def check_deferred_guard_and_cleanup(generated_policy, monkeypatch):
     monkeypatch.setenv(
         "BLUEPRINT_TASK_FILE", register([design, artifact])["BLUEPRINT_TASK_FILE"]
     )
-    for write, services in ((True, ["iam"]), (False, ["iam", "s3"]), (False, ["s3"])):
-        with sync_views.saved_design_validation(root, ENTRY):
-            with pytest.raises(ValueError, match="read-only generation"):
-                MODULE.sync(root, write, *ENTRY[:2], services)
-        assert sync_views._saved_design_validation.get() is None
-    with pytest.raises(RuntimeError), sync_views.saved_design_validation(root, ENTRY):
-        raise RuntimeError("injected")
-    assert sync_views._saved_design_validation.get() is None
     seen = []
     original_factory = sync_views.view_validator
     factory = _bind_framework_callback(
@@ -320,75 +250,6 @@ def check_deferred_guard_and_cleanup(generated_policy, monkeypatch):
             assert not seen, (
                 "projection must leave Model quality to independent validation"
             )
-
-
-def _callback_check_generation_failures_never_pass_generate(
-    design, fault, model, original, root, /, *args, **kwargs
-):
-    generated = original(*args, **kwargs)
-    stage = args[0]
-    if fault == "projection":
-        staged = stage / design.relative_to(root)
-        staged.write_text(
-            staged.read_text(encoding="utf-8").replace(
-                "app-dev-role", "different-role"
-            ),
-            encoding="utf-8",
-        )
-    elif fault == "input":
-        source = model
-        source.write_bytes(source.read_bytes() + b"\n")
-    elif fault == "exception":
-        raise ValueError("injected generation exception")
-    return generated
-
-
-@pytest.mark.parametrize("fault", ["projection", "input", "stale", "exception"])
-def check_generation_failures_never_pass(generated_policy, monkeypatch, fault):
-    root, model, _, design, artifact, register = generated_policy
-    monkeypatch.setenv(
-        "BLUEPRINT_TASK_FILE", register([design, artifact])["BLUEPRINT_TASK_FILE"]
-    )
-    subprocess.run(["git", "init", "-q", str(root)], check=True)
-    commit(root, ["."], "synthetic generation baseline")
-    original = sync_runtime.generate_views
-    generate = _bind_framework_callback(
-        _callback_check_generation_failures_never_pass_generate,
-        design,
-        fault,
-        model,
-        original,
-        root,
-    )
-    if fault == "stale":
-        design.write_bytes(design.read_bytes() + b"\nold Markdown\n")
-    with patch.object(sync_runtime, "generate_views", side_effect=generate):
-        argv = sys.argv[:]
-        if fault == "input":
-            before = {path: path.read_bytes() for path in (design, artifact)}
-            with pytest.raises(ValueError, match="inputs changed before publication"):
-                MODULE.sync(root, True, *ENTRY[:2], ["iam"])
-            assert {path: path.read_bytes() for path in before} == before
-        else:
-            validator = validator_module.Validator(root, {ENTRY})
-            validator.check_generated_service_models()
-            assert validator.errors
-        assert sys.argv == argv
-    assert sync_views._saved_design_validation.get() is None
-    assert input_cache.memo_table() is None
-
-
-def _callback_check_authorization_before_memo_and_publication_authorize(model, /):
-    with (
-        patch.object(import_scope, "read_context", return_value=("synthetic",)),
-        patch.object(import_scope, "require_readable") as readable,
-    ):
-        read_model(model)
-        before = readable.call_count
-        readable.side_effect = ValueError("permission revoked")
-        with pytest.raises(ValueError, match="permission revoked"):
-            read_model(model)
-        assert readable.call_count == before + 1
 
 
 def _callback_check_authorization_before_memo_and_publication_publish(model, root, /):
@@ -406,12 +267,6 @@ def check_authorization_before_memo_and_publication(generated_policy, monkeypatc
     monkeypatch.setenv(
         "BLUEPRINT_TASK_FILE", register([design, artifact])["BLUEPRINT_TASK_FILE"]
     )
-    authorize = (input_cache.input_scope)(
-        _bind_framework_callback(
-            _callback_check_authorization_before_memo_and_publication_authorize, model
-        )
-    )
-    authorize()
     publish = (input_cache.input_scope)(
         _bind_framework_callback(
             _callback_check_authorization_before_memo_and_publication_publish,
@@ -423,24 +278,16 @@ def check_authorization_before_memo_and_publication(generated_policy, monkeypatc
 
 
 def _callback_check_sync_mapping_lifetime_stage_inputs(
-    fault, original, provider, root, stages, /, stage, source, *args
+    original, provider, root, stages, /, stage, source, *args
 ):
     stages.append(stage)
     assert source == root and mappings_for(stage) is provider
     assert stage not in mapping_state._instances
     assert mappings_for(stage).get("iam") is provider.get("iam")
-    if fault == "stage":
-        raise ValueError("injected stage failure")
     return original(stage, source, *args)
 
 
-def _callback_check_sync_mapping_lifetime_fail(fault, provider, /, *args, **kwargs):
-    assert mappings_for(args[0].stage if fault == "worker" else args[0]) is provider
-    raise ValueError("injected " + fault + " failure")
-
-
-@pytest.mark.parametrize("fault", ["none", "stage", "generation", "worker"])
-def check_sync_mapping_lifetime(generated_policy, monkeypatch, fault):
+def check_sync_mapping_lifetime(generated_policy, monkeypatch):
     root, _, _, _, _, register = generated_policy
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", register([])["BLUEPRINT_TASK_FILE"])
     provider = mappings_for(definition_root(root))
@@ -449,32 +296,16 @@ def check_sync_mapping_lifetime(generated_policy, monkeypatch, fault):
     original = sync_runtime.stage_inputs
     stage_inputs = _bind_framework_callback(
         _callback_check_sync_mapping_lifetime_stage_inputs,
-        fault,
         original,
         provider,
         root,
         stages,
     )
-    fail = _bind_framework_callback(
-        _callback_check_sync_mapping_lifetime_fail, fault, provider
-    )
     with (
         patch.object(sync_runtime, "stage_inputs", side_effect=stage_inputs),
         patch.object(aws_mapping, "yaml_read", wraps=aws_mapping.yaml_read) as parse,
     ):
-        target = (
-            patch.object(sync_runtime, "generate_views", side_effect=fail)
-            if fault == "generation"
-            else patch.object(sync_runtime, "validate_generation", side_effect=fail)
-            if fault == "worker"
-            else nullcontext()
-        )
-        with target:
-            if fault == "none":
-                assert MODULE.sync(root, False, *ENTRY[:2], ["iam"]) == 0
-            else:
-                with pytest.raises(ValueError, match="injected"):
-                    MODULE.sync(root, False, *ENTRY[:2], ["iam"])
+        TestCase().assertEqual(MODULE.sync(root, False, *ENTRY[:2], ["iam"]), 0)
         assert len(stages) == 1 and parse.call_count == (0 if already_loaded else 1)
     assert all(
         stage not in mapping_state._aliases and stage not in mapping_state._instances

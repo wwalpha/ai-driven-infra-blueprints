@@ -4,6 +4,7 @@
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -371,6 +372,18 @@ def check_context_and_stack_declarations(kind, fields, phrase):
     }
     with pytest.raises(ValueError, match=phrase):
         declarations(values)
+
+
+def test_read_snapshot_rejects_concurrent_change(tmp_path):
+    check = TestCase()
+    path = tmp_path / "source.properties"
+    path.write_bytes(b"original")
+    reads = FileReads()
+    check.assertEqual(reads.read(path), b"original")
+    path.write_bytes(b"concurrent edit")
+    with pytest.raises(ValueError, match="input changed"):
+        reads.verify()
+    check.assertEqual(path.read_bytes(), b"concurrent edit")
 
 
 if __name__ == "__main__":

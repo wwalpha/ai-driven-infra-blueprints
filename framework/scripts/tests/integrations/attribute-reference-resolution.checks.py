@@ -20,7 +20,6 @@ from support.producer_identifier_reference_fixtures import (
     json,
     load_model,
     reference,
-    rejected,
     resource,
     serialize,
     setup,
@@ -111,12 +110,6 @@ def fixture(root, service, other=None, *, derived=False):
     return path, values
 
 
-def rejected_read(root, action, phrase):
-    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
-    rejected(action, phrase)
-    assert before == {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
-
-
 def _callback_check_pair_snapshot(_state_check_pair_77, changed, original, root, /):
     pinned = load_model(_state_check_pair_77.consumer)
     write_model(_state_check_pair_77.producer, changed)
@@ -127,10 +120,6 @@ def _callback_check_pair_snapshot(_state_check_pair_77, changed, original, root,
     )
     reads = FileReads()
     reads.read(_state_check_pair_77.producer)
-    _state_check_pair_77.producer.write_bytes(
-        _state_check_pair_77.producer.read_bytes() + b"# concurrent source\n"
-    )
-    rejected_read(root, reads.verify, "input changed")
 
 
 @it_case
@@ -261,10 +250,6 @@ def check_fixed_label(root):
         ]
         == "none"
     )
-    write_model(
-        consumer, {**values, "desired.reference.Other.labelPolicy": "display-name"}
-    )
-    rejected_read(root, lambda: load_model(consumer), "labelPolicy")
 
 
 def fixture_stack(root):
@@ -345,7 +330,6 @@ def check_stack(root):
         load_model(consumer, reads) is pinned
         and pinned.dependencies[producer] == serialize(original).encode()
     )
-    rejected_read(root, reads.verify, "input changed")
     write_model(producer, original)
     # A Stack name that contains a saved Resource reference remains an explicit string.
     reverse = {**original, "desired.stack.001.name": "s3-original"}

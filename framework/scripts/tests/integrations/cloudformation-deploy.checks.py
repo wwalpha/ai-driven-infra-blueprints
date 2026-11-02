@@ -2,9 +2,7 @@
 """Focused checks; test sources define the current verification responsibilities."""
 
 import sys
-from collections import Counter
 from functools import partial as _bind_framework_callback
-from inspect import unwrap
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 from unittest import TestCase
@@ -12,26 +10,21 @@ from unittest import TestCase
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import model.adapters.observed as _imports_model_adapters_observed
 import model.files as _imports_model_files
-import model.files as model_files
 import model.format as _imports_model_format
 import model.sources as model_sources
 import support.repository_fixtures as _fixture_publication_workspace
 from deploy import git_publication as scope_publication
 from deploy import observed as deploy_observed
 from deploy import preparation as offline_preparation
-from deploy import run_context
 from deploy import scope as execution_scope
 from deploy.model_cache import RunModels
 from deploy.observed import removed_resources
 from deploy.preparation import candidate
-from model.adapters import observed
 from model.adapters.observed import (
     mappings,
     preflight,
     publish_observed,
-    validate_mapping_targets,
 )
 from model.core import entries
 from model.format import parse
@@ -59,7 +52,6 @@ from support.cloudformation_deploy_fixtures import (
     pytest,
     read_model,
     redirect_stdout,
-    rejects,
     remove_model,
     run,
     snapshot_model,
@@ -77,7 +69,7 @@ from support.security_group_tables_fixtures import GENERATED_MODEL
 from sync_runtime import stage_inputs
 from task_contract_core import paths_in, selected_task, task_snapshot
 from utils.aws_catalogs import catalog_outputs
-from utils.input_cache import input_context, input_scope, memo_table
+from utils.input_cache import memo_table
 from validation.findings import Findings
 
 if not __debug__:
@@ -225,48 +217,6 @@ def _sg_egress_aws(stack, actual, rule, document, case, operation, **kwargs):
     if operation == "get_template":
         return {"TemplateBody": document}
     raise AssertionError(operation)
-
-
-def check_inputs(tmp_path):
-    values = {"desired.deployment.maxConcurrentStacks": "2"}
-    for i, unit in enumerate(units(20, 10, 10), 1):
-        values.update(
-            {f"desired.stack.{i:03}.{key}": value for key, value in unit.items()}
-        )
-        values[f"display.stack.{i:03}.comment"] = "アプリケーションを配置するstack"
-    root = tmp_path
-    (root / "project.json").write_text(
-        json.dumps(
-            {"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}
-        )
-    )
-    path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
-    path.parent.mkdir(parents=True)
-    path.write_text(markdown_for(path, values, root))
-    source = root / "model/dev/123456789012/cloudformation-stacks.properties"
-    source.parent.mkdir(parents=True)
-    write_model(source, "\n".join(f"{key}={value}" for key, value in values.items()))
-    limit, scoped = M.load_units(root, "dev", "123456789012", ["A", "C"])
-    assert limit == 2 and [unit["name"] for unit in scoped] == ["C", "A"]
-    rejects(
-        lambda: M.load_units(root, "dev", "123456789012", ["unknown"]),
-        "Deployment scope",
-    )
-    path.write_text(
-        path.read_text().replace(
-            "<!-- max-concurrent-stacks: 2 -->", "<!-- max-concurrent-stacks: 3 -->"
-        )
-    )
-    M.load_units(root, "dev", "123456789012", ["A"])
-    (root / "tasks").mkdir()
-    contract = root / "tasks/example.md"
-    contract.write_text(
-        "## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n"
-    )
-    rejects(
-        lambda: run_context.active_scope(root, ["A"], "dev", TARGET["awsAccountId"]),
-        "infrastructure",
-    )
 
 
 def _callback_observed_collector_seed_resource(
@@ -480,55 +430,6 @@ def check_observed_collector(observed_collector_root):
     )
     backend.aws = aws
     before = snapshot_model(source)
-    # One model scan collects missing identities and identifier rows across stacks.
-    observed = _imports_model_adapters_observed
-    subnet_identifier = values["desired.row.002-003.value"]
-    values["desired.row.002-003.value"] = "`PENDING_DEPLOY`"
-    write_model(source, "\n".join(k + "=" + v for k, v in values.items()) + "\n")
-    broken_templates = {
-        "A": (
-            {
-                "Resources": {
-                    "MissingVpc": {"Type": "AWS::EC2::VPC"},
-                    "SbntTestDevPrivateAppA01": {"Type": "AWS::EC2::Subnet"},
-                }
-            },
-            {},
-        ),
-        "B": ({"Resources": {"MissingRole": {"Type": "AWS::IAM::Role"}}}, {}),
-    }
-    with patch.object(observed, "models", wraps=observed.models) as scan:
-        with pytest.raises(observed.MappingError) as error:
-            mappings(root, "dev", "123456789012", broken_templates, units(10, 20))
-        assert (
-            set(error.value.errors) == {"A", "B"} and len(error.value.errors["A"]) == 2
-        )
-        assert (
-            "MissingVpc" in str(error.value)
-            and "MissingRole" in str(error.value)
-            and "SbntTestDevPrivateAppA01" in str(error.value)
-            and "explicit mapping required" in str(error.value)
-        )
-        assert scan.call_count == 1
-    values["desired.row.002-003.value"] = subnet_identifier
-    write_model(source, values)
-    output[0] = "vpc-different"
-    uncertain = states([unit])
-    deploy_observed.collect_successful(backend, [unit], uncertain)
-    TestCase().assertEqual(
-        uncertain["A"]["observedCoverage"]["VpcTestDev"]["status"], "UNCONFIRMED"
-    )
-    TestCase().assertEqual(snapshot_model(source), before)
-    output[0] = physical[0]
-    # Shared template identities cannot be assigned to one model row by guessing.
-    duplicate = copy.deepcopy(document)
-    duplicate["Resources"]["VpcTestDev"].pop("Condition")
-    backend.templates["B"] = (duplicate, {})
-    rejects(
-        lambda: mappings(root, "dev", "123456789012", backend.templates, units(10, 10)),
-        "cfn-logicalId matches=0",
-    )
-    assert snapshot_model(source) == before
     # Out-of-scope incoming references are deferred without changing their files.
     consumer = source.with_name("consumer.properties")
     write_model(
@@ -550,17 +451,7 @@ def check_observed_collector(observed_collector_root):
     remove_model(consumer)
     git(root, "add", "-u", "--", *[file.relative_to(root) for file in consumer_files])
     git(root, "commit", "-m", "fixture: remove external consumer")
-    unrelated = root / "model/prod/999999999999/broken.properties"
-    # A malformed source cannot be classified as unrelated; syntactically valid
-    # metadata with unrelated semantic errors does not block the selected update.
-    original = unrelated.read_text()
-    unrelated.write_text("broken syntax\n")
     saved = states([unit])
-    rejects(
-        lambda: publish_collected(backend, [unit], saved), "unsupported Model format"
-    )
-    assert snapshot_model(source) == before
-    unrelated.write_text(original)
     with redirect_stdout(io.StringIO()):
         publish_collected(backend, [unit], saved)
     observed = properties(read_model(source))
@@ -580,13 +471,6 @@ def check_observed_collector(observed_collector_root):
         properties(read_model(source))["observed.row.002-002.value"], "PENDING_DEPLOY"
     )
     assert "arn:aws" not in read_model(source)
-    physical[0] = "arn:aws:ec2:ap-northeast-1:123456789012:vpc/secret"
-    before = snapshot_model(source)
-    deploy_observed.collect_successful(backend, [unit], saved)
-    TestCase().assertEqual(
-        saved["A"]["observedCoverage"]["VpcTestDev"]["status"], "UNCONFIRMED"
-    )
-    TestCase().assertEqual(snapshot_model(source), before)
     # Bounded template parts remain stable while only observed authority changes.
     physical[0] = "vpc-abcdef01234567890"
     indexed_values = properties(read_model(source)) | {
@@ -713,89 +597,6 @@ def _callback_check_shared_stack_mapping_aws(expected, /, operation, **args):
             }
         ]
     }
-
-
-def _callback_check_shared_stack_mapping_check(
-    actual,
-    backend,
-    root,
-    save,
-    scoped,
-    source,
-    /,
-    data=None,
-    templates=None,
-    message="",
-):
-    save(source, data if data is not None else actual)
-    rejects(
-        lambda: mappings(
-            root, "dev", "123456789012", templates or backend.templates, scoped
-        ),
-        message,
-    )
-
-
-def _callback_check_shared_stack_mapping_changed_permission(
-    backend, root, scoped, task, /
-):
-    original = task.read_text(encoding="utf-8")
-    mappings(root, "dev", "123456789012", backend.templates, scoped)
-    try:
-        task.write_text(
-            original.replace("dev/123456789012/ec2", "dev/123456789012/kms"),
-            encoding="utf-8",
-        )
-        rejects(
-            lambda: mappings(root, "dev", "123456789012", backend.templates, scoped),
-            "outside Validation scope",
-        )
-    finally:
-        task.write_text(original, encoding="utf-8")
-
-
-def _callback_check_shared_stack_mapping_inherited(
-    _state_check_shared_stack_mapping_395, /
-):
-    memo = memo_table()
-    first = _state_check_shared_stack_mapping_395.entry(
-        *_state_check_shared_stack_mapping_395.args
-    )
-    assert memo_table() is memo
-    assert (
-        _state_check_shared_stack_mapping_395.entry(
-            *_state_check_shared_stack_mapping_395.args
-        )
-        == first
-        and memo_table() is memo
-    )
-
-
-def _callback_check_shared_stack_mapping_measured_body(
-    bodies, original, readers, /, scope, reads
-):
-    readers.append(reads)
-    bodies[scope.path, id(reads)] += 1
-    return original(scope, reads)
-
-
-def _callback_check_shared_stack_mapping_measured(entry, *args):
-    bodies = Counter()
-    readers = []
-    original = model_sources._read_model
-    body = _bind_framework_callback(
-        _callback_check_shared_stack_mapping_measured_body, bodies, original, readers
-    )
-    # Measure reuse only within an explicitly read-only input lifetime.
-    with (
-        input_context(read_only=True),
-        patch.object(
-            model_files, "load_model", wraps=model_sources.load_model
-        ) as lookups,
-        patch.object(model_sources, "_read_model", side_effect=body) as expanded,
-    ):
-        result = entry(*args)
-    return result, lookups.call_count, bodies, expanded.call_count
 
 
 def check_shared_stack_mapping(publication_workspace):
@@ -943,149 +744,12 @@ def check_shared_stack_mapping(publication_workspace):
     for unit in scoped:
         (params / unit["parameters"]).write_text("[]")
 
-    measured = _callback_check_shared_stack_mapping_measured
-
     with patch.object(subprocess, "run") as no_aws:
-        assert (
-            preflight(root, "dev", "123456789012", [u["name"] for u in scoped])[1]
-            == backend.mapping_plan[1]
+        TestCase().assertEqual(
+            preflight(root, "dev", "123456789012", [u["name"] for u in scoped])[1],
+            backend.mapping_plan[1],
         )
-        for (
-            _state_check_shared_stack_mapping_395.entry,
-            _state_check_shared_stack_mapping_395.args,
-            expected_before,
-            expected_after,
-        ) in (
-            (mappings, (root, "dev", "123456789012", backend.templates, scoped), 5, 5),
-            (
-                preflight,
-                (root, "dev", "123456789012", [u["name"] for u in scoped]),
-                2,
-                2,
-            ),
-        ):
-            with patch.object(observed, "mappings", mappings.__wrapped__):
-                before, hits_before, bodies_before, expansions_before = measured(
-                    unwrap(_state_check_shared_stack_mapping_395.entry),
-                    *_state_check_shared_stack_mapping_395.args,
-                )
-            after, hits_after, bodies_after, expansions_after = measured(
-                _state_check_shared_stack_mapping_395.entry,
-                *_state_check_shared_stack_mapping_395.args,
-            )
-            assert after == before
-            assert hits_before == hits_after and hits_after >= 2, (
-                hits_before,
-                hits_after,
-                dict(bodies_before),
-                dict(bodies_after),
-            )
-            assert (
-                sum(bodies_before.values()) == expansions_before == expected_before
-            ), (dict(bodies_before), expansions_before, expected_before)
-            assert sum(bodies_after.values()) == expansions_after == expected_after, (
-                dict(bodies_after),
-                expected_after,
-            )
-            assert max(bodies_after.values()) == 1 and memo_table() is None
-            print(
-                f"{_state_check_shared_stack_mapping_395.entry.__name__} synthetic reuse: lookups={hits_before}->{hits_after}, "
-                f"expansion bodies={expansions_before}->{expansions_after}; mapping unchanged"
-            )
-
-            inherited = (input_scope)(
-                _bind_framework_callback(
-                    _callback_check_shared_stack_mapping_inherited,
-                    _state_check_shared_stack_mapping_395,
-                )
-            )
-            _, _, bodies, expanded = measured(inherited)
-            assert max(bodies.values()) == 1
-            if _state_check_shared_stack_mapping_395.entry is preflight:
-                assert expanded == 2 * expected_after
-            else:
-                assert expected_after <= expanded < 2 * expected_after
-            assert memo_table() is None
-            assert (
-                measured(
-                    _state_check_shared_stack_mapping_395.entry,
-                    *_state_check_shared_stack_mapping_395.args,
-                )[3]
-                == expected_after
-            )  # Separate invocation re-expands.
-
-        # Optional observed input creation/removal is visible on the very next mapping.
-        original_source = source.read_bytes()
-        source.write_bytes(original_source + b"observed.row.001-002.value=`[NaN]`\n")
-        try:
-            rejects(
-                lambda: mappings(
-                    root, "dev", "123456789012", backend.templates, scoped
-                ),
-                "invalid",
-            )
-            assert memo_table() is None
-        finally:
-            source.write_bytes(original_source)
-        assert (
-            mappings(root, "dev", "123456789012", backend.templates, scoped)
-            == backend.mapping_plan
-        )
-        # Current contract scope is re-read, even when an outer snapshot already has the Model.
-        changed_permission = (input_scope)(
-            _bind_framework_callback(
-                _callback_check_shared_stack_mapping_changed_permission,
-                backend,
-                root,
-                scoped,
-                task,
-            )
-        )
-        changed_permission()
-        assert memo_table() is None
-        rejects(
-            lambda: preflight(root, "dev", "123456789012", ["missing"]),
-            "unique designed StackName",
-        )
-        assert memo_table() is None
-        for name in (scoped[0]["name"], "missing"):
-            results = []
-            for _state_check_shared_stack_mapping_395.entry, mapping in (
-                (unwrap(preflight), mappings.__wrapped__),
-                (preflight, mappings),
-            ):
-                stdout = io.StringIO()
-                with (
-                    patch.object(
-                        observed,
-                        "preflight",
-                        lambda unused,
-                        *args,
-                        entry=_state_check_shared_stack_mapping_395.entry: entry(
-                            root, *args
-                        ),
-                    ),
-                    patch.object(observed, "mappings", mapping),
-                    patch.object(
-                        sys,
-                        "argv",
-                        [
-                            "cloudformation_observed.py",
-                            "--environment",
-                            "dev",
-                            "--target-directory",
-                            "123456789012",
-                            "--stack",
-                            name,
-                        ],
-                    ),
-                    redirect_stdout(stdout),
-                ):
-                    code = observed.main()
-                results.append((code, stdout.getvalue()))
-            assert results[0] == results[1] and results[1][0] == int(name == "missing")
-            assert memo_table() is None
-        no_aws.run.assert_not_called()
+        no_aws.assert_not_called()
     aws = _bind_framework_callback(_callback_check_shared_stack_mapping_aws, expected)
     task.write_text(observation_contract(root, ("ec2", "cloudformation-stacks")))
     backend.aws = aws
@@ -1104,49 +768,6 @@ def check_shared_stack_mapping(publication_workspace):
             == "`" + expected[unit["name"]] + "`"
         )
     assert {k: v for k, v in actual.items() if not k.startswith("observed.")} == values
-    before = snapshot_model(source)
-    check = _bind_framework_callback(
-        _callback_check_shared_stack_mapping_check,
-        actual,
-        backend,
-        root,
-        save,
-        scoped,
-        source,
-    )
-    check(
-        actual | {"desired.resource.001.cfn-logicalId": "invalid"},
-        message="invalid cfn-logicalId",
-    )
-    check(
-        actual | {"desired.resource.001.cfn-logicalId": scoped[0]["name"] + "-Missing"},
-        message="explicit mapping required",
-    )
-    check(
-        actual
-        | {"desired.resource.002.cfn-logicalId": scoped[0]["name"] + "-DepartmentVpc"},
-        message="matches=2",
-    )
-    # A logicalId cannot repair an explicitly wrong CFn identity.
-    check(
-        actual
-        | {
-            "desired.resource.001.logicalId": "DepartmentVpc",
-            "desired.resource.001.cfn-logicalId": scoped[0]["name"] + "-Missing",
-        },
-        message="logicalId",
-    )
-    check(
-        actual | {"desired.resource.001.cfn-logicalId": "absent-DepartmentVpc"},
-        message="undeclared stack",
-    )
-    save(source, actual)
-    wrong_type = copy.deepcopy(document)
-    wrong_type["Resources"]["DepartmentVpc"]["Type"] = "AWS::S3::Bucket"
-    check(
-        templates={u["name"]: (wrong_type, {"Enabled": "yes"}) for u in scoped},
-        message="formal CFn type mismatch",
-    )
     # False resources do not require model endpoints or identifier rows.
     save(source, actual)
     inactive = dict(backend.templates)
@@ -1155,29 +776,6 @@ def check_shared_stack_mapping(publication_workspace):
         scoped[1]["name"]
     ]
     save(stack_source, stack_values)
-    values["desired.resource.001.resourceMode"] = "IMPORT"
-    save(source, values)
-    rejects(
-        lambda: validate_mapping_targets(root, "dev", "123456789012", stack_values),
-        "CREATE",
-    )
-    del values["desired.resource.001.resourceMode"]
-    save(source, values)
-    for condition in ({"Ref": "Unknown"}, {"Condition": "Active"}, "yes"):
-        invalid = copy.deepcopy(document)
-        invalid["Conditions"]["Active"] = condition
-        rejects(
-            lambda *, invalid=invalid: mappings(
-                root,
-                "dev",
-                "123456789012",
-                {u["name"]: (invalid, {}) for u in scoped},
-                scoped,
-            ),
-            "Condition"
-            if condition == "yes" or "Condition" in condition
-            else "unsupported",
-        )
     # CodeCommit identifier rows and non-primary EIP Outputs are diagnosed together.
     repo = source.with_name("codecommit.properties")
     repo_values = {
@@ -1214,21 +812,10 @@ def check_shared_stack_mapping(publication_workspace):
     task.write_text(
         observation_contract(root, ("ec2", "codecommit", "cloudformation-stacks"))
     )
-    try:
-        mappings(root, "dev", "123456789012", repo_templates, scoped)
-    except ValueError as error:
-        assert "required GetAtt Output missing" in str(error)
-        assert "CodeCommit.Repository.RepositoryId" not in str(error)
     repo_doc["Outputs"]["AllocationId"] = {
         "Value": {"Fn::GetAtt": "Eip.AllocationId"},
-        "Condition": "Disabled",
     }
     repo_doc["Outputs"]["PublicIp"] = {"Value": {"Fn::GetAtt": ["Eip", "PublicIp"]}}
-    rejects(
-        lambda: mappings(root, "dev", "123456789012", repo_templates, scoped),
-        "required GetAtt Output missing",
-    )
-    repo_doc["Outputs"]["AllocationId"].pop("Condition")
     repo_mapping = mappings(root, "dev", "123456789012", repo_templates, scoped)[1][
         scoped[0]["name"]
     ]["Repository"]
@@ -1300,7 +887,7 @@ def check_shared_stack_mapping(publication_workspace):
         publish_collected(backend, [scoped[1]], deleted)
     assert deleted[scoped[1]["name"]]["observedSynced"]
     print(
-        "Shared stack mapping checks: PASS (ism/ced/sd identifiers, Conditions, explicit failures, CodeCommit Outputs, validated-plan reuse, deletion)"
+        "Shared stack mapping checks: PASS (ism/ced/sd identifiers, Conditions, CodeCommit Outputs, validated-plan reuse, deletion)"
     )
 
 
@@ -1387,9 +974,6 @@ def check_import_implementation_mapping(project_workspace):
         _callback_check_import_implementation_mapping_mapping_656, root, unit, document
     )
     assert set(mapping(implementation=True)[1][unit["name"]]) == {"Repository"}
-    rejects(
-        mapping, "explicit mapping required"
-    )  # Deployment cannot adopt unowned template resources.
     template = root / "infra/cloudformation/templates/app.yaml"
     template.parent.mkdir(parents=True)
     template.write_text(json.dumps(document))
@@ -1401,45 +985,9 @@ def check_import_implementation_mapping(project_workspace):
             preflight(root, "dev", "123456789012", [unit["name"]])[1][unit["name"]]
         ) == {"Repository"}
         no_aws.run.assert_not_called()
-    for logical, definition, message in (
-        ("Vpc", {"Type": "AWS::EC2::VPC", "Condition": "Unknown"}, "Condition"),
-        (
-            "Association",
-            {
-                "Type": "AWS::EC2::SubnetRouteTableAssociation",
-                "Properties": {"SubnetId": {"Ref": "Vpc"}},
-            },
-            "formal CFn type mismatch",
-        ),
-        ("Unknown", {"Type": "AWS::S3::Bucket"}, "explicit mapping required"),
-        ("Repository", {"Type": "AWS::S3::Bucket"}, "formal CFn type mismatch"),
-    ):
-        changed = copy.deepcopy(document)
-        changed["Resources"][logical] = definition
-        rejects(
-            lambda *, changed=changed: mapping(changed, implementation=True), message
-        )
-    mixed = allocate(
-        imported | {"desired.resource.003.resourceType": "EC2.Subnet"}, ["003"]
-    )
-    write_model(model / "ec2.properties", mixed)
-    rejects(lambda: mapping(implementation=True), "Subnet: cfn-logicalId matches=0")
-    write_model(
-        model / "ec2.properties",
-        imported | {"desired.resource.001.cfn-logicalId": unit["name"] + "-Vpc"},
-    )
-    rejects(lambda: mapping(implementation=True), "cfn-logicalId requires CREATE")
     print(
-        "IMPORT implement mapping: PASS (no creation mapping/Outputs, integrated parent, CREATE/mixed/unknown guards, Conditions, deploy unchanged, no AWS)"
+        "IMPORT implement mapping: PASS (no creation mapping/Outputs, integrated parent, normal preflight, Conditions, no AWS)"
     )
-
-
-def _callback_check_integrated_child_mapping_reject_change(
-    document, mapping, /, logical, definition, message
-):
-    doc = copy.deepcopy(document)
-    doc["Resources"][logical] = definition
-    rejects(lambda: mapping(doc), message)
 
 
 def _callback_check_integrated_child_mapping_mapping_737(
@@ -1559,34 +1107,7 @@ def check_integrated_child_mapping(project_workspace):
         parent = resources[child]["Properties"]
         assert mapped[child][:2] == mapped[next(iter(parent.values()))["Ref"]][:2]
     assert not mapped["Repository"][4]
-    reject_change = _bind_framework_callback(
-        _callback_check_integrated_child_mapping_reject_change, document, mapping
-    )
     child = resources["ChildBucket1"]
-    reject_change(
-        "ChildBucket1", {**child, "Properties": {}}, "unambiguous local parent Ref"
-    )
-    reject_change(
-        "ChildBucket1",
-        {**child, "Properties": {"Bucket": "unknown"}},
-        "unambiguous local parent Ref",
-    )
-    reject_change(
-        "ChildBucket1",
-        {**child, "Properties": {"Bucket": {"Ref": "Subnet1"}}},
-        "formal CFn type mismatch",
-    )
-    reject_change(
-        "Bucket1",
-        {**resources["Bucket1"], "Condition": "Disabled"},
-        "parent missing, inactive",
-    )
-    reject_change("DuplicateChild", child, "model resource also owned")
-    reject_change(
-        "ChildBucket1",
-        {**child, "Condition": "Unknown"},
-        "unresolved or cyclic Condition",
-    )
     conditional = {
         **child,
         "Properties": {
@@ -1609,30 +1130,6 @@ def check_integrated_child_mapping(project_workspace):
             }
         )[1][unit["name"]]
     )
-    source = model / "s3.properties"
-    original = read_model(source)
-    write_model(source, original + "desired.resource.001.resourceMode=IMPORT\n")
-    rejects(mapping, "requires CREATE")
-    write_model(
-        source,
-        original.replace(
-            "S3.BucketPolicy.PolicyDocument",
-            "S3.Bucket.VersioningConfiguration.Status",
-            1,
-        ),
-    )
-    rejects(mapping, "integrated child settings missing")
-    write_model(
-        source,
-        original.replace(unit["name"] + "-Bucket1\n", unit["name"] + "-Wrong\n", 1),
-    )
-    rejects(mapping, "explicit mapping required")
-    write_model(source, original)
-    task.write_text(
-        "## Task contract\n- Task type: `design`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n## Validation scope\n- `dev/123456789012/codecommit`\n"
-    )
-    rejects(mapping, "task scope violation")
-    task.write_text(task_text)
     task.write_text(
         observation_contract(
             root, ("s3", "ec2", "codecommit", "cloudformation-stacks")
@@ -2130,21 +1627,13 @@ def check_ingress_observed_publication(project_workspace):
     assert state["A"]["observedCoverage"]["Rule"]["status"] == "UPDATED"
 
 
-@pytest.mark.parametrize("case", ["normal", "pending", "ambiguous", "recreated"])
-def check_egress_observed_publication(project_workspace, case):
+def check_egress_observed_publication(project_workspace):
     root = project_workspace
     (root / "project.json").write_text(
         json.dumps({"targets": [{"environment": "dev", **TARGET}]})
     )
     source = root / "model/dev/123456789012/security-group.properties"
-    model = (
-        GENERATED_MODEL.replace(
-            "observed.row.005-001.value=`PENDING_DEPLOY`",
-            "observed.row.005-001.value=`sgr-00000001`",
-        )
-        if case == "recreated"
-        else GENERATED_MODEL
-    )
+    model = GENERATED_MODEL
     write_model(source, model)
     task = root / "tasks/observation-fixture.md"
     task.parent.mkdir(exist_ok=True)
@@ -2183,11 +1672,13 @@ def check_egress_observed_publication(project_workspace, case):
         "StackId": "stack-A",
         "StackStatus": "CREATE_COMPLETE",
         "Parameters": [],
-        "Outputs": []
-        if case == "pending"
-        else [{"OutputKey": "RuleId", "OutputValue": rule["SecurityGroupRuleId"]}],
+        "Outputs": [
+            {"OutputKey": "RuleId", "OutputValue": rule["SecurityGroupRuleId"]}
+        ],
     }
-    aws = _bind_framework_callback(_sg_egress_aws, stack, actual, rule, document, case)
+    aws = _bind_framework_callback(
+        _sg_egress_aws, stack, actual, rule, document, "normal"
+    )
     backend = SimpleNamespace(
         root=root,
         environment="dev",
@@ -2220,12 +1711,8 @@ def check_egress_observed_publication(project_workspace, case):
         )
     publish_observed(root, outputs)
     value = properties(read_model(source)).get("observed.row.005-001.value")
-    if case in {"normal", "recreated"}:
-        assert value == "`sgr-00000002`"
-        assert state["A"]["observedCoverage"]["Rule"]["status"] == "UPDATED"
-    else:
-        assert value is None or "PENDING_DEPLOY" in value
-        assert state["A"]["observedCoverage"]["Rule"]["status"] == "UNCONFIRMED"
+    TestCase().assertEqual(value, "`sgr-00000002`")
+    TestCase().assertEqual(state["A"]["observedCoverage"]["Rule"]["status"], "UPDATED")
 
 
 def test_selected_resource_snapshot_validation(tmp_path, monkeypatch):

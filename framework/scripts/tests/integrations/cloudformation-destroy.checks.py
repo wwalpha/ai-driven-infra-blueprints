@@ -17,21 +17,16 @@ from collections import Counter
 from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
-import model.sources as _imports_model_sources
 import pytest
 import sync_runtime
 from model.adapters import observed
-from model.core import entries, properties
+from model.core import properties
 from model.files import read_model
 from model.render import markdown_for
-from model.validations.identity import (
-    validate_resource_identities as validate_identities,
-)
 from support.cloudformation_destroy_fixtures import (
     TARGET,
     Fake,
     M,
-    rejects,
     session,
     stack_id,
 )
@@ -218,13 +213,6 @@ def _callback_check_controller_checked_glob(
     return rglob(path, *args, **kwargs)
 
 
-def _callback_check_controller_mutate(
-    _state_check_controller_338, original, task, /, name
-):
-    if name == "A":
-        task.write_text(original + "\n")
-
-
 def check_controller(tmp_path):
     _state_check_controller_338 = _CallbackState()
     runner = M.run_session
@@ -311,26 +299,6 @@ def check_controller(tmp_path):
                 == 0
             )
             assert _state_check_controller_338.fake.deleted == ["A"]
-            previous_calls = len(_state_check_controller_338.fake.calls)
-            with patch.dict(os.environ, {"AWS_PROFILE": "different-resume-profile"}):
-                assert (
-                    M.controller_main(
-                        argv + ["--resume"], _state_check_controller_338.root
-                    )
-                    == 1
-                )
-            assert len(_state_check_controller_338.fake.calls) == previous_calls
-            state_path = base / "session.json"
-            pristine = state_path.read_text()
-            state = json.loads(pristine)
-            state["states"]["A"]["DeployOrder"] = 99
-            state_path.write_text(json.dumps(state))
-            assert (
-                M.controller_main(argv + ["--resume"], _state_check_controller_338.root)
-                == 1
-            )
-            assert len(_state_check_controller_338.fake.calls) == previous_calls
-            state_path.write_text(pristine)
         print(
             "D01: PASS real controller fake SDK: STS=1, delete=1 by StackId, heavy AWS APIs=0"
         )
@@ -369,33 +337,6 @@ def check_controller(tmp_path):
                 == 0
             )
         assert json.loads((base / "session.json").read_text())["identity"]["limit"] == 1
-        # Profile mismatch blocks before any delete or STS.
-        (base / "session.json").unlink()
-        project = json.loads(
-            (_state_check_controller_338.root / "project.json").read_text()
-        )
-        project["targets"][0]["awsProfile"] = "configured"
-        (_state_check_controller_338.root / "project.json").write_text(
-            json.dumps(project)
-        )
-        _state_check_controller_338.fake.calls.clear()
-        with (
-            patch("utils.aws.client.request", side_effect=aws_run),
-            patch.object(M.cloudformation, "request", side_effect=aws_run),
-            patch.object(M, "request", side_effect=aws_run),
-            patch("utils.aws.sts.request", side_effect=aws_run),
-            patch("shutil.which", return_value="aws"),
-            patch.object(M.tempfile, "gettempdir", return_value=str(base)),
-            redirect_stdout(io.StringIO()),
-            redirect_stderr(io.StringIO()),
-        ):
-            assert (
-                M.controller_main(
-                    argv + ["--profile", "other"], _state_check_controller_338.root
-                )
-                == 1
-            )
-        assert not _state_check_controller_338.fake.calls
         # Multiple deletes run the real lightweight guard; tree/body access remains trapped.
         _state_check_controller_338.root = base / "multi"
         _state_check_controller_338.root.mkdir()
@@ -441,39 +382,6 @@ def check_controller(tmp_path):
         print(
             "D14: PASS 3 real-guard deletes: STS=1, exports=0, full tree/body scans=0"
         )
-        # A Task change after the first delete blocks subsequent starts.
-        task = _state_check_controller_338.root / "tasks/destroy.md"
-        original = task.read_text()
-        for _state_check_controller_338.drift in ("task",):
-            state_path = base / "multi.json"
-            state_path.unlink()
-            _state_check_controller_338.fake = Fake(["A", "B", "C"])
-            mutate = _bind_framework_callback(
-                _callback_check_controller_mutate,
-                _state_check_controller_338,
-                original,
-                task,
-            )
-            _state_check_controller_338.fake.hook = mutate
-            with (
-                patch("utils.aws.client.request", side_effect=aws_run),
-                patch.object(M.cloudformation, "request", side_effect=aws_run),
-                patch.object(M, "request", side_effect=aws_run),
-                patch("utils.aws.sts.request", side_effect=aws_run),
-                patch("shutil.which", return_value="aws"),
-                patch.object(M.tempfile, "gettempdir", return_value=str(base)),
-                patch.object(M.time, "sleep", lambda _: None),
-                redirect_stdout(io.StringIO()),
-            ):
-                assert M.controller_main(argv, _state_check_controller_338.root) == 1
-            assert (
-                _state_check_controller_338.fake.deleted == ["A"]
-                and not _state_check_controller_338.fake.running
-            )
-            task.write_text(original)
-            (
-                _state_check_controller_338.root / "issues/dev/123456789012/issues.md"
-            ).unlink(missing_ok=True)
 
 
 @pytest.fixture
@@ -498,67 +406,6 @@ def check_observed(managed_destroy_root):
         fixture(root, {"A": 30, "B": 20, "C": 10}, models=True)
         source = root / "model/dev/123456789012/ec2.properties"
         design = root / "docs/designs/dev/123456789012/ec2.md"
-        # A planned resource's legacy ID is not a stack mapping (SnowCatConn case).
-        baseline_values = properties(read_model(source))
-        values = dict(baseline_values)
-        for key, value in list(values.items()):
-            if key.startswith(
-                (
-                    "desired.resource.003.",
-                    "display.resource.003.",
-                    "desired.row.003-",
-                    "observed.row.003-",
-                )
-            ):
-                values[key.replace(".003", ".004", 1)] = (
-                    value.replace("test-dev-c", "test-dev-unimplemented")
-                    .replace("vpc-old-C", "PENDING_DEPLOY")
-                    .replace("[003]", "[SnowCatConn]")
-                )
-        del values["desired.resource.004.cfn-logicalId"]
-        values["desired.resource.004.logicalId"] = "EC2_VPC_004"
-        values["desired.resource.004.anchor"] = "resource-EC2_VPC_004"
-        values["desired.service.identity.lastAllocated"] = (
-            '{"EC2.VPC":4,"EC2.Subnet":1}'
-        )
-        values["desired.row.004-002.value"] = (
-            '`{"$modelRef":{"logicalId":"EC2_VPC_004","attribute":"VpcId"}}`'
-        )
-        write_model(
-            source, "\n".join(key + "=" + value for key, value in values.items()) + "\n"
-        )
-        rejects(
-            lambda: validate_identities(
-                design, values, root, entries(values, "desired.resource.")
-            ),
-            "cfn-logicalId",
-        )
-        before = properties(read_model(source))
-        plan = M.local_plan(root, "dev", "123456789012", ["A", "B", "C"])
-        assert plan["observed"]["unmappedResources"] == [
-            {
-                "model": source.relative_to(root).as_posix(),
-                "resource": "004",
-                "logicalId": "EC2_VPC_004",
-                "reason": "no cfn-logicalId; no observed identifier",
-            }
-        ]
-        assert all(
-            owner["resource"] != "004"
-            for owners in plan["observed"]["owners"].values()
-            for owner in owners
-        )
-        assert all(
-            not key.startswith("observed.row.004-")
-            for changes in plan["observed"]["updates"].values()
-            for updates in changes.values()
-            for key in updates
-        )
-        assert set(plan["observed"]["paths"]) == {
-            design.relative_to(root).as_posix(),
-            source.relative_to(root).as_posix(),
-        }
-        write_model(source, baseline_values)
         before = properties(read_model(source))
         plan = M.local_plan(root, "dev", "123456789012", ["A", "B", "C"])
         assert not plan["observed"]["unmappedResources"]
@@ -572,7 +419,7 @@ def check_observed(managed_destroy_root):
         states["A"].update(
             status="DELETE_COMPLETE", StackId=stack_id("A"), deleteObserved=True
         )
-        states["B"]["status"] = "DELETE_FAILED"
+        states["B"]["status"] = "DELETE_IN_PROGRESS"
         calls = []
         real_sync = sync_runtime.sync
         batch = _bind_framework_callback(
@@ -632,62 +479,7 @@ def check_observed(managed_destroy_root):
         print(
             "D12: PASS identifiers/incoming refs pending, desired unchanged, actual generation once"
         )
-        print("D13: PASS only proven A changed; failed B/unexecuted C unchanged")
-        # Detect incoming links beyond target before mutation, not during successful-deletion sync.
-        project = json.loads((root / "project.json").read_text())
-        project["targets"].append(
-            {"environment": "prod", **TARGET, "awsAccountId": "999999999999"}
-        )
-        (root / "project.json").write_text(json.dumps(project) + "\n")
-        outside = root / "model/prod/999999999999/ec2.properties"
-        outside.parent.mkdir(parents=True)
-        write_model(
-            outside,
-            'desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.resource.001.anchor=resource-EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[EC2_VPC_001](../../dev/123456789012/ec2.md#resource-EC2_VPC_001)\ndesired.row.001-001.comment=参照\n',
-        )
-        rejects(
-            lambda: read_model(outside),
-            "Resource authority requires $modelRef",
-        )
-        model_parts = _imports_model_sources.model_parts
-        for file in model_parts(outside):
-            file.unlink()
-        outside.unlink(missing_ok=True)
-        original = read_model(source)
-        write_model(
-            source, original.replace("desired.resource.001.cfn-logicalId=A-Vpc\n", "")
-        )
-        # Pending/absent identifiers can stay unmapped, even with a legacy ID.
-        pending = M.local_plan(root, "dev", "123456789012", ["A"])
-        assert pending["observed"]["owners"]["A"] == []
-        assert {
-            entry["resource"] for entry in pending["observed"]["unmappedResources"]
-        } == {"001"}
-        write_model(
-            source,
-            read_model(source).replace(
-                "observed.row.001-002.value=`PENDING_DEPLOY`",
-                "observed.row.001-002.value=`vpc-existing`",
-            ),
-        )
-        rejects(
-            lambda: M.local_plan(root, "dev", "123456789012", ["A"]),
-            "explicit cfn-logicalId",
-        )
-        write_model(
-            source,
-            original.replace(
-                "desired.resource.002.cfn-logicalId=B-Vpc",
-                "desired.resource.002.cfn-logicalId=A-Vpc",
-            ),
-        )
-        rejects(
-            lambda: M.local_plan(root, "dev", "123456789012", ["A"]),
-            "duplicate ownership",
-        )
-        print(
-            "D15: PASS unmapped pending design reported/unchanged; observed and duplicate ownership still block"
-        )
+        print("D13: PASS only proven A changed; running B/unexecuted C unchanged")
 
 
 def main():

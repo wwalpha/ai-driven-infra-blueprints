@@ -13,6 +13,7 @@ from contextlib import nullcontext, redirect_stdout
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock
 
 import pytest
@@ -39,23 +40,6 @@ if not __debug__:
 
 
 def check_environment():
-    scripts = Path(__file__).resolve().parents[2]
-    for first, second in (
-        ("worktree_python", "worktree_task"),
-        ("worktree_task", "worktree_python"),
-    ):
-        code = (
-            f"import sys; sys.path.insert(0, {str(scripts)!r}); "
-            f"import {first}; import {second}; import worktree_python, worktree_state; "
-            "assert worktree_python.wt is worktree_state"
-        )
-        result = py.subprocess.run(
-            [sys.executable, "-I", "-B", "-c", code],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert result.returncode == 0, result.stderr
     with patch.dict(
         py.os.environ,
         {"VIRTUAL_ENV": "foreign", "PYTHONHOME": "foreign", "PYTHONPATH": "foreign"},
@@ -337,6 +321,16 @@ def check_shared_symlinks(tmp_path, name):
     path.symlink_to(external, target_is_directory=True)
     blocked(lambda: py.shared_ready(shared), "symlink")
     assert path.is_symlink() and not list(external.iterdir())
+    marker = external / "keep"
+    marker.write_bytes(b"external data")
+    with (
+        patch.object(py, "shared_directory", return_value=shared),
+        patch.object(py, "run") as launch,
+    ):
+        blocked(lambda: py.setup(tmp_path, {}), "symlink")
+    launch.assert_not_called()
+    TestCase().assertEqual(marker.read_bytes(), b"external data")
+    TestCase().assertEqual(sorted(item.name for item in external.iterdir()), ["keep"])
 
 
 @pytest.mark.parametrize(

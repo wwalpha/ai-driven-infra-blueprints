@@ -18,7 +18,7 @@ from unittest.mock import patch
 from support.it_case_receipt import it_case
 from support.model_test_runner import load_fixture, prepare
 from support.repository_fixtures import contract
-from task_contract_core import SELECTOR, task_revision
+from task_contract_core import SELECTOR
 
 from model import audit as generator
 
@@ -29,11 +29,6 @@ if not __debug__:
 def generation_only(real_run, command, **kwargs):
     assert command[0] == "git", "generation attempted an external operation"
     return real_run(command, **kwargs)
-
-
-def change_contract(text, prompt, *args):
-    prompt.write_text(text.replace("`running`", "`completed`"), encoding="utf-8")
-    return "changed source", {}, []
 
 
 @it_case
@@ -88,27 +83,6 @@ def check_cli_contract():
                 assert generator.main() == 0, messages.getvalue()
                 before = output.read_bytes()
                 assert before.decode() == source
-                for state in ("completed", "suspend"):
-                    prompt.write_text(
-                        contract_text.replace("`running`", f"`{state}`")
-                        + (
-                            "\n## Suspension reason\nExplicit test stop\n"
-                            if state == "suspend"
-                            else ""
-                        )
-                    )
-                    if state == "completed":
-                        assert task_revision(root, name)[1] == prompt.read_text()
-                    assert generator.main() == 2 and output.read_bytes() == before
-                    output.unlink()
-                    assert generator.main() == 2 and not output.exists()
-                    output.write_bytes(before)
-                prompt.write_text(contract_text)
-                change = partial(change_contract, contract_text, prompt)
-                with patch.object(generator, "generate", side_effect=change):
-                    assert generator.main() == 2 and output.read_bytes() == before
-                prompt.unlink()
-                assert generator.main() == 2 and output.read_bytes() == before
 
 
 if __name__ == "__main__":

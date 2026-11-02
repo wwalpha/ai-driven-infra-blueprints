@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, closing, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -1805,6 +1806,26 @@ def check_candidate_completion_matches_executed_view_checks(tmp_path, check, sta
     service.assert_not_called()
     common.assert_not_called()
     assert plan.expected_outputs == {path: {path: "# 候補\n"}}
+
+
+@pytest.mark.parametrize(
+    "write,services", [(True, ["iam"]), (False, ["iam", "s3"]), (False, ["s3"])]
+)
+def test_saved_validation_rejects_wrong_generation_and_restores_context(
+    tmp_path, write, services
+):
+    check = TestCase()
+    entry = ("dev", "team", "iam")
+    with sync_views.saved_design_validation(tmp_path, entry):
+        with pytest.raises(ValueError, match="read-only generation"):
+            sync_runtime.sync(tmp_path, write, "dev", "team", services)
+    check.assertIsNone(sync_views._saved_design_validation.get())
+    with (
+        pytest.raises(RuntimeError),
+        sync_views.saved_design_validation(tmp_path, entry),
+    ):
+        raise RuntimeError("injected body")
+    check.assertIsNone(sync_views._saved_design_validation.get())
 
 
 if __name__ == "__main__":
