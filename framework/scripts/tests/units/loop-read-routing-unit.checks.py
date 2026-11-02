@@ -5,20 +5,31 @@ import re
 import sys
 from pathlib import Path
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import pytest
+from utils.markdown_format import markdown_sections, rule_readings
+
 ROOT = Path(__file__).resolve().parents[4]
 RULE = ROOT / "framework/rules/loop-engineering.md"
 TEXT = RULE.read_text(encoding="utf-8")
 
 
 def section(name):
-    match = re.search(rf"^## {re.escape(name)}\s*$", TEXT, re.M)
-    assert match, name
-    end = re.search(r"^## ", TEXT[match.end() :], re.M)
-    return (
-        TEXT[match.start() : match.end() + end.start()]
-        if end
-        else TEXT[match.start() :]
-    )
+    anchor = re.sub(r"[^\w -]", "", name.lower()).replace(" ", "-")
+    return markdown_sections(TEXT)[anchor]
+
+
+def readings(text):
+    return rule_readings(ROOT, RULE, text)
+
+
+def require_anchors(text, path, anchors):
+    found = readings(text).get(path.resolve())
+    assert found and set(anchors) <= set(found["sections"]), (path, anchors, found)
 
 
 def check_routes_and_selection():
@@ -35,19 +46,17 @@ def check_routes_and_selection():
         "framework-regression",
         "windows-full-regression-input-guard",
     ):
-        assert f"(#{anchor})" in local
-    for anchor in (
-        "local-loop-execution",
-        "change-validation-and-full-model-validation",
-        "framework-regression",
-        "windows-full-regression-input-guard",
-    ):
-        assert f"(#{anchor})" in policy
+        assert f"(loop-engineering.md#{anchor})" in local
+    assert "(loop-engineering.md#local-loop)" in policy
+    assert "its conditional mandatory reads" in policy
     assert (
         "If a loop is required" in local
         and "If classification, OS or execution form is uncertain" in local
     )
-    assert "Windows Full or `--all`" in regression and "otherwise stop" in regression
+    assert (
+        "the OS is Windows and the run uses `full` or `--all`" in regression
+        and "otherwise stop" in regression
+    )
     assert "## Windows full regression" not in regression
     for phrase in (
         "Markdown, Skill or Prompt text only",
@@ -74,7 +83,7 @@ def check_routes_and_selection():
         "Full Model validation with `--write` is rejected",
         "old Model validity is not a save prerequisite",
     ):
-        assert phrase in change
+        assert phrase.lower() in " ".join(change.lower().split())
     for phrase in (
         "human password input",
         "do not start validation processes or report PASS",
@@ -90,88 +99,89 @@ def check_routes_and_selection():
 
 
 def check_representative_routes():
-    # Expected decisions are independent of the documentation text and cover both OS paths.
-    cases = (
-        (False, False, False, False, {"Validation policy"}),
-        (
-            True,
-            True,
-            False,
-            False,
-            {
-                "Validation policy",
-                "Local loop",
-                "Local loop execution",
-                "Change Validation and Full Model Validation",
-            },
-        ),
-        (
-            True,
-            False,
-            False,
-            False,
-            {"Validation policy", "Local loop", "Local loop execution"},
-        ),
-        (
-            True,
-            False,
-            True,
-            False,
-            {
-                "Validation policy",
-                "Local loop",
-                "Local loop execution",
-                "Framework regression",
-            },
-        ),
-        (
-            True,
-            False,
-            True,
-            True,
-            {
-                "Validation policy",
-                "Local loop",
-                "Local loop execution",
-                "Framework regression",
-                "Windows full regression input guard",
-            },
-        ),
+    local = section("Local loop")
+    policy = section("Validation policy")
+    regression = section("Framework regression")
+    rule = RULE.resolve()
+    task = (ROOT / "framework/rules/task-contract.md").resolve()
+    require_anchors(
+        local,
+        task,
+        {"task-transition", "acceptance-contract", "selection-and-publication"},
     )
-    routes = {
-        "Local loop": section("Local loop"),
-        "Validation policy": section("Validation policy"),
-        "Framework regression": section("Framework regression"),
-    }
-    anchors = {
-        "Local loop": "local-loop",
-        "Local loop execution": "local-loop-execution",
-        "Change Validation and Full Model Validation": "change-validation-and-full-model-validation",
-        "Framework regression": "framework-regression",
-        "Windows full regression input guard": "windows-full-regression-input-guard",
-    }
-    for loop, model, regression, windows, expected in cases:
-        selected = {"Validation policy"}
-        if loop:
-            selected.update(("Local loop", "Local loop execution"))
-        if model:
-            selected.add("Change Validation and Full Model Validation")
-        if regression:
-            selected.add("Framework regression")
-        if regression and windows:
-            selected.add("Windows full regression input guard")
-        assert selected == expected
-        for target in selected - {"Validation policy"}:
-            assert any(f"(#{anchors[target]})" in text for text in routes.values()), (
-                target
+    require_anchors(
+        local,
+        rule,
+        {
+            "validation-policy",
+            "local-loop-execution",
+            "change-validation-and-full-model-validation",
+            "framework-regression",
+            "windows-full-regression-input-guard",
+        },
+    )
+    require_anchors(policy, rule, {"local-loop"})
+    require_anchors(regression, rule, {"windows-full-regression-input-guard"})
+    assert "If a loop is required" in local
+    assert "for Model changes" in local
+    assert "If Framework regression applies" in local
+    assert "When the OS is Windows and the run uses `full` or `--all`" in local
+    assert "When the OS is Windows and the run uses `full` or `--all`" in regression
+    assert "If classification, OS or execution form is uncertain" in local
+    assert "otherwise stop" in regression
+    condition = "When the OS is Windows and the run uses `full` or `--all`, read"
+    for text in (local, regression):
+        assert condition in text
+        damaged = text.replace(condition, "For Windows Full or `--all`, read")
+        with pytest.raises(AssertionError):
+            assert condition in damaged
+    for parent in (local, policy, regression):
+        assert "human password input" not in parent
+    # Direct callers must still reach the entry from actual Markdown links.
+    for relative, heading, expected in (
+        (
+            ".agents/skills/worktree/SKILL.md",
+            "read-before-execution",
+            {"local-loop", "validation-policy", "framework-regression"},
+        ),
+        (
+            "framework/prompts/codex/03_implement.md",
+            "read-before-changing-files",
+            {"local-loop"},
+        ),
+        ("framework/prompts/codex/04_deploy.md", "read-before-changing-files", set()),
+    ):
+        source = ROOT / relative
+        source_text = source.read_text(encoding="utf-8")
+        # Deploy has a different heading and still refers directly to these sections.
+        entry = markdown_sections(source_text).get(heading, source_text)
+        actual = rule_readings(ROOT, source, entry).get(rule)
+        assert actual and expected <= set(actual["sections"]), relative
+    # Removal of any required entry link must be detected, and broken anchors rejected.
+    for anchor in (
+        "local-loop-execution",
+        "change-validation-and-full-model-validation",
+        "framework-regression",
+        "windows-full-regression-input-guard",
+    ):
+        damaged = local.replace(f"loop-engineering.md#{anchor}", "loop-engineering.md")
+        with pytest.raises(AssertionError):
+            require_anchors(damaged, rule, {anchor})
+    with pytest.raises(ValueError, match="missing rule section"):
+        readings(
+            local.replace(
+                "loop-engineering.md#local-loop-execution",
+                "loop-engineering.md#missing-section",
             )
-            assert section(target)
-        assert ("Local loop execution" in selected) == loop
-        assert ("Windows full regression input guard" in selected) == (
-            regression and windows
         )
-    assert "otherwise stop" in routes["Validation policy"]
-    assert "otherwise stop" in routes["Framework regression"]
+    for anchor in (
+        "task-transition",
+        "acceptance-contract",
+        "selection-and-publication",
+    ):
+        damaged = local.replace(f"task-contract.md#{anchor}", "task-contract.md")
+        with pytest.raises(AssertionError):
+            require_anchors(damaged, task, {anchor})
 
 
 def check_incoming_anchors():

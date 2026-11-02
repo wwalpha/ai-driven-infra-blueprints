@@ -16,8 +16,10 @@ import tiktoken
 
 P = "framework/rules/loop-engineering.md"
 base = sys.argv[1] if len(sys.argv) > 1 else "edf4d0018b70eb4ff65bdca6bc7f6d67f9326569"
-old = subprocess.check_output(["git", "show", base + ":" + P], text=True)
-new = Path(P).read_text()
+old = subprocess.check_output(
+    ["git", "show", base + ":" + P], text=True, encoding="utf-8"
+)
+new = Path(P).read_text(encoding="utf-8")
 enc = tiktoken.get_encoding("o200k_base")
 
 
@@ -29,15 +31,20 @@ def sec(s, title):
 
 
 def calc(s, names):
-    spans = [sec(s, x) for x in names]
-    pieces = [s[a:b] for a, b in spans]
-    unique = []
-    for i in range(len(s)):
-        if any(a <= i < b for a, b in spans):
-            unique.append(s[i])
-    total = sum(len(enc.encode(p)) for p in pieces)
-    unq = len(enc.encode("".join(unique)))
-    return total, total - unq
+    spans = sorted(sec(s, x) for x in names)
+    total = sum(len(enc.encode(s[a:b])) for a, b in spans)
+    merged = []
+    for a, b in spans:
+        if merged and a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(b, merged[-1][1]))
+        else:
+            merged.append((a, b))
+    unique = sum(len(enc.encode(s[a:b])) for a, b in merged)
+    selected = []
+    for match in re.finditer(r"^#{2,3} (.+?)\s*$", s, re.M):
+        if any(a <= match.start() < b for a, b in merged):
+            selected.append(match.group(1))
+    return total, unique, total - unique, selected
 
 
 P1 = "Validation policy"
@@ -57,8 +64,18 @@ cases = {
     "Unknown impact": ([P1], [P1]),
 }
 print(
-    "Scenario | before total/duplicate | after total/duplicate | before sections | after sections"
+    "Scenario | before sum/unique/overlap/actual sections | after sum/unique/overlap/actual sections | requested before | requested after"
 )
 for name, (a, b) in cases.items():
     print(name, calc(old, a), calc(new, b), "; ".join(a), "; ".join(b), sep=" | ")
 print("Entire document tokens:", len(enc.encode(old)), len(enc.encode(new)))
+
+print(
+    "Scope: only explicitly modeled loop-engineering.md reads, not total prompt or billing."
+)
+print(
+    "Full-document references in cloudformation.md and terraform.md are excluded; when applicable they independently require the entire file."
+)
+print(
+    "Other mandatory rules, prompts, Skills and any repeated reads are excluded; sums model rereading, unique counts do not assume it."
+)

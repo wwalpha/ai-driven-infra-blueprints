@@ -14,18 +14,15 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 ## Local loop
 
-Read [Validation policy](#validation-policy) to classify the work. If a loop is required, read [Local loop execution](#local-loop-execution); for Model changes also read [Change Validation and Full Model Validation](#change-validation-and-full-model-validation). If Framework regression applies, read [Framework regression](#framework-regression). For Windows Full or `--all`, read [Windows full regression input guard](#windows-full-regression-input-guard). If classification, OS or execution form is uncertain, resolve it before omitting a required section; if it cannot be resolved, stop.
+Read [Task transition](task-contract.md#task-transition), [Acceptance contract](task-contract.md#acceptance-contract), and [Selection and publication](task-contract.md#selection-and-publication). Read [Validation policy](loop-engineering.md#validation-policy) to classify the work. If a loop is required, read [Local loop execution](loop-engineering.md#local-loop-execution); for Model changes also read [Change Validation and Full Model Validation](loop-engineering.md#change-validation-and-full-model-validation). If Framework regression applies, read [Framework regression](loop-engineering.md#framework-regression). When the OS is Windows and the run uses `full` or `--all`, read [Windows full regression input guard](loop-engineering.md#windows-full-regression-input-guard). If classification, OS or execution form is uncertain, resolve it before omitting a required section; if it cannot be resolved, stop.
 
-The OS-independent entrypoint is `framework/scripts/blueprint-loop.py`. In command examples, `python` means an available Python 3 launcher; use `py -3` on Windows when only Python Launcher is available, or `python3` on Unix-like OSes when only `python3` is available.
-
-In managed worktrees, replace the launcher in Python examples with
-`python3 -B framework/scripts/run-python.py` (use an available Python 3 launcher on Windows).
-The wrapper runs the task's registered ready shared Python Interpreter
-and sets its CLI PATH for this process
-and all children; fresh shells need no activation. Use the same wrapper for standalone
-checks/pytest. Failed/stale setup must be recovered
-with `worktree_task.py setup --task-id <task-id>` before task execution. Lifecycle helpers
-use the ordinary launcher from a surviving checkout.
+The OS-independent entrypoint is `framework/scripts/blueprint-loop.py`. In examples,
+`python` means a Python 3 launcher: use `py -3` on Windows or `python3` on Unix-like
+systems when needed. In managed worktrees use `python3 -B framework/scripts/run-python.py`
+(or an available Windows Python 3 launcher) for Python examples and standalone checks/pytest.
+The wrapper selects the registered ready shared Interpreter and sets PATH for children;
+no shell activation is needed. Recover failed/stale setup with `worktree_task.py setup --task-id <task-id>` before execution. Use the ordinary launcher for lifecycle helpers
+from a surviving checkout.
 
 ## Validation policy
 
@@ -38,7 +35,7 @@ mixed change. Task contracts, Acceptance requirements, and
 phase-specific schema, generation, IaC, AWS and approval checks remain mandatory where
 applicable; a lightweight documentation check is not evidence that these runtime checks ran.
 Generated design Markdown/JSON is validated with its authoritative Model inputs, not
-classified as an independent documentation edit. When a loop is required, read [Local loop](#local-loop) and [Local loop execution](#local-loop-execution); for Model changes read [Change Validation and Full Model Validation](#change-validation-and-full-model-validation). When regression applies read [Framework regression](#framework-regression); for Windows Full or `--all` read [Windows full regression input guard](#windows-full-regression-input-guard). If classification, OS or execution form is uncertain, resolve it before omitting a required section; otherwise stop.
+classified as an independent documentation edit. When a loop is required, read [Local loop](loop-engineering.md#local-loop) and its conditional mandatory reads. If classification, OS or execution form is uncertain, resolve it before omitting a required section; otherwise stop.
 
 | Change | Required final validation |
 | --- | --- |
@@ -96,18 +93,13 @@ and classification reasons in the completion response; add no permanent reports/
 
 For Model updates use **Change Validation only**. Use Full Validation for Issue Scan or independent explicit full validation, not the update stop decision. Validate changed Resources, Properties and Links and their affected reference contracts; unrelated existing errors do not block the update. Distinguish read dependencies, validation targets, generation targets and Task write authority.
 
-`validation.change` is the update/save/Task/final-candidate entrypoint. The transient
-`model.change_plan` compares only changed service snapshots by logicalId and formal
-Property/occurrence. It records changed fields, read dependencies, affected reference
-contracts and required Views. Unreadable old authorities retain raw comparison fields;
-old Model validity is not a save prerequisite. A missing before snapshot for an existing
-persisted Model is an explicit comparison error, never a Full-validation fallback.
-
-`model.validations.full_inputs.check_model_inputs` remains the independent full-quality entrypoint;
-Issue Scan explicitly selects `model_validation="full"` and inspects every current
-Resource, Property and Link in its requested scope without Task/Git differences or
-previous PASS results. The two entries reuse naming, schema, required-property, policy
-and reference rules, selecting inputs before execution instead of filtering Full results.
+Change Validation compares changed service snapshots by logicalId and formal
+Property/occurrence to determine affected references and Views. Old Model validity is
+not a save prerequisite; unreadable old authorities retain raw comparison fields. A
+missing before snapshot for an existing Model is an error, not a Full-validation fallback.
+Issue Scan uses independent Full validation of every current Resource, Property and Link
+in scope without Task/Git differences or prior PASS results. Both retain naming, schema,
+required-property, policy and reference checks.
 
 Task/local loops and Task completion use Change Validation. Read-only explicit `full`
 loops retain scoped Full Model checks and all UT regression. An independent validator
@@ -115,10 +107,8 @@ can select `--model-validation full`; `--all` retains its explicit repository sc
 Full Model validation with `--write` is rejected. Final candidates always use Change
 Validation, including when their caller requests regression.
 
-Reference discovery reuses verified, current entries from the signed dependency index.
-Missing or stale entries are discovered structurally into invocation-local metadata using
-shared raw Model snapshots, without Full quality validation or persistent index writes.
-Incomplete reference metadata retains its source, reason and identifiable target/attribute;
+Reference discovery uses current index entries or structural discovery without Full
+quality validation or persistent index writes. Incomplete reference metadata retains its source, reason and identifiable target/attribute;
 stop only when its relationship to a changed producer cannot be ruled out. Unrelated
 existing reference quality errors do not block saves. Deploy retains its
 sealed-index and Snapshot checks; missing metadata needs no manual update preparation.
@@ -164,7 +154,7 @@ invoked validation remain separate purposes. Follow
 
 Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, Change Validation for changed inputs and required Views within Validation scope, task type checks, task Acceptance checks, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type. Blocking failure at any layer is FAIL. Existing checks retain their scan scope and record discovered failures as ordinary errors. `--all`, scope `all`, and `--repository-wide-iac` retain their existing scan-scope behavior.
 
-Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). Before successful final validation under [Validation policy](#validation-policy) and `--complete`, finish all requested work under [Task transition](task-contract.md#task-transition) (including its required common and conditional reads).
+Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). Before successful final validation under [Validation policy](loop-engineering.md#validation-policy) and `--complete`, finish all requested work under [Task transition](task-contract.md#task-transition) (including its required common and conditional reads).
 
 For a selected report-only issues Task, `--mode local` without `--write`, `--all`
 or `--staged` uses the existing `issues_save_only()` predicate and explicitly selects
@@ -178,7 +168,7 @@ Model/design inputs may themselves be the recorded issues. It does not replace o
 rerun Snapshot, Review, publication authority or atomic save/rollback checks.
 Other Tasks and modes retain ordinary validation; the default Validator is unchanged.
 
-When running a local loop, retain the following checks in its applicable scope. During development and at completion, choose the checks under [Validation policy](#validation-policy).
+When running a local loop, retain the following checks in its applicable scope. During development and at completion, choose the checks under [Validation policy](loop-engineering.md#validation-policy).
 
 - When changes exist, an active task prompt and valid Task type exist. An unchanged idle state may lack this task's `tasks/<task-name>.md`
 - Changed paths are within the Task type boundary and Allowed paths
@@ -215,7 +205,7 @@ When running a local loop, retain the following checks in its applicable scope. 
 - Scenario/result structure and metadata are valid
 - Formatting/static checks succeed
 
-For tasks affecting runtime inputs or behavior, task-type-specific checks cannot be omitted; confirm at least the following. Text-only tasks use the documentation row of [Validation policy](#validation-policy), with contract scope and Required changes reviewed before completion.
+For tasks affecting runtime inputs or behavior, task-type-specific checks cannot be omitted; confirm at least the following. Text-only tasks use the documentation row of [Validation policy](loop-engineering.md#validation-policy), with contract scope and Required changes reviewed before completion.
 
 - `initialization`: `project.json` changes, and target paths and IaC selection are valid
 - `design`: Target authoritative service Model inputs change first, and Markdown/JSON artifacts match their deterministic generation results
@@ -284,7 +274,7 @@ deduplication.
 
 ## Framework regression
 
-For Windows Full or `--all`, read [Windows full regression input guard](#windows-full-regression-input-guard) before starting. If OS or execution form is uncertain, resolve it before omitting the guard; otherwise stop.
+When the OS is Windows and the run uses `full` or `--all`, read [Windows full regression input guard](loop-engineering.md#windows-full-regression-input-guard) before starting. If OS or execution form is uncertain, resolve it before omitting the guard; otherwise stop.
 
 Ordinary `task` / `local` loops, including staged snapshots, do not
 automatically run Framework regression for changed files or missing Validation scope.
@@ -323,11 +313,11 @@ unexecuted or failed CI is not completed validation. Configure the `Framework UT
 job as a required status check in GitHub branch protection/rulesets; repository files
 alone do not enable that setting.
 
-- When [Validation policy](#validation-policy) requires a scoped loop for design, implement, deploy, update, destroy, scenario/evidence, initialization or target migration, use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
-- Select final regression under [Validation policy](#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/tests/units/**/*.checks.py` and `units/**/test_*.py` through their existing Python script entrypoints with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Service parameter and typed service integration contracts run in CI; their split unit cases remain local. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
+- When [Validation policy](loop-engineering.md#validation-policy) requires a scoped loop for design, implement, deploy, update, destroy, scenario/evidence, initialization or target migration, use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
+- Select final regression under [Validation policy](loop-engineering.md#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/tests/units/**/*.checks.py` and `units/**/test_*.py` through their existing Python script entrypoints with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Service parameter and typed service integration contracts run in CI; their split unit cases remain local. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
 - Task/local loops retain Git change discovery for Task boundaries and diff checks, but never use those paths to select Framework UT/IT. Framework changes remain subject to Task Contract and Allowed paths restrictions.
 - `--mode local` is also valid as the same scoped validation as `task`, except for the report-only issues post-save contract validation described above. Do not add a redundant task run. Explicit `--all` means overall validation plus all regression; scope `all` alone means overall Project validation without automatic Framework regression. `full` alone does not expand actual design scope. Repository-wide IaC checks remain enabled for explicit `full` / `--all`, not because Framework files changed.
-- For read-only loops, continue regression and diff checks even if the validator fails; integrated write failures stop follow-up checks as specified in [Local loop execution](#local-loop-execution). Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.
+- For read-only loops, continue regression and diff checks even if the validator fails; integrated write failures stop follow-up checks as specified in [Local loop execution](loop-engineering.md#local-loop-execution). Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.
 - Retain existing mandatory CloudFormation deploy context, `aws cloudformation validate-template`, change set/change summary, delete/replacement checks, AWS account/region checks, and Terraform fmt/init/validate/plan/apply procedures according to each phase's rules/prompts. The loop does not replace actual IaC/deployment procedures or combine implement and deploy.
 
 ## Windows full regression input guard
@@ -406,7 +396,7 @@ Infrastructure phase `destroy` is an independent CloudFormation Stack workflow:
 7. Run `python framework/scripts/blueprint-loop.py --mode task --task-file <task>` once, then complete only after terminal/sync evidence and PASS.
 8. Finish without scenario tests or another task.
 
-Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate-template, change sets, template/parameter/artifact checks, deploy preparation, clean revision check, deploy repair or deployment input guards. The scoped loop retains model/generated equality, task boundary, issue, catalog/schema and common checks; it skips IaC validation. Framework implementation changes follow [Validation policy](#validation-policy).
+Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate-template, change sets, template/parameter/artifact checks, deploy preparation, clean revision check, deploy repair or deployment input guards. The scoped loop retains model/generated equality, task boundary, issue, catalog/schema and common checks; it skips IaC validation. Framework implementation changes follow [Validation policy](loop-engineering.md#validation-policy).
 
 ## Scenario-test task completion
 
@@ -418,7 +408,7 @@ Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate
 
 ## Other task completion
 
-- `initialization`, `governance`, `catalog-maintenance`, and `migration` select final validation under [Validation policy](#validation-policy), validate only active prompt scope and finish.
+- `initialization`, `governance`, `catalog-maintenance`, and `migration` select final validation under [Validation policy](loop-engineering.md#validation-policy), validate only active prompt scope and finish.
 - Non-scenario tasks must not save verification output under `tests/scenarios/**` or `tests/results/**`. Human-run `/model-test` audit logs follow the separate [Task boundary](task-contract.md#task-boundary) exception; offline mock verification still uses temporary directories outside the repository.
 - By default, non-scenario task verification results belong only in Codex completion reports.
 
@@ -481,7 +471,7 @@ not require environment/target/service tuples or load Models. It still executes
 Task Scope, type, Acceptance, Framework structure/catalog and candidate whitespace
 checks; empty service scope is not a validation bypass. Run related UTs, necessary
 IT and applicable static checks through their existing entrypoints under
-[Validation policy](#validation-policy), reassessing dependencies after rebase. The
+[Validation policy](loop-engineering.md#validation-policy), reassessing dependencies after rebase. The
 scoped loop does not automatically select those tests. Only PASS can complete and
 merge the unchanged candidate; failure retains it and existing suspension/approval
 contracts. Other Task types retain their existing validation and completion order.
