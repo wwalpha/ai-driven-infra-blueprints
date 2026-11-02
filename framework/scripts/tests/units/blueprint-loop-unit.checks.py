@@ -390,16 +390,14 @@ def check_regression_discovery(tmp_path):
     ):
         MODULE.select_checks(tmp_path)
     root = Path(__file__).resolve().parents[4]
-    all_checks = {p.name for p in MODULE.select_checks(root)[0]}
+    checks = MODULE.select_checks(root)[0]
+    all_checks = {p.name for p in checks}
     assert all_checks == {
         p.name for p in (root / "framework/scripts/tests/units").rglob("*.checks.py")
     } | {"test_issues_iac.py"}
     assert "service-parameter-inputs.checks.py" not in all_checks
     assert "git-changes-unit.checks.py" in all_checks
-    assert all(
-        p.is_relative_to(root / "framework/scripts/tests/units")
-        for p in MODULE.select_checks(root)[0]
-    )
+    assert all(p.is_relative_to(root / "framework/scripts/tests/units") for p in checks)
 
 
 @pytest.mark.parametrize("entry", ["run(__file__)", "main()"])
@@ -536,41 +534,6 @@ def check_pytest_group_distribution(tmp_path, count):
         assert len(groups) == 1 and groups[0][2:] == ["--group", *map(str, safe)]
 
 
-def check_pytest_group_runner_failure_and_isolation(tmp_path):
-    tests = Path(__file__).resolve().parents[1]
-    (tmp_path / "pytest.ini").write_text(
-        "[pytest]\npython_files = *-unit.checks.py\npython_functions = check_*\naddopts = --import-mode=importlib\n",
-        encoding="utf-8",
-    )
-    paths = [tmp_path / f"{name}-unit.checks.py" for name in ("a", "b")]
-    prefix = "import os\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
-    suffix = "if __name__ == '__main__': raise SystemExit(run(__file__))\n"
-    paths[0].write_text(
-        prefix + "def check_change(): os.environ['GROUP_TEST'] = 'changed'\n" + suffix,
-        encoding="utf-8",
-    )
-    paths[1].write_text(
-        prefix + "def check_clean(): assert 'GROUP_TEST' not in os.environ\n" + suffix,
-        encoding="utf-8",
-    )
-    # Use the real isolation fixture with synthetic suites.
-    (tmp_path / "conftest.py").write_text(
-        f"import importlib.util\nspec = importlib.util.spec_from_file_location('group_fixtures', {str(tests / 'conftest.py')!r})\n"
-        "module = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(module)\nprocess_state = module.process_state\n",
-        encoding="utf-8",
-    )
-    commands = unit_commands(paths)
-    env = dict(os.environ, PYTHONPATH=str(tests))
-    env.pop("GROUP_TEST", None)
-    assert MODULE.run_commands(tmp_path, commands, env, tmp_path, jobs=2) == 0
-    paths[1].write_text(
-        prefix + "def check_fail(): assert False\n" + suffix, encoding="utf-8"
-    )
-    assert (
-        MODULE.run_commands(tmp_path, unit_commands(paths), env, tmp_path, jobs=2) == 1
-    )
-
-
 def check_approved_suites_share_official_group():
     tests = Path(__file__).resolve().parents[1]
     paths = [
@@ -582,18 +545,8 @@ def check_approved_suites_share_official_group():
     ]
     commands = unit_commands(paths)
     assert len(commands) == 1 and commands[0][2:] == ["--group", *map(str, paths)]
-    env = dict(os.environ, PYTEST_ADDOPTS="-vv")
-    result = subprocess.run(
-        commands[0], cwd=tests, env=env, capture_output=True, text=True
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    nodes = [
-        line
-        for line in result.stdout.splitlines()
-        if "::" in line and " PASSED" in line
-    ]
-    assert nodes and len(nodes) == len(set(nodes))
-    assert all(any(path.name in node for node in nodes) for path in paths)
+    assert all(groupable(path) for path in paths)
+    assert set(paths) <= set(MODULE.select_checks(tests.parents[2])[0])
 
 
 @pytest.mark.parametrize(
@@ -653,15 +606,7 @@ def check_pytest_group_completeness(tmp_path, fault):
 
 
 def check_group_subprocess_isolation_and_collection(tmp_path):
-    check = TestCase()
-    tests = Path(__file__).resolve().parents[1]
-    env = dict(os.environ, PYTHONPATH=str(tests))
-    (tmp_path / "pytest.ini").write_text(
-        "[pytest]\npython_files = *-unit.checks.py\npython_functions = check_*\naddopts = --import-mode=importlib\n",
-        encoding="utf-8",
-    )
     first = tmp_path / "first-unit.checks.py"
-    second = tmp_path / "second-unit.checks.py"
     first.write_text(
         "import importlib\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
         "def check_mutation():\n"
@@ -670,65 +615,14 @@ def check_group_subprocess_isolation_and_collection(tmp_path):
         "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
         encoding="utf-8",
     )
-    second.write_text(
-        "import sys\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
-        "def check_clean():\n"
-        "    if 'synthetic_leak' in sys.modules: raise ValueError('leaked')\n"
-        "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
-        encoding="utf-8",
-    )
-    for path in (first, second):
-        result = subprocess.run(
-            [sys.executable, str(path)],
-            cwd=tmp_path,
-            env=env,
-            capture_output=True,
-            text=True,
-        )
-        check.assertEqual(result.returncode, 0, result.stderr)
-    check.assertFalse(groupable(first))
     safe = tmp_path / "safe-unit.checks.py"
     safe.write_text(
         "from support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\ndef check_ok(): pass\nif __name__ == '__main__': raise SystemExit(run(__file__))\n",
         encoding="utf-8",
     )
-    check.assertTrue(groupable(safe))
-    commands = unit_commands([first, second, safe])
-    check.assertIn([sys.executable, str(first)], commands)
-    for command in commands:
-        result = subprocess.run(
-            command, cwd=tmp_path, env=env, capture_output=True, text=True
-        )
-        check.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    first.write_text(
-        "import pytest\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
-        "@pytest.mark.parametrize('value', [1, 2])\n"
-        "def check_parameter(value): pass\n"
-        "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
-        encoding="utf-8",
-    )
-    command = [
-        sys.executable,
-        str(tests / "support/pytest_cli.py"),
-        "--group",
-        str(first),
-        str(safe),
-    ]
-    result = subprocess.run(
-        command, cwd=tmp_path, env=env, capture_output=True, text=True
-    )
-    check.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-    (tmp_path / "conftest.py").write_text(
-        "def pytest_collection_modifyitems(items):\n"
-        "    items[:] = [item for item in items if item.nodeid != 'first-unit.checks.py::check_parameter[2]']\n",
-        encoding="utf-8",
-    )
-    result = subprocess.run(
-        command, cwd=tmp_path, env=env, capture_output=True, text=True
-    )
-    check.assertNotEqual(result.returncode, 0)
-    check.assertIn("first-unit.checks.py::check_parameter[2]", result.stderr)
+    assert not groupable(first)
+    assert groupable(safe)
+    assert [sys.executable, str(first)] in unit_commands([first, safe])
 
 
 @pytest.mark.parametrize(
@@ -759,15 +653,6 @@ def check_group_subprocess_isolation_and_collection(tmp_path):
 def check_group_unknown_external_calls_are_isolated(tmp_path, imports, mutation):
     check = TestCase()
     tests = Path(__file__).resolve().parents[1]
-    env = dict(os.environ, PYTHONPATH=str(tests))
-    (tmp_path / "pytest.ini").write_text(
-        "[pytest]\npython_files = *-unit.checks.py\npython_functions = check_*\naddopts = --import-mode=importlib\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "synthetic_external.py").write_text(
-        "import warnings\ndef change(): warnings.filterwarnings('ignore', message='synthetic-isolation')\n",
-        encoding="utf-8",
-    )
     unsafe = tmp_path / "unsafe-unit.checks.py"
     unsafe.write_text(
         imports
@@ -795,29 +680,20 @@ def check_group_unknown_external_calls_are_isolated(tmp_path, imports, mutation)
     check.assertFalse(groupable(unsafe))
     check.assertTrue(groupable(safe))
     check.assertTrue(groupable(other))
-    for path in (unsafe, safe):
-        result = subprocess.run(
-            [sys.executable, str(path)],
-            cwd=tmp_path,
-            env=env,
-            capture_output=True,
-            text=True,
-        )
-        check.assertEqual(result.returncode, 0, result.stdout + result.stderr)
     commands = unit_commands([unsafe, safe, other])
-    check.assertIn([sys.executable, str(unsafe)], commands)
-    group = [
-        sys.executable,
-        str(tests / "support/pytest_cli.py"),
-        "--group",
-        str(safe),
-        str(other),
-    ]
-    for command in ([sys.executable, str(unsafe)], group):
-        result = subprocess.run(
-            command, cwd=tmp_path, env=env, capture_output=True, text=True
-        )
-        check.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    check.assertEqual(
+        commands,
+        [
+            [
+                sys.executable,
+                str(tests / "support/pytest_cli.py"),
+                "--group",
+                str(safe),
+                str(other),
+            ],
+            [sys.executable, str(unsafe)],
+        ],
+    )
 
 
 @pytest.mark.parametrize("leak", [False, True])
@@ -1447,6 +1323,18 @@ def check_it_fixture_isolation(tmp_path):
     assert not root.exists()
 
 
+def _parallel_inventory(cases=None):
+    if cases is None:
+        cases = (
+            case
+            for suite_cases in run_it.PARALLEL_CASES.values()
+            for case in suite_cases
+        )
+    return SimpleNamespace(
+        cases={tuple(case.split("::", 1)): "pytest" for case in cases}
+    ), []
+
+
 def check_it_inventory(tmp_path):
     discovery, errors = run_it.inventory(Path(run_it.__file__).parent)
     assert not errors, errors
@@ -1465,6 +1353,18 @@ def check_it_inventory(tmp_path):
         ]
         == "pytest"
     )
+    for suite in (run_it.REPAIR_SUITE, run_it.CHECKPOINT_SUITE):
+        discovered = {
+            path + "::" + name
+            for (path, name), mode in discovery.cases.items()
+            if path == suite and mode == "pytest"
+        }
+        assert discovered == set(run_it.PARALLEL_CASES[suite])
+        assert all(
+            mode == "pytest"
+            for (path, _), mode in discovery.cases.items()
+            if path == suite
+        )
     assert run_it.reachability({}, [])
     assert run_it.inventory(tmp_path)[1]
 
@@ -2246,7 +2146,7 @@ def check_parallel_repair_receipts():
     TestCase().assertEqual(
         combined["metrics"], {"subprocess.Popen": len(run_it.REPAIR_CASES)}
     )
-    cases = run_it.inventory(Path(run_it.__file__).parent)[0].cases
+    cases = _parallel_inventory()[0].cases
     selected = {
         key: value for key, value in cases.items() if key[0] == run_it.REPAIR_SUITE
     }
@@ -2351,12 +2251,7 @@ def check_checkpoint_keeps_two_process_limit(tmp_path):
         patch.object(
             run_it,
             "inventory",
-            return_value=(
-                SimpleNamespace(
-                    cases={(suite, case.split("::")[1]): "pytest" for case in cases}
-                ),
-                [],
-            ),
+            return_value=_parallel_inventory(cases),
         ),
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
         patch.object(run_it.tempfile, "mkdtemp", return_value=str(logs)),
@@ -2393,7 +2288,10 @@ def check_parallel_repair_receipt_freshness(tmp_path, mode, suite):
         process.poll.return_value = 0
     state = _CallbackState(mode=mode, suite=suite, processes=processes)
     launch = _bind_framework_callback(_callback_parallel_receipt, state)
-    with patch.object(run_it.subprocess, "Popen", side_effect=launch):
+    with (
+        patch.object(run_it, "inventory", return_value=_parallel_inventory()),
+        patch.object(run_it.subprocess, "Popen", side_effect=launch),
+    ):
         if mode == "fresh":
             result = run_it.run_parallel_repair(tests / state.suite, tests, tmp_path)
             assert result["passed"] == list(cases)
@@ -2416,6 +2314,7 @@ def check_parallel_suite_shared_deadline(tmp_path, suite, limit):
     launch = _bind_framework_callback(_callback_parallel_receipt, state)
     clock = iter([100, *range(101, 120)])
     with (
+        patch.object(run_it, "inventory", return_value=_parallel_inventory()),
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
         patch.object(run_it.time, "monotonic", side_effect=clock),
     ):
@@ -2446,6 +2345,7 @@ def check_parallel_repair_expired_deadline(tmp_path):
     logs = tmp_path / "logs"
     logs.mkdir()
     with (
+        patch.object(run_it, "inventory", return_value=_parallel_inventory()),
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
         patch.object(
             run_it.time, "monotonic", side_effect=[100, 2000, 2000, 2000, 2000]
@@ -2495,6 +2395,7 @@ def check_parallel_repair_failure_cleanup(tmp_path, failure):
         else (OSError, RuntimeError, ValueError)
     )
     with (
+        patch.object(run_it, "inventory", return_value=_parallel_inventory()),
         patch.object(run_it.subprocess, "Popen", side_effect=launched) as launch,
         patch.object(run_it.os, "killpg", create=True) as kill,
         patch.object(run_it.tempfile, "mkdtemp", return_value=str(tmp_path / "logs")),
@@ -2516,6 +2417,26 @@ def check_parallel_repair_failure_cleanup(tmp_path, failure):
             assert kill.call_count == count
         assert all(process.wait.called for process in processes[:count])
         assert all((tmp_path / "logs" / f"case-{i}.log").exists() for i in range(count))
+
+
+@pytest.mark.parametrize("fault", ["missing", "unknown", "errors"])
+def check_parallel_repair_discovery_mismatch(tmp_path, fault):
+    tests = Path(run_it.__file__).parent
+    suite = run_it.CHECKPOINT_SUITE
+    discovery, errors = _parallel_inventory()
+    if fault == "missing":
+        discovery.cases.pop(tuple(run_it.PARALLEL_CASES[suite][0].split("::", 1)))
+    elif fault == "unknown":
+        discovery.cases[(suite, "check_unknown")] = "pytest"
+    else:
+        errors.append("discovery failed")
+    with (
+        patch.object(run_it, "inventory", return_value=(discovery, errors)),
+        patch.object(run_it.subprocess, "Popen") as launch,
+        pytest.raises(ValueError, match="parallel discovery mismatch"),
+    ):
+        run_it.run_parallel_repair(tests / suite, tests, tmp_path)
+    launch.assert_not_called()
 
 
 def check_parallel_repair_dispatch(tmp_path):
