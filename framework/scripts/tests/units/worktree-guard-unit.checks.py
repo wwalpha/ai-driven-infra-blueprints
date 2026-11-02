@@ -1174,6 +1174,61 @@ def check_pr_remote_base(tmp_path, change):
         else:
             with pytest.raises(wt.Blocked, match="base differs"):
                 pr.remote_base(tmp_path, publication)
+    api_base = "a" * 40
+    remote_base = "b" * 40 if change == "git" else api_base
+    with (
+        patch.object(pr, "gh", return_value=json.dumps({"commit": {"sha": api_base}})),
+        patch.object(pr, "remote_heads", return_value={"refs/heads/main": remote_base}),
+    ):
+        if change == "git":
+            with pytest.raises(wt.Blocked, match="references differ"):
+                pr.update_refs(tmp_path, publication)
+        else:
+            assert pr.update_refs(tmp_path, publication) == (api_base, None)
+    _check_pr_integration_guard(
+        tmp_path, {"none": "rewrite", "api": "conflict", "git": "fetch"}[change]
+    )
+
+
+def _check_pr_integration_guard(tmp_path, failure):
+    text = contract("example", ["file.txt"])
+    base, candidate, old = "a" * 40, "b" * 40, "c" * 40
+    publication = dict(_pr_publication(), baseCommit=old)
+    state = dict(
+        task_id="example",
+        task_file="tasks/example.md",
+        prPublication=publication,
+        prUpdate=dict(
+            status="PREPARED",
+            candidate=candidate,
+            previousCandidate=old,
+            taskHash=pr.hashlib.sha256(text.encode()).hexdigest(),
+        ),
+    )
+
+    def run_git(root, *args, **kwargs):
+        failed = (failure == "rewrite" and "--is-ancestor" in args) or (
+            failure == "conflict" and "merge-tree" in args
+        )
+        return SimpleNamespace(returncode=int(failed), stdout="", stderr="")
+
+    with (
+        patch.object(
+            wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", state)
+        ),
+        patch.object(pr, "update_snapshot", return_value=(tmp_path, text)),
+        patch.object(pr, "update_refs", return_value=(base, old)),
+        patch.object(pr, "existing_pr"),
+        patch.object(wt.python_env, "runtime", return_value=(Path(sys.executable), {})),
+        patch.object(wt, "git", side_effect=run_git),
+        patch.object(
+            wt, "output", return_value="d" * 40 if failure == "fetch" else base
+        ),
+        patch.object(pr, "validate_snapshot") as validator,
+    ):
+        with pytest.raises(wt.Blocked):
+            pr.validate_update(tmp_path, "example")
+        validator.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -2208,13 +2263,60 @@ def check_pr_lifecycle_cli(tmp_path, capsys, arguments, valid):
     capsys.readouterr()
 
 
-@pytest.mark.parametrize("failure", ["unchanged", "remote-head", "validation"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "unchanged",
+        "remote-head",
+        "validation",
+        "validated-edit",
+        "suspended",
+        "stale-base",
+        "push-third",
+        "hash-changed",
+    ],
+)
 def check_pr_update_failure_retains_candidate(tmp_path, failure):
-    check = TestCase()
     publication = dict(_pr_publication(), number=7)
-    state = dict(integrationMode="pr", merged=None, prPublication=publication)
-    if failure == "validation":
-        state["prUpdate"] = dict(status="PREPARED", previousCandidate="old")
+    state = dict(
+        task_id="example",
+        task_file="tasks/example.md",
+        integrationMode="pr",
+        merged=None,
+        prPublication=publication,
+        tip="candidate",
+        commit="candidate",
+        verified=True,
+    )
+    text = contract("example", ["file.txt"])
+    if failure == "suspended":
+        text = (
+            text.replace("`running`", "`suspend`")
+            + "\n## Suspension reason\n\n    validation failed\n"
+        )
+    if failure in {
+        "validation",
+        "validated-edit",
+        "suspended",
+        "stale-base",
+        "push-third",
+        "hash-changed",
+    }:
+        publication["candidate"] = "old"
+        state["prUpdate"] = dict(
+            status="VALIDATED"
+            if failure in {"validated-edit", "stale-base", "push-third", "hash-changed"}
+            else "PREPARED",
+            previousCandidate="old",
+            candidate="candidate",
+            taskHash=pr.hashlib.sha256(text.encode()).hexdigest()
+            if failure == "stale-base"
+            else "hash",
+            baseCommit="base",
+            integrationTree="a" * 40,
+            validation="PASS",
+            pushIntent=failure == "push-third",
+        )
     path = tmp_path / "state.json"
     with (
         patch.object(wt, "load", return_value=(tmp_path, None, path, state)),
@@ -2224,16 +2326,24 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
         patch.object(pr, "existing_pr"),
         patch.object(
             pr,
-            "remote_heads",
-            return_value={
-                "refs/heads/" + publication["head"]: "foreign"
-                if failure == "remote-head"
-                else "candidate"
-            },
+            "update_refs",
+            return_value=(
+                "new-base" if failure == "stale-base" else "base",
+                "foreign" if failure in {"remote-head", "push-third"} else "candidate",
+            ),
         ),
         patch.object(wt, "task_worktree", return_value=tmp_path),
         patch.object(wt, "output", return_value="candidate"),
-        patch.object(wt, "paths", return_value=set()),
+        patch.object(
+            wt,
+            "changed_paths",
+            return_value={"file.txt"} if failure == "validated-edit" else set(),
+        ),
+        patch.object(
+            wt.tasks, "read_task_snapshot", return_value=SimpleNamespace(text=text)
+        ),
+        patch.object(wt, "save"),
+        patch.object(pr, "save_update"),
         patch.object(wt.python_env, "runtime", return_value=(Path(sys.executable), {})),
         patch.object(
             pr.subprocess,
@@ -2242,21 +2352,26 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
                 [], 2, "case-id", "validation diagnostic"
             ),
         ) as child,
-        patch.object(pr, "publish") as publish,
+        patch.object(pr, "push_candidate") as push,
     ):
         with pytest.raises(wt.Blocked) as error:
             pr.update(tmp_path, "example")
-        publish.assert_not_called()
+        push.assert_not_called()
         if failure == "validation":
-            check.assertEqual(
-                error.value.diagnostics,
-                dict(returncode=2, stdout="case-id", stderr="validation diagnostic"),
+            assert error.value.diagnostics == dict(
+                returncode=2, stdout="case-id", stderr="validation diagnostic"
             )
-            check.assertEqual(state["prUpdate"]["status"], "PREPARED")
-            check.assertIn("validate_update", child.call_args.args[0][3])
+            assert state["prUpdate"]["status"] == "PREPARED"
+            assert "validate_update" in child.call_args.args[0][3]
         else:
             child.assert_not_called()
-            check.assertNotIn("prUpdate", state)
+            if failure in {"unchanged", "remote-head"}:
+                assert "prUpdate" not in state
+            if failure == "suspended":
+                assert "`suspend`" in text
+            if failure == "stale-base":
+                assert state["prUpdate"]["validation"] == "STALE"
+                assert state["prUpdate"]["status"] == "PREPARED"
 
 
 def _pr_merge_response(publication, merged, *_args):

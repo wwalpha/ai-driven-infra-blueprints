@@ -226,19 +226,27 @@ python3 -B framework/scripts/worktree_task.py pr-close --task-id <task-id>
 python3 -B framework/scripts/worktree_task.py pr-close --pr <number-or-url>
 ```
 
-`pr-update` explicitly prepares and validates a new descendant candidate in the same
-Task/Worktree, then pushes to the existing repository/head/PR. New commits and uncommitted
-review corrections must remain inside that Task's exact paths and authority. Existing
-commit/Model guards and the registered-runtime final candidate validator apply; a prior
-validation-failure approval cannot approve a new candidate. Published history is never
-rebased: include the latest local base in the descendant candidate before updating if
-that base advanced. Remote/GitHub base must match the validated local base at publication.
-The saved `prUpdate` intent distinguishes the old published HEAD and new candidate.
-A creation-only pre-push guard remains for initial publication; update's pre-push guard
-requires the advertised old HEAD exactly. Both use ordinary non-force Push. Remote HEAD
-conflicts stop even when Git could fast-forward. Push interruptions reconcile old/new
-remote HEAD against the same saved intent; retry `pr-update`, never discard the intent or
-hand-edit management JSON. Update success retains the Worktree and never recreates the PR.
+`pr-update` prepares a descendant candidate in the same Task/Worktree and validates
+its integration with the current GitHub target base in an independent temporary Git
+repository. GitHub and Git base refs must agree, and the remote base must fast-forward
+from the previously validated base. The changed scope is the remote base to the
+integrated tree. A conflict or changed Task, candidate, PR head or base stops Push;
+retry validates the current candidate again. A failed PREPARED candidate may be
+corrected and re-prepared after any required Task resume. A VALIDATED candidate must
+not be changed or reused. The independent temporary repository creates no source Git
+worktree registration; normal completion and validation failure remove it. After an
+abrupt process termination, an abandoned `blueprint-pr-validation-*` directory in the
+OS temporary directory may be removed after confirming no process uses it.
+
+The saved intent retains the previous published HEAD, candidate, remote base, integrated
+tree, Task hash, validation result and Push state. The existing remote HEAD must equal
+the recorded previous HEAD; only an ordinary non-force Push is permitted. An uncertain
+Push is reconciled against the old and candidate HEAD before another attempt; a third
+HEAD stops for review. If the target base advances after Push, the published HEAD is
+retained and revalidation remains required. Published commits are never rebased or
+reset; local base checkout/merge is not changed. Retry `pr-update` without editing
+management JSON or discarding the intent. Update never recreates the PR or cleans up
+the Worktree.
 
 Draft/Ready transitions are explicit. `pr-merge` supports `merge` (default), `squash` and
 `rebase`, matching the published HEAD before requesting GitHub merge. `pr-status` explicitly

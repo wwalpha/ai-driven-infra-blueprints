@@ -793,11 +793,16 @@ def _prepare_commit(root, path, state, target, approval, *, pr_update=False):
         scope_paths=model_changes,
         published_head=state["prUpdate"]["previousCandidate"] if pr_update else None,
     )
-    base_worktree(root, state)
+    if not pr_update:
+        base_worktree(root, state)
     implement = "- Infrastructure phase: `implement`" in tasks.section(
         contract, "## Task contract"
     )
-    if not implement and not ancestor(root, state["start"], state["base"]):
+    if (
+        not pr_update
+        and not implement
+        and not ancestor(root, state["start"], state["base"])
+    ):
         raise Blocked("base history was rewritten; task retained for review")
     if (not operation or approval) and (
         "- Workflow: `import`" in tasks.section(contract, "## Task contract")
@@ -883,18 +888,14 @@ def _prepare_commit(root, path, state, target, approval, *, pr_update=False):
         save(path, state)
     if changed_paths(target):
         raise Blocked("task worktree changed during commit; review required")
-    base = base_worktree(root, state)
-    latest = output(root, "rev-parse", f"refs/heads/{state['base']}")
     if pr_update:
-        # Published history is never rebased; callers may add descendant commits explicitly.
-        if not ancestor(root, latest, state["branch"]):
-            raise Blocked(
-                "PR update must include the latest local base; retain published history"
-            )
+        # Published history is never rebased during PR updates.
         state.update(tip=output(target, "rev-parse", "HEAD"), verified=True)
         state["commit"] = state["tip"]
         save(path, state)
-        return latest
+        return None
+    base = base_worktree(root, state)
+    latest = output(root, "rev-parse", f"refs/heads/{state['base']}")
     # Do not replay unexpected history if the base was rewritten after creation.
     if not implement and not ancestor(root, state["start"], state["base"]):
         raise Blocked("base history was rewritten; task retained for review")

@@ -464,11 +464,21 @@ class PRGitHub:
                 "from worktree_pr import validate_update"
                 in command[command.index("-c") + 1]
             ):
-                pr.validate_update(self.root, self.state["task_id"])
+                try:
+                    pr.validate_update(self.root, self.state["task_id"])
+                except wt.Blocked as error:
+                    return subprocess.CompletedProcess(command, 1, "", str(error))
             else:
                 wt._integrate_model(self.root, self.state["task_id"])
             return subprocess.CompletedProcess(command, 0, "", "")
         return self.real_run(command, **kwargs)
+
+    def validate_update_snapshot(
+        self, interpreter, environment, snapshot, task_file, base, head
+    ):
+        assert git(snapshot, "rev-parse", head + "^1") == base
+        self.validations.append(git(snapshot, "rev-parse", head + "^2"))
+        return subprocess.CompletedProcess([], 0, "", "")
 
     def validate(self, root, options, *, final_candidate):
         assert not (self.root / ".worktrees/.blueprint/lifecycle.lock").exists()
@@ -692,6 +702,9 @@ def check_pr_update_and_operations():
                 ),
                 patch.object(subprocess, "run", side_effect=remote.child),
                 patch.object(loop, "run_loop", side_effect=remote.validate),
+                patch.object(
+                    pr, "validate_snapshot", side_effect=remote.validate_update_snapshot
+                ),
             ):
                 published = wt.finalize(root, "example", create_pr=True, draft=True)
                 old = published["tip"]
@@ -749,6 +762,287 @@ def check_pr_update_and_operations():
                     git(remote.remote, "rev-parse", "refs/heads/" + state["base"])
                     == state["start"]
                 )
+
+    _check_pr_update_recovery_and_base()
+
+
+def _check_pr_update_recovery_and_base():
+    for mode in (
+        "repair",
+        "retry",
+        "remote",
+        "local",
+        "conflict",
+        "stale",
+        "interrupted",
+        "rewrite",
+        "foreign",
+        "postpush",
+        "push-old",
+        "push-foreign",
+    ):
+        _check_pr_update_scenario(mode)
+
+    # Exercise the actual snapshot validator using tracked, synthetic project inputs.
+    with fixture() as root:
+        source = SCRIPT.parents[2]
+        shutil.copytree(
+            source / "framework",
+            root / "framework",
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
+        shutil.copytree(source / ".agents", root / ".agents")
+        for name in ("AGENTS.md", "README.md"):
+            shutil.copyfile(source / name, root / name)
+        for name in ("docs/designs", "infra", "tests/scenarios", "tests/results"):
+            directory = root / name
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / ".gitkeep").touch()
+        (root / "docs/system-overview.md").write_text("# Fixture\n", encoding="utf-8")
+        git(root, "add", ".")
+        git(root, "commit", "-qm", "synthetic framework")
+        git(root, "checkout", "-qb", "candidate")
+        marker = "framework/scripts/pr-validator-fixture.txt"
+        (root / marker).write_text("candidate\n", encoding="utf-8")
+        git(root, "add", marker)
+        git(root, "commit", "-qm", "candidate")
+        candidate = git(root, "rev-parse", "HEAD")
+        git(root, "checkout", "-q", "main")
+        (root / "base-only.txt").write_text("base\n", encoding="utf-8")
+        git(root, "add", "base-only.txt")
+        git(root, "commit", "-qm", "base advance")
+        base = git(root, "rev-parse", "HEAD")
+        tree = git(root, "merge-tree", "--write-tree", base, candidate).splitlines()[0]
+        merged = git(
+            root,
+            "commit-tree",
+            tree,
+            "-p",
+            base,
+            "-p",
+            candidate,
+            "-m",
+            "temporary integration",
+        )
+        git(root, "checkout", "--quiet", "--detach", merged)
+        (root / "tasks").mkdir(exist_ok=True)
+        (root / "tasks/example.md").write_text(
+            contract("example", [marker]), encoding="utf-8"
+        )
+        assert git(root, "diff", "--name-only", base, merged) == marker
+        result = pr.validate_snapshot(
+            Path(sys.executable),
+            wt.python_env.environment(Path(sys.prefix)),
+            root,
+            "tasks/example.md",
+            base,
+            merged,
+        )
+        assert result.returncode == 0, result.stdout[-3000:] + result.stderr[-1000:]
+
+
+def _check_pr_update_scenario(mode):
+    with fixture() as root:
+        target, state = start(root, files=("framework/scripts/candidate.txt",))
+        source = target / "framework/scripts/candidate.txt"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("published\n", encoding="utf-8")
+        remote = PRGitHub(root, state)
+        failures = []
+        real_push = pr.push_candidate
+
+        def advance(path, content):
+            file = root / path
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(content, encoding="utf-8")
+            git(root, "add", path)
+            git(root, "commit", "-qm", "base advance")
+            git(root, "push", str(remote.remote), "HEAD:refs/heads/" + state["base"])
+
+        def validate(interpreter, environment, snapshot, task_file, base, head):
+            result = remote.validate_update_snapshot(
+                interpreter, environment, snapshot, task_file, base, head
+            )
+            assert (
+                git(snapshot, "diff", "--name-only", base, head)
+                == "framework/scripts/candidate.txt"
+            )
+            if mode == "remote":
+                assert (snapshot / "base.txt").read_text(
+                    encoding="utf-8"
+                ) == "remote-only content\n"
+            if mode in {"repair", "retry"} and not failures:
+                failures.append(True)
+                return subprocess.CompletedProcess([], 1, "", "validation failed")
+            if mode == "stale" and not failures:
+                failures.append(True)
+                advance("base.txt", "later base\n")
+            return result
+
+        def push_then_interrupt(target, publication):
+            real_push(target, publication)
+            failures.append(True)
+            raise wt.Blocked("simulated interruption after push")
+
+        with (
+            patch.object(wt, "git", side_effect=remote.git),
+            patch.object(pr, "gh", side_effect=remote.gh),
+            patch.object(
+                wt.python_env,
+                "runtime",
+                return_value=(
+                    Path(sys.executable),
+                    wt.python_env.environment(Path(sys.prefix)),
+                ),
+            ),
+            patch.object(subprocess, "run", side_effect=remote.child),
+            patch.object(loop, "run_loop", side_effect=remote.validate),
+            patch.object(pr, "validate_snapshot", side_effect=validate),
+        ):
+            published = wt.finalize(root, "example", create_pr=True)
+            old = published["tip"]
+            source.write_text("candidate\n", encoding="utf-8")
+            if mode == "remote":
+                advance("base.txt", "remote-only content\n")
+                assert (
+                    git(remote.remote, "rev-parse", "refs/heads/" + state["base"])
+                    != state["start"]
+                )
+            elif mode == "local":
+                (root / "local.txt").write_text("local only\n", encoding="utf-8")
+                git(root, "add", "local.txt")
+                git(root, "commit", "-qm", "local advance")
+            elif mode == "conflict":
+                advance("framework/scripts/candidate.txt", "conflicting base\n")
+            elif mode == "rewrite":
+                tree = git(root, "rev-parse", "HEAD^{tree}")
+                unrelated = git(root, "commit-tree", tree, "-m", "unrelated base")
+                git(
+                    root,
+                    "push",
+                    str(remote.remote),
+                    unrelated + ":refs/heads/test-rewrite",
+                )
+                git(
+                    remote.remote,
+                    "update-ref",
+                    "refs/heads/" + state["base"],
+                    unrelated,
+                )
+            elif mode == "foreign":
+                advance("foreign.txt", "foreign head\n")
+                foreign = git(root, "rev-parse", "HEAD")
+                git(
+                    root,
+                    "push",
+                    str(remote.remote),
+                    foreign + ":refs/heads/test-foreign",
+                )
+                git(
+                    remote.remote,
+                    "update-ref",
+                    "refs/heads/" + state["branch"],
+                    foreign,
+                )
+            if mode in {"push-old", "push-foreign"}:
+
+                def failed_push(target, publication):
+                    if mode == "push-foreign":
+                        tree = git(root, "rev-parse", "HEAD^{tree}")
+                        foreign = git(root, "commit-tree", tree, "-m", "foreign")
+                        git(
+                            root,
+                            "push",
+                            str(remote.remote),
+                            foreign + ":refs/heads/test-third",
+                        )
+                        git(
+                            remote.remote,
+                            "update-ref",
+                            "refs/heads/" + state["branch"],
+                            foreign,
+                        )
+                    raise wt.Blocked("push outcome unknown")
+
+                with patch.object(pr, "push_candidate", side_effect=failed_push):
+                    with TestCase().assertRaises(wt.Blocked):
+                        pr.update(root, "example")
+                if mode == "push-foreign":
+                    with patch.object(pr, "push_candidate") as retry_push:
+                        with TestCase().assertRaises(wt.Blocked):
+                            pr.update(root, "example")
+                        retry_push.assert_not_called()
+                    return
+            elif mode == "postpush":
+
+                def push_then_advance(target, publication):
+                    real_push(target, publication)
+                    advance("after-push.txt", "later base\n")
+
+                with patch.object(pr, "push_candidate", side_effect=push_then_advance):
+                    with TestCase().assertRaises(wt.Blocked):
+                        pr.update(root, "example")
+                retained_state = wt.load(root, "example")[3]
+                assert retained_state["prUpdate"]["validation"] == "STALE"
+                assert retained_state["prPublication"]["candidate"] != old
+            elif mode == "interrupted":
+                with patch.object(
+                    pr, "push_candidate", side_effect=push_then_interrupt
+                ):
+                    with TestCase().assertRaises(wt.Blocked):
+                        pr.update(root, "example")
+                assert (
+                    git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
+                    != old
+                )
+            elif mode in {
+                "repair",
+                "retry",
+                "conflict",
+                "stale",
+                "rewrite",
+                "foreign",
+            }:
+                with TestCase().assertRaises(wt.Blocked):
+                    pr.update(root, "example")
+                if mode != "foreign":
+                    assert (
+                        git(
+                            remote.remote,
+                            "rev-parse",
+                            "refs/heads/" + state["branch"],
+                        )
+                        == old
+                    )
+                if mode == "repair":
+                    source.write_text("fixed candidate\n", encoding="utf-8")
+                if mode in {"conflict", "rewrite", "foreign"}:
+                    if mode != "foreign":
+                        assert (
+                            wt.load(root, "example")[3]["prUpdate"]["status"]
+                            == "PREPARED"
+                        )
+                    return
+                if mode == "stale":
+                    with TestCase().assertRaises(wt.Blocked):
+                        pr.update(root, "example")
+            updated = pr.update(root, "example")
+            assert updated["prPublication"]["number"] == 7 and remote.created == 1
+            assert "prUpdate" not in updated
+            assert (
+                git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
+                == updated["tip"]
+            )
+            assert git(target, "merge-base", old, updated["tip"]) == old
+            assert target.exists() and updated["merged"] is None
+            if mode == "remote":
+                assert updated["prPublication"]["baseCommit"] == git(
+                    remote.remote, "rev-parse", "refs/heads/" + state["base"]
+                )
+            if mode == "retry":
+                assert remote.validations[-1] == remote.validations[-2]
+            if mode == "repair":
+                assert remote.validations[-1] != remote.validations[-2]
 
 
 def main():
