@@ -64,10 +64,6 @@ def validate_selected(root, task, findings, definitions_root=None, plan=None):
         raise ValueError("Deploy requires one fixed Deployment scope")
     names = re.findall(r"`([^`]+)`", scope_lines[0])
     _, units = inputs.load_units(root, environment, directory, names)
-    source = (
-        root / "model" / environment / directory / "cloudformation-stacks.properties"
-    )
-    inputs.check_stack_markdown(root, inputs.stack_snapshot(source), names)
     templates = {
         unit["name"]: load_template_inputs(
             *inputs.paths(root, environment, directory, target, unit)

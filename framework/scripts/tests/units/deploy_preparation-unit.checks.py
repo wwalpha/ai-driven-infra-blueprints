@@ -14,6 +14,7 @@ import pytest
 from deploy import inputs
 from deploy import scope as execution_scope
 from model.change_plan import ServiceChange
+from model.render import stack_markdown
 from support import deploy_controller_fixtures as controller_fixtures
 from support.deploy_preparation_fixtures import (
     ROOT,
@@ -29,10 +30,12 @@ from support.deploy_preparation_fixtures import (
     tempfile,
     write_model,
 )
+from task_contract_core import selected_task
 from utils.aws.identity import IdentityError
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from validation.findings import Findings
+from validation.runner import Validator
 
 from model import dependency_index
 
@@ -332,32 +335,6 @@ def test_global_selection_and_selected_collisions_block(tmp_path, field, value):
         )
 
 
-@pytest.mark.parametrize("selected", [[STACKS[0]], [STACKS[1]], None])
-def test_stack_view_diagnostics_identify_mismatched_stack(tmp_path, selected):
-    root = tmp_path / "repo"
-    fixture(root)
-    source = root / "model/dev/123456789012/cloudformation-stacks.properties"
-    design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
-    snapshot = M.stack_snapshot(source)
-    design.write_text(
-        design.read_text(encoding="utf-8").replace("second.yaml", "incorrect.yaml"),
-        encoding="utf-8",
-    )
-    if selected == [STACKS[0]]:
-        inputs.check_stack_markdown(root, snapshot, selected)
-    else:
-        with pytest.raises(
-            inputs.DeployStepBlocked, match="StackName=" + STACKS[1] + ".*template"
-        ):
-            inputs.check_stack_markdown(root, snapshot, selected)
-    design.write_text(
-        design.read_text(encoding="utf-8").replace("shared.yaml", "wrong.yaml"),
-        encoding="utf-8",
-    )
-    with pytest.raises(inputs.DeployStepBlocked):
-        inputs.check_stack_markdown(root, snapshot, selected)
-
-
 @pytest.mark.parametrize(
     "change",
     [
@@ -543,7 +520,7 @@ def test_preparation_ignores_real_outside_stack_definition(tmp_path, field):
     source.write_text(text, encoding="utf-8")
     design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
     design.write_text(
-        inputs.stack_markdown(
+        stack_markdown(
             design, M.stack_snapshot(source).values, root, validate_delivery=False
         ),
         encoding="utf-8",
@@ -575,7 +552,6 @@ def test_preparation_ignores_real_outside_stack_definition(tmp_path, field):
     TestCase().assertEqual(
         [unit["name"] for unit in plan["ownership"]["units"]], [STACKS[0]]
     )
-    inputs.check_stack_markdown(root, M.stack_snapshot(source), [STACKS[0]])
     with pytest.raises(ValueError):
         inputs.stack_model(M.stack_snapshot(source).values)
 
@@ -598,6 +574,7 @@ def test_mixed_service_validates_only_selected_resource(tmp_path, monkeypatch, n
         text=text.replace(line, "- Deployment scope: `cfn-stack-app-dev-first`")
     )
     findings = Findings(root)
+    (root / "docs/designs/dev/123456789012/cloudformation-stacks.md").unlink()
     execution_scope.validate_selected(root, task, findings)
     if number == "001":
         TestCase().assertEqual(findings.errors, [])
@@ -605,57 +582,26 @@ def test_mixed_service_validates_only_selected_resource(tmp_path, monkeypatch, n
         TestCase().assertTrue(findings.errors)
 
 
-@pytest.mark.parametrize(
-    "section",
-    [
-        "selected-stack",
-        "outside-stack",
-        "selected-artifact",
-        "outside-artifact",
-        "settings",
-        "header",
-    ],
-)
-def test_scoped_markdown_artifacts_and_common_structure(tmp_path, section):
-    root = tmp_path / "repo"
-    fixture(root)
-    source = root / "model/dev/123456789012/cloudformation-stacks.properties"
-    design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
-    values = dict(M.stack_snapshot(source).values)
-    for number, name in enumerate(STACKS, 1):
-        for field, value in {
-            "stack": name,
-            "resource": "WorkerRole",
-            "property": "Code",
-            "source": f"infra/cloudformation/artifacts/{number}.zip",
-            "bucket": '{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}',
-            "keyPrefix": "artifacts/",
-        }.items():
-            values[f"desired.artifact.{number:03d}.{field}"] = value
-    # Use the existing renderer with a synthetic IMPORT bucket producer.
-    producer = root / "model/dev/123456789012/s3.properties"
-    producer.write_text(
-        '# model-format: 2\ndesired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.logicalId=S3_Bucket_001\ndesired.resource.001.resourceMode=IMPORT\ndesired.resource.001.anchor=resource-S3_Bucket_001\ndesired.service.identity.lastAllocated={"S3.Bucket":1}\ndesired.row.001-001.property=S3.Bucket.BucketName\ndesired.row.001-001.value=`fixture-bucket`\ndesired.row.001-001.comment=配置先\n',
-        encoding="utf-8",
-    )
-    rendered = inputs.stack_markdown(design, values, root, validate_delivery=False)
-    old, new = {
-        "selected-stack": ("shared.yaml", "wrong.yaml"),
-        "outside-stack": ("second.yaml", "wrong.yaml"),
-        "selected-artifact": ("artifacts/1.zip", "artifacts/wrong.zip"),
-        "outside-artifact": ("artifacts/2.zip", "artifacts/wrong.zip"),
-        "settings": ("max-concurrent-stacks: 2", "max-concurrent-stacks: 3"),
-        "header": ("## Stack一覧", "## wrong"),
-    }[section]
-    design.write_text(rendered.replace(old, new), encoding="utf-8")
-    snapshot = SimpleNamespace(
-        values=values, scope=SimpleNamespace(environment="dev", target="123456789012")
-    )
-    if section.startswith("outside-"):
-        inputs.check_stack_markdown(root, snapshot, [STACKS[0]])
-    else:
-        with pytest.raises(inputs.DeployStepBlocked):
-            inputs.check_stack_markdown(root, snapshot, [STACKS[0]])
+def test_full_deploy_validation_uses_model_without_saved_views(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    root = controller_fixtures.seed(tmp_path / "repo", tmp_path / "session.json")
+    target = root / "docs/designs/dev/123456789012"
+    for path in target.glob("*.md"):
+        path.unlink()
+    scope = {
+        ("dev", "123456789012", name) for name in ("s3", "ec2", "cloudformation-stacks")
+    }
+    with selected_task(root, "tasks/deploy.md"):
+        validator = Validator(root, scope, model_validation="full")
+        if validator.run() or validator.errors:
+            pytest.fail(str(validator.errors))
+        path = root / "model/dev/123456789012/ec2.properties"
+        values = dict(M.load_model(path).authoritative)
+        values["desired.row.001-002.property"] = "EC2.VPC.UnsupportedProperty"
+        write_model(path, values)
+        validator = Validator(root, scope, model_validation="full")
+        if not validator.run() or not validator.errors:
+            pytest.fail("Full Model validation accepted an unsupported property")
 
 
 @pytest.mark.parametrize("number", ["1", "2"])

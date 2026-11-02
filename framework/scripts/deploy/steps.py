@@ -773,14 +773,6 @@ def run(
             backend.run_context.update(stepUnits=copy.deepcopy(units))
             backend.states = backend.run_context["states"]
             restore(backend, task)
-            # Status/sync can save a Snapshot without starting an AWS preparation.
-            if args.action == "advance" and not any(
-                state.get("preparationId")
-                or state.get("executionEvidence")
-                or state.get("endedRequest", {}).get("executionEvidence")
-                for state in backend.states.values()
-            ):
-                inputs.check_stack_markdown(root, snapshot, args.stack)
             run = backend.run_context
             backend.save = partial(save, backend)
             backend.guard = partial(

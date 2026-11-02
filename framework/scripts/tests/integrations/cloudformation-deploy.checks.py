@@ -258,12 +258,6 @@ def check_inputs(tmp_path):
         )
     )
     M.load_units(root, "dev", "123456789012", ["A"])
-    rejects(
-        lambda: M.inputs.check_stack_markdown(
-            root, model_sources.stack_snapshot(source)
-        ),
-        "mismatch",
-    )
     (root / "tasks").mkdir()
     contract = root / "tasks/example.md"
     contract.write_text(

@@ -37,6 +37,7 @@ from deploy import (
 from deploy import git_publication as publication
 from model.format import parse
 from model.format import patch as patch_properties
+from model.render import stack_markdown
 from model.sources import load_model
 from support import deploy_controller_fixtures, worktree_deploy_fixtures
 from support.deploy_controller_fixtures import ACCOUNT, aws_state, invoke
@@ -629,9 +630,7 @@ def check_order_range_preparation_publication_and_resume(tmp_path, monkeypatch):
     write_model(stack_source, values)
     design = primary / f"docs/designs/dev/{ACCOUNT}/cloudformation-stacks.md"
     design.write_text(
-        inputs.stack_markdown(design, values, primary, validate_delivery=False).replace(
-            "third.yaml", "stale-third.yaml"
-        ),
+        stack_markdown(design, values, primary, validate_delivery=False),
         encoding="utf-8",
     )
     outside_view = design.read_bytes()

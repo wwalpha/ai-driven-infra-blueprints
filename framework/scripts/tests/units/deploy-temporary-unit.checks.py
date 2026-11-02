@@ -269,7 +269,6 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
             "stack_snapshot",
             return_value=SimpleNamespace(authoritative={}),
         ),
-        patch.object(steps.inputs, "check_stack_markdown"),
         patch.object(steps, "refresh_requests"),
         patch.object(steps, "checkpoint_receipts"),
         patch.object(steps, "describe", report),

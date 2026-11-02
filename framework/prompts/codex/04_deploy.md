@@ -6,7 +6,7 @@
 
 承認済みIaCをTask範囲でDeployし、AWS・Observed・生成物を確認する。Human指定のenvironment・Target・Region/profile・StackName・service IDsを確定し、`project.json`の同一Targetと`tasks/<task-name>.md`を確認する。認証失敗時に別credentialへ切り替えない。DeployはIaC、意図した設計、scenarioを変更しない。
 
-CloudFormationは現在入力とAWS実状態から独立実行する。現在Taskを明示選択し、type/phase/status、AWS許可、Deployment scopeと出力Allowed pathsの不足は停止する。開始時にSDK方式またはCLI方式を明示し、Human指定があれば従い、指定がなければLLMが選択して報告する。既存呼出しはSDK方式を維持できる。SDKは既存Python Controller+boto3、CLIはLLMの実行ツールから直接AWS CLIを使う独立経路とし、途中・再開・保存障害で自動切替しない。権限と安全制約はRulesを正本とする。
+CloudFormationの実行判定はModel・Template・Parameters JSONを正本とし、保存済み生成Markdownの有無や表示状態に依存しない。Observed同期後に必要なViewを生成・保存する。CloudFormationは現在入力とAWS実状態から独立実行する。現在Taskを明示選択し、type/phase/status、AWS許可、Deployment scopeと出力Allowed pathsの不足は停止する。開始時にSDK方式またはCLI方式を明示し、Human指定があれば従い、指定がなければLLMが選択して報告する。既存呼出しはSDK方式を維持できる。SDKは既存Python Controller+boto3、CLIはLLMの実行ツールから直接AWS CLIを使う独立経路とし、途中・再開・保存障害で自動切替しない。権限と安全制約はRulesを正本とする。
 
 ## Read before changing files
 

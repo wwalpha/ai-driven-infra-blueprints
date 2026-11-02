@@ -543,6 +543,14 @@ class Validator:
                     self.check_changed_designs,
                     isolate=True,
                 )
+        elif self.infrastructure_phase == "deploy":
+            selected = self.scope
+            if selected is None:
+                selected = _imports_task_contract.task_snapshot(
+                    self.root, executable=False
+                ).scope
+            for entry in sorted(selected):
+                self.check_source_inputs(entry)
         elif self.scope is None:
             self.check_designs()
             self.check_observed_values()
@@ -1180,7 +1188,7 @@ class Validator:
                 self.root,
                 self.scope,
                 self.task_iac_paths,
-                candidates=self.write,
+                candidates=self.write or self.infrastructure_phase == "deploy",
             )
             return
         self.task.fix_baseline()
@@ -1214,7 +1222,11 @@ class Validator:
 
     def check_changed_designs(self):
         self.check_changed_inputs()
-        if self.errors or not self.change_plan.views:
+        if (
+            self.errors
+            or self.infrastructure_phase == "deploy"
+            or not self.change_plan.views
+        ):
             return
         generator = Validator(
             self.root,
@@ -1260,7 +1272,7 @@ class Validator:
             self.root,
             self.scope,
             self.template_mode,
-            candidates=self.write,
+            candidates=self.write or self.infrastructure_phase == "deploy",
         )
 
     def check_api_design_catalog(self) -> None:
@@ -1641,7 +1653,7 @@ class Validator:
             self.root,
             self.iac_paths,
             self.accounts,
-            self.stack_design_files(),
+            [] if self.infrastructure_phase == "deploy" else self.stack_design_files(),
             self.findings,
             stack_definitions=stack_definitions,
         )

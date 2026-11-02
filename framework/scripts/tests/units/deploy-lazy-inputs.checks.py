@@ -434,8 +434,6 @@ def check_stack_metadata_defers_delivery_model(tmp_path, monkeypatch):
         / scope.target
         / "cloudformation-stacks.md"
     )
-    design.parent.mkdir(parents=True)
-    design.write_text(stack_markdown(design, values, tmp_path, validate_delivery=False))
     with (
         sources.model_session(RunModels(tmp_path, {})),
         patch.object(sources, "_read_model", wraps=sources._read_model) as loaded,
@@ -447,58 +445,6 @@ def check_stack_metadata_defers_delivery_model(tmp_path, monkeypatch):
         assert all(call.args[0].path == stack for call in loaded.call_args_list)
     with pytest.raises(ValueError):
         stack_markdown(design, values, tmp_path)
-
-
-@pytest.mark.parametrize("content", ["equal", "changed", "missing", "crlf"])
-def check_stack_markdown_start_bytes(tmp_path, monkeypatch, content):
-    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
-    scope, source = deploy_properties_fixture(tmp_path)
-    values = dict(sources.stack_snapshot(source).authoritative)
-    values["display.stack.009.comment"] = "synthetic Stack"
-    source.write_text(serialize(values), encoding="utf-8")
-    snapshot = sources.stack_snapshot(source)
-    design = (
-        tmp_path
-        / "docs/designs"
-        / scope.environment
-        / scope.target
-        / "cloudformation-stacks.md"
-    )
-    design.parent.mkdir(parents=True)
-    expected = stack_markdown(
-        design, snapshot.values, tmp_path, validate_delivery=False
-    ).encode("utf-8")
-    raw = (
-        expected
-        if content == "equal"
-        else expected + b"changed"
-        if content == "changed"
-        else expected.replace(b"\n", b"\r\n")
-    )
-    if content != "missing":
-        design.write_bytes(raw)
-    with patch.object(
-        inputs, "stack_snapshot", side_effect=AssertionError("Model reread")
-    ):
-        TestCase().assertEqual(
-            inputs.load_units(
-                tmp_path,
-                scope.environment,
-                scope.target,
-                ["CurrentName"],
-                snapshot=snapshot,
-            )[1][0]["name"],
-            "CurrentName",
-        )
-        if content == "equal":
-            inputs.check_stack_markdown(tmp_path, snapshot)
-        else:
-            with pytest.raises(inputs.DeployStepBlocked, match="sync-model"):
-                inputs.check_stack_markdown(tmp_path, snapshot)
-    TestCase().assertEqual(
-        design.read_bytes() if design.exists() else None,
-        raw if content != "missing" else None,
-    )
 
 
 def check_index_delta_retarget_delete_and_invalid_unrelated(tmp_path, monkeypatch):
