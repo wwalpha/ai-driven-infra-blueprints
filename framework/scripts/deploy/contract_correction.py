@@ -4,10 +4,12 @@ import copy
 import json
 import re
 from contextlib import ExitStack
+from pathlib import Path
 
 import task_contract_core as tasks
 import worktree_state as ws
 import worktree_task as wt
+from model.adapters.observed import preflight as mapping_preflight
 from model.dependency_index import revision as file_revision
 from model.render import owned_artifacts
 from model.sources import load_model, publication_lock, source_scope
@@ -49,12 +51,12 @@ def original_contract(root, state):
 def unchanged_authority(before, after):
     # Do not use task_digest: it deliberately excludes destructive-change consent.
     return re.sub(
-        r"^## (?:Modified files|Allowed paths)\n.*?(?=^## |\Z)",
+        r"^## (?:Modified files|Allowed paths|Validation scope)\n.*?(?=^## |\Z)",
         "",
         tasks.set_status(before, "running"),
         flags=re.M | re.S,
     ) == re.sub(
-        r"^## (?:Modified files|Allowed paths)\n.*?(?=^## |\Z)",
+        r"^## (?:Modified files|Allowed paths|Validation scope)\n.*?(?=^## |\Z)",
         "",
         tasks.set_status(after, "running"),
         flags=re.M | re.S,
@@ -79,7 +81,51 @@ def output_paths(root, snapshot):
     return result
 
 
-def check_candidate(root, task, original, candidate):
+def check_services(root, task, original, candidate, state):
+    old = tasks.replace(task, text=original).scope or frozenset()
+    new = tasks.replace(task, text=candidate).scope or frozenset()
+    if not old <= (task.scope or frozenset()) <= new or not old:
+        raise ws.Blocked(
+            "correction permits only omitted services, without scope removal"
+        )
+    targets = {(env, directory) for env, directory, _ in old}
+    if len(targets) != 1 or {(env, directory) for env, directory, _ in new} != targets:
+        raise ws.Blocked("service correction cannot change environment/target")
+    added = new - old
+    if not added:
+        return added
+    environment, directory = next(iter(targets))
+    _, mapped = mapping_preflight(
+        root, environment, directory, state["deployIdentity"]["stacks"]
+    )
+    owners = {
+        tuple(entry[0].relative_to(root / "model").with_suffix("").parts)
+        for entries in mapped.values()
+        for entry in entries.values()
+    }
+    if not added <= owners:
+        raise ws.Blocked(
+            "omitted service has no proven Model ownership in the fixed Stacks"
+        )
+    for env, target, service in added:
+        source = root / f"model/{env}/{target}/{service}.properties"
+        model = load_model(source)
+        for path, raw in model.dependencies.items():
+            if (
+                path.is_relative_to(source.parent)
+                and source_scope(root, path).path == source
+            ):
+                if raw != ws.subprocess_bytes(
+                    root, state["start"], path.relative_to(root).as_posix()
+                ):
+                    raise ws.Blocked(
+                        "omitted service differs from the fixed approved Model: "
+                        + str(path)
+                    )
+    return added
+
+
+def check_candidate(root, task, original, candidate, state):
     tasks.preflight_contract(root, task.name, candidate)
     if (
         task.status != "suspend"
@@ -94,6 +140,7 @@ def check_candidate(root, task, original, candidate):
         raise ws.Blocked(
             "correction requires suspended same Deploy authority, Goal, target and consent"
         )
+    services = check_services(root, task, original, candidate, state)
     added = set()
     for heading in ("## Modified files", "## Allowed paths"):
         old, new = tasks.paths_in(original, heading), tasks.paths_in(candidate, heading)
@@ -103,17 +150,20 @@ def check_candidate(root, task, original, candidate):
         for relative in new - old:
             tasks.safe_path(root, relative)
         added.update(new - old)
-    if not added or added - output_paths(root, task):
+    if not (added or services) or added - output_paths(
+        root, tasks.replace(task, text=candidate)
+    ):
         raise ws.Blocked(
-            "correction paths must be necessary Model/Views in the unchanged service scope"
+            "correction paths must be necessary Model/Views in the corrected service scope"
         )
     findings = Findings(root)
     TaskValidation(root, findings, contract_file=task.name).check_task_scope(candidate)
     if findings.errors:
         raise ws.Blocked("corrected Task scope: " + "; ".join(findings.errors))
+    return services
 
 
-def check_state(root, state, progress, task):
+def check_state(root, state, progress, task, services=()):
     identity = state["deployIdentity"]
     context = progress["runContext"] if progress else None
     if context is None:
@@ -162,19 +212,15 @@ def check_state(root, state, progress, task):
         "pendingGeneration",
         "generationError",
         "checkpointPending",
-        "currentFailure",
     ):
         if context.get(key):
             raise ws.Blocked("contract correction blocked by retained " + key)
     store = evidence_store(root, create=False)
-    if (
-        any(store.glob("deploy-repair-*"))
-        or any(store.glob("deploy-failure-*"))
-        or any(store.glob("deploy-cleanup-*"))
-    ):
+    if any(store.glob("deploy-repair-*")) or any(store.glob("deploy-cleanup-*")):
         raise ws.Blocked(
             "retain and review repair handoff/failure evidence before correction"
         )
+    check_preparation_failure(root, state, context, services)
     if context.get("repository") != str(root):
         raise ws.Blocked("saved progress repository changed")
     for relative, digest in context.get("modelInputs", {}).items():
@@ -267,8 +313,8 @@ def guard_snapshot(root, state):
     }
 
 
-def template_owners(root, state, candidate_digest=None):
-    """Template ownership is current cleanup evidence, never an AWS authorization."""
+def contract_records(root, state, candidate_digest=None):
+    """Current template/failure ownership contains no reusable approval."""
     identity = state["deployIdentity"]
     digests = {identity["taskDigest"]}
     if candidate_digest is not None:
@@ -297,7 +343,70 @@ def template_owners(root, state, candidate_digest=None):
                 "temporary template owner differs from fixed Deploy authority"
             )
         result[path] = path.read_bytes().decode("utf-8")
+    store = evidence_store(root, create=False)
+    for path in store.glob("deploy-failure-*.json"):
+        failure = read_sealed(root, path)
+        if (
+            not isinstance(failure, dict)
+            or any(
+                failure.get(k) != v
+                for k, v in {
+                    "repository": str(root),
+                    "taskFile": state["task_file"],
+                    "target": identity["target"],
+                }.items()
+            )
+            or failure.get("taskDigest") not in digests
+        ):
+            raise ws.Blocked(
+                "unissued failure evidence differs from fixed Deploy authority"
+            )
+        result[path] = path.read_bytes().decode("utf-8")
     return result
+
+
+def check_preparation_failure(root, state, context, services):
+    files = set(evidence_store(root, create=False).glob("deploy-failure-*"))
+    current = context.get("currentFailure")
+    if not files and not current:
+        return
+    if not services or not isinstance(current, str) or files != {Path(current)}:
+        raise ws.Blocked("contract correction blocked by retained currentFailure")
+    failure = read_sealed(root, Path(current))
+    if (
+        failure.get("environment") != context["environment"]
+        or failure.get("directory") != context["directory"]
+        or failure.get("inputs")
+        != {**context["consumedInputs"], **context.get("modelInputs", {})}
+    ):
+        raise ws.Blocked("preparation failure input evidence changed")
+    if not isinstance(failure.get("states"), dict) or not failure["states"]:
+        raise ws.Blocked("preparation failure states are missing")
+    for name, item in failure["states"].items():
+        saved = context["states"].get(name, {})
+        reason = item.get("reason", "")
+        if (
+            not saved
+            or saved.get("status") != "BLOCKED"
+            or {k: item.get(k) for k in saved} != saved
+            or item.get("failure", {}).get("stage") != "PREPARATION"
+            or item["failure"].get("executionState") != "NOT_EXECUTED"
+            or item["failure"].get("classification") != "NEEDS_HUMAN"
+            or "approvedChangeDigest" in item
+            or "task scope violation:" not in reason
+            or not any(
+                reason.endswith(prefix + "/".join(service))
+                for prefix in (
+                    "outside Validation scope: ",
+                    "observed reference requires ",
+                )
+                for service in services
+            )
+        ):
+            raise ws.Blocked(
+                "retained failure is not the unexecuted omitted-service preparation error: "
+                + name
+            )
 
 
 def recover_update(root, path, state, candidate):
@@ -315,16 +424,18 @@ def recover_update(root, path, state, candidate):
         tasks.safe_path(root, before["task_file"]),
         worktree.progress_path(root),
     )
-    owners = template_owners(root, before, tasks.task_digest(candidate))
+    owners = contract_records(root, before, tasks.task_digest(candidate))
     if {str(p) for p in owners} != set(intent["beforeOwners"]):
-        raise ws.Blocked("temporary template owner set changed during correction")
+        raise ws.Blocked("contract-bound evidence file set changed during correction")
     originals = {}
     for file, raw in owners.items():
         if raw not in (
             intent["beforeOwners"][str(file)],
             intent["afterOwners"][str(file)],
         ):
-            raise ws.Blocked("temporary template owner changed during correction")
+            raise ws.Blocked(
+                "contract-bound evidence changed during correction: " + str(file)
+            )
         originals[file] = intent["beforeOwners"][str(file)]
     for file, key in ((task_path, "Task"), (progress_path, "Progress")):
         if file.read_bytes().decode("utf-8") not in (
@@ -389,9 +500,9 @@ def correct(root, name, source):
             else None
         )
         progress = worktree.read_progress(root, state)
-        owners = template_owners(root, state)
-        check_candidate(root, task, original, candidate)
-        check_state(root, state, progress, task)
+        owners = contract_records(root, state)
+        services = check_candidate(root, task, original, candidate, state)
+        check_state(root, state, progress, task, services)
         revised, saved = copy.deepcopy(state), copy.deepcopy(progress)
         new_identity = dict(identity, taskDigest=tasks.task_digest(candidate))
         revised.update(deployIdentity=new_identity, deployContract=candidate)
@@ -417,7 +528,7 @@ def correct(root, name, source):
             or worktree.read_progress(root, state) != progress
             or progress_path.read_text(encoding="utf-8") != before_progress
             or guard_snapshot(root, state) != guard
-            or template_owners(root, state) != owners
+            or contract_records(root, state) != owners
         ):
             raise ws.Blocked("contract correction inputs changed before save")
         intent = dict(
@@ -439,7 +550,7 @@ def correct(root, name, source):
                 or guard_snapshot(root, state) != guard
                 or source.read_bytes() != source_raw
                 or ws.load(root, state["task_id"])[3] != saving
-                or template_owners(root, state) != owners
+                or contract_records(root, state) != owners
             ):
                 raise ws.Blocked("contract correction inputs changed during save")
             atomic_files(
@@ -455,7 +566,7 @@ def correct(root, name, source):
                 task.path.read_bytes() == task.raw
                 and progress_path.read_text(encoding="utf-8") == before_progress
                 and ws.load(root, state["task_id"])[3] == saving
-                and template_owners(root, state) == owners
+                and contract_records(root, state) == owners
             ):
                 wt.save(path, state)
             raise

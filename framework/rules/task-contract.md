@@ -400,12 +400,15 @@ from recovery or from a valid contract. No recovery history or approval ledger i
 
 For a fixed managed CloudFormation Deploy, use
 `task_contract.py --task-file tasks/<task-name>.md --correct-deploy-contract <external-candidate.md>`
-while suspended to correct omitted Modified files/Allowed paths. First compare the original
-Human request and the actual fixed contract text; the LLM must establish that each added
-file was necessary to the original requested observation/generation, not new work. The CLI
-checks exact additions against the existing service Models and their generated artifacts.
+while suspended to correct omitted services in Validation scope and necessary Modified
+files/Allowed paths. First compare the original Human request and actual fixed contract
+text; the LLM must establish that each added service/file was necessary to the original
+requested observation/generation, not new work. The CLI permits scope additions only in
+the unchanged environment/target, proves their existing Model ownership in the fixed Stacks
+through offline mapping preflight, and requires newly included service sources to match the
+fixed Git snapshot. It checks exact paths against those Models and their generated artifacts.
 It preserves all other contract content, including type/phase, Goal, environment/Account,
-Stack scope, validation/Acceptance, AWS permissions and delete/replacement consent. It does
+Stack scope, existing validation services, Acceptance, AWS permissions and delete/replacement consent. It does
 not approve a request or infer Human consent from matching hashes. Other declaration edits
 are outside this narrow correction path.
 

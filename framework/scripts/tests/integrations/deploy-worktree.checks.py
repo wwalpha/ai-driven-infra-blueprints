@@ -429,7 +429,8 @@ def check_start_creates_and_reuses_official_worktree(monkeypatch):
         runtime.guard.assert_called_once()
 
 
-def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
+@pytest.mark.parametrize("omission", ["file", "service"])
+def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch, omission):
     report, aws = tmp_path / "report.json", tmp_path / "aws.json"
     root = seed(tmp_path / "project", report, "orders")
     monkeypatch.chdir(root)
@@ -443,27 +444,61 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     omitted = f"docs/designs/dev/{ACCOUNT}/s3/s3-bucket-001-bucket-policy.json"
     old = path.read_text(encoding="utf-8")
     assert old.count(f"- `{omitted}`\n") == 2
-    path.write_text(old.replace(f"- `{omitted}`\n", ""), encoding="utf-8")
+    missing = (
+        {omitted}
+        if omission == "file"
+        else {
+            value
+            for value in tasks.paths_in(old, "## Modified files")
+            if value.startswith(
+                (f"model/dev/{ACCOUNT}/s3", f"docs/designs/dev/{ACCOUNT}/s3")
+            )
+        }
+    )
+    prepared = old
+    for value in missing:
+        prepared = prepared.replace(f"- `{value}`\n", "")
+    if omission == "service":
+        prepared = prepared.replace(f"- `dev/{ACCOUNT}/s3`\n", "")
+    path.write_text(prepared, encoding="utf-8")
     aws_state(aws)
     for _ in range(6):
-        assert invoke(root, report, aws, ["--action", "advance"]) == 0
+        result = invoke(root, report, aws, ["--action", "advance"])
+        assert result in {0, 2}
+        if omission == "service" and any(
+            s["status"] == "BLOCKED" and f"dev/{ACCOUNT}/s3" in s.get("reason", "")
+            for s in json.loads(report.read_text(encoding="utf-8"))["states"].values()
+        ):
+            break
         if all(
             s["status"] == "SUCCESS"
             for s in json.loads(report.read_text(encoding="utf-8"))["states"].values()
         ):
             break
-    assert all(
-        s["status"] == "SUCCESS"
-        for s in json.loads(report.read_text(encoding="utf-8"))["states"].values()
-    )
+    if omission == "file":
+        assert all(
+            s["status"] == "SUCCESS"
+            for s in json.loads(report.read_text(encoding="utf-8"))["states"].values()
+        )
+    else:
+        assert any(
+            s["status"] == "BLOCKED" and f"dev/{ACCOUNT}/s3" in s.get("reason", "")
+            for s in json.loads(report.read_text(encoding="utf-8"))["states"].values()
+        )
     calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
     transitions.suspend(
         root, "tasks/deploy.md", "omitted necessary generated JSON path"
     )
     suspended = path.read_text(encoding="utf-8")
-    candidate = suspended.replace(
-        "## Modified files\n", f"## Modified files\n- `{omitted}`\n"
-    ).replace("## Allowed paths\n", f"## Allowed paths\n- `{omitted}`\n")
+    candidate = suspended
+    for heading in ("## Modified files\n", "## Allowed paths\n"):
+        candidate = candidate.replace(
+            heading, heading + "".join(f"- `{value}`\n" for value in sorted(missing))
+        )
+    if omission == "service":
+        candidate = candidate.replace(
+            "## Validation scope\n", f"## Validation scope\n- `dev/{ACCOUNT}/s3`\n"
+        )
     source = tmp_path / "corrected-contract.md"
     source.write_text(candidate, encoding="utf-8")
     before = worktree.read_progress(root, ws.load(root, "deploy")[3])["runContext"]
@@ -499,12 +534,22 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
         read_task_snapshot(root, "tasks/deploy.md", live=True).task_digest
         == state["deployIdentity"]["taskDigest"]
     )
-    assert not any(
-        op in {"create_change_set", "execute_change_set"}
-        for _, op, _ in json.loads(aws.read_text(encoding="utf-8"))["calls"][
-            len(calls) :
-        ]
-    )
+    after = json.loads(aws.read_text(encoding="utf-8"))["calls"]
+    if omission == "file":
+        assert not any(
+            op in {"create_change_set", "execute_change_set"}
+            for _, op, _ in after[len(calls) :]
+        )
+    else:
+        assert all(
+            sum(
+                op == "execute_change_set"
+                and args["StackName"] in {name, saved["states"][name]["stackId"]}
+                for _, op, args in after
+            )
+            == 1
+            for name in saved["states"]
+        )
 
 
 @pytest.mark.parametrize("settled", [False, True])

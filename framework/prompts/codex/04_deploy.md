@@ -55,8 +55,11 @@ Sub Agent、Model 背景 writer、固定間隔同期、Python によるエージ
 
 固定後の契約訂正は[Self recovery](../../rules/task-contract.md#self-recovery)と
 [Deploy correction conditions](../../rules/cloudformation.md#managed-deploy-contract-correction)を読む。
-元Human依頼と固定時の原文を比較し、同じ対象serviceの観測保存・生成に必要だった
-Modified files／Allowed pathsの記載漏れだけを判断する。Goal・対象・実行入力・AWS権限・
+元Human依頼と固定時の原文を比較し、preparationで漏れたサービスのValidation scopeと、
+観測保存・生成に必要だったModified files／Allowed pathsの記載漏れを判断する。
+サービス追加は同じ環境・target内で、既存Modelが固定Stackに対応し、Model原文が固定Git
+snapshotと一致する場合だけ扱う。単に同じAWSサービスであることは根拠にしない。
+Goal・対象Stack・実行入力・AWS権限・
 Human同意の拡大は訂正扱いしない。ハッシュ一致は意味判断や承認の証明ではない。
 
 同じTaskを既存操作でsuspendし、現在のstatus／Suspension reasonを保った外部候補を作る。
@@ -73,6 +76,9 @@ AWS再実行やTask完了は訂正の結果として行わない。元契約原�
 保存途中のObserved／生成／checkpoint、未完了Git公開、修復handoff、同時変更はその理由で停止・保持する。
 保存中断のintentが残った場合だけ同じ候補・同じ訂正コマンドで安全性を再検証する。
 未対応の契約訂正や状態を別Taskへの付け替え・無条件再固定・進捗削除で回避しない。
+サービス漏れによる未実行のPREPARATION／scopeエラーは、未発行の元failure証拠と入力・状態が
+厳密に一致する場合だけ、その失敗を保持して訂正できる。failureを削除したり、IaC修復の
+承認に読み替えたりしない。未確定AWS要求や発行済み修復handoffは引き続き停止する。
 
 ## Confirm unapproved delete/replacement
 

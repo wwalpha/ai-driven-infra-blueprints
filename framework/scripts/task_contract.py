@@ -57,7 +57,7 @@ def main():
     transition.add_argument(
         "--correct-deploy-contract",
         type=Path,
-        help="Correct only omitted Deploy output paths from an external candidate; keep suspended",
+        help="Correct omitted Deploy services/output paths from an external candidate; keep suspended",
     )
     transition.add_argument(
         "--suspend-reason", help="Suspend only this task and record the problem"
