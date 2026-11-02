@@ -10,14 +10,20 @@ import aws_mapping as _imports_aws_mapping
 import design.layout_schema as _imports_design_layout
 import model.display as _imports_model_display
 import model.projection as _imports_model_projection
-from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
+from contracts.model import (
+    RESOURCE_LOGICAL_ID_KEY,
+    RESOURCE_TYPE_KEY,
+    key_parts,
+    row_resource,
+)
 from design.catalog import DesignSchemaCatalog
 from design.services.definitions.lambda_permission import LAMBDA_PERMISSION
-from model.core import entries
 from model.reference_nodes import parse
 from utils.aws_mappings import mappings_for, owners
 from utils.input_cache import input_scope, memoized
 from utils.property_path import definition_path
+
+import model as _model_api
 
 ROOT = Path(__file__).resolve().parents[2]
 MODEL_ONLY = frozenset(
@@ -223,11 +229,11 @@ def selected_rows(rows, root=ROOT):
             )
         )
         if critical and not show(prop, root):
-            blocked.add((identity.rpartition("-")[0], owner))
+            blocked.add((row_resource(identity), owner))
     result = [
         row
         for row in rows
-        if (row[0].rpartition("-")[0], ".".join(row[1].split(".")[:2])) not in blocked
+        if (row_resource(row[0]), ".".join(row[1].split(".")[:2])) not in blocked
         and (
             structural(row[1])
             or (show(row[1], root) and compact_group(row[1]) not in hidden_groups)
@@ -240,26 +246,29 @@ def selected_rows(rows, root=ROOT):
 def projection(source, root=ROOT):
     rows = [
         [identity, row["property"], row["value"], row.get("comment", "")]
-        for identity, row in entries(source, "desired.row.")
+        for identity, row in _model_api.ModelView(source).all_rows()
     ]
     GROUPED = _imports_design_layout.GROUPED
     retained = {row[0] for row in selected_rows(rows, root)}
     hidden_resources = {
         identity
-        for identity, resource in entries(source, "desired.resource.")
+        for identity, resource in _model_api.ModelView(source).resources()
         if resource[RESOURCE_TYPE_KEY] in GROUPED
-        and not any(row.startswith(identity + "-") for row in retained)
+        and not any(
+            _model_api.row_has_resource_prefix(row, identity) for row in retained
+        )
     }
     return {
         key: value
         for key, value in source.items()
         if not (
-            key.startswith(("desired.row.", "observed.row."))
-            and key.split(".")[2] not in retained
+            _model_api.key_kind(key) in {("desired", "row"), ("observed", "row")}
+            and key_parts(key)[2] not in retained
         )
         and not (
-            key.startswith(("desired.resource.", "display.resource."))
-            and key.split(".")[2] in hidden_resources
+            _model_api.key_kind(key)
+            in {("desired", "resource"), ("display", "resource")}
+            and key_parts(key)[2] in hidden_resources
         )
     }
 
@@ -268,7 +277,7 @@ def validate_mappings(source, root=ROOT):
     registry = _imports_aws_mapping.registry
     services = {
         owners(root).get(resource[RESOURCE_TYPE_KEY])
-        for _, resource in entries(source, "desired.resource.")
+        for _, resource in _model_api.ModelView(source).resources()
         if resource[RESOURCE_TYPE_KEY] != "CloudFormation.Stack"
     }
     for service in services:
@@ -289,7 +298,7 @@ def validation_rows(rows, source, kind, logical_id, root=ROOT, *, scope=None):
 
     catalog_display_rows = _imports_model_display.catalog_display_rows
     resource_rows = _imports_model_projection.resource_rows
-    resources = dict(entries(source, "desired.resource."))
+    resources = dict(_model_api.ModelView(source).resources())
     targets = [
         (identity, resource)
         for identity, resource in resources.items()
@@ -348,7 +357,7 @@ def validation_lines(lines, source, root=ROOT):
     RESOURCE = _imports_design_layout.RESOURCE
     resources = {
         resource["anchor"]: resource
-        for _, resource in entries(source, "desired.resource.")
+        for _, resource in _model_api.ModelView(source).resources()
     }
     result = []
     resource = None

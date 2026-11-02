@@ -35,6 +35,7 @@ import design.services.codebuild
 import design.services.codepipeline
 import design.services.ec2.security_groups as _dependency_security_group_tables
 import design.services.glue
+import model as _model_api
 from design.catalog import design_material_files
 from design.common import catalog_property_order as catalog_property_order
 from design.common import resource_heading_lines as resource_heading_lines
@@ -197,11 +198,10 @@ def resource_modes(
     lines: list[str], values: dict[str, str] | None = None
 ) -> dict[str, str]:
     """Read modes only from current authoritative Model values."""
-    entries = _imports_model_core.entries
     display_anchor = _imports_model_identity.display_anchor
     return {
         display_anchor(resource): resource_mode(resource)
-        for _, resource in entries(values or {}, "desired.resource.")
+        for _, resource in _model_api.ModelView(values or {}).resources()
         if "resourceMode" in resource
     }
 
@@ -478,7 +478,7 @@ def stack_delivery(path: Path) -> dict[str, str]:
     return {
         key: value
         for key, value in values.items()
-        if key.startswith("desired.artifact.")
+        if _model_api.key_kind(key) == ("desired", "artifact")
         or key
         in {"desired.deployment.templateBucket", "desired.deployment.templateKeyPrefix"}
     }

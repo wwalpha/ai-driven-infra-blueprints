@@ -22,6 +22,17 @@ def key_parts(key):
     return tuple(key.split(".")[:3])
 
 
+def key_kind(key):
+    """Return namespace and kind only for keys with an identity component."""
+    parts = key_parts(key)
+    return parts[:2] if len(parts) == 3 else None
+
+
 def row_resource(identity):
     """Return the Resource portion of a Row identity, without validating it."""
     return identity.rpartition("-")[0]
+
+
+def row_has_resource_prefix(row, resource):
+    """Match a Row identity by its Resource prefix, including nested identities."""
+    return row.startswith(resource + "-")

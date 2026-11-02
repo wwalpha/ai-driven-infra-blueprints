@@ -30,6 +30,8 @@ from contracts.model import (
     RESOURCE_MODE_CREATE,
     RESOURCE_MODE_IMPORT,
     RESOURCE_TYPE_KEY,
+    key_parts,
+    row_resource,
 )
 from contracts.repository import DESIGNS_DIRECTORY
 from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
@@ -46,12 +48,13 @@ from design.services.definitions.registry import HIDDEN_PROPERTIES, POLICY_FORMA
 from model.core import (
     ReferenceDiagnosticError,
     ReferenceResolutionError,
-    entries,
     properties,
 )
 from utils.cloudformation.schema import material_files, snapshot_errors
 from utils.input_cache import input_scope, input_text, memoized
 from utils.project_targets import LOWER_KEBAB_PATTERN
+
+import model as _model_api
 
 from .diagnostics import (
     Diagnostic,
@@ -722,7 +725,7 @@ def check_resource_names(
                         resource[RESOURCE_TYPE_KEY],
                         resource[RESOURCE_LOGICAL_ID_KEY],
                     ): resource["anchor"]
-                    for _, resource in entries(values or {}, "desired.resource.")
+                    for _, resource in _model_api.ModelView(values or {}).resources()
                     if resource.get("anchor")
                 }
             )
@@ -749,7 +752,7 @@ def check_resource_names(
                     identity,
                     resource,
                 )
-                for identity, resource in entries(values, "desired.resource.")
+                for identity, resource in _model_api.ModelView(values).resources()
             }
             model_anchors = {
                 resource["anchor"]: key for key, (_, resource) in resources.items()
@@ -989,8 +992,10 @@ def check_observed_values(
             )
             continue
         for key, value in values.items():
-            if key.startswith("observed.row.") and key.endswith(".value"):
-                owner = key.split(".")[2].rpartition("-")[0]
+            if _model_api.key_kind(key) == ("observed", "row") and key.endswith(
+                ".value"
+            ):
+                owner = row_resource(key_parts(key)[2])
                 findings.check(
                     values.get(f"desired.resource.{owner}.resourceMode")
                     == RESOURCE_MODE_IMPORT

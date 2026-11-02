@@ -17,6 +17,7 @@ from contracts.model import (
     RESOURCE_LOGICAL_ID_KEY,
     RESOURCE_MODE_IMPORT,
     RESOURCE_TYPE_KEY,
+    row_resource,
 )
 from contracts.repository import DESIGNS_DIRECTORY
 from contracts.validation import VALIDATION_FAIL
@@ -43,13 +44,13 @@ from model.core import (
     LINK,
     ReferenceDiagnosticError,
     ReferenceResolutionError,
-    entries,
     literal,
 )
-from model.files import resource_row_index
 from model.reference_nodes import nodes, receiving_property
 from model.reference_presentation import Presentation
 from utils.input_cache import input_is_file, input_scope, input_select, input_text
+
+import model as _model_api
 
 from .design import (
     ANCHOR_PATTERN,
@@ -537,7 +538,7 @@ def check_design_links(
         values = source_values[source] or {}
         imported[source] = {
             resource["anchor"]: rid
-            for rid, resource in entries(values, "desired.resource.")
+            for rid, resource in _model_api.ModelView(values).resources()
             if resource.get("resourceMode") == RESOURCE_MODE_IMPORT
         }
         if not imported[source]:
@@ -545,8 +546,8 @@ def check_design_links(
 
         Resolver = _imports_model_importing_references.Resolver
         queues = defaultdict(deque)
-        for row_id, row in entries(values, "desired.row."):
-            queues[row_id.rpartition("-")[0], row["property"]].append(row_id)
+        for row_id, row in _model_api.ModelView(values).all_rows():
+            queues[row_resource(row_id), row["property"]].append(row_id)
         candidate = dict(values)
         anchor, kind = "", ""
         try:
@@ -769,11 +770,13 @@ def check_design_links(
                 ):
                     resources[current][1][cells[1]] = unquoted(cells[2])
         values = source_values.get(path) or {}
-        for identity, resource in entries(values, "desired.resource."):
+        for identity, resource in _model_api.ModelView(values).resources():
             current = (path.resolve(), resource.get("anchor"))
             if current not in resources:
                 continue
-            for row_id, row in resource_row_index(values).get(identity, ()):
+            for row_id, row in (
+                _model_api.ModelView(values).row_index().get(identity, ())
+            ):
                 observed = values.get(f"observed.row.{row_id}.value")
                 if observed is not None and row["property"] in identifier_outputs.get(
                     resource[RESOURCE_TYPE_KEY], set()
@@ -863,7 +866,7 @@ def check_design_links(
             link = LINK.fullmatch(reference.link or "")
             if not link:
                 continue
-            identity = position.row_id.rpartition("-")[0]
+            identity = row_resource(position.row_id)
             prop = values[f"desired.row.{position.row_id}.property"]
             target = (
                 source.parent / link.group(2) if link.group(2) else source
@@ -877,7 +880,7 @@ def check_design_links(
                     link.group(1),
                 )
             )
-        for identity, rows in resource_row_index(values).items():
+        for identity, rows in _model_api.ModelView(values).row_index().items():
             anchor = values.get(f"desired.resource.{identity}.anchor")
             for row_id, row in rows:
                 observed = values.get(f"observed.row.{row_id}.value")

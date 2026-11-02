@@ -69,6 +69,8 @@ from validation.framework_contracts import (
 from validation_cache import PassCache
 from validation_scope import active_scope, scoped_files
 
+import model as _model_api
+
 # Preserve shared fixtures and compatibility exports under their historical names.
 properties = _exports_model_core.properties
 
@@ -1615,10 +1617,7 @@ class Validator:
     def candidate_stacks(self, plan):
         """Read selected Stack inputs from the Model, independently of View quality."""
         definitions = {
-            path: [
-                stack
-                for _, stack in _imports_model_core.entries(values, "desired.stack.")
-            ]
+            path: [stack for _, stack in _model_api.ModelView(values).stacks()]
             for path, values in plan.destinations.items()
             if path.name == STACK_DESIGN and path in plan.generated
         }

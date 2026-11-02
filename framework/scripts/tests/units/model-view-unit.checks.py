@@ -45,6 +45,11 @@ def check_view_matches_existing_accessors_and_is_isolated(tmp_path):
     index = ConfigurationIndex(values)
     view = ModelView(values)
     assert view.resources() == entries(values, "desired.resource.")
+    assert view.structural_resources() == entries(values, "desired.resource.")
+    assert view.all_rows() == entries(values, "desired.row.")
+    assert view.row_index() == resource_row_index(values)
+    assert view.all_references() == entries(values, "desired.reference.")
+    assert view.all_artifacts() == entries(values, "desired.artifact.")
     assert view.rows("007") == resource_row_index(values)["007"]
     assert view.references("007") == index.resource_references("007")
     assert view.observed("007") == index.resource_observed("007")
@@ -86,6 +91,21 @@ def check_raw_snapshot_locations_and_incomplete_model(tmp_path):
     assert ModelView(
         {"desired.resource.incomplete.resourceType": "S3.Bucket"}
     ).resources() == [("incomplete", {"resourceType": "S3.Bucket"})]
+
+
+def check_structural_and_orphan_errors_remain_separate():
+    invalid = {
+        "desired.resource.001.resourceType": "EC2.VPC",
+        "desired.resource.001.deploymentEncryption": "default",
+    }
+    view = ModelView(invalid)
+    assert view.structural_resources()[0][0] == "001"
+    with pytest.raises(ValueError, match="deploymentEncryption"):
+        view.resources()
+    orphan = ModelView({"desired.row.missing-001.value": "value"})
+    assert orphan.all_rows()[0][0] == "missing-001"
+    with pytest.raises(ValueError, match="orphan desired row"):
+        orphan.row_index()
 
 
 if __name__ == "__main__":

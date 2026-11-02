@@ -8,7 +8,6 @@ import model.adapters.observed as observed_adapter
 from contracts.model import RESOURCE_LOGICAL_ID_KEY
 from contracts.target import IAC_ENGINE_KEY
 from model.change_plan import ServiceChange
-from model.core import structural_entries
 from model.format import owner
 from model.sources import FileReads, load_model
 from model.validations.change_inputs import check_change_inputs
@@ -18,6 +17,7 @@ from utils.iac_values import cfn_resource_identity
 from utils.project_targets import load_target_directory
 from validation.change import check_references
 
+import model as _model_api
 from deploy import deferred, inputs, worktree
 from model import row_resource
 
@@ -189,26 +189,25 @@ def validate_selected(
         values = snapshot.authoritative
         numbers = {
             number
-            for number, resource in structural_entries(values, "desired.resource.")
+            for number, resource in _model_api.ModelView(values).structural_resources()
             if resource.get(RESOURCE_LOGICAL_ID_KEY) in logicals
         }
         keys = {
             key
             for key in values
-            if key.startswith(
-                (
-                    "desired.resource.",
-                    "desired.row.",
-                    "observed.row.",
-                    "display.resource.",
-                    "desired.reference.",
-                )
-            )
+            if _model_api.key_kind(key)
+            in {
+                ("desired", "resource"),
+                ("desired", "row"),
+                ("observed", "row"),
+                ("display", "resource"),
+                ("desired", "reference"),
+            }
             and owner(key, values) in {("resource", number) for number in numbers}
         }
         rows = {
             rid
-            for rid, _ in structural_entries(values, "desired.row.")
+            for rid, _ in _model_api.ModelView(values).all_rows()
             if row_resource(rid) in numbers
         }
         change = ServiceChange(
@@ -225,7 +224,7 @@ def validate_selected(
                     values[f"desired.resource.{row_resource(rid)}.logicalId"],
                     row["property"],
                 )
-                for rid, row in structural_entries(values, "desired.row.")
+                for rid, row in _model_api.ModelView(values).all_rows()
                 if rid in rows
             },
         )

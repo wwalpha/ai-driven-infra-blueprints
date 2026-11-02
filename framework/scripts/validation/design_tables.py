@@ -56,6 +56,8 @@ from utils.input_cache import input_scope as input_scope
 from utils.input_cache import input_text
 from utils.property_path import definition_path
 
+import model as _model_api
+
 from .design import (
     ANCHOR_PATTERN,
     DESIGN_ONLY_PROPERTIES,
@@ -122,7 +124,7 @@ def check_generated_identifier(
     try:
         if values is None:
             values = load_model(model).values
-        for rid, resource in entries(values, "desired.resource."):
+        for rid, resource in _model_api.ModelView(values).resources():
             if (
                 resource.get("resourceMode") == RESOURCE_MODE_IMPORT
                 and resource.get(RESOURCE_LOGICAL_ID_KEY) == logical_id
@@ -132,8 +134,8 @@ def check_generated_identifier(
                         row["property"],
                         str(literal(values["observed.row." + row_id + ".value"])),
                     )
-                    for row_id, row in entries(values, "desired.row.")
-                    if row_id.startswith(rid + "-")
+                    for row_id, row in _model_api.ModelView(values).all_rows()
+                    if _model_api.row_has_resource_prefix(row_id, rid)
                     and "observed.row." + row_id + ".value" in values
                 )
     except (OSError, ValueError):
@@ -693,7 +695,7 @@ def check_design_tables(
                         resource[RESOURCE_TYPE_KEY],
                         resource[RESOURCE_LOGICAL_ID_KEY],
                     ): resource["anchor"]
-                    for _, resource in entries(values or {}, "desired.resource.")
+                    for _, resource in _model_api.ModelView(values or {}).resources()
                     if resource.get("anchor")
                 }
             )

@@ -9,6 +9,7 @@ from pathlib import Path
 import generation_inputs as _imports_generation_inputs
 import model.adapters.observed as _imports_model_adapters_observed
 from contracts.deploy import DEPLOY_SUCCESS
+from contracts.model import key_parts, row_resource
 from model.format import parse, patch
 from model.observed import verify_observed_outputs
 from model.sources import load_model, publication_lock, safe, source_scope
@@ -358,7 +359,7 @@ def rebase_inputs(root, context, plan):
             for key in old.values.keys() | after.values.keys()
             if old.values.get(key) != after.values.get(key)
         }
-        resources = {key.split(".")[2].rpartition("-")[0] for key in updates}
+        resources = {row_resource(key_parts(key)[2]) for key in updates}
         for key in old.values.keys() | live.values.keys():
             if old.values.get(key) == live.values.get(key) and (key in old.values) == (
                 key in live.values
@@ -369,14 +370,14 @@ def rebase_inputs(root, context, plan):
                 after.values.get(key),
             ):
                 continue
-            parts = key.split(".")
+            parts = key_parts(key)
             if (
-                len(parts) >= 4
+                key.count(".") >= 3
                 and parts[0] == "desired"
                 and parts[1] in {"resource", "row"}
             ):
                 resource = (
-                    parts[2] if parts[1] == "resource" else parts[2].rpartition("-")[0]
+                    parts[2] if parts[1] == "resource" else row_resource(parts[2])
                 )
                 if resource not in resources:
                     continue

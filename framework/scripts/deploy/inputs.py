@@ -9,7 +9,6 @@ import utils.project_targets as _imports_project_targets
 from contracts.target import AWS_ACCOUNT_ID_KEY, IAC_ENGINE_KEY
 from model.core import (
     deployment_settings,
-    entries,
     positive_integer,
     stack_context,
     stack_model,
@@ -27,6 +26,7 @@ from task_contract_core import (
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint as fingerprint
 
+import model as _model_api
 from model import key_parts
 
 
@@ -36,7 +36,7 @@ def selected_stack_values(values, names):
     parameters = {stack.get("parameters") for _, stack in selected}
     identities = {identity for identity, _ in selected}
     placements = {stack.get("placementName") for _, stack in selected} - {None}
-    for identity, stack in entries(values, "desired.stack."):
+    for identity, stack in _model_api.ModelView(values).stacks():
         if identity not in identities and stack.get("parameters") in parameters - {
             None
         }:
@@ -51,7 +51,7 @@ def selected_stack_values(values, names):
                 f"{stack_context(identity, stack)}: conflicting selected placementName"
             )
     artifacts = set()
-    for identity, artifact in entries(values, "desired.artifact."):
+    for identity, artifact in _model_api.ModelView(values).all_artifacts():
         if not artifact.get("stack"):
             raise Blocked(f"desired.artifact.{identity}: missing Stack ownership")
         if artifact["stack"] in names:
@@ -59,14 +59,15 @@ def selected_stack_values(values, names):
     selected_values = {
         key: value
         for key, value in values.items()
-        if not key.startswith(("desired.stack.", "display.stack.", "desired.artifact."))
-        or key.startswith(("desired.stack.", "display.stack."))
+        if _model_api.key_kind(key)
+        not in {("desired", "stack"), ("display", "stack"), ("desired", "artifact")}
+        or _model_api.key_kind(key) in {("desired", "stack"), ("display", "stack")}
         and key_parts(key)[2] in identities
-        or key.startswith("desired.artifact.")
+        or _model_api.key_kind(key) == ("desired", "artifact")
         and key_parts(key)[2] in artifacts
     }
-    excluded = []
-    for identity, _ in entries(values, "desired.reference."):
+    excluded = set()
+    for identity, _ in _model_api.ModelView(values).all_references():
         kind, block = owner(f"desired.reference.{identity}.consumerKey", values)
         if (
             kind == "stack"
@@ -74,11 +75,15 @@ def selected_stack_values(values, names):
             or kind == "artifact"
             and block not in artifacts
         ):
-            excluded.append(f"desired.reference.{identity}.")
+            excluded.add(identity)
     selected_values = {
         key: value
         for key, value in selected_values.items()
-        if not key.startswith(tuple(excluded))
+        if not (
+            _model_api.key_kind(key) == ("desired", "reference")
+            and key.count(".") >= 3
+            and key_parts(key)[2] in excluded
+        )
     }
     validate_model_keys(selected_values)
     validate_stack_metadata(selected_values)
@@ -94,7 +99,7 @@ def select_stacks(values, scope=None, *, order_from=None, order_to=None):
         raise Blocked("Order bounds must be positive integers")
     if order_from is not None and order_to is not None and order_from > order_to:
         raise Blocked("Order range is reversed")
-    stacks = entries(values, "desired.stack.")
+    stacks = _model_api.ModelView(values).stacks()
     names = {}
     for identity, stack in stacks:
         if not {"name", "deployOrder"} <= stack.keys():

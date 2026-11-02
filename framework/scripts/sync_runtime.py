@@ -17,7 +17,7 @@ import sync_views
 import task_contract_core as _imports_task_contract
 import validation_cache as _imports_validation_cache
 from aws_mapping_display import validate_mappings as validate_mappings
-from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED
+from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED, row_resource
 from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
 from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from design.document import DisplayMismatchError, require_saved_identity
@@ -27,14 +27,12 @@ from model.change_scope import change_reads, index_stage
 from model.core import (
     ReferenceDiagnosticError,
     ReferenceResolutionError,
-    entries,
     require_reference_diagnostics,
 )
 from model.format import JSON_LINK
 from model.importing.scope import scoped as import_scoped
 from model.importing.scope import selected as import_selection
 from model.projection import resource_row_scope
-from model.references import _json as model_json
 from model.render import generate_files as generate_files
 from model.render import render_validated_model as markdown_for
 from model.sources import (
@@ -87,6 +85,8 @@ from validation.diagnostics import (
 )
 from validation.findings import FindingsError
 from validation_scope import scoped_files
+
+import model as _model_api
 
 
 def generation_failure(
@@ -205,7 +205,7 @@ def stage_inputs(
     for path, values in destinations.items():
         target = models / path.parent.relative_to(docs)
         if path.name == STACK_DESIGN and any(
-            key.startswith("desired.artifact.")
+            _model_api.key_kind(key) == ("desired", "artifact")
             or key == "desired.deployment.templateBucket"
             and values[key].lstrip().startswith("{")
             for key in values
@@ -300,14 +300,14 @@ def generate_views(
                 values, model.scope, root
             )
             project_document = _imports_model_projection.generated_document
-            for identity, row in entries(values, "desired.row."):
+            for identity, row in _model_api.ModelView(values).all_rows():
                 match = JSON_LINK.fullmatch(row.get("value", ""))
                 if not match:
                     if "document" in row:
                         raise ValueError(
                             f"JSON document requires an artifact link: {identity}"
                         )
-                    raw, structured = model_json(
+                    raw, structured = _model_api.parse_reference_field(
                         f"desired.row.{identity}.value", row["value"]
                     )
                     if structured and strict:
@@ -319,7 +319,7 @@ def generate_views(
                                 scope=model.scope,
                                 resolver=resolver,
                                 logical_id=values.get(
-                                    f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
+                                    f"desired.resource.{row_resource(identity)}.logicalId"
                                 ),
                                 model_key=f"desired.row.{identity}.value",
                                 context=_imports_model_projection.reference_context_for(
@@ -354,7 +354,7 @@ def generate_views(
                         scope=model.scope,
                         resolver=resolver,
                         logical_id=values.get(
-                            f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
+                            f"desired.resource.{row_resource(identity)}.logicalId"
                         ),
                         model_key=f"desired.row.{identity}.document",
                         context=_imports_model_projection.reference_context_for(

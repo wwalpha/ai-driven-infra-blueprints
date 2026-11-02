@@ -5,6 +5,7 @@ import hashlib
 
 import task_contract_core as tasks
 import worktree_state as ws
+from contracts.model import key_parts, row_resource
 from model.format import parse
 from model.observed import verify_observed_outputs
 from model.render import owned_artifacts
@@ -156,7 +157,7 @@ def pending_outputs(root, state, context, consumers, plan=None):
         }
         foreign = {}
         for key, value in updates.items():
-            number = key.split(".")[2].rpartition("-")[0]
+            number = row_resource(key_parts(key)[2])
             logical = snapshot.authoritative.get(f"desired.resource.{number}.logicalId")
             if (snapshot.scope.service, logical) not in owners:
                 foreign[key] = value

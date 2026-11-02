@@ -27,7 +27,6 @@ from contracts.model import (
 from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
 from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY, IAC_ENGINE_KEY
 from model.adapters.observed import resolve_resources
-from model.core import structural_entries
 from model.dependency_index import inventory as model_inventory
 from model.dependency_index import revision as file_revision
 from model.render import owned_artifacts
@@ -39,6 +38,7 @@ from utils.file_operations import sha
 from utils.iac_values import cfn_resource_identity
 from utils.project_targets import load_target
 
+import model as _model_api
 from deploy import cli_guidance
 from deploy.inputs import (
     deployment_input_paths,
@@ -134,9 +134,9 @@ def owning_resources(root, env, directory, target, units):
         }
         for path in dependency_index.owners(root, env, directory, identities):
             snapshot = raw_model(path, reads)
-            for _, resource in structural_entries(
-                snapshot.authoritative, "desired.resource."
-            ):
+            for _, resource in _model_api.ModelView(
+                snapshot.authoritative
+            ).structural_resources():
                 if resource.get(CFN_LOGICAL_ID_KEY) not in identities:
                     continue
                 name, logical = cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])

@@ -1,6 +1,8 @@
 """Only stack presence/state is remote; deployment files/policy are local metadata."""
 
-from model.adapters.aws import AcquisitionError, entries
+from model.adapters.aws import AcquisitionError
+
+import model as _model_api
 
 STACK_TYPE = "CloudFormation.Stack"
 APIS = {("cloudformation", "describe_stacks")}
@@ -11,7 +13,7 @@ def sensitive(prop):
 
 
 def classify(key):
-    if key.startswith("desired.stack."):
+    if _model_api.key_kind(key) == ("desired", "stack"):
         return (
             "supported"
             if key.endswith(".name")
@@ -19,7 +21,7 @@ def classify(key):
             if key.rsplit(".", 1)[-1] in {"template", "parameters", "deployOrder"}
             else "unimplemented"
         )
-    if key.startswith("desired.artifact.") or key in {
+    if _model_api.key_kind(key) == ("desired", "artifact") or key in {
         "desired.deployment.maxConcurrentStacks",
         "desired.deployment.templateBucket",
         "desired.deployment.templateKeyPrefix",
@@ -34,7 +36,7 @@ def fetch(ctx, r, getter):
 
 def compare(ctx, model):
     results = []
-    for number, stack in entries(model.values, "desired.stack."):
+    for number, stack in _model_api.ModelView(model.values).stacks():
         key = "desired.stack." + number + ".name"
         name = stack["name"]
         item = {

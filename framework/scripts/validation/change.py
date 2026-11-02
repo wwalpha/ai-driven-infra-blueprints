@@ -4,17 +4,17 @@ from functools import partial
 
 import model.projection as _model_validation_projection
 import model.validations.change_inputs as _model_validation_change_inputs
-from contracts.model import REFERENCE_PENDING_DEPLOY, RESOURCE_TYPE_KEY
+from contracts.model import REFERENCE_PENDING_DEPLOY, RESOURCE_TYPE_KEY, key_parts
 from contracts.validation import VALIDATION_PASS
 from design.catalog import DesignSchemaCatalog
 from model.change_scope import change_reads
 from model.core import ReferenceResolutionError
-from model.core import structural_entries as entries
 from model.identity import Resolver, display_anchor
 from model.reference_values import ProducerValues
 from utils.reference_contracts import contract, reference_attribute
 from validation.findings import Findings
 
+import model as _model_api
 from model import change_plan, reference_snapshot, references
 
 BROKEN_REFERENCES = {
@@ -213,7 +213,9 @@ def validate_producer_inputs(snapshot, details, reads, findings, *, context_valu
         )
         if producer is None:
             continue
-        resources = dict(entries(producer.authoritative, "desired.resource."))
+        resources = dict(
+            _model_api.ModelView(producer.authoritative).structural_resources()
+        )
         resource = resources.get(usage.producer_id)
         if resource is None:
             continue
@@ -222,9 +224,9 @@ def validate_producer_inputs(snapshot, details, reads, findings, *, context_valu
             usage.consumer_key.rsplit(".", 1)[0] + ".property", ""
         )
         context = None
-        if usage.consumer_key.startswith("desired.row."):
-            rid = usage.consumer_key.split(".")[2]
-            row = dict(entries(context_values, "desired.row."))[rid]
+        if _model_api.key_kind(usage.consumer_key) == ("desired", "row"):
+            rid = key_parts(usage.consumer_key)[2]
+            row = dict(_model_api.ModelView(context_values).all_rows())[rid]
             context = _model_validation_projection.reference_context_for(
                 context_values, rid, row, row.get("value"), "", snapshot.scope.root
             )

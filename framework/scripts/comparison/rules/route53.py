@@ -2,12 +2,19 @@
 
 from dataclasses import replace
 
-from contracts.model import CFN_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
-from model.core import entries, literal
+from contracts.model import (
+    CFN_LOGICAL_ID_KEY,
+    RESOURCE_TYPE_KEY,
+    key_parts,
+    row_resource,
+)
+from model.core import literal
 from utils.arn_values import context_value
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import select
 from utils.iac_values import Expression, ResourceReference, cfn_resource_identity
+
+import model as _model_api
 
 from .. import expressions
 from ..methods import OBJECT, properties
@@ -17,9 +24,10 @@ def model_property(inputs, service, identity, field):
     kind = inputs.resources[service][identity][RESOURCE_TYPE_KEY]
     rows = [
         row
-        for rid, row in entries(inputs.model(service).authoritative, "desired.row.")
-        if rid.rpartition("-")[0] == identity
-        and row.get("property") == kind + "." + field
+        for rid, row in _model_api.ModelView(
+            inputs.model(service).authoritative
+        ).all_rows()
+        if row_resource(rid) == identity and row.get("property") == kind + "." + field
     ]
     if len(rows) != 1 or "document" in rows[0]:
         raise Blocked("Endpoint DNS requires one explicit Model " + field)
@@ -48,7 +56,7 @@ def stack_property(inputs, service, identity, field):
 
 def selected_reference(inputs, service, key, symbol):
     """Retain the receiving Resource for a typed DNS extraction operand."""
-    number = key.split(".")[2].rpartition("-")[0]
+    number = row_resource(key_parts(key)[2])
     row = inputs.model(service).authoritative[key.rsplit(".", 1)[0] + ".property"]
     expected = (
         {"A", "AAAA"} if row == "Route53.RecordSet.AliasTarget.DNSName" else {"CNAME"}
@@ -167,10 +175,10 @@ def selected_decision(inputs, left, right, path, *, export_origins):
         if path == "AliasTarget.DNSName":
             rows = [
                 (rid, row)
-                for rid, row in entries(
-                    inputs.model(consumer[0]).authoritative, "desired.row."
-                )
-                if rid.rpartition("-")[0] == consumer[1]
+                for rid, row in _model_api.ModelView(
+                    inputs.model(consumer[0]).authoritative
+                ).all_rows()
+                if row_resource(rid) == consumer[1]
                 and row.get("property") == "Route53.RecordSet.AliasTarget.HostedZoneId"
             ]
             if len(rows) != 1:

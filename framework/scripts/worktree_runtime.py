@@ -11,7 +11,6 @@ from types import SimpleNamespace
 
 import deploy.contracts as _imports_deploy_contracts
 import deploy.handoff as _imports_deploy_handoff
-import model.core as _imports_model_core
 import model.sources as _imports_model_sources
 import task_contract_core as tasks
 import utils.aws_mappings as _imports_utils_aws_mappings
@@ -24,6 +23,8 @@ import worktree_python as python_env
 import worktree_task as wt
 from deploy.git_publication import checkpoint_source as checkpoint_source
 from utils.local_evidence import read_sealed, write_sealed
+
+import model as _model_api
 
 deploy_handoff = _imports_deploy_handoff
 
@@ -60,16 +61,14 @@ def prepare_integration(where: Path, task_id: str) -> wt.FinalCandidate:
             )
         operation = tasks.model_operation(text)
         if operation is not None and operation.action == "model-delete":
-            entries = _imports_model_core.entries
             Scope = _imports_model_sources.Scope
             load_model = _imports_model_sources.load_model
             for scope in sorted(operation.source_scopes):
                 remaining = set(
                     dict(
-                        entries(
-                            load_model(Scope(target, *scope)).authoritative,
-                            "desired.resource.",
-                        )
+                        _model_api.ModelView(
+                            load_model(Scope(target, *scope)).authoritative
+                        ).resources()
                     )
                 )
                 requested = {

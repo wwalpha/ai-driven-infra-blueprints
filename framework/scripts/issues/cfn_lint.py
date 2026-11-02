@@ -9,10 +9,11 @@ import model.sources as _imports_model_sources
 from contracts.model import CFN_LOGICAL_ID_KEY, RESOURCE_MODE_IMPORT, RESOURCE_TYPE_KEY
 from contracts.target import AWS_REGION_KEY, IAC_ENGINE_KEY
 from design.layout import resource_mode
-from model.core import entries
 from utils.cfn_lint import POLICY, lint_session, validate_template
 from utils.cloudformation.format import decode_file
 from utils.iac_values import cfn_resource_identity
+
+import model as _model_api
 
 from .records import identifier, safe_text
 
@@ -134,9 +135,9 @@ def _callback_plan_declared_stacks(_state_plan_32, comparison, /):
     if _state_plan_32.stacks is None:
         _state_plan_32.stacks = {}
         try:
-            for _, unit in entries(
-                comparison.model("cloudformation-stacks").values, "desired.stack."
-            ):
+            for _, unit in _model_api.ModelView(
+                comparison.model("cloudformation-stacks").values
+            ).stacks():
                 _state_plan_32.stacks.setdefault(unit["name"], []).append(unit)
         except (OSError, ValueError, KeyError, TypeError) as error:
             _state_plan_32.stack_error = type(error).__name__

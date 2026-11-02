@@ -7,10 +7,16 @@ from threading import RLock
 
 import model.sources as sources
 from model.dependency_index import logical_models, revision, verify_snapshot
+from model.importing.scope import read_context
 from utils.input_cache import input_recorder
 from utils.source_reads import FileReads
 
-from model import rebase_snapshot, update_observed_snapshot
+from model import (
+    load_model_in_session,
+    read_source_in_session,
+    rebase_snapshot,
+    update_observed_snapshot,
+)
 
 
 def hashes(contents, root):
@@ -90,7 +96,7 @@ class RunModels(FileReads):
         key = (
             scope,
             source,
-            sources._imports_model_importing_scope.read_context(self.root),
+            read_context(self.root),
             reads,
             recorder,
         )
@@ -130,11 +136,11 @@ class RunModels(FileReads):
             primary = sources.Scope(
                 self.root, scope.environment, scope.target, scope.service
             )
-            snapshot = sources._read_source_snapshot(primary, self)
+            snapshot = read_source_in_session(primary, self)
             key = (
                 "source",
                 primary,
-                sources._imports_model_importing_scope.read_context(self.root),
+                read_context(self.root),
             )
             if (
                 self.dependency_index is not None
@@ -149,7 +155,7 @@ class RunModels(FileReads):
             primary = sources.Scope(
                 self.root, scope.environment, scope.target, scope.service
             )
-            return self.consume(sources._load_model(primary, self), reads, scope)
+            return self.consume(load_model_in_session(primary, self), reads, scope)
 
     def logical_models(self, scope, logical):
         return [

@@ -1,11 +1,18 @@
 """Public Model API. The caller supplies read and authorized publication contexts."""
 
+from contracts.model import key_kind as key_kind
 from contracts.model import key_parts as key_parts
+from contracts.model import row_has_resource_prefix as row_has_resource_prefix
 from contracts.model import row_resource as row_resource
 from utils.script_loader import module
 
+import model.sources as _sources
 from model.sources import list_models as list_models
 from model.sources import load_model as load_model
+
+invocation_reads = _sources._invocation_reads
+load_model_in_session = _sources._load_model
+read_source_in_session = _sources._read_source_snapshot
 
 
 def prepare_edit(snapshot, candidate, policy):
@@ -56,3 +63,7 @@ def update_observed_snapshot(snapshot, outputs):
     return module(
         "model/snapshot_ops.py", "model.snapshot_ops"
     ).update_observed_snapshot(snapshot, outputs)
+
+
+def parse_reference_field(key, raw):
+    return module("model/references.py", "model.references")._json(key, raw)

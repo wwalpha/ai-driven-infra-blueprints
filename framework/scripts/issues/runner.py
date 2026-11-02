@@ -9,7 +9,7 @@ from functools import partial
 from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
 from contracts.repository import DESIGNS_DIRECTORY
 from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
-from model.core import ReferenceResolutionError, entries
+from model.core import ReferenceResolutionError
 from model.references import codebuild_reference_errors
 from model.validations.naming import NamingRuleIndex
 from task_contract_core import task_read_scope
@@ -21,6 +21,7 @@ from validation.findings import Findings, check_metadata, finish_result
 
 import issues.artifact as _imports_issues_artifact
 import issues.cfn_lint as _imports_issues_cfn_lint
+import model as _model_api
 
 from .aggregate import aggregate
 from .inputs import Comparison, view_text
@@ -158,7 +159,7 @@ def codebuild_plaintext_diagnostics(message, comparison):
             ).split(": ", 1)
             resources = [
                 (identity, resource)
-                for identity, resource in entries(model.values, "desired.resource.")
+                for identity, resource in _model_api.ModelView(model.values).resources()
                 if resource[RESOURCE_TYPE_KEY] == "CodeBuild.Project"
                 and resource.get("anchor") == anchor
             ]

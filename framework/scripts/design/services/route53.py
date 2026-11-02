@@ -1,6 +1,5 @@
 """Route 53 endpoint DNS reference presentation."""
 
-import model.references as references
 from contracts.model import (
     MODEL_PENDING_DEPLOY,
     MODEL_REF_KEY,
@@ -10,6 +9,8 @@ from contracts.model import (
 from model.core import ReferenceDiagnosticError
 from model.reference_nodes import nodes, parse, reference_document
 from model.reference_values import reference_value
+
+import model as _model_api
 
 ALIAS_PROPERTY = "Route53.RecordSet.AliasTarget.DNSName"
 RECORD_PROPERTY = "Route53.RecordSet.ResourceRecords"
@@ -88,7 +89,7 @@ def reference_label(
         RESOURCE_TYPE_KEY
     ] != "EC2.VPCEndpoint" or not position.pointer.endswith(POINTER):
         return name
-    raw, structured = references._json(
+    raw, structured = _model_api.parse_reference_field(
         f"desired.row.{position.row_id}.{position.source_field}",
         values[f"desired.row.{position.row_id}.{position.source_field}"],
     )

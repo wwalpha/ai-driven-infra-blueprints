@@ -2,13 +2,14 @@
 
 import re
 
-from contracts.model import CFN_LOGICAL_ID_KEY, RESOURCE_LOGICAL_ID_KEY
+from contracts.model import CFN_LOGICAL_ID_KEY, RESOURCE_LOGICAL_ID_KEY, key_parts
 from model.configuration import foreign_observation
-from model.core import structural_entries
 from model.references import usages
 from model.sources import load_model, raw_model
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import cfn_resource_identity
+
+import model as _model_api
 
 
 def key(record):
@@ -18,9 +19,9 @@ def key(record):
 def producer_owner(path, logical):
     resources = [
         resource
-        for _, resource in structural_entries(
-            raw_model(path).authoritative, "desired.resource."
-        )
+        for _, resource in _model_api.ModelView(
+            raw_model(path).authoritative
+        ).structural_resources()
         if resource.get(RESOURCE_LOGICAL_ID_KEY) == logical
     ]
     if len(resources) != 1:
@@ -54,7 +55,7 @@ def verify(root, record, mappings, target):
     ]
     if not matching:
         raise Blocked("deferred reference no longer matches typed Producer/Consumer")
-    row = record["consumerKey"].split(".")[2]
+    row = key_parts(record["consumerKey"])[2]
     if record["consumerKey"].endswith(".value"):
         if not foreign_observation(snapshot, row):
             raise Blocked(
@@ -126,7 +127,7 @@ def check_updates(root, path, updates, records):
     if any(
         name not in keys
         or value is not None
-        or not foreign_observation(snapshot, name.split(".")[2])
+        or not foreign_observation(snapshot, key_parts(name)[2])
         for name, value in updates.items()
     ):
         raise Blocked(

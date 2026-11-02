@@ -17,7 +17,6 @@ from pathlib import Path
 from threading import RLock
 
 import model.display as _model_display
-import model.files as _model_files
 import model.format as _model_format
 import model.identity as _model_identity
 import model.projection as _imports_model_projection
@@ -38,6 +37,7 @@ from validation.findings import Findings, FindingsError
 import design.array_display as _array_display
 import design.layout as _dependency_design_layout
 import design.services.ec2.security_groups as _dependency_security_group_tables
+import model as _model_api
 from design.layout_schema import (
     ANCHOR,
     CHILD,
@@ -327,8 +327,8 @@ def resource_blocks(lines):
 def model_resource_groups(path, source):
     """Use Model ownership and grouped-parent addresses, never diagnostic prose."""
     _model_identity.resource_index(source)
-    _model_files.resource_row_index(source)
-    resources = dict(_model_display.entries(source, "desired.resource."))
+    _model_api.ModelView(source).row_index()
+    resources = dict(_model_api.ModelView(source).resources())
     if not resources:
         raise ValueError("Resource ownership unavailable")
     anchors = {}
@@ -625,9 +625,9 @@ class DesignDocument:
                             resource[RESOURCE_TYPE_KEY],
                             resource[RESOURCE_LOGICAL_ID_KEY],
                         ): _model_identity.display_anchor(resource)
-                        for _, resource in _model_display.entries(
-                            self.model_values or {}, "desired.resource."
-                        )
+                        for _, resource in _model_api.ModelView(
+                            self.model_values or {}
+                        ).resources()
                     },
                     self.modes,
                     document=self,
@@ -717,9 +717,9 @@ class DesignDocument:
                     anchors = set(ANCHOR.findall("\n".join(lines)))
                     identities = {
                         identity
-                        for identity, resource in _model_display.entries(
-                            source, "desired.resource."
-                        )
+                        for identity, resource in _model_api.ModelView(
+                            source
+                        ).resources()
                         if _model_identity.display_anchor(resource) in anchors
                     }
                     selected = _resource_selections(source, {"reference": identities})[
@@ -742,9 +742,9 @@ class DesignDocument:
                             resource[RESOURCE_TYPE_KEY],
                             resource[RESOURCE_LOGICAL_ID_KEY],
                         ): _model_identity.display_anchor(resource)
-                        for _, resource in _model_display.entries(
-                            selected or {}, "desired.resource."
-                        )
+                        for _, resource in _model_api.ModelView(
+                            selected or {}
+                        ).resources()
                     },
                     modes=_dependency_design_layout.resource_modes(
                         list(lines), selected

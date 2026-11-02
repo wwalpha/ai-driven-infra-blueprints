@@ -3,6 +3,8 @@
 import model.references as references
 from contracts.model import MODEL_PENDING_DEPLOY, RESOURCE_TYPE_KEY
 
+import model as _model_api
+
 
 def alias_display_name(rows, selected_label):
     aliases = [row[2].strip('`"') for row in rows if row[1] == "KMS.Alias.AliasName"]
@@ -35,7 +37,7 @@ def reference_label(
             name = displayed
     if position.source_field != "value" or position.pointer:
         return name
-    raw, structured = references._json(
+    raw, structured = _model_api.parse_reference_field(
         f"desired.row.{position.row_id}.value",
         values[f"desired.row.{position.row_id}.value"],
     )

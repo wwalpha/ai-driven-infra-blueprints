@@ -19,6 +19,7 @@ from contracts.model import (
     RESOURCE_MODE_CREATE,
     RESOURCE_MODE_IMPORT,
     RESOURCE_TYPE_KEY,
+    row_resource,
 )
 from contracts.repository import PROJECT_FILENAME
 from contracts.target import (
@@ -32,13 +33,13 @@ from design.layout import resource_mode
 from design.policy_tables import literal
 from iac_evaluation import RETURN_ATTRIBUTE_PROPERTIES
 from model.adapters.observed import mapped_resource, resource_index
-from model.core import ReferenceResolutionError, entries, stack_model
-from model.files import load_model, resource_row_index
+from model.core import ReferenceResolutionError, stack_model
+from model.files import load_model
 from model.literal_values import value_shape
 from model.projection import reference_attribute
 from model.reference_nodes import is_reference, parse
 from model.reference_values import resolve
-from model.sources import _invocation_reads, model_exists, model_paths
+from model.sources import model_exists, model_paths
 from task_contract_core import task_reads
 from utils.arn_values import context_value, named_arn
 from utils.aws_sdk import aws_runtime
@@ -59,6 +60,8 @@ from utils.reference_contracts import (
     getatt_attribute,
     row_contexts,
 )
+
+import model as _model_api
 
 from . import (
     arn_projection,
@@ -97,7 +100,7 @@ class Inputs:
         self.export_failures, self.stack_errors = [], {}
         self._templates, self.reference_formats = None, {}
         self.read_hashes, self.sensitive_values = {}, set()
-        self.model_reads = _invocation_reads(root)
+        self.model_reads = _model_api.invocation_reads(root)
         self.unreadable_inputs = False
         self.view_errors = {}
         self.load_errors, self.warnings = [], []
@@ -199,8 +202,10 @@ class Inputs:
             self.symbols.clear()
             self.metrics["model_loads"] += 1
             self.metrics["model_parses"] += 1
-            self.resources[service] = dict(entries(loaded.values, "desired.resource."))
-            self.rows[service] = resource_row_index(loaded.values)
+            self.resources[service] = dict(
+                _model_api.ModelView(loaded.values).resources()
+            )
+            self.rows[service] = _model_api.ModelView(loaded.values).row_index()
             for rows in self.rows[service].values():
                 for _, row in rows:
                     if re.search(
@@ -1185,9 +1190,9 @@ class Inputs:
             if (
                 context is None
                 and row_id
-                and row_id.rpartition("-")[0] in self.resources[service]
+                and row_resource(row_id) in self.resources[service]
             ):
-                number = row_id.rpartition("-")[0]
+                number = row_resource(row_id)
                 kind = self.resources[service][number][RESOURCE_TYPE_KEY]
                 contexts = row_contexts(kind, self.rows[service][number])
                 prop = (
