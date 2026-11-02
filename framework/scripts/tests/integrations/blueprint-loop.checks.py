@@ -24,6 +24,7 @@ from support.blueprint_loop_fixtures import (
     subprocess,
     sys,
 )
+from support.pytest_cli import groupable, unit_commands
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -173,6 +174,72 @@ def check_parallel_and_selection(tmp_path):
         "diagnostic-b"
     )
     TestCase().assertEqual(events(logs)[-1]["failed_steps"], [])
+
+
+def check_group_process_connection(tmp_path):
+    tests = Path(__file__).resolve().parents[1]
+    (tmp_path / "pytest.ini").write_text(
+        "[pytest]\npython_files = *-unit.checks.py\npython_functions = check_*\naddopts = --import-mode=importlib -p no:cacheprovider\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "conftest.py").write_text(
+        f"import importlib.util\nspec = importlib.util.spec_from_file_location('group_fixtures', {str(tests / 'conftest.py')!r})\n"
+        "module = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(module)\nprocess_state = module.process_state\n",
+        encoding="utf-8",
+    )
+    first, second, isolated = [
+        tmp_path / f"{name}-unit.checks.py" for name in ("a", "b", "isolated")
+    ]
+    prefix = "import os\nfrom support.pytest_cli import run\nPYTEST_GROUP_SAFE = True\n"
+    suffix = "if __name__ == '__main__': raise SystemExit(run(__file__))\n"
+    first.write_text(
+        prefix
+        + "def check_change():\n    assert 'GROUP_CONNECTION' not in os.environ\n    os.environ['GROUP_CONNECTION'] = 'group'\n"
+        + suffix,
+        encoding="utf-8",
+    )
+    second.write_text(
+        prefix + "import pytest\n@pytest.mark.parametrize('value', [1, 2])\n"
+        "def check_clean(value): assert 'GROUP_CONNECTION' not in os.environ\n"
+        + suffix,
+        encoding="utf-8",
+    )
+    isolated.write_text(
+        "import os\nfrom support.pytest_cli import run\n"
+        "def check_isolated():\n    assert 'GROUP_CONNECTION' not in os.environ\n"
+        "    os.environ['GROUP_CONNECTION'] = 'isolated'\n" + suffix,
+        encoding="utf-8",
+    )
+    assert groupable(first) and groupable(second) and not groupable(isolated)
+    commands = unit_commands([first, second, isolated])
+    assert commands == [
+        [
+            sys.executable,
+            str(tests / "support/pytest_cli.py"),
+            "--group",
+            str(first),
+            str(second),
+        ],
+        [sys.executable, str(isolated)],
+    ]
+    environment = dict(os.environ, PYTHONPATH=str(tests), PYTEST_ADDOPTS="-vv")
+    environment.pop("GROUP_CONNECTION", None)
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    with redirect_stdout(io.StringIO()):
+        assert (
+            MODULE.run_commands(tmp_path, commands[::-1], environment, logs, jobs=1)
+            == 0
+        )
+    history = events(logs)
+    assert [
+        event["returncode"] for event in history if event["event"] == "step_end"
+    ] == [0, 0]
+    assert history[-1]["status"] == "pass" and history[-1]["failed_steps"] == []
+    group_log = (logs / "02-pytest_cli.py.log").read_text(encoding="utf-8")
+    assert all(f"check_clean[{value}] PASSED" in group_log for value in (1, 2))
+    assert "check_change PASSED" in group_log
+    assert (logs / "01-isolated-unit.checks.py.log").is_file()
 
 
 def check_staged_snapshot(tmp_path):
