@@ -50,6 +50,124 @@ def selection_contract(name, allowed="output.txt", workflow=""):
     )
 
 
+@pytest.mark.parametrize("selector", ["tasks/my-task.md", r"tasks\my-task.md"])
+def check_selector_normalization(tmp_path, monkeypatch, selector):
+    name = "tasks/my-task.md"
+    text = transition_contract(name, ["file.txt"])
+    tasks.start(tmp_path, selector, text)
+    assert (tmp_path / name).read_text(encoding="utf-8") == text
+    assert tasks.contracts(tmp_path) == {name: text}
+    for duplicate in (name, r"tasks\my-task.md"):
+        with pytest.raises(ValueError, match="already exists"):
+            tasks.start(tmp_path, duplicate, text)
+    with tasks.task_reads(tmp_path):
+        snapshot = tasks.read_task_snapshot(tmp_path, selector)
+        assert snapshot.name == name and snapshot.path == tmp_path / name
+        assert tasks.read_task_snapshot(tmp_path, name) is snapshot
+        assert tasks.read_task_snapshot(tmp_path, r"tasks\my-task.md") is snapshot
+    assert tasks.selected_text(tmp_path, {name: text}, selector) == text
+    assert tasks._select_contract(tmp_path, selector, {name: text}) == (
+        tmp_path / name,
+        text,
+    )
+    tasks.start(
+        tmp_path, "tasks/other.md", transition_contract("tasks/other.md", ["other.txt"])
+    )
+    monkeypatch.setenv(tasks.SELECTOR, selector)
+    assert tasks.task_path(tmp_path) == tmp_path / name
+    assert tasks.task_revision(tmp_path) == (name, text)
+    assert tasks.contract_path(tmp_path, selector) == tmp_path / name
+    with tasks.selected_task(tmp_path, selector):
+        assert tasks._selected_tasks.get()[tmp_path.resolve()] == name
+        assert tasks.task_snapshot(tmp_path).name == name
+    with (
+        patch.object(task_runtime, "check_resume_scope"),
+        patch.object(task_runtime, "Validator") as validator,
+    ):
+        validator.return_value.report.return_value = 0
+        assert tasks.suspend(tmp_path, selector, "synthetic check stop")
+        assert tasks.contract_path(tmp_path, selector) == tmp_path / name
+        task_runtime.resume(tmp_path, selector)
+        assert tasks.task_snapshot(tmp_path, selector).status == "running"
+        task_runtime.complete(tmp_path, selector)
+        assert tasks.task_snapshot(tmp_path, selector).status == "completed"
+    assert set(tasks.contracts(tmp_path)) == {name, "tasks/other.md"}
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        r"tasks\..\my-task.md",
+        "tasks/../my-task.md",
+        r"..\tasks\my-task.md",
+        "/tasks/my-task.md",
+        r"\tasks\my-task.md",
+        r"C:\tasks\my-task.md",
+        "C:/tasks/my-task.md",
+        r"C:tasks\my-task.md",
+        r"\\server\share\tasks\my-task.md",
+        "//server/share/tasks/my-task.md",
+        r"tasks\My-task.md",
+        r"tasks\my_task.md",
+        r"tasks\my--task.md",
+        r"tasks\\my-task.md",
+        r"tasks\.\my-task.md",
+        "tasks/my-task.md\x00",
+    ],
+)
+def check_unsafe_selectors(tmp_path, selector):
+    text = transition_contract("tasks/my-task.md", ["file.txt"])
+    with pytest.raises(ValueError, match="invalid task selector"):
+        tasks.start(tmp_path, selector, text)
+    with pytest.raises(ValueError, match="invalid task selector"):
+        tasks.read_task_snapshot(tmp_path, selector)
+    with pytest.raises(ValueError, match="invalid task selector"):
+        tasks.suspend(tmp_path, selector, "synthetic stop")
+    with (
+        patch.object(os, "environ", {tasks.SELECTOR: selector}),
+        pytest.raises(ValueError, match="invalid task selector"),
+    ):
+        tasks.task_path(tmp_path)
+    assert not (tmp_path / "tasks").exists()
+
+
+@pytest.mark.parametrize("linked", ["directory", "file"])
+def check_windows_selector_symlinks(tmp_path, linked):
+    name = "tasks/my-task.md"
+    text = transition_contract(name, ["file.txt"])
+    tasks.start(tmp_path, name, text)
+    path = tmp_path / ("tasks" if linked == "directory" else name)
+    external = tmp_path / "external"
+    path.rename(external)
+    path.symlink_to(external, target_is_directory=linked == "directory")
+    for operation in (tasks.read_task_snapshot, tasks.contract_path):
+        with pytest.raises(ValueError, match="symlinks"):
+            operation(tmp_path, r"tasks\my-task.md")
+    with pytest.raises(ValueError, match="symlinks"):
+        tasks.suspend(tmp_path, r"tasks\my-task.md", "synthetic stop")
+    assert (tmp_path / name).read_text(encoding="utf-8") == text
+
+
+@pytest.mark.parametrize(
+    "heading", ["Modified files", "Allowed paths", "Acceptance checks"]
+)
+def check_windows_selector_keeps_contract_paths_strict(tmp_path, heading):
+    text = transition_contract("tasks/my-task.md", ["dir/file.txt"])
+    prefix, body = text.split("## " + heading, 1)
+    section, separator, suffix = body.partition("\n## ")
+    text = (
+        prefix
+        + "## "
+        + heading
+        + section.replace("dir/file.txt", r"dir\file.txt")
+        + separator
+        + suffix
+    )
+    with pytest.raises(ValueError):
+        tasks.start(tmp_path, r"tasks\my-task.md", text)
+    assert not (tmp_path / "tasks").exists()
+
+
 @pytest.mark.parametrize(
     "allowed,accepted",
     [("output.txt", True), ("*.txt", True), ("out*", True), ("other.txt", False)],

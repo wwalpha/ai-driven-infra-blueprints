@@ -70,6 +70,7 @@ def main():
     args = parser.parse_args()
     root = args.repository_root.resolve()
     try:
+        args.task_file = _core.normalize_selector(args.task_file)
         if args.source and (
             args.suspend_reason is not None
             or args.resume

@@ -167,6 +167,7 @@ def check_import(
 
 def refresh(root, name, resuming=False):
     snapshot = task_snapshot(root, name, executable=False, live=True)
+    name = snapshot.name
     text = snapshot.text
     state = status(text)
     if state == "suspend" and not resuming:
@@ -196,6 +197,7 @@ def complete(root, name):
 
 def complete_selected(root, name):
     snapshot = task_snapshot(root, name, executable=False, live=True)
+    name = snapshot.name
     text = snapshot.text
     with task_reads(root, snapshot=snapshot):
         if status(text) != "running":

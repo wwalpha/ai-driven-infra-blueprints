@@ -18,6 +18,7 @@ import pytest
 import task_contract_core as tasks
 import task_contract_runtime as task_runtime
 from issues.publication import save_scan
+from support.blueprint_loop_fixtures import make_project_fixture
 from support.issues_scan_fixtures import review_for, snapshot_artifact
 from support.model_v2_fixtures import logs_fixture
 from support.pytest_cli import run
@@ -30,6 +31,53 @@ from validation.task import TaskValidation
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+def check_windows_selector_cli_round_trip(tmp_path, monkeypatch):
+    with fixture() as root:
+        cli = Path(__file__).resolve().parents[2] / "task_contract.py"
+        make_project_fixture(cli.parents[2], root)
+        git(root, "add", ".")
+        git(root, "commit", "-qm", "synthetic Framework structure")
+        name = "tasks/windows-task.md"
+        source = tmp_path / "contract.md"
+        text = contract(name, ["file.txt"])
+        source.write_text(text, encoding="utf-8")
+        command = [
+            sys.executable,
+            "-B",
+            str(cli),
+            "--repository-root",
+            str(root),
+            "--task-file",
+            r"tasks\windows-task.md",
+        ]
+        registered = subprocess.run(
+            command + ["--source", str(source)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        assert registered.returncode == 0, registered.stdout + registered.stderr
+        assert (root / name).read_text(encoding="utf-8") == text
+        monkeypatch.setenv(tasks.SELECTOR, r"tasks\windows-task.md")
+        assert tasks.task_revision(root) == (name, text)
+        (root / "file.txt").write_text("Windows selector candidate\n", encoding="utf-8")
+        for arguments, state in (
+            ([], "running"),
+            (["--suspend-reason", "synthetic check stop"], "suspend"),
+            (["--check-resume-scope"], "suspend"),
+            (["--resume"], "running"),
+            (["--complete"], "completed"),
+        ):
+            result = subprocess.run(
+                command + arguments, capture_output=True, text=True, encoding="utf-8"
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert tasks.task_snapshot(root, name, executable=False).status == state
+        assert set(tasks.contracts(root)) == {name}
+        saved = (root / name).read_text(encoding="utf-8")
+        assert saved.rstrip() == tasks.set_status(text, "completed").rstrip()
 
 
 def _callback_check_atomic_contract_reads_pause(paused, release, /):

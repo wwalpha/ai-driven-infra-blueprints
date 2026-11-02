@@ -36,6 +36,13 @@ SELECTOR = "BLUEPRINT_TASK_FILE"
 TASK_NAME = re.compile(r"tasks/[a-z0-9]+(?:-[a-z0-9]+)*\.md")
 
 
+def normalize_selector(name: str) -> str:
+    name = name.replace("\\", "/")
+    if not TASK_NAME.fullmatch(name):
+        raise ValueError(f"invalid task selector: {name}")
+    return name
+
+
 def section(text, heading):
     return list(_section(text, heading))
 
@@ -151,8 +158,7 @@ def safe_path(root, value):
 
 
 def selected_text(root, records, name):
-    if not TASK_NAME.fullmatch(name):
-        raise ValueError(f"invalid task selector: {name}")
+    name = normalize_selector(name)
     if name not in records:
         raise ValueError(f"selected task contract missing: {name}")
     return records[name]
@@ -961,6 +967,8 @@ _selected_tasks = ContextVar("selected_tasks", default=MappingProxyType({}))
 @contextmanager
 def selected_task(root: Path, task_file: str | None):
     """Bind an explicit API selector for nested readers without mutating process environment."""
+    if task_file:
+        task_file = normalize_selector(task_file)
     token = _selected_tasks.set({**_selected_tasks.get(), root.resolve(): task_file})
     try:
         yield
@@ -970,6 +978,7 @@ def selected_task(root: Path, task_file: str | None):
 
 def read_task_snapshot(root: Path, name: str, *, live: bool = False) -> TaskSnapshot:
     """Acquire raw Task data; lifecycle callers retain their own validation boundaries."""
+    name = normalize_selector(name)
     if live:
         with task_reads(root, live=True):
             return read_task_snapshot(root, name)
@@ -1048,6 +1057,7 @@ def _selected_contract(root, selected=None, *, allow_empty=False):
 
 def _select_contract(root, selected, records):
     if selected:
+        selected = normalize_selector(selected)
         text = selected_text(root, records, selected)
     else:
         running = [name for name, text in records.items() if status(text) == "running"]
@@ -1087,8 +1097,7 @@ def invalidate_task_reads(root: Path) -> None:
 
 
 def start(root, name, text):
-    if not TASK_NAME.fullmatch(name):
-        raise ValueError("new task must use tasks/<task-name>.md")
+    name = normalize_selector(name)
     with recording_inputs(None):
         records = _contracts(root)
     if name in records:
@@ -1130,8 +1139,7 @@ def set_status(text, state):
 def suspend(root, name, reason):
     if not reason.strip():
         raise ValueError("suspend requires a concrete reason")
-    if not TASK_NAME.fullmatch(name):
-        raise ValueError(f"invalid task selector: {name}")
+    name = normalize_selector(name)
     path = safe_path(root, name)
     with recording_inputs(None):
         text = _read_task(root, name).text
