@@ -133,7 +133,7 @@ Stop in the following cases.
 
 When the active prompt limits targets, implement phase may process only some templates and deploy phase only some stacks/resources, then finish. Do not automatically proceed to remaining resources, other stacks, or scenario tests.
 
-Follow [observed-values](observed-values.md) for current identifier collection/synchronization regardless of attempt outcome, and [task-contract](task-contract.md) and [loop-engineering](loop-engineering.md) for task finish.
+Follow [observed-values](observed-values.md) for current identifier collection/synchronization regardless of attempt outcome, and [task-contract](task-contract.md), [Validation policy](loop-engineering.md#validation-policy), [Validation scope](loop-engineering.md#validation-scope), and [Infrastructure task completion](loop-engineering.md#infrastructure-task-completion) for task finish. When a loop is required, follow [Local loop](loop-engineering.md#local-loop) and its conditional reads; retain the applicable phase-specific CloudFormation checks above.
 
 ## S3 deployment artifacts
 

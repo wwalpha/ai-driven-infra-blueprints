@@ -24,6 +24,8 @@ enc = tiktoken.get_encoding("o200k_base")
 
 
 def sec(s, title):
+    if title == "<entire file>":
+        return 0, len(s)
     m = re.search(r"^" + r"(#{2,3}) " + re.escape(title) + r"\s*$", s, re.M)
     assert m, title
     n = re.search(r"^#{1," + str(len(m[1])) + r"} ", s[m.end() :], re.M)
@@ -68,13 +70,46 @@ print(
 )
 for name, (a, b) in cases.items():
     print(name, calc(old, a), calc(new, b), "; ".join(a), "; ".join(b), sep=" | ")
+
+
+# Terraform and CloudFormation have their own rule-entry references. Parse those
+# references from each revision rather than assuming that an anchor is selected.
+def entry_references(source):
+    targets = re.findall(r"\[[^]]+\]\(loop-engineering\.md(?:#([a-z0-9-]+))?\)", source)
+    names = {
+        "validation-policy": P1,
+        "local-loop": L,
+        "local-loop-execution": E,
+        "change-validation-and-full-model-validation": C,
+        "framework-regression": F,
+        "windows-full-regression-input-guard": W,
+        "infrastructure-task-completion": "Infrastructure task completion",
+        "validation-scope": "Validation scope",
+    }
+    return [names[a] if a else "<entire file>" for a in targets]
+
+
+for engine in ("terraform", "cloudformation"):
+    path = f"framework/rules/{engine}.md"
+    previous = subprocess.check_output(
+        ["git", "show", base + ":" + path], text=True, encoding="utf-8"
+    )
+    current = Path(path).read_text(encoding="utf-8")
+    old_refs, new_refs = entry_references(previous), entry_references(current)
+    print(f"{engine} entry references | before {old_refs} | after {new_refs}")
+    # Conditional instructions still require human/agent scenario selection; this
+    # reports entry-linked content and does not infer every downstream read.
+    print(
+        f"{engine} entry-linked sum/unique/overlap/sections | before {calc(old, old_refs)} | after {calc(new, new_refs)}"
+    )
+
 print("Entire document tokens:", len(enc.encode(old)), len(enc.encode(new)))
 
 print(
     "Scope: only explicitly modeled loop-engineering.md reads, not total prompt or billing."
 )
 print(
-    "Full-document references in cloudformation.md and terraform.md are excluded; when applicable they independently require the entire file."
+    "Entry-linked measurements are separate from the scenario rows; conditional downstream reads and the combined full prompt are not inferred."
 )
 print(
     "Other mandatory rules, prompts, Skills and any repeated reads are excluded; sums model rereading, unique counts do not assume it."

@@ -98,10 +98,104 @@ def check_routes_and_selection():
         assert phrase in regression
 
 
+def require_routing_contract(local, policy, regression):
+    # Check the actual natural-language directive and its target together; a valid
+    # link elsewhere in the section cannot rescue a negated or inverted directive.
+    local = " ".join(local.split())
+    policy = " ".join(policy.split())
+    regression = " ".join(regression.split())
+    directives = (
+        (
+            local,
+            "If a loop is required, read [Local loop execution](loop-engineering.md#local-loop-execution)",
+        ),
+        (
+            local,
+            "for Model changes also read [Change Validation and Full Model Validation](loop-engineering.md#change-validation-and-full-model-validation)",
+        ),
+        (
+            local,
+            "If Framework regression applies, read [Framework regression](loop-engineering.md#framework-regression)",
+        ),
+        (
+            local,
+            "When the OS is Windows and the run uses `full` or `--all`, read [Windows full regression input guard](loop-engineering.md#windows-full-regression-input-guard)",
+        ),
+        (
+            policy,
+            "When a loop is required, read [Local loop](loop-engineering.md#local-loop) and its conditional mandatory reads",
+        ),
+        (
+            regression,
+            "When the OS is Windows and the run uses `full` or `--all`, read [Windows full regression input guard](loop-engineering.md#windows-full-regression-input-guard)",
+        ),
+        (policy, "Unknown impact | Stop for missing dependency evidence"),
+        (
+            policy,
+            "Markdown, Skill or Prompt text only | `git diff --check`, diff review and necessary reference/description checks; no local loop or regression",
+        ),
+    )
+    for text, directive in directives:
+        assert directive in text, directive
+    assert "If classification, OS or execution form is uncertain" in local
+    assert "if it cannot be resolved, stop" in local
+    assert "If OS or execution form is uncertain" in regression
+    assert "otherwise stop" in regression
+
+
+def check_conditional_read_mutations():
+    local = section("Local loop")
+    policy = section("Validation policy")
+    regression = section("Framework regression")
+    require_routing_contract(local, policy, regression)
+    # Exact reviewer reproductions preserve the links but invert their instructions.
+    for before, after in (
+        ("If a loop is required, read", "If a loop is required, do not read"),
+        ("for Model changes also read", "for Model changes also do not read"),
+        (
+            "If Framework regression applies, read",
+            "If Framework regression applies, do not read",
+        ),
+        ("If a loop is required, read", "If a loop is not required, read"),
+        ("for Model changes also read", "for non-Model changes also read"),
+        (
+            "If Framework regression applies, read",
+            "If Framework regression does not apply, read",
+        ),
+        (
+            "When the OS is Windows and the run uses `full` or `--all`, read",
+            "When the OS is not Windows and the run uses `full` or `--all`, read",
+        ),
+    ):
+        assert before in local
+        mutated = local.replace(before, after, 1)
+        with pytest.raises(AssertionError):
+            require_routing_contract(mutated, policy, regression)
+    for before, after in (
+        ("When a loop is required, read", "When a loop is not required, read"),
+        (
+            "Unknown impact | Stop for missing dependency evidence",
+            "Unknown impact | Continue without evidence",
+        ),
+    ):
+        assert before in policy
+        with pytest.raises(AssertionError):
+            require_routing_contract(
+                local, policy.replace(before, after, 1), regression
+            )
+    before = "When the OS is Windows and the run uses `full` or `--all`, read"
+    assert before in regression
+    with pytest.raises(AssertionError):
+        require_routing_contract(
+            local, policy, regression.replace(before, "For `--all`, read", 1)
+        )
+
+
 def check_representative_routes():
     local = section("Local loop")
     policy = section("Validation policy")
     regression = section("Framework regression")
+    require_routing_contract(local, policy, regression)
     rule = RULE.resolve()
     task = (ROOT / "framework/rules/task-contract.md").resolve()
     require_anchors(
@@ -182,6 +276,43 @@ def check_representative_routes():
         damaged = local.replace(f"task-contract.md#{anchor}", "task-contract.md")
         with pytest.raises(AssertionError):
             require_anchors(damaged, task, {anchor})
+
+
+def require_engine_entry(source, text):
+    document = " ".join(text.split())
+    directive = "When a loop is required, follow [Local loop](loop-engineering.md#local-loop) and its conditional reads"
+    assert directive in document
+    found = rule_readings(ROOT, source, text)[RULE.resolve()]
+    assert set(found["sections"]) == {
+        "validation-policy",
+        "validation-scope",
+        "infrastructure-task-completion",
+        "local-loop",
+    }, found["sections"]
+    assert "human password input" not in found["text"]
+    assert "retain the applicable phase-specific" in document
+
+
+def check_engine_entry_routes():
+    for engine in ("terraform", "cloudformation"):
+        source = ROOT / f"framework/rules/{engine}.md"
+        text = source.read_text(encoding="utf-8")
+        require_engine_entry(source, text)
+        for original, replacement in (
+            (
+                "When a loop is required, follow",
+                "When a loop is required, do not follow",
+            ),
+            ("When a loop is required, follow", "When a loop is not required, follow"),
+            ("loop-engineering.md#validation-scope", "loop-engineering.md"),
+            (
+                "loop-engineering.md#infrastructure-task-completion",
+                "loop-engineering.md#missing-section",
+            ),
+        ):
+            assert original in text
+            with pytest.raises((AssertionError, ValueError)):
+                require_engine_entry(source, text.replace(original, replacement, 1))
 
 
 def check_incoming_anchors():
