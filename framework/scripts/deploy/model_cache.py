@@ -4,12 +4,13 @@ import hashlib
 import os
 from pathlib import Path
 from threading import RLock
-from types import MappingProxyType
 
 import model.sources as sources
 from model.dependency_index import logical_models, revision, verify_snapshot
 from utils.input_cache import input_recorder
 from utils.source_reads import FileReads
+
+from model import rebase_snapshot, update_observed_snapshot
 
 
 def hashes(contents, root):
@@ -122,34 +123,7 @@ class RunModels(FileReads):
         return projected
 
     def rebased(self, snapshot, root):
-        if root == self.root:
-            return snapshot
-        result = {}
-        for field in ("documents", "files", "dependencies"):
-            result[field] = MappingProxyType(
-                {
-                    root / p.relative_to(self.root)
-                    if p.is_relative_to(self.root)
-                    else p: value
-                    for p, value in getattr(snapshot, field).items()
-                }
-            )
-        result["locations"] = MappingProxyType(
-            {
-                key: (root / path.relative_to(self.root), line)
-                for key, (path, line) in snapshot.locations.items()
-            }
-        )
-        result["parts"] = tuple(root / p.relative_to(self.root) for p in snapshot.parts)
-        return snapshot._replace(
-            scope=sources.Scope(
-                root,
-                snapshot.scope.environment,
-                snapshot.scope.target,
-                snapshot.scope.service,
-            ),
-            **result,
-        )
+        return rebase_snapshot(snapshot, self.root, root)
 
     def source(self, scope, reads):
         with self.lock, sources.model_session(self):
@@ -203,18 +177,7 @@ class RunModels(FileReads):
                 self.reference_revision = object()
                 self.checks.clear()
             for key, snapshot in tuple(self.models.items()):
-                candidate = sources.observed_snapshot(snapshot, outputs)
-                dependencies = {
-                    **candidate.dependencies,
-                    **{
-                        p: t.encode("utf-8")
-                        for p, t in outputs.items()
-                        if p in candidate.dependencies
-                    },
-                }
-                self.models[key] = candidate._replace(
-                    dependencies=MappingProxyType(dependencies)
-                )
+                self.models[key] = update_observed_snapshot(snapshot, outputs)
                 if self.index_checks.get(key) is snapshot.dependencies:
                     self.index_checks[key] = self.models[key].dependencies
             for path, text in outputs.items():

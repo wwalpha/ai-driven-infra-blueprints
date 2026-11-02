@@ -15,7 +15,7 @@ from model.reference_values import ProducerValues
 from utils.reference_contracts import contract, reference_attribute
 from validation.findings import Findings
 
-from model import change_plan, references
+from model import change_plan, reference_snapshot, references
 
 BROKEN_REFERENCES = {
     "producer Model is absent",
@@ -30,29 +30,7 @@ BROKEN_REFERENCES = {
 
 def reference_inputs(snapshot, keys):
     """Keep receiving context and only the selected reference-bearing values."""
-    values = snapshot.authoritative
-    selected_rows = {
-        key.split(".")[2] for key in keys if key.startswith("desired.row.")
-    }
-    selected = {
-        key: value
-        for key, value in values.items()
-        if (
-            not key.startswith(("desired.row.", "observed.row.", "desired.reference."))
-            and not key.endswith(".parentReference")
-            or key.startswith(("desired.row.", "observed.row."))
-            and key.split(".")[2] in selected_rows
-            or key in keys
-        )
-    }
-    for identity, spec in entries(values, "desired.reference."):
-        if spec.get("consumerKey") in keys:
-            selected.update(
-                (key, value)
-                for key, value in values.items()
-                if key.startswith(f"desired.reference.{identity}.")
-            )
-    return snapshot._replace(authoritative=selected)
+    return reference_snapshot(snapshot, keys)
 
 
 def check_references(snapshot, keys, reads, findings):

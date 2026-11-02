@@ -36,3 +36,21 @@ def __getattr__(name):
     if name == "ModelView":
         return module("model/view.py", "model.view").ModelView
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def rebase_snapshot(snapshot, source_root, root):
+    return module("model/snapshot_ops.py", "model.snapshot_ops").rebase_snapshot(
+        snapshot, source_root, root
+    )
+
+
+def reference_snapshot(snapshot, keys):
+    return module("model/snapshot_ops.py", "model.snapshot_ops").reference_snapshot(
+        snapshot, keys
+    )
+
+
+def update_observed_snapshot(snapshot, outputs):
+    return module(
+        "model/snapshot_ops.py", "model.snapshot_ops"
+    ).update_observed_snapshot(snapshot, outputs)
