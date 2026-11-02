@@ -5,6 +5,7 @@ import re
 import task_contract_core as tasks
 import worktree_state
 
+from utils.project_targets import load_target_directory
 from utils.script_loader import module
 
 
@@ -34,10 +35,11 @@ def is_cli(text):
     return method == "cli"
 
 
-def partition(root, target):
-    if tasks.task_path(root, required=False) is None:
-        return None
-    text = tasks.task_snapshot(root, executable=False).text
+def partition(root, target, *, text=None):
+    if text is None:
+        if tasks.task_path(root, required=False) is None:
+            return None
+        text = tasks.task_snapshot(root, executable=False).text
     if not is_cli(text):
         return None
     account = target.get("awsExecutionAccountId", target.get("awsAccountId"))
@@ -57,6 +59,12 @@ def require_local_completion(root, snapshot, *, base=None):
     start, state = worktree_state.deploy_task_state(root, snapshot.name, required=True)
     if "deployIdentity" in state or "deployRepair" in state:
         raise ValueError("SDK-bound Tasks cannot switch to CLI completion")
+    if not snapshot.scope:
+        raise ValueError("CLI Deploy requires a scoped target")
+    for environment, directory in {(e, d) for e, d, _ in snapshot.scope}:
+        partition(
+            root, load_target_directory(root, environment, directory), text=snapshot.text
+        )
     wt = module("worktree_task.py", "worktree_task")
     verify_observed_outputs = module(
         "model/observed.py", "model.observed"

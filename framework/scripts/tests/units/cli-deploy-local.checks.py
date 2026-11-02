@@ -23,6 +23,7 @@ from model.sources import load_model
 from support.model_reference_fixtures import (
     FRAMEWORK,
     project,
+    project_configuration,
     reference,
     resource,
     save,
@@ -75,6 +76,7 @@ def check_explicit_method(method):
 @pytest.mark.parametrize("sdk_bound", [False, True])
 @pytest.mark.parametrize("validation_failure", [False, True])
 def check_completion_uses_local_validator(tmp_path, sdk_bound, validation_failure):
+    project_configuration(tmp_path)
     text = contract()
     path = tmp_path / NAME
     path.parent.mkdir()
@@ -145,6 +147,61 @@ def check_sdk_completion_route_is_unchanged(tmp_path):
         require.assert_called_once_with(tmp_path, snapshot)
 
 
+@pytest.mark.parametrize("publication", [False, True])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("account", None),
+        ("account", "999999999999"),
+        ("region", None),
+        ("region", "us-east-1"),
+        ("partition", None),
+        ("partition", "AWS!"),
+    ],
+)
+def check_context_required_without_model_references(tmp_path, publication, field, value):
+    project_configuration(tmp_path)
+    original = {
+        "account": "123456789012",
+        "region": "ap-northeast-1",
+        "partition": "aws",
+    }[field]
+    line = f"- CLI AWS {field}: `{original}`\n"
+    text = contract().replace(line, f"- CLI AWS {field}: `{value}`\n" if value else "")
+    if publication:
+        text = text.replace("status: `running`", "status: `completed`")
+    path = tmp_path / NAME
+    path.parent.mkdir()
+    path.write_text(text, encoding="utf-8")
+    snapshot = SimpleNamespace(
+        name=NAME,
+        text=text,
+        status="completed" if publication else "running",
+        scope=frozenset({("qa", "team", "iam")}),
+    )
+    with (
+        patch.object(runtime, "task_snapshot", return_value=snapshot),
+        patch("task_contract_core.task_snapshot", return_value=snapshot),
+        patch.object(runtime, "task_reads", return_value=nullcontext()),
+        patch("worktree_state.deploy_task_state", return_value=("start", {})),
+        patch.object(wt, "paths", return_value=set()),
+        patch.object(wt, "changed_paths", return_value=set()),
+        patch.object(
+            runtime, "Validator", side_effect=AssertionError("validation should not run")
+        ),
+        patch(
+            "validation.runner.Validator",
+            side_effect=AssertionError("publication should not run"),
+        ),
+    ):
+        with pytest.raises(ValueError, match="CLI AWS"):
+            if publication:
+                cli.validate_candidate(tmp_path, NAME, "latest-base")
+            else:
+                runtime.complete(tmp_path, NAME)
+    assert path.read_text(encoding="utf-8") == text
+
+
 @pytest.mark.parametrize("wrong_context", [None, "account", "region", "partition"])
 def check_reference_projection_without_sdk(tmp_path, wrong_context):
     with mapping_alias(FRAMEWORK, tmp_path):
@@ -204,6 +261,7 @@ def check_reference_projection_without_sdk(tmp_path, wrong_context):
 
 @pytest.mark.parametrize("failure", [False, True])
 def check_publication_validates_actual_latest_base(tmp_path, failure):
+    project_configuration(tmp_path)
     source = tmp_path / "model/qa/team/iam.properties"
     source.parent.mkdir(parents=True)
     source.write_text(
@@ -241,6 +299,7 @@ def check_publication_validates_actual_latest_base(tmp_path, failure):
 
 @pytest.mark.parametrize("change", ["observed", "desired", "new", "project"])
 def check_cli_completion_preserves_authority(tmp_path, change):
+    project_configuration(tmp_path)
     path = tmp_path / "model/qa/team/iam.properties"
     path.parent.mkdir(parents=True)
     before = (
@@ -255,7 +314,9 @@ def check_cli_completion_preserves_authority(tmp_path, change):
     paths = (
         {"project.json"} if change == "project" else {"model/qa/team/iam.properties"}
     )
-    snapshot = SimpleNamespace(text=contract(), name=NAME)
+    snapshot = SimpleNamespace(
+        text=contract(), name=NAME, scope=frozenset({("qa", "team", "iam")})
+    )
     with (
         patch("worktree_state.deploy_task_state", return_value=("start", {})),
         patch.object(wt, "paths", return_value=set()),

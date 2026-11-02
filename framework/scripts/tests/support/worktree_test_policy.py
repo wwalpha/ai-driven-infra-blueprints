@@ -11,6 +11,7 @@ WORKTREE_CASES = {
         "check_explicit_method",
         "check_completion_uses_local_validator",
         "check_sdk_completion_route_is_unchanged",
+        "check_context_required_without_model_references",
         "check_reference_projection_without_sdk",
         "check_publication_validates_actual_latest_base",
         "check_cli_completion_preserves_authority",
