@@ -9,7 +9,7 @@ import os
 import re
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -365,7 +365,14 @@ def _publish_transaction(
     journal.unlink()
 
 
-def publish_generated_views(root, output, obsolete, journal, *, originals):
+def publish_generated_views(
+    root: Path,
+    output: Mapping[Path, str],
+    obsolete: Collection[Path],
+    journal: Path | None,
+    *,
+    originals: Mapping[Path, bytes | None],
+) -> None:
     """Publish only generated designs using the caller's locked, verified plan."""
     paths = set(output) | set(obsolete)
     if set(originals) != paths:

@@ -356,10 +356,9 @@ def check_publication_preserves_contract(tmp_path, monkeypatch, state):
     monkeypatch.delenv(tasks.SELECTOR)
     standalone = tmp_path / "standalone"
     standalone.mkdir()
-    publish_generation(
-        generation_plan(standalone, {standalone / "file.txt": "without contract"})
-    )
-    assert (standalone / "file.txt").read_text() == "without contract"
+    view = standalone / "docs/designs/dev/team/iam.md"
+    publish_generation(generation_plan(standalone, {view: "without contract"}))
+    assert view.read_text() == "without contract"
 
 
 def check_source_guard_keeps_plan_consistency(tmp_path, monkeypatch):
