@@ -2425,5 +2425,76 @@ def check_parallel_repair_dispatch(tmp_path):
         assert all("--baseline" in call.args[0] for call in launch.call_args_list[1:])
 
 
+def check_unit_timing_parallel_receipts_and_summary(tmp_path):
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    source_conftest = Path(run_it.__file__).parent / "conftest.py"
+    (tests / "conftest.py").write_text(
+        "import importlib.util\n"
+        f"spec = importlib.util.spec_from_file_location('timing_fixture', {str(source_conftest)!r})\n"
+        "fixture = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(fixture)\n"
+        "def pytest_configure(config):\n"
+        "    config.pluginmanager.register(fixture.UnitTiming(config))\n",
+        encoding="utf-8",
+    )
+    (tests / "pytest.ini").write_text(
+        "[pytest]\npython_functions = check_* test_*\naddopts = --import-mode=importlib\n",
+        encoding="utf-8",
+    )
+    support = str(Path(run_it.__file__).parent)
+    entry = (
+        "import sys\n"
+        f"sys.path.insert(0, {support!r})\n"
+        "from support.pytest_cli import run\n"
+        "PYTEST_GROUP_SAFE = True\n"
+    )
+    grouped = []
+    for name in ("a", "b"):
+        path = tests / f"{name}.checks.py"
+        path.write_text(
+            entry
+            + "import pytest\n"
+            + "@pytest.mark.parametrize('value', [0, 1])\n"
+            + "def check_case(value): assert value >= 0\n"
+            + "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+            encoding="utf-8",
+        )
+        grouped.append(path)
+    isolated = tests / "isolated.checks.py"
+    isolated.write_text(
+        entry
+        + "import pytest\n"
+        + "def check_fail(): assert False\n"
+        + "def check_skip(): pytest.skip('reason')\n"
+        + "if __name__ == '__main__': raise SystemExit(run(__file__))\n",
+        encoding="utf-8",
+    )
+    direct = tests / "direct.checks.py"
+    direct.write_text("assert True\n", encoding="utf-8")
+    commands = unit_commands([*grouped, isolated, direct])
+    environment = MODULE.utf8_environment()
+    environment["BLUEPRINT_UT_TIMING_DIR"] = str(tmp_path)
+    assert MODULE.run_commands(tmp_path, commands, environment, tmp_path, jobs=2) == 1
+    timing = run_it.unit_timing(tmp_path, commands, 4.5)
+    assert not timing["errors"]
+    assert len(timing["cases"]) == 6
+    assert {case["status"] for case in timing["cases"]} == {"PASS", "FAIL", "SKIP"}
+    assert any("[0]" in case["nodeid"] for case in timing["cases"])
+    assert all({"setup", "teardown"} <= set(case["phases"]) for case in timing["cases"])
+    assert (
+        next(row for row in timing["files"] if row["path"] == str(direct))["process"]
+        is not None
+    )
+    summary = io.StringIO()
+    run_it.display_unit_timing(timing, summary)
+    assert "UT total wall time: 4.500s" in summary.getvalue()
+    assert "Slowest UT Cases" in summary.getvalue()
+    assert "All UT cases" in summary.getvalue()
+    receipt = next(tmp_path.glob("pytest-*.json"))
+    receipt.write_text("invalid", encoding="utf-8")
+    assert run_it.unit_timing(tmp_path, commands, 4.5)["errors"]
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest_run(__file__))

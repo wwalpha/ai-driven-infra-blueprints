@@ -1,7 +1,9 @@
 """Keep concurrent Pilot invocations from sharing pytest cleanup state."""
 
+import json
 import os
 import sys
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -27,10 +29,52 @@ from support.worktree_test_policy import (
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
     sys.addaudithook(audit)
+    if os.environ.get("BLUEPRINT_UT_TIMING_DIR"):
+        config.pluginmanager.register(UnitTiming(config))
     if config.option.basetemp is None:
         directory = tempfile.TemporaryDirectory(prefix="model-design-pytest-")
         config.option.basetemp = directory.name
         config.add_cleanup(directory.cleanup)
+
+
+class UnitTiming:
+    def __init__(self, config):
+        self.directory = Path(os.environ["BLUEPRINT_UT_TIMING_DIR"])
+        self.cases = {}
+        self.paths = {}
+
+    def pytest_collection_finish(self, session):
+        self.paths = {item.nodeid: str(item.path.resolve()) for item in session.items}
+
+    def pytest_runtest_logreport(self, report):
+        case = self.cases.setdefault(
+            report.nodeid,
+            {
+                "nodeid": report.nodeid,
+                "path": self.paths.get(report.nodeid),
+                "phases": {},
+                "status": "INCOMPLETE",
+            },
+        )
+        case["phases"][report.when] = report.duration
+        if report.failed:
+            case["status"] = "FAIL"
+        elif report.skipped and case["status"] != "FAIL":
+            case["status"] = "SKIP"
+        elif report.when == "call" and report.passed and case["status"] == "INCOMPLETE":
+            case["status"] = "PASS"
+
+    def pytest_sessionfinish(self, session, exitstatus):
+        path = self.directory / f"pytest-{os.getpid()}-{uuid.uuid4().hex}.json"
+        try:
+            path.write_text(
+                json.dumps(
+                    {"collected": list(self.paths), "cases": list(self.cases.values())}
+                ),
+                encoding="utf-8",
+            )
+        except OSError as error:
+            print(f"UT timing write failed: {error}", file=sys.stderr)
 
 
 @pytest.fixture

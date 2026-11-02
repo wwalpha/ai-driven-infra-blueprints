@@ -622,6 +622,186 @@ def run_all(tests, summary, baseline=False):
     return result
 
 
+def unit_timing(directory, commands, wall):
+    """Read completed child receipts before the temporary directory is removed."""
+    errors, files, cases = [], {}, []
+    try:
+        events = [
+            json.loads(line)
+            for line in (directory / "timing.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        starts = [event for event in events if event["event"] == "step_start"]
+        running = [event for event in events if event["event"] == "step_running"]
+        ends = {
+            event["output"]: event for event in events if event["event"] == "step_end"
+        }
+        if len(starts) != len(commands) or len(running) != len(starts):
+            raise ValueError("incomplete process timing records")
+        receipts = {}
+        for receipt in directory.glob("pytest-*.json"):
+            pid = int(receipt.name.split("-")[1])
+            data = json.loads(receipt.read_text(encoding="utf-8"))
+            if (
+                not isinstance(data, dict)
+                or not isinstance(data.get("cases"), list)
+                or not isinstance(data.get("collected"), list)
+            ):
+                raise ValueError(f"invalid receipt: {receipt.name}")
+            if any(not isinstance(node, str) for node in data["collected"]) or any(
+                not isinstance(case, dict) for case in data["cases"]
+            ):
+                raise ValueError(f"invalid receipt: {receipt.name}")
+            if set(data["collected"]) != {case.get("nodeid") for case in data["cases"]}:
+                errors.append(f"missing or unexpected pytest cases: {receipt.name}")
+            receipts.setdefault(pid, []).extend(data["cases"])
+        seen = set()
+        for command, start, child in zip(commands, starts, running, strict=True):
+            if start["command"] != command or start["output"] not in ends:
+                raise ValueError("mismatched process timing records")
+            end = ends[start["output"]]
+            grouped = command[2:3] == ["--group"]
+            paths = command[3:] if grouped else [command[1]]
+            paths = [str(Path(path).resolve()) for path in paths]
+            data = receipts.pop(child["pid"], [])
+            for path in paths:
+                if path in files:
+                    raise ValueError(f"duplicate file: {path}")
+                files[path] = {
+                    "path": path,
+                    "cases": [],
+                    "process": None if grouped else end["duration_seconds"],
+                    "status": "PASS" if end["status"] == "pass" else "FAIL",
+                }
+            for case in data:
+                if (
+                    not isinstance(case, dict)
+                    or case.get("path") not in files
+                    or case["path"] not in paths
+                ):
+                    raise ValueError("invalid case owner")
+                nodeid, phases, status = (
+                    case.get("nodeid"),
+                    case.get("phases"),
+                    case.get("status"),
+                )
+                if (
+                    not isinstance(nodeid, str)
+                    or nodeid in seen
+                    or not isinstance(phases, dict)
+                    or not phases
+                    or any(
+                        key not in ("setup", "call", "teardown")
+                        or type(value) not in (int, float)
+                        or value < 0
+                        for key, value in phases.items()
+                    )
+                    or status not in ("PASS", "FAIL", "SKIP", "INCOMPLETE")
+                ):
+                    raise ValueError(f"invalid or duplicate case: {nodeid}")
+                seen.add(nodeid)
+                if "teardown" not in phases or status == "INCOMPLETE":
+                    errors.append(f"incomplete pytest timing: {nodeid}")
+                case["total"] = sum(phases.values())
+                cases.append(case)
+                files[case["path"]]["cases"].append(case)
+            if grouped:
+                for path in paths:
+                    statuses = {case["status"] for case in files[path]["cases"]}
+                    if not statuses or "INCOMPLETE" in statuses:
+                        files[path]["status"] = "INCOMPLETE"
+                        errors.append(
+                            f"missing/incomplete grouped pytest timing: {path}"
+                        )
+                    elif "FAIL" in statuses:
+                        files[path]["status"] = "FAIL"
+                    elif statuses == {"SKIP"}:
+                        files[path]["status"] = "SKIP"
+                    else:
+                        files[path]["status"] = "PASS"
+            if not grouped and not data:
+                source = Path(paths[0]).read_text(encoding="utf-8")
+                if (
+                    "pytest.main(" in source
+                    or "support.pytest_cli import run" in source
+                ):
+                    errors.append(f"missing pytest timing: {paths[0]}")
+        # Receipts from subprocesses started by a test are not runner children.
+    except (OSError, ValueError, KeyError, TypeError, IndexError) as error:
+        errors.append(f"missing/invalid UT timing data: {error}")
+    return {
+        "wall": wall,
+        "files": list(files.values()),
+        "cases": cases,
+        "errors": errors,
+    }
+
+
+def display_unit_timing(result, summary):
+    lines = [
+        "### Framework UT Timing",
+        "",
+        f"UT total wall time: {result['wall']:.3f}s",
+    ]
+    counts = Counter(case["status"] for case in result["cases"])
+    lines.append(
+        f"Cases: PASS {counts['PASS']}; FAIL {counts['FAIL']}; SKIP {counts['SKIP']}; INCOMPLETE {counts['INCOMPLETE']}"
+    )
+    lines.extend(
+        [
+            "",
+            "| UT file | Result | Case sum (s) | Process (s) |",
+            "| --- | --- | ---: | ---: |",
+        ]
+    )
+    ordered = sorted(
+        result["files"],
+        key=lambda row: sum(case["total"] for case in row["cases"])
+        if row["cases"]
+        else row["process"] or 0,
+        reverse=True,
+    )
+    for row in ordered:
+        duration = sum(case["total"] for case in row["cases"])
+        case_time = f"{duration:.3f}" if row["cases"] else "—"
+        process = f"{row['process']:.3f}" if row["process"] is not None else "—"
+        status = row["status"] if row["cases"] else row["status"] + " (process only)"
+        lines.append(f"| {row['path']} | {status} | {case_time} | {process} |")
+    cases = sorted(result["cases"], key=lambda case: case["total"], reverse=True)
+    lines.extend(["", "Slowest UT Cases (top 20):"])
+    lines.extend(
+        f"- {case['status']} {case['nodeid']}: {case['total']:.3f}s (call: {format(case['phases']['call'], '.3f') + 's' if 'call' in case['phases'] else '—'})"
+        for case in cases[:20]
+    )
+    lines.extend(
+        [
+            "",
+            "<details><summary>All UT cases (setup / call / teardown / total seconds)</summary>",
+            "",
+            "| Case | Result | Setup | Call | Teardown | Total |",
+            "| --- | --- | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for case in cases:
+        phases = [
+            f"{case['phases'][key]:.3f}" if key in case["phases"] else "—"
+            for key in ("setup", "call", "teardown")
+        ]
+        lines.append(
+            f"| {case['nodeid']} | {case['status']} | {' | '.join(phases)} | {case['total']:.3f} |"
+        )
+    lines.extend(["", "</details>"])
+    lines.extend(f"UT timing ERROR: {error}" for error in result["errors"])
+    report = "\n".join(lines) + "\n"
+    print(report, flush=True)
+    if summary is not None:
+        try:
+            summary.write(report)
+        except OSError as error:
+            print(f"UT timing summary write failed: {error}", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-root", default="")
@@ -683,13 +863,25 @@ def main():
     units, reason = _imports_validation_loop.select_checks(TESTS.parents[2])
     print(f"{reason}: {len(units)} UT suites", flush=True)
     with tempfile.TemporaryDirectory(prefix="framework-ut-") as directory:
+        commands = unit_commands(units)
+        environment = _imports_validation_loop.utf8_environment()
+        environment["BLUEPRINT_UT_TIMING_DIR"] = directory
+        started = time.monotonic()
         unit_status = _imports_validation_loop.run_commands(
-            TESTS.parents[2],
-            unit_commands(units),
-            _imports_validation_loop.utf8_environment(),
-            Path(directory),
-            jobs=2,
+            TESTS.parents[2], commands, environment, Path(directory), jobs=2
         )
+        timing = unit_timing(Path(directory), commands, time.monotonic() - started)
+        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+        try:
+            with (
+                open(summary_path, "a", encoding="utf-8")
+                if summary_path
+                else nullcontext(None) as summary
+            ):
+                display_unit_timing(timing, summary)
+        except OSError as error:
+            print(f"UT timing summary open failed: {error}", file=sys.stderr)
+            display_unit_timing(timing, None)
     if args.ut_only:
         return int(bool(unit_status))
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
