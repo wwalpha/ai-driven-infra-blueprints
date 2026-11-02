@@ -14,6 +14,8 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 ## Local loop
 
+Read [Validation policy](#validation-policy) to classify the work. If a loop is required, read [Local loop execution](#local-loop-execution); for Model changes also read [Change Validation and Full Model Validation](#change-validation-and-full-model-validation). If Framework regression applies, read [Framework regression](#framework-regression). For Windows Full or `--all`, read [Windows full regression input guard](#windows-full-regression-input-guard). If classification, OS or execution form is uncertain, resolve it before omitting a required section; if it cannot be resolved, stop.
+
 The OS-independent entrypoint is `framework/scripts/blueprint-loop.py`. In command examples, `python` means an available Python 3 launcher; use `py -3` on Windows when only Python Launcher is available, or `python3` on Unix-like OSes when only `python3` is available.
 
 In managed worktrees, replace the launcher in Python examples with
@@ -25,7 +27,7 @@ checks/pytest. Failed/stale setup must be recovered
 with `worktree_task.py setup --task-id <task-id>` before task execution. Lifecycle helpers
 use the ordinary launcher from a surviving checkout.
 
-### Validation policy
+## Validation policy
 
 This section is the single authority for development checks and final validation across
 AGENTS, Skills, Prompts and task completion sections. Their local-loop instructions apply
@@ -36,7 +38,7 @@ mixed change. Task contracts, Acceptance requirements, and
 phase-specific schema, generation, IaC, AWS and approval checks remain mandatory where
 applicable; a lightweight documentation check is not evidence that these runtime checks ran.
 Generated design Markdown/JSON is validated with its authoritative Model inputs, not
-classified as an independent documentation edit.
+classified as an independent documentation edit. When a loop is required, read [Local loop](#local-loop) and [Local loop execution](#local-loop-execution); for Model changes read [Change Validation and Full Model Validation](#change-validation-and-full-model-validation). When regression applies read [Framework regression](#framework-regression); for Windows Full or `--all` read [Windows full regression input guard](#windows-full-regression-input-guard). If classification, OS or execution form is uncertain, resolve it before omitting a required section; otherwise stop.
 
 | Change | Required final validation |
 | --- | --- |
@@ -90,9 +92,9 @@ text-only phases use lightweight checks. Do not start an unrequested phase or cr
 another task merely because validation succeeds. Report executed checks, omitted checks
 and classification reasons in the completion response; add no permanent reports/logs.
 
-### Change Validation and Full Model Validation
+## Change Validation and Full Model Validation
 
-Model 更新時は **Change Validation のみ**実行する。Full Validation は Issue Scan や独立した明示的全量検証で使用し、更新の停止判定へ混入させない。変更した Resource / Property / Link と、それらが使用・破壊する参照契約を検証し、無関係な既存エラーを更新の停止理由にしない。読み取り依存先、検証対象、生成対象、Task の書き込み権限を区別する。
+For Model updates use **Change Validation only**. Use Full Validation for Issue Scan or independent explicit full validation, not the update stop decision. Validate changed Resources, Properties and Links and their affected reference contracts; unrelated existing errors do not block the update. Distinguish read dependencies, validation targets, generation targets and Task write authority.
 
 `validation.change` is the update/save/Task/final-candidate entrypoint. The transient
 `model.change_plan` compares only changed service snapshots by logicalId and formal
@@ -131,7 +133,7 @@ Model save and partial View synchronization have separate
 results; incomplete generation does not complete a Task. Snapshot, publication-lock,
 input-comparison, atomic-save/rollback and Import/Deploy authority boundaries remain.
 
-### Local loop execution
+## Local loop execution
 
 For ordinary Model edits use one command:
 
@@ -139,22 +141,17 @@ For ordinary Model edits use one command:
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
 ```
 
-Explicit `--write` is passed to the leading validator. It evaluates common preconditions
-once, prepares all selected targets in one stage, projects each candidate once using
-retained expanded Models, compares consumed input bytes/file sets/the
-selected contract once under the publication lock, and saves only changed projected bytes.
-Unresolved Issues do not block this generation/publication. Preserve each successful
-service's outputs alongside failed services' saved artifacts. Report only technical
-generation failures; pending/unresolved Model references do not fail ordinary View
-projection. Deploy independently retains strict readiness checks. Common integrity
-failures still stop all saves; Model/IaC checks remain required.
-It then refreshes Git changed paths once for output-dependent Task conditions and
-`changed`/`exists`/`absent` Acceptance. Explicit content Acceptance checks run
-independently after successful publication
-and never roll back successful Views for quality findings. Unknown check IDs
-or undefined execution stages fail before saving. Ordinary generation performs no
-post-save quality readback or regeneration. An I/O
-failure rolls back only that service; a retained recovery journal safely stops publication.
+Explicit `--write` passes generation to the leading validator. Under the publication lock,
+compare consumed inputs, file sets and selected contract before any save; changed inputs or
+common integrity failures stop all saves. Save only changed projected bytes. Unresolved
+Issues and pending references do not block ordinary View projection; Deploy retains strict
+readiness checks. Preserve successful services' outputs alongside failed services' artifacts;
+report technical generation failures. Model/IaC checks remain required. Output-dependent
+Acceptance checks use the final changed paths, and content Acceptance runs independently
+after publication without rolling back Views for quality findings. Unknown check IDs or
+undefined stages fail before saving. I/O failure rolls back only the affected service;
+a retained recovery journal stops publication. Generation does not perform post-save quality
+readback or regeneration.
 
 `--staged --write` and framework-only `--write` are rejected before Model discovery.
 `--mode full` does not expand generation scope. On a nonzero integrated validator exit,
@@ -259,46 +256,35 @@ only within the existing invocation input context (or an explicitly caller-owned
 outside that context). Cache instances inside the context share successful results; leaving
 it discards them, including when the same instance is used in a later invocation.
 
-Successful catalog/service results are held in memory, never loaded from or saved to
-persistent PASS files. There is no trusted complete Framework release identity; restricting
-reuse to one invocation prevents a Framework update between executions from reusing an old
-PASS without another Framework scan, Git/mtime check or substitute digest. The existing
-external cache-directory option remains an in-memory namespace and retains its path guard.
-Framework code and distributed definitions are immutable during ordinary Project execution;
-Framework development still uses its required checks and fresh providers for definition edits.
-Common inputs cover the mutable Project's `project.json`, `AGENTS.md`, `README.md` and
-`.agents/` file set. Distribution copies under a separate definitions/runtime root are not
-Project inputs. Generation records actual mutable Project bytes, kinds and file sets; it
-does not register/re-read immutable Framework files for change detection.
-Include filenames, file sets, SHA-256, Python/OS, target model entries/parts, Markdown/JSON,
-and referenced models/displays in the key. Read reference-target content only for
-invalidation decisions; do not add out-of-scope service schema validation. Do not decide
-by mtime alone. Issue scans and report-only Issue validation execute diagnostics without PASS-cache reuse or input-change guards; artifacts retain execution time and confirmed/unverified scope, with no input fingerprint.
+Successful catalog/service results are invocation-local, never persistent PASS files;
+the external cache-directory option remains an in-memory namespace with its path guard.
+Framework definitions are immutable during ordinary Project execution; definition edits
+require fresh relevant providers in Framework development. Include mutable Project and
+referenced inputs and file sets in invalidation; never rely on mtime alone. Reference-target
+reads for invalidation do not expand service quality scope. Issue scans and report-only
+Issue validation do not reuse PASS caches or apply input-change guards; retain execution
+time and confirmed/unverified scope in their artifacts, without an input fingerprint.
 
 For new inputs, changed contents, added/deleted files, missing cache entries, unknown dependencies, or symlinks, do not reuse successful results; revalidate within explicit scope. For ordinary Tasks, input changes during validation are FAIL; do not save that service's result. Issue scans do not stop for input changes and publish no PASS cache records. Run task contracts, Requirement/Acceptance, change scope, project topology, model part structure, scope-wide resource ownership/stack duplication, IaC/deploy safety checks, and Git diff checks every time. Do not infer scope from changed paths or fall back to out-of-scope overall validation. Caches do not replace current AWS values, change sets, plans, or account/region confirmation.
 
 `--fresh` disables successful-result reuse. `--mode full` and `--all` also validate fresh. Invocation-local Model rows and input/path reuse is used even in fresh runs and does not carry over to the next execution.
 
-Process-local AWS Mapping, SDK, Schema and Catalog utilities separately retain static
-definitions and full Mapping validation by exact provider/service and SDK, Schema,
-Catalog and validation lifetime. They are lazy and single-flight, independent of
-`input_scope`, Model inputs, diagnostics and PassCache. Explicit stage aliases use the
-surviving source root. Definition edits require a new process or fresh relevant providers;
-SDK factories and data-path configuration are fixed when constructing an SDK provider.
-Validation/adapter code changes require a new Mapping validation lifetime. Arbitrary
-documents passed to `catalog_properties` are always validated. Schema public catalogs
-isolate mutable per-resource views from the shared definitions.
+Definition edits require a new process or fresh relevant providers; validation/adapter
+code changes require a new Mapping validation lifetime. SDK factories and data-path
+configuration are fixed when constructing an SDK provider. Arbitrary documents passed to
+`catalog_properties` are validated; public schema views isolate mutable resource data.
 
 Display reused/executed service counts and include reused validation counts in successful counts.
 Do not terminate validation exceeding 60 seconds and call it PASS.
 
-Integrated write reuses current-run candidate results rather than service PassCache:
-never regenerate or read saved outputs to create a service cache. Catalog uses its
-Project key from retained common input bytes; retain a new Catalog PASS only
-after the single input comparison succeeds. `--fresh` disables retained PASS reuse, while
-current-run deduplication remains active.
+Integrated write reuses current-run candidate results, not service PassCache; never
+regenerate or read saved outputs to create a service cache. Retain Catalog PASS only after
+the input comparison succeeds. `--fresh` disables retained PASS reuse, not current-run
+deduplication.
 
 ## Framework regression
+
+For Windows Full or `--all`, read [Windows full regression input guard](#windows-full-regression-input-guard) before starting. If OS or execution form is uncertain, resolve it before omitting the guard; otherwise stop.
 
 Ordinary `task` / `local` loops, including staged snapshots, do not
 automatically run Framework regression for changed files or missing Validation scope.
@@ -337,19 +323,19 @@ unexecuted or failed CI is not completed validation. Configure the `Framework UT
 job as a required status check in GitHub branch protection/rulesets; repository files
 alone do not enable that setting.
 
-### Windows full regression input guard
+- When [Validation policy](#validation-policy) requires a scoped loop for design, implement, deploy, update, destroy, scenario/evidence, initialization or target migration, use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
+- Select final regression under [Validation policy](#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/tests/units/**/*.checks.py` and `units/**/test_*.py` through their existing Python script entrypoints with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Service parameter and typed service integration contracts run in CI; their split unit cases remain local. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
+- Task/local loops retain Git change discovery for Task boundaries and diff checks, but never use those paths to select Framework UT/IT. Framework changes remain subject to Task Contract and Allowed paths restrictions.
+- `--mode local` is also valid as the same scoped validation as `task`, except for the report-only issues post-save contract validation described above. Do not add a redundant task run. Explicit `--all` means overall validation plus all regression; scope `all` alone means overall Project validation without automatic Framework regression. `full` alone does not expand actual design scope. Repository-wide IaC checks remain enabled for explicit `full` / `--all`, not because Framework files changed.
+- For read-only loops, continue regression and diff checks even if the validator fails; integrated write failures stop follow-up checks as specified in [Local loop execution](#local-loop-execution). Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.
+- Retain existing mandatory CloudFormation deploy context, `aws cloudformation validate-template`, change set/change summary, delete/replacement checks, AWS account/region checks, and Terraform fmt/init/validate/plan/apply procedures according to each phase's rules/prompts. The loop does not replace actual IaC/deployment procedures or combine implement and deploy.
+
+## Windows full regression input guard
 
 - Windows full regression requires human password input before starting validation processes for explicit `full` / `--all` (including `test_*.py`). Scoped validation and regression narrowed to a subset by explicit mappings require no input. In staged validation, the snapshot runner uses the same guard. On Windows, stage the current runner/guard and reject dispatch through old entrypoints differing from workspace content.
 - The human runs `python -I -B framework/scripts/regression_guard.py --install` at repository root to register a salted PBKDF2-HMAC-SHA256 hash only in the single `.lock` at repo root. Do not use administrator privileges, ProgramData, separate helper installation, or ACL settings. Do not overwrite existing `.lock`.
 - Before each full regression, match input against that repository's `.lock`. For absent registration, invalid format, redirect, noninteractive input, mismatch, or canceled input, do not start validation processes or report PASS. Do not pass passwords through chat, arguments, environment variables, or logs or save unlock flags/tokens/authenticated state. Agents must not register/retrieve actual passwords or bypass guards.
 - `.lock` is local configuration, not a task artifact; exclude only repo-root `.lock` from validator changed task paths. Carry the same registration into staged snapshots; source `.lock` changes also make final results stale. Do not display actual password/hash registration values in completion reports or logs.
-
-- When [Validation policy](#validation-policy) requires a scoped loop for design, implement, deploy, update, destroy, scenario/evidence, initialization or target migration, use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
-- Select final regression under [Validation policy](#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/tests/units/**/*.checks.py` and `units/**/test_*.py` through their existing Python script entrypoints with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Service parameter and typed service integration contracts run in CI; their split unit cases remain local. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
-- Task/local loops retain Git change discovery for Task boundaries and diff checks, but never use those paths to select Framework UT/IT. Framework changes remain subject to Task Contract and Allowed paths restrictions.
-- `--mode local` is also valid as the same scoped validation as `task`, except for the report-only issues post-save contract validation described above. Do not add a redundant task run. Explicit `--all` means overall validation plus all regression; scope `all` alone means overall Project validation without automatic Framework regression. `full` alone does not expand actual design scope. Repository-wide IaC checks remain enabled for explicit `full` / `--all`, not because Framework files changed.
-- Continue regression and diff checks even if the validator fails. Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.
-- Retain existing mandatory CloudFormation deploy context, `aws cloudformation validate-template`, change set/change summary, delete/replacement checks, AWS account/region checks, and Terraform fmt/init/validate/plan/apply procedures according to each phase's rules/prompts. The loop does not replace actual IaC/deployment procedures or combine implement and deploy.
 
 ## Conflict resolution and reproducible validation
 
