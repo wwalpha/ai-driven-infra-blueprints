@@ -1447,6 +1447,18 @@ def check_it_fixture_isolation(tmp_path):
     assert not root.exists()
 
 
+def _parallel_inventory(cases=None):
+    if cases is None:
+        cases = (
+            case
+            for suite_cases in run_it.PARALLEL_CASES.values()
+            for case in suite_cases
+        )
+    return SimpleNamespace(
+        cases={tuple(case.split("::", 1)): "pytest" for case in cases}
+    ), []
+
+
 def check_it_inventory(tmp_path):
     discovery, errors = run_it.inventory(Path(run_it.__file__).parent)
     assert not errors, errors
@@ -1465,6 +1477,18 @@ def check_it_inventory(tmp_path):
         ]
         == "pytest"
     )
+    for suite in (run_it.REPAIR_SUITE, run_it.CHECKPOINT_SUITE):
+        discovered = {
+            path + "::" + name
+            for (path, name), mode in discovery.cases.items()
+            if path == suite and mode == "pytest"
+        }
+        assert discovered == set(run_it.PARALLEL_CASES[suite])
+        assert all(
+            mode == "pytest"
+            for (path, _), mode in discovery.cases.items()
+            if path == suite
+        )
     assert run_it.reachability({}, [])
     assert run_it.inventory(tmp_path)[1]
 
@@ -2246,7 +2270,7 @@ def check_parallel_repair_receipts():
     TestCase().assertEqual(
         combined["metrics"], {"subprocess.Popen": len(run_it.REPAIR_CASES)}
     )
-    cases = run_it.inventory(Path(run_it.__file__).parent)[0].cases
+    cases = _parallel_inventory()[0].cases
     selected = {
         key: value for key, value in cases.items() if key[0] == run_it.REPAIR_SUITE
     }
@@ -2351,12 +2375,7 @@ def check_checkpoint_keeps_two_process_limit(tmp_path):
         patch.object(
             run_it,
             "inventory",
-            return_value=(
-                SimpleNamespace(
-                    cases={(suite, case.split("::")[1]): "pytest" for case in cases}
-                ),
-                [],
-            ),
+            return_value=_parallel_inventory(cases),
         ),
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
         patch.object(run_it.tempfile, "mkdtemp", return_value=str(logs)),
@@ -2393,7 +2412,10 @@ def check_parallel_repair_receipt_freshness(tmp_path, mode, suite):
         process.poll.return_value = 0
     state = _CallbackState(mode=mode, suite=suite, processes=processes)
     launch = _bind_framework_callback(_callback_parallel_receipt, state)
-    with patch.object(run_it.subprocess, "Popen", side_effect=launch):
+    with (
+        patch.object(run_it, "inventory", return_value=_parallel_inventory()),
+        patch.object(run_it.subprocess, "Popen", side_effect=launch),
+    ):
         if mode == "fresh":
             result = run_it.run_parallel_repair(tests / state.suite, tests, tmp_path)
             assert result["passed"] == list(cases)
@@ -2416,6 +2438,7 @@ def check_parallel_suite_shared_deadline(tmp_path, suite, limit):
     launch = _bind_framework_callback(_callback_parallel_receipt, state)
     clock = iter([100, *range(101, 120)])
     with (
+        patch.object(run_it, "inventory", return_value=_parallel_inventory()),
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
         patch.object(run_it.time, "monotonic", side_effect=clock),
     ):
@@ -2446,6 +2469,7 @@ def check_parallel_repair_expired_deadline(tmp_path):
     logs = tmp_path / "logs"
     logs.mkdir()
     with (
+        patch.object(run_it, "inventory", return_value=_parallel_inventory()),
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
         patch.object(
             run_it.time, "monotonic", side_effect=[100, 2000, 2000, 2000, 2000]
@@ -2495,6 +2519,7 @@ def check_parallel_repair_failure_cleanup(tmp_path, failure):
         else (OSError, RuntimeError, ValueError)
     )
     with (
+        patch.object(run_it, "inventory", return_value=_parallel_inventory()),
         patch.object(run_it.subprocess, "Popen", side_effect=launched) as launch,
         patch.object(run_it.os, "killpg", create=True) as kill,
         patch.object(run_it.tempfile, "mkdtemp", return_value=str(tmp_path / "logs")),
@@ -2516,6 +2541,26 @@ def check_parallel_repair_failure_cleanup(tmp_path, failure):
             assert kill.call_count == count
         assert all(process.wait.called for process in processes[:count])
         assert all((tmp_path / "logs" / f"case-{i}.log").exists() for i in range(count))
+
+
+@pytest.mark.parametrize("fault", ["missing", "unknown", "errors"])
+def check_parallel_repair_discovery_mismatch(tmp_path, fault):
+    tests = Path(run_it.__file__).parent
+    suite = run_it.CHECKPOINT_SUITE
+    discovery, errors = _parallel_inventory()
+    if fault == "missing":
+        discovery.cases.pop(tuple(run_it.PARALLEL_CASES[suite][0].split("::", 1)))
+    elif fault == "unknown":
+        discovery.cases[(suite, "check_unknown")] = "pytest"
+    else:
+        errors.append("discovery failed")
+    with (
+        patch.object(run_it, "inventory", return_value=(discovery, errors)),
+        patch.object(run_it.subprocess, "Popen") as launch,
+        pytest.raises(ValueError, match="parallel discovery mismatch"),
+    ):
+        run_it.run_parallel_repair(tests / suite, tests, tmp_path)
+    launch.assert_not_called()
 
 
 def check_parallel_repair_dispatch(tmp_path):
