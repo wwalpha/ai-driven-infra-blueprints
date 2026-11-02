@@ -4,6 +4,7 @@
 import argparse
 import ast
 import json
+import math
 import os
 import runpy
 import shutil
@@ -624,7 +625,7 @@ def run_all(tests, summary, baseline=False):
 
 def unit_timing(directory, commands, wall):
     """Read completed child receipts before the temporary directory is removed."""
-    errors, files, cases = [], {}, []
+    errors, files, cases, groups = [], {}, [], []
     try:
         events = [
             json.loads(line)
@@ -637,34 +638,61 @@ def unit_timing(directory, commands, wall):
         ends = {
             event["output"]: event for event in events if event["event"] == "step_end"
         }
-        if len(starts) != len(commands) or len(running) != len(starts):
+        if (
+            len(starts) != len(commands)
+            or len(running) != len(starts)
+            or len(ends) != len(starts)
+            or sum(event["event"] == "step_end" for event in events) != len(ends)
+        ):
             raise ValueError("incomplete process timing records")
         receipts = {}
         for receipt in directory.glob("pytest-*.json"):
-            pid = int(receipt.name.split("-")[1])
-            data = json.loads(receipt.read_text(encoding="utf-8"))
-            if (
-                not isinstance(data, dict)
-                or not isinstance(data.get("cases"), list)
-                or not isinstance(data.get("collected"), list)
-            ):
-                raise ValueError(f"invalid receipt: {receipt.name}")
-            if any(not isinstance(node, str) for node in data["collected"]) or any(
-                not isinstance(case, dict) for case in data["cases"]
-            ):
-                raise ValueError(f"invalid receipt: {receipt.name}")
-            if set(data["collected"]) != {case.get("nodeid") for case in data["cases"]}:
-                errors.append(f"missing or unexpected pytest cases: {receipt.name}")
-            receipts.setdefault(pid, []).extend(data["cases"])
+            try:
+                pid = int(receipt.name.split("-")[1])
+                data = json.loads(receipt.read_text(encoding="utf-8"))
+                if (
+                    not isinstance(data, dict)
+                    or not isinstance(data.get("cases"), list)
+                    or not isinstance(data.get("collected"), list)
+                ):
+                    raise ValueError(f"invalid receipt: {receipt.name}")
+                if any(not isinstance(node, str) for node in data["collected"]) or any(
+                    not isinstance(case, dict) for case in data["cases"]
+                ):
+                    raise ValueError(f"invalid receipt: {receipt.name}")
+                if len(set(data["collected"])) != len(data["collected"]) or set(
+                    data["collected"]
+                ) != {case.get("nodeid") for case in data["cases"]}:
+                    errors.append(f"missing or unexpected pytest cases: {receipt.name}")
+                receipts.setdefault(pid, []).extend(data["cases"])
+            except (OSError, ValueError, KeyError, TypeError, IndexError) as error:
+                errors.append(
+                    f"missing/invalid UT timing data: {receipt.name}: {error}"
+                )
         seen = set()
         for command, start, child in zip(commands, starts, running, strict=True):
             if start["command"] != command or start["output"] not in ends:
                 raise ValueError("mismatched process timing records")
             end = ends[start["output"]]
+            if (
+                end["status"] not in ("pass", "fail", "error", "interrupted")
+                or type(end["duration_seconds"]) not in (int, float)
+                or not math.isfinite(end["duration_seconds"])
+                or end["duration_seconds"] < 0
+            ):
+                raise ValueError("invalid process timing record")
             grouped = command[2:3] == ["--group"]
             paths = command[3:] if grouped else [command[1]]
             paths = [str(Path(path).resolve()) for path in paths]
             data = receipts.pop(child["pid"], [])
+            if grouped:
+                groups.append(
+                    {
+                        "paths": paths,
+                        "status": end["status"],
+                        "duration": end["duration_seconds"],
+                    }
+                )
             for path in paths:
                 if path in files:
                     raise ValueError(f"duplicate file: {path}")
@@ -694,6 +722,7 @@ def unit_timing(directory, commands, wall):
                     or any(
                         key not in ("setup", "call", "teardown")
                         or type(value) not in (int, float)
+                        or not math.isfinite(value)
                         or value < 0
                         for key, value in phases.items()
                     )
@@ -735,6 +764,7 @@ def unit_timing(directory, commands, wall):
         "files": list(files.values()),
         "cases": cases,
         "errors": errors,
+        "groups": groups,
     }
 
 
@@ -743,6 +773,7 @@ def display_unit_timing(result, summary):
         "### Framework UT Timing",
         "",
         f"UT total wall time: {result['wall']:.3f}s",
+        f"UT timing: {'INCOMPLETE' if result['errors'] else 'COMPLETE'}",
     ]
     counts = Counter(case["status"] for case in result["cases"])
     lines.append(
@@ -751,7 +782,7 @@ def display_unit_timing(result, summary):
     lines.extend(
         [
             "",
-            "| UT file | Result | Case sum (s) | Process (s) |",
+            "| UT file | Case result / process-only result | Case sum (s) | Process (s) |",
             "| --- | --- | ---: | ---: |",
         ]
     )
@@ -768,6 +799,11 @@ def display_unit_timing(result, summary):
         process = f"{row['process']:.3f}" if row["process"] is not None else "—"
         status = row["status"] if row["cases"] else row["status"] + " (process only)"
         lines.append(f"| {row['path']} | {status} | {case_time} | {process} |")
+    for group in result["groups"]:
+        lines.append(
+            f"Group process: {group['status'].upper()} ({group['duration']:.3f}s): "
+            + ", ".join(group["paths"])
+        )
     cases = sorted(result["cases"], key=lambda case: case["total"], reverse=True)
     lines.extend(["", "Slowest UT Cases (top 20):"])
     lines.extend(
@@ -883,7 +919,7 @@ def main():
             print(f"UT timing summary open failed: {error}", file=sys.stderr)
             display_unit_timing(timing, None)
     if args.ut_only:
-        return int(bool(unit_status))
+        return int(bool(unit_status or timing["errors"]))
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     with (
         open(summary_path, "a", encoding="utf-8")
@@ -911,7 +947,7 @@ def main():
                 "Legacy profiler-derived fixture request/generation counts are not comparable.\n"
             )
     return int(
-        bool(unit_status)
+        bool(unit_status or timing["errors"])
         or any(
             result["reachability_errors"]
             or any(row["code"] for row in result["suites"])

@@ -969,7 +969,12 @@ def check_run_it_dispatch(tmp_path):
         rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
     assert all(row["code"] != 0 for row in rows) and not receipts
 
-    for unit_status, it_status in ((0, 0), (1, 0), (0, 1)):
+    for unit_status, timing_errors, it_status in (
+        (0, [], 0),
+        (1, [], 0),
+        (0, ["missing"], 0),
+        (0, [], 1),
+    ):
         outcome = {"reachability_errors": [], "suites": [{"code": it_status}]}
         with (
             patch.object(sys, "argv", ["run_it.py"]),
@@ -980,9 +985,20 @@ def check_run_it_dispatch(tmp_path):
             patch.object(
                 MODULE, "run_commands", return_value=unit_status
             ) as unit_dispatch,
+            patch.object(
+                run_it,
+                "unit_timing",
+                return_value={
+                    "wall": 0,
+                    "files": [],
+                    "cases": [],
+                    "errors": timing_errors,
+                    "groups": [],
+                },
+            ),
             patch.object(run_it, "run_all", return_value=outcome) as it_dispatch,
         ):
-            assert run_it.main() == int(bool(unit_status or it_status))
+            assert run_it.main() == int(bool(unit_status or timing_errors or it_status))
         authorize.assert_called_once_with(run_it.TESTS.parents[2])
         assert discover.call_args.args == (run_it.TESTS.parents[2],)
         assert unit_dispatch.call_args.args[1] == [[sys.executable, str(SCRIPT)]]
@@ -1005,18 +1021,31 @@ def check_run_it_dispatch(tmp_path):
     it_dispatch.assert_not_called()
 
 
-@pytest.mark.parametrize("unit_status", [0, 1])
-def check_ut_only_never_reaches_it(unit_status, capsys):
+@pytest.mark.parametrize(
+    "unit_status,timing_errors", [(0, []), (1, []), (0, ["missing"])]
+)
+def check_ut_only_never_reaches_it(unit_status, timing_errors, capsys):
     with (
         patch.object(sys, "argv", ["run_it.py", "--ut-only"]),
         patch.object(MODULE, "authorize_full_regression") as authorize,
         patch.object(MODULE, "select_checks", return_value=([SCRIPT], "all requested")),
         patch.object(MODULE, "run_commands", return_value=unit_status) as units,
+        patch.object(
+            run_it,
+            "unit_timing",
+            return_value={
+                "wall": 0,
+                "files": [],
+                "cases": [],
+                "errors": timing_errors,
+                "groups": [],
+            },
+        ),
         patch.object(run_it, "run_all") as integrations,
         patch.object(run_it, "compare_revisions") as compare,
         patch.object(run_it, "inventory") as inventory,
     ):
-        assert run_it.main() == unit_status
+        assert run_it.main() == int(bool(unit_status or timing_errors))
     authorize.assert_called_once_with(run_it.TESTS.parents[2])
     assert units.call_args.args[1] == [[sys.executable, str(SCRIPT)]]
     assert units.call_args.kwargs["jobs"] == 2
@@ -2494,6 +2523,66 @@ def check_unit_timing_parallel_receipts_and_summary(tmp_path):
     receipt = next(tmp_path.glob("pytest-*.json"))
     receipt.write_text("invalid", encoding="utf-8")
     assert run_it.unit_timing(tmp_path, commands, 4.5)["errors"]
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["ok", "missing_log", "missing_receipt", "corrupt", "mismatch", "group_fail"],
+)
+def check_unit_timing_data_integrity(tmp_path, mode):
+    paths = [tmp_path / "a.py", tmp_path / "b.py"]
+    command = [sys.executable, "runner", "--group", *(str(path) for path in paths)]
+    events = [
+        {"event": "step_start", "output": "log", "command": command},
+        {"event": "step_running", "pid": 123},
+        {
+            "event": "step_end",
+            "output": "log",
+            "status": "fail" if mode == "group_fail" else "pass",
+            "duration_seconds": 2.0,
+        },
+    ]
+    if mode != "missing_log":
+        (tmp_path / "timing.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in events), encoding="utf-8"
+        )
+    cases = [
+        {
+            "nodeid": f"{path}::test",
+            "path": str(path),
+            "phases": {"setup": 0.1, "call": 0.2, "teardown": 0.1},
+            "status": "PASS",
+        }
+        for path in paths
+    ]
+    receipt = {"collected": [case["nodeid"] for case in cases], "cases": cases}
+    if mode == "mismatch":
+        receipt["collected"].append("missing::test")
+    if mode != "missing_receipt":
+        (tmp_path / "pytest-123-abc.json").write_text(
+            "{" if mode == "corrupt" else json.dumps(receipt), encoding="utf-8"
+        )
+    result = run_it.unit_timing(tmp_path, [command], 3.0)
+    assert bool(result["errors"]) == (
+        mode in {"missing_log", "missing_receipt", "corrupt", "mismatch"}
+    )
+    if mode in {"ok", "group_fail"}:
+        assert len(result["cases"]) == 2
+        assert all(
+            row["status"] == "PASS" and row["process"] is None
+            for row in result["files"]
+        )
+        summary = io.StringIO()
+        run_it.display_unit_timing(result, summary)
+        assert "UT timing: COMPLETE" in summary.getvalue()
+        assert (
+            f"Group process: {'FAIL' if mode == 'group_fail' else 'PASS'} (2.000s)"
+            in summary.getvalue()
+        )
+    else:
+        summary = io.StringIO()
+        run_it.display_unit_timing(result, summary)
+        assert "UT timing: INCOMPLETE" in summary.getvalue()
 
 
 if __name__ == "__main__":
