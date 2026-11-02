@@ -18,8 +18,11 @@ import model.files as model_files
 import model.format as _imports_model_format
 import model.sources as model_sources
 import support.repository_fixtures as _fixture_publication_workspace
+from deploy import git_publication as scope_publication
 from deploy import observed as deploy_observed
+from deploy import preparation as offline_preparation
 from deploy import run_context
+from deploy import scope as execution_scope
 from deploy.model_cache import RunModels
 from deploy.observed import removed_resources
 from deploy.preparation import candidate
@@ -34,6 +37,7 @@ from model.core import entries
 from model.format import parse
 from model.format import patch as patch_properties
 from model.sources import load_model, model_parts
+from support import deploy_controller_fixtures as controller_fixtures
 from support import rotation_schedule_fixtures as rotation
 from support.cloudformation_deploy_fixtures import (
     TARGET,
@@ -71,9 +75,10 @@ from support.model_v2_fixtures import deploy_properties_fixture
 from support.repository_fixtures import fixture, git, start
 from support.security_group_tables_fixtures import GENERATED_MODEL
 from sync_runtime import stage_inputs
-from task_contract_core import paths_in, selected_task
+from task_contract_core import paths_in, selected_task, task_snapshot
 from utils.aws_catalogs import catalog_outputs
 from utils.input_cache import input_context, input_scope, memo_table
+from validation.findings import Findings
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -530,18 +535,27 @@ def check_observed_collector(observed_collector_root):
         "cfn-logicalId matches=0",
     )
     assert snapshot_model(source) == before
-    # Out-of-scope incoming references block before writes, even with broad Allowed paths.
+    # Out-of-scope incoming references are deferred without changing their files.
     consumer = source.with_name("consumer.properties")
     write_model(
         consumer,
         'desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_002\ndesired.resource.001.anchor=resource-EC2_Subnet_002\ndesired.service.identity.lastAllocated={"EC2.Subnet":2}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`\ndesired.row.001-001.comment=接続先\n',
     )
-    rejects(
-        lambda: publish_collected(backend, [unit], states([unit])),
-        "task scope violation",
+    consumer_files = sorted({consumer, *model_parts(consumer)})
+    git(root, "add", "--", *[file.relative_to(root) for file in consumer_files])
+    git(root, "commit", "-m", "fixture: existing external consumer")
+    consumer_before = snapshot_model(consumer)
+    deferred_state = states([unit])
+    publish_collected(backend, [unit], deferred_state)
+    TestCase().assertEqual(snapshot_model(consumer), consumer_before)
+    TestCase().assertEqual(
+        deferred_state["A"]["deferredConsumers"][0]["consumer"],
+        "dev/123456789012/consumer",
     )
-    assert snapshot_model(source) == before
+    before = snapshot_model(source)
     remove_model(consumer)
+    git(root, "add", "-u", "--", *[file.relative_to(root) for file in consumer_files])
+    git(root, "commit", "-m", "fixture: remove external consumer")
     unrelated = root / "model/prod/999999999999/broken.properties"
     # A malformed source cannot be classified as unrelated; syntactically valid
     # metadata with unrelated semantic errors does not block the selected update.
@@ -2020,7 +2034,7 @@ def check_deploy_preparation_separates_producer_reads_from_writes(
     assert producer.relative_to(tmp_path).as_posix() not in allowed
     assert "project.json" not in allowed and tmp_path / "project.json" in sources
     assert scope.path.relative_to(tmp_path).as_posix() in allowed
-    assert stacks.relative_to(tmp_path).as_posix() in allowed
+    TestCase().assertNotIn(stacks.relative_to(tmp_path).as_posix(), allowed)
 
 
 if __name__ == "__main__":
@@ -2218,3 +2232,79 @@ def check_egress_observed_publication(project_workspace, case):
     else:
         assert value is None or "PENDING_DEPLOY" in value
         assert state["A"]["observedCoverage"]["Rule"]["status"] == "UNCONFIRMED"
+
+
+def test_selected_resource_snapshot_validation(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    root = controller_fixtures.seed(tmp_path / "project", tmp_path / "session.json")
+    task = task_snapshot(root)
+    findings = Findings(root)
+    execution_scope.validate_selected(root, task, findings)
+    TestCase().assertEqual(findings.errors, [])
+
+
+def test_range_preparation_controller_save_and_resume(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    session, aws = tmp_path / "session.json", tmp_path / "aws.json"
+    root = controller_fixtures.seed(tmp_path / "project", session)
+    baseline = git(root, "rev-parse", "HEAD")
+    (root / "tasks/deploy.md").unlink()
+    logs = tmp_path / "preparation"
+    TestCase().assertEqual(
+        offline_preparation.main(
+            [
+                "--repository-root",
+                str(root),
+                "--environment",
+                "dev",
+                "--aws-account-id",
+                controller_fixtures.ACCOUNT,
+                "--order-to",
+                "10",
+                "--task-file",
+                "tasks/deploy.md",
+                "--log-dir",
+                str(logs),
+            ]
+        ),
+        0,
+    )
+    plan_path = next(logs.iterdir()) / "preparation.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    selected = [
+        argument
+        for index, argument in enumerate(plan["controllerArgv"])
+        if index and plan["controllerArgv"][index - 1] == "--stack"
+    ]
+    TestCase().assertNotIn("cfn-stack-app-dev-third", selected)
+    TestCase().assertEqual(
+        offline_preparation.main(
+            ["--repository-root", str(root), "--register", str(plan_path)]
+        ),
+        0,
+    )
+    fixed_text = (root / "tasks/deploy.md").read_text(encoding="utf-8")
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    controller_fixtures.aws_state(aws)
+    TestCase().assertEqual(controller_fixtures.drive(root, session, aws), 0)
+    saved = json.loads(session.read_text(encoding="utf-8"))
+    TestCase().assertEqual(set(saved["states"]), set(selected))
+    TestCase().assertTrue(
+        all(state.get("observedSynced") for state in saved["states"].values())
+    )
+    TestCase().assertEqual(
+        controller_fixtures.invoke(root, session, aws, ["--action", "status"]), 0
+    )
+    TestCase().assertEqual(
+        (root / "tasks/deploy.md").read_text(encoding="utf-8"), fixed_text
+    )
+    TestCase().assertEqual(
+        set(json.loads(session.read_text(encoding="utf-8"))["states"]), set(selected)
+    )
+    TestCase().assertEqual(
+        scope_publication.validate_snapshot(
+            root, root, baseline, git(root, "rev-parse", "HEAD"), "tasks/deploy.md"
+        ),
+        0,
+    )

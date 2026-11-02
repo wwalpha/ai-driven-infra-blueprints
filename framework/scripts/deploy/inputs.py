@@ -6,7 +6,14 @@ from functools import partial as _bind_framework_callback
 
 import utils.cloudformation.inputs as _imports_cfn_inputs
 import utils.project_targets as _imports_project_targets
-from model.core import deployment_settings, stack_model
+from model.core import (
+    deployment_settings,
+    entries,
+    positive_integer,
+    stack_context,
+    stack_model,
+    validate_stack_field,
+)
 from model.render import stack_markdown
 from model.sources import stack_snapshot
 from task_contract_core import (
@@ -20,7 +27,7 @@ from deploy.cli_guidance import DeployStepBlocked
 
 
 def check_stack_markdown(root, snapshot):
-    """New execution precondition; publication guards own subsequent View changes."""
+    """Check the saved Stack design and identify the first mismatched Stack field."""
     design = (
         root
         / "docs/designs"
@@ -31,14 +38,78 @@ def check_stack_markdown(root, snapshot):
     expected = stack_markdown(
         design, snapshot.values, root, validate_delivery=False
     ).encode("utf-8")
-    if (
-        not design.is_file()
-        or hashlib.sha256(design.read_bytes()).digest()
-        != hashlib.sha256(expected).digest()
-    ):
-        raise DeployStepBlocked(
-            "stack model/generated design missing or mismatch; run sync-model before deploy"
-        )
+    actual = design.read_bytes() if design.is_file() else b""
+    if hashlib.sha256(actual).digest() == hashlib.sha256(expected).digest():
+        return
+    detail = "deployment settings/header/format or artifact rows differ"
+    actual_lines = actual.decode("utf-8").splitlines()
+    expected_lines = expected.decode("utf-8").splitlines()
+    for identity, stack in entries(snapshot.values, "desired.stack."):
+        marker = "| " + stack["name"] + " |"
+        wanted = [line for line in expected_lines if marker in line]
+        saved = [line for line in actual_lines if marker in line]
+        if wanted != saved:
+            detail = f"{stack_context(identity, stack)}: generated Stack row missing/duplicate or differs"
+            if len(wanted) == len(saved) == 1:
+                fields = (
+                    "No",
+                    "deployOrder",
+                    "name",
+                    "template",
+                    "parameters",
+                    "comment",
+                )
+                before = [cell.strip() for cell in saved[0].strip("|").split("|")]
+                after = [cell.strip() for cell in wanted[0].strip("|").split("|")]
+                if len(before) == len(after) == len(fields):
+                    detail += "; " + ", ".join(
+                        f"{field}: saved={old!r}, Model={new!r}"
+                        for field, old, new in zip(fields, before, after, strict=True)
+                        if old != new
+                    )
+            break
+    raise DeployStepBlocked(
+        f"{design.relative_to(root)}: stack model/generated design missing or mismatch; {detail}; run sync-model before deploy"
+    )
+
+
+def select_stacks(values, scope=None, *, order_from=None, order_to=None):
+    """Resolve selection using only globally necessary Stack metadata."""
+    if scope and (order_from is not None or order_to is not None):
+        raise Blocked("--stack cannot be combined with an Order range")
+    if any(value is not None and value < 1 for value in (order_from, order_to)):
+        raise Blocked("Order bounds must be positive integers")
+    if order_from is not None and order_to is not None and order_from > order_to:
+        raise Blocked("Order range is reversed")
+    stacks = entries(values, "desired.stack.")
+    names = {}
+    for identity, stack in stacks:
+        if not {"name", "deployOrder"} <= stack.keys():
+            raise Blocked(
+                f"{stack_context(identity, stack)}: missing selection fields: {sorted({'name', 'deployOrder'} - stack.keys())}"
+            )
+        try:
+            validate_stack_field("name", stack["name"])
+            positive_integer(stack["deployOrder"], "DeployOrder")
+        except ValueError as error:
+            raise Blocked(f"{stack_context(identity, stack)}: {error}") from error
+        if stack["name"] in names:
+            raise Blocked(
+                f"{stack_context(identity, stack)}: duplicate stack name: {stack['name']}; also desired.stack.{names[stack['name']]}"
+            )
+        names[stack["name"]] = identity
+    if scope and (len(set(scope)) != len(scope) or set(scope) - names.keys()):
+        raise Blocked("Deployment scope must contain unique designed StackName values")
+    selected = [
+        (identity, stack)
+        for identity, stack in stacks
+        if (not scope or stack["name"] in scope)
+        and (order_from is None or int(stack["deployOrder"]) >= order_from)
+        and (order_to is None or int(stack["deployOrder"]) <= order_to)
+    ]
+    if not selected:
+        raise Blocked("Deployment scope selects no Stacks")
+    return selected
 
 
 def load_units(root, environment, directory, scope, *, snapshot=None):
@@ -46,13 +117,17 @@ def load_units(root, environment, directory, scope, *, snapshot=None):
         root / "model" / environment / directory / "cloudformation-stacks.properties"
     )
     values = (snapshot or stack_snapshot(source)).values
-    limit, stacks = stack_model(values)
-    by_name = {stack["name"]: stack for _, stack in stacks}
-    if not scope or len(set(scope)) != len(scope) or set(scope) - by_name.keys():
+    select_stacks(values, scope)
+    if not scope:
         raise Blocked("Deployment scope must contain unique designed StackName values")
+    try:
+        limit, stacks = stack_model(values)
+    except ValueError as error:
+        raise Blocked(f"{source.relative_to(root)}: {error}") from error
+    stacks = [(identity, stack) for identity, stack in stacks if stack["name"] in scope]
     settings, artifacts = deployment_settings(values)
-    selected = [dict(stack) for _, stack in stacks if stack["name"] in scope]
-    for unit in selected:
+    result = [dict(stack) for _, stack in stacks]
+    for unit in result:
         if settings:
             unit.update(settings)
         assigned = [
@@ -62,7 +137,7 @@ def load_units(root, environment, directory, scope, *, snapshot=None):
         ]
         if assigned:
             unit["artifacts"] = assigned
-    return limit, selected
+    return limit, result
 
 
 def paths(root, environment, directory, target, unit):

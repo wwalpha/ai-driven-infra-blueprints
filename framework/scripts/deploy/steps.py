@@ -624,6 +624,7 @@ def describe(backend: SimpleNamespace) -> dict:
                 "changes": state.get("changes", []),
                 "observed": "COMPLETE" if state.get("observedSynced") else "PENDING",
                 "coverage": state.get("observedCoverage", {}),
+                "deferredConsumers": state.get("deferredConsumers", []),
                 "generation": "PENDING"
                 if context.get("generationError")
                 else "COMPLETE"

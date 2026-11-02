@@ -1143,11 +1143,13 @@ def check_readiness_and_collection_removal_scope(tmp_path, monkeypatch, policy):
             },
         ]
         with patch.object(backend, "aws", create=True, side_effect=responses):
-            with pytest.raises(
-                Blocked,
-                match="observed reference requires qa-synthetic/team-a/consumer",
-            ):
-                backend.observed_readiness(unit, state)
+            consumer_before = consumer.read_bytes()
+            backend.observed_readiness(unit, state)
+            TestCase().assertEqual(consumer.read_bytes(), consumer_before)
+            TestCase().assertEqual(
+                state["deferredConsumers"][0]["consumer"],
+                "qa-synthetic/team-a/consumer",
+            )
             stack_path = scope.path.with_name("cloudformation-stacks.properties")
             before = stack_path.read_bytes()
             destinations, services, _ = observed.collect_successful(

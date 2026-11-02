@@ -19,17 +19,24 @@ from pathlib import Path
 import task_contract_core as _imports_task_contract
 import worktree_python
 import worktree_state
+from model.adapters.observed import resolve_resources
+from model.core import structural_entries
+from model.dependency_index import inventory as model_inventory
 from model.dependency_index import revision as file_revision
 from model.render import owned_artifacts
-from model.sources import load_model, stack_snapshot
+from model.sources import load_model, model_session, raw_model, stack_snapshot
 from utils.aws.identity import execution_account, select_profile
 from utils.aws_mappings import definition_root
+from utils.cloudformation.inputs import load_template_inputs
 from utils.file_operations import sha
+from utils.iac_values import cfn_resource_identity
 from utils.project_targets import load_target
 
 from deploy import cli_guidance
-from deploy.inputs import deployment_input_paths, load_units, paths
+from deploy.inputs import deployment_input_paths, load_units, paths, select_stacks
+from deploy.model_cache import RunModels
 from deploy.timing import Timing
+from model import dependency_index
 
 
 def environment(root):
@@ -69,12 +76,87 @@ def environment(root):
     return {"python": sys.executable, "versions": versions, "tools": tools}
 
 
-def candidate(root, task, env, directory, target, stacks, services, *, snapshot=None):
+def owning_resources(root, env, directory, target, units):
+    templates = {
+        unit["name"]: load_template_inputs(*paths(root, env, directory, target, unit))
+        for unit in units
+    }
+    selected = {
+        name: set(document.get("Resources", {}))
+        for name, (document, _) in templates.items()
+    }
+    reads = RunModels(root, {})
+    with model_session(reads):
+        reads.dependency_index = dependency_index.check_change_inventory(
+            root, set(), reads=reads
+        )
+        _, mapped = resolve_resources(
+            root,
+            env,
+            directory,
+            templates,
+            units,
+            selected,
+            target=target,
+            identifiers=False,
+            check_scope=False,
+        )
+        result = {
+            name: {
+                logical: {"service": path.stem, "resource": resource["logicalId"]}
+                for logical, (path, _, resource, _, _) in resources.items()
+            }
+            for name, resources in mapped.items()
+        }
+        identities = {
+            identity
+            for relative, entry in reads.dependency_index["models"].items()
+            if relative.startswith(f"model/{env}/{directory}/")
+            for identity in entry["owners"]
+            if cfn_resource_identity(identity)[0] in selected
+        }
+        for path in dependency_index.owners(root, env, directory, identities):
+            snapshot = raw_model(path, reads)
+            for _, resource in structural_entries(
+                snapshot.authoritative, "desired.resource."
+            ):
+                if resource.get("cfn-logicalId") not in identities:
+                    continue
+                name, logical = cfn_resource_identity(resource["cfn-logicalId"])
+                if logical in templates[name][0].get("Resources", {}):
+                    continue
+                if resource.get("resourceMode", "CREATE") != "CREATE":
+                    raise ValueError(
+                        f"StackName={name} Resource={logical}: cfn-logicalId requires CREATE"
+                    )
+                entry = {"service": path.stem, "resource": resource["logicalId"]}
+                if logical in result[name] and result[name][logical] != entry:
+                    raise ValueError(
+                        f"StackName={name} Resource={logical}: duplicate removal ownership"
+                    )
+                result[name][logical] = entry
+    return result
+
+
+def candidate(
+    root,
+    task,
+    env,
+    directory,
+    target,
+    stacks,
+    services,
+    *,
+    snapshot=None,
+    resources=None,
+):
     safe_path = _imports_task_contract.safe_path
     files, generated_views = {task}, set()
     stack_source = root / "model" / env / directory / "cloudformation-stacks.properties"
     sources = set((snapshot or stack_snapshot(stack_source)).dependencies)
     for service in services:
+        if service == "cloudformation-stacks":
+            continue
         design = root / "docs/designs" / env / directory / (service + ".md")
         files.update(model_input_paths(root, [f"{env}/{directory}/{service}"]))
         source = root / "model" / env / directory / (service + ".properties")
@@ -105,6 +187,14 @@ def candidate(root, task, env, directory, target, stacks, services, *, snapshot=
         "- AWS API execution: `allowed`",
         "- Deploy/apply: `allowed`",
         "- Authorized delete/replacement: `none`",
+        "",
+        "## Execution scope",
+        "",
+        *[
+            f"- `{json.dumps({'stack': name, 'logicalId': logical, **item}, sort_keys=True, separators=(',', ':'))}`"
+            for name, mappings in sorted((resources or {}).items())
+            for logical, item in sorted(mappings.items())
+        ],
         "",
         "## Validation scope",
         "",
@@ -140,12 +230,14 @@ def prepare(root, args, run, timing):
     if not TASK_NAME.fullmatch(args.task_file):
         raise ValueError("use a new tasks/<task-name>.md")
     if (
-        not args.service
-        or len(set(args.service)) != len(args.service)
-        or any(
-            not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", service)
-            for service in args.service
-        )
+        not args.stack
+        and getattr(args, "order_from", None) is None
+        and getattr(args, "order_to", None) is None
+    ):
+        raise ValueError("a Stack or DeployOrder range is required")
+    if len(set(args.service or [])) != len(args.service or []) or any(
+        not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", service)
+        for service in (args.service or [])
     ):
         raise ValueError("explicit, unique service IDs are required")
     with timing.phase("environment"):
@@ -165,19 +257,46 @@ def prepare(root, args, run, timing):
             / directory
             / "cloudformation-stacks.properties"
         )
-        limit, units = load_units(
-            root, args.environment, directory, args.stack, snapshot=snapshot
+        selected = select_stacks(
+            snapshot.values,
+            args.stack,
+            order_from=getattr(args, "order_from", None),
+            order_to=getattr(args, "order_to", None),
         )
-        services = sorted(set(args.service))
+        selected_names = [stack["name"] for _, stack in selected]
+        limit, units = load_units(
+            root, args.environment, directory, selected_names, snapshot=snapshot
+        )
+        input_paths = deployment_input_paths(
+            root, args.environment, directory, target, units
+        )
+        for path in input_paths:
+            safe_path(root, path.relative_to(root).as_posix())
+        input_revisions = {path: file_revision(path) for path in input_paths}
+        inventory = model_inventory(root, args.environment, directory)
+        resources = owning_resources(root, args.environment, directory, target, units)
+        if inventory != model_inventory(root, args.environment, directory) or any(
+            file_revision(path) != revision
+            for path, revision in input_revisions.items()
+        ):
+            raise ValueError("ownership inputs changed during preparation")
+        services = sorted(
+            {item["service"] for stack in resources.values() for item in stack.values()}
+        )
+        if not services:
+            services = ["cloudformation-stacks"]
+        if args.service and set(args.service) != set(services):
+            raise ValueError("--service must match selected Stack owning services")
         text, sources, scope, generated_views = candidate(
             root,
             args.task_file,
             args.environment,
             directory,
             target,
-            args.stack,
+            selected_names,
             services,
             snapshot=snapshot,
+            resources=resources,
         )
         execution_inputs = set(
             deployment_input_paths(root, args.environment, directory, target, units)
@@ -235,6 +354,7 @@ def prepare(root, args, run, timing):
             "maxConcurrentStacks": 1 if args.sequential else limit,
             "stacks": units,
             "serviceIds": services,
+            "selectedResources": resources,
             "inputPaths": sorted(
                 path.relative_to(root).as_posix()
                 for path in sources | deferred
@@ -289,6 +409,7 @@ def prepare(root, args, run, timing):
             path.relative_to(root).as_posix() for path in generated_views
         ),
         "scope": scope,
+        "ownershipInventory": inventory,
         "controllerArgv": command,
         "modelInputPaths": model_input_paths(root, scope),
         "environment": {
@@ -360,6 +481,16 @@ def register(root, path, timing):
             raise cli_guidance.InputChanged(
                 "deferred deployment input changed; prepare again",
                 condition="deferred-inputs",
+            )
+        if (
+            model_inventory(
+                root, plan["scope"][0].split("/")[0], plan["scope"][0].split("/")[1]
+            )
+            != plan["ownershipInventory"]
+        ):
+            raise cli_guidance.InputChanged(
+                "ownership inventory changed; prepare again",
+                condition="ownership-inventory",
             )
         if model_input_paths(root, plan["scope"]) != plan["modelInputPaths"]:
             raise cli_guidance.InputChanged(
@@ -460,10 +591,12 @@ def main(argv=None):
     selector.add_argument("--alias")
     selector.add_argument("--aws-account-id")
     parser.add_argument("--stack", action="append")
+    parser.add_argument("--order-from", type=int, help="inclusive minimum DeployOrder")
+    parser.add_argument("--order-to", type=int, help="inclusive maximum DeployOrder")
     parser.add_argument(
         "--service",
         action="append",
-        help="all owning/referencing service IDs, explicitly reviewed",
+        help="optional check against the automatically discovered owning services",
     )
     parser.add_argument("--task-file")
     parser.add_argument("--profile")
@@ -491,11 +624,13 @@ def main(argv=None):
         (
             args.environment,
             args.alias or args.aws_account_id,
-            args.stack,
+            args.stack or args.order_from is not None or args.order_to is not None,
             args.task_file,
         )
     ):
-        parser.error("environment, target, stack and new task-file are required")
+        parser.error(
+            "environment, target, stack or Order range, and new task-file are required"
+        )
     parent.mkdir(parents=True, exist_ok=True)
     run = (
         parent

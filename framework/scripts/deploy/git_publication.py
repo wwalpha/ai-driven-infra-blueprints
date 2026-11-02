@@ -299,6 +299,11 @@ def validate_snapshot(root, stage, base, tree, task_file):
             cache=False,
             definitions_root=definition_root(root),
             final_candidate=candidate,
+            model_validation="change",
+            iac_paths=inputs.task_deployment_input_paths(stage) if task.scope else [],
+            task_iac_paths=inputs.task_deployment_input_paths(stage)
+            if task.scope
+            else [],
         )
         validator.run()
         return validator.display_report()

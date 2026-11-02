@@ -271,11 +271,13 @@ def check_preparation():
         args[selector : selector + 2] = ["--alias", "app"]
         second = args.index(STACKS[1])
         del args[second - 1 : second + 1]
+        service = args.index("ec2")
+        del args[service - 1 : service + 1]
         assert invoke(args) == 0
         alias_run = next((alias_base / "logs").iterdir())
         alias_plan = json.loads((alias_run / "preparation.json").read_text())
         assert alias_plan["controllerArgv"].count("--stack") == 1
-        assert "dev/app/ec2" in alias_plan["scope"]
+        TestCase().assertIn("dev/app/iam", alias_plan["scope"])
         assert (
             invoke(
                 [
@@ -443,6 +445,11 @@ def check_generated_boundaries():
         with (
             patch.object(
                 M,
+                "owning_resources",
+                return_value={"a": {"x": {"service": "iam"}, "y": {"service": "ec2"}}},
+            ),
+            patch.object(
+                M,
                 "paths",
                 return_value=(
                     root
@@ -475,6 +482,39 @@ def check_generated_boundaries():
         assert "task path must not use symlinks" in output.getvalue()
 
 
+@it_case
+def check_order_scope_preparation():
+    with tempfile.TemporaryDirectory() as directory:
+        base = Path(directory).resolve()
+        root = base / "repo"
+        fixture(root)
+        args = [
+            "--repository-root",
+            str(root),
+            "--environment",
+            "dev",
+            "--aws-account-id",
+            "123456789012",
+            "--order-to",
+            "10",
+            "--task-file",
+            "tasks/deploy-order.md",
+            "--log-dir",
+            str(base / "logs"),
+        ]
+        TestCase().assertEqual(invoke(args), 0)
+        run = next((base / "logs").iterdir())
+        plan = json.loads((run / "preparation.json").read_text(encoding="utf-8"))
+        TestCase().assertEqual(plan["scope"], ["dev/123456789012/iam"])
+        argv = plan["controllerArgv"]
+        TestCase().assertEqual(argv.count("--stack"), 1)
+        TestCase().assertEqual(argv[argv.index("--stack") + 1], STACKS[0])
+        TestCase().assertNotIn(STACKS[1], argv)
+        TestCase().assertIn(
+            f"`{STACKS[0]}`", (run / "contract.md").read_text(encoding="utf-8")
+        )
+
+
 if __name__ == "__main__":
     from support.model_sources import catalog_display
 
@@ -482,4 +522,5 @@ if __name__ == "__main__":
         check_preparation()
         check_registration_input_changes()
         check_generated_boundaries()
+        check_order_scope_preparation()
         print("Deployment preparation checks: PASS")

@@ -58,7 +58,7 @@ def fixture(root):
                 f"desired.stack.{i:03d}.{key}": value
                 for key, value in {
                     "name": name,
-                    "template": "shared.yaml",
+                    "template": "shared.yaml" if i == 1 else "second.yaml",
                     "parameters": f"{i}.json",
                     "deployOrder": str(i * 10),
                 }.items()
@@ -88,7 +88,10 @@ def fixture(root):
         + "\n"
     )
     source = model / "ec2.properties"
-    text += 'desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.resource.001.anchor=vpc-fixture\ndesired.service.identity.lastAllocated={"EC2.VPC":1}\n'
+    text += (
+        f"desired.resource.001.cfn-logicalId={STACKS[1]}-Vpc\n"
+        + 'desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.resource.001.anchor=vpc-fixture\ndesired.service.identity.lastAllocated={"EC2.VPC":1}\n'
+    )
     write_model(source, text)
     (design / "ec2.md").write_text(
         "# EC2\n" + "読み取り対象\n" * 1500, encoding="utf-8"
@@ -131,7 +134,12 @@ def fixture(root):
     )
     template = root / "infra/cloudformation/templates/shared.yaml"
     template.parent.mkdir(parents=True)
-    template.write_text("Resources: {}\n", encoding="utf-8")
+    template.write_text(
+        "Resources:\n  WorkerRole:\n    Type: AWS::IAM::Role\n", encoding="utf-8"
+    )
+    template.with_name("second.yaml").write_text(
+        "Resources:\n  Vpc:\n    Type: AWS::EC2::VPC\n", encoding="utf-8"
+    )
     params = root / "infra/cloudformation/parameters/dev/123456789012"
     params.mkdir(parents=True)
     for i in (1, 2):

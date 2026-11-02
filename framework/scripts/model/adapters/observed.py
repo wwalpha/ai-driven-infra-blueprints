@@ -644,7 +644,15 @@ def resolve_resources(
 
 
 def propagate_references(
-    root, loaded, changes, identifiers, by_identifier=None, *, reset_references=()
+    root,
+    loaded,
+    changes,
+    identifiers,
+    by_identifier=None,
+    *,
+    reset_references=(),
+    allowed_services=None,
+    deferred=None,
 ):
     """Discover incoming links mechanically; both deploy and destroy use this scanner."""
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
@@ -674,7 +682,15 @@ def propagate_references(
             ".md"
         )
         linked = False
-        snapshot = load_model(path) if shared is not None else raw_model(path, reads)
+        service = tuple(path.relative_to(root / "model").with_suffix("").parts)
+        outside = allowed_services is not None and service not in allowed_services
+        snapshot = (
+            raw_model(path, reads)
+            if outside
+            else load_model(path)
+            if shared is not None
+            else raw_model(path, reads)
+        )
         values = snapshot.authoritative
         if any(
             node
@@ -689,6 +705,20 @@ def propagate_references(
                 (*usage.producer_scope.split("/"), usage.logical_id) in identifiers
                 for usage in typed_usages[path]
             )
+        if linked and outside:
+            if deferred is not None:
+                for usage in typed_usages[path]:
+                    target = (*usage.producer_scope.split("/"), usage.logical_id)
+                    if target in identifiers:
+                        record = {
+                            "consumer": "/".join(service),
+                            "consumerKey": usage.consumer_key,
+                            "producer": "/".join(target),
+                            "reason": "outside Deployment owner services; later synchronization required",
+                        }
+                        if record not in deferred:
+                            deferred.append(record)
+            continue
         if linked:
             loaded[path] = properties(read_model(path))
     # Include every incoming reference, including out-of-scope ones; reject before any write.

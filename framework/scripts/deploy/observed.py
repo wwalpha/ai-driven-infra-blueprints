@@ -17,12 +17,15 @@ from model.adapters.observed import (
     resolve_resources,
     static_export_handle,
 )
+from task_contract_core import task_snapshot
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked as Blocked
 from utils.json_format import fingerprint
+from validation_scope import active_scope
 
 import deploy.observed_resume as _dependency_deploy_observed_resume
 from deploy import current_state
+from deploy import scope as execution_scope
 from model import dependency_index
 
 
@@ -235,6 +238,11 @@ def readiness(backend, unit, state=None):
             removed,
             target=backend.target,
         )
+        execution_scope.check_fixed_resources(
+            backend.root,
+            mapped,
+            keys={(name, logical) for logical in document.get("Resources", {})},
+        )
         changes, identifiers = {}, {}
         for path, _identity, resource, rows, outputs in (
             mapped[name].values() if state is not None else ()
@@ -246,7 +254,19 @@ def readiness(backend, unit, state=None):
                     )
                     identifiers[own_key(path, resource)] = "PENDING_DEPLOY"
         if changes:
-            propagate_references(backend.root, loaded, changes, identifiers)
+            deferred = []
+            propagate_references(
+                backend.root,
+                loaded,
+                changes,
+                identifiers,
+                allowed_services=active_scope(backend.root)
+                if task_snapshot(backend.root, required=False) is not None
+                else None,
+                deferred=deferred,
+            )
+            if state is not None and deferred:
+                state["deferredConsumers"] = deferred
             observed_destinations(
                 backend.root, backend.environment, backend.directory, loaded, changes
             )
@@ -291,6 +311,15 @@ def collect_successful(backend, units, states, *, generated_views=None):
         selected,
         removed,
         target=backend.target,
+    )
+    execution_scope.check_fixed_resources(
+        root,
+        mapped,
+        keys={
+            (unit["name"], logical)
+            for unit in units
+            for logical in backend.templates[unit["name"]][0].get("Resources", {})
+        },
     )
     catalog = DesignSchemaCatalog(root) if loaded else None
     for unit in units:
@@ -493,9 +522,21 @@ def collect_successful(backend, units, states, *, generated_views=None):
     deleted_identifiers = {
         key for key, value in identifiers.items() if value == "PENDING_DEPLOY"
     }
+    deferred = []
     propagate_references(
-        root, loaded, changes, identifiers, reset_references=deleted_identifiers
+        root,
+        loaded,
+        changes,
+        identifiers,
+        reset_references=deleted_identifiers,
+        allowed_services=active_scope(root)
+        if task_snapshot(root, required=False) is not None
+        else None,
+        deferred=deferred,
     )
+    for unit in units:
+        if deferred:
+            states[unit["name"]]["deferredConsumers"] = deferred
     destinations, views, sync = observed_destinations(
         root, environment, directory, loaded, changes
     )

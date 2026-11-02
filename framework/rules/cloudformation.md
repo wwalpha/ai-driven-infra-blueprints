@@ -644,3 +644,40 @@ detached original identity before releasing only that request under the Stack lo
 Missing/different shared records never prove old completion. Corrupt/unreadable evidence
 blocks the affected Stack until trustworthy identity evidence can be checked; no
 manual status deletion, Reset, force release, TTL or PID inference is part of Deploy.
+
+## DeployOrder selection and synchronization scope
+
+SDK offline Preparation accepts either repeated `--stack` or inclusive numeric
+`--order-from` / `--order-to` bounds. For example, `--order-to 20` selects all designed
+Stacks through 20; `--order-from 30 --order-to 50` selects 30 through 50;
+`--order-from 40 --order-to 40` selects 40; `--order-from 30` selects 30 and above.
+Missing Order numbers are allowed. Mixed selectors, reversed/nonpositive bounds and
+an empty selection stop before Task registration. Invalid Stack definitions, including
+outside the selection, may stop preparation: errors identify StackName, DeployOrder,
+the Model entry and invalid field/value. Only selected execution files are opened.
+
+Preparation discovers owner services using explicit `cfn-logicalId` ownership and the
+existing dependency index/mapping resolver. `--service` is optional and checks the
+exact discovered set; it cannot add services. The exact StackNames and Resource
+ownership (including explicit Model owners eligible for removal) are fixed in the Task. Controller `status`, `advance`, `sync` and `checkpoint`
+continue with that complete `--stack` scope; a resumed Task never re-resolves an Order
+range or gains more Stacks. Existing Tasks keep their recorded Deployment scope.
+
+Only selected owner observations are patched. Owner service Views and necessary
+references within those authorized services are regenerated through guarded APIs.
+References from other services are discovered read-only and saved as `deferredConsumers`
+in Stack progress, including consumer/key, producer and the reason for later synchronization.
+Those external services gain no Model/View write authority or full-quality validation.
+A service file shared across Orders is read for structure/reference integrity; selected
+Resources and actual Model changes receive quality validation. Publication uses Change
+Validation plus explicit selected Stack/Resource/identifier/mapping checks and generated
+View equality, and rejects observation changes outside selected Resource ownership.
+Destroy and Import retain their existing propagation and permission checks.
+
+Necessary external producers are not deployed automatically. The existing Export Resolver
+checks current required Exports before creating a consumer ChangeSet; selected producers
+still require success. Missing/unknown/pending values do not prove a dependency satisfied.
+Snapshot, current-request deduplication, change/replacement approval, Order barriers,
+same-Order concurrency, partial saves and checkpoint/Git publication recovery remain required.
+CLI deployment remains independent: the LLM fixes the explicit selected StackNames in
+its Task and applies the same Order/dependency boundaries without calling SDK Preparation.

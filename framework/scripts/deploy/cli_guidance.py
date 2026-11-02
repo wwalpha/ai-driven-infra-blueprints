@@ -21,11 +21,20 @@ from deploy.failures import AUTH_CODES, dependency_wait
 
 PREPARATION_HELP = """Examples (replace example target, StackNames and paths with reviewed values):
   python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --environment dev --alias app --stack app-network --stack app-worker --service ec2 --service iam --task-file tasks/deploy-app.md
+  python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --environment dev --alias app --order-from 30 --order-to 50 --task-file tasks/deploy-range.md
   python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --register /tmp/blueprint-deploy-prepare-example/preparation.json
   python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --run-controller /tmp/blueprint-deploy-prepare-example/preparation.json
 
 Offline Preparation performs no AWS calls or deployment. Use a new task-file;
-repeat --service for all explicitly reviewed owning/referencing services. Read the
+choose --stack repeatedly or an inclusive numeric --order-from/--order-to range.
+--stack and Order bounds cannot be combined. Preparation discovers owning services
+from explicit cfn-logicalId mappings; --service optionally checks that exact set.
+No selected Stacks or invalid bounds stop before Task registration. The resolved
+StackNames and Resource ownership are fixed in the Task; resume uses that complete
+StackName scope, never the original Order range. Out-of-range Stack definition errors
+remain errors and identify StackName, DeployOrder and the invalid field. External
+producers remain read-only dependencies. Out-of-scope consumer services are recorded
+as deferredConsumers and their Model/Views are not synchronized. Read the
 contract and target summary before --register; read applicable Rules from the Deploy
 prompt. Registration rechecks input bytes, identities, file sets
 and the candidate; a change stops registration and requires a reviewed new preparation.

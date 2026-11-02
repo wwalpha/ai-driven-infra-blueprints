@@ -293,6 +293,10 @@ def validate_stack_field(field, value):
             raise InputValidationError(f"invalid stack {field} filename: {value}")
 
 
+def stack_context(identity, stack):
+    return f"StackName={stack.get('name', '<missing>')} DeployOrder={stack.get('deployOrder', '<missing>')} desired.stack.{identity}"
+
+
 def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, str]]]]:
     """Validate deployment inputs once for rendering, projection and execution."""
     limit = positive_integer(
@@ -301,23 +305,30 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
     stacks = entries(values, "desired.stack.")
     if not stacks:
         raise InputValidationError("stack model is empty")
-    names, parameters = set(), set()
+    names, parameters = {}, {}
     allowed = {"name", "template", "parameters", "deployOrder"}
     for identity, stack in stacks:
         if set(stack) not in (allowed, allowed | {"placementName"}):
             raise InputValidationError(
-                f"stack {identity} requires only {sorted(allowed)}"
+                f"{stack_context(identity, stack)}: fields={sorted(stack)}; requires only {sorted(allowed)}"
             )
-        for field in allowed:
-            validate_stack_field(field, stack[field])
+        for field in sorted(allowed):
+            try:
+                validate_stack_field(field, stack[field])
+            except ValueError as error:
+                raise InputValidationError(
+                    f"{stack_context(identity, stack)}: {field}={stack[field]!r}: {error}"
+                ) from error
         if stack["name"] in names:
-            raise InputValidationError(f"duplicate stack name: {stack['name']}")
+            raise InputValidationError(
+                f"{stack_context(identity, stack)}: duplicate stack name: {stack['name']}; also desired.stack.{names[stack['name']]}"
+            )
         if stack["parameters"] in parameters:
             raise InputValidationError(
-                f"parameter file belongs to multiple stacks: {stack['parameters']}"
+                f"{stack_context(identity, stack)}: parameter file belongs to multiple stacks: {stack['parameters']}; also StackName={parameters[stack['parameters']]}"
             )
-        names.add(stack["name"])
-        parameters.add(stack["parameters"])
+        names[stack["name"]] = identity
+        parameters[stack["parameters"]] = stack["name"]
     deployment_settings(values)
     unknown = [
         key
@@ -379,34 +390,51 @@ def deployment_settings(
     names = {stack.get("name") for _, stack in entries(values, "desired.stack.")}
     destinations = set()
     for identity, artifact in artifacts:
-        if set(artifact) != set(ARTIFACT_FIELDS) or not all(artifact.values()):
-            raise InputValidationError(
-                f"artifact {identity} requires only {list(ARTIFACT_FIELDS)}"
+        try:
+            if set(artifact) != set(ARTIFACT_FIELDS) or not all(artifact.values()):
+                raise InputValidationError(
+                    f"artifact {identity} requires only {list(ARTIFACT_FIELDS)}"
+                )
+            if artifact["stack"] not in names or not re.fullmatch(
+                r"[A-Z][A-Za-z0-9]*", artifact["resource"]
+            ):
+                raise InputValidationError(
+                    f"invalid artifact stack/resource: {identity}"
+                )
+            if artifact["property"] not in {prop for _, prop in ARTIFACT_PROPERTIES}:
+                raise InputValidationError(
+                    f"unsupported artifact property: {artifact['property']}"
+                )
+            source = Path(artifact["source"])
+            if (
+                source.is_absolute()
+                or ".." in source.parts
+                or "\\" in artifact["source"]
+                or not artifact["source"].startswith("infra/cloudformation/artifacts/")
+            ):
+                raise InputValidationError(
+                    "artifact source must be a file under infra/cloudformation/artifacts/"
+                )
+            destination = tuple(
+                artifact[field] for field in ("stack", "resource", "property")
             )
-        if artifact["stack"] not in names or not re.fullmatch(
-            r"[A-Z][A-Za-z0-9]*", artifact["resource"]
-        ):
-            raise InputValidationError(f"invalid artifact stack/resource: {identity}")
-        if artifact["property"] not in {prop for _, prop in ARTIFACT_PROPERTIES}:
-            raise InputValidationError(
-                f"unsupported artifact property: {artifact['property']}"
+            if destination in destinations:
+                raise InputValidationError(
+                    f"duplicate artifact destination: {destination}"
+                )
+            destinations.add(destination)
+        except ValueError as error:
+            order = next(
+                (
+                    stack.get("deployOrder", "<missing>")
+                    for _, stack in entries(values, "desired.stack.")
+                    if stack.get("name") == artifact.get("stack")
+                ),
+                "<unknown>",
             )
-        source = Path(artifact["source"])
-        if (
-            source.is_absolute()
-            or ".." in source.parts
-            or "\\" in artifact["source"]
-            or not artifact["source"].startswith("infra/cloudformation/artifacts/")
-        ):
             raise InputValidationError(
-                "artifact source must be a file under infra/cloudformation/artifacts/"
-            )
-        destination = tuple(
-            artifact[field] for field in ("stack", "resource", "property")
-        )
-        if destination in destinations:
-            raise InputValidationError(f"duplicate artifact destination: {destination}")
-        destinations.add(destination)
+                f"StackName={artifact.get('stack', '<missing>')} DeployOrder={order} desired.artifact.{identity}: {error}"
+            ) from error
     if settings:
         bucket = settings["templateBucket"]
         if bucket.lstrip().startswith("{"):
@@ -418,14 +446,19 @@ def deployment_settings(
         ):
             raise InputValidationError("invalid deployment template bucket name")
         validate_key_prefix(settings["templateKeyPrefix"])
-    for _, artifact in artifacts:
-        validate_bucket_reference(artifact["bucket"])
-        validate_key_prefix(artifact["keyPrefix"])
-        if any(
-            "|" in value or "\n" in value or "\r" in value
-            for value in artifact.values()
-        ):
-            raise InputValidationError("artifact fields must be single table cells")
+    for identity, artifact in artifacts:
+        try:
+            validate_bucket_reference(artifact["bucket"])
+            validate_key_prefix(artifact["keyPrefix"])
+            if any(
+                "|" in value or "\n" in value or "\r" in value
+                for value in artifact.values()
+            ):
+                raise InputValidationError("artifact fields must be single table cells")
+        except ValueError as error:
+            raise InputValidationError(
+                f"StackName={artifact['stack']} desired.artifact.{identity}: {error}"
+            ) from error
     return settings, artifacts
 
 

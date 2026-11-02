@@ -1479,5 +1479,29 @@ def check_pipeline_configuration_invalid(value):
         )
 
 
+@pytest.mark.parametrize("included", [False, True])
+def test_deploy_reference_consumer_boundary(tmp_path, models, included):
+    producer, values, consumer, _ = models
+    before = {path: path.read_bytes() for path in (producer.path, consumer.path)}
+    changes, loaded, deferred = {producer.path: {}}, {producer.path: values}, []
+    allowed = {("qa", "team", "kms")}
+    if included:
+        allowed.add(("qa", "team", "iam"))
+    propagate_references(
+        tmp_path,
+        loaded,
+        changes,
+        {("qa", "team", "kms", "KMS_Key_001"): "confirmed"},
+        allowed_services=allowed,
+        deferred=deferred,
+    )
+    TestCase().assertEqual(consumer.path in changes, included)
+    TestCase().assertEqual(bool(deferred), not included)
+    if not included:
+        TestCase().assertEqual(deferred[0]["consumer"], "qa/team/iam")
+        TestCase().assertEqual(deferred[0]["producer"], "qa/team/kms/KMS_Key_001")
+    TestCase().assertEqual({path: path.read_bytes() for path in before}, before)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

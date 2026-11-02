@@ -83,3 +83,14 @@ remain required. After verified integration use ordinary finalize/guarded cleanu
 No Sub Agents, background writer, general workflow engine or automatic IaC repair.
 
 A settled request with an unconfirmed attempt outcome may report Deploy UNKNOWN; this never becomes a physical identifier or an active-request bypass. Current root Stack events are scoped by StackId and original token, and never replace the independently read current Stack status.
+
+## DeployOrder selection and synchronization scope
+
+SDK offline Preparation supports repeated `--stack` or inclusive numeric
+`--order-from` / `--order-to` bounds. `--service` is optional and only checks the
+automatically discovered owner services. Review the resolved StackNames, Resource
+ownership and output paths before registration. Resume uses the Task's full fixed
+StackName scope for every Controller action, never the original Order selector.
+External consumer services are deferred without Model/View writes. Follow
+[DeployOrder selection and synchronization scope](../../../framework/rules/cloudformation.md#deployorder-selection-and-synchronization-scope)
+for diagnostics, selected validation, external dependencies and CLI boundaries.

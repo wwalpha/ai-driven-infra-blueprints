@@ -147,3 +147,14 @@ FAILではrunningと保存済みModel・生成成功物を保持する。失敗�
 `worktree_task.py deploy-publish` でGitだけを再開する。finalizeは最終候補と公開を確認してcleanupする。
 旧要求の追跡終了は正しい対象identityのAWS証拠によって判断し、progress保存後に同じ要求だけを解放する。
 状態ファイルの手動削除、Reset、UNKNOWNだけを理由にした旧要求の復活を通常手順にしない。
+
+## DeployOrder selection and synchronization scope
+
+SDK offline Preparation supports repeated `--stack` or inclusive numeric
+`--order-from` / `--order-to` bounds. `--service` is optional and only checks the
+automatically discovered owner services. Review the resolved StackNames, Resource
+ownership and output paths before registration. Resume uses the Task's full fixed
+StackName scope for every Controller action, never the original Order selector.
+External consumer services are deferred without Model/View writes. Follow
+[DeployOrder selection and synchronization scope](../../rules/cloudformation.md#deployorder-selection-and-synchronization-scope)
+for diagnostics, selected validation, external dependencies and CLI boundaries.

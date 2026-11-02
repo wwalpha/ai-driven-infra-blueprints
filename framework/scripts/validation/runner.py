@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 import deploy.inputs as _imports_deploy_inputs
+import deploy.scope as _imports_deploy_scope
 import generation_inputs as _imports_generation_inputs
 import model.change_plan as change_plan
 import model.core as _exports_model_core
@@ -527,6 +528,19 @@ class Validator:
             if not self.errors:
                 self.generate_and_validate(snapshot, registered, common_checks)
             return self.report()
+        if self.infrastructure_phase == "deploy" and not self.errors:
+            self.findings.evaluate(
+                "validation.deployment-scope",
+                self.scope,
+                lambda: _imports_deploy_scope.validate_selected(
+                    self.root,
+                    _imports_task_contract.task_snapshot(self.root, executable=False),
+                    self.findings,
+                    self.definitions_root,
+                    self.change_plan,
+                ),
+                isolate=True,
+            )
         if self.model_validation == "change":
             if not self.errors:
                 self.findings.evaluate(

@@ -11,6 +11,10 @@ from types import SimpleNamespace
 from unittest import TestCase
 
 import pytest
+from deploy import inputs
+from deploy import scope as execution_scope
+from model.change_plan import ServiceChange
+from support import deploy_controller_fixtures as controller_fixtures
 from support.deploy_preparation_fixtures import (
     ROOT,
     STACKS,
@@ -25,6 +29,10 @@ from support.deploy_preparation_fixtures import (
     tempfile,
 )
 from utils.aws.identity import IdentityError
+from utils.cloudformation.inputs import Blocked
+from validation.findings import Findings
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -81,6 +89,7 @@ def check_dependencies_and_timing():
 def check_identity_failure_precedes_preparation(tmp_path):
     args = SimpleNamespace(
         task_file="tasks/test.md",
+        stack=["Test"],
         service=["vpc"],
         environment="dev",
         aws_account_id="123456789012",
@@ -215,3 +224,164 @@ if __name__ == "__main__":
     from support.pytest_cli import run
 
     raise SystemExit(run(__file__))
+
+
+@pytest.mark.parametrize(
+    ("lower", "upper", "expected"),
+    [
+        (None, 20, ["One", "Two"]),
+        (30, 50, ["Three", "Four"]),
+        (40, 40, ["Four"]),
+        (30, None, ["Three", "Four"]),
+    ],
+)
+def test_order_selection(lower, upper, expected):
+    values = {}
+    for number, (name, order) in enumerate(
+        (("One", 10), ("Two", 20), ("Three", 30), ("Four", 40)), 1
+    ):
+        values[f"desired.stack.{number}.name"] = name
+        values[f"desired.stack.{number}.deployOrder"] = str(order)
+    TestCase().assertEqual(
+        [
+            stack["name"]
+            for _, stack in M.select_stacks(values, order_from=lower, order_to=upper)
+        ],
+        expected,
+    )
+    with pytest.raises(Blocked):
+        M.select_stacks(values, ["One"], order_to=20)
+    with pytest.raises(Blocked):
+        M.select_stacks(values, order_from=50, order_to=40)
+    with pytest.raises(Blocked):
+        M.select_stacks(values, order_from=50)
+
+
+def test_invalid_stack_diagnostic_identifies_outside_stack(tmp_path):
+    values = {"desired.deployment.maxConcurrentStacks": "1"}
+    for number, name in ((1, "One"), (2, "Two")):
+        for key, value in {
+            "name": name,
+            "deployOrder": str(number * 10),
+            "template": "valid.yaml",
+            "parameters": f"{number}.json",
+        }.items():
+            values[f"desired.stack.{number}.{key}"] = value
+    values["desired.stack.2.template"] = "bad/path"
+    with pytest.raises(
+        Blocked,
+        match="cloudformation-stacks.properties: StackName=Two DeployOrder=20.*template='bad/path'",
+    ):
+        M.load_units(
+            tmp_path, "dev", "target", ["One"], snapshot=SimpleNamespace(values=values)
+        )
+    values["desired.stack.2.template"] = "valid.yaml"
+    values["desired.stack.2.parameters"] = "1.json"
+    with pytest.raises(Blocked, match="StackName=Two.*parameter.*StackName=One"):
+        M.load_units(
+            tmp_path, "dev", "target", ["One"], snapshot=SimpleNamespace(values=values)
+        )
+
+
+def test_stack_view_diagnostics_identify_mismatched_stack(tmp_path):
+    root = tmp_path / "repo"
+    fixture(root)
+    source = root / "model/dev/123456789012/cloudformation-stacks.properties"
+    design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
+    snapshot = M.stack_snapshot(source)
+    design.write_text(
+        design.read_text(encoding="utf-8").replace("second.yaml", "incorrect.yaml"),
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        inputs.DeployStepBlocked, match="StackName=" + STACKS[1] + ".*template"
+    ):
+        inputs.check_stack_markdown(root, snapshot)
+    design.write_text(
+        design.read_text(encoding="utf-8").replace("shared.yaml", "wrong.yaml"),
+        encoding="utf-8",
+    )
+    with pytest.raises(inputs.DeployStepBlocked):
+        inputs.check_stack_markdown(root, snapshot)
+
+
+def test_ownership_discovery_uses_selected_stack(tmp_path):
+    root = tmp_path / "repo"
+    fixture(root)
+    _, units = M.load_units(root, "dev", "123456789012", [STACKS[0]])
+    resources = M.owning_resources(root, "dev", "123456789012", TARGET, units)
+    TestCase().assertEqual(set(resources), {STACKS[0]})
+    TestCase().assertEqual(resources[STACKS[0]]["WorkerRole"]["service"], "iam")
+    dependency_index.rebuild(root)
+    entrance = root / "model/dev/123456789012/ec2.properties"
+    ec2 = next(
+        path
+        for path in (entrance, *entrance.with_suffix("").rglob("*.properties"))
+        if STACKS[1] + "-Vpc" in path.read_text(encoding="utf-8")
+    )
+    original = ec2.read_text(encoding="utf-8")
+    ec2.write_text(
+        original.replace(STACKS[1] + "-Vpc", STACKS[0] + "-WorkerRole"),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="matches=2"):
+        M.owning_resources(root, "dev", "123456789012", TARGET, units)
+    ec2.write_text(original, encoding="utf-8")
+    template = root / "infra/cloudformation/templates/shared.yaml"
+    template.write_text(
+        "Resources:\n  Unknown:\n    Type: AWS::IAM::Role\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="explicit mapping required"):
+        M.owning_resources(root, "dev", "123456789012", TARGET, units)
+
+
+def test_fixed_resource_mapping_cannot_be_replaced(tmp_path):
+    path = tmp_path / "model/dev/team/iam.properties"
+    task = SimpleNamespace(
+        text='## Execution scope\n- `{"stack":"One","logicalId":"Role","service":"iam","resource":"IAM_Role_001"}`\n'
+    )
+    mapped = {"One": {"Role": (path, "001", {"logicalId": "IAM_Role_001"}, [], set())}}
+    execution_scope.check_fixed_resources(tmp_path, mapped, task=task)
+    mapped["One"]["Role"] = (path, "002", {"logicalId": "IAM_Role_002"}, [], set())
+    with pytest.raises(ValueError, match="fixed Execution scope"):
+        execution_scope.check_fixed_resources(tmp_path, mapped, task=task)
+
+
+def test_observed_row_from_another_selected_service_stack_is_rejected(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    root = controller_fixtures.seed(tmp_path / "repo", tmp_path / "session.json")
+    task_text = (root / "tasks/deploy.md").read_text(encoding="utf-8")
+    line = next(
+        line
+        for line in task_text.splitlines()
+        if line.startswith("- Deployment scope:")
+    )
+    task = SimpleNamespace(
+        text=task_text.replace(line, "- Deployment scope: `cfn-stack-app-dev-first`")
+    )
+    source = M.load_model(root / "model/dev/123456789012/ec2.properties")
+    row = next(rid for rid, _ in inputs.entries(source.authoritative, "desired.row."))
+    change = ServiceChange(source, source, observed_rows={row})
+    with pytest.raises(
+        ValueError, match="observed write outside fixed selected Resources"
+    ):
+        execution_scope.validate_selected(
+            root, task, Findings(root), plan=SimpleNamespace(changes={"ec2": change})
+        )
+
+
+def test_removed_resource_observation_remains_authorized(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    root = controller_fixtures.seed(
+        tmp_path / "repo", tmp_path / "session.json", "remove"
+    )
+    task = SimpleNamespace(text=(root / "tasks/deploy.md").read_text(encoding="utf-8"))
+    source = M.load_model(root / "model/dev/123456789012/ec2.properties")
+    change = ServiceChange(source, source, observed_rows={"002-001"})
+    findings = Findings(root)
+    execution_scope.validate_selected(
+        root, task, findings, plan=SimpleNamespace(changes={"ec2": change})
+    )
+    TestCase().assertEqual(findings.errors, [])
