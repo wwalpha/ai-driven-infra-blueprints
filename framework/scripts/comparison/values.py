@@ -6,6 +6,7 @@ from functools import partial as _bind_framework_callback
 
 import json_intrinsics as _imports_json_intrinsics
 import model.environment_values as environment_values
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
 from design.policy_tables import literal
 from model.literal_values import literal_errors as row_literal_errors
 from model.literal_values import typed_value, value_shape
@@ -258,9 +259,9 @@ def _desired_value(
         value = strict_json(raw)
     else:
         value = literal(raw)
-        if value == "PENDING_DEPLOY":
+        if value == MODEL_PENDING_DEPLOY:
             raise DesiredPendingDeployExcluded(row["property"])
-        if value in {"UNSET", "TBD", "TODO", "未確定"}:
+        if value in {MODEL_UNSET, "TBD", "TODO", "未確定"}:
             raise Blocked("desired value is unresolved")
         node = property_schema(
             kind, re.sub(r"\[\d+\]", "[]", row["property"].removeprefix(kind + "."))
@@ -325,7 +326,7 @@ def _desired_value(
 
 
 def _pending_environment(failures, kind, prop, item):
-    if item.value == "PENDING_DEPLOY" and item.pending_allowed:
+    if item.value == MODEL_PENDING_DEPLOY and item.pending_allowed:
         path = prop.removeprefix(kind + ".")
         for token in item.pointer.split("/")[1:]:
             path += (

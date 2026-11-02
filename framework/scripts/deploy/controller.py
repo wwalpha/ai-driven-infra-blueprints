@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import utils.aws.client as _imports_utils_aws_client
+from contracts.deploy import DEPLOY_SUCCESS
 from model.core import ARTIFACT_PROPERTIES
 from model.projection import deployment_bucket
 from model.references import has_reference
@@ -438,7 +439,7 @@ def check_imports(
         for name in verified:
             producer = next(item for item in runtime.units if item["name"] == name)
             current_satisfied(runtime, producer)
-            states[name]["status"] = "SUCCESS"
+            states[name]["status"] = DEPLOY_SUCCESS
     return change_sets.check_imports(
         runtime.target,
         runtime.templates,
@@ -624,7 +625,7 @@ def review_prepared(
         runtime.describe_change_set,
         change_set,
     )
-    if result == "SUCCESS":
+    if result == DEPLOY_SUCCESS:
         state.pop("noChangeCandidate", None)
     return result
 

@@ -23,6 +23,13 @@ import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
 import utils.aws_catalogs as _imports_utils_aws_catalogs
 import validation_scope as _dependency_validation_scope
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    MODEL_UNSET,
+    RESOURCE_MODE_CREATE,
+    RESOURCE_MODE_IMPORT,
+)
+from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from design.catalog import (
     DesignSchemaCatalog,
     api_snapshot_errors,
@@ -420,7 +427,7 @@ def _callback_check_resource_names_check_name(
     if current is None:
         return
     resource_type, display = current
-    mode = modes.get(anchor, "CREATE")
+    mode = modes.get(anchor, RESOURCE_MODE_CREATE)
     label = None
     if values:
         key = (resource_type, identities.get(anchor))
@@ -560,7 +567,10 @@ def _callback_check_resource_names_check_name(
             and resource_type
             in _dependency_design_layout.REQUIRED_NAME_TAG_TYPES
             | {"IAM.Role", "CodeBuild.Project"}
-            and (mode != "IMPORT" or resource_type in {"IAM.Role", "CodeBuild.Project"})
+            and (
+                mode != RESOURCE_MODE_IMPORT
+                or resource_type in {"IAM.Role", "CodeBuild.Project"}
+            )
         ):
             name_unavailable = "saved resource name rows are unavailable"
         if name_unavailable is not None:
@@ -568,7 +578,7 @@ def _callback_check_resource_names_check_name(
             entry = dict(
                 code="design.identity.dependency",
                 reason="expansion",
-                status="FAIL",
+                status=VALIDATION_FAIL,
                 scope=["/".join(item) for item in name_scope],
                 resource=identities.get(anchor, anchor),
                 checks=["resource name from saved array rows"],
@@ -641,7 +651,7 @@ def _callback_check_resource_names_check_name(
         findings.check(False, f"{findings.relative(path)}: {error}", source_path=path)
         return
     findings.check(
-        name is None or name not in {"", "UNSET", "PENDING_DEPLOY"},
+        name is None or name not in {"", MODEL_UNSET, MODEL_PENDING_DEPLOY},
         f"resource display name must be confirmed: {findings.relative(path)}: {resource_type}",
         source_path=path,
         cause_kind="input_invalid",
@@ -750,7 +760,7 @@ def check_resource_names(
             entry = dict(
                 code="design.identity.dependency",
                 reason="display",
-                status="FAIL",
+                status=VALIDATION_FAIL,
                 scope=["/".join(item) for item in scope],
                 cause_keys=[item.cause_key for item in causes],
                 checks=["resource names and identity after display expansion"],
@@ -975,7 +985,8 @@ def check_observed_values(
             if key.startswith("observed.row.") and key.endswith(".value"):
                 owner = key.split(".")[2].rpartition("-")[0]
                 findings.check(
-                    values.get(f"desired.resource.{owner}.resourceMode") == "IMPORT"
+                    values.get(f"desired.resource.{owner}.resourceMode")
+                    == RESOURCE_MODE_IMPORT
                     or re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None,
                     f"generated ARN persisted in observed model value: {findings.relative(path)}",
                     source_path=path,
@@ -1042,7 +1053,7 @@ def check_catalog_inputs(findings, root, set_schema_catalog, scope=None):
         scope,
         lambda: check_api_design_catalog(findings, root),
     )
-    if schema.status == api.status == "PASS":
+    if schema.status == api.status == VALIDATION_PASS:
         set_schema_catalog(DesignSchemaCatalog(root))
 
     aws_materials = set(material_files(root))

@@ -1,5 +1,6 @@
 """IMPORT waits and normal exclusions within the six comparison categories."""
 
+from contracts.model import MODEL_PENDING_DEPLOY
 from design.policy_tables import literal
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.arn_values import generated_attribute
@@ -83,7 +84,7 @@ def defer_import_reference(inputs, symbol, resource, consumer_property):
     key = f"observed.row.{rows[0][0]}.value" if rows else None
     if key not in authority:
         phase = "unobserved"
-    elif literal(authority[key]) == "PENDING_DEPLOY":
+    elif literal(authority[key]) == MODEL_PENDING_DEPLOY:
         phase = "pending_deploy"
     else:
         identifier_text(inputs, kind, attribute, authority[key])

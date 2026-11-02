@@ -3,6 +3,8 @@
 import json
 import re
 
+from contracts.model import RESOURCE_MODE_IMPORT
+
 from design.services.definitions.ec2 import EC2_BLOCK_DEVICE as EC2_BLOCK_DEVICE
 from design.services.definitions.ec2 import EC2_NAME_TAG as EC2_NAME_TAG
 
@@ -96,7 +98,7 @@ def ec2_formal_rows(rows: list[list[str]], resource_type: str) -> list[list[str]
 
 
 def name_tag_display_name(resource_type, rows, fields, mode):
-    if mode == "IMPORT":
+    if mode == RESOURCE_MODE_IMPORT:
         paths = [row[1].removeprefix(resource_type + ".") for row in rows]
         for index, path in enumerate(paths):
             if path == "Tags[].Key" and paths[index + 1 : index + 2] != [
@@ -117,7 +119,7 @@ def name_tag_display_name(resource_type, rows, fields, mode):
         if row[1].removeprefix(resource_type + ".") == "Tags[].Key"
         and row[2].strip('`"') == "Name"
     ]
-    if mode == "IMPORT" and not keys and "Name" not in fields:
+    if mode == RESOURCE_MODE_IMPORT and not keys and "Name" not in fields:
         return None
     if "Name" in fields or len(keys) != 1:
         raise ValueError(

@@ -1,6 +1,7 @@
 """KMS display selection."""
 
 import model.references as references
+from contracts.model import MODEL_PENDING_DEPLOY
 
 
 def alias_display_name(rows, selected_label):
@@ -46,12 +47,12 @@ def reference_label(
     if observation is None:
         return name
     state, observed = observation
-    if state == "unobserved" and displayed == "PENDING_DEPLOY":
+    if state == "unobserved" and displayed == MODEL_PENDING_DEPLOY:
         return displayed
     return {
         "match": observed,
         "mismatch": observed,
         "unproven": "未確認: " + str(observed),
-        "pending": "PENDING_DEPLOY",
+        "pending": MODEL_PENDING_DEPLOY,
         "unobserved": "未観測",
     }[state]

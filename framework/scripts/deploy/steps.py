@@ -13,6 +13,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import worktree_task as wt
+from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
+from contracts.model import REFERENCE_PENDING_DEPLOY
+from contracts.validation import VALIDATION_PASS
 from model.sources import model_session
 from task_contract_core import TaskSnapshot, selected_task, set_status, task_snapshot
 from utils.aws.client import AwsError
@@ -243,7 +246,7 @@ def refresh_requests(backend, units=None):
             if not own_request:
                 if state["status"] != "SETTLED":
                     state["externalOperation"] = True
-                    state["status"] = "RUNNING"
+                    state["status"] = DEPLOY_RUNNING
             elif request.get("operation") == "create_change_set":
                 state["status"] = (
                     "NOT_STARTED"
@@ -252,12 +255,12 @@ def refresh_requests(backend, units=None):
                 )
             else:
                 state["status"] = (
-                    "RUNNING"
+                    DEPLOY_RUNNING
                     if current_state.category(state["currentStack"]) == "RUNNING"
                     else "BLOCKED"
                 )
         elif (
-            state["status"] == "RUNNING"
+            state["status"] == DEPLOY_RUNNING
             or state.get("attemptResult") == "UNKNOWN"
             and state["status"] != "SETTLED"
         ) and (
@@ -296,7 +299,7 @@ def refresh_requests(backend, units=None):
             state["status"] != "SETTLED"
             and current_state.category(state["currentStack"]) == "RUNNING"
         ):
-            state.update(status="RUNNING", externalOperation=True)
+            state.update(status=DEPLOY_RUNNING, externalOperation=True)
 
 
 def retry_terminal_attempts(backend, previous_terminal):
@@ -544,10 +547,10 @@ def describe(backend: SimpleNamespace) -> dict:
         and generation_resume.complete(context)
         and worktree.attempts_finished(states, context.get("deployResult"))
         and all(s.get("observedSynced") for s in states.values())
-        and context.get("snapshotValidation") == "PASS"
+        and context.get("snapshotValidation") == VALIDATION_PASS
         and not pending
         and all(
-            s.get("status") != "RUNNING"
+            s.get("status") != DEPLOY_RUNNING
             and not s.get("requestPending")
             and current_state.category(s.get("currentStack", {})) != "RUNNING"
             for s in states.values()
@@ -569,7 +572,7 @@ def describe(backend: SimpleNamespace) -> dict:
     active = [
         unit
         for unit in units
-        if states[unit["name"]]["status"] != "SUCCESS"
+        if states[unit["name"]]["status"] != DEPLOY_SUCCESS
         and unit["name"] not in getattr(backend, "verified_settled", set())
     ]
     order = min((int(unit["deployOrder"]) for unit in active), default=None)
@@ -580,7 +583,7 @@ def describe(backend: SimpleNamespace) -> dict:
     )
     can_advance = any(
         s["status"]
-        in {"RUNNING", "NOT_STARTED", "READY", "CHANGESET_CREATING", "SETTLED"}
+        in {DEPLOY_RUNNING, "NOT_STARTED", "READY", "CHANGESET_CREATING", "SETTLED"}
         and not s.get("requestError")
         and not s.get("schedulerError")
         and s.get("failure", {}).get("classification") != "APPROVAL"
@@ -609,7 +612,7 @@ def describe(backend: SimpleNamespace) -> dict:
             if uncertain
             or any(s.get("attemptResult") == "UNKNOWN" for s in states.values())
             else "SUCCESS"
-            if all(s["status"] == "SUCCESS" for s in states.values())
+            if all(s["status"] == DEPLOY_SUCCESS for s in states.values())
             else "PENDING",
         ),
         "modelSave": "PENDING"
@@ -658,8 +661,8 @@ def describe(backend: SimpleNamespace) -> dict:
         },
         "pendingGeneration": {
             view: {
-                "reason": "REFERENCE_PENDING_DEPLOY"
-                if r["reason"] == "REFERENCE_PENDING_DEPLOY"
+                "reason": REFERENCE_PENDING_DEPLOY
+                if r["reason"] == REFERENCE_PENDING_DEPLOY
                 else "PUBLICATION_PENDING",
                 "producers": r["producers"],
                 "consumer": view,
@@ -823,7 +826,7 @@ def run(
                     previous_terminal.update(
                         name
                         for name, state in backend.states.items()
-                        if backend.states[name]["status"] == "SUCCESS"
+                        if backend.states[name]["status"] == DEPLOY_SUCCESS
                         and state.get("needsCurrentReview")
                     )
                     retry_terminal_attempts(backend, previous_terminal)
@@ -842,7 +845,11 @@ def run(
                 resources.enter_context(model_session(models))
                 for unit in units:
                     state = backend.states[unit["name"]]
-                    if state["status"] in {"RUNNING", "CHANGESET_CREATING", "READY"}:
+                    if state["status"] in {
+                        DEPLOY_RUNNING,
+                        "CHANGESET_CREATING",
+                        "READY",
+                    }:
                         backend.load_inputs(unit)
                     if state.get("requestError"):
                         state.update(status="BLOCKED", reason=state["requestError"])

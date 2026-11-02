@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Literal
 
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    REFERENCE_PENDING_DEPLOY,
+    REFERENCE_UNRESOLVED,
+)
 from design.services.definitions.registry import POLICY_FORMATS
 from utils import cli_deploy
 from utils.arn_components import ARN_COMPONENTS
@@ -187,7 +192,7 @@ class ProducerValues:
             )
         rid, row = rows[0]
         desired_raw = literal(row["value"])
-        if desired_raw == "PENDING_DEPLOY":
+        if desired_raw == MODEL_PENDING_DEPLOY:
             mapping = environment_values.mapping_for(
                 self.snapshot.scope.root, self.kind
             )
@@ -246,7 +251,7 @@ class ProducerValues:
         observed = self.snapshot.authoritative.get(f"observed.row.{rid}.value")
         if observed is not None:
             observed = literal(observed)
-            if observed == "PENDING_DEPLOY":
+            if observed == MODEL_PENDING_DEPLOY:
                 self.pending_fields.add(field)
                 observed = None
             else:
@@ -465,10 +470,10 @@ class ProducerValues:
             self.missing_outputs = tuple(missing)
             raise ReferenceResolutionError(
                 "no confirmed ARN components: " + ", ".join(missing),
-                category="REFERENCE_PENDING_DEPLOY"
+                category=REFERENCE_PENDING_DEPLOY
                 if self.waiting(missing)
-                else "REFERENCE_UNRESOLVED",
-                code="REFERENCE_PENDING_DEPLOY"
+                else REFERENCE_UNRESOLVED,
+                code=REFERENCE_PENDING_DEPLOY
                 if self.waiting(missing)
                 else "reference.unresolved",
             )
@@ -524,7 +529,7 @@ def reference_value(resolver, scope, node, **contract):
                 ) from None
             if error.diagnostic[
                 "category"
-            ] == "REFERENCE_UNRESOLVED" and producer.logical_only(
+            ] == REFERENCE_UNRESOLVED and producer.logical_only(
                 producer.missing_outputs
             ):
                 return ReferenceValue("logical_only")
@@ -548,10 +553,8 @@ def reference_value(resolver, scope, node, **contract):
                 "explicit Producer output PENDING_DEPLOY"
                 if pending
                 else "no confirmed desired or observed value",
-                category="REFERENCE_PENDING_DEPLOY"
-                if pending
-                else "REFERENCE_UNRESOLVED",
-                code="REFERENCE_PENDING_DEPLOY" if pending else "reference.unresolved",
+                category=REFERENCE_PENDING_DEPLOY if pending else REFERENCE_UNRESOLVED,
+                code=REFERENCE_PENDING_DEPLOY if pending else "reference.unresolved",
             )
         return ReferenceValue("resolved", value)
     except ReferenceDiagnosticError as error:
@@ -571,7 +574,7 @@ def reference_value(resolver, scope, node, **contract):
             raise
         return ReferenceValue(
             "pending_deploy"
-            if error.diagnostic["category"] == "REFERENCE_PENDING_DEPLOY"
+            if error.diagnostic["category"] == REFERENCE_PENDING_DEPLOY
             else "unresolved",
             reason=error.diagnostic["message"],
             diagnostic=error.diagnostic,

@@ -2,6 +2,8 @@
 
 import re
 
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
+
 from utils.cloudformation.inputs import Blocked
 
 
@@ -37,7 +39,7 @@ def event_rule(properties, evaluate):
         components = dict(partition=partition, region=region, account=account)
     if (
         not isinstance(bus, str)
-        or bus in {"UNSET", "PENDING_DEPLOY", "TBD", "TODO", "未確定"}
+        or bus in {MODEL_UNSET, MODEL_PENDING_DEPLOY, "TBD", "TODO", "未確定"}
         or re.fullmatch(r"[A-Za-z0-9._-]{1,256}", bus) is None
     ):
         raise Blocked("rule ARN requires a confirmed event bus name")

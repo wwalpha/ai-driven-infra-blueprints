@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
 
@@ -160,7 +161,7 @@ def refresh(backend, units):
         ):
             state.pop("observedSynced", None)
             state.pop("checkpointed", None)
-            if state["status"] == "SUCCESS":
+            if state["status"] == DEPLOY_SUCCESS:
                 state["needsCurrentReview"] = True
         state["currentStack"] = observation(current)
         state["stackStatus"] = current["StackStatus"]
@@ -183,7 +184,7 @@ def record_attempt(state, status):
     """Attempt outcome and current Stack observation have different sources."""
     state["stackStatus"] = state.get("currentStack", {}).get("StackStatus", status)
     if status in {"ATTEMPT_SUCCESS", "ATTEMPT_FAIL"}:
-        state["status"] = "SUCCESS" if status == "ATTEMPT_SUCCESS" else "FAILED"
+        state["status"] = DEPLOY_SUCCESS if status == "ATTEMPT_SUCCESS" else "FAILED"
         state.pop("failureDetected", None)
         state.pop("unexecutedReason", None)
         state.pop("attemptResult", None)
@@ -204,13 +205,13 @@ def record_attempt(state, status):
     if status in FAILED or "ROLLBACK" in status:
         state["failureDetected"] = True
     if status in SUCCESS:
-        state["status"] = "FAILED" if state.get("failureDetected") else "SUCCESS"
+        state["status"] = "FAILED" if state.get("failureDetected") else DEPLOY_SUCCESS
     elif status in FAILED:
         state["status"] = "FAILED"
     elif status.endswith("_IN_PROGRESS"):
-        state["status"] = "RUNNING"
+        state["status"] = DEPLOY_RUNNING
     else:
         raise Blocked("unrecognized stack status: " + status)
-    if state["status"] in {"SUCCESS", "FAILED"}:
+    if state["status"] in {DEPLOY_SUCCESS, "FAILED"}:
         state.pop("unexecutedReason", None)
         state.pop("attemptResult", None)

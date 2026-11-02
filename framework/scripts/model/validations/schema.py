@@ -10,6 +10,7 @@ import design.layout as _dependency_design_layout
 import design.layout as _imports_design_layout
 import design.policy_tables as _dependency_policy_tables
 import validation.design as _imports_validation_design
+from contracts.model import RESOURCE_MODE_IMPORT
 from design.catalog import (
     DesignSchemaCatalog,
     property_paths_with_parents,
@@ -88,7 +89,8 @@ def validate_required_properties(
             if prop in RESOURCE_REFERENCE_PROPERTIES and not (
                 rid in references
                 or is_service_role_reference(prop, value)
-                or _dependency_design_layout.resource_mode(resource) == "IMPORT"
+                or _dependency_design_layout.resource_mode(resource)
+                == RESOURCE_MODE_IMPORT
                 and (
                     prop != "Config.ConfigurationRecorder.RoleARN"
                     or _dependency_design_layout.is_import_pending_reference(
@@ -113,7 +115,8 @@ def validate_required_properties(
             for row in rows
             if row[0] in references
             or (
-                _dependency_design_layout.resource_mode(resource) == "IMPORT"
+                _dependency_design_layout.resource_mode(resource)
+                == RESOURCE_MODE_IMPORT
                 and _dependency_design_layout.is_import_pending_reference(
                     row[1], row[2]
                 )
@@ -209,7 +212,7 @@ def _callback_check_model_inputs_literal_check(
         or _dependency_design_layout.resource_mode(
             _state_check_model_inputs_337.resource
         )
-        == "IMPORT"
+        == RESOURCE_MODE_IMPORT
         and (
             _dependency_design_layout.is_import_pending_reference(
                 prop, _state_check_model_inputs_337.row.get("value", "")

@@ -7,6 +7,11 @@ from pathlib import Path
 
 import deploy.inputs as _imports_deploy_inputs
 import sync_runtime as _imports_sync_runtime
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    RESOURCE_MODE_CREATE,
+    RESOURCE_MODE_IMPORT,
+)
 from deploy.model_cache import RunModels
 from design.catalog import DesignSchemaCatalog
 from design.layout_schema import GROUPED
@@ -137,7 +142,11 @@ def validate_mapping_targets(
                 f"{name}/{logical}: duplicate cfn-logicalId"
             )
         for path, identity, resource, cfn_type in candidates:
-            if resource.get("resourceMode", "CREATE") != "CREATE" or not cfn_type:
+            if (
+                resource.get("resourceMode", RESOURCE_MODE_CREATE)
+                != RESOURCE_MODE_CREATE
+                or not cfn_type
+            ):
                 errors.setdefault(name, []).append(
                     f"{path.name}/{identity}: cfn-logicalId requires CREATE with a formal CFn type"
                 )
@@ -178,7 +187,7 @@ def mapped_resource(direct, name, logical, cfn_type):
             f"cfn-logicalId matches={len(candidates)}; explicit mapping required"
         )
     entry = candidates[0]
-    if entry[2].get("resourceMode", "CREATE") != "CREATE":
+    if entry[2].get("resourceMode", RESOURCE_MODE_CREATE) != RESOURCE_MODE_CREATE:
         raise ValueError("cfn-logicalId requires CREATE")
     if entry[3] != cfn_type:
         raise ValueError(f"formal CFn type mismatch: {cfn_type} != {entry[3]}")
@@ -308,11 +317,13 @@ def _mappings(
                 mode = (
                     "mapped"
                     if "cfn-logicalId" in resource
-                    else resource.get("resourceMode", "CREATE")
+                    else resource.get("resourceMode", RESOURCE_MODE_CREATE)
                 )
                 modes.setdefault(cfn_type, set()).add(mode)
         import_only = {
-            kind for kind, modes in modes.items() if kind and modes == {"IMPORT"}
+            kind
+            for kind, modes in modes.items()
+            if kind and modes == {RESOURCE_MODE_IMPORT}
         }
     integrated = (
         {
@@ -866,7 +877,8 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
     scope = active_scope(root) if check_scope else None
     for (name, logical), candidates in direct.items():
         if name in stack_names and any(
-            resource.get("resourceMode", "CREATE") != "CREATE" or not formal
+            resource.get("resourceMode", RESOURCE_MODE_CREATE) != RESOURCE_MODE_CREATE
+            or not formal
             for _, _, resource, formal in candidates
         ):
             ambiguous(
@@ -879,7 +891,10 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
     for path, values in loaded.items():
         rows = resource_row_index(values)
         for identity, resource in entries(values, "desired.resource."):
-            if resource.get("resourceMode", "CREATE") != "CREATE":
+            if (
+                resource.get("resourceMode", RESOURCE_MODE_CREATE)
+                != RESOURCE_MODE_CREATE
+            ):
                 continue
             try:
                 formal = catalog.cloudformation_type(resource["resourceType"])
@@ -894,7 +909,7 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                 for rid, row in rows[identity]:
                     if row["property"] in outputs and values.get(
                         f"observed.row.{rid}.value"
-                    ) not in {None, "PENDING_DEPLOY", "`PENDING_DEPLOY`"}:
+                    ) not in {None, MODEL_PENDING_DEPLOY, "`PENDING_DEPLOY`"}:
                         ambiguous(
                             f"{path.name}/{identity}: observed identifier requires explicit cfn-logicalId ownership"
                         )
@@ -943,7 +958,7 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                 changes_by_stack[name].setdefault(path, {})[
                     f"observed.row.{rid}.value"
                 ] = "`PENDING_DEPLOY`"
-                anchors[name][own_key(path, resource)] = "PENDING_DEPLOY"
+                anchors[name][own_key(path, resource)] = MODEL_PENDING_DEPLOY
     result, paths, services, inputs = {}, set(), set(), {}
     all_anchors = {}
     for name in stack_names:

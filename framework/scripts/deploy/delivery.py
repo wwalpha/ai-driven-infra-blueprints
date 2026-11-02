@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote, urlencode
 
+from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
 from model.core import ARTIFACT_PROPERTIES
 from utils.cloudformation.inputs import Blocked, condition_active, resolve_value
 
@@ -260,7 +261,7 @@ def prepare_delivery_group(
     pending = [
         unit
         for unit in units
-        if states[unit["name"]]["status"] not in {"RUNNING", "SUCCESS"}
+        if states[unit["name"]]["status"] not in {DEPLOY_RUNNING, DEPLOY_SUCCESS}
     ]
     exports_for(pending, boundary)
     for unit in pending:

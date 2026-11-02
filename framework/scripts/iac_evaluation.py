@@ -7,6 +7,7 @@ AWS/deploy mode deliberately retains its existing narrower evaluation contract.
 import re
 from functools import partial as _bind_framework_callback
 
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
 from utils.cloudformation.format import intrinsic_shape_error
 from utils.cloudformation.inputs import Blocked, resolve_value
 from utils.comparison_rows import MISSING, select
@@ -159,7 +160,7 @@ class Evaluation:
 
     def evaluate(self, stack, value, seen=frozenset()):
         document, parameters, pseudo = self.stack_inputs[stack]
-        unresolved = {"PENDING_DEPLOY", "UNSET", "TODO", "TBD", "未確定"}
+        unresolved = {MODEL_PENDING_DEPLOY, MODEL_UNSET, "TODO", "TBD", "未確定"}
         condition_parameters = (
             {
                 key: item

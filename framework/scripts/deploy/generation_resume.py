@@ -6,6 +6,7 @@ from functools import partial
 from pathlib import Path
 
 import sync_runtime
+from contracts.model import REFERENCE_PENDING_DEPLOY, RESOURCE_MODE_CREATE
 from generation_inputs import GenerationInputs
 from model.core import ReferenceResolutionError
 from model.identity import Resolver
@@ -181,7 +182,7 @@ def producers(backend, view, info, stage, resolver):
     """Only exact, indexed CREATE owners in this run can unblock a service."""
     diagnostics = info.get("diagnostics")
     if not diagnostics or any(
-        d.get("category") != "REFERENCE_PENDING_DEPLOY" for d in diagnostics
+        d.get("category") != REFERENCE_PENDING_DEPLOY for d in diagnostics
     ):
         raise Blocked(
             "generation unavailable is not a pending CREATE reference: " + str(info)
@@ -206,7 +207,8 @@ def producers(backend, view, info, stage, resolver):
         snapshot, _, resource = resolver.resolve_logical(logical, scope)
         if (
             snapshot.scope.path != producer_path
-            or resource.get("resourceMode", "CREATE") != "CREATE"
+            or resource.get("resourceMode", RESOURCE_MODE_CREATE)
+            != RESOURCE_MODE_CREATE
         ):
             raise Blocked("pending Producer identity/mode differs from diagnostic")
         stack, template_logical = cfn_resource_identity(
@@ -580,7 +582,7 @@ def run(backend):
                     if record["generated"]["outputs"] is not None:
                         raise Blocked("saved generation candidate became unavailable")
                     record.update(
-                        producers=dependencies, reason="REFERENCE_PENDING_DEPLOY"
+                        producers=dependencies, reason=REFERENCE_PENDING_DEPLOY
                     )
                 for view, reasons in failed.items():
                     pending[view]["reason"] = "FAILED: " + "; ".join(reasons)
@@ -666,7 +668,7 @@ def run(backend):
                 except Exception as error:
                     if (
                         isinstance(error, ReferenceResolutionError)
-                        and error.diagnostic["category"] == "REFERENCE_PENDING_DEPLOY"
+                        and error.diagnostic["category"] == REFERENCE_PENDING_DEPLOY
                         and not generation.failures
                         and deferred
                     ):

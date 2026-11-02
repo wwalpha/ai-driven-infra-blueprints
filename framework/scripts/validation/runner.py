@@ -27,6 +27,8 @@ import task_contract_core as _imports_task_contract
 import utils.aws_mappings as _imports_utils_aws_mappings
 import validation.change as change_validation
 import validation.task as _dependency_validation_task
+from contracts.model import RESOURCE_MODE_CREATE
+from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from design.catalog import DesignSchemaCatalog
 from design.document import DesignIndex
 from design.layout_schema import STACK_DESIGN
@@ -578,7 +580,7 @@ class Validator:
 
         if not self.task.issues_only:
             verify_contract_reads(self.root)
-        if self.cache and self.findings.status == "PASS":
+        if self.cache and self.findings.status == VALIDATION_PASS:
             if self.catalog_pending is not None:
                 self.cache.save(*self.catalog_pending)
                 self.catalog_pending = None
@@ -618,7 +620,9 @@ class Validator:
     def display_acceptance(self):
         result = self.task.acceptance()
         print(f"Task Acceptance: {result['status']}")
-        print(f"Required checks: {'FAIL' if result['unapproved'] else 'PASS'}")
+        print(
+            f"Required checks: {VALIDATION_FAIL if result['unapproved'] else VALIDATION_PASS}"
+        )
         for failure in result["approved"]:
             print(
                 f"Human-approved out-of-task FAIL: {failure['diagnostic_id']}: {failure['reason']}"
@@ -647,7 +651,7 @@ class Validator:
                 self.check_changed_inputs,
                 isolate=True,
             )
-        if self.findings.status != "PASS":
+        if self.findings.status != VALIDATION_PASS:
             return
         plan = prepare_generation(
             self.root,
@@ -733,11 +737,11 @@ class Validator:
                 generation = self.findings.result(
                     "framework.generated-service-model", self.scope
                 )
-                generation.status = "FAIL"
+                generation.status = VALIDATION_FAIL
                 generation.errors = tuple(plan.failures)
                 for diagnostic in plan.failure_records[before_publication:]:
                     self.findings.add_diagnostic(diagnostic)
-                generation.metadata.update(complete=False, status="FAIL")
+                generation.metadata.update(complete=False, status=VALIDATION_FAIL)
                 # The original scope's policy/content result belongs to the old candidate.
                 # Failed publication leaves required content checks incomplete.
             if (
@@ -970,11 +974,11 @@ class Validator:
                         not self.check_display
                         or generation_result is not None
                         and generation_result.metadata.get("complete") is True
-                        and generation_result.status == "PASS"
+                        and generation_result.status == VALIDATION_PASS
                     )
                     and results[_state_check_scoped_designs_351.entry].findings.status
-                    == "PASS"
-                    and generator.findings.status == "PASS"
+                    == VALIDATION_PASS
+                    and generator.findings.status == VALIDATION_PASS
                     and not results[_state_check_scoped_designs_351.entry].warnings
                     and not generator.warnings
                     and not results[
@@ -1473,7 +1477,7 @@ class Validator:
         resource_type: str,
         logical_id: str,
         rows: list[list[str]],
-        mode: str = "CREATE",
+        mode: str = RESOURCE_MODE_CREATE,
     ) -> None:
         return design_tables.check_required_name_tag(
             path,
@@ -1643,7 +1647,7 @@ class Validator:
     ) -> None:
         if self.infrastructure_phase == "deploy":
             result = self.findings.get_result("validation.deployment-scope", self.scope)
-            if result is None or result.status != "PASS":
+            if result is None or result.status != VALIDATION_PASS:
                 self.check(
                     False,
                     "selected deployment scope validation is required before Parameters mapping",
@@ -1652,7 +1656,7 @@ class Validator:
             stack_definitions = result.metadata["stack_definitions"]
         if stack_definitions is None:
             result = self.findings.get_result("design.stacks", self.scope)
-            if result is not None and result.status == "PASS":
+            if result is not None and result.status == VALIDATION_PASS:
                 stack_definitions = result.metadata.get("stack_definitions")
         cloudformation.check_cloudformation_environment_parameters(
             self.root,

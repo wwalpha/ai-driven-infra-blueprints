@@ -13,6 +13,11 @@ import design.array_display as _imports_array_display
 import design.services.codepipeline as _imports_codepipeline
 import json_intrinsics as _imports_json_intrinsics
 import utils.json_format as _imports_utils_json_format
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    REFERENCE_PENDING_DEPLOY,
+    REFERENCE_UNRESOLVED,
+)
 from design.catalog import design_material_files
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
@@ -381,7 +386,7 @@ def _resolved_document_value(resolutions, node):
     return (
         result.value
         if result is not None and result.status == "resolved"
-        else "PENDING_DEPLOY"
+        else MODEL_PENDING_DEPLOY
         if result is not None and result.status == "pending_deploy"
         else reference_document(node)
     )
@@ -395,11 +400,11 @@ def _display_document_value(resolutions, resolver, scope, root, node):
         attribute = reference_attribute(kind, node.attribute)
         field = RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute)
         if kind + "." + field in identifier_outputs(root).get(kind, ()):
-            return "PENDING_DEPLOY"
+            return MODEL_PENDING_DEPLOY
     return (
         result.value
         if result is not None and result.status == "resolved"
-        else "PENDING_DEPLOY"
+        else MODEL_PENDING_DEPLOY
         if result is not None and result.status == "pending_deploy"
         else reference_document(node)
     )
@@ -549,7 +554,7 @@ def design_document(document, root, *, warnings=None, **contract):
 
 def _pending_document_values(document, pointer=""):
     for position, value in environment_values._leaves(document, pointer):
-        if value == "PENDING_DEPLOY":
+        if value == MODEL_PENDING_DEPLOY:
             yield position
         elif isinstance(value, str) and value.lstrip().startswith(("{", "[")):
             try:
@@ -582,7 +587,7 @@ def generated_document(
         context=context,
     )
     if any(
-        d["category"] not in {"REFERENCE_PENDING_DEPLOY", "REFERENCE_UNRESOLVED"}
+        d["category"] not in {REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED}
         for d in diagnostics
     ):
         require_reference_diagnostics(diagnostics)
@@ -602,8 +607,8 @@ def generated_document(
             continue
         diagnostic = ReferenceResolutionError(
             "JSON View contains PENDING_DEPLOY",
-            category="REFERENCE_PENDING_DEPLOY",
-            code="REFERENCE_PENDING_DEPLOY",
+            category=REFERENCE_PENDING_DEPLOY,
+            code=REFERENCE_PENDING_DEPLOY,
             model=str(scope.path),
             resourceLogicalId=logical_id,
             modelKey=model_key,

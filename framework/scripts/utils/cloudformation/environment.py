@@ -2,6 +2,7 @@
 
 from functools import partial
 
+from contracts.model import MODEL_PENDING_DEPLOY
 from iac_evaluation import Evaluation
 from model.environment_values import inspect, mapping_for, state
 
@@ -71,7 +72,7 @@ def _aws_select(stack, expression, reason):
 
 
 def _pending(value):
-    if unknown_value(value) or value == "PENDING_DEPLOY":
+    if unknown_value(value) or value == MODEL_PENDING_DEPLOY:
         return True
     if isinstance(value, Expression):
         return _pending(value.operands)

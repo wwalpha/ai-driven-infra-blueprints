@@ -12,6 +12,7 @@ from pathlib import Path
 
 import worktree_python
 import worktree_state
+from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED
 from model.core import ReferenceDiagnosticError
 from utils.aws.identity import IdentityError
 from utils.project_targets import DeployContextError
@@ -189,8 +190,8 @@ class InputChanged(PreparationError):
 REFERENCE_CATEGORIES = {
     "MODEL_NEEDS_FIX",
     "FRAMEWORK_UNSUPPORTED",
-    "REFERENCE_PENDING_DEPLOY",
-    "REFERENCE_UNRESOLVED",
+    REFERENCE_PENDING_DEPLOY,
+    REFERENCE_UNRESOLVED,
 }
 REFERENCE_CODES = REFERENCE_CATEGORIES | {
     "reference.unresolved",

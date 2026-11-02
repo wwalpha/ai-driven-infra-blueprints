@@ -3,6 +3,7 @@
 import re
 from functools import partial
 
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
 from utils.cloudformation.inputs import Blocked, output_value, resolve_value
 from utils.iac_values import ResourceReference
 from utils.reference_contracts import CONTEXT_PROPERTIES, row_contexts
@@ -15,7 +16,7 @@ def ref_attribute(vpc, document, parameters, pseudo, resource_type, evaluate):
     condition_inputs = {
         key: value
         for key, value in parameters.items()
-        if value not in ("PENDING_DEPLOY", "UNSET", "TODO", "TBD", "未確定")
+        if value not in (MODEL_PENDING_DEPLOY, MODEL_UNSET, "TODO", "TBD", "未確定")
     }
     vpc = output_value(document, condition_inputs, pseudo, vpc)
     if isinstance(vpc, dict) and set(vpc) == {"Fn::Sub"}:
@@ -52,7 +53,7 @@ def ref_attribute(vpc, document, parameters, pseudo, resource_type, evaluate):
             name = vpc["Ref"]
             if (
                 isinstance(name, str)
-                and parameters.get(name) == "PENDING_DEPLOY"
+                and parameters.get(name) == MODEL_PENDING_DEPLOY
                 and isinstance(definitions.get(name), dict)
                 and definitions[name].get("Type") in {"String", "AWS::EC2::VPC::Id"}
             ):
@@ -68,7 +69,7 @@ def ref_attribute(vpc, document, parameters, pseudo, resource_type, evaluate):
             if (
                 not isinstance(name, str)
                 or not name
-                or name in {"PENDING_DEPLOY", "UNSET", "TODO", "TBD", "未確定"}
+                or name in {MODEL_PENDING_DEPLOY, MODEL_UNSET, "TODO", "TBD", "未確定"}
                 or resolve_value(
                     argument,
                     declared,
@@ -104,12 +105,12 @@ def ref_attribute(vpc, document, parameters, pseudo, resource_type, evaluate):
                 vpc = {"Fn::Sub": [argument[0], mapping]}
             result = evaluate(vpc)
             substitutions = {
-                key: "a" if value == "PENDING_DEPLOY" else value
+                key: "a" if value == MODEL_PENDING_DEPLOY else value
                 for key, value in parameters.items()
                 if isinstance(definitions.get(key), dict)
                 and definitions[key].get("Type") in {"String", "AWS::EC2::VPC::Id"}
             }
-            if isinstance(result, str) and "PENDING_DEPLOY" in result:
+            if isinstance(result, str) and MODEL_PENDING_DEPLOY in result:
                 result = resolve_value(
                     vpc,
                     substitutions,

@@ -5,6 +5,12 @@ import re
 import sys
 from pathlib import Path
 
+from contracts.model import (
+    REFERENCE_PENDING_DEPLOY,
+    REFERENCE_UNRESOLVED,
+    RESOURCE_MODE_CREATE,
+    RESOURCE_MODE_IMPORT,
+)
 from utils.iac_values import cfn_resource_identity
 from utils.input_cache import memo_table
 from validation.diagnostics import InputValidationError
@@ -28,7 +34,7 @@ class ReferenceDiagnosticError(ValueError):
             "message": message,
             "status": (
                 "WARNING"
-                if details.get("category", self.category) == "REFERENCE_PENDING_DEPLOY"
+                if details.get("category", self.category) == REFERENCE_PENDING_DEPLOY
                 else "FAIL"
             ),
             "action": self.action,
@@ -55,7 +61,7 @@ class ReferenceResolutionError(ReferenceDiagnosticError):
     """A proven reference wait, independent of invalid Model data."""
 
     default_code = "reference.unresolved"
-    category = "REFERENCE_UNRESOLVED"
+    category = REFERENCE_UNRESOLVED
     action = "Confirm the missing reference value, then regenerate."
 
 
@@ -68,8 +74,8 @@ def require_reference_diagnostics(diagnostics):
         not in {
             "MODEL_NEEDS_FIX",
             "FRAMEWORK_UNSUPPORTED",
-            "REFERENCE_PENDING_DEPLOY",
-            "REFERENCE_UNRESOLVED",
+            REFERENCE_PENDING_DEPLOY,
+            REFERENCE_UNRESOLVED,
         }
         for d in diagnostics
     ):
@@ -80,8 +86,8 @@ def require_reference_diagnostics(diagnostics):
     for category, error in (
         ("MODEL_NEEDS_FIX", ModelNeedsFixError),
         ("FRAMEWORK_UNSUPPORTED", FrameworkUnsupportedError),
-        ("REFERENCE_PENDING_DEPLOY", ReferenceResolutionError),
-        ("REFERENCE_UNRESOLVED", ReferenceResolutionError),
+        (REFERENCE_PENDING_DEPLOY, ReferenceResolutionError),
+        (REFERENCE_UNRESOLVED, ReferenceResolutionError),
     ):
         primary = next((d for d in diagnostics if d["category"] == category), None)
         if primary is not None:
@@ -527,7 +533,10 @@ def validate_authority(values):
             raise InputValidationError(
                 "Resource requires a valid resourceType: " + identity
             )
-        if resource.get("resourceMode", "CREATE") not in {"CREATE", "IMPORT"}:
+        if resource.get("resourceMode", RESOURCE_MODE_CREATE) not in {
+            RESOURCE_MODE_CREATE,
+            RESOURCE_MODE_IMPORT,
+        }:
             raise InputValidationError(
                 "resourceMode must be CREATE or IMPORT: " + identity
             )

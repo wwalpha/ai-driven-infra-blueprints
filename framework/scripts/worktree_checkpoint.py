@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import task_contract_core as tasks
 import worktree_task as wt
+from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from deploy import contracts, current_request, git_publication, worktree
 from deploy.cli_guidance import DeployStepBlocked
 from model.observed import verify_observed_outputs
@@ -332,7 +333,7 @@ def final_checkpoint(backend, primary, path, state, pending):
                 raise DeployStepBlocked(
                     "final validation requires the original running Task and source HEAD"
                 )
-            context["snapshotValidation"] = "FAIL"
+            context["snapshotValidation"] = VALIDATION_FAIL
             backend.save()
             tree = git_publication.final_tree(target, changed, candidate)
             git_publication.validate_candidate(target, tree, head, candidate)
@@ -351,7 +352,7 @@ def final_checkpoint(backend, primary, path, state, pending):
                 )
             validated = {"tree": tree, "head": head, "index": index}
             final["validated"] = validated
-            context["snapshotValidation"] = "PASS"
+            context["snapshotValidation"] = VALIDATION_PASS
             backend.save()
         else:
             committed = (
@@ -366,7 +367,7 @@ def final_checkpoint(backend, primary, path, state, pending):
                 )
             )
             if (
-                context.get("snapshotValidation") != "PASS"
+                context.get("snapshotValidation") != VALIDATION_PASS
                 or head != validated["head"]
                 and not committed
                 or index not in {validated["index"], validated["tree"]}
@@ -515,7 +516,7 @@ def snapshot_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
             raise DeployStepBlocked(
                 "checkpoint includes changes outside synchronized Model/views"
             )
-        context["snapshotValidation"] = "FAIL"
+        context["snapshotValidation"] = VALIDATION_FAIL
         backend.save()
         task = tasks.read_task_snapshot(target, state["task_file"], live=True)
         preflight = {
@@ -532,7 +533,7 @@ def snapshot_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
         except Exception:
             backend.save()
             raise
-        context["snapshotValidation"] = "PASS"
+        context["snapshotValidation"] = VALIDATION_PASS
         backend.save()
         backend.guard()
         if (

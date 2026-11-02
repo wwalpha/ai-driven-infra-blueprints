@@ -2,6 +2,7 @@
 
 import re
 
+from contracts.model import RESOURCE_MODE_IMPORT
 from model.core import literal
 
 
@@ -15,4 +16,4 @@ def config_role_arn(prop: str, value: str) -> bool:
 
 
 def is_import_role_arn(prop: str, value: str, mode: str) -> bool:
-    return mode == "IMPORT" and config_role_arn(prop, value)
+    return mode == RESOURCE_MODE_IMPORT and config_role_arn(prop, value)

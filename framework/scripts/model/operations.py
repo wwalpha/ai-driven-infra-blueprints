@@ -18,6 +18,7 @@ import task_contract_core as _imports_task_contract
 import task_contract_core as _imports_task_contract_core
 import utils.input_cache as _imports_utils_input_cache
 import validation.change as change_validation
+from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
 from task_contract_core import DependencyDetach, ModelOperation
 from utils.source_reads import CandidateReads as CandidateReads
 from utils.type_contracts import JsonObject
@@ -158,7 +159,7 @@ def preserve_fixed_fields(
                 "Model fixed identity or parent relationship changed: " + rid
             )
         if (
-            previous[rid].get("resourceMode") == "IMPORT"
+            previous[rid].get("resourceMode") == RESOURCE_MODE_IMPORT
             and operation.action != "import"
             and rid not in moved
         ):
@@ -1046,10 +1047,12 @@ def verify_model_operation(
             or f"desired.resource.{rid}.resourceType" not in old.authoritative
         ):
             raise ValueError("Model operation requires an existing source: " + address)
-        mode = old.authoritative.get(f"desired.resource.{rid}.resourceMode", "CREATE")
-        if mode not in {"CREATE", "IMPORT"}:
+        mode = old.authoritative.get(
+            f"desired.resource.{rid}.resourceMode", RESOURCE_MODE_CREATE
+        )
+        if mode not in {RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT}:
             raise ValueError("resourceMode must be CREATE or IMPORT: " + address)
-        if operation.action == "import-merge" and mode != "IMPORT":
+        if operation.action == "import-merge" and mode != RESOURCE_MODE_IMPORT:
             raise ValueError(
                 "Model merge requires an existing IMPORT source: " + address
             )
@@ -1081,9 +1084,9 @@ def verify_model_operation(
                 operation.action == "import-retarget"
                 and address in {ref.source, ref.destination}
                 and model.authoritative.get(
-                    f"desired.resource.{rid}.resourceMode", "CREATE"
+                    f"desired.resource.{rid}.resourceMode", RESOURCE_MODE_CREATE
                 )
-                != "IMPORT"
+                != RESOURCE_MODE_IMPORT
             ):
                 raise ValueError("retarget requires existing IMPORT producers")
         if operation.action == "import-retarget":
@@ -1180,7 +1183,7 @@ def verify_model_operation(
                 source_id
             ]
             if pair and (
-                old_resources[rid].get("resourceMode") != "IMPORT"
+                old_resources[rid].get("resourceMode") != RESOURCE_MODE_IMPORT
                 or source_resource["resourceType"] != old_resources[rid]["resourceType"]
             ):
                 raise ValueError(
@@ -1344,7 +1347,8 @@ def _verify_detaches(old_models, new_models, declarations_):
         if (
             old is None
             or new is None
-            or old.authoritative.get(f"desired.resource.{rid}.resourceMode") != "IMPORT"
+            or old.authoritative.get(f"desired.resource.{rid}.resourceMode")
+            != RESOURCE_MODE_IMPORT
         ):
             raise ValueError("dependency detach requires a surviving IMPORT consumer")
         producer_scope = tuple(declaration.producer.split("/")[:3])

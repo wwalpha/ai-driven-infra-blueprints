@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TypeAlias
 
 import model.environment_values as environment_values
+from contracts.model import RESOURCE_MODE_IMPORT
 from design.catalog import DesignSchemaCatalog
 from design.layout import resource_mode
 from design.layout_schema import GROUPED
@@ -187,7 +188,7 @@ class Comparison(Inputs):
         for service in self.services:
             for identity, resource in self.resources[service].items():
                 mode = resource_mode(resource)
-                if mode == "IMPORT":
+                if mode == RESOURCE_MODE_IMPORT:
                     self.record(
                         "excluded",
                         service,

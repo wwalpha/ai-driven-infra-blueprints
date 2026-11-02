@@ -23,6 +23,7 @@ from aws_mapping_catalog import under
 from aws_mapping_compare import comparison
 from comparison.rules.cloud_trail import cloudtrail_rows
 from comparison.rules.code_pipeline import prepare_rows as pipeline_rows
+from contracts.model import REFERENCE_UNRESOLVED
 from design.array_display import indexed_rows
 from design.catalog import DesignSchemaCatalog
 from design.layout import confirmed_display_name
@@ -496,7 +497,7 @@ def reference_rows(root, models):
                 node = references[0]
                 producer = {"logicalId": node.logical_id, "attribute": node.attribute}
                 if statuses in (["logical_only"], ["unresolved"]) and all(
-                    d.get("category") == "REFERENCE_UNRESOLVED" for d in diagnostics
+                    d.get("category") == REFERENCE_UNRESOLVED for d in diagnostics
                 ):
                     try:
                         _, _, spec = resolver.resolve_logical(

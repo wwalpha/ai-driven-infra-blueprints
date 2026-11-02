@@ -3,6 +3,8 @@
 import re
 from string import Formatter
 
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
+
 from utils.arn_components import ARN_COMPONENTS
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression
@@ -56,7 +58,7 @@ def named_arn(
             explicit = evaluate(explicit)
         if (
             not isinstance(explicit, str)
-            or explicit in {"UNSET", "PENDING_DEPLOY", "TBD", "TODO", "未確定"}
+            or explicit in {MODEL_UNSET, MODEL_PENDING_DEPLOY, "TBD", "TODO", "未確定"}
             or re.fullmatch(patterns[group], explicit) is None
             or any(token in explicit for token in ("*", "?", "${", "{{resolve:"))
         ):

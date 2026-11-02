@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from contracts.model import MODEL_PENDING_DEPLOY, REFERENCE_PENDING_DEPLOY
+
 import model.core as _imports_model_core
 import model.environment_values as environment_values
 import model.references as _imports_model_references
@@ -79,10 +81,10 @@ def validate_environment_settings(
             for item in environment_values.inspect(
                 kind, row["property"], value, mappings[kind], context=contexts.get(rid)
             ):
-                if item.value == "PENDING_DEPLOY":
+                if item.value == MODEL_PENDING_DEPLOY:
                     warnings.append(
                         dict(
-                            category="REFERENCE_PENDING_DEPLOY",
+                            category=REFERENCE_PENDING_DEPLOY,
                             code="ENVIRONMENT_VALUE_PENDING",
                             message=item.reason,
                             model=str(path),

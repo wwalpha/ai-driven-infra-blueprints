@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED
+from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from model.core import ReferenceDiagnosticError
 
 from .diagnostics import (
@@ -30,8 +32,8 @@ def reference_identity(root, diagnostic):
         "attribute",
     )
     if diagnostic.get("category") in {
-        "REFERENCE_UNRESOLVED",
-        "REFERENCE_PENDING_DEPLOY",
+        REFERENCE_UNRESOLVED,
+        REFERENCE_PENDING_DEPLOY,
     }:
         diagnostic = dict(diagnostic)
         if diagnostic.get("producerModel"):
@@ -77,7 +79,10 @@ def check_metadata(metadata):
         raise TypeError("complete must be bool")
     if "reason" in metadata and not isinstance(metadata["reason"], str):
         raise TypeError("reason must be a string")
-    if "status" in metadata and metadata["status"] not in {"PASS", "FAIL"}:
+    if "status" in metadata and metadata["status"] not in {
+        VALIDATION_PASS,
+        VALIDATION_FAIL,
+    }:
         raise ValueError("invalid validation status")
     return unavailable, unverified
 
@@ -89,27 +94,27 @@ def finish_result(result):
         and not result.started
         and not result.errors
         and not result.metadata
-        and result.status == "FAIL"
+        and result.status == VALIDATION_FAIL
     ):
         result.reservation_reason = True
-    if result.status not in {"PASS", "FAIL"}:
+    if result.status not in {VALIDATION_PASS, VALIDATION_FAIL}:
         result.errors = (
             *result.errors,
             f"{result.check_id}: invalid final validation status {result.status!r}",
         )
-        result.status = "FAIL"
+        result.status = VALIDATION_FAIL
     incomplete = result.metadata.get("complete") is not True or bool(
         unavailable or unverified
     )
     result.status = (
-        "FAIL"
+        VALIDATION_FAIL
         if result.errors
-        or result.status == "FAIL"
-        or result.metadata.get("status") == "FAIL"
+        or result.status == VALIDATION_FAIL
+        or result.metadata.get("status") == VALIDATION_FAIL
         or incomplete
-        else "PASS"
+        else VALIDATION_PASS
     )
-    if result.status == "FAIL":
+    if result.status == VALIDATION_FAIL:
         causes = [*result.errors]
         causes.extend(str(item.get("message") or item) for item in unverified)
         causes.extend(str(item.get("message") or item) for item in unavailable.values())
@@ -156,7 +161,7 @@ class CheckResult:
     check_id: str
     scope: frozenset | None
     candidate: object
-    status: str = "FAIL"
+    status: str = VALIDATION_FAIL
     errors: tuple = ()
     warnings: tuple = ()
     checks: int = 0
@@ -194,18 +199,18 @@ class Findings:
     def status(self):
         # An in-flight status read must not finalize active or later planned checks.
         if self._evaluations:
-            return "FAIL"
+            return VALIDATION_FAIL
         results = [
             result
             for result in self.results.values()
             if result.candidate is self.candidate
         ]
         results = [finish_result(result) for result in results]
-        if self.errors or any(result.status == "FAIL" for result in results):
-            return "FAIL"
+        if self.errors or any(result.status == VALIDATION_FAIL for result in results):
+            return VALIDATION_FAIL
         if self.unverified:
-            return "FAIL"
-        return "PASS"
+            return VALIDATION_FAIL
+        return VALIDATION_PASS
 
     def bind_candidate(self, candidate, common_checks):
         previous = self.candidate
@@ -213,7 +218,7 @@ class Findings:
         for result in list(self.results.values()):
             if result.candidate is previous and (
                 result.check_id in common_checks
-                or finish_result(result).status == "FAIL"
+                or finish_result(result).status == VALIDATION_FAIL
             ):
                 retained = replace(result, candidate=candidate)
                 key = (retained.check_id, retained.scope, candidate)
@@ -241,13 +246,13 @@ class Findings:
             and parent.reserved
             and not parent.started
             and not parent.errors
-            and parent.status == "FAIL"
+            and parent.status == VALIDATION_FAIL
             and (
                 not parent.metadata
                 or parent.reservation_reason
                 and parent.metadata
                 == {
-                    "status": "FAIL",
+                    "status": VALIDATION_FAIL,
                     "complete": False,
                     "reason": f"{check_id}: required check has not started",
                     "unavailable_services": {},
@@ -278,14 +283,14 @@ class Findings:
             and all(child is not parent for child in children)
         ):
             children.append(finish_result(parent))
-        failures = [child for child in children if child.status == "FAIL"]
+        failures = [child for child in children if child.status == VALIDATION_FAIL]
         if not children and not missing:
             missing.append(f"{check_id}: required child plan is empty")
         result = CheckResult(
             check_id,
             scope,
             self.candidate,
-            status="FAIL" if failures or missing else "PASS",
+            status=VALIDATION_FAIL if failures or missing else VALIDATION_PASS,
             errors=tuple(error for child in children for error in child.errors),
             warnings=tuple(warning for child in children for warning in child.warnings),
             checks=sum(child.checks for child in children),
@@ -359,7 +364,7 @@ class Findings:
             records[identity] = dict(
                 record,
                 diagnostic_id=identity,
-                status="FAIL",
+                status=VALIDATION_FAIL,
                 reason=message or f"{diagnostic.check_id}: empty failure diagnostic",
                 scope=[
                     list(s)
@@ -374,7 +379,7 @@ class Findings:
                 result = replace(result, metadata=dict(result.metadata))
             if (
                 result.candidate is not self.candidate
-                or finish_result(result).status != "FAIL"
+                or finish_result(result).status != VALIDATION_FAIL
             ):
                 continue
             if (
@@ -394,7 +399,7 @@ class Findings:
             )
             records[identity] = dict(
                 diagnostic_id=identity,
-                status="FAIL",
+                status=VALIDATION_FAIL,
                 check_id=result.check_id,
                 scope=[list(s) for s in sorted(result.scope or [])],
                 reason=result.metadata["reason"],
@@ -410,7 +415,7 @@ class Findings:
                 dict(
                     item,
                     diagnostic_id=identity,
-                    status="FAIL",
+                    status=VALIDATION_FAIL,
                     check_id=item.get(
                         "check_id", item.get("phase", "validation.coverage")
                     ),
@@ -434,7 +439,7 @@ class Findings:
         key = (check_id, scope, self.candidate)
         result = self.result(check_id, scope)
         if any(active == key for active, _ in self._evaluations):
-            result.status = "FAIL"
+            result.status = VALIDATION_FAIL
             result.metadata.update(
                 complete=False, reason=f"{check_id}: reentrant check has not completed"
             )
@@ -442,7 +447,12 @@ class Findings:
         if result.metadata.get("complete") is True or result.errors:
             return finish_result(result)
         result = CheckResult(
-            check_id, scope, self.candidate, status="PASS", metadata={}, started=True
+            check_id,
+            scope,
+            self.candidate,
+            status=VALIDATION_PASS,
+            metadata={},
+            started=True,
         )
         self.results[key] = result
         previous_results = {
@@ -507,10 +517,10 @@ class Findings:
             )
             and child.candidate is self.candidate
             and child is not result
-            and finish_result(child).status == "FAIL"
+            and finish_result(child).status == VALIDATION_FAIL
         ]
         if child_failures:
-            result.status = "FAIL"
+            result.status = VALIDATION_FAIL
             result.metadata.update(
                 complete=result.metadata.get("complete") is True
                 and all(child.metadata.get("complete") for child in child_failures),
@@ -529,7 +539,7 @@ class Findings:
             )
         # Repeated diagnostics still fail their check without adding duplicate ERRORs.
         if self.diagnostic_failures > diagnostic_failures:
-            result.status = "FAIL"
+            result.status = VALIDATION_FAIL
             causes = [d.message for d in self.diagnostics if d.check_id == check_id]
             if causes:
                 result.metadata["reason"] = "; ".join(
@@ -546,7 +556,7 @@ class Findings:
             if any(
                 item.get("reason") != "reference"
                 and item.get("category")
-                not in {"REFERENCE_PENDING_DEPLOY", "REFERENCE_UNRESOLVED"}
+                not in {REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED}
                 for item in unverified
             ):
                 reason = "dependency"
@@ -661,7 +671,7 @@ class Findings:
             self.unverified.append(dict(failure, complete=False))
         self.add_diagnostic(diagnostic)
         result = self.result(check_id, scope)
-        result.status = "FAIL"
+        result.status = VALIDATION_FAIL
         result.metadata = dict(
             complete=False,
             reason=message,
@@ -694,16 +704,16 @@ class Findings:
         if isinstance(condition, dict) and condition.get("category") in {
             "MODEL_NEEDS_FIX",
             "FRAMEWORK_UNSUPPORTED",
-            "REFERENCE_UNRESOLVED",
-            "REFERENCE_PENDING_DEPLOY",
+            REFERENCE_UNRESOLVED,
+            REFERENCE_PENDING_DEPLOY,
         }:
             condition = dict(
                 condition,
                 cause_kind={
                     "MODEL_NEEDS_FIX": "input_invalid",
                     "FRAMEWORK_UNSUPPORTED": "check_failure",
-                    "REFERENCE_UNRESOLVED": "dependency_wait",
-                    "REFERENCE_PENDING_DEPLOY": "dependency_wait",
+                    REFERENCE_UNRESOLVED: "dependency_wait",
+                    REFERENCE_PENDING_DEPLOY: "dependency_wait",
                 }[condition["category"]],
             )
         if isinstance(condition, dict) and condition.get("category") in {
@@ -743,14 +753,14 @@ class Findings:
         elif isinstance(condition, dict):
             warning = {**condition, **details}
             if warning.get("category") in {
-                "REFERENCE_PENDING_DEPLOY",
-                "REFERENCE_UNRESOLVED",
+                REFERENCE_PENDING_DEPLOY,
+                REFERENCE_UNRESOLVED,
             }:
                 warning.setdefault(
                     "diagnostic_id",
                     stable_id(reference_identity(self.canonical_root, warning)),
                 )
-                if warning["category"] != "REFERENCE_PENDING_DEPLOY" and not any(
+                if warning["category"] != REFERENCE_PENDING_DEPLOY and not any(
                     item.get("diagnostic_id") == warning["diagnostic_id"]
                     for item in self.unverified
                 ):

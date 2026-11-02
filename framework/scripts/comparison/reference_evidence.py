@@ -2,6 +2,7 @@
 
 import re
 
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET, RESOURCE_MODE_IMPORT
 from design.layout import resource_mode
 from design.policy_tables import literal
 from model.adapters.observed import identifier_source
@@ -25,7 +26,7 @@ def identifier_text(inputs, kind, attribute, raw):
     text = literal(raw) if raw is not None else ""
     if (
         not text
-        or text in {"PENDING_DEPLOY", "UNSET", "TODO", "TBD", "未確定"}
+        or text in {MODEL_PENDING_DEPLOY, MODEL_UNSET, "TODO", "TBD", "未確定"}
         or "${" in text
         or "{{resolve:" in text
     ):
@@ -115,7 +116,7 @@ class Evidence:
         service, identity = value["$resource"]
         resource = inputs.resources[service][identity]
         kind, attribute = resource["resourceType"], value["$attribute"]
-        if resource_mode(resource) == "IMPORT":
+        if resource_mode(resource) == RESOURCE_MODE_IMPORT:
             raise Blocked("attribute_format_unproven: IMPORT requires approved handoff")
         prop = kind + "." + attribute
         outputs = catalog_outputs(inputs.root, kind)
@@ -183,8 +184,8 @@ def validate_declaration(inputs, reference):
         raw = inputs.model(service).authoritative.get(f"observed.row.{rid}.value")
     if raw is None or literal(raw) in {
         "",
-        "PENDING_DEPLOY",
-        "UNSET",
+        MODEL_PENDING_DEPLOY,
+        MODEL_UNSET,
         "TBD",
         "TODO",
         "未確定",

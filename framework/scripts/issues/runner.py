@@ -6,6 +6,7 @@ import uuid
 from contextlib import contextmanager, redirect_stdout
 from functools import partial
 
+from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from model.core import ReferenceResolutionError, entries
 from model.references import codebuild_reference_errors
 from model.validations.naming import NamingRuleIndex
@@ -643,9 +644,9 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             scope=["/".join(entry) for entry in sorted(result.scope or [])],
             status=result.status,
             reason=comparison.redacted(result.metadata["reason"])
-            if result.status == "FAIL"
+            if result.status == VALIDATION_FAIL
             else None,
-            complete=result.metadata.get("complete", result.status == "PASS"),
+            complete=result.metadata.get("complete", result.status == VALIDATION_PASS),
             unavailable_services=result.metadata.get("unavailable_services", {}),
             unverified=result.metadata.get("unverified", []),
             checks=result.checks,

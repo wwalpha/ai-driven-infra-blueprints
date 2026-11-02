@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 
+from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_schemas import schemas_for
 
@@ -144,7 +145,8 @@ def resource_configuration(values, number, path=None, expansion=None, *, index=N
     if (
         observed
         and path is not None
-        and values.get(f"desired.resource.{number}.resourceMode") == "IMPORT"
+        and values.get(f"desired.resource.{number}.resourceMode")
+        == RESOURCE_MODE_IMPORT
     ):
         scope_for = _imports_model_sources.scope_for
         snapshot = SimpleNamespace(scope=scope_for(path), authoritative=values)
@@ -160,6 +162,7 @@ def resource_configuration(values, number, path=None, expansion=None, *, index=N
         "rows": rows,
         "references": references,
         "observed": observed
-        if values.get(f"desired.resource.{number}.resourceMode", "CREATE") == "IMPORT"
+        if values.get(f"desired.resource.{number}.resourceMode", RESOURCE_MODE_CREATE)
+        == RESOURCE_MODE_IMPORT
         else {},
     }

@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial as _bind_framework_callback
 from typing import TypeVar
 
+from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
 from utils.cloudformation.environment import EnvironmentValuePending
 from utils.type_contracts import JsonValue as JsonValue
 
@@ -68,7 +69,7 @@ def run_group(
     pending = [
         unit
         for unit in units
-        if states[unit["name"]]["status"] != "SUCCESS"
+        if states[unit["name"]]["status"] != DEPLOY_SUCCESS
         and unit["name"] not in backend.verified_settled
     ]
     if not pending:
@@ -79,7 +80,7 @@ def run_group(
         )
     order = min(int(unit["deployOrder"]) for unit in pending)
     group = [unit for unit in pending if int(unit["deployOrder"]) == order]
-    active = [u for u in units if states[u["name"]]["status"] == "RUNNING"]
+    active = [u for u in units if states[u["name"]]["status"] == DEPLOY_RUNNING]
     violation = None
     if len(active) > limit:
         violation = f"RUNNING stacks exceed concurrency limit {limit}: " + ", ".join(
@@ -97,7 +98,7 @@ def run_group(
     active = [
         unit
         for unit in (units if stopped else group)
-        if states[unit["name"]]["status"] == "RUNNING"
+        if states[unit["name"]]["status"] == DEPLOY_RUNNING
     ]
     for unit, snapshot, status, error in read_parallel(
         active, states, backend.poll, limit
@@ -122,7 +123,7 @@ def run_group(
                 input_blocked.add(unit["name"])
             state.pop("pollError", None)
             state.pop("pollReadFailures", None)
-            if state["status"] in {"SUCCESS", "FAILED"}:
+            if state["status"] in {DEPLOY_SUCCESS, "FAILED"}:
                 state["executionSeconds"] = time.time() - state.get(
                     "executionStarted", time.time()
                 )
@@ -141,7 +142,7 @@ def run_group(
             current_request.release(backend, request)
     if any(s.get("pollReadFailures", 0) >= 3 for s in states.values()):
         return "STOPPED"
-    running = sum(states[unit["name"]]["status"] == "RUNNING" for unit in group)
+    running = sum(states[unit["name"]]["status"] == DEPLOY_RUNNING for unit in group)
     # Start multiple change sets without waiting for one to become CREATE_COMPLETE.
     # Preparation is bounded too; do not speculate across DeployOrder barriers.
     preparing = sum(
@@ -242,7 +243,7 @@ def run_group(
             try:
                 state.pop("unexecutedReason", None)
                 # Persist execution intent before AWS mutation, including interruptions.
-                state["status"] = "RUNNING"
+                state["status"] = DEPLOY_RUNNING
                 state["clientToken"] = state.get("clientToken", uuid.uuid4().hex)
                 state["executionStarted"] = time.time()
                 save()
@@ -259,20 +260,21 @@ def run_group(
             if stopped:
                 break
     running = sum(
-        states[u["name"]]["status"] == "RUNNING" for u in (units if stopped else group)
+        states[u["name"]]["status"] == DEPLOY_RUNNING
+        for u in (units if stopped else group)
     )
     if not running:
         if stopped:
             return "STOPPED"
         if all(
             states[unit["name"]]["status"]
-            in {"SUCCESS", "FAILED", "SETTLED", "BLOCKED"}
+            in {DEPLOY_SUCCESS, "FAILED", "SETTLED", "BLOCKED"}
             for unit in group
         ):
             return (
                 "GROUP_COMPLETE"
                 if not input_blocked
-                and all(states[u["name"]]["status"] == "SUCCESS" for u in group)
+                and all(states[u["name"]]["status"] == DEPLOY_SUCCESS for u in group)
                 else "STOPPED"
             )
     return "STOPPED" if stopped else "ACTIVE"

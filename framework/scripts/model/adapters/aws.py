@@ -29,6 +29,7 @@ from urllib.parse import unquote
 import aws_mapping_compare as _imports_aws_mapping_compare
 import utils.iac_values as _imports_iac_values
 import utils.project_targets as _imports_project_targets
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
 from design.catalog import DesignSchemaCatalog, selected_properties
 from design.policy_tables import literal
 from task_contract_core import task_read_scope
@@ -755,7 +756,7 @@ class Resource:
         return (
             value
             if value
-            and value not in {"PENDING_DEPLOY", "UNSET"}
+            and value not in {MODEL_PENDING_DEPLOY, MODEL_UNSET}
             and not value.startswith("arn:")
             else None
         )
@@ -860,8 +861,8 @@ class Resource:
                 and not schema.get("minLength", 0)
             )
             if (not value and not explicit_empty) or value in {
-                "UNSET",
-                "PENDING_DEPLOY",
+                MODEL_UNSET,
+                MODEL_PENDING_DEPLOY,
                 "未確定",
                 "TBD",
                 "TODO",

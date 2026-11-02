@@ -1,6 +1,7 @@
 import json
 from collections import Counter
 
+from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
 from design.catalog import selected_properties
 from design.layout import (
     resource_has_name_property,
@@ -241,7 +242,10 @@ def naming_materials(comparison, *, service=None):
                         }
                     )
                 # IMPORT removes framework mandatory Name policy, not confirmed IAM/CodeBuild names.
-                if mode == "IMPORT" and kind not in {"IAM.Role", "CodeBuild.Project"}:
+                if mode == RESOURCE_MODE_IMPORT and kind not in {
+                    "IAM.Role",
+                    "CodeBuild.Project",
+                }:
                     required = set()
                 for field in sorted(required - {item[2] for item in selected}):
                     selected.append((None, None, field, None))
@@ -309,7 +313,7 @@ def naming_materials(comparison, *, service=None):
                         "rule": namespace,
                         "rule_targets": sorted(targets),
                         "scope": "IMPORT framework convention excluded"
-                        if mode == "IMPORT"
+                        if mode == RESOURCE_MODE_IMPORT
                         else "coverage exemption; apply exact convention/value scope from common rule"
                         if kind + "." + field in NAMING_EXEMPT_PROPERTIES
                         else "CREATE selected naming target",
@@ -320,7 +324,7 @@ def naming_materials(comparison, *, service=None):
                         else "exact exemption scope applies"
                         if kind + "." + field in NAMING_EXEMPT_PROPERTIES
                         else "Scan mandatory-constraint decision"
-                        if mode == "CREATE"
+                        if mode == RESOURCE_MODE_CREATE
                         else "framework convention excluded",
                         "human_context_id": identifier([service, "notes"])
                         if notes

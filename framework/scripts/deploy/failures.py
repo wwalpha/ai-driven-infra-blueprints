@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import re
 
+from contracts.deploy import DEPLOY_RUNNING
+from contracts.model import REFERENCE_PENDING_DEPLOY
 from model.core import ReferenceDiagnosticError
 from utils.cloudformation.environment import EnvironmentValuePending
 from utils.json_format import fingerprint
@@ -32,7 +34,7 @@ def dependency_wait(error: Exception) -> bool:
         isinstance(error, ReferenceDiagnosticError)
         and bool(error.diagnostics)
         and all(
-            d.get("category") == "REFERENCE_PENDING_DEPLOY" for d in error.diagnostics
+            d.get("category") == REFERENCE_PENDING_DEPLOY for d in error.diagnostics
         )
     )
 
@@ -54,7 +56,7 @@ def exception(state: StackState, error: Exception, stage: str) -> None:
         else "INPUT_CANDIDATE"
         if stage == "INPUT_DECODE"
         else "SUBMISSION_UNKNOWN"
-        if state.get("status") == "RUNNING"
+        if state.get("status") == DEPLOY_RUNNING
         else "NEEDS_HUMAN"
     )
     state["failure"] = {
@@ -64,7 +66,7 @@ def exception(state: StackState, error: Exception, stage: str) -> None:
         "code": code,
         "classification": classification,
         "executionState": "UNKNOWN"
-        if state.get("status") == "RUNNING"
+        if state.get("status") == DEPLOY_RUNNING
         else "NOT_EXECUTED",
     }
 

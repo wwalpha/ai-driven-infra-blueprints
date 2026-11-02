@@ -12,6 +12,12 @@ import model.display as _imports_model_display
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 import utils.aws_mappings as _imports_utils_aws_mappings
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    MODEL_UNSET,
+    RESOURCE_MODE_CREATE,
+    RESOURCE_MODE_IMPORT,
+)
 from model.core import ReferenceResolutionError, literal, positive_integer
 from model.reference_nodes import nodes
 from utils.aws_catalogs import catalogs_for
@@ -166,8 +172,8 @@ def resource_name_fields(resource_type: str) -> list[str]:
 
 
 def resource_mode(resource: dict[str, str]) -> str:
-    mode = resource.get("resourceMode", "CREATE")
-    if mode not in {"CREATE", "IMPORT"}:
+    mode = resource.get("resourceMode", RESOURCE_MODE_CREATE)
+    if mode not in {RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT}:
         raise ValueError(f"resourceMode must be CREATE or IMPORT: {mode!r}")
     return mode
 
@@ -208,7 +214,7 @@ def configured_name_fields(root: Path, resource_type: str) -> list[str]:
 
 
 def resource_has_name_property(
-    root: Path, resource_type: str, mode: str = "CREATE"
+    root: Path, resource_type: str, mode: str = RESOURCE_MODE_CREATE
 ) -> bool:
     """Check the catalog, rather than treating an omitted optional name as nameless."""
     if (
@@ -216,7 +222,7 @@ def resource_has_name_property(
         in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}
         | REQUIRED_NAME_TAG_TYPES
     ):
-        return mode != "IMPORT"  # Only CREATE requires a Name tag.
+        return mode != RESOURCE_MODE_IMPORT  # Only CREATE requires a Name tag.
     return bool(
         set(configured_name_fields(root, resource_type))
         & catalogs_for(root).selected(resource_type)
@@ -227,7 +233,7 @@ def resource_display_name(
     resource_type: str,
     rows: list[list[str]],
     selected_label: str | None = None,
-    mode: str = "CREATE",
+    mode: str = RESOURCE_MODE_CREATE,
     *,
     root: Path = LAYOUT_PATH.parents[2],
 ) -> str | None:
@@ -352,7 +358,10 @@ def resource_display_selection(
     has_name = resource_has_name_property(root, resource_type, mode)
     if has_name and fallback is None:
         catalog = DesignSchemaCatalog(root)
-        if mode != "IMPORT" or resource_type in {"IAM.Role", "CodeBuild.Project"}:
+        if mode != RESOURCE_MODE_IMPORT or resource_type in {
+            "IAM.Role",
+            "CodeBuild.Project",
+        }:
             raise InputValidationError(
                 f"required Name is not selected; display label substitution is not allowed: {resource_type}"
             )
@@ -377,7 +386,7 @@ def resource_display_selection(
         and label != resource_type
         and (fallback is None or confirmed_display_name(label))
     ):
-        if not label.strip() or label in {"UNSET", "PENDING_DEPLOY"}:
+        if not label.strip() or label in {MODEL_UNSET, MODEL_PENDING_DEPLOY}:
             raise InputValidationError(
                 f"confirmed resource display label is missing: {resource_type}"
             )
@@ -625,7 +634,7 @@ def expanded_display_rows(
     lines = resource_heading_lines(lines)
     modes = resource_modes(lines) if modes is None else modes
     anchor = ""
-    mode = "CREATE"
+    mode = RESOURCE_MODE_CREATE
     result = []
     index = 0
     resource_type = ""
@@ -641,7 +650,7 @@ def expanded_display_rows(
                 anchor = match.group(1)
             if heading := RESOURCE.fullmatch(lines[index]):
                 resource_type = heading.group(1)
-                mode = modes.get(anchor, "CREATE")
+                mode = modes.get(anchor, RESOURCE_MODE_CREATE)
             elif lines[index].startswith("#"):
                 resource_type = ""
             result.append(lines[index])
@@ -721,7 +730,7 @@ def expanded_display_rows(
                 raise ValueError("resource table row must have four cells")
             if "<!-- compact-source:" in cells[3]:
                 marker = COMPACT_SOURCE.match(cells[3])
-                if mode != "IMPORT" or marker is None:
+                if mode != RESOURCE_MODE_IMPORT or marker is None:
                     raise ValueError(
                         "packed compact source requires IMPORT and valid metadata"
                     )
@@ -788,7 +797,7 @@ def expanded_display_rows(
                 )
             if prop in RESOURCE_REFERENCE_PROPERTIES:
                 if (
-                    mode != "IMPORT"
+                    mode != RESOURCE_MODE_IMPORT
                     and not (
                         is_service_role_reference(prop, cells[2])
                         or is_import_pending_reference(prop, cells[2])
@@ -1077,8 +1086,8 @@ def expanded_design(
                             label = CHILD_NAME.match(cells[3][marker.end() :])
                             if not label or label.group(1).strip() in {
                                 "",
-                                "UNSET",
-                                "PENDING_DEPLOY",
+                                MODEL_UNSET,
+                                MODEL_PENDING_DEPLOY,
                             }:
                                 raise ValueError(
                                     f"{resource_type}: {logical_id}: confirmed display name required on {prop}"
@@ -1098,7 +1107,7 @@ def expanded_design(
                         logical_ids.add(logical_id)
                         pending_rule = (
                             rule.get("display") == "rule-table"
-                            and name == "PENDING_DEPLOY"
+                            and name == MODEL_PENDING_DEPLOY
                         )
                         if not pending_rule and (resource_type, name) in child_names:
                             raise ValueError(

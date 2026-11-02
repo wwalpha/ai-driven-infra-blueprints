@@ -2,6 +2,7 @@
 
 import re
 
+from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
 from model.core import LINK, ReferenceResolutionError, literal
 from utils.reference_contracts import reference_error
 
@@ -42,7 +43,9 @@ def compact_array(template):
     return bool(COMPACT_ARRAY.search(template))
 
 
-def codebuild_display_row(rows, index, comment, *, mode="CREATE", typed=False):
+def codebuild_display_row(
+    rows, index, comment, *, mode=RESOURCE_MODE_CREATE, typed=False
+):
     block = rows[index : index + 3]
     if [row[1] for row in block] != [
         CODEBUILD_FORMAL_VARIABLE + field for field in ("Name", "Type", "Value")
@@ -67,7 +70,7 @@ def codebuild_display_row(rows, index, comment, *, mode="CREATE", typed=False):
         comment = f"<!-- codebuild-variable-type: {variable_type} --> {comment}"
     elif variable_type == "PLAINTEXT":
         value = block[2][2]
-    elif (typed or mode == "IMPORT") and variable_type in {
+    elif (typed or mode == RESOURCE_MODE_IMPORT) and variable_type in {
         "PARAMETER_STORE",
         "SECRETS_MANAGER",
     }:
@@ -80,7 +83,7 @@ def codebuild_display_row(rows, index, comment, *, mode="CREATE", typed=False):
     return [rows[index][0], prop, value, comment]
 
 
-def codebuild_formal_rows(cells, names, *, mode="CREATE", typed=False):
+def codebuild_formal_rows(cells, names, *, mode=RESOURCE_MODE_CREATE, typed=False):
     prop = cells[1]
     prefix = CODEBUILD_VARIABLE.removesuffix(".")
     if prop.startswith(prefix + "["):
@@ -120,7 +123,7 @@ def codebuild_formal_rows(cells, names, *, mode="CREATE", typed=False):
                 {"name": name, "property": CODEBUILD_FORMAL_VARIABLE + "Value"},
             ),
         )
-    if marker and not linked and mode != "IMPORT" and not typed:
+    if marker and not linked and mode != RESOURCE_MODE_IMPORT and not typed:
         raise ReferenceResolutionError(
             f"CodeBuild resource variable requires a link and Type marker: {name}"
         )

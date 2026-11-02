@@ -7,6 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from contracts.deploy import DEPLOY_RUNNING
 from utils.cloudformation.inputs import Blocked
 from utils.local_evidence import read_sealed, write_sealed
 
@@ -39,7 +40,7 @@ def reclaim(journal, root, target, *, task, run_context):
         for saved in run_context["states"].values()
         if saved.get("delivery", {}).get("path")
         and (
-            saved.get("status") in {"RUNNING", "READY", "CHANGESET_CREATING"}
+            saved.get("status") in {DEPLOY_RUNNING, "READY", "CHANGESET_CREATING"}
             or saved.get("requestPending")
             or saved.get("requestError")
             or saved.get("attemptResult") == "UNKNOWN"

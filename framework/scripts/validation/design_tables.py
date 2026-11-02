@@ -10,6 +10,13 @@ import design.document as _design_document
 import model.core as _exports_model_core
 import model.files as _imports_model_files
 from aws_mapping_display import validation_rows
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    MODEL_UNSET,
+    RESOURCE_MODE_CREATE,
+    RESOURCE_MODE_IMPORT,
+)
+from contracts.validation import VALIDATION_FAIL
 from design.catalog import property_paths_with_parents
 from design.layout import (
     SUBNET_LIST_PROPERTIES,
@@ -83,7 +90,7 @@ properties = _exports_model_core.properties
 
 def check_cidr_value(path: Path, property_name: str, value: str, *, findings) -> None:
     findings.check(
-        not ("cidr" in property_name.lower() and "PENDING_DEPLOY" in value.upper()),
+        not ("cidr" in property_name.lower() and MODEL_PENDING_DEPLOY in value.upper()),
         f"CIDR must not use PENDING_DEPLOY: {findings.relative(path)}: {property_name}",
         source_path=path,
         cause_kind="input_invalid",
@@ -114,7 +121,7 @@ def check_generated_identifier(
             values = load_model(model).values
         for rid, resource in entries(values, "desired.resource."):
             if (
-                resource.get("resourceMode") == "IMPORT"
+                resource.get("resourceMode") == RESOURCE_MODE_IMPORT
                 and resource.get("logicalId") == logical_id
             ):
                 acquired.update(
@@ -153,7 +160,7 @@ def check_generated_identifier(
             cause_kind="input_invalid",
         )
         findings.check(
-            value == "PENDING_DEPLOY" or value != logical_id,
+            value == MODEL_PENDING_DEPLOY or value != logical_id,
             f"identifier output must use a physical value, not the logical ID: {findings.relative(path)}: {property_name}",
             source_path=path,
             cause_kind="input_invalid",
@@ -183,7 +190,7 @@ def check_required_name_tag(
     resource_type: str,
     logical_id: str,
     rows: list[list[str]],
-    mode: str = "CREATE",
+    mode: str = RESOURCE_MODE_CREATE,
     *,
     findings,
     schema_catalog,
@@ -212,7 +219,7 @@ def check_required_name_tag(
         return
     name_rows = [row for row in rows if row[1] == property_name]
     findings.check(
-        len(name_rows) == 1 or (mode == "IMPORT" and not name_rows),
+        len(name_rows) == 1 or (mode == RESOURCE_MODE_IMPORT and not name_rows),
         f"required Name property must appear exactly once: {findings.relative(path)}: {property_name}",
         source_path=path,
         cause_kind="input_invalid",
@@ -232,7 +239,7 @@ def check_required_name_tag(
         source_path=path,
         cause_kind="input_invalid",
     )
-    if mode == "IMPORT" and schema_catalog is not None:
+    if mode == RESOURCE_MODE_IMPORT and schema_catalog is not None:
         for error in schema_catalog.literal_errors(
             resource_type, "Tags[].Value", unquoted(name_rows[0][2])
         ):
@@ -243,7 +250,8 @@ def check_required_name_tag(
                 cause_kind="input_invalid",
             )
     findings.check(
-        mode == "IMPORT" or LOWER_KEBAB_PATTERN.fullmatch(value) is not None,
+        mode == RESOURCE_MODE_IMPORT
+        or LOWER_KEBAB_PATTERN.fullmatch(value) is not None,
         f"required Name value must be lower-kebab-case: {findings.relative(path)}: {property_name}: {value}",
         source_path=path,
         cause_kind="input_invalid",
@@ -320,12 +328,12 @@ def check_markdown_iam_policy_artifacts(
             continue
         policy_name = unquoted(rows[index - 1][2])
         findings.check(
-            policy_name not in {"", "UNSET", "PENDING_DEPLOY"},
+            policy_name not in {"", MODEL_UNSET, MODEL_PENDING_DEPLOY},
             f"IAM inline PolicyName is required: {findings.relative(path)}: {logical_id}",
             source_path=path,
             cause_kind="input_invalid",
         )
-        if policy_name in {"", "UNSET", "PENDING_DEPLOY"}:
+        if policy_name in {"", MODEL_UNSET, MODEL_PENDING_DEPLOY}:
             continue
         artifact = json_reference(root, path, link.group(1), findings)
         if artifact is None:
@@ -407,7 +415,7 @@ def design_dependency_not_run(
         message=str(error),
         checks=list(checks),
         complete=False,
-        status="FAIL",
+        status=VALIDATION_FAIL,
     )
     if diagnostic is not None:
         entry["diagnostic_id"] = stable_id(diagnostic.identity)
@@ -692,7 +700,9 @@ def check_design_tables(
                 if match := ANCHOR_PATTERN.fullmatch(line):
                     anchor = match.group(1)
                 elif match := RESOURCE_HEADING_PATTERN.fullmatch(line):
-                    heading_modes[match.groups()] = modes.get(anchor, "CREATE")
+                    heading_modes[match.groups()] = modes.get(
+                        anchor, RESOURCE_MODE_CREATE
+                    )
         except (OSError, ValueError) as error:
             design_dependency_not_run(
                 path, "document", "invalid resource identity", error, findings=findings
@@ -1005,9 +1015,9 @@ def check_design_tables(
                                 findings.check(
                                     heading_modes.get(
                                         (current_resource_type, current_logical_id),
-                                        "CREATE",
+                                        RESOURCE_MODE_CREATE,
                                     )
-                                    == "IMPORT",
+                                    == RESOURCE_MODE_IMPORT,
                                     f"Config RoleARN literal requires IMPORT: {findings.relative(path)}: {cells[1]}",
                                     source_path=path,
                                     cause_kind="input_invalid",
@@ -1019,9 +1029,9 @@ def check_design_tables(
                                 findings.check(
                                     heading_modes.get(
                                         (current_resource_type, current_logical_id),
-                                        "CREATE",
+                                        RESOURCE_MODE_CREATE,
                                     )
-                                    == "IMPORT",
+                                    == RESOURCE_MODE_IMPORT,
                                     f"Pending reference requires IMPORT: {findings.relative(path)}: {cells[1]}",
                                     source_path=path,
                                     cause_kind="input_invalid",
@@ -1061,7 +1071,7 @@ def check_design_tables(
                                 or (
                                     cells[1]
                                     in identifier_outputs.get(schema_type, set())
-                                    and raw_value == "PENDING_DEPLOY"
+                                    and raw_value == MODEL_PENDING_DEPLOY
                                 )
                                 else row_literal_errors(
                                     schema_catalog,
@@ -1142,7 +1152,8 @@ def check_design_tables(
                             if len(selected) == 1:
                                 value = unquoted(selected[0][2]).strip()
                                 findings.check(
-                                    value not in {"", "UNSET", "PENDING_DEPLOY"},
+                                    value
+                                    not in {"", MODEL_UNSET, MODEL_PENDING_DEPLOY},
                                     f"{property_name} must have a confirmed value: {findings.relative(path)}: {current_logical_id}",
                                     source_path=path,
                                     cause_kind="input_invalid",
@@ -1180,7 +1191,7 @@ def check_design_tables(
                             region = unquoted(region_rows[0][2])
                             findings.check(
                                 LOWER_KEBAB_PATTERN.fullmatch(region) is not None
-                                and region != "UNSET",
+                                and region != MODEL_UNSET,
                                 f"S3.Bucket.Region must be a confirmed AWS region ID: {findings.relative(path)}: {current_logical_id}",
                                 source_path=path,
                                 cause_kind="input_invalid",
@@ -1236,7 +1247,8 @@ def check_design_tables(
                         current_logical_id,
                         rows,
                         heading_modes.get(
-                            (current_resource_type, current_logical_id), "CREATE"
+                            (current_resource_type, current_logical_id),
+                            RESOURCE_MODE_CREATE,
                         ),
                         findings=findings,
                         schema_catalog=schema_catalog,
@@ -1296,7 +1308,7 @@ def check_api_design_rows(
                     )
                 value = raw if node["type"] == "string" else json.loads(raw)
             values[prop] = value
-            if prop == "jobId" and value == "PENDING_DEPLOY":
+            if prop == "jobId" and value == MODEL_PENDING_DEPLOY:
                 continue
             for error in catalog.api_value_errors(resource_type, node, value, prop):
                 findings.check(

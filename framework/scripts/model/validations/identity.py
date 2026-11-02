@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import design.layout as _dependency_design_layout
+from contracts.model import RESOURCE_MODE_CREATE
 from design.catalog import (
     DesignSchemaCatalog,
 )
@@ -89,7 +90,7 @@ def _validate_cloudformation_identities(
     """CloudFormation Resource の Identity と Stack 宣言を必須検証する。"""
     if "cfn-logicalId" not in resource:
         # IMPORT と API 専用 Resource は必須 Identity の対象外。
-        if _dependency_design_layout.resource_mode(resource) != "CREATE":
+        if _dependency_design_layout.resource_mode(resource) != RESOURCE_MODE_CREATE:
             return
         try:
             cfn_type = identity_catalog.cloudformation_type(resource["resourceType"])
@@ -119,7 +120,7 @@ def _validate_declared_identity(
     identity_catalog: DesignSchemaCatalog,
 ) -> None:
     """宣言済み Identity のモードと正式な CFn 型を共通検証する。"""
-    if _dependency_design_layout.resource_mode(resource) != "CREATE":
+    if _dependency_design_layout.resource_mode(resource) != RESOURCE_MODE_CREATE:
         raise InputValidationError(
             f"{identity}: cfn-logicalId requires CREATE with a formal CFn type"
         )

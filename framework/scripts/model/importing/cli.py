@@ -13,6 +13,7 @@ import task_contract_core as task_contract
 import utils.project_targets as _imports_project_targets
 from aws_mapping_compare import MODEL_ONLY
 from aws_mapping_compare import value as mapping_value
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET, RESOURCE_MODE_IMPORT
 from generation_inputs import GenerationInputs
 from import_guard import (
     file_hash,
@@ -248,7 +249,7 @@ def unsafe(value):
     text = json_text(value)
     return (
         "[REDACTED]" in text
-        or any(x in text for x in ("PENDING_DEPLOY", "UNSET"))
+        or any(x in text for x in (MODEL_PENDING_DEPLOY, MODEL_UNSET))
         or comparator().redacted(value) != value
     )
 
@@ -317,7 +318,7 @@ def selector_resource(model, record_id, record, mapped):
     proxy = m.Resource(
         model,
         record_id,
-        {"resourceType": kind, "resourceMode": "IMPORT"},
+        {"resourceType": kind, "resourceMode": RESOURCE_MODE_IMPORT},
         seed_rows,
     )
     for prop, item in mapped.items():

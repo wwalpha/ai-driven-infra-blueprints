@@ -8,6 +8,7 @@ from pathlib import Path
 import aws_mapping as _imports_aws_mapping
 import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.project_targets as _imports_project_targets
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
 from utils.aws_mappings import mappings_for, owners
 from utils.aws_sdk import aws_runtime
 from utils.reference_contracts import (
@@ -44,7 +45,8 @@ def known(value):
     return (
         isinstance(value, str)
         and bool(value)
-        and value not in {"UNSET", "PENDING_DEPLOY", "Pending", "TBD", "TODO", "未確定"}
+        and value
+        not in {MODEL_UNSET, MODEL_PENDING_DEPLOY, "Pending", "TBD", "TODO", "未確定"}
         and not any(nodes(value))
         and not any(text in value for text in ("${", "{{resolve:"))
     )
@@ -285,7 +287,7 @@ class Resolver:
                         "observed.row." + row_id + ".value", row.get("value", "")
                     )
                     value = literal(raw)
-                    if known(value) or value == "PENDING_DEPLOY":
+                    if known(value) or value == MODEL_PENDING_DEPLOY:
                         physical.setdefault(
                             row["property"].removeprefix(kind + "."), set()
                         ).add(value)
@@ -467,7 +469,7 @@ class Resolver:
                         + prop
                     )
                 return
-            if physical == "PENDING_DEPLOY" and not require_links:
+            if physical == MODEL_PENDING_DEPLOY and not require_links:
                 return
             if result.diagnostic:
                 raise ReferenceResolutionError(**result.diagnostic)

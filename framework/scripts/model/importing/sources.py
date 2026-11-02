@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET, RESOURCE_MODE_IMPORT
 from utils.json_format import document_sha256
 from utils.json_format import strict_json as json_read
 
@@ -122,7 +123,11 @@ def selection_records(
                     value = property_values(
                         old, rid, prop, property_schema(prop), rows=rows
                     )
-                if value is None or value == "" or value in ("PENDING_DEPLOY", "UNSET"):
+                if (
+                    value is None
+                    or value == ""
+                    or value in (MODEL_PENDING_DEPLOY, MODEL_UNSET)
+                ):
                     break
                 value = identity_value(prop, value)
                 components.append({"property": prop, "value": value})
@@ -145,7 +150,7 @@ def selection_records(
                 if (
                     isinstance(value, str)
                     and value.strip()
-                    and value not in {"PENDING_DEPLOY", "UNSET"}
+                    and value not in {MODEL_PENDING_DEPLOY, MODEL_UNSET}
                     and not has_reference(value)
                 ):
                     known = True
@@ -200,7 +205,7 @@ def selection_records(
         ):
             raise ValueError("IMPORT duplicate or unknown resource correspondence")
         if (
-            new_resources[rid].get("resourceMode") != "IMPORT"
+            new_resources[rid].get("resourceMode") != RESOURCE_MODE_IMPORT
             or record["kind"] != new_resources[rid]["resourceType"]
         ):
             raise ValueError(
@@ -217,7 +222,7 @@ def selection_records(
             )
         if action != "add" and (
             rid not in old_resources
-            or old_resources[rid].get("resourceMode") != "IMPORT"
+            or old_resources[rid].get("resourceMode") != RESOURCE_MODE_IMPORT
             or old_resources[rid]["resourceType"] != record["kind"]
         ):
             raise ValueError(
@@ -266,7 +271,7 @@ def selection_records(
         if (
             not isinstance(record["identity"], str)
             or not record["identity"].strip()
-            or record["identity"] in {"PENDING_DEPLOY", "UNSET"}
+            or record["identity"] in {MODEL_PENDING_DEPLOY, MODEL_UNSET}
             or has_reference(record["identity"])
         ):
             raise ValueError("IMPORT acquired physical identity is invalid")
@@ -420,7 +425,7 @@ def pending_items(selection, selected, values, property_schema):
                 code[name] = (
                     isinstance(value, str)
                     and bool(value.strip())
-                    and value not in {"UNSET", "PENDING_DEPLOY"}
+                    and value not in {MODEL_UNSET, MODEL_PENDING_DEPLOY}
                     and capture.get("status") == "captured"
                     and typed_equal(value, capture.get("value"))
                 )
@@ -529,7 +534,8 @@ def verify_values(
         if record.get("_action") in {"refresh", "replace", "bind"}
     }
     if any(
-        old_resources.get(rid, {}).get("resourceMode") != "IMPORT" for rid in updated
+        old_resources.get(rid, {}).get("resourceMode") != RESOURCE_MODE_IMPORT
+        for rid in updated
     ):
         raise ValueError(
             "IMPORT updates require existing IMPORT resources; CREATE is protected"
@@ -608,7 +614,7 @@ def verify_values(
     for rid, record in selected.items():
         if rid in old_resources and rid not in updated:
             continue
-        if new_resources[rid].get("resourceMode") != "IMPORT":
+        if new_resources[rid].get("resourceMode") != RESOURCE_MODE_IMPORT:
             raise ValueError("IMPORT cannot update CREATE resources")
         if references is not None:
             references.verify_resource(

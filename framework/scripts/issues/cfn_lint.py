@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 import model.sources as _imports_model_sources
+from contracts.model import RESOURCE_MODE_IMPORT
 from design.layout import resource_mode
 from model.core import entries
 from utils.cfn_lint import POLICY, lint_session, validate_template
@@ -187,13 +188,15 @@ def plan(comparison):
             try:
                 mode = resource_mode(resource)
                 if (
-                    mode == "IMPORT"
+                    mode == RESOURCE_MODE_IMPORT
                     or resource.get("resourceType") in comparison.catalog.api_schemas
                 ):
                     coverage.append(
                         dict(
                             status="not_applicable",
-                            reason="IMPORT" if mode == "IMPORT" else "API-only",
+                            reason=RESOURCE_MODE_IMPORT
+                            if mode == RESOURCE_MODE_IMPORT
+                            else "API-only",
                             **origin,
                         )
                     )

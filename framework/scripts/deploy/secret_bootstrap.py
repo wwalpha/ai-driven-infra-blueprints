@@ -7,6 +7,8 @@ from functools import partial as _bind_framework_callback
 
 import model.adapters.observed as _imports_model_adapters_observed
 import utils.cloudformation.format as _imports_cfn_format
+from contracts.deploy import DEPLOY_SUCCESS
+from contracts.model import RESOURCE_MODE_CREATE
 from task_contract_core import task_snapshot
 from utils.cloudformation.export_resolution import (
     describe_exports,
@@ -199,7 +201,8 @@ def bootstrap_plan(
             or definition.get("Type") != event["ResourceType"]
             or not scope
             or (environment, directory, mapping[0].stem) not in scope
-            or mapping[2].get("resourceMode", "CREATE") != "CREATE"
+            or mapping[2].get("resourceMode", RESOURCE_MODE_CREATE)
+            != RESOURCE_MODE_CREATE
         ):
             raise Blocked("consumer resource ownership/scope unknown")
     names = import_names(document, parameters, pseudo)
@@ -288,7 +291,7 @@ def bootstrap_plan(
     units = {u["name"]: u for u in mapping_units}
     for name, candidate_unit in units.items():
         owner_state = states.get(name, {})
-        if owner_state.get("status") != "SUCCESS" and not (
+        if owner_state.get("status") != DEPLOY_SUCCESS and not (
             name == unit["name"]
             and owner_state.get("stackStatus") == "UPDATE_ROLLBACK_COMPLETE"
         ):
@@ -333,7 +336,7 @@ def bootstrap_plan(
     name, logical, mapping = owners[0]
     source, identity, resource = mapping[:3]
     if (
-        resource.get("resourceMode", "CREATE") != "CREATE"
+        resource.get("resourceMode", RESOURCE_MODE_CREATE) != RESOURCE_MODE_CREATE
         or resource.get("cfn-logicalId") != name + "-" + logical
         or (environment, directory, source.stem) not in scope
         or name not in units

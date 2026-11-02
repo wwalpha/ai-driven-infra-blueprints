@@ -3,6 +3,7 @@
 import json
 
 import worktree_state
+from contracts.validation import VALIDATION_FAIL
 from task_contract_core import (
     atomic_files,
     invalidate_task_reads,
@@ -261,9 +262,9 @@ def assess(task):
             approved.append(dict(record, status="FAIL", retained=True))
     return dict(
         status="FAIL"
-        if blocked or task.findings.status == "FAIL" and not raw
+        if blocked or task.findings.status == VALIDATION_FAIL and not raw
         else "PASS",
-        validation_status="FAIL" if approved else task.findings.status,
+        validation_status=VALIDATION_FAIL if approved else task.findings.status,
         approved=approved,
         unapproved=blocked,
         invalid=invalid,

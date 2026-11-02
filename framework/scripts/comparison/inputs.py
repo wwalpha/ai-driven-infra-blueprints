@@ -11,6 +11,12 @@ import model.environment_values as environment_values
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 import utils.cloudformation.format as _imports_cfn_format
+from contracts.model import (
+    MODEL_PENDING_DEPLOY,
+    MODEL_UNSET,
+    RESOURCE_MODE_CREATE,
+    RESOURCE_MODE_IMPORT,
+)
 from design.catalog import DesignSchemaCatalog
 from design.layout import resource_mode
 from design.policy_tables import literal
@@ -431,7 +437,7 @@ class Inputs:
 
     def protect_import_reference(self, symbol, resource, consumer_property):
         expected_attribute = symbol["$attribute"]
-        if resource_mode(resource) == "IMPORT":
+        if resource_mode(resource) == RESOURCE_MODE_IMPORT:
             if (
                 self.local_comparison
                 and registry.resource(resource["resourceType"]).imported_arn is not None
@@ -682,7 +688,7 @@ class Inputs:
         if (
             self.local_comparison
             and imported_arn
-            and resource_mode(resource) == "IMPORT"
+            and resource_mode(resource) == RESOURCE_MODE_IMPORT
             and value["$attribute"] == "Arn"
             and self.target["iacEngine"] == "cloudformation"
         ):
@@ -703,7 +709,7 @@ class Inputs:
         if resource["resourceType"] in ARN_SHAPES and attribute == reference_attribute(
             resource["resourceType"], "Arn"
         ):
-            if resource_mode(resource) != "CREATE":
+            if resource_mode(resource) != RESOURCE_MODE_CREATE:
                 raise Blocked(
                     "named ARN requires CREATE resource correspondence; IMPORT requires approved handoff"
                 )
@@ -757,7 +763,13 @@ class Inputs:
         result = evaluator.substitution(name, value, frozenset(), preserve=False)
         if not isinstance(result, str):
             raise Blocked("reference name remains symbolic")
-        if not result or result in {"UNSET", "PENDING_DEPLOY", "TBD", "TODO", "未確定"}:
+        if not result or result in {
+            MODEL_UNSET,
+            MODEL_PENDING_DEPLOY,
+            "TBD",
+            "TODO",
+            "未確定",
+        }:
             raise Blocked("reference name is unresolved")
         return result
 
@@ -826,7 +838,7 @@ class Inputs:
 
     def producer_scope(self, value):
         service, identity = value["$resource"]
-        if resource_mode(self.resources[service][identity]) != "CREATE":
+        if resource_mode(self.resources[service][identity]) != RESOURCE_MODE_CREATE:
             raise Blocked(
                 "ARN projection requires CREATE correspondence; IMPORT requires approved handoff"
             )

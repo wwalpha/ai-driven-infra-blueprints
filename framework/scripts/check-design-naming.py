@@ -5,6 +5,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
 from model.validations.naming import design_naming_errors
 
 
@@ -12,7 +13,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd().resolve())
     parser.add_argument("--resource-type", required=True)
-    parser.add_argument("--mode", choices=("CREATE", "IMPORT"), default="CREATE")
+    parser.add_argument(
+        "--mode",
+        choices=(RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT),
+        default=RESOURCE_MODE_CREATE,
+    )
     parser.add_argument(
         "--name-tag",
         action="store_true",

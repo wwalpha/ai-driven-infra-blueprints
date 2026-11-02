@@ -5,6 +5,7 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
 from utils.aws_sdk import aws_runtime
 from utils.json_format import policy_json
 
@@ -38,7 +39,11 @@ def collection(
 
 
 def identifier(value: Any) -> str:
-    if not isinstance(value, str) or not value or value in {"UNSET", "PENDING_DEPLOY"}:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value in {MODEL_UNSET, MODEL_PENDING_DEPLOY}
+    ):
         raise ValueError("Missing SDK inventory identifier")
     return value
 

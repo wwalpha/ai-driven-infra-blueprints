@@ -19,6 +19,7 @@ from pathlib import Path
 import task_contract_core as _imports_task_contract
 import worktree_python
 import worktree_state
+from contracts.model import RESOURCE_MODE_CREATE
 from model.adapters.observed import resolve_resources
 from model.core import structural_entries
 from model.dependency_index import inventory as model_inventory
@@ -132,7 +133,10 @@ def owning_resources(root, env, directory, target, units):
                 name, logical = cfn_resource_identity(resource["cfn-logicalId"])
                 if logical in templates[name][0].get("Resources", {}):
                     continue
-                if resource.get("resourceMode", "CREATE") != "CREATE":
+                if (
+                    resource.get("resourceMode", RESOURCE_MODE_CREATE)
+                    != RESOURCE_MODE_CREATE
+                ):
                     raise ValueError(
                         f"StackName={name} Resource={logical}: cfn-logicalId requires CREATE"
                     )

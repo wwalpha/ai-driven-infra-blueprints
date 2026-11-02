@@ -5,6 +5,7 @@ from functools import partial as _bind_framework_callback
 from uuid import uuid4
 
 import iac_evaluation as _imports_iac_evaluation
+from contracts.model import MODEL_PENDING_DEPLOY
 from model.reference_nodes import is_reference, nodes, parse
 from utils.cloudformation.format import JSON_INTRINSICS, intrinsic_shape_error
 from utils.cloudformation.inputs import Blocked
@@ -98,7 +99,7 @@ def _pending_marker(value, marker, evaluate):
         return result
     if isinstance(value, list):
         return [_pending_marker(child, marker, evaluate) for child in value]
-    return marker if value == "PENDING_DEPLOY" else value
+    return marker if value == MODEL_PENDING_DEPLOY else value
 
 
 def _recursive_project_document_syntax(fail, /, value, pointer=""):
@@ -171,7 +172,7 @@ def _recursive_project_document_visit(
                 _pending_marker(value, marker, evaluate) if marker else value
             )
             if not bound and not template and _contains_marker(result, marker):
-                return "PENDING_DEPLOY"
+                return MODEL_PENDING_DEPLOY
             if (not bound and isinstance(result, Expression)) or result == {
                 "$noValue": True
             }:

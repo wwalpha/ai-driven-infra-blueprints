@@ -4,6 +4,8 @@ from functools import partial
 
 import model.projection as _model_validation_projection
 import model.validations.change_inputs as _model_validation_change_inputs
+from contracts.model import REFERENCE_PENDING_DEPLOY
+from contracts.validation import VALIDATION_PASS
 from design.catalog import DesignSchemaCatalog
 from model.change_scope import change_reads
 from model.core import ReferenceResolutionError
@@ -172,13 +174,13 @@ def validate_save(before, after, reads):
 
 
 def require_complete(findings):
-    if findings.status == "PASS":
+    if findings.status == VALIDATION_PASS:
         return
     incomplete = [
         f"{result.check_id}: {result.status}; scope={sorted(result.scope or [])}; "
         f"reason={result.metadata['reason']}"
         for result in findings.results.values()
-        if result.candidate is findings.candidate and result.status != "PASS"
+        if result.candidate is findings.candidate and result.status != VALIDATION_PASS
     ]
     incomplete.extend(
         f"{item.get('code', 'validation')}: {item.get('message', 'unverified')}; "
@@ -199,7 +201,7 @@ def check_producer(evaluate, findings):
         evaluate()
     except ReferenceResolutionError as error:
         if not error.diagnostics or not all(
-            item.get("category") == "REFERENCE_PENDING_DEPLOY"
+            item.get("category") == REFERENCE_PENDING_DEPLOY
             for item in error.diagnostics
         ):
             raise

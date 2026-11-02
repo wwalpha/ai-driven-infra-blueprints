@@ -1,0 +1,10 @@
+"""Shared model contract values."""
+
+from typing import Final
+
+MODEL_PENDING_DEPLOY: Final[str] = "PENDING_DEPLOY"
+MODEL_UNSET: Final[str] = "UNSET"
+REFERENCE_PENDING_DEPLOY: Final[str] = "REFERENCE_PENDING_DEPLOY"
+REFERENCE_UNRESOLVED: Final[str] = "REFERENCE_UNRESOLVED"
+RESOURCE_MODE_CREATE: Final[str] = "CREATE"
+RESOURCE_MODE_IMPORT: Final[str] = "IMPORT"

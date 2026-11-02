@@ -16,6 +16,7 @@ import json_intrinsics as _imports_json_intrinsics
 import model.projection as _model_projection
 import model.render as _model_render
 import utils.aws_mappings as _imports_utils_aws_mappings
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
 from model.core import literal
 from model.identity import Resolver
 from model.reference_nodes import is_reference, nodes, project, reference_document
@@ -263,7 +264,7 @@ def resources_in(
                         f"IAM inline policy requires a preceding PolicyName: {logical_id}"
                     )
                 label = literal(rows[number - 1][2])
-                if label in {"", "UNSET", "PENDING_DEPLOY"}:
+                if label in {"", MODEL_UNSET, MODEL_PENDING_DEPLOY}:
                     raise ValueError(
                         f"IAM inline PolicyName is unresolved: {logical_id}"
                     )

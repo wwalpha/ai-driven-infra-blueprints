@@ -13,6 +13,8 @@ import model.projection as _model_projection
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
 from aws_mapping_display import validation_lines
+from contracts.model import RESOURCE_MODE_IMPORT
+from contracts.validation import VALIDATION_FAIL
 from design.document import DesignIndex, DisplayMismatchError
 from design.layout import (
     LINKED_LIST_PROPERTIES,
@@ -91,7 +93,7 @@ def unavailable_semantics(
         exception=type(error).__name__,
         message=str(error),
         complete=False,
-        status="FAIL",
+        status=VALIDATION_FAIL,
     )
     if isinstance(error, DisplayMismatchError):
         diagnostics = list(
@@ -518,7 +520,7 @@ def check_design_links(
         imported[source] = {
             resource["anchor"]: rid
             for rid, resource in entries(values, "desired.resource.")
-            if resource.get("resourceMode") == "IMPORT"
+            if resource.get("resourceMode") == RESOURCE_MODE_IMPORT
         }
         if not imported[source]:
             continue

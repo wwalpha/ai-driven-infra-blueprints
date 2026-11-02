@@ -4,6 +4,7 @@ import json
 import re
 from dataclasses import dataclass
 
+from contracts.model import MODEL_PENDING_DEPLOY
 from utils.json_format import strict_json
 from utils.reference_contracts import reference_context
 
@@ -161,7 +162,7 @@ def display_value(resolver, scope, node):
     return (
         result.value
         if result.status == "resolved"
-        else "PENDING_DEPLOY"
+        else MODEL_PENDING_DEPLOY
         if result.status == "pending_deploy"
         else result.status
     )

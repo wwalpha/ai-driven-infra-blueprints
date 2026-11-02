@@ -17,6 +17,7 @@ import import_guard as _imports_import_guard
 import model.change_plan as change_plan
 import model.impact as _imports_model_impact
 import model.importing.scope as _imports_model_importing_scope
+from contracts.model import MODEL_PENDING_DEPLOY, REFERENCE_PENDING_DEPLOY
 from model.core import ReferenceResolutionError
 from sync_progress import consumers, diagnostics, output_file, phase, reported_main
 from sync_runtime import generation_context, run_generation, sync
@@ -239,10 +240,10 @@ def main(argv=None, *, definitions_root=None) -> int:
             return 0
     except ReferenceResolutionError as error:
         pending = bool(error.diagnostics) and all(
-            d.get("category") == "REFERENCE_PENDING_DEPLOY" for d in error.diagnostics
+            d.get("category") == REFERENCE_PENDING_DEPLOY for d in error.diagnostics
         )
         print(
-            f"View generation: {'PENDING_DEPLOY' if pending else 'FAILED'}\n- {error}",
+            f"View generation: {MODEL_PENDING_DEPLOY if pending else 'FAILED'}\n- {error}",
             file=output_file(error=True),
         )
         return 0 if pending else 1

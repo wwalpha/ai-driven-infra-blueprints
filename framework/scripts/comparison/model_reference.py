@@ -1,5 +1,6 @@
 """Select saved literal declarations from the authoritative snapshot, once per service."""
 
+from contracts.model import RESOURCE_MODE_IMPORT
 from design.layout import resource_mode
 from design.policy_tables import literal
 from model.identity import Resolver
@@ -119,7 +120,7 @@ class ModelReferences:
                     any(
                         token.startswith("Fn::") for token in (pointer or "").split("/")
                     )
-                    and resource_mode(resource) != "IMPORT"
+                    and resource_mode(resource) != RESOURCE_MODE_IMPORT
                 ):
                     symbol = inputs.reference(self.scope.service, symbol)
                     project = registry.property_rule(
@@ -289,7 +290,7 @@ class ModelReferences:
         symbol.saved_property = spec["property"]
         symbol.saved_literal = text
         symbol.declared_format = spec["format"]
-        if resource_mode(resource) == "IMPORT":
+        if resource_mode(resource) == RESOURCE_MODE_IMPORT:
             validate_declaration(inputs, symbol)
             prop = inputs.model(self.scope.service).authoritative[
                 key.rsplit(".", 1)[0] + ".property"

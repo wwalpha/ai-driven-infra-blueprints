@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from functools import partial as _bind_framework_callback
 from pathlib import PurePosixPath
 
+from contracts.model import MODEL_PENDING_DEPLOY
 from utils.json_format import strict_json
 from utils.model_addresses import resource_address as resource_address
 from utils.reference_contracts import reference_error, row_contexts
@@ -434,7 +435,7 @@ def kms_observation(values, row_id, node, scope, resolver):
     if observed is None:
         return "unobserved", None
     observed = literal(observed)
-    if observed == "PENDING_DEPLOY":
+    if observed == MODEL_PENDING_DEPLOY:
         return "pending", observed
     if (
         re.fullmatch(
@@ -623,7 +624,7 @@ def diagnose(
                 if spec["format"] == "name"
                 else values.get(f"observed.row.{rid}.value")
             )
-            if expected is None or literal(expected) == "PENDING_DEPLOY":
+            if expected is None or literal(expected) == MODEL_PENDING_DEPLOY:
                 _callback_diagnose_warn(
                     usage, warnings, "producer Property is unobserved or pending"
                 )

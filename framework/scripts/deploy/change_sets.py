@@ -6,6 +6,7 @@ import uuid
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
+from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
 from utils.cloudformation.export_resolution import resolve_exports, stack_exports
 from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import Blocked, condition_active, resolve_value
@@ -148,7 +149,7 @@ def check_imports(target, templates, states, aws, unit, exports=None):
                 .split(":stack/")[-1]
                 .split("/")[0]
             )
-            if owner in states and states[owner]["status"] != "SUCCESS":
+            if owner in states and states[owner]["status"] != DEPLOY_SUCCESS:
                 raise Blocked(
                     f"designed DeployOrder conflicts with Import/Export: producer {owner} has not succeeded"
                 )
@@ -240,7 +241,7 @@ def begin_prepare(
             stack = None
         if stack and category(stack) == "RUNNING":
             state.update(stackId=stack["StackId"], externalOperation=True)
-            return "RUNNING"  # Observe an already-running AWS operation before preparing new inputs.
+            return DEPLOY_RUNNING  # Observe an already-running AWS operation before preparing new inputs.
         if stack and stack["StackStatus"] not in UPDATEABLE | {"REVIEW_IN_PROGRESS"}:
             raise Blocked(f"stack not updateable: {stack['StackStatus']}")
         if stack:
@@ -365,7 +366,7 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
         state["stackStatus"] = verify_no_change_completion(aws, unit, state, change_set)
         state["noChangeCandidate"] = change_set
         state["reason"] = "no changes; existing stack terminal success"
-        return "SUCCESS"
+        return DEPLOY_SUCCESS
     if (
         change_set["Status"] != "CREATE_COMPLETE"
         or change_set["ExecutionStatus"] != "AVAILABLE"

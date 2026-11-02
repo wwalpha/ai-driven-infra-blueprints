@@ -4,6 +4,7 @@ import copy
 import json
 import uuid
 
+from contracts.deploy import DEPLOY_SUCCESS
 from utils.aws.client import AwsError
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import Blocked
@@ -268,7 +269,8 @@ def end_tracking(state, record):
             "request": copy.deepcopy(record),
             "executionEvidence": copy.deepcopy(state.get("executionEvidence", {})),
             "result": state.get(
-                "attemptResult", "SUCCESS" if state["status"] == "SUCCESS" else "FAIL"
+                "attemptResult",
+                "SUCCESS" if state["status"] == DEPLOY_SUCCESS else "FAIL",
             ),
         }
         for key in (

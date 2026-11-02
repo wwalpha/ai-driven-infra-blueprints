@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import task_contract_core as tasks
 import worktree_state as ws
 import worktree_task as wt
+from contracts.deploy import DEPLOY_SUCCESS
 from model.dependency_index import revision as file_revision
 from model.render import owned_artifacts
 from model.sources import load_model, publication_lock, source_scope
@@ -277,7 +278,7 @@ def check_state(root, state, progress, task, consumers=()):
             or item.get("requestError")
             or item.get("createUnconfirmed")
             or item.get("status")
-            not in {"NOT_STARTED", "SUCCESS", "FAILED", "SETTLED", "BLOCKED"}
+            not in {"NOT_STARTED", DEPLOY_SUCCESS, "FAILED", "SETTLED", "BLOCKED"}
             or worktree.current_category(item) in {"RUNNING", "UNKNOWN"}
             and item.get("currentStack")
             or item.get("clientToken")

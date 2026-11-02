@@ -14,6 +14,7 @@ import design.services.codepipeline
 import design.services.config as _imports_design_layout
 import design.services.definitions.registry as _display_definitions
 import design.services.glue
+from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
 from design.common import row_table as row_table
 from design.services.cloudtrail import display_row as cloudtrail_display_row
 from design.services.definitions.cloudtrail import (
@@ -78,7 +79,7 @@ def reference_rows(values):
         result[resource["logicalId"]] = ReferenceRows(
             resource["logicalId"],
             resource["resourceType"],
-            resource.get("resourceMode", "CREATE"),
+            resource.get("resourceMode", RESOURCE_MODE_CREATE),
             rows,
             tuple(
                 (rid, references)
@@ -143,7 +144,7 @@ def display_rows(
     rows: list[list[str]],
     root: Path = ROOT,
     *,
-    mode="CREATE",
+    mode=RESOURCE_MODE_CREATE,
     _counts=None,
     consumed: list[str] | None = None,
     references=None,
@@ -181,7 +182,7 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
         identity, prop, value, comment = rows[index]
         packed = (
             design.compact_rows.packed_compact_rows(rows, index)
-            if mode == "IMPORT"
+            if mode == RESOURCE_MODE_IMPORT
             else None
         )
         if packed is not None:
@@ -209,7 +210,7 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
             if (
                 prop in CODEBUILD_VPC_PROPERTIES
                 and not linked
-                and mode != "IMPORT"
+                and mode != RESOURCE_MODE_IMPORT
                 and identity not in references
             ):
                 raw = literal(value).lstrip()

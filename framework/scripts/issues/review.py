@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
 from model.core import literal
 from model.validations.naming import (
     NAMING_EXEMPT_PROPERTIES,
@@ -334,7 +335,7 @@ def naming_violations(artifact, name, rule_index=None):
     if name.get("property") == "(no selected naming property)":
         return violations
     exempt = name["resourceType"] + "." + name["property"] in NAMING_EXEMPT_PROPERTIES
-    create = name.get("resourceMode", "CREATE") == "CREATE"
+    create = name.get("resourceMode", RESOURCE_MODE_CREATE) == RESOURCE_MODE_CREATE
     if not patterns and not exempt and create:
         violations.append(dict(violation="rule_missing", applied_rule=common_rule))
     if actual is None:
@@ -461,7 +462,7 @@ def naming_decision(artifact, name, rule_index=None):
     if any("{{" + key + "}}" in pattern for key in conflicts for pattern in patterns):
         pending.append("Conflicting confirmed component values require review")
     if any(value is None for value in name.get("conditions", {}).values()) and (
-        name.get("resourceMode", "CREATE") == "CREATE"
+        name.get("resourceMode", RESOURCE_MODE_CREATE) == RESOURCE_MODE_CREATE
         or name["resourceType"] in {"SQS.Queue", "SNS.Topic"}
     ):
         pending.append("A selected condition for mandatory Naming rules is unconfirmed")
@@ -474,7 +475,7 @@ def naming_decision(artifact, name, rule_index=None):
             and (not isinstance(value, str) or value.lower() not in {"true", "false"})
         ):
             pending.append("FIFO condition is unconfirmed")
-    if name.get("resourceMode", "CREATE") == "CREATE":
+    if name.get("resourceMode", RESOURCE_MODE_CREATE) == RESOURCE_MODE_CREATE:
         if name["resourceType"] == "IAM.Role" and "suffix" not in artifact[
             "naming_context"
         ].get("target_context", {}):
@@ -562,7 +563,7 @@ def review_names(artifact, rule_index=None):
 def validate_naming_issue(artifact, item, name, rule_index=None):
     violation = item["violation"]
     applied = required_text(item, "applied_rule")
-    if name.get("resourceMode") == "IMPORT" and (
+    if name.get("resourceMode") == RESOURCE_MODE_IMPORT and (
         violation in {"format", "rule_missing"}
         or (
             violation == "required_missing"
@@ -871,7 +872,9 @@ def review_additions(
                 "provider_constraint",
             }:
                 raise ValueError("Naming Issue needs a concrete violation")
-            if name.get("resourceMode") == "IMPORT" and item["violation"] in {
+            if name.get("resourceMode") == RESOURCE_MODE_IMPORT and item[
+                "violation"
+            ] in {
                 "format",
                 "rule_missing",
             }:

@@ -2,6 +2,8 @@
 
 import re
 
+from contracts.model import RESOURCE_MODE_IMPORT
+
 import model.adapters.task as _imports_model_adapters_task
 import model.configuration as _configuration
 import model.core as _imports_model_core
@@ -55,7 +57,7 @@ def require_observable_row(snapshot, row):
     resource_id = row.rpartition("-")[0]
     if snapshot.authoritative.get(
         f"desired.resource.{resource_id}.resourceMode"
-    ) == "IMPORT" and not foreign_observation(snapshot, row):
+    ) == RESOURCE_MODE_IMPORT and not foreign_observation(snapshot, row):
         raise ValueError(
             "general observation updates cannot change an IMPORT physical identity: "
             + row

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import generation_inputs as _imports_generation_inputs
 import model.adapters.observed as _imports_model_adapters_observed
+from contracts.deploy import DEPLOY_SUCCESS
 from model.format import parse, patch
 from model.observed import verify_observed_outputs
 from model.sources import load_model, publication_lock, safe, source_scope
@@ -326,7 +327,7 @@ def reauthorize(backend, task, *, preserve_candidates=False):
             for item in context.get("pendingGeneration", {}).values()
         )
         and not any(
-            state.get("status") == "SUCCESS"
+            state.get("status") == DEPLOY_SUCCESS
             and not state.get("observedSynced")
             or state.get("bootstrap")
             or state.get("cleanupStatus") == "DELETE_INTENT"

@@ -3,6 +3,11 @@
 import json
 import re
 
+from contracts.model import (
+    REFERENCE_PENDING_DEPLOY,
+    REFERENCE_UNRESOLVED,
+    RESOURCE_MODE_IMPORT,
+)
 from model.core import (
     LINK,
     ReferenceResolutionError,
@@ -35,8 +40,7 @@ def validate_references(prop, field, raw, nodes, diagnostics):
         [
             d
             for d in diagnostics
-            if d.get("category")
-            not in {"REFERENCE_PENDING_DEPLOY", "REFERENCE_UNRESOLVED"}
+            if d.get("category") not in {REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED}
         ]
     )
 
@@ -92,7 +96,7 @@ def formal_rows(cells, display_property, count, mode, *, verified_reference=Fals
     ):
         resource_value = '`["arn:aws:s3"]`'
     elif (
-        mode != "IMPORT"
+        mode != RESOURCE_MODE_IMPORT
         and verified_reference
         and re.fullmatch(r"`\[.*\]`", resource_value)
     ):
@@ -103,7 +107,7 @@ def formal_rows(cells, display_property, count, mode, *, verified_reference=Fals
             or not isinstance(values[0], str)
         ):
             raise ValueError("CloudTrail DataResources requires exactly one value")
-    elif mode != "IMPORT" and not re.fullmatch(
+    elif mode != RESOURCE_MODE_IMPORT and not re.fullmatch(
         r"\[[^\]]+\]\([^)]*#[^)]+\)", resource_value
     ):
         raise ReferenceResolutionError(
@@ -150,7 +154,7 @@ def display_row(rows, index, counts, mode):
             value = items[0]
     if (
         literal(value) == '["arn:aws:s3"]'
-        or mode == "IMPORT"
+        or mode == RESOURCE_MODE_IMPORT
         and literal(value) == "arn:aws:s3"
     ):
         value = "`All current and future S3 buckets`"

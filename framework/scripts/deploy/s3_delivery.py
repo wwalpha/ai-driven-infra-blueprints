@@ -5,6 +5,7 @@ import re
 from functools import partial as _bind_framework_callback
 from types import SimpleNamespace
 
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
 from design.policy_tables import literal
 from model.references import has_reference
 from utils.cloudformation.inputs import Blocked
@@ -27,7 +28,13 @@ def fail(category, reason):
 
 def confirmed(value):
     value = literal(value)
-    if not value or value in {"UNSET", "PENDING_DEPLOY", "TBD", "TODO", "未確定"}:
+    if not value or value in {
+        MODEL_UNSET,
+        MODEL_PENDING_DEPLOY,
+        "TBD",
+        "TODO",
+        "未確定",
+    }:
         fail("INDETERMINATE", "unconfirmed design value")
     return value
 

@@ -10,6 +10,7 @@ import import_guard as _imports_import_guard
 import model.importing.repository as repository
 import model.observed as _imports_model_observed
 import worktree_state
+from contracts.validation import VALIDATION_PASS
 from model.core import properties as properties
 from model.impact import task_impact
 from task_contract_core import (
@@ -489,7 +490,7 @@ class TaskValidation:
                         if results_only
                         else self.findings.evaluate(value, scope, handler)
                     )
-                    accepted = result.status == "PASS"
+                    accepted = result.status == VALIDATION_PASS
                     if (
                         not accepted
                         and result.errors

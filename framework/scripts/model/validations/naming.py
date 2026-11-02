@@ -9,6 +9,7 @@ from types import MappingProxyType, SimpleNamespace
 
 import design.layout as _dependency_design_layout
 import design.layout as _imports_design_layout
+from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
 from design.catalog import (
     DesignSchemaCatalog,
     selected_properties,
@@ -191,12 +192,12 @@ def naming_coverage_errors(
     kind: str,
     selected: set[str],
     name_tag: bool = False,
-    mode: str = "CREATE",
+    mode: str = RESOURCE_MODE_CREATE,
 ) -> list[str]:
     """CREATE の選択属性に命名ルールがあるか確認し、IMPORT は対象外とする。"""
-    if mode not in {"CREATE", "IMPORT"}:
+    if mode not in {RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT}:
         raise InputValidationError(f"resourceMode must be CREATE or IMPORT: {mode!r}")
-    if mode == "IMPORT":
+    if mode == RESOURCE_MODE_IMPORT:
         return []
     targets = naming_targets(root, kind.partition(".")[0])
     expected = selected & set(_dependency_design_layout.resource_name_fields(kind))
@@ -216,7 +217,7 @@ def naming_coverage_errors(
 
 
 def design_naming_errors(
-    root: Path, kind: str, mode: str = "CREATE", name_tag: bool = False
+    root: Path, kind: str, mode: str = RESOURCE_MODE_CREATE, name_tag: bool = False
 ) -> list[str]:
     """設計開始前に選択可能な命名属性とルールの対応を確認する。"""
     # 配置先の StackName はカタログ属性ではなく Model 入力として選択する。
@@ -265,7 +266,7 @@ def validate_resource_naming_suffix(
     kind: str, mode: str, rows: list[list[str]], view: Path, root: Path
 ) -> list[str]:
     """CREATE の IAM Role にだけ対象ターゲットの suffix 検証を適用する。"""
-    if kind != "IAM.Role" or mode != "CREATE":
+    if kind != "IAM.Role" or mode != RESOURCE_MODE_CREATE:
         return []
     role_name = next(
         row[2].strip('`"')
@@ -279,7 +280,7 @@ def naming_errors(
     root: Path,
     kind: str,
     rows: list[list[str]],
-    mode: str = "CREATE",
+    mode: str = RESOURCE_MODE_CREATE,
     view: Path | None = None,
     project_root: Path | None = None,
 ) -> list[str]:
@@ -322,7 +323,7 @@ def naming_errors(
                     },
                 ):
                     return errors
-    if mode == "IMPORT":
+    if mode == RESOURCE_MODE_IMPORT:
         return []  # IMPORT でも上記の名前確認と provider／schema の検証は適用する。
     if view is not None and project_root is not None:
         if errors := validate_resource_naming_suffix(

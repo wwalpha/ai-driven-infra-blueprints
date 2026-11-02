@@ -15,6 +15,7 @@ import design.policy_tables as _dependency_policy_tables
 import design.policy_tables as _imports_policy_tables
 import design.services.cloudtrail as _cloudtrail_presentation
 import design.services.ec2.security_groups as _ec2_security_groups
+from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET, RESOURCE_MODE_CREATE
 from design.catalog import DesignSchemaCatalog as DesignSchemaCatalog
 from design.layout_schema import GROUPED
 from design.layout_schema import resource_anchor as resource_anchor
@@ -254,7 +255,7 @@ def _callback_resource_details_inspect(
         raise InputValidationError(
             f"resource type display requires a single nameless independent resource: {kind}"
         )
-    if not name or name in {"UNSET", "PENDING_DEPLOY"}:
+    if not name or name in {MODEL_UNSET, MODEL_PENDING_DEPLOY}:
         raise InputValidationError(
             f"confirmed resource display label is missing: {kind}: {_state_resource_details_122.identity}"
         )
@@ -1016,7 +1017,7 @@ def display_rows(
     rows: list[list[str]],
     root: Path = _COMPAT_ROOT,
     *,
-    mode="CREATE",
+    mode=RESOURCE_MODE_CREATE,
     _counts=None,
     consumed: list[str] | None = None,
     references=None,

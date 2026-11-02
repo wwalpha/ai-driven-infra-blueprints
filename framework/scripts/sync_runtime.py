@@ -17,6 +17,8 @@ import sync_views
 import task_contract_core as _imports_task_contract
 import validation_cache as _imports_validation_cache
 from aws_mapping_display import validate_mappings as validate_mappings
+from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED
+from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from design.document import DisplayMismatchError, require_saved_identity
 from design.layout_schema import STACK_DESIGN
 from generation_inputs import GenerationInputs
@@ -414,7 +416,7 @@ def generate_views(
                     )
                     if error.diagnostics
                     and all(
-                        d.get("category") == "REFERENCE_PENDING_DEPLOY"
+                        d.get("category") == REFERENCE_PENDING_DEPLOY
                         for d in error.diagnostics
                     )
                     else "FAILED",
@@ -917,7 +919,7 @@ def pending_view_states(root, unavailable):
         for path, info in unavailable.items()
         if info.get("diagnostics")
         and all(
-            diagnostic.get("category") == "REFERENCE_PENDING_DEPLOY"
+            diagnostic.get("category") == REFERENCE_PENDING_DEPLOY
             for diagnostic in info["diagnostics"]
         )
     }
@@ -929,7 +931,7 @@ def generation_metadata(plan):
     failed, _ = generation_failures(plan)
     return {
         "complete": not unavailable and not plan.failures,
-        "status": "FAIL" if plan.failures or unavailable else "PASS",
+        "status": VALIDATION_FAIL if plan.failures or unavailable else VALIDATION_PASS,
         "reason": "; ".join(plan.failures)
         or "; ".join(
             f"{path.relative_to(plan.root)}: "
@@ -964,7 +966,7 @@ def generation_metadata(plan):
         "unverified": [
             diagnostic
             for diagnostic in plan.reference_warnings
-            if diagnostic.get("category") == "REFERENCE_UNRESOLVED"
+            if diagnostic.get("category") == REFERENCE_UNRESOLVED
         ],
         "warnings": plan.reference_warnings,
     }
@@ -1010,10 +1012,9 @@ def report_generation(plan):
             for diagnostic in info.get("diagnostics", ())
         ]
         category = (
-            "REFERENCE_PENDING_DEPLOY"
-            if causes
-            and all(d["category"] == "REFERENCE_PENDING_DEPLOY" for d in causes)
-            else "REFERENCE_UNRESOLVED"
+            REFERENCE_PENDING_DEPLOY
+            if causes and all(d["category"] == REFERENCE_PENDING_DEPLOY for d in causes)
+            else REFERENCE_UNRESOLVED
         )
         raise ReferenceResolutionError(
             message, category=category, code=category, diagnostics=causes or None

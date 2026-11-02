@@ -10,6 +10,7 @@ from types import SimpleNamespace as _CallbackState
 
 import design.layout as _dependency_design_layout
 import design.policy_tables as _dependency_policy_tables
+from contracts.model import RESOURCE_MODE_CREATE
 from design.services.definitions.registry import POLICY_FORMATS
 from utils.json_format import policy_json
 from validation.diagnostics import Diagnostic, InputValidationError, service_scope
@@ -29,7 +30,7 @@ def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
         identity
         for identity, resource in entries(values, "desired.resource.")
         if resource["resourceType"] == "KMS.Key"
-        and _dependency_design_layout.resource_mode(resource) == "CREATE"
+        and _dependency_design_layout.resource_mode(resource) == RESOURCE_MODE_CREATE
     }
     for identity, row in entries(values, "desired.row."):
         if (

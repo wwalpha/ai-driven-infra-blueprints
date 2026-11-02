@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from functools import partial
 
 import utils.aws_mappings as aws_mappings
+from contracts.model import MODEL_PENDING_DEPLOY
 from utils.comparison_rows import put_row
 from utils.json_format import strict_json
 from utils.mapping_types import EnvironmentDefinition, path_tokens
@@ -52,7 +53,7 @@ def _pointer(pointer, key):
 
 
 def state(value, pointer="", pending_allowed=True):
-    if value == "PENDING_DEPLOY":
+    if value == MODEL_PENDING_DEPLOY:
         return EnvironmentValue(
             pointer,
             value,
@@ -220,12 +221,12 @@ def pending_errors(kind, prop, value, mapping, *, context=None):
     allowed = {
         item.pointer
         for item in items
-        if item.value == "PENDING_DEPLOY" and item.pending_allowed
+        if item.value == MODEL_PENDING_DEPLOY and item.pending_allowed
     }
     return tuple(
         pointer
         for pointer, child in _leaves(projected)
-        if child == "PENDING_DEPLOY" and pointer not in allowed
+        if child == MODEL_PENDING_DEPLOY and pointer not in allowed
     )
 
 

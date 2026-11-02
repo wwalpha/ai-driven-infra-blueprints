@@ -4,6 +4,7 @@ import argparse as argparse
 from functools import wraps as wraps
 
 import import_guard as _imports_import_guard
+from contracts.validation import VALIDATION_PASS
 from deploy import contract_correction
 from deploy import worktree as deploy_worktree
 from model.importing.scope import (
@@ -149,7 +150,8 @@ def check_import(
         required_failed = any(
             kind == "check"
             and value in registered
-            and task.findings.result(value, set(snapshot.scope)).status != "PASS"
+            and task.findings.result(value, set(snapshot.scope)).status
+            != VALIDATION_PASS
             for _, kind, value in task.acceptance_checks
         )
         stale = {r["diagnostic_id"] for r in records} != {

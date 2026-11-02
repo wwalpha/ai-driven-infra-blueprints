@@ -7,6 +7,8 @@ import task_contract_core as tasks
 import worktree_python
 import worktree_state as ws
 import worktree_task as wt
+from contracts.deploy import DEPLOY_SUCCESS
+from contracts.validation import VALIDATION_PASS
 from utils.local_evidence import evidence_store, read_sealed, write_sealed
 from utils.project_targets import load_target_directory
 
@@ -211,7 +213,7 @@ def read_progress(root, state):
 
 def attempts_finished(states, result):
     return bool(states) and all(
-        saved.get("status") in {"SUCCESS", "FAILED", "SETTLED"}
+        saved.get("status") in {DEPLOY_SUCCESS, "FAILED", "SETTLED"}
         or saved.get("status") in {"READY", "NOT_STARTED"}
         and saved.get("unexecutedReason")
         in {
@@ -311,7 +313,7 @@ def require_complete(root, task):
         progress is None
         or final_blockers(progress["runContext"])
         or progress["runContext"].get("checkpointPending")
-        or progress["runContext"].get("snapshotValidation") != "PASS"
+        or progress["runContext"].get("snapshotValidation") != VALIDATION_PASS
         or not final
         or final.get("taskAfter") != task.text
         or final.get("source") != state["tip"]

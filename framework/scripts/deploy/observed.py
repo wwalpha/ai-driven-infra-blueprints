@@ -5,6 +5,7 @@ import re
 import design.layout as _imports_design_layout
 import utils.cloudformation.format as _imports_cfn_format
 import utils.cloudformation.inputs as _imports_cfn_inputs
+from contracts.model import MODEL_PENDING_DEPLOY
 from design.catalog import DesignSchemaCatalog
 from model.adapters.aws import Unresolved, service_module
 from model.adapters.observed import (
@@ -253,7 +254,7 @@ def readiness(backend, unit, state=None):
                     changes.setdefault(path, {})[f"observed.row.{rid}.value"] = (
                         "`PENDING_DEPLOY`"
                     )
-                    identifiers[own_key(path, resource)] = "PENDING_DEPLOY"
+                    identifiers[own_key(path, resource)] = MODEL_PENDING_DEPLOY
         if changes:
             deferred = []
             propagate_references(
@@ -424,7 +425,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     continue
                 value = None
                 if absent:
-                    value = "PENDING_DEPLOY"
+                    value = MODEL_PENDING_DEPLOY
                 elif (
                     actual
                     and isinstance(actual.get("ResourceStatus"), str)
@@ -485,7 +486,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     if (
                         not isinstance(value, str)
                         or not value
-                        or value in {"PENDING_DEPLOY", "UNKNOWN"}
+                        or value in {MODEL_PENDING_DEPLOY, "UNKNOWN"}
                         or re.search(r"\barn:aws[a-z-]*:", value, re.I)
                         or any(c in value for c in "\r\n`")
                     ):
@@ -524,7 +525,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
         if not changes:
             return {}, [], None
     deleted_identifiers = {
-        key for key, value in identifiers.items() if value == "PENDING_DEPLOY"
+        key for key, value in identifiers.items() if value == MODEL_PENDING_DEPLOY
     }
     deferred = []
     propagate_references(
