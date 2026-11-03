@@ -120,8 +120,9 @@ For a normal Model-only /update task (including standalone `import-retarget`) or
 Framework-only governance/catalog-maintenance/migration task with explicit
 `framework` Validation scope, finalize is the final validation composition:
 keep the Task running after its changes and required related checks, and invoke finalize directly. It prepares
-the private commit, validates the actual latest-base candidate once in registered
-Python, completes from that result and merges that exact HEAD. Completed Model-only/Framework tasks
+the private commit, validates the candidate once in registered Python, completes from
+that result and integrates that exact HEAD. Local FF integration uses the latest-base candidate;
+PR publication uses its original validation baseline without synchronizing the base. Completed Model-only/Framework tasks
 also undergo that final-candidate check. The ordinary launcher cleans up after the child exits.
 No separate pre-finalize complete or duplicate final loop is required in this branch.
 Framework tasks use the existing Framework scoped validator, without Consumer
@@ -173,7 +174,7 @@ It checks a clean worktree holding the local base and the candidate/base identit
 
 ## Base synchronization and revalidation
 
-An ordinary local finalize or PR update may return exit 0 with `status: needs_sync` and the newer base SHA in `base`. This is a continuation request, not Validation PASS or Task suspension. Inspect the exact Task, candidate, base history, relevant diff and Sandbox permissions before the appropriate operation:
+An ordinary local finalize may return exit 0 with `status: needs_sync` and the newer base SHA in `base`. PR creation and updates do not require base synchronization. This is a continuation request, not Validation PASS or Task suspension. Inspect the exact Task, candidate, base history, relevant diff and Sandbox permissions before the appropriate operation:
 
 ```console
 python3 -B framework/scripts/worktree_task.py sync-latest-base --task-id <task-id> --expected-base <reviewed-local-base-sha>
@@ -182,7 +183,7 @@ python3 -B framework/scripts/worktree_task.py pr-sync-base --task-id <task-id> -
 
 The local operation is for ordinary running/completed Tasks; the PR operation is for the same published PR and Worktree. The local operation replays a proven linear Task history on the reviewed local base, changing its commit SHAs; unsafe legacy merge histories stop for review. The PR operation retains history with a Git merge. Both return `needs_validation` after a new candidate is prepared. An unchanged local base returns `ok` without a new candidate. A failed or unfinished rebase, an unknown outcome, or a changed Task or HEAD retains the Worktree for review; never automatically abort or reset it. An interrupted successful rebase resumes only when its recorded intent and Git history match. The PR operation checks GitHub and Git refs, published HEAD and intent; it fetches the target base without changing local master or pushing. Reconcile an uncertain push through `pr-update` before synchronization when required. A conflict, rewritten history, unexpected HEAD or inconsistent state stops for review; do not resolve, reset, force push or edit lifecycle metadata automatically.
 
-After synchronization, the LLM reviews the inherited changes and selects and runs the relevant UT/IT and other checks under Validation policy. Confirm their results, then resume the same `finalize` or `pr-update`; the existing final-candidate guard and Validation remain separate mandatory checks. The Python helper does not select or run UT/IT or record their PASS. If the base advances again, repeat synchronization and reassess the tests; stop and report persistent churn or an actual failure instead of an unlimited automatic retry. Do not switch to a new PR or alter Deploy checkpoint/repair lifecycles.
+After synchronization, the LLM reviews the inherited changes and selects and runs the relevant UT/IT and other checks under Validation policy. Confirm their results, then resume the same `finalize` or `pr-update`; the existing final-candidate guard and Validation remain separate mandatory checks. The Python helper does not select or run UT/IT or record their PASS. If an ordinary local integration base advances again, repeat synchronization and reassess the tests; stop and report persistent churn or an actual failure instead of an unlimited automatic retry. Do not switch to a new PR or alter Deploy checkpoint/repair lifecycles.
 
 ## Explicit PR publication
 
@@ -194,16 +195,15 @@ retains FF Merge → Cleanup. Append `--draft` to create a Draft PR; without it 
 `--create-pr` is finalize-only and is rejected for Deploy or
 Deploy Repair Child before their publication/parent integration begins.
 
-Initial PR publication shares existing commit, base checks, guards and completion checks. Model/Framework
+Initial PR publication shares existing candidate, ownership, scope, guards and completion checks. It does not synchronize the base or require its SHA to match the validation baseline; conflicts are handled by GitHub. Model/Framework
 final-candidate validation still runs once. It never merges, commits, checks out or resets
 the local base, never sets `merged`, and never runs cleanup. Zero diff is refused.
 Validation-failure approval remains independently explicit: where the existing exception
 permits publication, retain Task `suspend`, the approval and Validation FAIL; never claim PASS.
 
 The helper requires `gh`, authentication/write permission and a single identical `origin`
-fetch/push URL in HTTPS/SSH form without credentials. It verifies repository identity and
-both GitHub/Git base refs against the validated local base. It refuses URL rewrites,
-unknown/mismatched remote branches, changed candidate/Task/base, duplicate or closed/merged
+fetch/push URL in HTTPS/SSH form without credentials. It verifies repository identity and the existence of the GitHub/Git base branch. It refuses URL rewrites,
+unknown/mismatched remote branches, changed candidate/Task, duplicate or closed/merged
 PRs. Git transport uses a 60-second deadline and SSH batch mode. A temporary creation-only
 pre-push guard rejects a remote branch that appears between discovery and push, including
 a normally fast-forwardable branch. An existing pre-push hook is preserved and requires
@@ -221,7 +221,7 @@ After failure, retain Worktree/branch/lifecycle and retry the same Task with `--
 Reconcile remote refs and the matching PR after a push/API or creation/state-save interruption;
 never silently create a second PR or fall back to FF Merge. A prior create intent with no
 matching PR has an uncertain outcome and requires Human review. Plain finalize on a PR Task
-stops with explicit guidance. Candidate/base/authority changes and unsafe Git state require
+stops with explicit guidance. Candidate/authority changes and unsafe Git state require
 review; do not hand-edit lifecycle metadata or overwrite remote refs. PR success returns
 `prPublication.url`, `number`, `prState` and `status: OPEN`; worktree and branch remain.
 PR creation and Push success retain the Worktree and branch.
@@ -241,29 +241,17 @@ python3 -B framework/scripts/worktree_task.py pr-close --task-id <task-id>
 python3 -B framework/scripts/worktree_task.py pr-close --pr <number-or-url>
 ```
 
-`pr-update` prepares a descendant candidate in the same Task/Worktree and validates
-its integration with the current GitHub target base in an independent temporary Git
-repository. GitHub and Git base refs must agree, and the remote base must fast-forward
-from the previously validated base. The changed scope is the remote base to the
-integrated tree. A conflict or changed Task, candidate, PR head or base stops Push;
-retry validates the current candidate again. A failed PREPARED candidate may be
-corrected and re-prepared after any required Task resume. A VALIDATED candidate must
-not be changed or reused. The independent temporary repository creates no source Git
-worktree registration; normal completion and validation failure remove it. After an
-abrupt process termination, an abandoned `blueprint-pr-validation-*` directory in the
-OS temporary directory may be removed after confirming no process uses it.
-
-The saved intent retains the previous published HEAD, candidate, remote base, integrated
-tree, Task hash, validation result and Push state. The existing remote HEAD must equal
-the recorded previous HEAD; only an ordinary non-force Push is permitted. An uncertain
-Push is reconciled against the old and candidate HEAD before another attempt; a third
-HEAD stops for review. After Push, confirm the PR identity and published HEAD against the saved validated
-intent. Local changes or a later base advance do not invalidate publication; retain the
-base SHA actually validated. A matching previously interrupted Push is confirmed without
-another Push or revalidation. Published commits are never rebased or
-reset; local base checkout/merge is not changed. Retry `pr-update` without editing
-management JSON or discarding the intent. Update never recreates the PR or cleans up
-the Worktree.
+`pr-update` prepares and validates a descendant candidate in the same Task/Worktree.
+Neither an advanced base nor a GitHub conflict prevents the update; no base synchronization
+or temporary integration is required. `pr-sync-base` remains available only when explicitly
+chosen. The saved intent retains the previous published HEAD, candidate, validation baseline,
+Task hash, validation result and Push state. The existing remote HEAD must equal the
+recorded previous HEAD; only an ordinary non-force Push is permitted. An uncertain Push
+is reconciled against the old and candidate HEAD before another attempt; a third HEAD
+stops for review. After Push, confirm the PR identity and published HEAD against the
+saved validated intent. Published commits are never rebased or reset. Retry `pr-update`
+without editing management JSON or discarding the intent. Update never recreates the PR
+or cleans up the Worktree.
 
 Draft/Ready transitions are explicit. `pr-merge` supports `squash` (default), `merge` and
 `rebase`, matching the published HEAD before requesting GitHub merge. `pr-status` explicitly

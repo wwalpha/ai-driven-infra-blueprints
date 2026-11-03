@@ -1152,88 +1152,28 @@ def check_pr_existing_identity(tmp_path, change):
                 pr.existing_pr(tmp_path, publication)
 
 
-@pytest.mark.parametrize("change", ["none", "api", "git"])
+@pytest.mark.parametrize("change", ["none", "api", "git", "missing"])
 def check_pr_remote_base(tmp_path, change):
     publication = _pr_publication()
-    with (
-        patch.object(
-            pr,
-            "gh",
-            return_value=json.dumps(
-                {"commit": {"sha": "drift" if change == "api" else "base"}}
-            ),
-        ),
-        patch.object(
-            pr,
-            "remote_heads",
-            return_value={"refs/heads/main": "drift" if change == "git" else "base"},
-        ),
-    ):
-        if change == "none":
-            assert pr.remote_base(tmp_path, publication) is None
-        else:
-            with pytest.raises(wt.Blocked, match="base differs"):
-                pr.remote_base(tmp_path, publication)
-    api_base = "a" * 40
-    remote_base = "b" * 40 if change == "git" else api_base
+    api_base = "b" * 40 if change == "api" else "a" * 40
+    git_base = "b" * 40 if change == "git" else "a" * 40
+    refs = {} if change == "missing" else {"refs/heads/main": git_base}
     with (
         patch.object(pr, "gh", return_value=json.dumps({"commit": {"sha": api_base}})),
-        patch.object(pr, "remote_heads", return_value={"refs/heads/main": remote_base}),
+        patch.object(pr, "remote_heads", return_value=refs),
     ):
-        if change == "git":
-            with pytest.raises(wt.Blocked, match="references differ"):
+        if change == "missing":
+            with pytest.raises(wt.Blocked):
+                pr.remote_base(tmp_path, publication)
+            with pytest.raises(wt.Blocked):
                 pr.update_refs(tmp_path, publication)
         else:
-            assert pr.update_refs(tmp_path, publication) == (api_base, None)
-    _check_pr_integration_guard(
-        tmp_path, {"none": "rewrite", "api": "conflict", "git": "fetch"}[change]
-    )
-
-
-def _pr_integration_git(failure, root, *args, **kwargs):
-    failed = (failure == "rewrite" and "--is-ancestor" in args) or (
-        failure == "conflict" and "merge-tree" in args
-    )
-    return SimpleNamespace(returncode=int(failed), stdout="", stderr="")
-
-
-def _check_pr_integration_guard(tmp_path, failure):
-    text = contract("example", ["file.txt"])
-    base, candidate, old = "a" * 40, "b" * 40, "c" * 40
-    publication = dict(_pr_publication(), baseCommit=old)
-    state = dict(
-        task_id="example",
-        task_file="tasks/example.md",
-        prPublication=publication,
-        prUpdate=dict(
-            status="PREPARED",
-            candidate=candidate,
-            previousCandidate=old,
-            taskHash=pr.hashlib.sha256(text.encode()).hexdigest(),
-        ),
-    )
-
-    with (
-        patch.object(
-            wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", state)
-        ),
-        patch.object(pr, "update_snapshot", return_value=(tmp_path, text)),
-        patch.object(pr, "update_refs", return_value=(base, old)),
-        patch.object(pr, "existing_pr"),
-        patch.object(wt.python_env, "runtime", return_value=(Path(sys.executable), {})),
-        patch.object(
-            wt,
-            "git",
-            side_effect=_bind_framework_callback(_pr_integration_git, failure),
-        ),
-        patch.object(
-            wt, "output", return_value="d" * 40 if failure == "fetch" else base
-        ),
-        patch.object(pr, "validate_snapshot") as validator,
-    ):
-        with pytest.raises(wt.Blocked):
-            pr.validate_update(tmp_path, "example")
-        validator.assert_not_called()
+            assert pr.remote_base(tmp_path, publication) is None
+            if change in {"api", "git"}:
+                with pytest.raises(wt.Blocked):
+                    pr.update_refs(tmp_path, publication)
+            else:
+                assert pr.update_refs(tmp_path, publication) == (api_base, None)
 
 
 @pytest.mark.parametrize(
@@ -1326,7 +1266,7 @@ def check_pr_candidate_identity(tmp_path, change):
         ),
         patch.object(wt, "integration_task") as integration,
     ):
-        if change == "none":
+        if change in {"none", "base"}:
             assert pr.check_candidate(tmp_path, path, state) == (tmp_path, text)
             integration.assert_called_once()
         else:
@@ -1377,7 +1317,7 @@ def check_pr_publication_prewrite(tmp_path, failure):
             existing.assert_not_called()
 
 
-@pytest.mark.parametrize("failure", ["none", "exit", "timeout"])
+@pytest.mark.parametrize("failure", ["none", "exit", "api", "timeout"])
 def check_pr_gh_noninteractive(tmp_path, failure):
     with patch.object(
         pr.subprocess,
@@ -1386,9 +1326,11 @@ def check_pr_gh_noninteractive(tmp_path, failure):
         if failure == "timeout"
         else None,
         return_value=SimpleNamespace(
-            returncode=1 if failure == "exit" else 0,
+            returncode=1 if failure in {"exit", "api"} else 0,
             stdout="{}",
-            stderr="sensitive credential",
+            stderr="sensitive credential (HTTP 422)"
+            if failure == "api"
+            else "sensitive credential",
         ),
     ) as run:
         if failure == "none":
@@ -1401,6 +1343,8 @@ def check_pr_gh_noninteractive(tmp_path, failure):
             with pytest.raises(wt.Blocked) as error:
                 pr.gh(tmp_path, "github.com", "auth", "status")
             assert "sensitive" not in str(error.value)
+            if failure == "api":
+                assert "HTTP 422" in str(error.value)
 
 
 def check_pr_lock_and_mode_retention(tmp_path):
@@ -2362,7 +2306,7 @@ def check_lifecycle_lock_refuses_busy(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "failure", ["empty", "unverified", "head", "dirty", "base", "merged", "prior"]
+    "failure", ["empty", "unverified", "head", "dirty", "merged", "prior"]
 )
 def check_pr_prepare_refuses_unvalidated_candidate(tmp_path, failure):
     publication = _pr_publication()
@@ -2709,7 +2653,6 @@ def check_pr_lifecycle_cli(tmp_path, capsys, arguments, valid):
         "validation-detail",
         "validated-edit",
         "suspended",
-        "stale-base",
         "push-third",
         "hash-changed",
         "legacy-review",
@@ -2749,7 +2692,6 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
         "validation-detail",
         "validated-edit",
         "suspended",
-        "stale-base",
         "push-third",
         "hash-changed",
     }:
@@ -2775,6 +2717,13 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
         patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
         patch.object(pr, "remote_identity", return_value={}),
         patch.object(pr, "existing_pr"),
+        patch.object(
+            pr,
+            "remote_base",
+            return_value="foreign"
+            if failure in {"remote-head", "push-third"}
+            else "candidate",
+        ),
         patch.object(
             pr,
             "remote_heads",
