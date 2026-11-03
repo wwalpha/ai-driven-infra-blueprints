@@ -146,7 +146,10 @@ def ordinary_publication(request, worktree_classifier):
 
 def pytest_sessionstart(session):
     tests = Path(__file__).resolve().parent
-    errors = [] if verified_receipt(tests) else violations(tests)
+    if verified_receipt(tests):
+        print("Worktree test policy: runner receipt accepted", file=sys.stderr)
+        return
+    errors = violations(tests)
     if errors:
         raise pytest.UsageError("Worktree test policy: " + "; ".join(errors))
 
