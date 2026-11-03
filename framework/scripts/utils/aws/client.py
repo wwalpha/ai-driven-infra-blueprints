@@ -142,11 +142,9 @@ class AwsError(Blocked):
         *,
         stack_absent=False,
         current_missing=False,
-        quicksight_group_unsupported=False,
     ):
         self.code, self.http_status = code, status
         self.stack_absent, self.current_missing = stack_absent, current_missing
-        self.quicksight_group_unsupported = quicksight_group_unsupported
         super().__init__(
             f"{service}.{operation} failed ({code})"
             + ("; stack does not exist" if stack_absent else "")
@@ -247,13 +245,6 @@ def request(context, service, operation, arguments, *, deadline=None):
             status,
             stack_absent=absent,
             current_missing=missing,
-            quicksight_group_unsupported=(
-                service == "cloudformation"
-                and operation == "validate_template"
-                and code == "ValidationError"
-                and details.get("Message")
-                == "Template format error: Unrecognized resource types: [AWS::QuickSight::Group]"
-            ),
         ) from None
     except BotoCoreError as error:
         raise AwsError(service, operation, type(error).__name__) from None

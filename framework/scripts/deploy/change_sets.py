@@ -252,15 +252,10 @@ def begin_prepare(
         if stack:
             verify_stack_ownership(unit)
         _, parameters = paths(unit)
-        try:
-            aws("validate_template", **arguments)
-        except Exception as error:
-            if not getattr(error, "quicksight_group_unsupported", False):
-                raise
-        else:
-            state.setdefault("successfulPreparationOperations", {})[
-                "validate_template"
-            ] = state["preparationId"]
+        aws("validate_template", **arguments)
+        state.setdefault("successfulPreparationOperations", {})["validate_template"] = (
+            state["preparationId"]
+        )
         if not resubmit:
             state["operationType"] = (
                 "UPDATE"
