@@ -1,0 +1,44 @@
+display:
+  f35709c333bc6ca55e3c:
+  - iac: PARAMETER_STORE
+    model: PLAINTEXT
+    path: EnvironmentVariables[0].Type
+records:
+- actual:
+    EnvironmentVariables:
+    - Name: FIRST
+      Type: PARAMETER_STORE
+      Value: known
+    - <unresolved>
+    Image: GOOD_IMAGE
+  category: difference
+  desired:
+    EnvironmentVariables:
+    - Name: FIRST
+      Type: PLAINTEXT
+      Value: known
+    - Name: SECOND
+      Value: value
+    Image: GOOD_IMAGE
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  property: CodeBuild.Project.Environment
+  reason: value mismatch
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: error
+  desired: null
+  iac:
+    path: synthetic.yaml
+    pointer: /EnvironmentVariables/1
+  model: null
+  property: CodeBuild.Project.Environment#/EnvironmentVariables/1
+  reason: invalid Select operands
+  resource: '001'
+  service: codebuild
+  stack: producer

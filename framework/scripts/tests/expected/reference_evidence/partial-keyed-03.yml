@@ -1,0 +1,49 @@
+display:
+  e15d77defffc59deaf9c:
+  - iac: '2'
+    model: '1'
+    path: Tags[Key=Known].要素数（キー重複）
+records:
+- actual:
+  - Key: Known
+    Value: one
+  - Key: Known
+    Value: one
+  - Key:
+      $expression: Unverified
+      $operands:
+      - Fn::If:
+        - Unknown
+        - key
+        - Ref: AWS::NoValue
+    Value: two
+  category: difference
+  desired:
+  - Key: Known
+    Value: one
+  - Key: Missing
+    Value: two
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  - null
+  - null
+  - null
+  property: CodeBuild.Project.Tags
+  reason: value mismatch
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Tags#/2/Key
+  reason: unresolved/unverified intrinsic; JSON Pointer='/2/Key'
+  resource: '001'
+  service: codebuild
+  stack: producer

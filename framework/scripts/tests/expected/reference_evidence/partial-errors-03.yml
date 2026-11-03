@@ -1,0 +1,73 @@
+display:
+  add06cb9bf5395637588:
+  - iac: PARAMETER_STORE
+    model: PLAINTEXT
+    path: EnvironmentVariables[0].Type
+  - iac: WRONG_IMAGE
+    model: GOOD_IMAGE
+    path: Image
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model:
+    pointer: ''
+  property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
+  reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual:
+    EnvironmentVariables:
+    - Name: RELEASE_BUCKET_KMS_KEY_ID
+      Type: PARAMETER_STORE
+      Value: <unresolved>
+    Image: WRONG_IMAGE
+  category: difference
+  deferred_children:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: ''
+    property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
+    reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
+    resource: '001'
+    service: codebuild
+    stack: producer
+  desired:
+    EnvironmentVariables:
+    - Name: RELEASE_BUCKET_KMS_KEY_ID
+      Type: PLAINTEXT
+      Value: <unresolved>
+    Image: GOOD_IMAGE
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  - null
+  - null
+  - null
+  property: CodeBuild.Project.Environment
+  reason: value mismatch
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: error
+  desired: null
+  iac:
+    line: 23
+    path: synthetic.yaml
+    pointer: /EnvironmentVariables/0/Value
+  model: null
+  property: CodeBuild.Project.Environment#/EnvironmentVariables/0/Value
+  reason: invalid Select operands
+  resource: '001'
+  service: codebuild
+  stack: producer

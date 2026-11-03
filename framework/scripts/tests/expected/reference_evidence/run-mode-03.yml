@@ -1,0 +1,7 @@
+category: difference
+cause:
+  kind: template-missing
+  path: infra/cloudformation/templates/producer.yaml
+  relationship: direct
+  stack: producer
+reason: モデルに対応するtemplateが存在しない（CREATE未実装）

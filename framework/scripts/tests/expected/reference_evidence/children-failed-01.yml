@@ -1,0 +1,24 @@
+records:
+- actual: null
+  category: error
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Environment.PrivilegedMode
+  reason: must be boolean
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Environment
+  reason: reference identity or property format is unproven
+  reference_diagnostics: []
+  resource: '001'
+  service: codebuild
+  stack: producer

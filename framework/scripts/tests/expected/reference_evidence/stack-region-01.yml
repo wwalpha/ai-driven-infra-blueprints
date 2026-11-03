@@ -1,0 +1,14 @@
+missing: []
+partition: aws-cn
+policy_categories:
+- - matched
+- - difference
+redacted: <masked sensitive parameter>
+suffix: amazonaws.com.cn
+suffix_input:
+  name: AWS::URLSuffix
+  source:
+    key: AWS::URLSuffix
+    kind: botocore-endpoints
+    region: cn-north-1
+  value: amazonaws.com.cn

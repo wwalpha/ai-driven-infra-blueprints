@@ -1,0 +1,26 @@
+display: {}
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model:
+    pointer: ''
+  property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
+  reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Environment
+  reason: 'unresolved or cyclic Condition: Present'
+  reference_diagnostics: []
+  resource: '001'
+  service: codebuild
+  stack: null

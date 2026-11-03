@@ -1,0 +1,5 @@
+cause:
+  consumer_stack: consumer
+  kind: template-missing
+  path: missing.yaml
+  relationship: export-search-incomplete

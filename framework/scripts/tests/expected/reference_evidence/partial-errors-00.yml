@@ -1,0 +1,15 @@
+display: {}
+records:
+- actual: null
+  category: error
+  desired: null
+  iac:
+    line: 23
+    path: synthetic.yaml
+    pointer: /EnvironmentVariables/0/Value
+  model: null
+  property: CodeBuild.Project.Environment#/EnvironmentVariables/0/Value
+  reason: invalid Select operands
+  resource: '001'
+  service: codebuild
+  stack: producer

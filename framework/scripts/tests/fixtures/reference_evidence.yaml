@@ -9062,3 +9062,1520 @@ cases:
       path: Policies[].PolicyDocument.Statement
       ordered: false
       reference_left: true
+  partial-cardinality-00:
+    data:
+      desired:
+      - a
+      actual:
+      - a
+      - unknown
+      unordered: false
+  partial-cardinality-01:
+    data:
+      desired:
+      - a
+      actual:
+      - a
+      - unknown
+      unordered: true
+  partial-cardinality-02:
+    data:
+      desired:
+      - a
+      - a
+      actual:
+      - a
+      - unknown
+      unordered: false
+  partial-cardinality-03:
+    data:
+      desired:
+      - a
+      - a
+      actual:
+      - a
+      - unknown
+      unordered: true
+  partial-cardinality-04:
+    data:
+      desired:
+      - a
+      - a
+      - a
+      actual:
+      - a
+      - unknown
+      unordered: false
+  partial-cardinality-05:
+    data:
+      desired:
+      - a
+      - a
+      - a
+      actual:
+      - a
+      - unknown
+      unordered: true
+  partial-cardinality-06:
+    data:
+      desired: []
+      actual:
+      - a
+      - unknown
+      unordered: false
+  partial-cardinality-07:
+    data:
+      desired: []
+      actual:
+      - a
+      - unknown
+      unordered: true
+  partial-cardinality-08:
+    data:
+      desired:
+      - b
+      actual:
+      - a
+      - unknown
+      unordered: false
+  partial-cardinality-09:
+    data:
+      desired:
+      - b
+      actual:
+      - a
+      - unknown
+      unordered: true
+  partial-cardinality-10:
+    data:
+      desired:
+      - a
+      - b
+      actual:
+      - unknown
+      - a
+      - b
+      unordered: false
+  partial-cardinality-11:
+    data:
+      desired:
+      - a
+      - b
+      actual:
+      - unknown
+      - a
+      - b
+      unordered: true
+  partial-extra-00:
+    data:
+      rows:
+      - - Environment.Image
+        - MODEL_IMAGE
+        - null
+      actual:
+        Image: MODEL_IMAGE
+        AdditionalField:
+          Fn::If:
+          - InvalidCondition
+          - A
+          - B
+      exact: false
+      different: false
+  partial-extra-01:
+    data:
+      rows:
+      - - Environment.Image
+        - MODEL_IMAGE
+        - null
+      actual:
+        Image: OTHER_IMAGE
+        AdditionalField:
+          Fn::If:
+          - InvalidCondition
+          - A
+          - B
+      exact: false
+      different: true
+  partial-extra-02:
+    data:
+      rows:
+      - - Environment
+        - '{"Image": "MODEL_IMAGE"}'
+        - null
+      actual:
+        Image: MODEL_IMAGE
+        AdditionalField:
+          Fn::If:
+          - InvalidCondition
+          - A
+          - B
+      exact: true
+      different: false
+  partial-extra-03:
+    data:
+      rows:
+      - - Environment
+        - '{"Image": "MODEL_IMAGE"}'
+        - null
+      actual:
+        Image: OTHER_IMAGE
+        AdditionalField:
+          Fn::If:
+          - InvalidCondition
+          - A
+          - B
+      exact: true
+      different: true
+  partial-errors-00:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - known
+        - null
+      actual:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            Fn::Select:
+            - 2
+            - - only
+      known_difference: false
+      model_unresolved: false
+  partial-errors-01:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      actual:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            Fn::Select:
+            - 2
+            - - only
+      known_difference: false
+      model_unresolved: true
+  partial-errors-02:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - known
+        - null
+      actual:
+        Image: WRONG_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PARAMETER_STORE
+          Value:
+            Fn::Select:
+            - 2
+            - - only
+      known_difference: true
+      model_unresolved: false
+  partial-errors-03:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      actual:
+        Image: WRONG_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PARAMETER_STORE
+          Value:
+            Fn::Select:
+            - 2
+            - - only
+      known_difference: true
+      model_unresolved: true
+  partial-errors-04:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - known
+        - null
+      actual:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            Fn::If:
+            - InvalidCondition
+      known_difference: false
+      model_unresolved: false
+  partial-errors-05:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      actual:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            Fn::If:
+            - InvalidCondition
+      known_difference: false
+      model_unresolved: true
+  partial-errors-06:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - known
+        - null
+      actual:
+        Image: WRONG_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PARAMETER_STORE
+          Value:
+            Fn::If:
+            - InvalidCondition
+      known_difference: true
+      model_unresolved: false
+  partial-errors-07:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      actual:
+        Image: WRONG_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PARAMETER_STORE
+          Value:
+            Fn::If:
+            - InvalidCondition
+      known_difference: true
+      model_unresolved: true
+  partial-errors-08:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - known
+        - null
+      actual:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            Fn::Join:
+            - ''
+            - - null
+      known_difference: false
+      model_unresolved: false
+  partial-errors-09:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      actual:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            Fn::Join:
+            - ''
+            - - null
+      known_difference: false
+      model_unresolved: true
+  partial-errors-10:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - known
+        - null
+      actual:
+        Image: WRONG_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PARAMETER_STORE
+          Value:
+            Fn::Join:
+            - ''
+            - - null
+      known_difference: true
+      model_unresolved: false
+  partial-errors-11:
+    data:
+      rows:
+      - - Environment.Image
+        - GOOD_IMAGE
+        - null
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      actual:
+        Image: WRONG_IMAGE
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PARAMETER_STORE
+          Value:
+            Fn::Join:
+            - ''
+            - - null
+      known_difference: true
+      model_unresolved: true
+  partial-condition-00:
+    data:
+      rows:
+      - - Environment.Image
+        - image
+        - null
+      - - Environment.PrivilegedMode
+        - 'false'
+        - null
+      - - Environment.Type
+        - LINUX_CONTAINER
+        - null
+      actual:
+        Image: image
+        PrivilegedMode:
+          Fn::If:
+          - Unknown
+          - true
+          - false
+        Type:
+          Fn::Select:
+          - 2
+          - - only
+      different: false
+  partial-condition-01:
+    data:
+      rows:
+      - - Environment.Image
+        - image
+        - null
+      - - Environment.PrivilegedMode
+        - 'false'
+        - null
+      - - Environment.Type
+        - LINUX_CONTAINER
+        - null
+      actual:
+        Image: wrong
+        PrivilegedMode:
+          Fn::If:
+          - Unknown
+          - true
+          - false
+        Type:
+          Fn::Select:
+          - 2
+          - - only
+      different: true
+  preparation-error-00:
+    data:
+      error_type: ValueError
+  preparation-error-01:
+    data:
+      error_type: TypeError
+  preparation-error-02:
+    data:
+      error_type: OSError
+  preparation-error-03:
+    data:
+      error_type: ImportError
+  preparation-error-04:
+    data:
+      error_type: IndexError
+  children-failed-00:
+    data:
+      present: false
+      properties: {}
+  children-failed-01:
+    data:
+      present: true
+      properties:
+        Environment:
+          Image: image
+          PrivilegedMode: false
+  incomplete-codebuild-00:
+    data:
+      properties:
+        Environment:
+          EnvironmentVariables: []
+  incomplete-codebuild-01:
+    data:
+      properties: {}
+  import-failure-cause-00:
+    data:
+      first:
+        kind: template-missing
+        path: missing.yaml
+        relationship: stack-input
+      second:
+        kind: template-missing
+        path: missing.yaml
+        relationship: stack-input
+  import-failure-cause-01:
+    data:
+      first:
+        kind: template-missing
+        path: missing.yaml
+        relationship: stack-input
+      second:
+        kind: template-missing
+        path: other.yaml
+        relationship: stack-input
+  import-failure-cause-02:
+    data:
+      first:
+        kind: template-missing
+        path: missing.yaml
+        relationship: stack-input
+      second: null
+  typed-position-00:
+    data:
+      wrong_path: S3.Bucket.Setting[]
+  typed-position-01:
+    data:
+      wrong_path: KMS.Key.Other[]
+  typed-position-02:
+    data:
+      wrong_path: KMS.Key.Setting[].Child
+  nested-diagnostic-00:
+    data:
+      rows:
+      - - WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+        - $modelRef:
+            logicalId: KMS_Key_001
+            attribute: Arn
+        - null
+      - - WorkGroupConfiguration.EnforceWorkGroupConfiguration
+        - 'true'
+        - null
+      properties:
+        WorkGroupConfiguration:
+          ResultConfiguration:
+            EncryptionConfiguration:
+              KmsKey:
+                Ref: Key
+          EnforceWorkGroupConfiguration: true
+      deferred: false
+  nested-diagnostic-01:
+    data:
+      rows:
+      - - WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+        - $modelRef:
+            logicalId: KMS_Key_001
+            attribute: Arn
+        - null
+      - - WorkGroupConfiguration.EnforceWorkGroupConfiguration
+        - 'true'
+        - null
+      - - WorkGroupConfiguration.ExecutionRole
+        - $modelRef:
+            logicalId: KMS_Key_999
+            attribute: Arn
+        - null
+      - - WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner
+        - $modelRef:
+            logicalId: KMS_Key_999
+            attribute: Arn
+        - null
+      properties:
+        WorkGroupConfiguration:
+          ResultConfiguration:
+            EncryptionConfiguration:
+              KmsKey:
+                Ref: Key
+          EnforceWorkGroupConfiguration: true
+      deferred: true
+  incomplete-setting-00:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value: unknown
+        Extra: allowed
+      conditions: {}
+  incomplete-setting-01:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      - - Environment.Image
+        - image
+        - null
+      - - Environment.EnvironmentVariables[2].Name
+        - SECOND
+        - null
+      environment:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PARAMETER_STORE
+          Value: unknown
+        Extra: allowed
+      conditions: {}
+  incomplete-setting-02:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment: null
+      conditions: {}
+  incomplete-setting-03:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment: false
+      conditions: {}
+  incomplete-setting-04:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment: ''
+      conditions: {}
+  incomplete-setting-05:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment: []
+      conditions: {}
+  incomplete-setting-06:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment:
+        Ref: AWS::NoValue
+      conditions: {}
+  incomplete-setting-07:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment:
+        Fn::If:
+        - Present
+        - EnvironmentVariables:
+          - Name: RELEASE_BUCKET_KMS_KEY_ID
+            Type: PLAINTEXT
+            Value: unknown
+          Extra: allowed
+        - Ref: AWS::NoValue
+      conditions: {}
+  incomplete-setting-08:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment:
+        Fn::If:
+        - Present
+        - EnvironmentVariables:
+          - Name: RELEASE_BUCKET_KMS_KEY_ID
+            Type: PLAINTEXT
+            Value: unknown
+          Extra: allowed
+        - Ref: AWS::NoValue
+      conditions:
+        Present: true
+  incomplete-setting-09:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment:
+        Fn::If:
+        - Present
+        - EnvironmentVariables:
+          - Name: RELEASE_BUCKET_KMS_KEY_ID
+            Type: PLAINTEXT
+            Value: unknown
+          Extra: allowed
+        - Ref: AWS::NoValue
+      conditions:
+        Present: false
+  incomplete-setting-10:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value: null
+        Extra: allowed
+      conditions: {}
+  incomplete-setting-11:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value: false
+        Extra: allowed
+      conditions: {}
+  incomplete-setting-12:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value: ''
+        Extra: allowed
+      conditions: {}
+  incomplete-setting-13:
+    data:
+      rows:
+      - - Environment.EnvironmentVariables[1].Name
+        - RELEASE_BUCKET_KMS_KEY_ID
+        - null
+      - - Environment.EnvironmentVariables[1].Type
+        - PLAINTEXT
+        - null
+      - - Environment.EnvironmentVariables[1].Value
+        - $modelRef:
+            logicalId: KMS_Alias_001
+            attribute: Arn
+        - null
+      environment:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value: []
+        Extra: allowed
+      conditions: {}
+  incomplete-json-00:
+    data:
+      desired:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            $modelRef:
+              logicalId: KMS_Alias_001
+              attribute: Arn
+      actual:
+        EnvironmentVariables: []
+      document_row: false
+  incomplete-json-01:
+    data:
+      desired:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            $modelRef:
+              logicalId: KMS_Alias_001
+              attribute: Arn
+      actual:
+        EnvironmentVariables: []
+      document_row: true
+  incomplete-json-02:
+    data:
+      desired:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            $modelRef:
+              logicalId: KMS_Alias_001
+              attribute: Arn
+      actual:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Value: unproven-value
+      document_row: false
+  incomplete-json-03:
+    data:
+      desired:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            $modelRef:
+              logicalId: KMS_Alias_001
+              attribute: Arn
+      actual:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Value: unproven-value
+      document_row: true
+  incomplete-json-04:
+    data:
+      desired:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            $modelRef:
+              logicalId: KMS_Alias_001
+              attribute: Arn
+      actual:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value: unproven-value
+      document_row: false
+  incomplete-json-05:
+    data:
+      desired:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            $modelRef:
+              logicalId: KMS_Alias_001
+              attribute: Arn
+      actual:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value: unproven-value
+      document_row: true
+  incomplete-json-06:
+    data:
+      desired:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            $modelRef:
+              logicalId: KMS_Alias_001
+              attribute: Arn
+      actual:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PARAMETER_STORE
+          Value: unproven-value
+      document_row: false
+  incomplete-json-07:
+    data:
+      desired:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value:
+            $modelRef:
+              logicalId: KMS_Alias_001
+              attribute: Arn
+      actual:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PARAMETER_STORE
+          Value: unproven-value
+      document_row: true
+  partial-presence-00:
+    data:
+      key: Environment
+      desired:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: known
+      properties:
+        Environment:
+          Image: GOOD_IMAGE
+          EnvironmentVariables:
+          - Name: FIRST
+            Type: PARAMETER_STORE
+            Value:
+              Fn::Select:
+              - 2
+              - - only
+      document_fields: {}
+  partial-presence-01:
+    data:
+      key: Environment
+      desired:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: known
+        - Name: SECOND
+          Value: value
+      properties:
+        Environment:
+          Image: GOOD_IMAGE
+          EnvironmentVariables:
+          - Name: FIRST
+            Type: PARAMETER_STORE
+            Value: known
+          - Fn::Select:
+            - 2
+            - - only
+      document_fields: {}
+  partial-presence-02:
+    data:
+      key: Environment
+      desired:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: known
+        - Name: SECOND
+          Value: value
+      properties:
+        Environment:
+          Image: GOOD_IMAGE
+          EnvironmentVariables:
+          - Name: FIRST
+            Type: PARAMETER_STORE
+            Value: known
+          - Fn::If:
+            - Unknown
+            - Name: SECOND
+              Value: value
+            - Ref: AWS::NoValue
+      document_fields: {}
+  partial-presence-03:
+    data:
+      key: Tags
+      desired:
+      - Key: Known
+        Value: one
+      - Key: Missing
+        Value: two
+      properties:
+        Tags:
+        - Key: Known
+          Value: wrong
+        - Key:
+            Fn::Select:
+            - 2
+            - - only
+          Value: two
+      document_fields: {}
+  partial-presence-04:
+    data:
+      key: Environment
+      desired:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: known
+      properties:
+        Environment:
+          Image: GOOD_IMAGE
+          EnvironmentVariables:
+          - Fn::If:
+            - Absent
+            - Fn::Select:
+              - 2
+              - - only
+            - Ref: AWS::NoValue
+          - Name: FIRST
+            Type: PARAMETER_STORE
+            Value:
+              Fn::Select:
+              - 2
+              - - only
+      document_fields:
+        Conditions:
+          Absent: false
+  partial-presence-05:
+    data:
+      key: Environment
+      desired:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: known
+        - null
+      properties:
+        Environment:
+          Image: GOOD_IMAGE
+          EnvironmentVariables:
+          - Name: FIRST
+            Type: PARAMETER_STORE
+            Value:
+              Fn::Select:
+              - 2
+              - - only
+          - null
+      document_fields: {}
+  partial-presence-06:
+    data:
+      key: Environment
+      desired:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: known
+        - false
+      properties:
+        Environment:
+          Image: GOOD_IMAGE
+          EnvironmentVariables:
+          - Name: FIRST
+            Type: PARAMETER_STORE
+            Value:
+              Fn::Select:
+              - 2
+              - - only
+          - false
+      document_fields: {}
+  partial-presence-07:
+    data:
+      key: Environment
+      desired:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: known
+        - ''
+      properties:
+        Environment:
+          Image: GOOD_IMAGE
+          EnvironmentVariables:
+          - Name: FIRST
+            Type: PARAMETER_STORE
+            Value:
+              Fn::Select:
+              - 2
+              - - only
+          - ''
+      document_fields: {}
+  partial-presence-08:
+    data:
+      key: Environment
+      desired:
+        Image: GOOD_IMAGE
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: known
+        - []
+      properties:
+        Environment:
+          Image: GOOD_IMAGE
+          EnvironmentVariables:
+          - Name: FIRST
+            Type: PARAMETER_STORE
+            Value:
+              Fn::Select:
+              - 2
+              - - only
+          - []
+      document_fields: {}
+  partial-keyed-00:
+    data:
+      rows:
+      - - Tags[1].Key
+        - Known
+        - null
+      - - Tags[1].Value
+        - one
+        - null
+      - - Tags[2].Key
+        - Missing
+        - null
+      - - Tags[2].Value
+        - two
+        - null
+      - - Tags[3].Key
+        - Third
+        - null
+      - - Tags[3].Value
+        - three
+        - null
+      actual:
+      - Key: Known
+        Value: one
+      - Key:
+          Fn::If:
+          - Unknown
+          - key
+          - Ref: AWS::NoValue
+        Value: two
+      document_fields: {}
+  partial-keyed-01:
+    data:
+      rows:
+      - - Tags[1].Key
+        - Known
+        - null
+      - - Tags[1].Value
+        - one
+        - null
+      - - Tags[2].Key
+        - Missing
+        - null
+      - - Tags[2].Value
+        - two
+        - null
+      actual:
+      - Key: Known
+        Value: one
+      - Key:
+          Fn::If:
+          - Unknown
+          - key
+          - Ref: AWS::NoValue
+        Value: two
+      document_fields: {}
+  partial-keyed-02:
+    data:
+      rows:
+      - - Tags[1].Key
+        - Known
+        - null
+      - - Tags[1].Value
+        - one
+        - null
+      - - Tags[2].Key
+        - Missing
+        - null
+      - - Tags[2].Value
+        - two
+        - null
+      actual:
+      - Key: Known
+        Value: wrong
+      - Key:
+          Fn::If:
+          - Unknown
+          - key
+          - Ref: AWS::NoValue
+        Value: two
+      document_fields: {}
+  partial-keyed-03:
+    data:
+      rows:
+      - - Tags[1].Key
+        - Known
+        - null
+      - - Tags[1].Value
+        - one
+        - null
+      - - Tags[2].Key
+        - Missing
+        - null
+      - - Tags[2].Value
+        - two
+        - null
+      actual:
+      - Key: Known
+        Value: one
+      - Key: Known
+        Value: one
+      - Key:
+          Fn::If:
+          - Unknown
+          - key
+          - Ref: AWS::NoValue
+        Value: two
+      document_fields: {}
+  partial-keyed-04:
+    data:
+      rows:
+      - - Tags[1].Key
+        - Known
+        - null
+      - - Tags[1].Value
+        - one
+        - null
+      - - Tags[2].Key
+        - Missing
+        - null
+      - - Tags[2].Value
+        - two
+        - null
+      actual:
+      - Key: Known
+        Value: one
+      - Key:
+          Ref: AWS::NoValue
+        Value: two
+      document_fields: {}
+  partial-keyed-05:
+    data:
+      rows:
+      - - Tags[1].Key
+        - Known
+        - null
+      - - Tags[1].Value
+        - one
+        - null
+      - - Tags[2].Key
+        - Missing
+        - null
+      - - Tags[2].Value
+        - two
+        - null
+      actual:
+        Fn::If:
+        - Active
+        - - Key: Known
+            Value:
+              Fn::Select:
+              - 3
+              - - only
+          - Key:
+              Fn::If:
+              - Unknown
+              - key
+              - Ref: AWS::NoValue
+            Value: two
+        - Ref: AWS::NoValue
+      document_fields:
+        Conditions:
+          Active: true
+  stack-region-00:
+    data:
+      region: ap-northeast-1
+      template:
+        Resources: {}
+        Parameters:
+          Sensitive:
+            Type: String
+            NoEcho: true
+            Default: private
+  stack-region-01:
+    data:
+      region: cn-north-1
+      template:
+        Resources: {}
+        Parameters:
+          Sensitive:
+            Type: String
+            NoEcho: true
+            Default: private
+  stack-region-02:
+    data:
+      region: us-gov-west-1
+      template:
+        Resources: {}
+        Parameters:
+          Sensitive:
+            Type: String
+            NoEcho: true
+            Default: private
+  stack-region-03:
+    data:
+      region: us-iso-east-1
+      template:
+        Resources: {}
+        Parameters:
+          Sensitive:
+            Type: String
+            NoEcho: true
+            Default: private
+  stack-region-04:
+    data:
+      region: eusc-de-east-1
+      template:
+        Resources: {}
+        Parameters:
+          Sensitive:
+            Type: String
+            NoEcho: true
+            Default: private
+  stack-region-05:
+    data:
+      region: ap-fake-1
+      template:
+        Resources: {}
+        Parameters:
+          Sensitive:
+            Type: String
+            NoEcho: true
+            Default: private
+  run-mode-00:
+    data:
+      metadata:
+        resourceMode: IMPORT
+      target: {}
+  run-mode-01:
+    data:
+      metadata: {}
+      target:
+        iacEngine: terraform
+  run-mode-02:
+    data:
+      metadata:
+        cfn-logicalId: undeclared-Bucket
+      target: {}
+  run-mode-03:
+    data:
+      metadata: {}
+      target: {}
+  partial-diagnostic-00:
+    data:
+      rows:
+      - - VpcConfig.VpcId
+        - $modelRef:
+            logicalId: EC2_VPC_001
+            attribute: VpcId
+        - null
+      - - VpcConfig.Subnets
+        - '["subnet"]'
+        - null
+      properties:
+        VpcConfig:
+          VpcId: vpc-unproven
+          Subnets:
+            Fn::Select:
+            - 2
+            - - only

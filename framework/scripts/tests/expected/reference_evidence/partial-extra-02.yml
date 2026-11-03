@@ -1,0 +1,14 @@
+display: {}
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Environment
+  reason: 'unresolved or cyclic Condition: InvalidCondition'
+  reference_diagnostics: []
+  resource: '001'
+  service: codebuild
+  stack: null

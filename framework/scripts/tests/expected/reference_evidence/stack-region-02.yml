@@ -1,0 +1,14 @@
+missing: []
+partition: aws-us-gov
+policy_categories:
+- - matched
+- - difference
+redacted: <masked sensitive parameter>
+suffix: amazonaws.com
+suffix_input:
+  name: AWS::URLSuffix
+  source:
+    key: AWS::URLSuffix
+    kind: botocore-endpoints
+    region: us-gov-west-1
+  value: amazonaws.com

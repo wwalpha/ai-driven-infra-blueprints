@@ -1,0 +1,13 @@
+display: {}
+records:
+- actual: null
+  category: matched
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Environment
+  reason: equal
+  resource: '001'
+  service: codebuild
+  stack: producer

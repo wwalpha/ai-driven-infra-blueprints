@@ -1,0 +1,29 @@
+display:
+  ea3a329ac1444ee8eba3:
+  - iac: 欠落
+    model: '{"Key":"Missing","Value":"two"}'
+    path: Tags[Key=Missing]
+records:
+- actual:
+  - Key: Known
+    Value: one
+  - Value: two
+  category: difference
+  desired:
+  - Key: Known
+    Value: one
+  - Key: Missing
+    Value: two
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  - null
+  - null
+  - null
+  property: CodeBuild.Project.Tags
+  reason: value mismatch
+  resource: '001'
+  service: codebuild
+  stack: producer

@@ -1,0 +1,61 @@
+records:
+- actual: null
+  category: error
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Environment.PrivilegedMode
+  reason: must be boolean
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: difference
+  deferred_children:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment.PrivilegedMode
+    reason: must be boolean
+    resource: '001'
+    service: codebuild
+    stack: producer
+  desired:
+    Image:
+      $expression: Unverified
+      $operands:
+      - $modelRef:
+          attribute: Arn
+          logicalId: KMS_Key_999
+      - 'JSON Pointer=''''; desired.row.001-001.value: producer logicalId is absent;
+        [{"category": "MODEL_NEEDS_FIX", "code": "MODEL_REF_TARGET_MISSING", "message":
+        "producer logicalId is absent", "status": "FAIL", "action": "Correct the Model
+        reference or the invalid producer field.", "targetLogicalId": "KMS_Key_999",
+        "fixModels": ["/Users/macmini/Documents/projects/ai-driven-infra-blueprints/.worktrees/issue-126-iac-diagnostics/model/fixture/team/codebuild.properties"]}]'
+    PrivilegedMode: <unresolved>
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  - null
+  property: CodeBuild.Project.Environment
+  reason: property missing
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Environment#/Image
+  reason: unresolved/unverified intrinsic; JSON Pointer='/Image'
+  resource: '001'
+  service: codebuild
+  stack: producer

@@ -1,0 +1,4 @@
+category: uncompared
+cause: null
+reason: 'Terraform: no existing local resource correspondence/evaluator; no init/plan/provider
+  calls'

@@ -2928,8 +2928,14 @@ def reference_for(comparison, kind, left, right, path):
     return comparison.reference_same(left, right, kind, path)
 
 
-@pytest.mark.parametrize("actual", [{"EnvironmentVariables": []}, None])
-def test_incomplete_codebuild_missing_structure(actual):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="incomplete-codebuild-")
+)
+def test_incomplete_codebuild_missing_structure(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_incomplete_codebuild)
+
+
+def _execute_incomplete_codebuild(case):
     comparison = fixture()
     resource(comparison, "kms", "001", "KMS.Alias", "Alias", [])
     rows = [
@@ -2948,7 +2954,7 @@ def test_incomplete_codebuild_missing_structure(actual):
         "CodeBuild.Project",
         "Build",
         rows,
-        properties={} if actual is None else {"Environment": actual},
+        properties=case["data"]["properties"],
     )
     document = comparison.stack_inputs["producer"][0]
     result = comparison.compare_rows(
@@ -2961,55 +2967,44 @@ def test_incomplete_codebuild_missing_structure(actual):
         document["Resources"]["Build"],
         document,
     )
-    assert result.failure is None
+    check = TestCase()
+    check.assertIsNone(result.failure)
     differences = [item for item in result.records if item["category"] == "difference"]
-    assert len(differences) == 1, result.records
     unresolved = [item for item in result.records if item["category"] == "uncompared"]
-    assert (
-        len(unresolved) == 1
-        and "PLAINTEXTではResource linkは禁止" in unresolved[0]["reason"]
-    ), result.records
-    assert not any(item["category"] in {"error", "matched"} for item in result.records)
+    check.assertEqual(len(differences), 1)
+    check.assertEqual(len(unresolved), 1)
+    check.assertIn("PLAINTEXTではResource linkは禁止", unresolved[0]["reason"])
+    check.assertFalse(
+        any(item["category"] in {"error", "matched"} for item in result.records)
+    )
     shown = json.dumps(result.display_differences)
-    assert "RELEASE_BUCKET_KMS_KEY_ID" in shown and "Environment" in shown
+    check.assertIn("RELEASE_BUCKET_KMS_KEY_ID", shown)
+    check.assertIn("Environment", shown)
+    return {
+        "records": projected(result.records),
+        "display": projected(result.display_differences),
+    }
 
 
-@pytest.mark.parametrize("deferred", [False, True])
-def test_nested_diagnostics_retain_format_and_failures(deferred):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="nested-diagnostic-")
+)
+def test_nested_diagnostics_retain_format_and_failures(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_nested_diagnostic)
+
+
+def _execute_nested_diagnostic(case):
+    data = case["data"]
     comparison = fixture()
     resource(comparison, "kms", "001", "KMS.Key", "Key", [])
-    properties = {
-        "ResultConfiguration": {"EncryptionConfiguration": {"KmsKey": {"Ref": "Key"}}}
-    }
-    rows = [
-        (ATHENA_KMS, model_ref("KMS_Key_001", "Arn"), None),
-        ("WorkGroupConfiguration.EnforceWorkGroupConfiguration", "true", None),
-    ]
-    if deferred:
-        rows += [
-            (
-                "WorkGroupConfiguration.ExecutionRole",
-                model_ref("KMS_Key_999", "Arn"),
-                None,
-            ),
-            (
-                "WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner",
-                model_ref("KMS_Key_999", "Arn"),
-                None,
-            ),
-        ]
     resource(
         comparison,
         "athena",
         "001",
         "Athena.WorkGroup",
         "WorkGroup",
-        rows,
-        properties={
-            "WorkGroupConfiguration": dict(
-                properties, EnforceWorkGroupConfiguration=True
-            )
-        },
+        data["rows"],
+        properties=data["properties"],
     )
     comparison.sensitive_values.add("private")
     document = comparison.stack_inputs["producer"][0]
@@ -3028,7 +3023,15 @@ def test_nested_diagnostics_retain_format_and_failures(deferred):
         for item in result
         if item["property"] == "Athena.WorkGroup.WorkGroupConfiguration"
     )
-    if deferred:
+    check = TestCase()
+    check.assertEqual(record["category"], "difference")
+    diagnostic = record["reference_diagnostics"][0]
+    check.assertEqual(diagnostic["path"], "Athena.WorkGroup." + ATHENA_KMS)
+    check.assertEqual(diagnostic["identity"], "same")
+    check.assertEqual(diagnostic["allowed_forms"], ["KeyArn"])
+    check.assertEqual(diagnostic["model"]["$attribute"], "Arn")
+    check.assertEqual(diagnostic["iac"]["$attribute"], "KeyId")
+    if data["deferred"]:
         children = [
             child
             for child in result
@@ -3038,90 +3041,34 @@ def test_nested_diagnostics_retain_format_and_failures(deferred):
                 "Athena.WorkGroup.WorkGroupConfiguration#/ResultConfiguration/ExpectedBucketOwner",
             }
         ]
-        assert record["category"] == "difference" and len(children) == 2, result
-        assert {child["property"] for child in children} == {
-            "Athena.WorkGroup.WorkGroupConfiguration#/ExecutionRole",
-            "Athena.WorkGroup.WorkGroupConfiguration#/ResultConfiguration/ExpectedBucketOwner",
-        }
-        assert all(child["reason"] for child in children)
-        assert {child["category"] for child in children} == {"uncompared"}
-        assert "private" not in json.dumps(result)
-    assert record["category"] == "difference", result
-    diagnostic = record["reference_diagnostics"][0]
-    assert diagnostic["path"] == "Athena.WorkGroup." + ATHENA_KMS
-    assert diagnostic["identity"] == "same" and diagnostic["allowed_forms"] == [
-        "KeyArn"
-    ]
-    assert (
-        diagnostic["model"]["$attribute"] == "Arn"
-        and diagnostic["iac"]["$attribute"] == "KeyId"
-    )
-    assert len(children if deferred else []) == (2 if deferred else 0)
-    assert "private" not in json.dumps(result)
+        check.assertEqual(len(children), 2)
+        check.assertEqual({child["category"] for child in children}, {"uncompared"})
+        check.assertTrue(all(child["reason"] for child in children))
+    check.assertNotIn("private", json.dumps(result))
+    return {"records": projected(result)}
 
 
 @pytest.mark.parametrize(
-    "scenario",
-    [
-        "same",
-        "siblings",
-        "null",
-        "false",
-        "empty-string",
-        "empty-array",
-        "no-value",
-        "condition-unknown",
-        "condition-present",
-        "condition-absent",
-        "value-null",
-        "value-false",
-        "value-empty-string",
-        "value-empty-array",
-    ],
+    "case_id", case_ids("reference_evidence", prefix="incomplete-setting-")
 )
-def test_incomplete_setting_presence_and_siblings(scenario):
+def test_incomplete_setting_presence_and_siblings(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_incomplete_setting)
+
+
+def _execute_incomplete_setting(case):
+    data = case["data"]
     comparison = fixture()
     comparison.stack_inputs["producer"][2]["AWS::NoValue"] = {"$noValue": True}
+    comparison.stack_inputs["producer"][0]["Conditions"] = data["conditions"]
     resource(comparison, "kms", "001", "KMS.Alias", "Alias", [])
-    prefix = "Environment.EnvironmentVariables[1]."
-    rows = [
-        (prefix + "Name", "RELEASE_BUCKET_KMS_KEY_ID", None),
-        (prefix + "Type", "PLAINTEXT", None),
-        (prefix + "Value", model_ref("KMS_Alias_001", "Arn"), None),
-    ]
-    variable = {
-        "Name": "RELEASE_BUCKET_KMS_KEY_ID",
-        "Type": "PLAINTEXT",
-        "Value": "unknown",
-    }
-    environment = {"EnvironmentVariables": [variable], "Extra": "allowed"}
-    if scenario == "siblings":
-        variable["Type"] = "PARAMETER_STORE"
-        rows += [
-            ("Environment.Image", "image", None),
-            ("Environment.EnvironmentVariables[2].Name", "SECOND", None),
-        ]
-    empty_values = {"null": None, "false": False, "empty-string": "", "empty-array": []}
-    if scenario in empty_values:
-        environment = empty_values[scenario]
-    if scenario.startswith("value-"):
-        variable["Value"] = empty_values[scenario.removeprefix("value-")]
-    if scenario == "no-value":
-        environment = {"Ref": "AWS::NoValue"}
-    if scenario.startswith("condition-"):
-        environment = {"Fn::If": ["Present", environment, {"Ref": "AWS::NoValue"}]}
-        if scenario != "condition-unknown":
-            comparison.stack_inputs["producer"][0]["Conditions"] = {
-                "Present": scenario == "condition-present"
-            }
     resource(
         comparison,
         "codebuild",
         "001",
         "CodeBuild.Project",
         "Build",
-        rows,
-        properties={"Environment": environment},
+        data["rows"],
+        properties={"Environment": data["environment"]},
     )
     document = comparison.stack_inputs["producer"][0]
     batch = comparison.compare_rows(
@@ -3134,48 +3081,33 @@ def test_incomplete_setting_presence_and_siblings(scenario):
         document["Resources"]["Build"],
         document,
     )
-    assert batch.failure is None
-    differences = [item for item in batch.records if item["category"] == "difference"]
-    expected = scenario in {*empty_values, "siblings", "no-value", "condition-absent"}
-    assert len(differences) == int(expected), batch.records
-    assert not any(
-        item["category"] in {"matched", "error"} for item in batch.records
-    ), batch.records
+    check = TestCase()
+    check.assertIsNone(batch.failure)
+    check.assertFalse(
+        any(item["category"] in {"matched", "error"} for item in batch.records)
+    )
     children = [
         item for item in batch.records if item["property"].endswith("[1].Value")
     ]
-    assert len(children) == 1 and children[0]["category"] == "uncompared"
-    assert (
-        "PLAINTEXTではResource linkは禁止" in children[0]["reason"]
-        and children[0]["iac"]["path"] == "synthetic.yaml"
-    )
-    if scenario == "siblings":
-        fields = next(iter(batch.display_differences.values()))
-        paths = {field["path"] for field in fields}
-        assert paths == {
-            "Image",
-            "EnvironmentVariables[0].Type",
-            "EnvironmentVariables[1]",
-        }, fields
-        assert any("SECOND" in field["model"] for field in fields)
-    elif scenario in empty_values:
-        assert differences[0]["reason"] == "value mismatch"
-        assert differences[0]["actual"] == empty_values[scenario]
-        assert next(iter(batch.display_differences.values()))[0]["iac"] != "欠落"
-    elif scenario in {"no-value", "condition-absent"}:
-        assert differences[0]["reason"] == "property omitted by AWS::NoValue"
-        assert differences[0]["actual"] is None
-        assert next(iter(batch.display_differences.values()))[0]["iac"] == "欠落"
-    elif scenario == "condition-unknown":
-        assert any(
-            item["property"] == "CodeBuild.Project.Environment"
-            and item["category"] == "uncompared"
-            for item in batch.records
-        )
+    check.assertEqual(len(children), 1)
+    check.assertEqual(children[0]["category"], "uncompared")
+    check.assertIn("PLAINTEXTではResource linkは禁止", children[0]["reason"])
+    check.assertEqual(children[0]["iac"]["path"], "synthetic.yaml")
+    return {
+        "records": projected(batch.records),
+        "display": projected(batch.display_differences),
+    }
 
 
-@pytest.mark.parametrize("present", [False, True])
-def test_all_children_failed_preserve_parent_and_categories(present):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="children-failed-")
+)
+def test_all_children_failed_preserve_parent_and_categories(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_children_failed)
+
+
+def _execute_children_failed(case):
+    data = case["data"]
     comparison = fixture()
     rows = [
         ("Environment.Image", model_ref("KMS_Key_999", "Arn"), None),
@@ -3188,9 +3120,7 @@ def test_all_children_failed_preserve_parent_and_categories(present):
         "CodeBuild.Project",
         "Build",
         rows,
-        properties={"Environment": {"Image": "image", "PrivilegedMode": False}}
-        if present
-        else {},
+        properties=data["properties"],
     )
     document = comparison.stack_inputs["producer"][0]
     batch = comparison.compare_rows(
@@ -3203,68 +3133,57 @@ def test_all_children_failed_preserve_parent_and_categories(present):
         document["Resources"]["Build"],
         document,
     )
-    assert batch.failure is None
-    assert sorted(item["category"] for item in batch.records) == (
-        ["error", "uncompared"] if present else ["difference", "error", "uncompared"]
-    ), batch.records
-    if not present:
+    TestCase().assertIsNone(batch.failure)
+    TestCase().assertEqual(
+        sorted(item["category"] for item in batch.records),
+        ["error", "uncompared"]
+        if data["present"]
+        else ["difference", "error", "uncompared"],
+    )
+    if not data["present"]:
         parent = next(
             item for item in batch.records if item["category"] == "difference"
         )
-        assert (
-            parent["property"] == "CodeBuild.Project.Environment"
-            and parent["reason"] == "property missing"
+        TestCase().assertEqual(parent["property"], "CodeBuild.Project.Environment")
+        TestCase().assertEqual(parent["reason"], "property missing")
+        TestCase().assertEqual(
+            {
+                item["category"]
+                for item in batch.records
+                if item["property"] != parent["property"]
+            },
+            {"error", "uncompared"},
         )
-        assert {
-            item["category"]
-            for item in batch.records
-            if item["property"] != parent["property"]
-        } == {
-            "error",
-            "uncompared",
-        }
+    return {"records": projected(batch.records)}
 
 
-@pytest.mark.parametrize("document_row", [False, True])
 @pytest.mark.parametrize(
-    "scenario", ["missing-element", "missing-field", "same", "mismatch"]
+    "case_id", case_ids("reference_evidence", prefix="incomplete-json-")
 )
-def test_incomplete_json_preserves_declared_children(document_row, scenario):
+def test_incomplete_json_preserves_declared_children(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_incomplete_json)
+
+
+def _execute_incomplete_json(case):
+    data = case["data"]
     comparison = fixture()
     resource(comparison, "kms", "001", "KMS.Alias", "Alias", [])
-    desired = {
-        "EnvironmentVariables": [
-            dict(
-                Name="RELEASE_BUCKET_KMS_KEY_ID",
-                Type="PLAINTEXT",
-                Value=model_ref("KMS_Alias_001", "Arn"),
-            )
-        ]
-    }
-    actual = copy.deepcopy(desired)
-    actual["EnvironmentVariables"][0]["Value"] = "unproven-value"
-    if scenario == "missing-element":
-        actual["EnvironmentVariables"] = []
-    elif scenario == "missing-field":
-        del actual["EnvironmentVariables"][0]["Type"]
-    elif scenario == "mismatch":
-        actual["EnvironmentVariables"][0]["Type"] = "PARAMETER_STORE"
     rows = resource(
         comparison,
         "codebuild",
         "001",
         "CodeBuild.Project",
         "Build",
-        [("Environment", json.dumps(desired), None)],
-        properties={"Environment": actual},
+        [("Environment", json.dumps(data["desired"]), None)],
+        properties={"Environment": data["actual"]},
     )
-    if document_row:
-        rows[0][1]["document"] = json.dumps(desired)
-    prepared = comparison.prepare_value(
+    if data["document_row"]:
+        rows[0][1]["document"] = json.dumps(data["desired"])
+    prepared_value = comparison.prepare_value(
         "codebuild", rows[0][1], "CodeBuild.Project", stack="producer", row_id="001-001"
     )
     with pytest.raises(Blocked, match="PLAINTEXTではResource linkは禁止"):
-        prepared.require_value()
+        prepared_value.require_value()
     document = comparison.stack_inputs["producer"][0]
     batch = comparison.compare_rows(
         "codebuild",
@@ -3276,16 +3195,18 @@ def test_incomplete_json_preserves_declared_children(document_row, scenario):
         document["Resources"]["Build"],
         document,
     )
-    assert batch.failure is None
-    assert sorted(item["category"] for item in batch.records) == (
-        ["uncompared"] if scenario == "same" else ["difference", "uncompared"]
-    ), batch.records
+    TestCase().assertIsNone(batch.failure)
     unresolved = next(
         item for item in batch.records if item["category"] == "uncompared"
     )
-    assert unresolved["property"].endswith("EnvironmentVariables[].Value")
-    assert unresolved["model"]["pointer"] == "/EnvironmentVariables/0/Value"
-    assert "PLAINTEXTではResource linkは禁止" in unresolved["reason"]
+    TestCase().assertTrue(
+        unresolved["property"].endswith("EnvironmentVariables[].Value")
+    )
+    TestCase().assertEqual(
+        unresolved["model"]["pointer"], "/EnvironmentVariables/0/Value"
+    )
+    TestCase().assertIn("PLAINTEXTではResource linkは禁止", unresolved["reason"])
+    return {"records": projected(batch.records)}
 
 
 def fail_image_preparation(error, original, service, row, kind, **kwargs):
@@ -3295,9 +3216,20 @@ def fail_image_preparation(error, original, service, row, kind, **kwargs):
 
 
 @pytest.mark.parametrize(
-    "error", [ValueError, TypeError, OSError, ImportError, IndexError]
+    "case_id", case_ids("reference_evidence", prefix="preparation-error-")
 )
-def test_preparation_error_retains_confirmed_difference(error):
+def test_preparation_error_retains_confirmed_difference(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_preparation_error)
+
+
+def _execute_preparation_error(case):
+    error = {
+        "ValueError": ValueError,
+        "TypeError": TypeError,
+        "OSError": OSError,
+        "ImportError": ImportError,
+        "IndexError": IndexError,
+    }[case["data"]["error_type"]]
     comparison = fixture()
     resource(
         comparison,
@@ -3325,14 +3257,15 @@ def test_preparation_error_retains_confirmed_difference(error):
         document["Resources"]["Build"],
         document,
     )
-    assert batch.failure is None
-    assert sorted(item["category"] for item in batch.records) == [
-        "difference",
-        "error",
-    ], batch.records
-    assert any(
-        item["reason"] == "synthetic preparation failure" for item in batch.records
+    check = TestCase()
+    check.assertIsNone(batch.failure)
+    check.assertEqual(
+        sorted(item["category"] for item in batch.records), ["difference", "error"]
     )
+    check.assertTrue(
+        any(item["reason"] == "synthetic preparation failure" for item in batch.records)
+    )
+    return {"records": projected(batch.records)}
 
 
 def test_naming_materials_mode_and_root_targets():
@@ -3640,20 +3573,19 @@ def test_naming_input_unavailable_from_materials(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "region,partition,suffix",
-    [
-        ("ap-northeast-1", "aws", "amazonaws.com"),
-        ("cn-north-1", "aws-cn", "amazonaws.com.cn"),
-        ("us-gov-west-1", "aws-us-gov", "amazonaws.com"),
-        ("us-iso-east-1", "aws-iso", "c2s.ic.gov"),
-        ("eusc-de-east-1", "aws-eusc", "amazonaws.eu"),
-        ("ap-fake-1", None, None),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="stack-region-")
 )
-def test_stack_partition_and_noecho(tmp_path, region, partition, suffix):
+def test_stack_partition_and_noecho(case_runner, tmp_path, case_id):
+    case_runner.run(
+        "reference_evidence", case_id, partial(_execute_stack_region, tmp_path)
+    )
+
+
+def _execute_stack_region(tmp_path, case):
+    data = case["data"]
     comparison = fixture()
     comparison.root = tmp_path
-    comparison.target["awsRegion"] = region
+    comparison.target["awsRegion"] = data["region"]
     comparison.stack_inputs = {}
     comparison.documents = {}
     comparison.metrics = dict(template_decodes=0, stack_evaluations=0)
@@ -3662,21 +3594,7 @@ def test_stack_partition_and_noecho(tmp_path, region, partition, suffix):
     parameters = tmp_path / "infra/cloudformation/parameters/fixture/team/one.json"
     template.parent.mkdir(parents=True)
     parameters.parent.mkdir(parents=True)
-    template.write_text(
-        json.dumps(
-            {
-                "Resources": {},
-                "Parameters": {
-                    "Sensitive": {
-                        "Type": "String",
-                        "NoEcho": True,
-                        "Default": "private",
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
+    template.write_text(json.dumps(data["template"]), encoding="utf-8")
     parameters.write_text("[]", encoding="utf-8")
     with patch("socket.socket", side_effect=AssertionError("network forbidden")):
         Comparison.stack_input(
@@ -3684,29 +3602,41 @@ def test_stack_partition_and_noecho(tmp_path, region, partition, suffix):
             dict(name="producer", template="one.yaml", parameters="one.json"),
         )
     document, _, pseudo = comparison.stack_inputs["producer"]
-    assert pseudo.get("AWS::Partition") == partition
-    assert pseudo.get("AWS::URLSuffix") == suffix
+    check = TestCase()
     for name, expected in [
-        ("AWS::Region", region),
+        ("AWS::Region", data["region"]),
         ("AWS::AccountId", "123456789012"),
         ("AWS::StackName", "producer"),
         ("AWS::NoValue", {"$noValue": True}),
     ]:
-        assert comparison.evaluate("producer", {"Ref": name}) == expected
-    assert comparison.redacted("prefix-private") == "<masked sensitive parameter>"
-    expression = {"Fn::Sub": "secretsmanager.${AWS::Region}.${AWS::URLSuffix}"}
-    for name, expected in [("AWS::Partition", partition), ("AWS::URLSuffix", suffix)]:
-        if expected is None:
-            assert name not in pseudo
+        check.assertEqual(comparison.evaluate("producer", {"Ref": name}), expected)
+    redacted = comparison.redacted("prefix-private")
+    check.assertEqual(redacted, "<masked sensitive parameter>")
+    missing = []
+    for name in ("AWS::Partition", "AWS::URLSuffix"):
+        if name not in pseudo:
             for value in ({"Ref": name}, {"Fn::Sub": "${" + name + "}"}):
-                with pytest.raises(Blocked, match="unresolved pseudo parameter"):
+                with pytest.raises(
+                    Blocked, match="unresolved pseudo parameter"
+                ) as failure:
                     comparison.evaluate("producer", value)
+                missing.append(
+                    {
+                        "type": type(failure.value).__name__,
+                        "message": str(failure.value),
+                    }
+                )
         else:
-            assert comparison.evaluate("producer", {"Ref": name}) == expected
+            check.assertEqual(
+                comparison.evaluate("producer", {"Ref": name}), pseudo[name]
+            )
+    suffix = pseudo.get("AWS::URLSuffix")
+    expression = {"Fn::Sub": "secretsmanager.${AWS::Region}.${AWS::URLSuffix}"}
+    suffix_input = None
     if suffix is not None:
-        assert (
-            comparison.evaluate("producer", expression)
-            == f"secretsmanager.{region}.{suffix}"
+        check.assertEqual(
+            comparison.evaluate("producer", expression),
+            f"secretsmanager.{data['region']}.{suffix}",
         )
         document["Conditions"] = {"Off": {"Fn::Equals": [expression, "other"]}}
         _, evidence = inactive_evidence(
@@ -3727,18 +3657,23 @@ def test_stack_partition_and_noecho(tmp_path, region, partition, suffix):
             source_lookup=Mock(),
             redact=comparison.redacted,
         )
-        assert next(
+        suffix_input = next(
             item for item in evidence["inputs"] if item["name"] == "AWS::URLSuffix"
-        ) == {
-            "name": "AWS::URLSuffix",
-            "value": suffix,
-            "source": {
-                "kind": "botocore-endpoints",
-                "region": region,
-                "key": "AWS::URLSuffix",
+        )
+        check.assertEqual(
+            suffix_input,
+            {
+                "name": "AWS::URLSuffix",
+                "value": suffix,
+                "source": {
+                    "kind": "botocore-endpoints",
+                    "region": data["region"],
+                    "key": "AWS::URLSuffix",
+                },
             },
-        }
+        )
     comparison.root = ROOT
+    categories = []
     for different in (False, True):
         policy = [
             {
@@ -3752,7 +3687,7 @@ def test_stack_partition_and_noecho(tmp_path, region, partition, suffix):
                             "Resource": "*",
                             "Condition": {
                                 "StringEquals": {
-                                    "kms:ViaService": f"secretsmanager.{region}.{suffix}"
+                                    "kms:ViaService": f"secretsmanager.{data['region']}.{suffix}"
                                 }
                             },
                         }
@@ -3769,10 +3704,15 @@ def test_stack_partition_and_noecho(tmp_path, region, partition, suffix):
                 "kms:ViaService"
             ] = "different"
         records = setting(comparison, "IAM.Role", "Policies", policy, actual)
-        expected = (
-            "uncompared" if suffix is None else "difference" if different else "matched"
-        )
-        assert [item["category"] for item in records] == [expected], records
+        categories.append([item["category"] for item in records])
+    return {
+        "partition": pseudo.get("AWS::Partition"),
+        "suffix": suffix,
+        "redacted": redacted,
+        "missing": missing,
+        "suffix_input": projected(suffix_input),
+        "policy_categories": categories,
+    }
 
 
 def test_inactive_inline_policy_provenance():
@@ -3891,66 +3831,47 @@ def test_grouped_parent_reference():
     ), result
 
 
-@pytest.mark.parametrize(
-    "mode,category",
-    [
-        ("IMPORT", "excluded"),
-        ("terraform", "uncompared"),
-        ("undeclared", "uncompared"),
-        ("missing-template", "difference"),
-    ],
-)
-def test_run_mode_classification(tmp_path, mode, category):
+@pytest.mark.parametrize("case_id", case_ids("reference_evidence", prefix="run-mode-"))
+def test_run_mode_classification(case_runner, tmp_path, case_id):
+    case_runner.run("reference_evidence", case_id, partial(_execute_run_mode, tmp_path))
+
+
+def _execute_run_mode(tmp_path, case):
+    data = case["data"]
     comparison = fixture()
     comparison.root = tmp_path
     comparison.services = ["s3"]
     resource(comparison, "s3", "001", "S3.Bucket", "Bucket", [])
-    if mode == "IMPORT":
-        comparison.resources["s3"]["001"]["resourceMode"] = "IMPORT"
-    elif mode == "terraform":
-        comparison.target["iacEngine"] = "terraform"
-    elif mode == "undeclared":
-        comparison.resources["s3"]["001"]["cfn-logicalId"] = "undeclared-Bucket"
+    comparison.resources["s3"]["001"].update(data["metadata"])
+    comparison.target.update(data["target"])
     records = comparison.run()
-    assert len(records) == 1 and records[0]["category"] == category, records
-    if mode == "undeclared":
-        assert (
-            "stack is not declared" in records[0]["reason"]
-            and "cause" not in records[0]
-        )
-    elif mode == "missing-template":
-        assert (
-            records[0]["cause"]["relationship"] == "direct"
-            and records[0]["cause"]["kind"] == "template-missing"
-        )
+    TestCase().assertEqual(len(records), 1)
+    record = records[0]
+    return {
+        "category": record["category"],
+        "reason": record.get("reason"),
+        "cause": projected(record.get("cause")),
+    }
 
 
 @pytest.mark.parametrize(
-    "second,kind",
-    [
-        ("same", "template-missing"),
-        ("other", "import-unresolved"),
-        ("unknown", "import-unresolved"),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="import-failure-cause-")
 )
-def test_import_failure_cause_requires_unique_path(second, kind):
+def test_import_failure_cause_requires_unique_path(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_import_failure_cause)
+
+
+def _execute_import_failure_cause(case):
+    data = case["data"]
     comparison = fixture()
     failures = [Blocked("stack input missing"), Blocked("another input missing")]
-    failures[0].iac_cause = dict(
-        kind="template-missing", path="missing.yaml", relationship="stack-input"
-    )
-    if second != "unknown":
-        failures[1].iac_cause = dict(
-            failures[0].iac_cause,
-            path="missing.yaml" if second == "same" else "other.yaml",
-        )
+    failures[0].iac_cause = data["first"]
+    if data["second"] is not None:
+        failures[1].iac_cause = data["second"]
     comparison.stack = Mock(side_effect=failures)
-    with pytest.raises(Blocked) as error:
+    with pytest.raises(Blocked) as failure:
         comparison.evaluate("consumer", {"Fn::ImportValue": "missing"})
-    assert error.value.iac_cause["kind"] == kind
-    assert error.value.iac_cause["relationship"] == (
-        "export-search-incomplete" if second == "same" else "import"
-    )
+    return {"cause": projected(failure.value.iac_cause)}
 
 
 @pytest.mark.parametrize(
@@ -4139,46 +4060,25 @@ def _execute_shared_recorded_arn(case):
     return {"decisions": decisions, "different_results": different_results}
 
 
-@pytest.mark.parametrize("function", ["select", "if", "join"])
-@pytest.mark.parametrize("known_difference", [False, True])
-@pytest.mark.parametrize("model_unresolved", [False, True])
-def test_iac_partial_errors_preserve_known_fields(
-    function, known_difference, model_unresolved
-):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="partial-errors-")
+)
+def test_iac_partial_errors_preserve_known_fields(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_partial_errors)
+
+
+def _execute_partial_errors(case):
+    data = case["data"]
     comparison = fixture()
     resource(comparison, "kms", "001", "KMS.Alias", "Alias", [])
-    broken = {
-        "select": {"Fn::Select": [2, ["only"]]},
-        "if": {"Fn::If": ["InvalidCondition"]},
-        "join": {"Fn::Join": ["", [None]]},
-    }[function]
-    rows = [
-        ("Environment.Image", "GOOD_IMAGE", None),
-        ("Environment.EnvironmentVariables[1].Name", "RELEASE_BUCKET_KMS_KEY_ID", None),
-        ("Environment.EnvironmentVariables[1].Type", "PLAINTEXT", None),
-        (
-            "Environment.EnvironmentVariables[1].Value",
-            model_ref("KMS_Alias_001", "Arn") if model_unresolved else "known",
-            None,
-        ),
-    ]
-    actual = dict(
-        Image="WRONG_IMAGE" if known_difference else "GOOD_IMAGE",
-        EnvironmentVariables=[
-            dict(
-                Name="RELEASE_BUCKET_KMS_KEY_ID",
-                Type="PARAMETER_STORE" if known_difference else "PLAINTEXT",
-                Value=broken,
-            )
-        ],
-    )
+    actual = data["actual"]
     resource(
         comparison,
         "codebuild",
         "001",
         "CodeBuild.Project",
         "Build",
-        rows,
+        data["rows"],
         properties={"Environment": actual},
     )
     comparison.template_locations[id(actual["EnvironmentVariables"][0])] = {"Value": 23}
@@ -4194,53 +4094,58 @@ def test_iac_partial_errors_preserve_known_fields(
         document,
     )
     categories = [item["category"] for item in batch.records]
-    assert categories.count("difference") == int(known_difference), batch.records
-    assert categories.count("error") == 1 and categories.count("uncompared") == int(
-        model_unresolved
-    ), batch.records
-    assert "matched" not in categories and batch.failure is None
+    check = TestCase()
+    check.assertEqual(categories.count("difference"), int(data["known_difference"]))
+    check.assertEqual(categories.count("error"), 1)
+    check.assertEqual(categories.count("uncompared"), int(data["model_unresolved"]))
+    check.assertNotIn("matched", categories)
+    check.assertIsNone(batch.failure)
     error = next(item for item in batch.records if item["category"] == "error")
-    assert (
-        error["property"]
-        == "CodeBuild.Project.Environment#/EnvironmentVariables/0/Value"
+    check.assertEqual(
+        error["property"], "CodeBuild.Project.Environment#/EnvironmentVariables/0/Value"
     )
-    assert error["iac"] == {
-        "path": "synthetic.yaml",
-        "line": 23,
-        "pointer": "/EnvironmentVariables/0/Value",
-    }
-    if known_difference:
-        assert {
-            item["path"] for item in next(iter(batch.display_differences.values()))
-        } == {"Image", "EnvironmentVariables[0].Type"}
-    if model_unresolved:
+    check.assertEqual(
+        error["iac"],
+        {
+            "path": "synthetic.yaml",
+            "line": 23,
+            "pointer": "/EnvironmentVariables/0/Value",
+        },
+    )
+    if data["known_difference"]:
+        check.assertEqual(
+            {item["path"] for item in next(iter(batch.display_differences.values()))},
+            {"Image", "EnvironmentVariables[0].Type"},
+        )
+    if data["model_unresolved"]:
         unresolved = next(
             item for item in batch.records if item["category"] == "uncompared"
         )
-        assert "PLAINTEXTではResource linkは禁止" in unresolved["reason"]
-
-
-@pytest.mark.parametrize("exact", [False, True])
-@pytest.mark.parametrize("different", [False, True])
-def test_iac_partial_selective_extra_fields(exact, different):
-    comparison = fixture()
-    rows = (
-        [("Environment", json.dumps({"Image": "MODEL_IMAGE"}), None)]
-        if exact
-        else [("Environment.Image", "MODEL_IMAGE", None)]
-    )
-    actual = {
-        "Image": "OTHER_IMAGE" if different else "MODEL_IMAGE",
-        "AdditionalField": {"Fn::If": ["InvalidCondition", "A", "B"]},
+        check.assertIn("PLAINTEXTではResource linkは禁止", unresolved["reason"])
+    return {
+        "records": projected(batch.records),
+        "display": projected(batch.display_differences),
     }
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="partial-extra-")
+)
+def test_iac_partial_selective_extra_fields(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_partial_extra)
+
+
+def _execute_partial_extra(case):
+    data = case["data"]
+    comparison = fixture()
     resource(
         comparison,
         "codebuild",
         "001",
         "CodeBuild.Project",
         "Build",
-        rows,
-        properties={"Environment": actual},
+        data["rows"],
+        properties={"Environment": data["actual"]},
     )
     document = comparison.stack_inputs["producer"][0]
     batch = comparison.compare_rows(
@@ -4254,90 +4159,44 @@ def test_iac_partial_selective_extra_fields(exact, different):
         document,
     )
     differences = [item for item in batch.records if item["category"] == "difference"]
-    assert len(differences) == int(different), batch.records
-    assert not any(item["category"] == "error" for item in batch.records)
-    if not exact:
-        assert [item["category"] for item in batch.records] == [
-            "difference" if different else "matched"
-        ]
-    if different:
-        assert "Image" in {
-            item["path"] for item in next(iter(batch.display_differences.values()))
-        }
+    TestCase().assertEqual(len(differences), int(data["different"]))
+    TestCase().assertFalse(any(item["category"] == "error" for item in batch.records))
+    if not data["exact"]:
+        TestCase().assertEqual(
+            [item["category"] for item in batch.records],
+            ["difference" if data["different"] else "matched"],
+        )
+    if data["different"]:
+        TestCase().assertIn(
+            "Image",
+            {item["path"] for item in next(iter(batch.display_differences.values()))},
+        )
+    return {
+        "records": projected(batch.records),
+        "display": projected(batch.display_differences),
+    }
 
 
 @pytest.mark.parametrize(
-    "scenario",
-    [
-        "field",
-        "element",
-        "unknown-presence",
-        "key",
-        "no-value",
-        "null",
-        "false",
-        "empty-string",
-        "empty-array",
-    ],
+    "case_id", case_ids("reference_evidence", prefix="partial-presence-")
 )
-def test_iac_partial_array_presence(scenario):
+def test_iac_partial_array_presence(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_partial_presence)
+
+
+def _execute_partial_presence(case):
+    data = case["data"]
     comparison = fixture()
     comparison.stack_inputs["producer"][2]["AWS::NoValue"] = {"$noValue": True}
-    broken = {"Fn::Select": [2, ["only"]]}
-    first = dict(Name="FIRST", Type="PLAINTEXT", Value="known")
-    desired = {"Image": "GOOD_IMAGE", "EnvironmentVariables": [first]}
-    actual = copy.deepcopy(desired)
-    actual["EnvironmentVariables"][0]["Type"] = "PARAMETER_STORE"
-    if scenario == "field":
-        actual["EnvironmentVariables"][0]["Value"] = broken
-    elif scenario in {"element", "unknown-presence"}:
-        desired["EnvironmentVariables"].append(dict(Name="SECOND", Value="value"))
-        actual["EnvironmentVariables"].append(
-            broken
-            if scenario == "element"
-            else {
-                "Fn::If": [
-                    "Unknown",
-                    dict(Name="SECOND", Value="value"),
-                    {"Ref": "AWS::NoValue"},
-                ]
-            }
-        )
-    elif scenario == "key":
-        desired = {
-            "Tags": [
-                {"Key": "Known", "Value": "one"},
-                {"Key": "Missing", "Value": "two"},
-            ]
-        }
-        actual = {
-            "Tags": [
-                {"Key": "Known", "Value": "wrong"},
-                {"Key": broken, "Value": "two"},
-            ]
-        }
-    elif scenario == "no-value":
-        actual["EnvironmentVariables"].insert(
-            0, {"Fn::If": ["Absent", broken, {"Ref": "AWS::NoValue"}]}
-        )
-        comparison.stack_inputs["producer"][0]["Conditions"] = {"Absent": False}
-        actual["EnvironmentVariables"][1]["Value"] = broken
-    else:
-        value = {"null": None, "false": False, "empty-string": "", "empty-array": []}[
-            scenario
-        ]
-        desired["EnvironmentVariables"].append(value)
-        actual["EnvironmentVariables"].append(value)
-        actual["EnvironmentVariables"][0]["Value"] = broken
-    key = "Tags" if scenario == "key" else "Environment"
+    comparison.stack_inputs["producer"][0].update(data["document_fields"])
     resource(
         comparison,
         "codebuild",
         "001",
         "CodeBuild.Project",
         "Build",
-        [(key, json.dumps(desired[key] if key == "Tags" else desired), None)],
-        properties=actual if key == "Tags" else {"Environment": actual},
+        [(data["key"], json.dumps(data["desired"]), None)],
+        properties=data["properties"],
     )
     document = comparison.stack_inputs["producer"][0]
     batch = comparison.compare_rows(
@@ -4350,59 +4209,42 @@ def test_iac_partial_array_presence(scenario):
         document["Resources"]["Build"],
         document,
     )
-    assert (
-        batch.failure is None
-        and sum(item["category"] == "difference" for item in batch.records) == 1
-    ), batch.records
-    assert any(
-        item["category"]
-        == ("uncompared" if scenario == "unknown-presence" else "error")
-        for item in batch.records
+    TestCase().assertIsNone(batch.failure)
+    TestCase().assertEqual(
+        sum(item["category"] == "difference" for item in batch.records), 1
     )
     fields = next(iter(batch.display_differences.values()))
-    assert len(fields) == 1 and fields[0]["path"].endswith(
-        ".Type" if scenario != "key" else ".Value"
-    ), fields
-    assert fields[0]["iac"] != "欠落"
+    TestCase().assertEqual(len(fields), 1)
+    TestCase().assertTrue(
+        fields[0]["path"].endswith(".Value" if data["key"] == "Tags" else ".Type")
+    )
+    TestCase().assertNotEqual(fields[0]["iac"], "欠落")
+    return {
+        "records": projected(batch.records),
+        "display": projected(batch.display_differences),
+    }
 
 
 @pytest.mark.parametrize(
-    "case", ["missing", "same", "wrong", "duplicate", "omitted", "condition-child"]
+    "case_id", case_ids("reference_evidence", prefix="partial-keyed-")
 )
-def test_iac_partial_keyed_and_conditional_membership(case):
+def test_iac_partial_keyed_and_conditional_membership(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_partial_keyed)
+
+
+def _execute_partial_keyed(case):
+    data = case["data"]
     comparison = fixture()
     comparison.stack_inputs["producer"][2]["AWS::NoValue"] = {"$noValue": True}
-    unknown = {"Fn::If": ["Unknown", "key", {"Ref": "AWS::NoValue"}]}
-    actual = [
-        {"Key": "Known", "Value": "wrong" if case == "wrong" else "one"},
-        {"Key": unknown, "Value": "two"},
-    ]
-    if case == "duplicate":
-        actual.insert(0, {"Key": "Known", "Value": "one"})
-    elif case == "omitted":
-        actual[1]["Key"] = {"Ref": "AWS::NoValue"}
-    elif case == "condition-child":
-        comparison.stack_inputs["producer"][0]["Conditions"] = {"Active": True}
-        actual[0]["Value"] = {"Fn::Select": [3, ["only"]]}
-        actual = {"Fn::If": ["Active", actual, {"Ref": "AWS::NoValue"}]}
+    comparison.stack_inputs["producer"][0].update(data["document_fields"])
     resource(
         comparison,
         "codebuild",
         "001",
         "CodeBuild.Project",
         "Build",
-        [
-            ("Tags[1].Key", "Known", None),
-            ("Tags[1].Value", "one", None),
-            ("Tags[2].Key", "Missing", None),
-            ("Tags[2].Value", "two", None),
-        ]
-        + (
-            [("Tags[3].Key", "Third", None), ("Tags[3].Value", "three", None)]
-            if case == "missing"
-            else []
-        ),
-        properties={"Tags": actual},
+        data["rows"],
+        properties={"Tags": data["actual"]},
     )
     document = comparison.stack_inputs["producer"][0]
     batch = comparison.compare_rows(
@@ -4415,48 +4257,46 @@ def test_iac_partial_keyed_and_conditional_membership(case):
         document["Resources"]["Build"],
         document,
     )
-    assert batch.failure is None
-    differences = [item for item in batch.records if item["category"] == "difference"]
-    assert len(differences) == int(
-        case in {"wrong", "missing", "duplicate", "omitted"}
-    ), batch.records
-    if case == "wrong":
-        assert [
-            item["path"] for item in next(iter(batch.display_differences.values()))
-        ] == ["Tags[Key=Known].Value"]
-    if case == "condition-child":
-        assert any(
-            item["category"] == "error" and "/Fn::If/1/0/Value" in item["property"]
-            for item in batch.records
-        )
-        assert not any(item["category"] == "matched" for item in batch.records)
+    TestCase().assertIsNone(batch.failure)
+    return {
+        "records": projected(batch.records),
+        "display": projected(batch.display_differences),
+    }
 
 
-@pytest.mark.parametrize("unordered", [False, True])
 @pytest.mark.parametrize(
-    "desired,actual,expected",
-    [
-        (["a"], ["a", "unknown"], None),
-        (["a", "a"], ["a", "unknown"], None),
-        (["a", "a", "a"], ["a", "unknown"], False),
-        ([], ["a", "unknown"], False),
-        (["b"], ["a", "unknown"], False),
-        (["a", "b"], ["unknown", "a", "b"], None),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="partial-cardinality-")
 )
-def test_iac_partial_array_cardinality(unordered, desired, actual, expected):
+def test_iac_partial_array_cardinality(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_partial_cardinality)
+
+
+def _execute_partial_cardinality(case):
+    data = case["data"]
     comparison = fixture()
     actual = [
-        Expression("Unverified", []) if item == "unknown" else item for item in actual
+        Expression("Unverified", []) if item == "unknown" else item
+        for item in data["actual"]
     ]
     callback = partial(reference_for, comparison, "IAM.Role")
-    if unordered:
-        assert unordered_same(desired, actual, reference=callback) is expected
-    else:
-        assert same(desired, actual, reference=callback) is expected
+    result = (
+        unordered_same(data["desired"], actual, reference=callback)
+        if data["unordered"]
+        else same(data["desired"], actual, reference=callback)
+    )
+    if result is not None:
+        TestCase().assertIs(type(result), bool)
+    return {"equal": result}
 
 
-def test_iac_partial_error_keeps_reference_diagnostics():
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="partial-diagnostic-")
+)
+def test_iac_partial_error_keeps_reference_diagnostics(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_partial_diagnostic)
+
+
+def _execute_partial_diagnostic(case):
     comparison = fixture()
     vpc(comparison, observed=None)
     resource(
@@ -4465,16 +4305,8 @@ def test_iac_partial_error_keeps_reference_diagnostics():
         "001",
         "CodeBuild.Project",
         "Build",
-        [
-            ("VpcConfig.VpcId", model_ref("EC2_VPC_001", "VpcId"), None),
-            ("VpcConfig.Subnets", '["subnet"]', None),
-        ],
-        properties={
-            "VpcConfig": {
-                "VpcId": "vpc-unproven",
-                "Subnets": {"Fn::Select": [2, ["only"]]},
-            }
-        },
+        case["data"]["rows"],
+        properties=case["data"]["properties"],
     )
     document = comparison.stack_inputs["producer"][0]
     batch = comparison.compare_rows(
@@ -4487,19 +4319,27 @@ def test_iac_partial_error_keeps_reference_diagnostics():
         document["Resources"]["Build"],
         document,
     )
-    assert batch.failure is None
-    assert sorted(item["category"] for item in batch.records) == [
-        "error",
-        "uncompared",
-    ], batch.records
+    TestCase().assertIsNone(batch.failure)
+    TestCase().assertEqual(
+        sorted(item["category"] for item in batch.records), ["error", "uncompared"]
+    )
     unresolved = next(
         item for item in batch.records if item["category"] == "uncompared"
     )
-    assert unresolved["reference_diagnostics"] and not batch.display_differences
+    TestCase().assertTrue(unresolved["reference_diagnostics"])
+    TestCase().assertFalse(batch.display_differences)
+    return {"records": projected(batch.records)}
 
 
-@pytest.mark.parametrize("different", [False, True])
-def test_iac_partial_error_and_unknown_condition(different):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="partial-condition-")
+)
+def test_iac_partial_error_and_unknown_condition(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_partial_condition)
+
+
+def _execute_partial_condition(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -4507,18 +4347,8 @@ def test_iac_partial_error_and_unknown_condition(different):
         "001",
         "CodeBuild.Project",
         "Build",
-        [
-            ("Environment.Image", "image", None),
-            ("Environment.PrivilegedMode", "false", None),
-            ("Environment.Type", "LINUX_CONTAINER", None),
-        ],
-        properties={
-            "Environment": {
-                "Image": "wrong" if different else "image",
-                "PrivilegedMode": {"Fn::If": ["Unknown", True, False]},
-                "Type": {"Fn::Select": [2, ["only"]]},
-            }
-        },
+        data["rows"],
+        properties={"Environment": data["actual"]},
     )
     document = comparison.stack_inputs["producer"][0]
     batch = comparison.compare_rows(
@@ -4531,15 +4361,23 @@ def test_iac_partial_error_and_unknown_condition(different):
         document["Resources"]["Build"],
         document,
     )
-    assert batch.failure is None
-    assert sorted(item["category"] for item in batch.records) == sorted(
-        ["error", "uncompared"] + (["difference"] if different else [])
-    ), batch.records
-    assert any("Condition" in item["message"] for item in batch.warnings)
-    if different:
-        assert [
-            item["path"] for item in next(iter(batch.display_differences.values()))
-        ] == ["Image"]
+    check = TestCase()
+    check.assertIsNone(batch.failure)
+    check.assertEqual(
+        sorted(item["category"] for item in batch.records),
+        sorted(["error", "uncompared"] + (["difference"] if data["different"] else [])),
+    )
+    check.assertTrue(any("Condition" in item["message"] for item in batch.warnings))
+    if data["different"]:
+        check.assertEqual(
+            [item["path"] for item in next(iter(batch.display_differences.values()))],
+            ["Image"],
+        )
+    return {
+        "records": projected(batch.records),
+        "display": projected(batch.display_differences),
+        "warnings": projected(batch.warnings),
+    }
 
 
 QUEUE_ARN = "arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq"
@@ -7424,11 +7262,15 @@ def test_typed_duplicate_position_evidence(shape, masked):
 
 
 @pytest.mark.parametrize(
-    "wrong_path", ["S3.Bucket.Setting[]", "KMS.Key.Other[]", "KMS.Key.Setting[].Child"]
+    "case_id", case_ids("reference_evidence", prefix="typed-position-")
 )
-def test_typed_position_evidence_rejects_unrelated_diagnostics(wrong_path):
+def test_typed_position_evidence_rejects_unrelated_diagnostics(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_typed_position)
+
+
+def _execute_typed_position(case):
     ref = ResourceReference({"$resource": ["kms", "001"], "$attribute": "KeyId"})
-    diagnostic = {"path": wrong_path, "local_comparison": "matched"}
+    diagnostic = {"path": case["data"]["wrong_path"], "local_comparison": "matched"}
     decision = compare_values(
         ["same", "pending"],
         [ref, ref],
@@ -7437,7 +7279,12 @@ def test_typed_position_evidence_rejects_unrelated_diagnostics(wrong_path):
         reference=partial(unrelated_position_reference, diagnostic),
         diagnostic_kind="KMS.Key",
     )
-    assert decision.equal is None and not decision.reference_positions
+    TestCase().assertIsNone(decision.equal)
+    TestCase().assertFalse(decision.reference_positions)
+    return {
+        "equal": decision.equal,
+        "positions": projected(decision.reference_positions),
+    }
 
 
 def unrelated_position_reference(diagnostic, left, right, path):

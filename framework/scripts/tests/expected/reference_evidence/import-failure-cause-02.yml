@@ -1,0 +1,5 @@
+cause:
+  consumer_stack: consumer
+  export: missing
+  kind: import-unresolved
+  relationship: import

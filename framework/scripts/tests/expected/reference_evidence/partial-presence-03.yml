@@ -1,0 +1,39 @@
+display:
+  a022c7198976d8658afc:
+  - iac: wrong
+    model: one
+    path: Tags[0].Value
+records:
+- actual:
+  - Key: Known
+    Value: wrong
+  - Key: <unresolved>
+    Value: two
+  category: difference
+  desired:
+  - Key: Known
+    Value: one
+  - Key: Missing
+    Value: two
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  property: CodeBuild.Project.Tags
+  reason: value mismatch
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: error
+  desired: null
+  iac:
+    path: synthetic.yaml
+    pointer: /1/Key
+  model: null
+  property: CodeBuild.Project.Tags#/1/Key
+  reason: invalid Select operands
+  resource: '001'
+  service: codebuild
+  stack: producer

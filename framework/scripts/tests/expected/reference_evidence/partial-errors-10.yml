@@ -1,0 +1,48 @@
+display:
+  df1b4f8e5f9a33d7b38d:
+  - iac: PARAMETER_STORE
+    model: PLAINTEXT
+    path: EnvironmentVariables[0].Type
+  - iac: WRONG_IMAGE
+    model: GOOD_IMAGE
+    path: Image
+records:
+- actual:
+    EnvironmentVariables:
+    - Name: RELEASE_BUCKET_KMS_KEY_ID
+      Type: PARAMETER_STORE
+      Value: <unresolved>
+    Image: WRONG_IMAGE
+  category: difference
+  desired:
+    EnvironmentVariables:
+    - Name: RELEASE_BUCKET_KMS_KEY_ID
+      Type: PLAINTEXT
+      Value: known
+    Image: GOOD_IMAGE
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  - null
+  - null
+  - null
+  property: CodeBuild.Project.Environment
+  reason: value mismatch
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: error
+  desired: null
+  iac:
+    line: 23
+    path: synthetic.yaml
+    pointer: /EnvironmentVariables/0/Value
+  model: null
+  property: CodeBuild.Project.Environment#/EnvironmentVariables/0/Value
+  reason: invalid Join operands
+  resource: '001'
+  service: codebuild
+  stack: producer

@@ -1,0 +1,26 @@
+display: {}
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Tags
+  reason: 'unresolved or cyclic Condition: Unknown'
+  reference_diagnostics: []
+  resource: '001'
+  service: codebuild
+  stack: null
+- actual: null
+  category: error
+  desired: null
+  iac:
+    path: synthetic.yaml
+    pointer: /Fn::If/1/0/Value
+  model: null
+  property: CodeBuild.Project.Tags#/Fn::If/1/0/Value
+  reason: invalid Select operands
+  resource: '001'
+  service: codebuild
+  stack: producer
