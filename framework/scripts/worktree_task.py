@@ -1229,10 +1229,8 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
                     else "missing"
                 )
                 raise Blocked(
-                    "Task declaration error:\nModel-only finalize requires `Workflow: update`.\n\n"
-                    f"Current workflow: {current}\nCurrent task status: running\n\n"
-                    "Add or correct `- Workflow: `update`` in the Task declaration and retry finalize.\n"
-                    "Do not change the task status to completed."
+                    f"Model-only finalize: set `Workflow: update` (current: {current}), "
+                    "then retry; keep task status running."
                 )
     with lifecycle_lock(root):
         if path.with_suffix(".setup-lock").exists():

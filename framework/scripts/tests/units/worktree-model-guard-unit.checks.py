@@ -100,8 +100,8 @@ def check_model_finalize_cannot_bypass_candidate(tmp_path, action):
 @pytest.mark.parametrize(
     ("workflow", "model", "status", "expected"),
     [
-        (None, True, "running", "Current workflow: missing"),
-        ("import", True, "running", "Current workflow: import"),
+        (None, True, "running", "current: missing"),
+        ("import", True, "running", "current: import"),
         ("update", True, "running", "model path"),
         (None, False, "running", "ordinary path"),
         (None, False, "completed", "ordinary path"),
@@ -143,12 +143,12 @@ def check_finalize_workflow_diagnostic(tmp_path, workflow, model, status, expect
     ):
         with pytest.raises((wt.Blocked, RuntimeError), match=expected) as error:
             wt._finalize(tmp_path, "example")
-        if expected.startswith("Current workflow"):
+        if expected.startswith("current:"):
             message = str(error.value)
             assert "Workflow: update" in message
-            assert "Current task status: running" in message
-            assert "Do not change the task status to completed" in message
-            assert "retry finalize" in message
+            assert "retry" in message
+            assert "keep task status running" in message
+            assert "\n" not in message
 
 
 def _callback_check_git_baseline_fail_closed_task(tmp_path, /):
