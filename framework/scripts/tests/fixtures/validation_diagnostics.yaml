@@ -14,11 +14,6 @@ cases:
       metadata:
         status: FAIL
       status: FAIL
-  metadata-04:
-    data:
-      metadata:
-        status: FAIL
-      status: FAIL
   metadata-05:
     data:
       metadata:
