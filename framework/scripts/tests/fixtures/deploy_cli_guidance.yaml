@@ -1,0 +1,44 @@
+version: 1
+cases:
+  error-01:
+    data:
+      stage: PREPARATION
+      errorType: ValueError
+      message: private-secret
+      nextAction: HUMAN_REVIEW
+  error-02:
+    data:
+      stage: REGISTRATION
+      errorType: InputChanged
+      message: private-secret
+      nextAction: PREPARE_AGAIN
+  error-03:
+    data:
+      stage: REGISTRATION
+      errorType: OSError
+      message: private-secret
+      nextAction: HUMAN_REVIEW
+  error-04:
+    data:
+      stage: TASK_AUTHORITY
+      errorType: ValueError
+      message: private-secret
+      nextAction: CONTEXT_REVIEW
+  error-05:
+    data:
+      stage: AUTHENTICATION
+      errorType: IdentityError
+      message: private-secret
+      nextAction: CONTEXT_REVIEW
+  error-06:
+    data:
+      stage: TARGET_SELECTION
+      errorType: RuntimeError
+      message: private-secret
+      nextAction: CONTEXT_REVIEW
+  error-07:
+    data:
+      stage: HANDOFF
+      errorType: ValueError
+      message: private-secret
+      nextAction: HUMAN_REVIEW

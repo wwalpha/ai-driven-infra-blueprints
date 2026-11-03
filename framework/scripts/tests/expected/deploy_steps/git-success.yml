@@ -1,0 +1,124 @@
+failedAttempt:
+  deployResult: FAIL
+  finalBlockers:
+  - reason: current observation needs sync
+    stack: A
+  - reason: current AWS is running or unreadable
+    stack: A
+  gitPublication:
+    checkpointRequired: []
+    nextActions: []
+    status: SUCCESS
+  modelSave: COMPLETE
+  nextActions:
+  - action: finalize
+    taskId: deploy
+  pendingGeneration: {}
+  repairFailure: null
+  result: COMPLETE
+  snapshotValidation: PASS
+  states:
+    A:
+      attempt: FAILED
+      attemptResult: null
+      aws: UNKNOWN
+      changeSetId: null
+      changes: []
+      checkpoint: CHECKPOINTED
+      coverage: {}
+      deferredConsumers: []
+      endedRequest: null
+      failure: null
+      generation: COMPLETE
+      observed: COMPLETE
+      requestError: null
+      requestPending: false
+      runtime: null
+      stackId: null
+      stackStatus: null
+      unexecutedReason: null
+  task: completed
+pendingCheckpoint:
+  deployResult: SUCCESS
+  finalBlockers:
+  - reason: current observation needs sync
+    stack: A
+  - reason: current AWS is running or unreadable
+    stack: A
+  gitPublication:
+    checkpointRequired:
+    - A
+    nextActions: []
+    reason: finish the pending Stack checkpoint before Git publication
+    retryable: false
+    status: SUCCESS
+  modelSave: COMPLETE
+  nextActions:
+  - action: checkpoint
+    stacks:
+    - A
+  pendingGeneration: {}
+  repairFailure: null
+  result: PENDING
+  snapshotValidation: PASS
+  states:
+    A:
+      attempt: SUCCESS
+      attemptResult: null
+      aws: UNKNOWN
+      changeSetId: null
+      changes: []
+      checkpoint: CHECKPOINTED
+      coverage: {}
+      deferredConsumers: []
+      endedRequest: null
+      failure: null
+      generation: COMPLETE
+      observed: COMPLETE
+      requestError: null
+      requestPending: false
+      runtime: null
+      stackId: null
+      stackStatus: null
+      unexecutedReason: null
+  task: completed
+report:
+  deployResult: SUCCESS
+  finalBlockers:
+  - reason: current observation needs sync
+    stack: A
+  - reason: current AWS is running or unreadable
+    stack: A
+  gitPublication:
+    checkpointRequired: []
+    nextActions: []
+    status: SUCCESS
+  modelSave: COMPLETE
+  nextActions:
+  - action: finalize
+    taskId: deploy
+  pendingGeneration: {}
+  repairFailure: null
+  result: COMPLETE
+  snapshotValidation: PASS
+  states:
+    A:
+      attempt: SUCCESS
+      attemptResult: null
+      aws: UNKNOWN
+      changeSetId: null
+      changes: []
+      checkpoint: CHECKPOINTED
+      coverage: {}
+      deferredConsumers: []
+      endedRequest: null
+      failure: null
+      generation: COMPLETE
+      observed: COMPLETE
+      requestError: null
+      requestPending: false
+      runtime: null
+      stackId: null
+      stackStatus: null
+      unexecutedReason: null
+  task: completed

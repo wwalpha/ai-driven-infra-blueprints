@@ -1,0 +1,99 @@
+version: 1
+cases:
+  checkpoint-pending:
+    data:
+      states: &id001
+        A:
+          status: SUCCESS
+          observedSynced: true
+          checkpointed: true
+      publication:
+        status: CONFLICT
+      context:
+        snapshotValidation: PASS
+        taskFile: tasks/deploy.md
+      phase: deploy
+      taskStatus: completed
+  failed-unstarted:
+    data:
+      states:
+        A:
+          status: SUCCESS
+          observedSynced: true
+          checkpointed: true
+        B:
+          status: FAILED
+          observedSynced: true
+          checkpointed: true
+        C:
+          status: NOT_STARTED
+          observedSynced: true
+          checkpointed: true
+      context:
+        deployResult: FAIL
+        snapshotValidation: PASS
+  unknown-poll:
+    data:
+      orders:
+      - 10
+      completions:
+        A:
+        - UNRECOGNIZED
+  intermediate-not-started:
+    data:
+      status: NOT_STARTED
+  intermediate-ready:
+    data:
+      status: READY
+  git-pending:
+    data:
+      status: PENDING
+      actions:
+      - action: deploy-publish
+        command:
+        - python3
+        - worktree_task.py
+        - deploy-publish
+      states: *id001
+  git-conflict:
+    data:
+      status: CONFLICT
+      actions:
+      - action: review-publication-conflict
+        command: null
+        humanApprovalRequired: true
+      states: *id001
+  git-success:
+    data:
+      status: SUCCESS
+      actions: []
+      states: *id001
+  request-identity-input:
+    data:
+      record:
+        operation: execute_change_set
+        name: A
+        stackId: stack
+        changeSetId: change
+        token: own
+      change:
+        ChangeSetId: change
+        StackId: stack
+        ExecutionStatus: EXECUTE_COMPLETE
+      current:
+        StackId: stack
+        StackStatus: UPDATE_COMPLETE
+  settled-order-input:
+    data:
+      orders:
+      - 10
+      - 20
+  completion-task-input:
+    files:
+      task.md: '## Task contract
+
+        - Task type: `infrastructure`
+
+        - Infrastructure phase: `deploy`
+
+        '

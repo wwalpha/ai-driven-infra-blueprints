@@ -1,0 +1,11 @@
+cause:
+  code: null
+  detailDigest: 67289abcaf488e5784135353253ce19e9885d06779f8938267339f1ee657181a
+  diagnosticCategories: []
+  errorType: RuntimeError
+nextAction:
+  command: null
+  reason: Execution stopped at this stage. Review the current cause, Task authority
+    and inputs; no safe automatic command is established.
+  type: CONTEXT_REVIEW
+stage: TARGET_SELECTION

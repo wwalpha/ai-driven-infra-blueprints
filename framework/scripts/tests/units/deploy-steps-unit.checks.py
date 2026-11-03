@@ -37,7 +37,9 @@ from model.core import properties, stack_model, validate_model_keys
 from model.observed import verify_observed_outputs
 from model.projection import observed_value
 from support.cloudformation_deploy_fixtures import Fake, advance_group, states, units
+from support.fixture_cases import load_case
 from support.pytest_cli import run
+from support.regression_cases import case_ids
 from utils import sealed_evidence
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
@@ -144,80 +146,95 @@ def check_advance_retains_original_execute_after_interruption():
     assert len([e for e in backend.events if e[0] == "start"]) == 2
 
 
-def check_checkpoint_pending_is_unfinished_even_after_observed(monkeypatch):
-    monkeypatch.setattr(publication, "display", lambda backend: {"status": "CONFLICT"})
-    states = {"A": {"status": "SUCCESS", "observedSynced": True, "checkpointed": True}}
+def checkpoint_pending_is_unfinished_even_after_observed_case(monkeypatch, case):
+    data = case["data"]
+    display = Mock(return_value=copy.deepcopy(data["publication"]))
+    monkeypatch.setattr(publication, "display", display)
+    states = copy.deepcopy(data["states"])
     backend = SimpleNamespace(
-        phase="deploy",
-        task_status="completed",
+        phase=data["phase"],
+        task_status=data["taskStatus"],
         states=states,
         run_context={
+            **data["context"],
             "states": states,
-            "snapshotValidation": "PASS",
-            "taskFile": "tasks/deploy.md",
-            "gitPublication": {"status": "CONFLICT"},
+            "gitPublication": copy.deepcopy(data["publication"]),
         },
     )
     report = steps.describe(backend)
-    assert report["result"] == "PUBLICATION_PENDING"
-    assert report["states"]["A"]["attempt"] == "SUCCESS"
-    assert report["gitPublication"]["status"] == "CONFLICT"
+    TestCase().assertEqual(report["result"], "PUBLICATION_PENDING")
+    TestCase().assertEqual(report["states"]["A"]["attempt"], "SUCCESS")
+    TestCase().assertEqual(report["gitPublication"]["status"], "CONFLICT")
+    display.assert_called_once_with(backend)
+    return report
 
 
-@pytest.mark.parametrize("status", ["NOT_STARTED", "READY"])
-def check_intermediate_sync_does_not_finish_unattempted_deploy(status):
-    saved = {"status": status, "observedSynced": True, "checkpointed": True}
+@pytest.mark.parametrize("case_id", case_ids("deploy_steps", prefix="checkpoint-"))
+def check_checkpoint_pending_is_unfinished_even_after_observed(
+    monkeypatch, case_runner, case_id
+):
+    case_runner.run(
+        "deploy_steps",
+        case_id,
+        partial(checkpoint_pending_is_unfinished_even_after_observed_case, monkeypatch),
+    )
+
+
+def intermediate_sync_does_not_finish_unattempted_deploy_case(case):
+    data = case["data"]
+    saved = {"status": data["status"], "observedSynced": True, "checkpointed": True}
     state = {"A": saved}
     backend = SimpleNamespace(
-        states=state,
-        run_context={"states": state, "snapshotValidation": "PASS"},
+        states=state, run_context={"states": state, "snapshotValidation": "PASS"}
     )
-    TestCase().assertNotEqual(steps.describe(backend)["result"], "COMPLETE")
+    report = steps.describe(backend)
+    TestCase().assertNotEqual(report["result"], "COMPLETE")
     state["B"] = {
         "status": "SETTLED",
         "attemptResult": "UNKNOWN",
         "observedSynced": True,
     }
     TestCase().assertNotEqual(steps.describe(backend)["result"], "COMPLETE")
+    return {"initial": report, "unknownPeer": steps.describe(backend)}
 
 
-def check_failed_attempt_cannot_finish_with_unstarted_stack():
-    states = {
-        name: {"status": status, "observedSynced": True, "checkpointed": True}
-        for name, status in [("A", "SUCCESS"), ("B", "FAILED"), ("C", "NOT_STARTED")]
-    }
-    backend = SimpleNamespace(
-        states=states,
-        run_context={
-            "states": states,
-            "deployResult": "FAIL",
-            "snapshotValidation": "PASS",
-        },
+@pytest.mark.parametrize("case_id", case_ids("deploy_steps", prefix="intermediate-"))
+def check_intermediate_sync_does_not_finish_unattempted_deploy(case_runner, case_id):
+    case_runner.run(
+        "deploy_steps",
+        case_id,
+        intermediate_sync_does_not_finish_unattempted_deploy_case,
     )
-    TestCase().assertNotEqual(steps.describe(backend)["result"], "COMPLETE")
 
 
-@pytest.mark.parametrize("status", ["PENDING", "CONFLICT", "SUCCESS"])
-def check_git_next_actions_are_exposed_until_publication_succeeds(status, monkeypatch):
+def failed_attempt_cannot_finish_with_unstarted_stack_case(case):
+    data = case["data"]
+    states = copy.deepcopy(data["states"])
+    backend = SimpleNamespace(
+        states=states, run_context={**data["context"], "states": states}
+    )
+    report = steps.describe(backend)
+    TestCase().assertNotEqual(report["result"], "COMPLETE")
+    return report
+
+
+@pytest.mark.parametrize("case_id", case_ids("deploy_steps", prefix="failed-"))
+def check_failed_attempt_cannot_finish_with_unstarted_stack(case_runner, case_id):
+    case_runner.run(
+        "deploy_steps", case_id, failed_attempt_cannot_finish_with_unstarted_stack_case
+    )
+
+
+def git_next_actions_are_exposed_until_publication_succeeds_case(monkeypatch, case):
+    data = case["data"]
+    status = data["status"]
     monkeypatch.setattr(
         publication,
         "display",
         lambda backend: copy.deepcopy(backend.run_context["gitPublication"]),
     )
-    states = {"A": {"status": "SUCCESS", "observedSynced": True, "checkpointed": True}}
-    action = (
-        {
-            "action": "deploy-publish",
-            "command": ["python3", "worktree_task.py", "deploy-publish"],
-        }
-        if status == "PENDING"
-        else {
-            "action": "review-publication-conflict",
-            "command": None,
-            "humanApprovalRequired": True,
-        }
-    )
-    actions = [] if status == "SUCCESS" else [action]
+    states = copy.deepcopy(data["states"])
+    actions = copy.deepcopy(data["actions"])
     backend = SimpleNamespace(
         phase="deploy",
         task_status="completed",
@@ -230,32 +247,63 @@ def check_git_next_actions_are_exposed_until_publication_succeeds(status, monkey
         },
     )
     report = steps.describe(backend)
-    assert report["result"] == (
-        "COMPLETE" if status == "SUCCESS" else "PUBLICATION_PENDING"
+    TestCase().assertTrue(
+        report["result"]
+        == ("COMPLETE" if status == "SUCCESS" else "PUBLICATION_PENDING")
     )
-    assert report["nextActions"] == (
-        [{"action": "finalize", "taskId": "deploy"}] if status == "SUCCESS" else actions
+    TestCase().assertTrue(
+        report["nextActions"]
+        == (
+            [{"action": "finalize", "taskId": "deploy"}]
+            if status == "SUCCESS"
+            else actions
+        )
     )
     backend.run_context["checkpointPending"] = {"stacks": ["A"], "after": {}}
     pending_report = steps.describe(backend)
-    assert pending_report["result"] != "COMPLETE"
-    assert not any(
-        a["action"] == "deploy-publish" for a in pending_report["nextActions"]
+    TestCase().assertTrue(pending_report["result"] != "COMPLETE")
+    TestCase().assertTrue(
+        not any(
+            (a["action"] == "deploy-publish" for a in pending_report["nextActions"])
+        )
     )
-    assert not pending_report["gitPublication"]["retryable"]
-    assert not any(
-        a["action"] == "deploy-publish"
-        for a in pending_report["gitPublication"]["nextActions"]
+    TestCase().assertTrue(not pending_report["gitPublication"]["retryable"])
+    TestCase().assertTrue(
+        not any(
+            (
+                a["action"] == "deploy-publish"
+                for a in pending_report["gitPublication"]["nextActions"]
+            )
+        )
     )
     backend.run_context.pop("checkpointPending")
     states["A"]["status"] = "FAILED"
     TestCase().assertEqual(steps.describe(backend)["deployResult"], "FAIL")
+    return {
+        "report": report,
+        "pendingCheckpoint": pending_report,
+        "failedAttempt": steps.describe(backend),
+    }
 
 
-def check_unknown_poll_stops_without_resubmit():
-    scoped = units(10)
+@pytest.mark.parametrize("case_id", case_ids("deploy_steps", prefix="git-"))
+def check_git_next_actions_are_exposed_until_publication_succeeds(
+    monkeypatch, case_runner, case_id
+):
+    case_runner.run(
+        "deploy_steps",
+        case_id,
+        partial(
+            git_next_actions_are_exposed_until_publication_succeeds_case, monkeypatch
+        ),
+    )
+
+
+def unknown_poll_stops_without_resubmit_case(case):
+    data = case["data"]
+    scoped = units(*data["orders"])
     state = states(scoped)
-    backend = Fake(completions={"A": ["UNRECOGNIZED"]})
+    backend = Fake(completions=data["completions"])
     scheduler.run_group(scoped, 1, state, backend)
     token = state["A"]["clientToken"]
     TestCase().assertEqual(scheduler.run_group(scoped, 1, state, backend), "ACTIVE")
@@ -266,8 +314,14 @@ def check_unknown_poll_stops_without_resubmit():
     )
     TestCase().assertEqual(result["result"], "PENDING")
     TestCase().assertIn({"action": "advance"}, result["nextActions"])
-    assert state["A"]["clientToken"] == token
-    assert len([e for e in backend.events if e[0] == "start"]) == 1
+    TestCase().assertTrue(state["A"]["clientToken"] == token)
+    TestCase().assertTrue(len([e for e in backend.events if e[0] == "start"]) == 1)
+    return {"report": result, "events": [list(event) for event in backend.events]}
+
+
+@pytest.mark.parametrize("case_id", case_ids("deploy_steps", prefix="unknown-"))
+def check_unknown_poll_stops_without_resubmit(case_runner, case_id):
+    case_runner.run("deploy_steps", case_id, unknown_poll_stops_without_resubmit_case)
 
 
 def check_runtime_cleanup_returns_after_one_read():
@@ -610,19 +664,10 @@ class TestCurrentState(TestCase):
         self.assertNotIn("unexecutedReason", state["A"])
 
     def test_change_set_completion_requires_matching_identities(self):
-        record = {
-            "operation": "execute_change_set",
-            "name": "A",
-            "stackId": "stack",
-            "changeSetId": "change",
-            "token": "own",
-        }
-        change = {
-            "ChangeSetId": "change",
-            "StackId": "stack",
-            "ExecutionStatus": "EXECUTE_COMPLETE",
-        }
-        current = {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
+        data = load_case("deploy_steps", "request-identity-input")["data"]
+        record = data["record"]
+        change = data["change"]
+        current = data["current"]
         aws = Mock(side_effect=[change, {"StackEvents": []}])
         self.assertTrue(current_request.settled(aws, record, current))
         self.assertEqual(record["result"], "SETTLED")
@@ -808,7 +853,9 @@ class TestCurrentState(TestCase):
         self.assertEqual(backend.current_satisfied.call_count, 3)
 
     def test_settled_revalidation_blocks_next_order_on_mismatch(self):
-        scoped = units(10, 20)
+        scoped = units(
+            *load_case("deploy_steps", "settled-order-input")["data"]["orders"]
+        )
         state = states(scoped)
         state["A"] = {"status": "SETTLED", "attemptResult": "UNKNOWN"}
         backend = Fake()
@@ -1100,7 +1147,7 @@ class TestCurrentState(TestCase):
 
     def test_explicit_completion_requires_the_saved_final_candidate(self):
         task = SimpleNamespace(
-            text="## Task contract\n- Task type: `infrastructure`\n- Infrastructure phase: `deploy`\n"
+            text=load_case("deploy_steps", "completion-task-input")["files"]["task.md"]
         )
         with patch.object(
             worktree, "require_complete", side_effect=Blocked("use sync --final")

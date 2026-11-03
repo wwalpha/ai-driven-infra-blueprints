@@ -1,0 +1,97 @@
+initial:
+  deployResult: PENDING
+  finalBlockers:
+  - reason: current observation needs sync
+    stack: A
+  - reason: current AWS is running or unreadable
+    stack: A
+  - reason: attempts or explicit unexecuted reasons are incomplete
+  gitPublication: null
+  modelSave: COMPLETE
+  nextActions:
+  - action: advance
+  pendingGeneration: {}
+  repairFailure: null
+  result: PENDING
+  snapshotValidation: PASS
+  states:
+    A:
+      attempt: READY
+      attemptResult: null
+      aws: UNKNOWN
+      changeSetId: null
+      changes: []
+      checkpoint: CHECKPOINTED
+      coverage: {}
+      deferredConsumers: []
+      endedRequest: null
+      failure: null
+      generation: COMPLETE
+      observed: COMPLETE
+      requestError: null
+      requestPending: false
+      runtime: null
+      stackId: null
+      stackStatus: null
+      unexecutedReason: null
+  task: running
+unknownPeer:
+  deployResult: UNKNOWN
+  finalBlockers:
+  - reason: current observation needs sync
+    stack: A
+  - reason: current AWS is running or unreadable
+    stack: A
+  - reason: current observation needs sync
+    stack: B
+  - reason: current AWS is running or unreadable
+    stack: B
+  - reason: attempts or explicit unexecuted reasons are incomplete
+  gitPublication: null
+  modelSave: COMPLETE
+  nextActions:
+  - action: advance
+  pendingGeneration: {}
+  repairFailure: null
+  result: PENDING
+  snapshotValidation: PASS
+  states:
+    A:
+      attempt: READY
+      attemptResult: null
+      aws: UNKNOWN
+      changeSetId: null
+      changes: []
+      checkpoint: CHECKPOINTED
+      coverage: {}
+      deferredConsumers: []
+      endedRequest: null
+      failure: null
+      generation: COMPLETE
+      observed: COMPLETE
+      requestError: null
+      requestPending: false
+      runtime: null
+      stackId: null
+      stackStatus: null
+      unexecutedReason: null
+    B:
+      attempt: SETTLED
+      attemptResult: UNKNOWN
+      aws: UNKNOWN
+      changeSetId: null
+      changes: []
+      checkpoint: PENDING
+      coverage: {}
+      deferredConsumers: []
+      endedRequest: null
+      failure: null
+      generation: COMPLETE
+      observed: COMPLETE
+      requestError: null
+      requestPending: false
+      runtime: null
+      stackId: null
+      stackStatus: null
+      unexecutedReason: null
+  task: running

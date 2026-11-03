@@ -1,0 +1,63 @@
+events:
+- - prepare
+  - A
+  - app.yaml
+  - a.json
+- - start
+  - A
+  - cs-A
+- - poll
+  - A
+  - UNRECOGNIZED
+- - poll
+  - A
+  - UNRECOGNIZED
+- - poll
+  - A
+  - UNRECOGNIZED
+report:
+  deployResult: UNKNOWN
+  finalBlockers:
+  - reason: current observation needs sync
+    stack: A
+  - reason: current AWS is running or unreadable
+    stack: A
+  - reason: attempts or explicit unexecuted reasons are incomplete
+  gitPublication: null
+  modelSave: PENDING
+  nextActions:
+  - action: advance
+  - action: sync
+    stacks:
+    - A
+  pendingGeneration: {}
+  repairFailure: null
+  result: PENDING
+  snapshotValidation: NOT_RUN
+  states:
+    A:
+      attempt: RUNNING
+      attemptResult: null
+      aws: UNKNOWN
+      changeSetId: cs-A
+      changes: []
+      checkpoint: PENDING
+      coverage: {}
+      deferredConsumers: []
+      endedRequest: null
+      failure:
+        classification: SUBMISSION_UNKNOWN
+        code: null
+        executionState: UNKNOWN
+        operation: null
+        service: null
+        stage: POLL
+      generation: NOT_STARTED
+      observed: PENDING
+      requestError: null
+      requestPending: false
+      runtime: null
+      stackId: null
+      stackStatus: UNRECOGNIZED
+      unexecutedReason: null
+  task: running

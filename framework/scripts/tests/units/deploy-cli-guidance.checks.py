@@ -5,6 +5,7 @@ import json
 import shlex
 import sys
 from argparse import Namespace
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
@@ -18,6 +19,8 @@ import pytest
 from deploy import cli_guidance as G
 from deploy import controller, failures, preparation
 from model.core import ReferenceResolutionError
+from support.fixture_cases import load_case
+from support.regression_cases import case_ids
 from utils.aws.identity import IdentityError
 from utils.cloudformation.environment import EnvironmentValuePending
 
@@ -35,25 +38,40 @@ ARGS = Namespace(
 )
 
 
-@pytest.mark.parametrize(
-    ("stage", "error", "kind"),
-    [
-        ("PREPARATION", ValueError("private-secret"), "HUMAN_REVIEW"),
-        ("REGISTRATION", G.InputChanged("private-secret"), "PREPARE_AGAIN"),
-        ("REGISTRATION", OSError("private-secret"), "HUMAN_REVIEW"),
-        ("TASK_AUTHORITY", ValueError("private-secret"), "CONTEXT_REVIEW"),
-        ("AUTHENTICATION", IdentityError("private-secret"), "CONTEXT_REVIEW"),
-        ("TARGET_SELECTION", RuntimeError("private-secret"), "CONTEXT_REVIEW"),
-        ("HANDOFF", ValueError("private-secret"), "HUMAN_REVIEW"),
-    ],
-)
-def check_exception_routes_do_not_echo_secrets(stage, error, kind):
-    report = G.stopped(stage, error)
-    assert (
-        report["nextAction"]["type"] == kind and report["nextAction"]["command"] is None
+def exception_route_case(case):
+    data = case["data"]
+    constructors = {
+        "ValueError": ValueError,
+        "InputChanged": G.InputChanged,
+        "OSError": OSError,
+        "IdentityError": IdentityError,
+        "RuntimeError": RuntimeError,
+    }
+    error = constructors[data["errorType"]](data["message"])
+    report = G.stopped(data["stage"], error)
+    if data["message"] in json.dumps(report):
+        pytest.fail("guidance exposed a synthetic protected value", pytrace=False)
+    TestCase().assertEqual(report["nextAction"]["type"], data["nextAction"])
+    TestCase().assertIsNone(report["nextAction"]["command"])
+    TestCase().assertTrue(report["cause"]["detailDigest"])
+    return report
+
+
+@pytest.mark.parametrize("case_id", case_ids("deploy_cli_guidance"))
+def check_exception_routes_do_not_echo_secrets(case_runner, case_id):
+    case_runner.run("deploy_cli_guidance", case_id, exception_route_case)
+
+
+def error_with_synthetic_leak(describe, error):
+    return {**describe(error), "detail": "private-secret"}
+
+
+def check_error_secret_guard_precedes_snapshot(monkeypatch):
+    monkeypatch.setattr(
+        G, "safe_error", partial(error_with_synthetic_leak, G.safe_error)
     )
-    assert "private-secret" not in json.dumps(report)
-    assert report["cause"]["detailDigest"]
+    with pytest.raises(pytest.fail.Exception, match="protected value"):
+        exception_route_case(load_case("deploy_cli_guidance", "error-01"))
 
 
 def check_pending_failure_uses_type_not_prose():

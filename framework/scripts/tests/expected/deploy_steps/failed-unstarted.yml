@@ -1,0 +1,82 @@
+deployResult: FAIL
+finalBlockers:
+- reason: current observation needs sync
+  stack: A
+- reason: current AWS is running or unreadable
+  stack: A
+- reason: current observation needs sync
+  stack: B
+- reason: current AWS is running or unreadable
+  stack: B
+- reason: current observation needs sync
+  stack: C
+- reason: current AWS is running or unreadable
+  stack: C
+- reason: attempts or explicit unexecuted reasons are incomplete
+gitPublication: null
+modelSave: COMPLETE
+nextActions:
+- action: advance
+pendingGeneration: {}
+repairFailure: null
+result: PENDING
+snapshotValidation: PASS
+states:
+  A:
+    attempt: SUCCESS
+    attemptResult: null
+    aws: UNKNOWN
+    changeSetId: null
+    changes: []
+    checkpoint: CHECKPOINTED
+    coverage: {}
+    deferredConsumers: []
+    endedRequest: null
+    failure: null
+    generation: COMPLETE
+    observed: COMPLETE
+    requestError: null
+    requestPending: false
+    runtime: null
+    stackId: null
+    stackStatus: null
+    unexecutedReason: null
+  B:
+    attempt: FAILED
+    attemptResult: null
+    aws: UNKNOWN
+    changeSetId: null
+    changes: []
+    checkpoint: CHECKPOINTED
+    coverage: {}
+    deferredConsumers: []
+    endedRequest: null
+    failure: null
+    generation: COMPLETE
+    observed: COMPLETE
+    requestError: null
+    requestPending: false
+    runtime: null
+    stackId: null
+    stackStatus: null
+    unexecutedReason: null
+  C:
+    attempt: NOT_STARTED
+    attemptResult: null
+    aws: UNKNOWN
+    changeSetId: null
+    changes: []
+    checkpoint: CHECKPOINTED
+    coverage: {}
+    deferredConsumers: []
+    endedRequest: null
+    failure: null
+    generation: COMPLETE
+    observed: COMPLETE
+    requestError: null
+    requestPending: false
+    runtime: null
+    stackId: null
+    stackStatus: null
+    unexecutedReason: null
+task: running
