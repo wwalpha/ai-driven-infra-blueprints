@@ -23,7 +23,7 @@ Resolve the Task ID and Target; follow the Worktree [permission inspection and c
 python3 -B framework/scripts/worktree_task.py deploy-start --task-id <task-id>
 ```
 
-Use its returned Worktree for registration/preparation/child commands. Reuse the same valid unfinished Task and preserve Snapshot/progress/current requests; ambiguous ownership stops, never create a replacement Task. Offline preparation/help/read-only diagnostics remain available outside managed Worktrees.
+Adopt its returned `worktree` and `task_file` for registration/preparation/child commands. Inspect only the selected Task/current checkout and necessary shared metadata under the Worktree entry procedure; never investigate unrelated checkout contents or infer scope from another Task. Do not repeat the helper's Task/Git inventory after success. Reuse the same valid unfinished Task and preserve Snapshot/progress/current requests; ambiguous ownership stops, never create a replacement Task. Offline preparation/help/read-only diagnostics remain available outside managed Worktrees.
 
 ## SDK preparation
 
@@ -36,7 +36,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparati
 python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --register <absolute-preparation.json>
 ```
 
-Repeat `--stack`, or use inclusive `--order-from`/`--order-to` instead; never combine the selectors. Optional `--service` checks the discovered owners and grants no additional services. Use `--aws-account-id` instead of `--alias` when no alias exists and the configured `--profile` when set. Missing/invalid scope, changed inputs or ambiguous ownership stop registration. Preserve the registered Snapshot and all fixed StackNames on resume; do not rerun old preparation to replace evidence. External consumers are deferred without Model/View authority.
+Repeat `--stack`, or use inclusive `--order-from`/`--order-to` instead; never combine the selectors. Optional `--service` checks the discovered owners and grants no additional services. Use `--aws-account-id` instead of `--alias` when no alias exists and the configured `--profile` when set. Missing/invalid scope, changed inputs or ambiguous ownership stop registration. Preserve the registered Snapshot and all fixed StackNames on resume; do not rerun old preparation to replace evidence. External consumers are deferred without Model/View authority. On a valid unfinished Task, use its existing contract/Snapshot and go directly to SDK operations; do not prepare/register again or search other Tasks for inputs.
 
 ## SDK operations
 
@@ -62,7 +62,7 @@ env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-pyth
 
 Inspect `stage`, `cause`, `nextAction`/`nextActions` and actual result separately. A null or missing command means review; do not infer authority or a retry. Stop new starts on Task/context/input mismatch or unresolved dependencies, retaining accepted requests for observation. No Sub Agents, fixed-period sync or background Model writer.
 
-Only CREATE resources with unique explicit cfn-logicalId, active Conditions and confirmed ownership are deployable; IMPORT resources and external owners remain untouched. The Controller validates current AWS context, fixed Snapshot, template/parameters/artifacts, full ChangeSets, dependencies, DeployOrder and MaxConcurrentStacks at execution boundaries. Do not infer AWS absence from read errors or success from an old COMPLETE/Outputs/checkpoint. Retain original StackId/ChangeSetId/token for uncertain requests; never blindly resend Create/Execute, delete, rollback or redeploy successful Stacks.
+Only CREATE resources with unique explicit cfn-logicalId, active Conditions and confirmed ownership are deployable; IMPORT resources and external owners remain untouched. The Controller validates current AWS context, fixed Snapshot, template/parameters/artifacts, full ChangeSets, dependencies, DeployOrder and MaxConcurrentStacks at execution boundaries. After authentication and reviewed registration, use `advance` directly: no manual duplicate AWS inventory, mechanical `status` or DeployOrder recomputation before it. These controller checks still run at every required boundary. Do not infer AWS absence from read errors or success from an old COMPLETE/Outputs/checkpoint. Retain original StackId/ChangeSetId/token for uncertain requests; never blindly resend Create/Execute, delete, rollback or redeploy successful Stacks.
 
 ## SDK finish
 

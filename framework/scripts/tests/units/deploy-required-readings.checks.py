@@ -93,6 +93,16 @@ def check_direct_deploy_routes():
     assert "--action" not in sections["common-entry"]
     assert "no unconditional status-before-advance call" in sections["sdk-operations"]
     rule_readings(root, skill, text)
+    entry = sections["managed-entry"]
+    assert "returned `worktree` and `task_file`" in entry
+    assert "never investigate unrelated checkout contents" in entry
+    assert "do not prepare/register again" in sections["sdk-preparation"]
+    permission = markdown_sections(
+        (root / ".agents/skills/worktree/SKILL.md").read_text(encoding="utf-8")
+    )["sandbox-permission-approval-and-continuation"]
+    assert "Deploy entry only (`deploy-start`)" in permission
+    assert "do not enter unrelated checkouts" in permission
+    assert "does not change checkpoint, publication, finalize or cleanup" in permission
 
 
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
