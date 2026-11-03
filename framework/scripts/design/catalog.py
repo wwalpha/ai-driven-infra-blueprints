@@ -382,7 +382,12 @@ def main() -> int:
                 resolved = catalog.cloudformation_type(resource_type)
                 print(f"{resource_type}: {resolved}" if multiple else resolved)
             except (KeyError, ValueError) as error:
-                errors.append(f"{resource_type}: {error}" if multiple else str(error))
+                message = str(error)
+                errors.append(
+                    f"{resource_type}: {message}"
+                    if multiple and resource_type not in message
+                    else message
+                )
     print("API design catalog: " + ("FAIL" if errors else "PASS"))
     for error in errors:
         print(f"- {error}")

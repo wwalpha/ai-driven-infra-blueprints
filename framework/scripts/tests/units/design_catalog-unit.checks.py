@@ -98,6 +98,7 @@ def test_catalog_cli_batch_and_single(monkeypatch, capsys):
             "Macie.Session",
             "QuickSight.Group",
             "Macie.ClassificationJob",
+            "Macie.Unknown",
             "Macie.Session",
         ],
     )
@@ -106,8 +107,10 @@ def test_catalog_cli_batch_and_single(monkeypatch, capsys):
     assert output.count("Macie.Session: AWS::Macie::Session") == 2
     assert "QuickSight.Group: AWS::QuickSight::Group" in output
     assert (
-        "Macie.ClassificationJob" in output and "CloudFormation unsupported" in output
+        "- Macie.ClassificationJob: CloudFormation unsupported; implementation remains incomplete if this resource is in scope\n"
+        in output
     )
+    assert "- Macie.Unknown: 'AWS::Macie::Unknown'\n" in output
     assert "API design catalog: FAIL" in output
     assert create_catalog.call_count == 1
 

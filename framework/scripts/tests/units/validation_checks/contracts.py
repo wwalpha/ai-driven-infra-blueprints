@@ -158,7 +158,10 @@ def check_implementation_preflight_prompt() -> None:
     assert (
         "If all portions match" in preflight
         and "static validation once" in preflight
-        and "finish without a Task" in preflight
+        and "finish without creating a Task" in preflight
+        and "a no-diff confirmation alone does not complete it" in preflight
+        and "Required changes, Acceptance checks, and Task completion contract"
+        in preflight
     )
     assert "must not save or change Model or Observed" in text
     assert (
