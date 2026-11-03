@@ -1237,7 +1237,21 @@ def _check_pr_integration_guard(tmp_path, failure):
 
 
 @pytest.mark.parametrize(
-    "change", ["none", "head", "commit", "base", "dirty", "task", "mode", "state"]
+    "change",
+    [
+        "none",
+        "head",
+        "commit",
+        "base",
+        "dirty",
+        "task",
+        "mode",
+        "state",
+        "worktree",
+        "operation",
+        "repository",
+        "redirect",
+    ],
 )
 def check_pr_candidate_identity(tmp_path, change):
     text = contract("example", ["file.txt"]).replace("`running`", "`completed`")
@@ -1245,6 +1259,8 @@ def check_pr_candidate_identity(tmp_path, change):
     publication["taskHash"] = pr.hashlib.sha256(text.encode("utf-8")).hexdigest()
     state = dict(
         task_id="example",
+        primary=str(tmp_path),
+        worktree=str(tmp_path),
         task_file="tasks/example.md",
         integrationMode="pr",
         branch=publication["head"],
@@ -1263,13 +1279,30 @@ def check_pr_candidate_identity(tmp_path, change):
     with (
         patch.object(
             wt.worktree_state,
-            "load_with_records",
+            "load_candidate",
+            return_value=(tmp_path, None, path, {} if change == "state" else state),
+        ),
+        patch.object(
+            wt.worktree_state,
+            "_repository",
+            return_value=(tmp_path, None, tmp_path, []),
+        ),
+        patch.object(
+            wt.worktree_state,
+            "_repository_identity",
             return_value=(
-                (tmp_path, None, path, {} if change == "state" else state),
-                [],
+                tmp_path / "other" if change == "redirect" else tmp_path,
+                tmp_path if change == "repository" else None,
             ),
         ),
-        patch.object(wt, "task_worktree", return_value=tmp_path),
+        patch.object(
+            wt,
+            "task_worktree",
+            side_effect=wt.Blocked("worktree changed")
+            if change in {"worktree", "operation"}
+            else None,
+            return_value=tmp_path,
+        ),
         patch.object(wt, "base_worktree", return_value=tmp_path / "base"),
         patch.object(
             wt.tasks,
@@ -1277,7 +1310,7 @@ def check_pr_candidate_identity(tmp_path, change):
             return_value=SimpleNamespace(
                 text=text + ("edit" if change == "task" else "")
             ),
-        ),
+        ) as snapshot,
         patch.object(
             wt,
             "output",
@@ -1297,8 +1330,10 @@ def check_pr_candidate_identity(tmp_path, change):
             assert pr.check_candidate(tmp_path, path, state) == (tmp_path, text)
             integration.assert_called_once()
         else:
-            with pytest.raises(wt.Blocked, match="changed"):
+            with pytest.raises(wt.Blocked, match="changed|another repository"):
                 pr.check_candidate(tmp_path, path, state)
+            if change in {"state", "repository", "redirect"}:
+                snapshot.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -1526,14 +1561,75 @@ def check_base_worktree_refusals(tmp_path, failure):
 
 
 def check_shared_records_reject_other_repository(tmp_path):
-    response = f"{tmp_path}\nfalse\n{tmp_path / 'other.git'}"
     with (
-        patch.object(worktree_state, "output", return_value=response),
+        patch.object(
+            worktree_state,
+            "_repository_identity",
+            side_effect=[
+                (tmp_path, tmp_path / "expected.git"),
+                (tmp_path, tmp_path / "other.git"),
+            ],
+        ),
         pytest.raises(wt.Blocked, match="another repository"),
     ):
-        worktree_state._repository(
-            tmp_path, records=[], expected_common=tmp_path / "expected.git"
+        worktree_state.load_candidate(tmp_path, {"primary": str(tmp_path)})
+
+
+def check_candidate_rejects_redirect_before_task_read(tmp_path):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(
+        ["git", "init", "-q", str(repository)], check=True, capture_output=True
+    )
+    target = tmp_path / "redirected"
+    target.symlink_to(repository, target_is_directory=True)
+    _, common = worktree_state._repository_identity(repository)
+    path = tmp_path / "state.json"
+    state = {"worktree": str(target), "prPublication": {}}
+    with (
+        patch.object(
+            worktree_state,
+            "load_candidate",
+            return_value=(tmp_path, common, path, state),
+        ),
+        patch.object(wt.tasks, "read_task_snapshot") as snapshot,
+        pytest.raises(wt.Blocked, match="another repository"),
+    ):
+        pr.check_candidate(tmp_path, path, state)
+    snapshot.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "change", ["branch", "detached", "locked", "prunable", "operation"]
+)
+def check_late_task_worktree_refusals(tmp_path, change):
+    state = {"worktree": str(tmp_path), "branch": "codex/worktree/example"}
+    original = {
+        "worktree": str(tmp_path),
+        "branch": "refs/heads/codex/worktree/example",
+    }
+    later = dict(original)
+    if change == "branch":
+        later["branch"] = "refs/heads/other"
+    elif change == "detached":
+        later.pop("branch")
+    elif change in {"locked", "prunable"}:
+        later[change] = "retained"
+    with (
+        patch.object(worktree_state, "worktrees", return_value=[later]),
+        patch.object(
+            worktree_state,
+            "idle_git",
+            side_effect=[None, wt.Blocked("operation in progress")]
+            if change == "operation"
+            else None,
+        ),
+    ):
+        TestCase().assertEqual(
+            worktree_state.task_worktree(tmp_path, state, records=[original]), tmp_path
         )
+        with pytest.raises(wt.Blocked, match="worktree missing|operation in progress"):
+            worktree_state.task_worktree(tmp_path, state)
 
 
 @pytest.mark.parametrize("changed", [False, True])
@@ -1608,14 +1704,11 @@ def check_pr_progress_requires_matching_state(tmp_path, change):
 
 
 @pytest.mark.parametrize("failure", ["none", "head", "base"])
-@pytest.mark.parametrize("verified", [False, True])
-def check_candidate_history_without_merge_base(tmp_path, failure, verified):
+def check_candidate_history_without_merge_base(tmp_path, failure):
     task = "tasks/example.md"
     task_path = tmp_path / task
     task_path.parent.mkdir()
     task_path.write_text("completed", encoding="utf-8")
-    lifecycle = tmp_path / "state.json"
-    lifecycle.touch()
     state = {
         "worktree": str(tmp_path),
         "task_file": task,
@@ -1628,43 +1721,19 @@ def check_candidate_history_without_merge_base(tmp_path, failure, verified):
         subprocess.CompletedProcess([], int(failure == "base")),
     ]
     with (
-        patch.object(
-            worktree_state,
-            "_repository",
-            return_value=(tmp_path, tmp_path, tmp_path, []),
-        ),
-        patch.object(worktree_state, "state_path", return_value=lifecycle),
-        patch.object(
-            worktree_state, "_load", return_value=(tmp_path, tmp_path, lifecycle, state)
-        ) as load,
-        patch.object(worktree_state, "task_worktree") as ownership,
         patch.object(worktree_state, "output", side_effect=["start", "base"]) as output,
         patch.object(worktree_state, "git", side_effect=results) as git,
     ):
         if failure == "none":
             TestCase().assertEqual(
-                worktree_state._task_start_commit(
-                    tmp_path,
-                    task,
-                    records=[],
-                    merge_base=False,
-                    verified_state=state if verified else None,
-                ),
+                worktree_state._task_history(tmp_path, task, state, merge_base=False),
                 "start",
             )
             TestCase().assertEqual(output.call_count, 2)
             TestCase().assertEqual(git.call_count, 2)
-            TestCase().assertEqual(load.call_count, int(not verified))
-            TestCase().assertEqual(ownership.call_count, int(not verified))
         else:
             with pytest.raises(wt.Blocked, match="ancestor|rewritten"):
-                worktree_state._task_start_commit(
-                    tmp_path,
-                    task,
-                    records=[],
-                    merge_base=False,
-                    verified_state=state if verified else None,
-                )
+                worktree_state._task_history(tmp_path, task, state, merge_base=False)
 
 
 def _commit_git(trace, where, *args, **kwargs):

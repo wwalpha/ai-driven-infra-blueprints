@@ -123,14 +123,19 @@ def prepare(root, path, state, base_commit, candidate):
 
 
 def check_candidate(root, path, state):
-    current, records = wt.worktree_state.load_with_records(root, state["task_id"])
+    current = wt.worktree_state.load_candidate(root, state)
+    if current[2] != path or current[3] != state:
+        raise wt.Blocked(
+            "PR candidate, Task, lifecycle or local base changed; review required"
+        )
     publication = state["prPublication"]
-    target = wt.task_worktree(root, state, records=records)
+    target = Path(state["worktree"])
+    target_root, target_common = wt.worktree_state._repository_identity(target)
+    if target_root != target or target_common != current[1]:
+        raise wt.Blocked("task worktree belongs to another repository")
     text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
     if (
-        current[2] != path
-        or current[3] != state
-        or state.get("integrationMode") != "pr"
+        state.get("integrationMode") != "pr"
         or state["merged"]
         or not state["verified"]
         or state["tip"] != state["commit"]
@@ -139,16 +144,25 @@ def check_candidate(root, path, state):
         or publication["base"] != state["base"]
         or wt.output(target, "rev-parse", "HEAD") != publication["candidate"]
         or wt.changed_paths(target)
-        or wt.output(
-            wt.base_worktree(root, state, records=records), "rev-parse", "HEAD"
-        )
-        != publication["baseCommit"]
         or hashlib.sha256(text.encode("utf-8")).hexdigest() != publication["taskHash"]
     ):
         raise wt.Blocked(
             "PR candidate, Task, lifecycle or local base changed; review required"
         )
-    wt.integration_task(target, state, records=records, expected_common=current[1])
+    wt.integration_task(target, state, candidate_common=current[1])
+    _, common, primary, records = wt.worktree_state._repository(root)
+    if (
+        common != current[1]
+        or primary != current[0]
+        or wt.output(
+            wt.base_worktree(root, state, records=records), "rev-parse", "HEAD"
+        )
+        != publication["baseCommit"]
+    ):
+        raise wt.Blocked(
+            "PR candidate, Task, lifecycle or local base changed; review required"
+        )
+    wt.task_worktree(root, state, records=records)
     return target, text
 
 

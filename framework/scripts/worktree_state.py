@@ -51,9 +51,7 @@ def worktrees(root):
     return records
 
 
-def _repository(
-    where: Path, *, records=None, expected_common=None
-) -> tuple[Path, Path, Path, list[dict[str, str]]]:
+def _repository_identity(where: Path) -> tuple[Path, Path]:
     values = output(
         where,
         "rev-parse",
@@ -73,11 +71,12 @@ def _repository(
     root = Path(root).resolve()
     if bare != "false":
         raise Blocked("a non-bare Git repository is required")
-    common = Path(common)
-    if expected_common is not None and common != expected_common:
-        raise Blocked("task worktree belongs to another repository")
-    if records is None:
-        records = worktrees(root)
+    return root, Path(common)
+
+
+def _repository(where: Path) -> tuple[Path, Path, Path, list[dict[str, str]]]:
+    root, common = _repository_identity(where)
+    records = worktrees(root)
     primary = Path(records[0]["worktree"]).resolve()
     if not primary.is_dir() or "prunable" in records[0]:
         raise Blocked("primary worktree is missing or stale")
@@ -107,9 +106,12 @@ def load(where, task_id):
     return _load(primary, common, task_id)
 
 
-def load_with_records(where, task_id):
-    root, common, primary, records = _repository(where)
-    return _load(primary, common, task_id), records
+def load_candidate(where, state):
+    _, common = _repository_identity(where)
+    primary, primary_common = _repository_identity(Path(state["primary"]))
+    if primary_common != common or primary != Path(state["primary"]):
+        raise Blocked("task worktree belongs to another repository")
+    return _load(primary, common, state["task_id"])
 
 
 def _load(primary: Path, common: Path, task_id: str) -> tuple[Path, Path, Path, dict]:
@@ -134,38 +136,27 @@ def paths(root, *args, runner=None):
     return read_paths(root, *args, runner=runner or git)
 
 
-def _task_start_commit(
-    root,
-    task_file,
-    *,
-    records=None,
-    expected_common=None,
-    merge_base=True,
-    verified_state=None,
-):
-    _, common, primary, _ = _repository(
-        root, records=records, expected_common=expected_common
-    )
+def task_start_commit(root, task_file):
+    """Return the Task's shared-base boundary, excluding inherited base commits."""
+    _, _, primary = repository(root)
     path = state_path(primary, Path(task_file).stem)
     managed = root.resolve().parent == primary / ".worktrees"
     if not path.exists():
         if managed:
             raise Blocked("managed worktree task lifecycle state missing")
         return None
-    if verified_state is not None:
-        state = verified_state
-    elif records is None:
-        _, _, _, state = load(root, Path(task_file).stem)
-    else:
-        _, _, _, state = _load(primary, common, Path(task_file).stem)
+    _, _, _, state = load(root, Path(task_file).stem)
     if Path(state["worktree"]).resolve() != root.resolve():
         if managed:
             raise Blocked("selected task lifecycle belongs to another worktree")
         return None
     if state["task_file"] != task_file:
         raise Blocked("selected task does not match managed task_file")
-    if verified_state is None:
-        task_worktree(root, state, records=records)
+    task_worktree(root, state)
+    return _task_history(root, task_file, state, merge_base=True)
+
+
+def _task_history(root, task_file, state, *, merge_base):
     start = output(
         root,
         "rev-parse",
@@ -183,11 +174,6 @@ def _task_start_commit(
     if git(root, "merge-base", "--is-ancestor", start, base, check=False).returncode:
         raise Blocked("base history was rewritten; task retained for review")
     return output(root, "merge-base", base, "HEAD") if merge_base else start
-
-
-def task_start_commit(root, task_file):
-    """Return the Task's shared-base boundary, excluding inherited base commits."""
-    return _task_start_commit(root, task_file)
 
 
 def committed_task_paths(root, task_file):

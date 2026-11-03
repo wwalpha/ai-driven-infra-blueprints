@@ -222,9 +222,7 @@ def setup(where, task_id):
         lock.rmdir()
 
 
-def integration_task(
-    target, state, approval=None, *, records=None, expected_common=None
-):
+def integration_task(target, state, approval=None, *, candidate_common=None):
     # A human-approved Git integration does not turn failed validation into completion.
     snapshot = tasks.read_task_snapshot(target, state["task_file"], live=True)
     text = snapshot.text
@@ -232,16 +230,14 @@ def integration_task(
         worktree_state.deploy_start_commit(
             target, state["task_file"], allow_merged=True
         )
-    elif records is None:
+    elif candidate_common is None:
         task_start_commit(target, state["task_file"])
     else:
-        worktree_state._task_start_commit(
-            target,
-            state["task_file"],
-            records=records,
-            expected_common=expected_common,
-            merge_base=False,
-            verified_state=state,
+        _, common = worktree_state._repository_identity(target)
+        if common != candidate_common:
+            raise Blocked("task worktree belongs to another repository")
+        worktree_state._task_history(
+            target, state["task_file"], state, merge_base=False
         )
     current = tasks.status(text)
     approval = approval or state.get("validation_failure_approval")
