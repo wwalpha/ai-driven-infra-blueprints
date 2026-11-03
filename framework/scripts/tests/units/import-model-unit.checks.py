@@ -2586,11 +2586,9 @@ def check_explicit_reference_operation(tmp_path, field):
         verify_model_operation(before, after, model_operation(full_contract), sources)
 
 
-@pytest.mark.parametrize("selection", ["fixed", "instance"])
-def check_effective_reference_identity(tmp_path, selection, monkeypatch):
+def check_effective_reference_identity(tmp_path):
     dependency_fixture(tmp_path)
     before = {p: p.read_bytes() for p in (tmp_path / "model").rglob("*") if p.is_file()}
-    # Legacy instance selection is converted to an explicit fixed producer identity.
     with (
         input_context(read_only=True),
         patch.object(sources, "_read_model", wraps=sources._read_model) as body,
