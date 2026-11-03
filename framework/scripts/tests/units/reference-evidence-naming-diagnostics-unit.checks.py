@@ -43,7 +43,6 @@ if not __debug__:
 from support.reference_evidence_shared import (
     ATHENA_KMS,
     KEY_ARN,
-    KEY_ID,
     ROOT,
     VPC,
     _reference_decision_data,
@@ -51,6 +50,7 @@ from support.reference_evidence_shared import (
     declaration,
     exported,
     fixture,
+    kms_key,
     prepared,
     resource,
     setting,
@@ -545,14 +545,7 @@ def test_recorded_evidence_survives_nested_expression_and_reversal(
 def _execute_nested_evidence(case):
     data = case["data"]
     comparison = fixture()
-    resource(
-        comparison,
-        "kms",
-        "001",
-        "KMS.Key",
-        "Key",
-        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
-    )
+    kms_key(comparison)
     actual = exported(comparison, data["expression"])
     results = []
     for left, right in [(KEY_ARN + "/suffix", actual), (actual, KEY_ARN + "/suffix")]:

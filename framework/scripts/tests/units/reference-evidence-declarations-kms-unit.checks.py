@@ -35,6 +35,7 @@ from support.reference_evidence_shared import (
     declaration,
     exported,
     fixture,
+    kms_key,
     prepared,
     resource,
     vpc,
@@ -357,14 +358,7 @@ def _execute_kms_context(case):
     data = case["data"]
     field, value = data["field"], data["value"]
     comparison = fixture()
-    resource(
-        comparison,
-        "kms",
-        "001",
-        "KMS.Key",
-        "Key",
-        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
-    )
+    kms_key(comparison)
     pseudo = dict(comparison.stack_inputs["producer"][2])
     pseudo[field] = value
     document, parameters, _ = comparison.stack_inputs["producer"]
@@ -396,14 +390,7 @@ def _execute_kms_context(case):
 
 def test_kms_conflicting_recorded_identifier_is_uncompared():
     comparison = fixture()
-    resource(
-        comparison,
-        "kms",
-        "001",
-        "KMS.Key",
-        "Key",
-        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
-    )
+    kms_key(comparison)
     actual = exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]})
     decision = comparison.reference_decision(
         KEY_ARN.replace(KEY_ID, "mrk-" + "b" * 32),
@@ -426,14 +413,7 @@ def test_kms_recorded_arn_preserves_correspondence_and_handoff(case_runner, case
 def _execute_kms_handoff(case):
     data = case["data"]
     comparison = fixture()
-    resource(
-        comparison,
-        "kms",
-        "001",
-        "KMS.Key",
-        "Key",
-        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
-    )
+    kms_key(comparison)
     actual = exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]})
     document = comparison.stack_inputs["producer"][0]
     if data["resource"] is None:
@@ -476,14 +456,7 @@ def test_kms_expression_cannot_bypass_allowed_forms(case_runner, case_id):
 
 def _execute_kms_forms(case):
     comparison = fixture()
-    resource(
-        comparison,
-        "kms",
-        "001",
-        "KMS.Key",
-        "Key",
-        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
-    )
+    kms_key(comparison)
     decision = comparison.reference_decision(
         KEY_ARN,
         exported(comparison, case["data"]["actual"]),
@@ -507,14 +480,7 @@ def test_kms_declared_literal_cannot_bypass_allowed_forms(case_runner, case_id):
 def _execute_kms_literal(case):
     data = case["data"]
     comparison = fixture()
-    resource(
-        comparison,
-        "kms",
-        "001",
-        "KMS.Key",
-        "Key",
-        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
-    )
+    kms_key(comparison)
     row = consumer(comparison, KEY_ID)
     declaration(
         comparison,
@@ -547,14 +513,7 @@ def test_key_arn_does_not_override_alias_only_service_contract(case_runner, case
 
 def _execute_kms_alias_only(case):
     comparison = fixture()
-    resource(
-        comparison,
-        "kms",
-        "001",
-        "KMS.Key",
-        "Key",
-        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
-    )
+    kms_key(comparison)
     decision = comparison.reference_decision(
         KEY_ARN,
         exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]}),
@@ -579,14 +538,7 @@ def _execute_kms_matrix(case):
     allowed = set(data["allowed"])
     model_form, iac_form = data["model_form"], data["iac_form"]
     comparison = fixture()
-    resource(
-        comparison,
-        "kms",
-        "001",
-        "KMS.Key",
-        "Key",
-        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
-    )
+    kms_key(comparison)
     resource(
         comparison,
         "kms",

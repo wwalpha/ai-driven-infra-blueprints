@@ -196,6 +196,17 @@ def vpc(comparison, identity="001", logical="Vpc", observed=VPC):
     )
 
 
+def kms_key(comparison):
+    return resource(
+        comparison,
+        "kms",
+        "001",
+        "KMS.Key",
+        "Key",
+        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
+    )
+
+
 def exported(comparison, expression, name="shared", stack="producer"):
     comparison.stack_inputs[stack][0]["Outputs"][name] = {
         "Value": expression,

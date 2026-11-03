@@ -35,6 +35,7 @@ from support.reference_evidence_shared import (
     KEY_ID,
     ROOT,
     fixture,
+    kms_key,
     resource,
     unproven_reference,
 )
@@ -95,14 +96,7 @@ def test_codebuild_material_key_id_reference_formats(case_runner, case_id):
 def _execute_codebuild_kms_form(case):
     data = case["data"]
     comparison = fixture()
-    resource(
-        comparison,
-        "kms",
-        "001",
-        "KMS.Key",
-        "Key",
-        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
-    )
+    kms_key(comparison)
     resource(
         comparison,
         "kms",

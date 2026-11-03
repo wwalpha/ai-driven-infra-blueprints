@@ -29,7 +29,6 @@ if not __debug__:
 from support.reference_evidence_shared import (
     ATHENA_KMS,
     KEY_ARN,
-    KEY_ID,
     ROOT,
     VPC,
     _reference_decision_data,
@@ -37,6 +36,7 @@ from support.reference_evidence_shared import (
     declaration,
     exported,
     fixture,
+    kms_key,
     resource,
     setting,
     vpc,
@@ -86,14 +86,7 @@ def _execute_kms_unresolved(case):
 
 def test_kms_derived_producer_diagnostics_are_unique():
     comparison = fixture()
-    resource(
-        comparison,
-        "kms",
-        "001",
-        "KMS.Key",
-        "Key",
-        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
-    )
+    kms_key(comparison)
     actual = exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]})
     proof = Evidence(comparison)
     assert proof.resolve(actual) == proof.resolve(actual) == KEY_ARN
@@ -110,14 +103,7 @@ def test_kms_runner_reports_uncompared_with_recorded_proof(case_runner, case_id)
 def _execute_kms_runner(case):
     kind, path = case["data"]["kind"], case["data"]["path"]
     comparison = fixture()
-    resource(
-        comparison,
-        "kms",
-        "001",
-        "KMS.Key",
-        "Key",
-        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
-    )
+    kms_key(comparison)
     properties = {}
     put_row(properties, path, {"Fn::ImportValue": "shared"})
     resource(
