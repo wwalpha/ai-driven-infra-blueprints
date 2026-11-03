@@ -53,6 +53,7 @@ from support.model_reference_fixtures import (
 )
 from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
+from utils.input_cache import input_context
 
 from model import dependency_index
 
@@ -194,21 +195,24 @@ def test_cloudtrail_reference_array_roundtrip(
     write(scope, values)
     before = copy.deepcopy(values)
     tables = []
-    markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
-    link = f"[{label}]({service}.md#{service}-saved-anchor)"
-    assert f"| {link} |" in markdown, markdown
-    assert '`["`' not in markdown and '`"]`' not in markdown
-    assert "CloudTrail.Trail.EventSelectors[].DataResources[].Values" in restore(
-        path, markdown, values
-    )
-    assert json.loads(literal(values["desired.row.001-003.value"])) == [
-        reference(logical_id, "ObjectArn" if service == "s3" else "Arn")
-    ]
-    assert values == before
-    with pytest.raises(ValueError, match="Model expected display"):
-        restore(
-            path, markdown.replace(f"{service}-saved-anchor", "wrong-anchor"), values
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
+        link = f"[{label}]({service}.md#{service}-saved-anchor)"
+        assert f"| {link} |" in markdown, markdown
+        assert '`["`' not in markdown and '`"]`' not in markdown
+        assert "CloudTrail.Trail.EventSelectors[].DataResources[].Values" in restore(
+            path, markdown, values
         )
+        assert json.loads(literal(values["desired.row.001-003.value"])) == [
+            reference(logical_id, "ObjectArn" if service == "s3" else "Arn")
+        ]
+        assert values == before
+        with pytest.raises(ValueError, match="Model expected display"):
+            restore(
+                path,
+                markdown.replace(f"{service}-saved-anchor", "wrong-anchor"),
+                values,
+            )
 
 
 @pytest.mark.parametrize(
@@ -359,35 +363,39 @@ def test_positions_glue_equal_names_escaping_and_roundtrip(models):
     values.update(other)
     write(scope, values)
     before = copy.deepcopy(values)
-    presentation = Presentation(values, path, models)
-    assert set(presentation.references) == {
-        Position(rid, "value", "/--bucket~1~0"),
-        Position(rid, "value", "/--project"),
-    }
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    assert "[shared-name](s3.md#s3-saved-anchor)" in markdown
-    assert "[shared-name](codebuild.md#codebuild-saved-anchor)" in markdown
-    literal_line = next(
-        line
-        for line in markdown.splitlines()
-        if 'DefaultArguments["--literal"]' in line
-    )
-    assert "| `shared-name` |" in literal_line
-    descriptions = [line for line in markdown.splitlines() if "| Description |" in line]
-    assert len(descriptions) == 2
-    assert all(
-        "| `" + exact_link + "` | " + exact_link + " |" in line for line in descriptions
-    )
-    assert "glue-arguments-source:" in markdown
-    assert "$modelRef" not in markdown
-    assert generate_markdown(path, values, FRAMEWORK) == markdown
-    semantic = restore(path, markdown, values)
-    assert json.dumps(args, ensure_ascii=False) in semantic
-    assert "参照元" in semantic and values == before
-    for target in ("s3.md#s3-saved-anchor", "codebuild.md#codebuild-saved-anchor"):
-        changed = markdown.replace(target, "s3.md#wrong-anchor", 1)
-        with pytest.raises(ValueError, match="Model expected display"):
-            restore(path, changed, values)
+    with input_context(read_only=True):
+        presentation = Presentation(values, path, models)
+        assert set(presentation.references) == {
+            Position(rid, "value", "/--bucket~1~0"),
+            Position(rid, "value", "/--project"),
+        }
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        assert "[shared-name](s3.md#s3-saved-anchor)" in markdown
+        assert "[shared-name](codebuild.md#codebuild-saved-anchor)" in markdown
+        literal_line = next(
+            line
+            for line in markdown.splitlines()
+            if 'DefaultArguments["--literal"]' in line
+        )
+        assert "| `shared-name` |" in literal_line
+        descriptions = [
+            line for line in markdown.splitlines() if "| Description |" in line
+        ]
+        assert len(descriptions) == 2
+        assert all(
+            "| `" + exact_link + "` | " + exact_link + " |" in line
+            for line in descriptions
+        )
+        assert "glue-arguments-source:" in markdown
+        assert "$modelRef" not in markdown
+        assert generate_markdown(path, values, FRAMEWORK) == markdown
+        semantic = restore(path, markdown, values)
+        assert json.dumps(args, ensure_ascii=False) in semantic
+        assert "参照元" in semantic and values == before
+        for target in ("s3.md#s3-saved-anchor", "codebuild.md#codebuild-saved-anchor"):
+            changed = markdown.replace(target, "s3.md#wrong-anchor", 1)
+            with pytest.raises(ValueError, match="Model expected display"):
+                restore(path, changed, values)
 
 
 @pytest.mark.parametrize("decorated", [False, True])
@@ -452,31 +460,40 @@ def test_marker_collision_and_comment_source_preservation(models):
     values["desired.row.001-003.comment"] = (
         '{"collision": "\\u0062lueprint-reference-x0"}'
     )
-    presentation = Presentation(values, path, models)
-    assert all(
-        "blueprint-reference-xx" in marker for marker in presentation.marker_links
-    )
-    marker = next(iter(presentation.marker_links))
-    link = presentation.marker_links[marker]
-    baseline = ["| `ordinary` | <!-- source: " + link + " --> comment " + link + " |"]
-    marked = [
-        "| `" + marker + "` | <!-- source: " + marker + " --> comment " + link + " |"
-    ]
-    assert presentation.lines(baseline, marked) == [
-        "| " + link + " | <!-- source: " + link + " --> comment " + link + " |"
-    ]
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    assert "| `" + collision + "` |" in markdown
-    assert "glue-arguments-source:" in markdown
-    assert not any(token in markdown for token in presentation.tokens)
-    assert (
-        presentation.cell(
-            "``<br><code>ordinary</code><br>`resolved`",
-            "``<br><code>ordinary</code><br>`" + marker + "`",
+    with input_context(read_only=True):
+        presentation = Presentation(values, path, models)
+        assert all(
+            "blueprint-reference-xx" in marker for marker in presentation.marker_links
         )
-        == "``<br><code>ordinary</code><br>" + link
-    )
-    assert "$modelRef" in restore(path, markdown, values)
+        marker = next(iter(presentation.marker_links))
+        link = presentation.marker_links[marker]
+        baseline = [
+            "| `ordinary` | <!-- source: " + link + " --> comment " + link + " |"
+        ]
+        marked = [
+            "| `"
+            + marker
+            + "` | <!-- source: "
+            + marker
+            + " --> comment "
+            + link
+            + " |"
+        ]
+        assert presentation.lines(baseline, marked) == [
+            "| " + link + " | <!-- source: " + link + " --> comment " + link + " |"
+        ]
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        assert "| `" + collision + "` |" in markdown
+        assert "glue-arguments-source:" in markdown
+        assert not any(token in markdown for token in presentation.tokens)
+        assert (
+            presentation.cell(
+                "``<br><code>ordinary</code><br>`resolved`",
+                "``<br><code>ordinary</code><br>`" + marker + "`",
+            )
+            == "``<br><code>ordinary</code><br>" + link
+        )
+        assert "$modelRef" in restore(path, markdown, values)
 
 
 @pytest.mark.parametrize(
@@ -519,16 +536,17 @@ def test_no_guessed_destination(models, fault):
         "DefaultArguments",
         {"--input": reference(logical, attribute)},
     )
-    presentation = Presentation(values, path, models)
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    assert "[shared-name]" not in markdown
-    if fault in {"missing", "duplicate", "invalid-attribute", "unconfirmed-name"}:
-        assert "$modelRef" in markdown
-    else:
-        ref = presentation.references[Position(rid, "value", "/--input")]
-        assert ref.link is None
-        if fault == "pending":
-            assert ref.value == "shared-name"
+    with input_context(read_only=True):
+        presentation = Presentation(values, path, models)
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        assert "[shared-name]" not in markdown
+        if fault in {"missing", "duplicate", "invalid-attribute", "unconfirmed-name"}:
+            assert "$modelRef" in markdown
+        else:
+            ref = presentation.references[Position(rid, "value", "/--input")]
+            assert ref.link is None
+            if fault == "pending":
+                assert ref.value == "shared-name"
 
 
 def test_array_indexes_duplicates_and_generic_service(models):
@@ -559,17 +577,20 @@ def test_array_indexes_duplicates_and_generic_service(models):
         reference("EC2_Subnet_001", "SubnetId"),
     ]
     rid = add(values, "Lambda.Function", "VpcConfig.SubnetIds", items)
-    presentation = Presentation(values, path, models)
-    assert [pos.pointer for pos in presentation.references] == ["/0", "/2", "/3"]
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    lines = [line for line in markdown.splitlines() if "| VpcConfig.SubnetIds[" in line]
-    assert len(lines) == 4
-    assert "[subnet-11111111](subnet.md#saved-001)" in lines[0]
-    assert "| `subnet-11111111` |" in lines[1]
-    assert "[subnet-22222222](subnet.md#saved-002)" in lines[2]
-    assert "[subnet-11111111](subnet.md#saved-001)" in lines[3]
-    assert json.dumps(items) in restore(path, markdown, values)
-    assert Position(rid, "value", "/3") in presentation.references
+    with input_context(read_only=True):
+        presentation = Presentation(values, path, models)
+        assert [pos.pointer for pos in presentation.references] == ["/0", "/2", "/3"]
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        lines = [
+            line for line in markdown.splitlines() if "| VpcConfig.SubnetIds[" in line
+        ]
+        assert len(lines) == 4
+        assert "[subnet-11111111](subnet.md#saved-001)" in lines[0]
+        assert "| `subnet-11111111` |" in lines[1]
+        assert "[subnet-22222222](subnet.md#saved-002)" in lines[2]
+        assert "[subnet-11111111](subnet.md#saved-001)" in lines[3]
+        assert json.dumps(items) in restore(path, markdown, values)
+        assert Position(rid, "value", "/3") in presentation.references
 
 
 def test_same_file_and_existing_link(models):
@@ -622,59 +643,66 @@ def test_linked_array_uses_model_rows_without_metadata(models, case, observed):
     before = scope.path.read_bytes()
     saved_values = copy.deepcopy(values)
     tables = []
-    markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
-    assert "subnet-list-source" not in markdown
-    lines = [line for line in markdown.splitlines() if "| VpcConfig.SubnetIds" in line]
-    assert len(lines) == (
-        3 if case in {"multiple", "split"} else 2 if case == "literal" else 1
-    )
-    if case in {"empty", "empty_spaces"}:
-        assert (
-            "| VpcConfig.SubnetIds | " + values["desired.row.001-002.value"] + " |"
-            in lines[0]
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
+        assert "subnet-list-source" not in markdown
+        lines = [
+            line for line in markdown.splitlines() if "| VpcConfig.SubnetIds" in line
+        ]
+        assert len(lines) == (
+            3 if case in {"multiple", "split"} else 2 if case == "literal" else 1
         )
-    else:
-        assert all(f"SubnetIds[{i}]" in line for i, line in enumerate(lines, 1))
-    semantic = restore(path, markdown, values)
-    assert values["desired.row.001-002.value"] in semantic
-    if case == "split":
-        assert values["desired.row.001-003.value"] in semantic
-        assert "追加先" in semantic
-    assert generate_markdown(path, values, FRAMEWORK) == markdown
-    assert values == saved_values and scope.path.read_bytes() == before
-    changes = [
-        markdown.replace(lines[0], "", 1),
-        markdown.replace(lines[0], lines[0] + "\n" + lines[0], 1),
-        markdown.replace("配置先", "変更", 1),
-    ]
-    if case not in {"empty", "empty_spaces"}:
-        changes.extend(
-            [
-                markdown.replace("SubnetIds[1]", "SubnetIds[2]", 1),
-                markdown.replace(lines[0], lines[0].replace("subnet", "changed", 1), 1),
-            ]
-        )
-    if len(lines) > 1:
-        changes.append(
-            markdown.replace(lines[0] + "\n" + lines[1], lines[1] + "\n" + lines[0], 1)
-        )
-    for changed in changes:
-        assert changed != markdown
-        with pytest.raises(ValueError):
-            expanded_display_rows(
-                changed.splitlines(), FRAMEWORK, reference_tables=tables
+        if case in {"empty", "empty_spaces"}:
+            assert (
+                "| VpcConfig.SubnetIds | " + values["desired.row.001-002.value"] + " |"
+                in lines[0]
             )
-    for changed in (
-        markdown.replace(
-            "resource-logical-id: Lambda_Function_001",
-            "resource-logical-id: Lambda_Function_002",
-        ),
-        markdown.replace('id="saved-001"', 'id="changed-anchor"'),
-        markdown.replace("配置先", '<!-- subnet-list-source: "[]" --> 配置先', 1),
-    ):
-        assert changed != markdown
-        with pytest.raises(ValueError):
-            restore(path, changed, values)
+        else:
+            assert all(f"SubnetIds[{i}]" in line for i, line in enumerate(lines, 1))
+        semantic = restore(path, markdown, values)
+        assert values["desired.row.001-002.value"] in semantic
+        if case == "split":
+            assert values["desired.row.001-003.value"] in semantic
+            assert "追加先" in semantic
+        assert generate_markdown(path, values, FRAMEWORK) == markdown
+        assert values == saved_values and scope.path.read_bytes() == before
+        changes = [
+            markdown.replace(lines[0], "", 1),
+            markdown.replace(lines[0], lines[0] + "\n" + lines[0], 1),
+            markdown.replace("配置先", "変更", 1),
+        ]
+        if case not in {"empty", "empty_spaces"}:
+            changes.extend(
+                [
+                    markdown.replace("SubnetIds[1]", "SubnetIds[2]", 1),
+                    markdown.replace(
+                        lines[0], lines[0].replace("subnet", "changed", 1), 1
+                    ),
+                ]
+            )
+        if len(lines) > 1:
+            changes.append(
+                markdown.replace(
+                    lines[0] + "\n" + lines[1], lines[1] + "\n" + lines[0], 1
+                )
+            )
+        for changed in changes:
+            assert changed != markdown
+            with pytest.raises(ValueError):
+                expanded_display_rows(
+                    changed.splitlines(), FRAMEWORK, reference_tables=tables
+                )
+        for changed in (
+            markdown.replace(
+                "resource-logical-id: Lambda_Function_001",
+                "resource-logical-id: Lambda_Function_002",
+            ),
+            markdown.replace('id="saved-001"', 'id="changed-anchor"'),
+            markdown.replace("配置先", '<!-- subnet-list-source: "[]" --> 配置先', 1),
+        ):
+            assert changed != markdown
+            with pytest.raises(ValueError):
+                restore(path, changed, values)
 
 
 def test_codebuild_empty_linked_array_uses_model(models):
@@ -706,18 +734,19 @@ def test_vpc_self_and_other_reference_display(models, observed):
     write(scope, values)
     path = models / "docs/designs/qa/team/vpc.md"
     before = copy.deepcopy(values)
-    presentation = Presentation(values, path, models)
-    own = presentation.references[Position("001-001", "value", "")]
-    expected = observed or "PENDING_DEPLOY"
-    TestCase().assertEqual(own.value, expected)
-    TestCase().assertIsNone(own.link)
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    TestCase().assertIn("`" + expected + "`", markdown)
-    TestCase().assertNotIn("[" + expected + "](#saved-001)", markdown)
-    TestCase().assertIn("10.0.0.0/16", markdown)
-    TestCase().assertIn("$modelRef", restore(path, markdown, values))
-    TestCase().assertEqual(generate_markdown(path, values, FRAMEWORK), markdown)
-    TestCase().assertEqual(values, before)
+    with input_context(read_only=True):
+        presentation = Presentation(values, path, models)
+        own = presentation.references[Position("001-001", "value", "")]
+        expected = observed or "PENDING_DEPLOY"
+        TestCase().assertEqual(own.value, expected)
+        TestCase().assertIsNone(own.link)
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        TestCase().assertIn("`" + expected + "`", markdown)
+        TestCase().assertNotIn("[" + expected + "](#saved-001)", markdown)
+        TestCase().assertIn("10.0.0.0/16", markdown)
+        TestCase().assertIn("$modelRef", restore(path, markdown, values))
+        TestCase().assertEqual(generate_markdown(path, values, FRAMEWORK), markdown)
+        TestCase().assertEqual(values, before)
 
 
 def test_same_file_other_resource_link(models):
@@ -738,13 +767,14 @@ def test_same_file_other_resource_link(models):
         },
     )
     write(scope, values)
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    TestCase().assertIn("[other-job](#saved-002)", markdown)
-    TestCase().assertIn("`consumer`", markdown)
-    TestCase().assertNotIn(
-        "[consumer](#saved-001) | <!-- glue-arguments-source:", markdown
-    )
-    TestCase().assertIn("$modelRef", restore(path, markdown, values))
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        TestCase().assertIn("[other-job](#saved-002)", markdown)
+        TestCase().assertIn("`consumer`", markdown)
+        TestCase().assertNotIn(
+            "[consumer](#saved-001) | <!-- glue-arguments-source:", markdown
+        )
+        TestCase().assertIn("$modelRef", restore(path, markdown, values))
 
 
 def test_same_logical_id_in_other_scope_is_not_self(models):
@@ -871,22 +901,23 @@ def test_pipeline_configuration_positions(
             )
             number += 1
     add(values, "CodePipeline.Pipeline", "Stages[].Name", "stage", number=number)
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    for index in (1, 2):
-        line = next(
-            line
-            for line in markdown.splitlines()
-            if f"Actions[{index}].Configuration.{key} |" in line
-        )
-        assert f"[{label}]({service}.md#{service}-saved-anchor)" in line
-        line = next(
-            line
-            for line in markdown.splitlines()
-            if f"Actions[{index}].Configuration.Literal |" in line
-        )
-        assert f"| `{label}` |" in line
-    semantic = restore(path, markdown, values)
-    assert semantic.count("$modelRef") == 2
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        for index in (1, 2):
+            line = next(
+                line
+                for line in markdown.splitlines()
+                if f"Actions[{index}].Configuration.{key} |" in line
+            )
+            assert f"[{label}]({service}.md#{service}-saved-anchor)" in line
+            line = next(
+                line
+                for line in markdown.splitlines()
+                if f"Actions[{index}].Configuration.Literal |" in line
+            )
+            assert f"| `{label}` |" in line
+        semantic = restore(path, markdown, values)
+        assert semantic.count("$modelRef") == 2
 
 
 @pytest.mark.parametrize(
@@ -1158,28 +1189,29 @@ def test_route53_endpoint_alias_expression_display(models, observed, index):
     rid = add(values, "Route53.RecordSet", "AliasTarget.DNSName", expression)
     before = copy.deepcopy(values)
     write(scope, values)
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    if observed and index == 1:
-        assert f"[{observed}](vpc-endpoint.md#saved-001)" in markdown, markdown
-        line = next(
-            line for line in markdown.splitlines() if "AliasTarget.DNSName" in line
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        if observed and index == 1:
+            assert f"[{observed}](vpc-endpoint.md#saved-001)" in markdown, markdown
+            line = next(
+                line for line in markdown.splitlines() if "AliasTarget.DNSName" in line
+            )
+            assert "Fn::Select" not in line
+        else:
+            assert "Fn::Select" in markdown
+        assert json.loads(literal(values[f"desired.row.{rid}.value"])) == expression
+        assert (
+            generated_document(
+                expression,
+                models,
+                resolver=reference_resolver(values, scope, models),
+                scope=scope,
+                property_name="Route53.RecordSet.AliasTarget.DNSName",
+            )
+            == expression
         )
-        assert "Fn::Select" not in line
-    else:
-        assert "Fn::Select" in markdown
-    assert json.loads(literal(values[f"desired.row.{rid}.value"])) == expression
-    assert (
-        generated_document(
-            expression,
-            models,
-            resolver=reference_resolver(values, scope, models),
-            scope=scope,
-            property_name="Route53.RecordSet.AliasTarget.DNSName",
-        )
-        == expression
-    )
-    assert "$modelRef" in restore(path, markdown, values)
-    assert values == before
+        assert "$modelRef" in restore(path, markdown, values)
+        assert values == before
 
 
 @pytest.mark.parametrize("observed", ["vpce-02771914003dc1188", "PENDING_DEPLOY", None])
@@ -1217,30 +1249,31 @@ def test_route53_endpoint_record_expression_display(models, observed):
     )
     before = copy.deepcopy(values)
     write(scope, values)
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    lines = [line for line in markdown.splitlines() if "ResourceRecords[" in line]
-    assert len(lines) == 3, markdown
-    if observed:
-        assert f"[{observed}](vpc-endpoint.md#saved-001)" in lines[0]
-        assert "Fn::Select" not in lines[0]
-    else:
-        assert "Fn::Select" in lines[0]
-    assert "example.com" in lines[1]
-    assert "Fn::Select" in lines[2]
-    assert "接続先Endpoint: [endpoint-name](vpc-endpoint.md#saved-001)" in markdown
-    assert json.loads(literal(values[f"desired.row.{rid}.value"])) == records
-    assert (
-        generated_document(
-            records,
-            models,
-            resolver=reference_resolver(values, scope, models),
-            scope=scope,
-            property_name="Route53.RecordSet.ResourceRecords",
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        lines = [line for line in markdown.splitlines() if "ResourceRecords[" in line]
+        assert len(lines) == 3, markdown
+        if observed:
+            assert f"[{observed}](vpc-endpoint.md#saved-001)" in lines[0]
+            assert "Fn::Select" not in lines[0]
+        else:
+            assert "Fn::Select" in lines[0]
+        assert "example.com" in lines[1]
+        assert "Fn::Select" in lines[2]
+        assert "接続先Endpoint: [endpoint-name](vpc-endpoint.md#saved-001)" in markdown
+        assert json.loads(literal(values[f"desired.row.{rid}.value"])) == records
+        assert (
+            generated_document(
+                records,
+                models,
+                resolver=reference_resolver(values, scope, models),
+                scope=scope,
+                property_name="Route53.RecordSet.ResourceRecords",
+            )
+            == records
         )
-        == records
-    )
-    assert "$modelRef" in restore(path, markdown, values)
-    assert values == before
+        assert "$modelRef" in restore(path, markdown, values)
+        assert values == before
 
 
 @pytest.mark.parametrize(
@@ -1595,49 +1628,52 @@ def test_indexed_model_reference_tables(models, service, kind, attribute, fields
     write(scope, values)
     path = models / "docs/designs/qa/team" / (service + ".md")
     tables = []
-    markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
-    assert len(tables) == 1
-    if "BucketEncryption" in fields[0]:
-        assert any(
-            "BucketEncryption[1].BucketKeyEnabled" in line
-            for line in tables[0].expected
-        )
-        assert any(
-            "BucketEncryption[2].BucketKeyEnabled" in line
-            for line in tables[0].expected
-        )
-    semantic = "\n".join(tables[0].semantic)
-    for number, field in enumerate(fields, 2):
-        assert kind + "." + field in semantic
-        assert "value-" + str(number) in semantic
-    expanded = "\n".join(
-        expanded_display_rows(markdown.splitlines(), FRAMEWORK, reference_tables=tables)
-    )
-    assert semantic in expanded
-    assert semantic in restore(path, markdown, values)
-    expected_row = next(line for line in tables[0].expected if "value-2" in line)
-    for changed in (
-        expected_row.replace("value-2", "changed"),
-        expected_row.replace(expected_row.split(" | ")[1], "Altered.Property", 1),
-        "",
-        expected_row + "\n" + expected_row,
-    ):
-        with pytest.raises(ValueError, match="Model expected display"):
-            expanded_display_rows(
-                markdown.replace(expected_row, changed, 1).splitlines(),
-                FRAMEWORK,
-                reference_tables=tables,
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
+        assert len(tables) == 1
+        if "BucketEncryption" in fields[0]:
+            assert any(
+                "BucketEncryption[1].BucketKeyEnabled" in line
+                for line in tables[0].expected
             )
-    if service == "s3" and len(fields) == 1:
-        indexed = [
-            "### " + kind + ": example",
-            *tables[0].baseline[:2],
-            "| 1 | " + kind + "." + fields[0] + " | `value` | |",
-        ]
-        with pytest.raises(
-            ValueError, match="indexed array display requires Model source rows"
+            assert any(
+                "BucketEncryption[2].BucketKeyEnabled" in line
+                for line in tables[0].expected
+            )
+        semantic = "\n".join(tables[0].semantic)
+        for number, field in enumerate(fields, 2):
+            assert kind + "." + field in semantic
+            assert "value-" + str(number) in semantic
+        expanded = "\n".join(
+            expanded_display_rows(
+                markdown.splitlines(), FRAMEWORK, reference_tables=tables
+            )
+        )
+        assert semantic in expanded
+        assert semantic in restore(path, markdown, values)
+        expected_row = next(line for line in tables[0].expected if "value-2" in line)
+        for changed in (
+            expected_row.replace("value-2", "changed"),
+            expected_row.replace(expected_row.split(" | ")[1], "Altered.Property", 1),
+            "",
+            expected_row + "\n" + expected_row,
         ):
-            expanded_display_rows(indexed, FRAMEWORK)
+            with pytest.raises(ValueError, match="Model expected display"):
+                expanded_display_rows(
+                    markdown.replace(expected_row, changed, 1).splitlines(),
+                    FRAMEWORK,
+                    reference_tables=tables,
+                )
+        if service == "s3" and len(fields) == 1:
+            indexed = [
+                "### " + kind + ": example",
+                *tables[0].baseline[:2],
+                "| 1 | " + kind + "." + fields[0] + " | `value` | |",
+            ]
+            with pytest.raises(
+                ValueError, match="indexed array display requires Model source rows"
+            ):
+                expanded_display_rows(indexed, FRAMEWORK)
 
 
 def test_undefined_indexed_property_is_rejected(models):
@@ -1673,13 +1709,16 @@ def test_security_group_horizontal_display_and_restoration(models):
         number=4,
     )
     path = models / "docs/designs/qa/team/security-group.md"
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    TestCase().assertIn("[vpc-11111111](network.md#saved-001)", markdown)
-    assert "$modelRef" in restore(path, markdown, values)
-    with pytest.raises(ValueError, match="Model expected display"):
-        restore(
-            path, markdown.replace("network.md#saved-001", "network.md#wrong"), values
-        )
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        TestCase().assertIn("[vpc-11111111](network.md#saved-001)", markdown)
+        assert "$modelRef" in restore(path, markdown, values)
+        with pytest.raises(ValueError, match="Model expected display"):
+            restore(
+                path,
+                markdown.replace("network.md#saved-001", "network.md#wrong"),
+                values,
+            )
 
 
 def test_policy_enum_reference_is_validated_before_presentation(models):
