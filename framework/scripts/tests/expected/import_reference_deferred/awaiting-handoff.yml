@@ -1,0 +1,12 @@
+category: deferred
+cause:
+  consumer_property: CodeBuild.Project.VpcConfig.Subnets[]
+  kind: import-reference-deferred
+  phase: awaiting_handoff
+  producer:
+    attribute: SubnetId
+    resource: '004'
+    resourceType: EC2.Subnet
+    service: vpc
+message: 'IMPORT reference comparison deferred: awaiting_handoff; approved handoff
+  required'

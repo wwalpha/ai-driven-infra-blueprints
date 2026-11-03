@@ -1,0 +1,22 @@
+version: 1
+base:
+  data:
+    producer:
+      service: vpc
+      identity: '004'
+      resource_type: EC2.Subnet
+      attribute: SubnetId
+      consumer_property: CodeBuild.Project.VpcConfig.Subnets[]
+cases:
+  unobserved:
+    data:
+      phase: unobserved
+      category: deferred
+  pending-deploy:
+    data:
+      phase: pending_deploy
+      category: excluded
+  awaiting-handoff:
+    data:
+      phase: awaiting_handoff
+      category: deferred

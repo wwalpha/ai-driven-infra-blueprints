@@ -1,0 +1,10 @@
+calls:
+- - sts
+  - get-caller-identity
+  - {}
+- - logs
+  - describe-log-groups
+  - {}
+code: JSONDecodeError
+error: AcquisitionError
+status: acquisition_failed

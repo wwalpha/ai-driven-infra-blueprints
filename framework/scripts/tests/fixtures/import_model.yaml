@@ -1,0 +1,213 @@
+version: 1
+base:
+  data:
+    resource:
+      desired.resource.001.resourceType: EC2.VPC
+      desired.resource.001.anchor: vpc-001
+      desired.resource.001.resourceMode: IMPORT
+      desired.resource.001.logicalId: EC2_VPC_001
+      desired.service.identity.lastAllocated: '{"EC2.VPC": 1}'
+      desired.row.001-001.property: EC2.VPC.VpcId
+      desired.row.001-001.value: '`{"$modelRef": {"logicalId": "EC2_VPC_001", "attribute":
+        "VpcId"}}`'
+      desired.row.001-001.comment: 合成入力
+      desired.row.001-002.property: EC2.VPC.CidrBlock
+      desired.row.001-002.value: '`10.10.0.0/23`'
+      desired.row.001-002.comment: 合成入力
+      desired.row.001-003.property: EC2.VPC.Name
+      desired.row.001-003.value: '`main-vpc`'
+      desired.row.001-003.comment: 合成入力
+      observed.row.001-001.value: '`vpc-confirmed`'
+    record:
+      record: record-1
+      kind: EC2.VPC
+      identity: vpc-confirmed
+      identityProperty: EC2.VPC.VpcId
+      properties:
+        EC2.VPC.VpcId:
+          status: captured
+          value: vpc-confirmed
+        EC2.VPC.CidrBlock:
+          status: captured
+          value: 10.11.0.0/23
+        EC2.VPC.Name:
+          status: captured
+          value: main-vpc
+cases:
+  physical-direct:
+    data:
+      alias: false
+  physical-alias:
+    data:
+      alias: true
+  invalid-01:
+    data:
+      key: desired.row.001-002.value
+      value: '`10.11.0.0/23`'
+  invalid-02:
+    data:
+      key: desired.resource.001.anchor
+      value: renamed
+  invalid-03:
+    data:
+      key: desired.resource.001.logicalId
+      value: Renamed
+  invalid-04:
+    data:
+      key: desired.resource.001.resourceMode
+      value: CREATE
+  invalid-05:
+    data:
+      key: desired.row.001-001.value
+      value: '`vpc-confirmed`'
+  invalid-06:
+    data:
+      key: observed.row.001-001.value
+      value: '`vpc-invented`'
+  invalid-07:
+    data:
+      key: desired.row.001-002.property
+      value: EC2.VPC.Name
+  invalid-08:
+    data:
+      key: desired.row.001-003.value
+      value: '`renamed-vpc`'
+  invalid-09:
+    data:
+      key: desired.row.001-003.comment
+      value: changed
+  invalid-10:
+    data:
+      key: desired.row.001-003.document
+      value: '{}'
+  invalid-11:
+    data:
+      key: observed.row.001-002.value
+      value: '`10.11.0.0/23`'
+  invalid-12:
+    data:
+      key: desired.row.001-004.value
+      value: '`true`'
+  overwrite-refresh-create:
+    data:
+      action: refresh
+      mode: CREATE
+  overwrite-refresh-import:
+    data:
+      action: refresh
+      mode: IMPORT
+  overwrite-replace-create:
+    data:
+      action: replace
+      mode: CREATE
+  overwrite-replace-import:
+    data:
+      action: replace
+      mode: IMPORT
+  scope-candidate:
+    files:
+      project.json: '{"targets": [{"environment": "dev", "alias": "cde", "awsAccountId":
+        "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}'
+    data:
+      comment: '# added'
+      foreignPath: project.json
+      foreignText: '{}'
+  composite-identity:
+    data:
+      kind: EC2.TransitGatewayRouteTableAssociation
+      props:
+      - EC2.TransitGatewayRouteTableAssociation.TransitGatewayRouteTableId
+      - EC2.TransitGatewayRouteTableAssociation.TransitGatewayAttachmentId
+      components:
+      - table-a
+      - attachment-b
+  inventory-statuses:
+    data:
+      resources:
+        DataZone.Domain:
+        - identifier: dzd-one
+          properties:
+            Id: dzd-one
+            Name: fixture
+            DomainVersion: V2
+            SingleSignOn:
+              Type: DISABLED
+        - identifier: dzd-two
+          properties:
+            Id: dzd-two
+            Name: fixture
+            DomainVersion: V2
+            SingleSignOn:
+              Type: DISABLED
+      failure:
+      - cloudcontrol
+      - get-resource
+      - dzd-two
+      failureCode: AccessDeniedException
+      invalidPayloads:
+      - {}
+      - logGroups: null
+      - logGroups: invalid
+  cloudcontrol-boundary:
+    data:
+      invalidJson:
+      - 'null'
+      - '[]'
+      - '{"Id":1,"Id":2}'
+      - '{"Id":NaN}'
+      - '{invalid'
+      - {}
+      - null
+      writeOperations:
+      - create_resource
+      - update_resource
+      - delete_resource
+  cli-success:
+    data:
+      target: &id001
+        environment: dev
+        directory: cde
+        awsAccountId: '123456789012'
+        awsRegion: ap-northeast-1
+        awsProfile: confirmed
+      steps:
+      - &id002
+        service: sts
+        operation: get-caller-identity
+        params: {}
+        response:
+          Account: '123456789012'
+        returncode: 0
+        stderr: ''
+      - service: logs
+        operation: describe-log-groups
+        params: &id003 {}
+        response: &id004
+          logGroups: []
+        returncode: 0
+        stderr: ''
+      error: false
+  cli-denied:
+    data:
+      target: *id001
+      steps:
+      - *id002
+      - service: logs
+        operation: describe-log-groups
+        params: *id003
+        response: *id004
+        returncode: 1
+        stderr: '{"Code":"AccessDeniedException","Message":"synthetic denial"}'
+      error: true
+  cli-invalid-json:
+    data:
+      target: *id001
+      steps:
+      - *id002
+      - service: logs
+        operation: describe-log-groups
+        params: *id003
+        returncode: 0
+        stderr: ''
+        stdout: '{invalid'
+      error: true

@@ -1,0 +1,2 @@
+error: ValueError
+message: 'observed value requires a desired logical reference: 001-002'

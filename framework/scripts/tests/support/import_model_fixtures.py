@@ -3,9 +3,11 @@
 import json
 import shutil
 import subprocess
+from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
+from unittest import TestCase
 
 import model.dependency_index as dependency_index
 import model.format as _imports_model_format
@@ -52,9 +54,27 @@ def check(value, message):
 
 
 class AwsCli:
-    def __init__(self, account=ACCOUNT, fail=None, profile="confirmed"):
+    def __init__(self, account=ACCOUNT, fail=None, profile="confirmed", *, steps=None):
         self.calls, self.account, self.fail = [], account, fail
         self.profile = profile
+        self.steps = deepcopy(steps)
+        if steps is not None:
+            if fail is not None or not isinstance(steps, list):
+                raise ValueError("CLI fixture requires only a step list")
+            for step in steps:
+                keys = {"service", "operation", "params", "returncode", "stderr"}
+                if (
+                    not isinstance(step, dict)
+                    or set(step) not in (keys | {"response"}, keys | {"stdout"})
+                    or not isinstance(step["service"], str)
+                    or not isinstance(step["operation"], str)
+                    or not isinstance(step["params"], dict)
+                    or type(step["returncode"]) is not int
+                    or not isinstance(step["stderr"], str)
+                    or "stdout" in step
+                    and not isinstance(step["stdout"], str)
+                ):
+                    raise ValueError("invalid CLI fixture step")
         self.responses = {}
         self.logs = [
             {
@@ -103,6 +123,21 @@ class AwsCli:
         service, operation = command[1:3]
         inputs = json.loads(command[command.index("--cli-input-json") + 1])
         self.calls.append((service, operation, inputs))
+        if self.steps is not None:
+            if not self.steps:
+                raise AssertionError("unexpected CLI fixture request")
+            step = self.steps[0]
+            TestCase().assertEqual(
+                (service, operation, inputs),
+                (step["service"], step["operation"], step["params"]),
+            )
+            self.steps.pop(0)
+            return subprocess.CompletedProcess(
+                command,
+                step["returncode"],
+                json.dumps(step["response"]) if "response" in step else step["stdout"],
+                step["stderr"],
+            )
         if self.fail:
             return subprocess.CompletedProcess(command, 1, "", self.fail)
         responses = {
@@ -170,6 +205,10 @@ class AwsCli:
         return subprocess.CompletedProcess(
             command, 0, json.dumps(responses[(service, operation)]), ""
         )
+
+    def finish(self):
+        if self.steps:
+            raise AssertionError("unconsumed CLI fixture requests")
 
 
 def project_fixture(root):

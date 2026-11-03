@@ -1,0 +1,29 @@
+selected:
+  009:
+    identity: opaque
+    identityComponents:
+    - property: EC2.TransitGatewayRouteTableAssociation.TransitGatewayRouteTableId
+      value: table-a
+    - property: EC2.TransitGatewayRouteTableAssociation.TransitGatewayAttachmentId
+      value: attachment-b
+    identityProperties:
+    - EC2.TransitGatewayRouteTableAssociation.TransitGatewayRouteTableId
+    - EC2.TransitGatewayRouteTableAssociation.TransitGatewayAttachmentId
+    identityProperty: null
+    identityStatus: known
+    kind: EC2.TransitGatewayRouteTableAssociation
+    properties:
+      EC2.TransitGatewayRouteTableAssociation.TransitGatewayAttachmentId:
+        status: captured
+        value: attachment-b
+      EC2.TransitGatewayRouteTableAssociation.TransitGatewayRouteTableId:
+        status: captured
+        value: table-a
+    record: assoc
+warnings:
+- existingResources:
+  - '001'
+  reason: Existing physical IDs are unknown; explicitly managed addition may duplicate
+    an existing resource
+  record: assoc
+  resource: 009

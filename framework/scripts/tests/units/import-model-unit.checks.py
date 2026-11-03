@@ -7,6 +7,7 @@ import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -66,6 +67,7 @@ from model.operations import (
 from model.projection import resource_rows
 from model.references import Reference, incoming, symbolic, usages
 from model.sources import Scope, candidate_sources, load_model
+from support.fixture_cases import load_case, materialize_files
 from support.import_model_fixtures import (
     ACCOUNT,
     SERVICES,
@@ -87,6 +89,8 @@ from support.import_model_fixtures import (
 )
 from support.model_sources import write_model
 from support.model_v2_fixtures import value_snapshot as Expansion
+from support.pytest_cli import run
+from support.regression_cases import case_ids
 from task_contract_core import model_operation, model_refactor, selected_task
 from task_contract_runtime import complete
 from utils import sealed_evidence
@@ -251,16 +255,16 @@ def check_yaml_empty_and_order():
     assert patch(parse(original), dict(parse(original).values)) == original
 
 
-@pytest.mark.parametrize("alias", [False, True])
-def check_physical_identity_wins_over_mutable_settings(alias):
-    old = resource()
-    captured = record()
+def physical_identity_wins_over_mutable_settings_case(case):
+    data = case["data"]
+    old = deepcopy(data["resource"])
+    captured = deepcopy(data["record"])
     captured["properties"]["EC2.VPC.Name"]["value"] = "renamed-vpc"
-    if alias:
+    if data["alias"]:
         old["desired.row.001-001.property"] = "EC2.VPC.Id"
         captured["identityProperties"] = ["EC2.VPC.VpcId", "EC2.VPC.Id"]
     new = {**old, **resource("009")}
-    with pytest.raises(ValueError, match="duplicate identity"):
+    with pytest.raises(ValueError, match="duplicate identity") as caught:
         selection_records(selection(rid="009"), [captured], old, new, schema_for)
     picked = {
         "resources": [],
@@ -269,35 +273,41 @@ def check_physical_identity_wins_over_mutable_settings(alias):
         ],
         "unreflected": [],
     }
-    assert selection_records(picked, [captured], old, old, schema_for) == {}
-    assert verify_values(expansion(old), expansion(old), {}, schema_for) == []
+    TestCase().assertTrue(
+        selection_records(picked, [captured], old, old, schema_for) == {}
+    )
+    TestCase().assertTrue(
+        verify_values(expansion(old), expansion(old), {}, schema_for) == []
+    )
+    return {
+        "error": str(caught.value),
+        "selection": selection_records(picked, [captured], old, old, schema_for),
+        "changes": verify_values(expansion(old), expansion(old), {}, schema_for),
+    }
 
 
-@pytest.mark.parametrize(
-    "key,value",
-    [
-        ("desired.row.001-002.value", "`10.11.0.0/23`"),
-        ("desired.resource.001.anchor", "renamed"),
-        ("desired.resource.001.logicalId", "Renamed"),
-        ("desired.resource.001.resourceMode", "CREATE"),
-        ("desired.row.001-001.value", "`vpc-confirmed`"),
-        ("observed.row.001-001.value", "`vpc-invented`"),
-        ("desired.row.001-002.property", "EC2.VPC.Name"),
-        ("desired.row.001-003.value", "`renamed-vpc`"),
-        ("desired.row.001-003.comment", "changed"),
-        ("desired.row.001-003.document", "{}"),
-        ("observed.row.001-002.value", "`10.11.0.0/23`"),
-        ("desired.row.001-004.value", "`true`"),
-    ],
-)
-def check_invalid_candidates(key, value):
-    old = resource()
-    new = {**old, key: value}
+@pytest.mark.parametrize("case_id", case_ids("import_model", prefix="physical-"))
+def check_physical_identity_wins_over_mutable_settings(case_runner, case_id):
+    case_runner.run(
+        "import_model", case_id, physical_identity_wins_over_mutable_settings_case
+    )
+
+
+def invalid_candidates_case(case):
+    data = case["data"]
+    old = deepcopy(data["resource"])
+    new = {**old, data["key"]: data["value"]}
     with pytest.raises(
         ValueError,
         match="preserved|existing|observed value requires a desired logical reference|acquired|Row requires|unknown Model field|logicalId requires",
-    ):
+    ) as caught:
         verify_values(expansion(old), expansion(new), {"001": record()}, schema_for)
+    return {"error": type(caught.value).__name__, "message": str(caught.value)}
+
+
+@pytest.mark.parametrize("case_id", case_ids("import_model", prefix="invalid-"))
+def check_invalid_candidates(case_runner, case_id):
+    case_runner.run("import_model", case_id, invalid_candidates_case)
 
 
 def check_unacquired_and_create_protection():
@@ -668,25 +678,11 @@ def check_invalid_shape_is_rejected(tmp_path):
         load_model(path)
 
 
-def check_candidate_scope_and_changed_files(tmp_path):
-    root, stage = tmp_path / "repository", tmp_path / "candidate"
+def candidate_scope_and_changed_files_case(tmp_path, case):
+    data = case["data"]
+    root, stage = (tmp_path / "repository", tmp_path / "candidate")
     root.mkdir()
-    (root / "project.json").write_text(
-        json.dumps(
-            {
-                "targets": [
-                    {
-                        "environment": "dev",
-                        "alias": "cde",
-                        "awsAccountId": "123456789012",
-                        "awsRegion": "ap-northeast-1",
-                        "iacEngine": "cloudformation",
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
+    materialize_files(root, case["files"])
     original = root / "model/dev/cde/vpc.properties"
     write_model(original, resource())
     before = load_model(original)
@@ -694,14 +690,33 @@ def check_candidate_scope_and_changed_files(tmp_path):
     candidate.parent.mkdir(parents=True)
     candidate.write_bytes(original.read_bytes())
     changes, after = candidate_sources(root, stage, before)
-    assert not changes and after.authoritative == before.authoritative
+    TestCase().assertTrue(not changes and after.authoritative == before.authoritative)
     candidate.write_bytes(
-        b"# model-format: 2\n# added\n" + original.read_bytes().split(b"\n", 1)[1]
+        ("# model-format: 2\n" + data["comment"] + "\n").encode()
+        + original.read_bytes().split(b"\n", 1)[1]
     )
-    assert set(candidate_sources(root, stage, before)[0]) == {original}
-    (stage / "project.json").write_text("{}", encoding="utf-8")
+    TestCase().assertTrue(set(candidate_sources(root, stage, before)[0]) == {original})
+    changed = [
+        str(path.relative_to(root))
+        for path in candidate_sources(root, stage, before)[0]
+    ]
+    materialize_files(stage, {data["foreignPath"]: data["foreignText"]})
     with pytest.raises(ValueError, match="outside|path"):
         candidate_sources(root, stage, before)
+    return {
+        "unchanged": after.authoritative == before.authoritative,
+        "changedFiles": changed,
+        "rejectedPath": data["foreignPath"],
+    }
+
+
+@pytest.mark.parametrize("case_id", case_ids("import_model", prefix="scope-"))
+def check_candidate_scope_and_changed_files(tmp_path, case_runner, case_id):
+    case_runner.run(
+        "import_model",
+        case_id,
+        _bind_framework_callback(candidate_scope_and_changed_files_case, tmp_path),
+    )
 
 
 def check_sealed_evidence_tamper(tmp_path):
@@ -1781,20 +1796,20 @@ def check_invalid_acquired_schema_property_cannot_be_selected():
         verify_values(expansion({}), expansion(values), {"001": captured}, schema_for)
 
 
-def check_inventory_status_and_partial_retention():
+def inventory_status_and_partial_retention_case(case):
+    data = case["data"]
     ctx, cli = generic_context(
-        resources={"DataZone.Domain": [domain(), domain("dzd-two")]},
-        fail={("cloudcontrol", "get-resource", "dzd-two"): "AccessDeniedException"},
+        resources=data["resources"], fail={tuple(data["failure"]): data["failureCode"]}
     )
     records = m.normalize_records(
         ctx, "datazone", m.inventory(ctx, "datazone", ["DataZone.Domain"])
     )
-    assert len(records) == 1 and records[0]["identity"] == "dzd-one"
-    assert (
+    TestCase().assertTrue(len(records) == 1 and records[0]["identity"] == "dzd-one")
+    TestCase().assertTrue(
         inventory_for(ctx).statuses["DataZone.Domain"]["status"] == "permission_denied"
     )
     count = len(cli.calls)
-    assert (
+    TestCase().assertTrue(
         len(m.inventory(ctx, "datazone", ["DataZone.Domain"])) == 1
         and len(cli.calls) == count
     )
@@ -1805,26 +1820,33 @@ def check_inventory_status_and_partial_retention():
         "referenceMeaningVersion": 1,
         "inventory": inventory_for(ctx).statuses,
     }
-    assert not import_evidence.acquisition_complete(evidence)
+    TestCase().assertTrue(not import_evidence.acquisition_complete(evidence))
+    partial_context = ctx
     empty, _ = generic_context()
-    assert m.inventory(empty, "datazone", ["DataZone.Domain"]) == []
-    assert inventory_for(empty).statuses["DataZone.Domain"]["status"] == "empty"
-    assert import_evidence.acquisition_complete(
-        {
-            "version": 3,
-            "modelFormat": 2,
-            "snapshotVersion": 2,
-            "referenceMeaningVersion": 1,
-            "inventory": inventory_for(empty).statuses,
-        }
+    TestCase().assertTrue(m.inventory(empty, "datazone", ["DataZone.Domain"]) == [])
+    TestCase().assertTrue(
+        inventory_for(empty).statuses["DataZone.Domain"]["status"] == "empty"
     )
-    assert m.inventory(empty, "datazone", ["DataZone.DataSource"]) == []
-    assert (
+    TestCase().assertTrue(
+        import_evidence.acquisition_complete(
+            {
+                "version": 3,
+                "modelFormat": 2,
+                "snapshotVersion": 2,
+                "referenceMeaningVersion": 1,
+                "inventory": inventory_for(empty).statuses,
+            }
+        )
+    )
+    empty_status = inventory_for(empty).statuses
+    TestCase().assertTrue(m.inventory(empty, "datazone", ["DataZone.DataSource"]) == [])
+    TestCase().assertTrue(
         inventory_for(empty).statuses["DataZone.DataSource"]["status"] == "not_modelled"
     )
     with pytest.raises(ValueError, match="owner"):
         m.inventory(empty, "datazone", ["EC2.TransitGateway"])
-    for payload in ({}, {"logGroups": None}, {"logGroups": "invalid"}):
+    invalid = []
+    for payload in data["invalidPayloads"]:
         cli = aws()
         cli.responses["logs", "describe-log-groups"] = payload
         ctx = m.import_context(
@@ -1840,20 +1862,48 @@ def check_inventory_status_and_partial_retention():
             "cloudwatch-logs",
         )
         ctx.verify()
-        assert m.inventory(ctx, "cloudwatch-logs", ["Logs.LogGroup"]) == []
-        assert inventory_for(ctx).statuses["Logs.LogGroup"] == {
-            "status": "failed",
-            "reason": "InvalidInventoryResponse",
-        }
-        assert not import_evidence.acquisition_complete(
-            {"version": 3, **FORMAT_FIELDS, "inventory": inventory_for(ctx).statuses}
+        TestCase().assertTrue(
+            m.inventory(ctx, "cloudwatch-logs", ["Logs.LogGroup"]) == []
         )
+        TestCase().assertTrue(
+            inventory_for(ctx).statuses["Logs.LogGroup"]
+            == {"status": "failed", "reason": "InvalidInventoryResponse"}
+        )
+        TestCase().assertTrue(
+            not import_evidence.acquisition_complete(
+                {
+                    "version": 3,
+                    **FORMAT_FIELDS,
+                    "inventory": inventory_for(ctx).statuses,
+                }
+            )
+        )
+        invalid.append(inventory_for(ctx).statuses)
+    return {
+        "records": records,
+        "partial": inventory_for(partial_context).statuses,
+        "empty": empty_status,
+        "unsupported": inventory_for(empty).statuses,
+        "invalid": invalid,
+    }
 
 
-def check_cloudcontrol_json_and_readonly_boundary():
-    for value in ("null", "[]", '{"Id":1,"Id":2}', '{"Id":NaN}', "{invalid", {}, None):
-        with pytest.raises((ValueError, TypeError)):
+@pytest.mark.parametrize("case_id", case_ids("import_model", prefix="inventory-"))
+def check_inventory_status_and_partial_retention(case_runner, case_id):
+    case_runner.run(
+        "import_model", case_id, inventory_status_and_partial_retention_case
+    )
+
+
+def cloudcontrol_json_and_readonly_boundary_case(case):
+    data = case["data"]
+    errors = []
+    for value in data["invalidJson"]:
+        with pytest.raises((ValueError, TypeError)) as caught:
             properties_json(value)
+        errors.append(
+            {"type": type(caught.value).__name__, "message": str(caught.value)}
+        )
     target = {
         "environment": "dev",
         "directory": "synthetic",
@@ -1864,18 +1914,32 @@ def check_cloudcontrol_json_and_readonly_boundary():
     with pytest.raises(ValueError, match="verified"):
         ctx.call("cloudcontrol", "list_resources", TypeName="AWS::DataZone::Domain")
     ctx.verify()
-    for operation in ("create_resource", "update_resource", "delete_resource"):
+    for operation in data["writeOperations"]:
         with pytest.raises(ValueError, match="allowlist"):
             ctx.call("cloudcontrol", operation)
     with pytest.raises(ValueError, match="allowlist"):
         ctx.call("datazone", "delete_domain", identifier="unvalidated-selector")
     datazone = m.comparator().Context(m.ROOT, target, services=("datazone",))
-    assert datazone.allowed == {
-        ("sts", "get_caller_identity"),
-        ("datazone", "get_domain"),
-        ("datazone", "get_project"),
-        ("datazone", "list_domains"),
+    TestCase().assertTrue(
+        datazone.allowed
+        == {
+            ("sts", "get_caller_identity"),
+            ("datazone", "get_domain"),
+            ("datazone", "get_project"),
+            ("datazone", "list_domains"),
+        }
+    )
+    return {
+        "jsonErrors": errors,
+        "allowed": [list(api) for api in sorted(datazone.allowed)],
     }
+
+
+@pytest.mark.parametrize("case_id", case_ids("import_model", prefix="cloudcontrol-"))
+def check_cloudcontrol_json_and_readonly_boundary(case_runner, case_id):
+    case_runner.run(
+        "import_model", case_id, cloudcontrol_json_and_readonly_boundary_case
+    )
 
 
 def _callback_check_composite_identity_same_resource_only_values(
@@ -1895,9 +1959,10 @@ def _callback_check_composite_identity_same_resource_only_values(
     return result
 
 
-def check_composite_identity_same_resource_only():
-    kind = "EC2.TransitGatewayRouteTableAssociation"
-    props = [kind + ".TransitGatewayRouteTableId", kind + ".TransitGatewayAttachmentId"]
+def composite_identity_same_resource_only_case(case):
+    data = case["data"]
+    kind = data["kind"]
+    props = data["props"]
     values = _bind_framework_callback(
         _callback_check_composite_identity_same_resource_only_values, kind, props
     )
@@ -1910,11 +1975,11 @@ def check_composite_identity_same_resource_only():
         "identityStatus": "known",
         "identityComponents": [
             {"property": p, "value": v}
-            for p, v in zip(props, ("table-a", "attachment-b"), strict=False)
+            for p, v in zip(props, data["components"], strict=False)
         ],
         "properties": {
             p: {"status": "captured", "value": v}
-            for p, v in zip(props, ("table-a", "attachment-b"), strict=False)
+            for p, v in zip(props, data["components"], strict=False)
         },
     }
     old = {
@@ -1927,7 +1992,9 @@ def check_composite_identity_same_resource_only():
     selected = selection_records(
         selection("assoc", "009"), [captured], old, new, schema_for
     )
-    assert verify_values(expansion(old), expansion(new), selected, schema_for)
+    TestCase().assertTrue(
+        verify_values(expansion(old), expansion(new), selected, schema_for)
+    )
     old_same = values("001", "table-a", "attachment-b")
     with pytest.raises(ValueError, match="duplicate identity"):
         selection_records(
@@ -1947,10 +2014,16 @@ def check_composite_identity_same_resource_only():
         schema_for,
         warnings,
     )
-    assert warnings and warnings[0]["existingResources"] == ["001"]
+    TestCase().assertTrue(warnings and warnings[0]["existingResources"] == ["001"])
     invalid = {**new, "desired.row.009-002.value": "`wrong`"}
     with pytest.raises(ValueError, match="differs|identity"):
         verify_values(expansion(old), expansion(invalid), selected, schema_for)
+    return {"selected": selected, "warnings": warnings}
+
+
+@pytest.mark.parametrize("case_id", case_ids("import_model", prefix="composite-"))
+def check_composite_identity_same_resource_only(case_runner, case_id):
+    case_runner.run("import_model", case_id, composite_identity_same_resource_only_case)
 
 
 # Plain copies of the fixture schema; no static singleton mutation.
@@ -3267,20 +3340,25 @@ def check_selected_overwrite(action):
             selection_records(picked, [captured], old, new, schema_for)
 
 
-@pytest.mark.parametrize("action", ["refresh", "replace"])
-@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
-def check_overwrite_identity_and_mode_boundary(action, mode):
-    old = resource(mode=mode)
-    picked = selection(action=action)
-    if action == "replace":
+def overwrite_identity_and_mode_boundary_case(case):
+    data = case["data"]
+    old = resource(mode=data["mode"])
+    picked = selection(action=data["action"])
+    if data["action"] == "replace":
         picked["resources"][0]["before"] = {
             "identity": "vpc-confirmed",
             "model": "invalid",
         }
     with pytest.raises(
         ValueError, match="CREATE|physical identity|previous identity/Model state"
-    ):
+    ) as caught:
         selection_records(picked, [record("vpc-different")], old, old, schema_for)
+    return {"error": type(caught.value).__name__, "message": str(caught.value)}
+
+
+@pytest.mark.parametrize("case_id", case_ids("import_model", prefix="overwrite-"))
+def check_overwrite_identity_and_mode_boundary(case_runner, case_id):
+    case_runner.run("import_model", case_id, overwrite_identity_and_mode_boundary_case)
 
 
 @pytest.mark.parametrize(
@@ -3978,12 +4056,6 @@ def test_glue_connection_uses_only_verified_target_account():
     assert record["provenance"]["selectors"] == {"CatalogId": ACCOUNT}
 
 
-if __name__ == "__main__":
-    from support.pytest_cli import run
-
-    raise SystemExit(run(__file__))
-
-
 def test_route53_identity_matching_respects_zone_and_set_identifier():
     kind = "Route53.RecordSet"
     props = [
@@ -4033,3 +4105,97 @@ def test_route53_identity_matching_respects_zone_and_set_identifier():
     selection_records(empty, [captured], old, old, schema_for, matching=matching)
     assert matching["route"]["status"] == "unresolved"
     assert matching["route"]["existingResources"] == []
+
+
+def cli_fixture_steps_case(case):
+    data = case["data"]
+    before = deepcopy(data)
+    cli = AwsCli(steps=data["steps"])
+    context = m.import_context(m.ROOT, data["target"], cli, "cloudwatch-logs")
+    context.verify()
+    if data["error"]:
+        with pytest.raises(m.comparator().AcquisitionError) as caught:
+            context.call("logs", "describe_log_groups")
+        result = {
+            "error": type(caught.value).__name__,
+            "code": caught.value.code,
+            "status": caught.value.status,
+        }
+    else:
+        result = {"response": context.call("logs", "describe_log_groups")}
+    cli.finish()
+    TestCase().assertEqual(len(cli.calls), 2)
+    TestCase().assertEqual(data, before)
+    return {
+        **result,
+        "calls": [
+            [service, operation, params] for service, operation, params in cli.calls
+        ],
+    }
+
+
+@pytest.mark.parametrize("case_id", case_ids("import_model", prefix="cli-"))
+def check_cli_fixture_steps(case_runner, case_id):
+    case_runner.run("import_model", case_id, cli_fixture_steps_case)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "operation",
+        "params",
+        "profile",
+        "region",
+        "output",
+        "pager",
+        "timeout",
+        "encoding",
+        "extra",
+        "pending",
+    ],
+)
+def check_cli_fixture_request_faults(fault):
+    data = load_case("import_model", "cli-success")["data"]
+    cli = AwsCli(steps=data["steps"])
+    dispatch = Mock(wraps=cli)
+    context = m.import_context(m.ROOT, data["target"], dispatch, "cloudwatch-logs")
+    context.verify()
+    args, options = dispatch.call_args
+    command = list(args[0])
+    options = deepcopy(options)
+    if fault == "pending":
+        with pytest.raises(AssertionError, match="unconsumed"):
+            cli.finish()
+        return
+    if fault == "extra":
+        context.call("logs", "describe_log_groups")
+    elif fault == "operation":
+        command[2] = "unknown-operation"
+    elif fault == "params":
+        command[command.index("--cli-input-json") + 1] = '{"unexpected":true}'
+    elif fault in {"profile", "region", "output"}:
+        command[command.index("--" + fault) + 1] = "unexpected"
+    elif fault == "pager":
+        command.remove("--no-cli-pager")
+    elif fault == "timeout":
+        options["timeout"] = 61
+    elif fault == "encoding":
+        options["encoding"] = "ascii"
+    with pytest.raises(AssertionError):
+        cli(command, **options)
+    # Mismatches must not consume the valid queued response.
+    if fault != "extra":
+        context.call("logs", "describe_log_groups")
+    cli.finish()
+
+
+@pytest.mark.parametrize(
+    "step", [{}, {"service": "logs"}, {"response": {}, "stdout": "{}"}]
+)
+def check_cli_fixture_schema_faults(step):
+    with pytest.raises(ValueError, match="fixture step"):
+        AwsCli(steps=[step])
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(__file__))

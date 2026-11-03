@@ -1,0 +1,52 @@
+empty:
+  DataZone.Domain:
+    status: empty
+invalid:
+- Logs.LogGroup:
+    reason: InvalidInventoryResponse
+    status: failed
+- Logs.LogGroup:
+    reason: InvalidInventoryResponse
+    status: failed
+- Logs.LogGroup:
+    reason: InvalidInventoryResponse
+    status: failed
+partial:
+  DataZone.Domain:
+    reason: AccessDeniedException
+    status: permission_denied
+records:
+- identity: dzd-one
+  identityComponents:
+  - property: DataZone.Domain.Id
+    value: dzd-one
+  identityProperties:
+  - DataZone.Domain.Id
+  identityProperty: DataZone.Domain.Id
+  identityStatus: known
+  kind: DataZone.Domain
+  properties:
+    DataZone.Domain.DomainVersion:
+      source: aws
+      status: captured
+      value: V2
+      valueShape: leaf
+    DataZone.Domain.Id:
+      reason: AWS optional value not retrieved
+      status: missing
+    DataZone.Domain.Name:
+      source: aws
+      status: captured
+      value: fixture
+      valueShape: leaf
+    DataZone.Domain.SingleSignOn.Type:
+      source: aws
+      status: captured
+      value: DISABLED
+      valueShape: leaf
+  record: 412ffd39a8ab15e4f89560699c50c6b64b83ef7ea112b3eab214d407e2250281
+unsupported:
+  DataZone.DataSource:
+    status: not_modelled
+  DataZone.Domain:
+    status: empty

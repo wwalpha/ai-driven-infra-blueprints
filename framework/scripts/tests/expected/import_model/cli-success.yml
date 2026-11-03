@@ -1,0 +1,9 @@
+calls:
+- - sts
+  - get-caller-identity
+  - {}
+- - logs
+  - describe-log-groups
+  - {}
+response:
+  logGroups: []

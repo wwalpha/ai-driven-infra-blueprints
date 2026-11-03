@@ -1,0 +1,4 @@
+changedFiles:
+- model/dev/cde/vpc.properties
+rejectedPath: project.json
+unchanged: true

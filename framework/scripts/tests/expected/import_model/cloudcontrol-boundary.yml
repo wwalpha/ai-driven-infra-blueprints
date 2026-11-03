@@ -1,0 +1,25 @@
+allowed:
+- - datazone
+  - get_domain
+- - datazone
+  - get_project
+- - datazone
+  - list_domains
+- - sts
+  - get_caller_identity
+jsonErrors:
+- message: Cloud Control Properties must be an object
+  type: ValueError
+- message: Cloud Control Properties must be an object
+  type: ValueError
+- message: 'duplicate policy JSON key: Id'
+  type: ValueError
+- message: 'invalid JSON constant: NaN'
+  type: ValueError
+- message: 'Expecting property name enclosed in double quotes: line 1 column 2 (char
+    1)'
+  type: JSONDecodeError
+- message: Cloud Control Properties must be a JSON string
+  type: ValueError
+- message: Cloud Control Properties must be a JSON string
+  type: ValueError

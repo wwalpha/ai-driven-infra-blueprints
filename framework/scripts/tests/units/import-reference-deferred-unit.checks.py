@@ -8,6 +8,8 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from unittest import TestCase
+
 import pytest
 from comparison.deferral import (
     CATEGORIES,
@@ -20,38 +22,29 @@ from comparison.deferral import (
 from comparison.values import desired_value
 from issues.aggregate import iac_summary
 from support.pytest_cli import run
+from support.regression_cases import case_ids
 from utils.cloudformation.inputs import Blocked
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
-@pytest.mark.parametrize("phase", ["unobserved", "pending_deploy", "awaiting_handoff"])
-def test_normal_wait(phase):
-    error = ImportReferenceDeferred(
-        phase,
-        "vpc",
-        "004",
-        "EC2.Subnet",
-        "SubnetId",
-        "CodeBuild.Project.VpcConfig.Subnets[]",
-    )
-    category = "excluded" if phase == "pending_deploy" else "deferred"
-    assert isinstance(error, Blocked) and failure_category(error) == category
-    assert error.iac_cause == dict(
-        kind="import-reference-excluded"
-        if phase == "pending_deploy"
-        else "import-reference-deferred",
-        phase=phase,
-        producer=dict(
-            service="vpc",
-            resource="004",
-            resourceType="EC2.Subnet",
-            attribute="SubnetId",
-        ),
-        consumer_property="CodeBuild.Project.VpcConfig.Subnets[]",
-    )
+def normal_wait_case(case):
+    data = case["data"]
+    error = ImportReferenceDeferred(data["phase"], **data["producer"])
+    TestCase().assertIsInstance(error, Blocked)
+    TestCase().assertEqual(failure_category(error), data["category"])
     validate_cause(error.iac_cause)
+    return {
+        "category": failure_category(error),
+        "cause": error.iac_cause,
+        "message": str(error),
+    }
+
+
+@pytest.mark.parametrize("case_id", case_ids("import_reference_deferred"))
+def test_normal_wait(case_runner, case_id):
+    case_runner.run("import_reference_deferred", case_id, normal_wait_case)
 
 
 def test_other_failures_are_not_normal_waits():

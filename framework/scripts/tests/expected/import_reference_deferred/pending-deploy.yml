@@ -1,0 +1,11 @@
+category: excluded
+cause:
+  consumer_property: CodeBuild.Project.VpcConfig.Subnets[]
+  kind: import-reference-excluded
+  phase: pending_deploy
+  producer:
+    attribute: SubnetId
+    resource: '004'
+    resourceType: EC2.Subnet
+    service: vpc
+message: 'IMPORT reference comparison excluded: pending_deploy'
