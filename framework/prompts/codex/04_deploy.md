@@ -4,17 +4,26 @@ Use the [Deploy Skill](../../../.agents/skills/deploy/SKILL.md) for authority an
 
 ## Normal startup
 
-Fix SDK or CLI before preparation; honor Human choice or report the chosen method. Preserve Task authority, fixed scope and inputs, account/Region, approval and request evidence across resume. SDK and CLI are independent; never switch methods to recover or publish. No AWS operation is authorized by this router alone.
+For CloudFormation fix SDK or CLI before preparation; honor Human choice or report the chosen method. Preserve Task authority, fixed scope and inputs, account/Region, approval and request evidence across resume. SDK and CLI are independent; never switch methods to recover or publish. No AWS operation is authorized by this router alone.
 
 ## Read before changing files
 
-Before registration read [Task transition](../../rules/task-contract.md#task-transition) (including its required common and conditional reads), [Task boundary](../../rules/task-contract.md#task-boundary), [Acceptance contract](../../rules/task-contract.md#acceptance-contract), [Topology](../../rules/project-configuration.md#topology), and [Credentials and account](../../rules/project-configuration.md#credentials-and-account). Then read [Prepare](deploy/runbook.md#prepare).
+Before registration read [Task transition](../../rules/task-contract.md#task-transition) (including its required common and conditional reads), [Task boundary](../../rules/task-contract.md#task-boundary) and [Acceptance contract](../../rules/task-contract.md#acceptance-contract); [Prepare](deploy/runbook.md#prepare) supplies the remaining common authority/context reads. At completion [Validation policy](../../rules/loop-engineering.md#validation-policy) and the [finish procedure](deploy/runbook.md#verify-and-finish) determine required checks. Do not read later phases now merely because they are linked here.
 
-Before CloudFormation AWS execution read [Common rules](../../rules/cloudformation.md#common-rules), [AWS execution context](../../rules/cloudformation.md#aws-execution-context), [Resource mode boundary](../../rules/cloudformation.md#resource-mode-boundary), [Deployment validation and execution](../../rules/cloudformation.md#deployment-validation-and-execution), [Model authority](../../rules/model-information.md#model-authority), [Resource management mode](../../rules/model-information.md#resource-management-mode), [CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy), and [Properties format](../../rules/model-information.md#properties-format). SDK additionally reads [SDK Stack](deploy/runbook.md#sdk-stack) and [Managed Deploy snapshot and Git publication](../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication); CLI reads [CLI Stack](deploy/runbook.md#cli-stack) and its linked operation sections. No generated detailed-design prose is a normal Deploy prerequisite.
+| When | Required next read |
+| --- | --- |
+| Entry / first preparation | [Managed entry](deploy/runbook.md#managed-entry), then [Prepare](deploy/runbook.md#prepare) and only the selected method's preparation |
+| SDK first or continuing Stack operation | [SDK Stack](deploy/runbook.md#sdk-stack); observation saves also require its Observation reads link |
+| CLI current operation | [CLI Stack](deploy/runbook.md#cli-stack), then only delivery, ChangeSet, Execute or save section for the current operation |
+| All needed operations settled | [Verify and finish](deploy/runbook.md#verify-and-finish), then only the fixed method's finish |
+| Failure, uncertainty or resume | SDK: [recovery](deploy/runbook.md#unfinished-aws-operation-recovery); CLI: [recovery](deploy/runbook.md#cli-recovery); missing evidence stops |
+| Unapproved destructive change | [Approval wait](deploy/runbook.md#confirm-unapproved-deletereplacement) before consent or execution |
+| Proven Task declaration omission | [Contract correction](deploy/runbook.md#correct-this-tasks-preparation-omissions) |
+| Authorized one-shot IaC repair | [Repair](deploy/runbook.md#external-iac-repair-handoff) |
+| Pending/conflicted Git publication | [Git Recovery](deploy/runbook.md#git-recovery) for the selected method |
+| Terraform target | [Terraform](deploy/runbook.md#terraform) and its required common reads; no CloudFormation procedure |
 
-Before Observed or generation read [Identifier lifecycle](../../rules/observed-values.md#identifier-lifecycle), [Collection and propagation](../../rules/observed-values.md#collection-and-propagation), [Observation publication](../../rules/observed-values.md#observation-publication), and [Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation). Before completion read [Validation policy](../../rules/loop-engineering.md#validation-policy), [Validation scope](../../rules/loop-engineering.md#validation-scope), [Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion), and [Verify and finish](deploy/runbook.md#verify-and-finish).
-
-When applicable read [Delete and replacement confirmation](../../rules/cloudformation.md#delete-and-replacement-confirmation), [S3 deployment artifacts](../../rules/cloudformation.md#s3-deployment-artifacts), [Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair), and [Independent controller runs and execution timing](../../rules/cloudformation.md#independent-controller-runs-and-execution-timing). Terraform reads [Terraform Rules](../../rules/terraform.md), [Properties format](../../rules/model-information.md#properties-format), [Local loop](../../rules/loop-engineering.md#local-loop), common Task/Model/Observed/completion rules and [Terraform](deploy/runbook.md#terraform).
+The [operation matrix](deploy/runbook.md#operation-routes) indexes first/continuing/multi-Stack/sync/final/retry paths. Reuse unchanged readings; current AWS and boundary rechecks are never skipped. SDK already reads current AWS in advance, so no unconditional status-before-advance call. Unknown applicability requires the relevant safety read and a stop when unresolved. Ordinary Deploy uses approved Model/Template/Parameters/Stack definitions, not generated detailed-design prose.
 
 ## Direct AWS CLI method
 
@@ -26,7 +35,7 @@ For SDK preparation and commands read [Prepare](deploy/runbook.md#prepare) and [
 
 ## LLM-controlled Stack checkpoints
 
-Read [SDK Stack](deploy/runbook.md#sdk-stack) and [final save](deploy/runbook.md#最終保存).
+For intermediate saves read [SDK Stack](deploy/runbook.md#sdk-stack); only when ending the Task read [final save](deploy/runbook.md#最終保存).
 
 ## Correct this Task's preparation omissions
 
