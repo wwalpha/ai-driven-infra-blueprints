@@ -1123,28 +1123,41 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                         "reason": "alias belongs to a different KMS key",
                     }
                 )
-            if (
-                resource.kind == "Lambda.Function"
-                and prop == "Lambda.Function.Code.S3Bucket"
-                and isinstance(response.get("Code"), dict)
-                and response["Code"].get("Error")
-            ):
-                raise AcquisitionError("lambda.GetFunction", "CodeRetrievalError")
-            if (
-                resource.kind == "Lambda.Function"
-                and prop
-                in {"Lambda.Function.Code.S3Bucket", "Lambda.Function.Code.S3Key"}
-                and value == MISSING
-            ):
-                results.append(
-                    {
-                        **item,
-                        "status": "sdk_unavailable",
-                        "apis": ctx.trace[start:],
-                        "reason": "GetFunction did not return Code.ResolvedS3Object; the original S3 upload location cannot be recovered from Code.Location",
-                    }
-                )
-                continue
+            if resource.kind == "Lambda.Function" and prop in {
+                "Lambda.Function.Code.S3Bucket",
+                "Lambda.Function.Code.S3Key",
+            }:
+                code = response.get("Code")
+                configuration = response.get("Configuration")
+                if isinstance(code, dict) and code.get("Error"):
+                    raise AcquisitionError("lambda.GetFunction", "CodeRetrievalError")
+                if (
+                    not isinstance(configuration, dict)
+                    or not configuration.get("FunctionName")
+                    or not isinstance(code, dict)
+                ):
+                    raise AcquisitionError(
+                        "lambda.GetFunction", "InvalidFunctionResponse"
+                    )
+                if "ResolvedS3Object" not in code:
+                    results.append(
+                        {
+                            **item,
+                            "status": "sdk_unavailable",
+                            "apis": ctx.trace[start:],
+                            "reason": "GetFunction did not return Code.ResolvedS3Object; the original S3 upload location cannot be recovered from Code.Location",
+                        }
+                    )
+                    continue
+                if (
+                    not isinstance(code["ResolvedS3Object"], dict)
+                    or not isinstance(value, str)
+                    or not value
+                    or value == MISSING
+                ):
+                    raise AcquisitionError(
+                        "lambda.GetFunction", "InvalidFunctionResponse"
+                    )
             if prop in outputs:
                 if value == MISSING:
                     raise Unresolved("generated identifier is absent from SDK response")

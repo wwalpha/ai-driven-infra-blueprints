@@ -518,7 +518,7 @@ def classify_exclusion(m, snapshot, resource, item, *, resource_confirmed=False)
         return {**item, "status": "excluded"}
     reason = snapshot.get("exclusions", {}).get(prop)
     if (
-        prop == "Lambda.Function.Code.S3Bucket"
+        prop in {"Lambda.Function.Code.S3Bucket", "Lambda.Function.Code.S3Key"}
         and item["status"] == "sdk_unavailable"
         and item.get("reason", "").startswith(
             "GetFunction did not return Code.ResolvedS3Object;"

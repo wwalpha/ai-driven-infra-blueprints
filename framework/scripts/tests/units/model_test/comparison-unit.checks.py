@@ -1377,3 +1377,60 @@ def test_iam_model_reference_fixture():
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+def test_lambda_s3_key_offline_outcomes():
+    inputs, expected = load_fixture("lambda/comparison")
+    inputs["model"].update(
+        {
+            "desired.row.001-004.property": "Lambda.Function.Code.S3Key",
+            "desired.row.001-004.value": "`handler.zip`",
+            "desired.row.001-004.comment": "fixture",
+        }
+    )
+    inputs["properties"] = ["Lambda.Function.Code.S3Key", None]
+    inputs["fields"] = ["propertiesKey", "status"]
+    inputs["scenarios"] = []
+    configuration = {"FunctionName": "fixture-function", "Timeout": 30}
+    for response in (
+        {
+            "Configuration": configuration,
+            "Code": {"ResolvedS3Object": {"S3Key": "handler.zip"}},
+        },
+        {
+            "Configuration": configuration,
+            "Code": {"Location": "https://example.invalid/other.zip"},
+        },
+        {
+            "Configuration": configuration,
+            "Code": {"ResolvedS3Object": {"S3Key": "other.zip"}},
+        },
+        {"$error": json.dumps({"Code": "AccessDeniedException"})},
+        {"$error": json.dumps({"Code": "ResourceNotFoundException"})},
+        {
+            "Configuration": configuration,
+            "Code": {"Error": {"ErrorCode": "AccessDenied"}},
+        },
+        {"Configuration": configuration, "Code": {"ResolvedS3Object": {}}},
+        {"Code": {"Location": "https://example.invalid/package"}},
+    ):
+        inputs["scenarios"].append(
+            {"responses": [{"api": ["lambda", "get-function"], "response": response}]}
+        )
+    results = execute((inputs, expected))
+    statuses = [result["records"][0]["status"] for result in results]
+    assert statuses == [
+        "match",
+        "excluded",
+        "difference",
+        "acquisition_failed",
+        "resource_missing",
+        "acquisition_failed",
+        "acquisition_failed",
+        "acquisition_failed",
+    ], statuses
+    assert "Verification: NOT_VERIFIABLE" in results[1]["report"]
+    assert "[NG]" in results[2]["report"]
+    assert all(
+        "Verification: NOT_VERIFIABLE" not in result["report"] for result in results[3:]
+    )

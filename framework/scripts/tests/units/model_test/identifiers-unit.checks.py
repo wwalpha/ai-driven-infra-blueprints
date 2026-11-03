@@ -150,8 +150,10 @@ def test_lakeformation_request_input_requires_resource_confirmation(identifier):
     )
 
 
-def test_lambda_bucket_missing_evidence_only_is_excluded(identifier):
-    prop = "Lambda.Function.Code.S3Bucket"
+@pytest.mark.parametrize(
+    "prop", ["Lambda.Function.Code.S3Bucket", "Lambda.Function.Code.S3Key"]
+)
+def test_lambda_code_missing_evidence_only_is_excluded(identifier, prop):
     identifier.resource.rows_for.return_value = [("001-001", {"value": "`bucket`"})]
     identifier.resource.parse = lambda row: row["value"].strip("`")
     item = {
