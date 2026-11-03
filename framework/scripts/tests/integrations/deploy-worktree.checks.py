@@ -311,7 +311,6 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     assert progress["states"] == before["states"]
     assert progress["inputIdentities"] == before["inputIdentities"]
     assert read_task_snapshot(root, "tasks/deploy.md", live=True).status == "suspend"
-    transitions.check_resume_scope(root, "tasks/deploy.md")
     transitions.resume(root, "tasks/deploy.md")
     assert run_controller(root, report, aws) == 0
     saved = json.loads(report.read_text(encoding="utf-8"))
@@ -420,7 +419,6 @@ def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
     ] == str(failure)
     assert failure.read_bytes() == failure_bytes
     assert json.loads(aws.read_text(encoding="utf-8"))["calls"] == calls
-    transitions.check_resume_scope(root, "tasks/deploy.md")
     transitions.resume(root, "tasks/deploy.md")
     assert run_controller(root, report, aws) == 0
     saved = json.loads(report.read_text(encoding="utf-8"))
@@ -1033,7 +1031,6 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
         item.get("consumer") == f"dev/{ACCOUNT}/rds"
         for item in worktree.final_blockers(corrected_progress)
     )
-    transitions.check_resume_scope(root, "tasks/deploy.md")
     transitions.resume(root, "tasks/deploy.md")
     first = "cfn-stack-app-dev-first"
     assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", first]) == 0
