@@ -7,6 +7,7 @@ from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -34,6 +35,7 @@ from support.issues_scan_fixtures import (
     write_model,
 )
 from support.pytest_cli import run
+from support.regression_cases import case_ids
 from utils.aws_mappings import mapping_alias
 from validation.design import check_model_files as validate_models
 from validation.design import check_service_file as validate_service
@@ -70,35 +72,34 @@ def comparison(root):
     )
 
 
-@pytest.mark.parametrize(
-    "source,explicit,status,owner",
-    [
-        ("model/dev/team/iam.properties", None, "assigned", ("dev", "team", "iam")),
-        ("docs/designs/dev/team/iam.md", None, "assigned", ("dev", "team", "iam")),
-        ("model/dev/team/iam.properties", ("dev", "team", "kms"), "unresolved", None),
-        ("project.json", None, "unresolved", None),
-        (None, None, "unresolved", None),
-        (None, ("dev", "team", "iam"), "assigned", ("dev", "team", "iam")),
-        ("model/dev/team/s3.properties", None, "outside", ("dev", "team", "s3")),
-        ("model/stg/team/iam.properties", None, "outside", ("stg", "team", "iam")),
-        ("model/dev/other/iam.properties", None, "outside", ("dev", "other", "iam")),
-        (None, ("dev", "team", "INVALID"), "unresolved", None),
-        ("model/dev/team/../team/iam.properties", None, "unresolved", None),
-    ],
-)
-def check_owner_evidence(tmp_path, source, explicit, status, owner):
+def owner_evidence_case(tmp_path, case):
+    data = case["data"]
+    explicit = tuple(data["explicit"]) if data["explicit"] is not None else None
     result = resolve(
         tmp_path,
         diagnostic(
             tmp_path,
-            source_path=source,
+            source_path=data["source"],
             service=explicit,
             target_path="model/dev/team/kms.properties",
         ),
         SCOPE,
     )
-    assert result["status"] == status and result["owner"] == owner
-    assert result["evidence"]
+    TestCase().assertEqual(result["status"], data["status"])
+    owner = tuple(data["owner"]) if data["owner"] is not None else None
+    TestCase().assertEqual(result["owner"], owner)
+    if result["owner"] is not None:
+        TestCase().assertIs(type(result["owner"]), tuple)
+    TestCase().assertTrue(result["evidence"])
+    return {
+        **result,
+        "owner": list(result["owner"]) if result["owner"] is not None else None,
+    }
+
+
+@pytest.mark.parametrize("case_id", case_ids("issues_ownership"))
+def check_owner_evidence(tmp_path, case_runner, case_id):
+    case_runner.run("issues_ownership", case_id, partial(owner_evidence_case, tmp_path))
 
 
 def check_shared_multiple_and_redirected_sources(tmp_path):

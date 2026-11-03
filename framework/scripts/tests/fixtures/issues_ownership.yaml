@@ -1,0 +1,95 @@
+version: 1
+cases:
+  owner-01:
+    data:
+      source: model/dev/team/iam.properties
+      explicit: null
+      status: assigned
+      owner:
+      - dev
+      - team
+      - iam
+  owner-02:
+    data:
+      source: docs/designs/dev/team/iam.md
+      explicit: null
+      status: assigned
+      owner:
+      - dev
+      - team
+      - iam
+  owner-03:
+    data:
+      source: model/dev/team/iam.properties
+      explicit:
+      - dev
+      - team
+      - kms
+      status: unresolved
+      owner: null
+  owner-04:
+    data:
+      source: project.json
+      explicit: null
+      status: unresolved
+      owner: null
+  owner-05:
+    data:
+      source: null
+      explicit: null
+      status: unresolved
+      owner: null
+  owner-06:
+    data:
+      source: null
+      explicit:
+      - dev
+      - team
+      - iam
+      status: assigned
+      owner:
+      - dev
+      - team
+      - iam
+  owner-07:
+    data:
+      source: model/dev/team/s3.properties
+      explicit: null
+      status: outside
+      owner:
+      - dev
+      - team
+      - s3
+  owner-08:
+    data:
+      source: model/stg/team/iam.properties
+      explicit: null
+      status: outside
+      owner:
+      - stg
+      - team
+      - iam
+  owner-09:
+    data:
+      source: model/dev/other/iam.properties
+      explicit: null
+      status: outside
+      owner:
+      - dev
+      - other
+      - iam
+  owner-10:
+    data:
+      source: null
+      explicit:
+      - dev
+      - team
+      - INVALID
+      status: unresolved
+      owner: null
+  owner-11:
+    data:
+      source: model/dev/team/../team/iam.properties
+      explicit: null
+      status: unresolved
+      owner: null

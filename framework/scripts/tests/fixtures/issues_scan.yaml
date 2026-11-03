@@ -4,26 +4,38 @@ cases:
     data:
       specifications:
         codebuild:
-          - CodeBuild.Project
-          - - ['Name', '`invalid_root_name`']
-            - ['Environment.EnvironmentVariables[].Name', '`AWS_REGION`']
-            - ['Environment.EnvironmentVariables[].Name', '`BUILD_BUCKET_NAME`']
-            - ['Environment.EnvironmentVariables[].Name', '`TARGET`']
-            - ['Artifacts.Name', '`artifact-name`']
+        - CodeBuild.Project
+        - - - Name
+            - '`invalid_root_name`'
+          - - Environment.EnvironmentVariables[].Name
+            - '`AWS_REGION`'
+          - - Environment.EnvironmentVariables[].Name
+            - '`BUILD_BUCKET_NAME`'
+          - - Environment.EnvironmentVariables[].Name
+            - '`TARGET`'
+          - - Artifacts.Name
+            - '`artifact-name`'
         codepipeline:
-          - CodePipeline.Pipeline
-          - - ['Name', '`invalid_root_name`']
-            - ['Stages[].Name', '`Source`']
-            - ['Stages[].Actions[].Name', '`SourceAction`']
-            - ['Variables[].Name', '`release`']
+        - CodePipeline.Pipeline
+        - - - Name
+            - '`invalid_root_name`'
+          - - Stages[].Name
+            - '`Source`'
+          - - Stages[].Actions[].Name
+            - '`SourceAction`'
+          - - Variables[].Name
+            - '`release`'
         glue:
-          - Glue.Job
-          - - ['Name', '`invalid_root_name`']
-            - ['Command.Name', '`script`']
+        - Glue.Job
+        - - - Name
+            - '`invalid_root_name`'
+          - - Command.Name
+            - '`script`'
   malformed-report:
     files:
-      issues/dev/123456789012/issues.md: |
-        malformed report without inventory
+      issues/dev/123456789012/issues.md: 'malformed report without inventory
+
+        '
   difference-reference-attribute:
     data:
       left:
@@ -244,3 +256,56 @@ cases:
       secret_values:
       - first
       - second
+  report-mismatch:
+    data:
+      records:
+      - category: difference
+        service: glue
+        resource: 019
+        property: Glue.Job.Role
+        reason: value mismatch
+        stack: stack1
+        desired: &id009
+          $resource: &id005
+          - iam
+          - 089
+          $attribute: RoleName
+        actual: &id010
+          $resource: *id005
+          $attribute: Arn
+        model: &id006
+          path: model/dev/cde/glue.properties
+          line: 999
+        model_sources: &id007
+        - path: model/dev/cde/glue.properties
+          line: 999
+          key: desired.row.019.value
+        iac: &id008
+          path: infra/cloudformation/templates/shared.yaml
+          line: 999
+      - category: difference
+        service: glue
+        resource: '020'
+        property: Glue.Job.Password
+        reason: value mismatch
+        stack: stack1
+        desired: <masked>
+        actual: <masked>
+        model: *id006
+        model_sources: *id007
+        iac: *id008
+      - category: difference
+        service: glue
+        resource: '021'
+        property: Glue.Job.Config
+        reason: value mismatch
+        stack: stack1
+        desired: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxA
+        actual: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxB
+        model: *id006
+        model_sources: *id007
+        iac: *id008
+      longValue: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      role: *id009
+      arnRole: *id010
+      reportTime: '2026-01-01T09:00:00+09:00'

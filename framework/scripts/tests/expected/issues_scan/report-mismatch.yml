@@ -1,0 +1,127 @@
+limited_count: 12
+limited_report: '# model → IaC比較の非阻害結果
+
+
+  Scan実行日時: 2026-01-01 09:00:00 Asia/Tokyo
+
+  対象: dev／cde／glue
+
+  今回の判定: differences
+
+  問題: 1件
+
+  比較: difference 12件
+
+  PENDING_DEPLOY（比較対象外） 0件
+
+  分類: 要修正 1件
+
+
+  ## Issue一覧
+
+
+  | Issue ID | 分類 | 対象 | 問題 |
+
+  | --- | --- | --- | --- |
+
+  | ISSUE-d19a19b732a83851347a | 要修正 | glue / infra/cloudformation/templates/shared.yaml
+  | glue / 019 / Glue.Job.Role の値の不一致：ModelとIaCの設定値が一致しない。 |
+
+  '
+masked_report: '# model → IaC比較の非阻害結果
+
+
+  Scan実行日時: 2026-01-01 09:00:00 Asia/Tokyo
+
+  対象: dev／cde／glue
+
+  今回の判定: differences
+
+  問題: 1件
+
+  比較: difference 1件
+
+  PENDING_DEPLOY（比較対象外） 0件
+
+  分類: 要修正 1件
+
+
+  ## Issue一覧
+
+
+  | Issue ID | 分類 | 対象 | 問題 |
+
+  | --- | --- | --- | --- |
+
+  | ISSUE-a82a937498b6e83980c7 | 要修正 | glue / infra/cloudformation/templates/shared.yaml
+  | glue / 020 / Glue.Job.Password の値の不一致：ModelとIaCの設定値が一致しない。 |
+
+  '
+record_ids:
+- 37e3beb22d0cfda0ad63
+- 448e4d4e1bcfef3db4de
+- e3a0c709f70d3ffaae73
+report: '# model → IaC比較の非阻害結果
+
+
+  Scan実行日時: 2026-01-01 09:00:00 Asia/Tokyo
+
+  対象: dev／cde／glue
+
+  今回の判定: differences
+
+  問題: 3件
+
+  比較: difference 3件
+
+  PENDING_DEPLOY（比較対象外） 0件
+
+  分類: 要修正 3件
+
+
+  ## Issue一覧
+
+
+  | Issue ID | 分類 | 対象 | 問題 |
+
+  | --- | --- | --- | --- |
+
+  | ISSUE-d19a19b732a83851347a | 要修正 | glue / infra/cloudformation/templates/shared.yaml
+  | glue / 019 / Glue.Job.Role の値の不一致：ModelとIaCの設定値が一致しない。 |
+
+  | ISSUE-a82a937498b6e83980c7 | 要修正 | glue / infra/cloudformation/templates/shared.yaml
+  | glue / 020 / Glue.Job.Password の値の不一致：ModelとIaCの設定値が一致しない。 |
+
+  | ISSUE-7864c818412aa4c496a1 | 要修正 | glue / infra/cloudformation/templates/shared.yaml
+  | glue / 021 / Glue.Job.Config の値の不一致：ModelとIaCの設定値が一致しない。 |
+
+  '
+without_fields: '# model → IaC比較の非阻害結果
+
+
+  Scan実行日時: 2026-01-01 09:00:00 Asia/Tokyo
+
+  対象: dev／cde／glue
+
+  今回の判定: differences
+
+  問題: 1件
+
+  比較: difference 1件
+
+  PENDING_DEPLOY（比較対象外） 0件
+
+  分類: 要修正 1件
+
+
+  ## Issue一覧
+
+
+  | Issue ID | 分類 | 対象 | 問題 |
+
+  | --- | --- | --- | --- |
+
+  | ISSUE-a82a937498b6e83980c7 | 要修正 | glue / infra/cloudformation/templates/shared.yaml
+  | glue / 020 / Glue.Job.Password の値の不一致：ModelとIaCの設定値が一致しない。 |
+
+  '

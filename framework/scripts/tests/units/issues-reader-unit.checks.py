@@ -4,18 +4,22 @@ import hashlib
 import json
 import sys
 from copy import deepcopy
+from functools import partial
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+from issues.artifact import validate_artifact
 from issues.cli import main
 from issues.reader import read_review_json, read_scan_artifact
 from issues.review import IncompleteNamingScan
 from issues.review_progress import ReviewController
 from support.issues_scan_fixtures import snapshot_artifact, stamp_naming_scan
 from support.pytest_cli import run
+from support.regression_cases import case_ids
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -58,26 +62,26 @@ def test_strict_rejection_does_not_echo_input(tmp_path, raw):
     assert "secret-marker" not in str(error.value)
 
 
-@pytest.mark.parametrize(
-    "field,value,message",
-    [
-        ("version", 6.0, "version"),
-        ("version", True, "version"),
-        ("version", 7, "version"),
-        ("naming_context", [], "naming_context"),
-        ("record_meta", None, "record_meta"),
-    ],
-)
-def test_scan_fields(tmp_path, field, value, message):
+def scan_field_case(tmp_path, case):
+    fields = case["data"]
     data = snapshot_artifact(tmp_path / "repository")
-    if field == "record_meta":
-        del data[field]
+    validate_artifact(data)
+    if fields["field"] == "record_meta":
+        del data[fields["field"]]
     else:
-        data[field] = value
+        data[fields["field"]] = fields["value"]
     path = tmp_path / "scan.json"
     path.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(ValueError, match=message):
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match=fields["message"]) as caught:
         read_scan_artifact(path)
+    TestCase().assertEqual(path.read_bytes(), before)
+    return {"error": type(caught.value).__name__, "message": str(caught.value)}
+
+
+@pytest.mark.parametrize("case_id", case_ids("issues_reader"))
+def test_scan_fields(tmp_path, case_runner, case_id):
+    case_runner.run("issues_reader", case_id, partial(scan_field_case, tmp_path))
 
 
 def test_review_json_strict(tmp_path):

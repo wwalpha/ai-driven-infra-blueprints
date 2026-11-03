@@ -1,0 +1,2 @@
+error: ValueError
+message: 'Scan artifact: missing required field record_meta'

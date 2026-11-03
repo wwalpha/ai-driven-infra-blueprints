@@ -5,10 +5,12 @@ import sys
 from contextlib import nullcontext, redirect_stdout
 from copy import deepcopy
 from dataclasses import replace
+from datetime import datetime
 from functools import partial
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -141,52 +143,25 @@ def check_difference_contract_before_snapshot(bad_result, message):
         _execute_difference_case(load_case("issues_scan", "difference-secret-field"))
 
 
-def check_mismatch_rendering():
+def mismatch_rendering_case(case):
+    data = case["data"]
     fields = _callback_check_mismatch_rendering_fields
-    role = {"$resource": ["iam", "089"], "$attribute": "RoleName"}
-    arn_role = dict(role, **{"$attribute": "Arn"})
-    long_value = "x" * 1000
-    assert brief("Resource <arn:aws:s3:::example-bucket> | differs") == (
-        "Resource &lt;arn:aws:s3:::example-bucket&gt; ／ differs"
+    role = data["role"]
+    arn_role = data["arnRole"]
+    long_value = data["longValue"]
+    TestCase().assertTrue(
+        brief("Resource <arn:aws:s3:::example-bucket> | differs")
+        == "Resource &lt;arn:aws:s3:::example-bucket&gt; ／ differs"
     )
-
-    with tempfile.TemporaryDirectory(prefix="mismatch-display-") as directory:
+    with (
+        tempfile.TemporaryDirectory(prefix="mismatch-display-") as directory,
+        patch("issues.reports.datetime", wraps=datetime) as clock,
+    ):
+        clock.now.return_value = datetime.fromisoformat(data["reportTime"])
         root = Path(directory)
         path = root / "issues/dev/cde/iac-issues.md"
-        base = dict(
-            category="difference",
-            service="glue",
-            resource="019",
-            property="Glue.Job.Role",
-            reason="value mismatch",
-            stack="stack1",
-            desired=role,
-            actual=arn_role,
-            model={"path": "model/dev/cde/glue.properties", "line": 999},
-            model_sources=[
-                {
-                    "path": "model/dev/cde/glue.properties",
-                    "line": 999,
-                    "key": "desired.row.019.value",
-                }
-            ],
-            iac={"path": "infra/cloudformation/templates/shared.yaml", "line": 999},
-        )
-        secret = dict(
-            base,
-            resource="020",
-            property="Glue.Job.Password",
-            desired="<masked>",
-            actual="<masked>",
-        )
-        long_record = dict(
-            base,
-            resource="021",
-            property="Glue.Job.Config",
-            desired=long_value + "A",
-            actual=long_value + "B",
-        )
-        records = [base, secret, long_record]
+        records = deepcopy(data["records"])
+        base, secret, long_record = records
         original = json.loads(json.dumps(records))
         display = {
             identifier(base): fields(role, arn_role),
@@ -195,7 +170,6 @@ def check_mismatch_rendering():
                 long_record["desired"], long_record["actual"], "Glue.Job.Config"
             ),
         }
-        # No source/evidence reads, even when saved line numbers are invalid.
         with patch(
             "issues.reports.evidence",
             side_effect=AssertionError("mismatch evidence read forbidden"),
@@ -203,20 +177,24 @@ def check_mismatch_rendering():
             report, report_state = render_iac(
                 root, path, "dev", "cde", ["glue"], records, display
             )
-        assert "| 要修正 |" in report and "Glue.Job.Role" in report
-        assert "修正対象" not in report and "必要な操作" not in report
-        assert "相違項目" not in report and "shared.yaml" in report
-        assert "glue.properties" not in report and ":999" not in report
-        assert all(
-            value not in report for value in (long_value + "A", "first", "second")
+        TestCase().assertTrue("| 要修正 |" in report and "Glue.Job.Role" in report)
+        TestCase().assertTrue("修正対象" not in report and "必要な操作" not in report)
+        TestCase().assertTrue("相違項目" not in report and "shared.yaml" in report)
+        TestCase().assertTrue("glue.properties" not in report and ":999" not in report)
+        TestCase().assertTrue(
+            all(
+                (value not in report for value in (long_value + "A", "first", "second"))
+            )
         )
         entries = report_state["entries"]
-        assert Counter(
-            json.dumps(entry["record"], sort_keys=True) for entry in entries
-        ) == Counter(json.dumps(record, sort_keys=True) for record in original)
-        assert {entry["id"] for entry in entries} == {
-            iac_key(record) for record in original
-        }
+        TestCase().assertTrue(
+            Counter((json.dumps(entry["record"], sort_keys=True) for entry in entries))
+            == Counter((json.dumps(record, sort_keys=True) for record in original))
+        )
+        TestCase().assertTrue(
+            {entry["id"] for entry in entries}
+            == {iac_key(record) for record in original}
+        )
         expected_entries = [
             {"id": iac_key(record), "record": record, "retained": False}
             for record in records
@@ -228,10 +206,13 @@ def check_mismatch_rendering():
                 identifier(entry["record"]),
             )
         )
-        assert iac_actions(entries, "dev", "cde") == iac_actions(
-            expected_entries, "dev", "cde"
+        TestCase().assertTrue(
+            iac_actions(entries, "dev", "cde")
+            == iac_actions(expected_entries, "dev", "cde")
         )
-        assert records == original and report_state["value_differences"] == display
+        TestCase().assertTrue(
+            records == original and report_state["value_differences"] == display
+        )
         unsafe_display = {
             identifier(secret): [
                 {"path": "Password", "model": "first", "iac": "second"}
@@ -240,7 +221,9 @@ def check_mismatch_rendering():
         masked_report, masked_data = render_iac(
             root, path, "dev", "cde", ["glue"], [secret], unsafe_display
         )
-        assert "first" not in masked_report and "second" not in masked_report
+        TestCase().assertTrue(
+            "first" not in masked_report and "second" not in masked_report
+        )
         expect_error(
             lambda: render_iac(
                 root, path, "dev", "cde", ["glue"], [base], {identifier(base): [{}]}
@@ -258,10 +241,48 @@ def check_mismatch_rendering():
         limited, limited_data = render_iac(
             root, path, "dev", "cde", ["glue"], duplicates, duplicate_display
         )
-        assert len(limited_data["entries"]) == 12
-        assert "相違項目:" not in limited and "省略代表例" not in limited
+        TestCase().assertTrue(len(limited_data["entries"]) == 12)
+        TestCase().assertTrue(
+            "相違項目:" not in limited and "省略代表例" not in limited
+        )
         no_fields, _ = render_iac(root, path, "dev", "cde", ["glue"], [secret])
-        assert "相違項目" not in no_fields and "| 要修正 |" in no_fields
+        TestCase().assertTrue("相違項目" not in no_fields and "| 要修正 |" in no_fields)
+        result = {
+            "report": report,
+            "record_ids": [entry["id"] for entry in entries],
+            "masked_report": masked_report,
+            "limited_report": limited,
+            "limited_count": len(limited_data["entries"]),
+            "without_fields": no_fields,
+        }
+        if any(
+            (
+                marker in json.dumps(result, ensure_ascii=False)
+                for marker in ("first", "second", long_value + "A", long_value + "B")
+            )
+        ):
+            pytest.fail("report exposed a synthetic protected value", pytrace=False)
+        return result
+
+
+def report_with_synthetic_leak(render, *args, **kwargs):
+    text, data = render(*args, **kwargs)
+    return text + "first", data
+
+
+def check_report_secret_guard_precedes_snapshot(monkeypatch):
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "render_iac",
+        partial(report_with_synthetic_leak, render_iac),
+    )
+    with pytest.raises(AssertionError):
+        mismatch_rendering_case(load_case("issues_scan", "report-mismatch"))
+
+
+@pytest.mark.parametrize("case_id", ["report-mismatch"])
+def check_mismatch_rendering(case_runner, case_id):
+    case_runner.run("issues_scan", case_id, mismatch_rendering_case)
 
 
 def _callback_summary_scale_cases_with_records_161(

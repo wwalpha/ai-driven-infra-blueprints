@@ -1,0 +1,47 @@
+version: 1
+cases:
+  boolean-01:
+    data:
+      model: 'False'
+      actual: false
+      category: matched
+  boolean-02:
+    data:
+      model: 'false'
+      actual: false
+      category: matched
+  boolean-03:
+    data:
+      model: 'True'
+      actual: true
+      category: matched
+  boolean-04:
+    data:
+      model: 'true'
+      actual: true
+      category: matched
+  boolean-05:
+    data:
+      model: 'True'
+      actual: false
+      category: difference
+  boolean-06:
+    data:
+      model: 'False'
+      actual: true
+      category: difference
+  policy-summary-input:
+    data:
+      policies:
+      - PolicyName: one
+        PolicyDocument:
+          Statement:
+          - Action:
+            - a
+            - b
+            Effect: Allow
+      - PolicyName: two
+        PolicyDocument:
+          Statement:
+          - Action: c
+            Effect: Allow
