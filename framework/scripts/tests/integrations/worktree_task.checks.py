@@ -1172,6 +1172,12 @@ class PRGitHub:
         return self.pr["url"] + "\n"
 
 
+def _push_with_base_advance(advance, scenario, original_push, target, publication):
+    if advance == "during":
+        scenario.advance("base.txt", "during publication\n")
+    original_push(target, publication)
+
+
 def _check_pr_creation_with_advancing_base():
     for advance in ("local", "remote", "during", "conflict"):
         with fixture() as root:
@@ -1190,19 +1196,6 @@ def _check_pr_creation_with_advancing_base():
                 scenario.advance(
                     relative if advance == "conflict" else "base.txt", "base\n"
                 )
-            original_push = pr.push_candidate
-
-            def push(
-                target,
-                publication,
-                advance=advance,
-                scenario=scenario,
-                original_push=original_push,
-            ):
-                if advance == "during":
-                    scenario.advance("base.txt", "during publication\n")
-                original_push(target, publication)
-
             with (
                 patch.object(wt, "git", side_effect=remote.git),
                 patch.object(pr, "gh", side_effect=remote.gh),
@@ -1216,7 +1209,13 @@ def _check_pr_creation_with_advancing_base():
                 ),
                 patch.object(subprocess, "run", side_effect=remote.child),
                 patch.object(loop, "run_loop", side_effect=remote.validate),
-                patch.object(pr, "push_candidate", side_effect=push),
+                patch.object(
+                    pr,
+                    "push_candidate",
+                    side_effect=_bind_framework_callback(
+                        _push_with_base_advance, advance, scenario, pr.push_candidate
+                    ),
+                ),
             ):
                 result = wt.finalize(root, "example", create_pr=True)
                 assert result["prPublication"]["number"] == 7
