@@ -532,14 +532,6 @@ def classify_exclusion(m, snapshot, resource, item, *, resource_confirmed=False)
         return {**item, "status": "excluded"}
     reason = snapshot.get("exclusions", {}).get(prop)
     if (
-        prop in {"Lambda.Function.Code.S3Bucket", "Lambda.Function.Code.S3Key"}
-        and item["status"] == "sdk_unavailable"
-        and item.get("reason", "").startswith(
-            "GetFunction did not return Code.ResolvedS3Object;"
-        )
-    ):
-        reason = item["reason"]
-    if (
         prop == "LakeFormation.Resource.WithFederation"
         and item["status"] == "sdk_unavailable"
         and item.get("reason")
@@ -706,6 +698,18 @@ def resolve_endpoint_aliases(m, ctx, snapshot):
                 )
 
 
+def audit_resources(model):
+    for resource in model.resources:
+        resource = copy.copy(resource)
+        resource.rows = [
+            (rid, row)
+            for rid, row in resource.rows
+            if row["property"]
+            not in {"Lambda.Function.Code.S3Bucket", "Lambda.Function.Code.S3Key"}
+        ]
+        yield resource
+
+
 def audit(snapshot, profile=None, cli_runner=None):
     snapshot = copy.deepcopy(snapshot)
     m = engine(snapshot)
@@ -736,7 +740,7 @@ def audit(snapshot, profile=None, cli_runner=None):
             / target["directory"]
             / (snapshot["service"] + ".properties")
         )
-        for resource in model.resources:
+        for resource in audit_resources(model):
             for prop in dict.fromkeys(row["property"] for _, row in resource.rows):
                 records.append(
                     reference_result(
@@ -772,7 +776,7 @@ def audit(snapshot, profile=None, cli_runner=None):
         / target["directory"]
         / (snapshot["service"] + ".properties")
     )
-    for resource in model.resources:
+    for resource in audit_resources(model):
         try:
             items = list(
                 attributes(

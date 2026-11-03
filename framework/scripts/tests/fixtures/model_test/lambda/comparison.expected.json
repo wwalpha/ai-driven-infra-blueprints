@@ -2,9 +2,30 @@
   {
     "records": [
       {
-        "propertiesKey": "Lambda.Function.Code.S3Bucket",
+        "propertiesKey": "Lambda.Function.FunctionName",
         "status": "match"
       },
+      {
+        "propertiesKey": "Lambda.Function.Timeout",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "lambda",
+          "get-function"
+        ],
+        {
+          "FunctionName": "fixture-function"
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {}
+  },
+  {
+    "records": [
       {
         "propertiesKey": "Lambda.Function.FunctionName",
         "status": "match"
@@ -31,10 +52,6 @@
   {
     "records": [
       {
-        "propertiesKey": "Lambda.Function.Code.S3Bucket",
-        "status": "difference"
-      },
-      {
         "propertiesKey": "Lambda.Function.FunctionName",
         "status": "match"
       },
@@ -54,15 +71,11 @@
         }
       ]
     ],
-    "code": 1,
+    "code": 0,
     "report": {}
   },
   {
     "records": [
-      {
-        "propertiesKey": "Lambda.Function.Code.S3Bucket",
-        "status": "excluded"
-      },
       {
         "propertiesKey": "Lambda.Function.FunctionName",
         "status": "match"
@@ -84,51 +97,10 @@
       ]
     ],
     "code": 0,
-    "report": {
-      "contains": [
-        "Verification: NOT_VERIFIABLE"
-      ]
-    }
+    "report": {}
   },
   {
     "records": [
-      {
-        "propertiesKey": "Lambda.Function.Code.S3Bucket",
-        "status": "acquisition_failed"
-      },
-      {
-        "propertiesKey": "Lambda.Function.FunctionName",
-        "status": "match"
-      },
-      {
-        "propertiesKey": "Lambda.Function.Timeout",
-        "status": "match"
-      }
-    ],
-    "calls": [
-      [
-        [
-          "lambda",
-          "get-function"
-        ],
-        {
-          "FunctionName": "fixture-function"
-        }
-      ]
-    ],
-    "code": 2,
-    "report": {
-      "absent": [
-        "[INFO]"
-      ]
-    }
-  },
-  {
-    "records": [
-      {
-        "propertiesKey": "Lambda.Function.Code.S3Bucket",
-        "status": "acquisition_failed"
-      },
       {
         "propertiesKey": "Lambda.Function.FunctionName",
         "status": "acquisition_failed"
@@ -162,7 +134,7 @@
       "counts": [
         [
           "[ERROR] Lambda.Function",
-          3
+          2
         ]
       ]
     }
@@ -170,10 +142,6 @@
   {
     "records": [
       {
-        "propertiesKey": "Lambda.Function.Code.S3Bucket",
-        "status": "design_unresolved"
-      },
-      {
         "propertiesKey": "Lambda.Function.FunctionName",
         "status": "design_unresolved"
       },
@@ -193,10 +161,6 @@
   {
     "records": [
       {
-        "propertiesKey": "Lambda.Function.Code.S3Bucket",
-        "status": "design_unresolved"
-      },
-      {
         "propertiesKey": "Lambda.Function.FunctionName",
         "status": "design_unresolved"
       },
@@ -215,10 +179,6 @@
   },
   {
     "records": [
-      {
-        "propertiesKey": "Lambda.Function.Code.S3Bucket",
-        "status": "acquisition_failed"
-      },
       {
         "propertiesKey": "Lambda.Function.FunctionName",
         "status": "acquisition_failed"

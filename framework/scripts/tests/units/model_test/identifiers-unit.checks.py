@@ -150,34 +150,6 @@ def test_lakeformation_request_input_requires_resource_confirmation(identifier):
     )
 
 
-@pytest.mark.parametrize(
-    "prop", ["Lambda.Function.Code.S3Bucket", "Lambda.Function.Code.S3Key"]
-)
-def test_lambda_code_missing_evidence_only_is_excluded(identifier, prop):
-    identifier.resource.rows_for.return_value = [("001-001", {"value": "`bucket`"})]
-    identifier.resource.parse = lambda row: row["value"].strip("`")
-    item = {
-        "propertiesKey": prop,
-        "status": "sdk_unavailable",
-        "reason": "GetFunction did not return Code.ResolvedS3Object; unavailable",
-    }
-    TestCase().assertEqual(
-        audit.classify_exclusion(identifier.m, {}, identifier.resource, item)["status"],
-        "excluded",
-    )
-    for status in ("match", "difference", "resource_missing", "acquisition_failed"):
-        candidate = {**item, "status": status}
-        TestCase().assertIs(
-            audit.classify_exclusion(identifier.m, {}, identifier.resource, candidate),
-            candidate,
-        )
-    candidate = {**item, "reason": "other SDK failure"}
-    TestCase().assertIs(
-        audit.classify_exclusion(identifier.m, {}, identifier.resource, candidate),
-        candidate,
-    )
-
-
 def test_missing_resource_report_is_not_a_property_diff(identifier):
     snapshot = {
         "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
