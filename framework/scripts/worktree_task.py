@@ -1768,7 +1768,9 @@ def sync_latest_base(where, task_id, expected_base):
             }
             save(path, state)
         if (
-            intent["base"] != latest
+            git(
+                root, "merge-base", "--is-ancestor", intent["base"], latest, check=False
+            ).returncode
             or intent["taskHash"] != hashlib.sha256(text.encode("utf-8")).hexdigest()
             or tasks.read_task_snapshot(target, state["task_file"], live=True).text
             != text
@@ -1777,6 +1779,7 @@ def sync_latest_base(where, task_id, expected_base):
             raise Blocked("base sync intent or Task changed; review required")
         if "oldBase" not in intent or "commits" not in intent:
             raise Blocked("legacy base sync intent requires review")
+        sync_base = intent["base"]
         idle_git(target)
         head = output(target, "rev-parse", "HEAD")
         if head == intent["head"]:
@@ -1794,7 +1797,7 @@ def sync_latest_base(where, task_id, expected_base):
                 "--reapply-cherry-picks",
                 "--empty=keep",
                 "--onto",
-                latest,
+                sync_base,
                 intent["oldBase"],
                 check=False,
             )
@@ -1805,11 +1808,11 @@ def sync_latest_base(where, task_id, expected_base):
                 )
             head = output(target, "rev-parse", "HEAD")
         commits = output(
-            target, "rev-list", "--reverse", latest + ".." + head
+            target, "rev-list", "--reverse", sync_base + ".." + head
         ).splitlines()
         if (
             git(
-                target, "merge-base", "--is-ancestor", latest, head, check=False
+                target, "merge-base", "--is-ancestor", sync_base, head, check=False
             ).returncode
             or len(commits) != len(intent["commits"])
             or any(
@@ -1817,8 +1820,7 @@ def sync_latest_base(where, task_id, expected_base):
                 != output(target, "show", "-s", "--format=%an%n%ae%n%aI%n%B", new)
                 for old, new in zip(intent["commits"], commits, strict=True)
             )
-            or output(target, "rev-list", "--merges", latest + ".." + head)
-            or output(base_worktree(root, state), "rev-parse", "HEAD") != latest
+            or output(target, "rev-list", "--merges", sync_base + ".." + head)
             or output(target, "rev-parse", head + "^{tree}") != intent["tree"]
             or changed_paths(target)
             or tasks.read_task_snapshot(target, state["task_file"], live=True).text
@@ -1840,26 +1842,31 @@ def sync_latest_base(where, task_id, expected_base):
         ):
             raise Blocked("base rebase intent has unexpected Task history")
         old_parent, new_parent = verify_rebase_commits(
-            target, intent["commits"], commits, intent["oldBase"], latest
+            target, intent["commits"], commits, intent["oldBase"], sync_base
         )
         if old_parent != intent["head"] or new_parent != head:
             raise Blocked("base rebase history differs from its recorded intent")
         idle_git(target)
+        current_base = output(base_worktree(root, state), "rev-parse", "HEAD")
         if (
-            output(base_worktree(root, state), "rev-parse", "HEAD") != latest
+            git(
+                root, "merge-base", "--is-ancestor", latest, current_base, check=False
+            ).returncode
             or output(target, "rev-parse", "HEAD") != head
             or changed_paths(target)
             or tasks.read_task_snapshot(target, state["task_file"], live=True).text
             != text
         ):
             raise Blocked("base or Task changed during rebase verification")
-        state.update(tip=head, commit=head, verified=True, validation_base=latest)
+        state.update(tip=head, commit=head, verified=True, validation_base=sync_base)
         del state["latestBaseSync"]
         save(path, state)
+        if current_base != sync_base:
+            return needs_sync(current_base)
         return {
             **state,
             "status": "needs_validation",
-            "latest_base": latest,
+            "latest_base": sync_base,
             "candidate": head,
         }
 
