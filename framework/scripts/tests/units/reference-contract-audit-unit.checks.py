@@ -223,7 +223,7 @@ def test_registered_contract_route(models, prop, producer, attribute):
             "desired.row.001-002.comment": "contract",
         }
     )
-    save(scope, authored)
+    write(scope, authored)
     symbol = ResourceReference(
         {
             "$resource": ["producer", "001"],
@@ -520,23 +520,27 @@ def test_catalog_and_context_boundaries(models):
 def test_common_markdown_projection_and_restoration(
     models, kind, rows, observed, expected
 ):
-    resource(models, "s3", "S3.Bucket", attribute="BucketName", observed=observed)
+    scope, values = resource_values(
+        models, "s3", "S3.Bucket", attribute="BucketName", observed=observed
+    )
+    write(scope, values)
     secret_observed = (
         "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture-AbCdEf"
         if observed == "confirmed-value"
         else observed
     )
-    resource(
+    scope, values = resource_values(
         models,
         "secret",
         "SecretsManager.Secret",
         attribute="Id",
         observed=secret_observed,
     )
-    scope, first = resource(
+    write(scope, values)
+    scope, first = resource_values(
         models, "subnet", "EC2.Subnet", attribute="SubnetId", observed=observed
     )
-    _, second = resource(
+    _, second = resource_values(
         models,
         "subnet",
         "EC2.Subnet",
@@ -545,11 +549,12 @@ def test_common_markdown_projection_and_restoration(
         number="002",
     )
     first.update(second)
-    save(scope, first)
-    resource(
+    write(scope, first)
+    scope, values = resource_values(
         models, "groups", "EC2.SecurityGroup", attribute="GroupId", observed=observed
     )
-    scope, values = resource(
+    write(scope, values)
+    scope, values = resource_values(
         models,
         "receiver",
         kind,
@@ -1345,7 +1350,7 @@ def test_explicit_contract_preparation(models, prop):
             "desired.row.001-002.comment": "synthetic",
         }
     )
-    save(scope, receiver)
+    write(scope, receiver)
     inputs = comparison(models, ("producer", "receiver"))
     row = dict(entries(receiver, "desired.row."))["001-002"]
     prepared = inputs.prepare_value("receiver", row, kind, row_id="001-002")
@@ -1383,7 +1388,7 @@ def test_explicit_contract_rejects_wrong_producer(models, prop):
             "desired.row.001-002.comment": "synthetic",
         }
     )
-    save(scope, receiver)
+    write(scope, receiver)
     inputs = comparison(models, ("producer", "receiver"))
     row = dict(entries(receiver, "desired.row."))["001-002"]
     value = inputs.prepare_value(
