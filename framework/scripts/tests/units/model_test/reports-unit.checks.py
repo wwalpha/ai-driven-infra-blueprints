@@ -145,6 +145,8 @@ def test_pending_deploy_report_classification():
             snapshot, None, "account", [item], datetime.now(timezone.utc)
         )
         assert f"[{expected}]" in text
+        design = '"PENDING_DEPLOY"' if expected == "NG" else "null"
+        assert "  Design: " + design in text
         assert code == (1 if expected == "NG" else 2)
 
 
