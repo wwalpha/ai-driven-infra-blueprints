@@ -87,6 +87,8 @@ def finalize(where, task_id, approval, *, draft=False):
         wt.save(path, state)
     if not state.get("prPublication"):
         state = wt._finalize(root, task_id, approval)
+        if state.get("status") == "needs_sync":
+            return state
     elif approval is not None and approval != state.get("validation_failure_approval"):
         raise wt.Blocked("PR candidate approval changed; review required")
     return publish(root, path, state)

@@ -1852,7 +1852,9 @@ def check_commit_and_rebase_failure_retention(tmp_path, failure):
         patch.object(wt, "save"),
     ):
         with pytest.raises((wt.Blocked, subprocess.CalledProcessError)):
-            wt._prepare_commit(base, tmp_path / "state.json", state, target, None)
+            wt._prepare_commit(
+                base, tmp_path / "state.json", state, target, None, recovery=True
+            )
     check.assertEqual(source.read_bytes(), b"candidate bytes")
     check.assertFalse(any(args[0] == "merge" for args in trace.commands))
     if failure == "rebase":

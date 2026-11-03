@@ -80,11 +80,91 @@ def check_implement_rebases_on_latest_base():
         git(root, "commit", "-qm", "independent base change")
         latest = git(root, "rev-parse", "HEAD")
         _, _, path, state = wt.load(root, "example")
+        with check.assertRaises(wt.NeedsSync):
+            wt._prepare_commit(root, path, state, target, None)
+        process = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPT),
+                "sync-latest-base",
+                "--repository-root",
+                str(root),
+                "--task-id",
+                "example",
+                "--expected-base",
+                latest,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        result = json.loads(process.stdout)
+        check.assertEqual(result["status"], "needs_validation")
+        check.assertEqual(
+            wt.sync_latest_base(root, "example", latest)["candidate"],
+            result["candidate"],
+        )
+        _, _, path, state = wt.load(root, "example")
         check.assertEqual(wt._prepare_commit(root, path, state, target, None), latest)
         git(root, "merge", "--ff-only", state["branch"])
         check.assertEqual((root / "file.txt").read_text(), "task change\n")
         check.assertEqual((root / "upstream.txt").read_text(), "latest base\n")
-        check.assertEqual(git(root, "rev-list", "--count", latest + "..HEAD"), "1")
+        check.assertEqual(
+            len(git(root, "show", "-s", "--format=%P", "HEAD").split()), 2
+        )
+
+
+@it_case
+def check_latest_base_sync_retains_conflict():
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("candidate\n")
+        (root / "file.txt").write_text("upstream\n")
+        git(root, "add", "file.txt")
+        git(root, "commit", "-qm", "conflicting base")
+        latest = git(root, "rev-parse", "HEAD")
+        with TestCase().assertRaises(wt.Blocked):
+            wt.sync_latest_base(root, "example", latest)
+        assert (target / "file.txt").read_text() == "candidate\n"
+        assert git(root, "rev-parse", "HEAD") == latest
+        assert tasks.status((target / state["task_file"]).read_text()) == "running"
+
+
+@it_case
+def check_base_advance_after_validation():
+    with fixture() as root:
+        (root / "framework").mkdir()
+        (root / "framework/example.py").write_text("initial\n")
+        git(root, "add", "framework/example.py")
+        git(root, "commit", "-qm", "framework fixture")
+        target, state = start(root, files=("framework/example.py",))
+        (target / "framework/example.py").write_text("candidate\n")
+        _, _, path, state = wt.load(root, "example")
+        wt._prepare_commit(root, path, state, target, None, prepare_only=True)
+        text = (target / state["task_file"]).read_text()
+        candidate = wt.FinalCandidate(
+            target,
+            target,
+            state["task_file"],
+            text,
+            state["start"],
+            state["tip"],
+            frozenset(),
+            frozenset(),
+        )
+        (root / "upstream.txt").write_text("new\n")
+        git(root, "add", "upstream.txt")
+        git(root, "commit", "-qm", "base advanced")
+        with TestCase().assertRaises(wt.NeedsSync):
+            wt.merge_validated_candidate(wt._ValidatedCandidate(candidate, 0))
+        with patch("sys.stdout", new_callable=io.StringIO) as notice:
+            wt._integrate_model(root, "example")
+        assert notice.getvalue().strip() == "NEEDS_SYNC=" + git(
+            root, "rev-parse", "HEAD"
+        )
+        assert tasks.status((target / state["task_file"]).read_text()) == "running"
+        assert git(target, "rev-parse", "HEAD") == state["tip"]
 
 
 @it_case
@@ -340,6 +420,12 @@ def _check_normal_model_final_candidate():
         git(root, "commit", "-qm", "advance base")
         latest = git(root, "rev-parse", "HEAD")
         with mapping_alias(SCRIPT.parents[2], target):
+            with TestCase().assertRaises(wt.NeedsSync):
+                wt.prepare_integration(root, "example")
+            assert (
+                wt.sync_latest_base(root, "example", latest)["status"]
+                == "needs_validation"
+            )
             candidate = wt.prepare_integration(root, "example")
             assert candidate.base_commit == latest
             assert wt.task_start_commit(target, state["task_file"]) == latest
@@ -1156,6 +1242,8 @@ def _check_pr_update_scenario(mode):
 def main():
     for check in (
         check_implement_rebases_on_latest_base,
+        check_latest_base_sync_retains_conflict,
+        check_base_advance_after_validation,
         check_sync_base_preserves_candidate,
         check_rewritten_base_preserves_candidate,
         check_rewritten_base_rejects_overlap,
@@ -1182,6 +1270,9 @@ def check_framework_final_candidate():
     relative = ".github/workflows/framework-it.yml"
     with fixture() as root:
         loop_checks.make_project_fixture(SCRIPT.parents[2], root)
+        deploy_skill = Path(".agents/skills/deploy/SKILL.md")
+        (root / deploy_skill).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(SCRIPT.parents[2] / deploy_skill, root / deploy_skill)
         shutil.copytree(
             SCRIPT.parents[1],
             root / "framework",
@@ -1206,6 +1297,11 @@ def check_framework_final_candidate():
         git(root, "add", "upstream.txt")
         git(root, "commit", "-qm", "advance Framework base")
         latest = git(root, "rev-parse", "HEAD")
+        with TestCase().assertRaises(wt.NeedsSync):
+            wt.prepare_integration(root, "example")
+        assert (
+            wt.sync_latest_base(root, "example", latest)["status"] == "needs_validation"
+        )
         candidate = wt.prepare_integration(root, "example")
         TestCase().assertEqual(candidate.base_commit, latest)
         assert candidate.scope == frozenset() and candidate.changed_paths == {relative}
@@ -1398,6 +1494,12 @@ def check_model_refactor_integration():
             git(root, "add", file)
             git(root, "commit", "-qm", "advance producer on base")
             latest = git(root, "rev-parse", "HEAD")
+            with TestCase().assertRaises(wt.NeedsSync):
+                wt.prepare_integration(root, "example")
+            assert (
+                wt.sync_latest_base(root, "example", latest)["status"]
+                == "needs_validation"
+            )
             final = wt.prepare_integration(root, "example")
             assert final.base_commit == latest
             calls = []
