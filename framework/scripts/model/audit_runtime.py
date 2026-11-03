@@ -8,6 +8,7 @@ import re
 import sys
 from collections import Counter
 from datetime import datetime
+from functools import lru_cache as _runtime_lru_cache
 from functools import partial as _bind_framework_callback
 from functools import partialmethod
 from pathlib import Path
@@ -19,6 +20,8 @@ from contracts.model import (
     RESOURCE_LOGICAL_ID_KEY,
 )
 from contracts.target import AWS_REGION_KEY
+
+compile = _runtime_lru_cache(maxsize=128)(compile)
 
 
 def _callback_engine_load_model(m, snapshot, /, path):

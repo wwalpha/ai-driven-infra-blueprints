@@ -18,6 +18,7 @@ from unittest import TestCase
 from design.layout import confirmed_display_name
 from model.adapters.aws import AcquisitionError, Unresolved, sdk_error, service_module
 from model.audit import (
+    build_snapshot,
     generate,
     pipeline_indexed_rows,
 )
@@ -210,10 +211,7 @@ class CloudTrailArrayTests(unittest.TestCase):
             for field in ("property", "value", "comment"):
                 incomplete.pop(f"desired.row.001-{missing}.{field}")
             write_model(path, incomplete)
-            incomplete_source = generate(self.root, "dev", "cde", "cloudtrail")[0]
-            snapshot = json.loads(
-                ast.literal_eval(ast.parse(incomplete_source).body[1].value.args[0])
-            )
+            snapshot = build_snapshot(self.root, "dev", "cde", "cloudtrail")[0]
             result = next(
                 (
                     r
@@ -226,8 +224,7 @@ class CloudTrailArrayTests(unittest.TestCase):
             "`" + json.dumps([self.ref("Missing_001", "Arn")]) + "`"
         )
         write_model(path, values)
-        source = generate(self.root, "dev", "cde", "cloudtrail")[0]
-        snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
+        snapshot = build_snapshot(self.root, "dev", "cde", "cloudtrail")[0]
         result = next(
             (
                 r
@@ -288,8 +285,7 @@ class CloudTrailArrayTests(unittest.TestCase):
                 ],
             },
         ]
-        source = generate(self.root, "dev", "cde", "cloudtrail")[0]
-        snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
+        snapshot = build_snapshot(self.root, "dev", "cde", "cloudtrail")[0]
         for response, expected, data_expected in [
             (selectors, "match", "match"),
             (
@@ -372,8 +368,7 @@ class CloudTrailArrayTests(unittest.TestCase):
             "CloudTrail.Trail.EventSelectors[1].DataResources[1].Values[1]"
         )
         with patch("model.audit.cloudtrail_rows", return_value=prepared):
-            source = generate(self.root, "dev", "cde", "cloudtrail")[0]
-        rejected = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
+            rejected = build_snapshot(self.root, "dev", "cde", "cloudtrail")[0]
         self.assertEqual(
             rejected["cloudtrailIndexedRows"]["001"]["001-005"],
             "CloudTrail.Trail.EventSelectors[].DataResources[].Values",
@@ -382,8 +377,7 @@ class CloudTrailArrayTests(unittest.TestCase):
         values.pop("desired.row.001-011.value")
         values.pop("desired.row.001-011.comment")
         write_model(path, values)
-        source = generate(self.root, "dev", "cde", "cloudtrail")[0]
-        snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
+        snapshot = build_snapshot(self.root, "dev", "cde", "cloudtrail")[0]
         self.assertEqual(
             snapshot["cloudtrailIndexedRows"]["001"]["001-003"],
             "CloudTrail.Trail.EventSelectors[].ReadWriteType",
@@ -741,6 +735,7 @@ class PipelineMembershipTests(unittest.TestCase):
         varied=False,
         order="last",
         run_order=False,
+        standalone=False,
     ):
         values = self.model(
             "CodePipeline.Pipeline", "CodePipeline_Pipeline_001", {"Name": "fixture"}
@@ -829,9 +824,13 @@ class PipelineMembershipTests(unittest.TestCase):
             write_model(self.root / "model/dev/cde/codebuild.properties", producer)
         model_path = self.root / "model/dev/cde/codepipeline.properties"
         validate_json_documents(load_model(model_path).authoritative, model_path)
-        source = generate(self.root, "dev", "cde", "codepipeline")[0]
-        snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
-        return (snapshot, response, source)
+        if standalone:
+            source = generate(self.root, "dev", "cde", "codepipeline")[0]
+            snap = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
+        else:
+            source = None
+            snap = build_snapshot(self.root, "dev", "cde", "codepipeline")[0]
+        return (snap, response, source)
 
     def records(self, snapshot, stages):
         cli = Mock(
@@ -912,7 +911,7 @@ class PipelineMembershipTests(unittest.TestCase):
             for order in ("first", "last", "middle"):
                 with self.subTest(stages=stages, actions=actions, order=order):
                     snapshot, response, source = self.build(
-                        stages, actions, reference=True, order=order
+                        stages, actions, reference=True, order=order, standalone=True
                     )
                     compile(source, "generated-audit.py", "exec")
                     records = self.records(snapshot, response)
@@ -1109,7 +1108,9 @@ class PipelineMembershipTests(unittest.TestCase):
         )
 
     def test_standalone(self):
-        snapshot, response, source = self.build(reference=True, order="middle")
+        snapshot, response, source = self.build(
+            reference=True, order="middle", standalone=True
+        )
         namespace = generated(source, self.root)
         for status, code in (("match", 0), ("difference", 1)):
             if status == "difference":

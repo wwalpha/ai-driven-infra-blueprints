@@ -5,6 +5,7 @@ import copy
 import json
 import subprocess
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -12,6 +13,7 @@ from model.audit import generate
 from support.model_sources import write_model
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/model_test"
+_compile_source = lru_cache(maxsize=32)(compile)
 
 
 class CLI:
@@ -90,7 +92,7 @@ def prepare(root, inputs, overrides=None):
 
 def generated(source, root):
     namespace = {"__name__": "audit_fixture", "__file__": str(root / "audit.py")}
-    exec(compile(source, "<generated-audit>", "exec"), namespace)
+    exec(_compile_source(source, "<generated-audit>", "exec"), namespace)
     for adapter in namespace["SNAPSHOT"]["adapters"].values():
         assert "model.adapters.aws" not in adapter
         assert "model.importing.sdk_inventory" not in adapter

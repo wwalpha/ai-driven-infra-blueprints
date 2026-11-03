@@ -37,6 +37,7 @@ from support.pytest_cli import run
 from support.repository_fixtures import contract
 
 from model import audit as generator
+from model import audit_runtime
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -92,7 +93,35 @@ class DataZoneDomainTests(unittest.TestCase):
 
 
 class EmbeddedImportTests(unittest.TestCase):
-    def test_imports_and_aliases(self):
+    def test_static_cache_tracks_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "source.py"
+            path.write_text("def example(): return 1\n", encoding="utf-8")
+            generator._definitions.cache_clear()
+            first = definitions(path, ["example"])
+            self.assertEqual(first, definitions(path, ["example"]))
+            self.assertEqual(generator._definitions.cache_info().hits, 1)
+            path.write_text("def example(): return 2\n", encoding="utf-8")
+            self.assertNotEqual(first, definitions(path, ["example"]))
+            self.assertEqual(generator._definitions.cache_info().misses, 2)
+            generator._definitions.cache_clear()
+        embed_adapter.cache_clear()
+        source = "from model.adapters.aws import value\n"
+        first = embed_adapter(source, "sqs", "value = 1\n")
+        self.assertEqual(first, embed_adapter(source, "sqs", "value = 1\n"))
+        self.assertEqual(embed_adapter.cache_info().hits, 1)
+        with self.assertRaises(ValueError):
+            embed_adapter(source, "sqs", "other = 1\n")
+        embed_adapter.cache_clear()
+
+    def test_runtime_compilation_cache_tracks_content(self):
+        audit_runtime.compile.cache_clear()
+        first = audit_runtime.compile("value = 1", "<test>", "exec")
+        self.assertIs(first, audit_runtime.compile("value = 1", "<test>", "exec"))
+        self.assertIsNot(first, audit_runtime.compile("value = 2", "<test>", "exec"))
+        self.assertEqual(audit_runtime.compile.cache_info().hits, 1)
+        audit_runtime.compile.cache_clear()
+
         engine = "def policy(value): return value\nMISSING = 3\n"
         source = "from model.adapters.aws import policy as normalize, MISSING\nimport model.adapters.aws as aws\nresult = (normalize(aws.MISSING), MISSING)\n"
         transformed = embed_adapter(source, "sqs", engine)
@@ -420,6 +449,10 @@ def test_generated_boundaries():
             for service in ("vpc", "iam")
         }
         for service, source in list(sources.items())[:1]:
+            TestCase().assertEqual(
+                generator.build_snapshot(root, "dev", "cde", service)[0],
+                snapshot(source),
+            )
             assert generator.generate(root, "dev", "cde", service)[0] == source
             compile(source, service + ".py", "exec")
             embedded = {}

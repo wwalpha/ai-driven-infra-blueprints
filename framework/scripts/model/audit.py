@@ -9,6 +9,7 @@ import re
 import sys
 from collections import Counter
 from dataclasses import asdict, replace
+from functools import lru_cache
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
@@ -202,6 +203,11 @@ def pipeline_indexed_rows(rows):
 def definitions(path, names):
     """Copy existing implementations verbatim; fail if an upstream name disappears."""
     source = input_text(path, encoding="utf-8")
+    return _definitions(source, tuple(names), path.name)
+
+
+@lru_cache(maxsize=256)
+def _definitions(source, names, filename):
     lines = source.splitlines(keepends=True)
     tree = ast.parse(source)
     found = {
@@ -217,7 +223,7 @@ def definitions(path, names):
     missing = set(names) - found.keys()
     if missing:
         raise ValueError(
-            f"missing runtime definitions in {path.name}: {sorted(missing)}"
+            f"missing runtime definitions in {filename}: {sorted(missing)}"
         )
     nodes = {
         node.name: node
@@ -241,6 +247,7 @@ def definitions(path, names):
     return "\n\n".join(found[name] for name in selected) + "\n"
 
 
+@lru_cache(maxsize=64)
 def embed_adapter(source, service, engine_source):
     """Resolve adapter imports before embedding and reject unknown dependencies."""
     engine_tree = ast.parse(engine_source)
@@ -657,8 +664,35 @@ def disambiguate_names(names, kinds, identities, primary):
             }
 
 
+@lru_cache(maxsize=64)
+def _invalid_import(source):
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            modules = (
+                [node.module or ""]
+                if isinstance(node, ast.ImportFrom)
+                else [item.name for item in node.names]
+            )
+            for imported in modules:
+                if (
+                    getattr(node, "level", 0)
+                    or imported.split(".")[0] not in sys.stdlib_module_names
+                ):
+                    return imported
+    return None
+
+
 @input_scope
 def generate(root, environment, selector, service):
+    return _build(root, environment, selector, service, True)
+
+
+@input_scope
+def build_snapshot(root, environment, selector, service):
+    return _build(root, environment, selector, service, False)
+
+
+def _build(root, environment, selector, service, standalone):
     m = module("model/adapters/aws.py", "model.adapters.aws")
     project_source = (root / PROJECT_FILENAME).read_bytes().decode("utf-8")
     (target,) = m.targets(root, environment, selector)
@@ -995,21 +1029,9 @@ def generate(root, environment, selector, service):
         ("projection", projection),
         ("mapped", mapped),
     ]:
-        for node in ast.walk(ast.parse(source)):
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                modules = (
-                    [node.module or ""]
-                    if isinstance(node, ast.ImportFrom)
-                    else [item.name for item in node.names]
-                )
-                for imported in modules:
-                    if (
-                        getattr(node, "level", 0)
-                        or imported.split(".")[0] not in sys.stdlib_module_names
-                    ):
-                        raise ValueError(
-                            f"{service}: {label}: unresolved dependency {imported}"
-                        )
+        invalid = _invalid_import(source)
+        if invalid is not None:
+            raise ValueError(f"{service}: {label}: unresolved dependency {invalid}")
     selected_model = load_model(path)
     names = {}
     indexed_rows_by_resource = {}
@@ -1112,38 +1134,47 @@ def generate(root, environment, selector, service):
         "projection": projection,
         "mapped": mapped,
     }
-    runtime = input_text(scripts / "model/audit_runtime.py", encoding="utf-8")
-    runtime_lines = runtime.splitlines(keepends=True)
-    for node in reversed(ast.parse(runtime).body):
-        if isinstance(node, ast.ImportFrom) and node.module in {
-            "contracts.model",
-            "contracts.target",
-        }:
-            del runtime_lines[node.lineno - 1 : node.end_lineno]
-    runtime = contract_bindings + "".join(runtime_lines)
-    result = (
-        "#!/usr/bin/env python3\n# Generated offline by /model-test; regenerate after Model changes.\n"
-        "import json\nSNAPSHOT = json.loads("
-        + repr(m.stable(snapshot))
-        + ")\n"
-        + runtime
-    )
-    for node in ast.walk(ast.parse(result)):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            modules = (
-                [node.module or ""]
-                if isinstance(node, ast.ImportFrom)
-                else [item.name for item in node.names]
-            )
-            for imported in modules:
-                if (
-                    getattr(node, "level", 0)
-                    or imported.split(".")[0] not in sys.stdlib_module_names
-                ):
-                    raise ValueError(
-                        f"{service}: generated runtime: unresolved dependency {imported}"
-                    )
-    compile(result, f"{service}.py", "exec")
+    result = json.loads(m.stable(snapshot)) if not standalone else snapshot
+    if standalone:
+        runtime = input_text(scripts / "model/audit_runtime.py", encoding="utf-8")
+        # Standalone output retains its existing runtime bytes; caching is host-only.
+        runtime = runtime.replace(
+            "from functools import lru_cache as _runtime_lru_cache\n", ""
+        )
+        runtime = runtime.replace(
+            "\ncompile = _runtime_lru_cache(maxsize=128)(compile)\n", ""
+        )
+        runtime_lines = runtime.splitlines(keepends=True)
+        for node in reversed(ast.parse(runtime).body):
+            if isinstance(node, ast.ImportFrom) and node.module in {
+                "contracts.model",
+                "contracts.target",
+            }:
+                del runtime_lines[node.lineno - 1 : node.end_lineno]
+        runtime = contract_bindings + "".join(runtime_lines)
+        result = (
+            "#!/usr/bin/env python3\n# Generated offline by /model-test; regenerate after Model changes.\n"
+            "import json\nSNAPSHOT = json.loads("
+            + repr(m.stable(snapshot))
+            + ")\n"
+            + runtime
+        )
+        for node in ast.walk(ast.parse(result)):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                modules = (
+                    [node.module or ""]
+                    if isinstance(node, ast.ImportFrom)
+                    else [item.name for item in node.names]
+                )
+                for imported in modules:
+                    if (
+                        getattr(node, "level", 0)
+                        or imported.split(".")[0] not in sys.stdlib_module_names
+                    ):
+                        raise ValueError(
+                            f"{service}: generated runtime: unresolved dependency {imported}"
+                        )
+        compile(result, f"{service}.py", "exec")
     unsupported = []
     for number, paths in pipeline_indexed_rows_by_resource.items():
         if not paths:
