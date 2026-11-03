@@ -1203,8 +1203,11 @@ def test_quicksight_group_reference_and_pending_principal_offline():
         "difference",
         "design_unresolved",
     ]
-    assert status(results[0], "QuickSight.Group.PrincipalId") == "design_unresolved"
-    assert "[ERROR] QuickSight.Group | team | PrincipalId" in results[0]["report"]
+    assert status(results[0], "QuickSight.Group.PrincipalId") == "pending_identifier"
+    assert (
+        '[NG] QuickSight.Group | team | PrincipalId\n  Design: "PENDING_DEPLOY"'
+        in results[0]["report"]
+    )
     assert status(results[0], "QuickSight.Group.AwsAccountId") == "match"
 
 

@@ -201,7 +201,7 @@ def test_datazone_audit_sdk_projection(tmp_path, kind, outcome):
     assert ("cloudcontrol", "get_resource") not in service_module("datazone").APIS
 
 
-def test_datazone_audit_domain_discovery_keeps_pending_error(tmp_path):
+def test_datazone_audit_domain_discovery_reports_pending_ng(tmp_path):
     inputs = _datazone_inputs("Domain")
     inputs["project"]["targets"][0].update(
         awsAccountId="111111111111", awsExecutionAccountId="123456789012"
@@ -242,7 +242,7 @@ def test_datazone_audit_domain_discovery_keeps_pending_error(tmp_path):
     assert by_property["DataZone.Domain.Name"]["status"] == "match"
     assert by_property["DataZone.Domain.SingleSignOn.Type"]["status"] == "match"
     pending = by_property["DataZone.Domain.Id"]
-    assert pending["status"] == "design_unresolved", pending
+    assert pending["status"] == "pending_identifier", pending
     assert "PENDING_DEPLOY" in pending["reason"]
     assert [(api, args) for api, args, _ in cli.calls if api[0] != "sts"] == [
         (("datazone", "list-domains"), {}),
@@ -251,7 +251,7 @@ def test_datazone_audit_domain_discovery_keeps_pending_error(tmp_path):
     text, code = namespace["report"](
         snap, None, account, records, datetime.now(timezone.utc)
     )
-    assert code == 2 and "[ERROR]" in text and "PENDING_DEPLOY" in text
+    assert code == 1 and "[NG]" in text and '  Design: "PENDING_DEPLOY"' in text
 
 
 @pytest.mark.parametrize("selector", ["Id", "DomainIdentifier"])
@@ -300,6 +300,7 @@ def test_datazone_audit_project_unresolved_selector(tmp_path, selector, pending)
     )
     if pending == "PENDING_DEPLOY":
         assert code == 1 and text.count("[NG]") == 4
+        assert text.count('  Design: "PENDING_DEPLOY"') == 4
     else:
         assert code == 2 and text.count("[ERROR]") == 4
 
@@ -322,7 +323,7 @@ def test_datazone_audit_project_pending_output_is_not_confirmed_by_sdk(tmp_path)
     pending = next(
         item for item in records if item["propertiesKey"] == "DataZone.Project.DomainId"
     )
-    assert pending["status"] == "design_unresolved", pending
+    assert pending["status"] == "pending_identifier", pending
     assert "REFERENCE_PENDING_DEPLOY" in pending["reason"]
     assert all(item["status"] == "match" for item in records if item is not pending), (
         records
@@ -334,7 +335,8 @@ def test_datazone_audit_project_pending_output_is_not_confirmed_by_sdk(tmp_path)
     text, code = namespace["report"](
         snap, None, account, records, datetime.now(timezone.utc)
     )
-    assert code == 2 and text.count("[ERROR]") == 1
+    assert code == 1 and text.count("[NG]") == 1
+    assert '  Design: "PENDING_DEPLOY"' in text and "[ERROR]" not in text
 
 
 class EmbeddedImportTests(unittest.TestCase):

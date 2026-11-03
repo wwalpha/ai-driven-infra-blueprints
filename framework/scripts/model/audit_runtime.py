@@ -463,8 +463,6 @@ def identifier_result(m, ctx, resource, item):
     if value is None:
         if (
             item["status"] == "identifier"
-            and item["propertiesKey"] != "QuickSight.Group.PrincipalId"
-            and resource.kind not in {"DataZone.Domain", "DataZone.Project"}
             and m.literal(raw).strip() == "PENDING_DEPLOY"
             and isinstance(item.get("awsValue"), str)
             and item["awsValue"].strip()
@@ -896,15 +894,15 @@ def report(snapshot, profile, account, records, timestamp):
         state = {
             "match": "OK",
             "difference": "NG",
-            "pending_identifier": "NG",
             "resource_missing": "NG",
             "excluded": "INFO",
         }.get(item["status"], "ERROR")
-        if (
+        pending = item["status"] == "pending_identifier" or (
             item["status"] == "design_unresolved"
             and item.get("pendingDeploy")
             and "REFERENCE_UNRESOLVED" not in item.get("reason", "")
-        ):
+        )
+        if pending:
             state = "NG"
         if (
             item["status"] == "resource_missing"
@@ -919,7 +917,7 @@ def report(snapshot, profile, account, records, timestamp):
         if item["status"] == "resource_missing":
             attribute += " (resource missing)"
         line(f"[{state}] {kind} | {name} | {attribute}")
-        expected = masked(item.get("designValue"), prop)
+        expected = "PENDING_DEPLOY" if pending else masked(item.get("designValue"), prop)
         actual = masked(item.get("awsValue"), prop)
         line("  Design: " + json.dumps(expected, ensure_ascii=False, sort_keys=True))
         line(
