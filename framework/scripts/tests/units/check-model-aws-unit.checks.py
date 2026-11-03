@@ -1757,7 +1757,8 @@ def test_quicksight_split_operation_accounts(tmp_path, kind, getter, account, al
             check(call.call_args.kwargs["AwsAccountId"] == owner, "group account")
         elif getter == "group-namespace":
             check(
-                module.fetch(ctx, resource, getter) == {"Namespace": "default"},
+                module.fetch(ctx, resource, getter)
+                == {"Namespace": "default", "AwsAccountId": owner},
                 "namespace",
             )
         else:

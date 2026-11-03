@@ -722,6 +722,15 @@ IMPORT_PROPERTIES.update(
 # AWS documented ARN identities. Parsing and transient projection share these shapes.
 # S3 bucket names are global. Regional/account-scoped identities require context.
 ARN_SHAPES = {
+    "QuickSight.Group": (
+        {"AwsAccountId": "account", "Namespace": "namespace", "GroupName": "group"},
+        "arn:{partition}:quicksight:{region}:{account}:group/{namespace}/{group}",
+        {
+            "account": r"[0-9]{12}",
+            "namespace": r"[A-Za-z0-9._-]{1,64}",
+            "group": r"[\x20-\xff]+",
+        },
+    ),
     "S3.Bucket": (
         "BucketName",
         "arn:{partition}:s3:::{id}",

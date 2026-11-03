@@ -73,11 +73,7 @@ resourceTypes:
         model: {include: true}
         display: {show: true, name: AwsAccountId}
         access: [api]
-        source:
-          kind: model
-          location: desired row AwsAccountId; describe_group request input
-          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
-          classification: local_metadata
+        aws: {getter: group-namespace, path: AwsAccountId, normalize: typed}
       Namespace:
         model: {include: true}
         display: {show: true, name: Namespace}

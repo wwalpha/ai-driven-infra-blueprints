@@ -208,7 +208,7 @@ def test_hidden_secret_logical_reference(fixture, attribute):
         validate_aws_document(document)
 
 
-@pytest.mark.parametrize("attribute", ["Arn", "PrincipalId"])
+@pytest.mark.parametrize("attribute", ["PrincipalId"])
 def test_api_generated_output_without_physical_value(fixture, attribute):
     _, _, consumer, _ = fixture
     scope, values = resource(
@@ -230,6 +230,39 @@ def test_api_generated_output_without_physical_value(fixture, attribute):
     assert result(consumer, "QuickSight_Group_001", attribute).status == "logical_only"
     with pytest.raises(ModelNeedsFixError):
         result(consumer, "QuickSight_Group_001", "NotRegistered")
+
+
+def test_quicksight_group_arn_requires_confirmed_identity(fixture):
+    _, _, consumer, _ = fixture
+    scope, values = resource(
+        consumer.root, "quicksight", "QuickSight.Group", attribute="AwsAccountId"
+    )
+    values["desired.row.001-001.value"] = "`123456789012`"
+    for index, (name, value) in enumerate(
+        (("Namespace", "default"), ("GroupName", "example")), 2
+    ):
+        prefix = f"desired.row.001-{index:03d}."
+        values.update(
+            {
+                prefix + "property": "QuickSight.Group." + name,
+                prefix + "value": "`" + value + "`",
+                prefix + "comment": "fixture",
+            }
+        )
+    save(scope, values)
+    arn = result(consumer, "QuickSight_Group_001", "Arn")
+    assert (arn.status, arn.value) == (
+        "resolved",
+        "arn:aws:quicksight:ap-northeast-1:123456789012:group/default/example",
+    )
+    values["desired.row.001-003.value"] = "`UNSET`"
+    save(scope, values)
+    assert result(consumer, "QuickSight_Group_001", "Arn").status != "resolved"
+    values["desired.row.001-003.value"] = "`example`"
+    values["desired.row.001-001.value"] = "`999999999999`"
+    save(scope, values)
+    with pytest.raises(FrameworkUnsupportedError, match="account differ"):
+        result(consumer, "QuickSight_Group_001", "Arn")
 
 
 def test_other_api_generated_output(fixture):

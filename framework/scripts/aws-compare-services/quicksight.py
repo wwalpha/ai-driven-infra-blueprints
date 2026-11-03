@@ -123,7 +123,7 @@ def fetch(ctx, r, getter):
             raise Unresolved("QuickSight Group ARN resource or namespace is malformed")
         if resource[2] != r.value("GroupName"):
             raise Unresolved("QuickSight Group ARN group name conflicts with target")
-        return {"Namespace": resource[1]}
+        return {"Namespace": resource[1], "AwsAccountId": parts[4]}
     account, omitted = datasource_account(ctx, r)
     if getter == "vpc":
         result = ctx.call(

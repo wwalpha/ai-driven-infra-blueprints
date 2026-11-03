@@ -6291,7 +6291,10 @@ def group_namespace_fixture(
         mapping,
         properties,
         "QuickSight.Group",
-        {"Namespace": ("Namespace", "typed", "default")},
+        {
+            "Namespace": ("Namespace", "typed", "default"),
+            "AwsAccountId": ("AwsAccountId", "typed", ACCOUNT),
+        },
         ["normal"],
     )
     fake.payload = {"GroupName": "group"}

@@ -282,6 +282,18 @@ def check_v3_registry():
         "constraint": "Existing fetch copies this verified request input; it is not an AWS response property.",
         "classification": "local_metadata",
     }
+    account = baseline_properties["quicksight"]["QuickSight.Group"]["AwsAccountId"]
+    assert account.pop("aws") == {
+        "getter": "group-namespace",
+        "path": "AwsAccountId",
+        "normalize": "typed",
+    }
+    account["source"] = {
+        "kind": "model",
+        "location": "desired row AwsAccountId; describe_group request input",
+        "constraint": "Existing fetch copies this verified request input; it is not an AWS response property.",
+        "classification": "local_metadata",
+    }
     del definitions["quicksight"]["group-namespace"]
     del metadata["quicksight"]["GETTERS"]["group-namespace"]
     metadata["quicksight"]["RESOURCE_TYPES"].remove("QuickSight.Group")

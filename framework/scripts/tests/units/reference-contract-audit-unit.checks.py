@@ -915,7 +915,7 @@ def test_inventory_is_exactly_the_supported_framework_types():
         kind.removeprefix("AWS::").replace("::", ".") for kind in catalog.resource_types
     }
     assert set(INVENTORY) == types | set(catalog.api_schemas)
-    assert (len(types), len(catalog.api_schemas)) == (177, 2)
+    assert (len(types), len(catalog.api_schemas)) == (178, 2)
 
 
 @pytest.mark.parametrize("kind", sorted(INVENTORY))

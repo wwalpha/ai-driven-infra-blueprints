@@ -100,6 +100,8 @@ def test_real_adapter_and_sdk_fixture_results():
     namespace = group["group-namespace"]["properties"]["QuickSight.Group.Namespace"]
     assert namespace["status"] == "verified"
     assert "missing-arn" in namespace["branches"]
+    account = group["group-namespace"]["properties"]["QuickSight.Group.AwsAccountId"]
+    assert account["status"] == "verified" and "missing-arn" in account["branches"]
     assert (
         group["sdk-quicksight-group"]["properties"]["QuickSight.Group.GroupName"][
             "status"

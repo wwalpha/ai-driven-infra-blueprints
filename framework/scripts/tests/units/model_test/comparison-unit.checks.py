@@ -1065,6 +1065,104 @@ def test_quicksight_datasource_fixture():
     assert_result(actual, fixture)
 
 
+def test_quicksight_group_reference_and_pending_principal_offline():
+    inputs, _ = load_fixture("quicksight/datasource")
+    model = inputs["model"]
+    model["desired.service.identity.lastAllocated"] = json.dumps(
+        {"QuickSight.DataSource": 1, "QuickSight.Group": 1}
+    )
+    model.update(
+        {
+            "desired.resource.002.resourceType": "QuickSight.Group",
+            "desired.resource.002.logicalId": "QuickSight_Group_001",
+            "desired.resource.002.anchor": "group",
+            "desired.resource.002.cfn-logicalId": "fixture-Group",
+        }
+    )
+    for index, (name, value) in enumerate(
+        (
+            ("AwsAccountId", "123456789012"),
+            ("Namespace", "default"),
+            ("GroupName", "team"),
+            (
+                "PrincipalId",
+                {
+                    "$modelRef": {
+                        "logicalId": "QuickSight_Group_001",
+                        "attribute": "PrincipalId",
+                    }
+                },
+            ),
+        ),
+        1,
+    ):
+        prefix = f"desired.row.002-{index:03d}."
+        model.update(
+            {
+                prefix + "property": "QuickSight.Group." + name,
+                prefix + "value": "`"
+                + (json.dumps(value) if isinstance(value, dict) else value)
+                + "`",
+                prefix + "comment": "fixture",
+            }
+        )
+    model["observed.row.002-004.value"] = "`PENDING_DEPLOY`"
+    model["desired.row.001-005.value"] = (
+        "`"
+        + json.dumps(
+            {"$modelRef": {"logicalId": "QuickSight_Group_001", "attribute": "Arn"}}
+        )
+        + "`"
+    )
+    arn = "arn:aws:quicksight:ap-northeast-1:123456789012:group/default/team"
+    inputs["responses"][1]["response"]["Permissions"][0]["Principal"] = arn
+    inputs["responses"].append(
+        {
+            "api": ["quicksight", "describe-group"],
+            "response": {
+                "Group": {
+                    "GroupName": "team",
+                    "PrincipalId": "live-principal",
+                    "Arn": arn,
+                }
+            },
+        }
+    )
+    inputs["report"] = True
+    inputs["scenarios"] = [
+        {},
+        {
+            "responses": [
+                {
+                    "api": ["quicksight", "describe-data-source-permissions"],
+                    "response": {
+                        "Permissions": [
+                            {"Principal": arn + "-other", "Actions": ["ActionA"]}
+                        ]
+                    },
+                }
+            ]
+        },
+        {"model": {"desired.row.002-003.value": "`UNSET`"}},
+    ]
+    results = execute((inputs, []))
+
+    def status(record, key):
+        return next(
+            row["status"] for row in record["records"] if row["propertiesKey"] == key
+        )
+
+    principal = "QuickSight.DataSource.Permissions[].Principal"
+    assert [status(record, principal) for record in results] == [
+        "match",
+        "difference",
+        "design_unresolved",
+    ]
+    assert status(results[0], "QuickSight.Group.PrincipalId") == "design_unresolved"
+    assert "[ERROR] QuickSight.Group | team | PrincipalId" in results[0]["report"]
+    assert status(results[0], "QuickSight.Group.AwsAccountId") == "match"
+
+
 def test_glue_write_only_fixture():
     fixture = load_fixture("glue/write-only")
     actual = execute(fixture, snapshot_only=True)

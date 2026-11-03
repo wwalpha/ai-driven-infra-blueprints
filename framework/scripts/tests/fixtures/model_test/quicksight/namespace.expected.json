@@ -3,7 +3,7 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "local_metadata"
+        "status": "match"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
@@ -35,7 +35,7 @@
         }
       ]
     ],
-    "code": 2,
+    "code": 0,
     "report": {
       "contains": [
         "[OK] QuickSight.Group | team | Namespace"
@@ -46,7 +46,7 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "local_metadata"
+        "status": "match"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
@@ -78,7 +78,7 @@
         }
       ]
     ],
-    "code": 2,
+    "code": 1,
     "report": {
       "contains": [
         "[NG] QuickSight.Group | team | Namespace"
@@ -89,7 +89,7 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "local_metadata"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
@@ -133,7 +133,7 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "local_metadata"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
@@ -177,7 +177,7 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "local_metadata"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
@@ -221,7 +221,7 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "local_metadata"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
@@ -265,7 +265,7 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "local_metadata"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
@@ -309,7 +309,7 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "local_metadata"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
@@ -353,7 +353,7 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "local_metadata"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
@@ -397,7 +397,7 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "local_metadata"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
@@ -441,7 +441,7 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "local_metadata"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",

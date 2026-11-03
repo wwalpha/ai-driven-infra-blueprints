@@ -42,6 +42,15 @@ if not __debug__:
 
 CONTEXT = "arn:aws:{service}:ap-northeast-1:123456789012:{tail}"
 CASES = [
+    (
+        "QuickSight.Group",
+        {
+            "AwsAccountId": "123456789012",
+            "Namespace": "default",
+            "GroupName": "fixture",
+        },
+        CONTEXT.format(service="quicksight", tail="group/default/fixture"),
+    ),
     ("S3.Bucket", {"BucketName": "fixture-bucket"}, "arn:aws:s3:::fixture-bucket"),
     (
         "Lambda.Function",
@@ -640,6 +649,7 @@ def test_arn_contract_inventory_covers_every_derivable_type():
     assert all(
         "AWS::" + kind.replace(".", "::") in catalog.resource_types
         for kind in ARN_SHAPES
+        if kind not in catalog.api_schemas
     )
 
 

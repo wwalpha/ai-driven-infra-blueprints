@@ -463,6 +463,7 @@ def identifier_result(m, ctx, resource, item):
     if value is None:
         if (
             item["status"] == "identifier"
+            and item["propertiesKey"] != "QuickSight.Group.PrincipalId"
             and m.literal(raw).strip() == "PENDING_DEPLOY"
             and isinstance(item.get("awsValue"), str)
             and item["awsValue"].strip()
