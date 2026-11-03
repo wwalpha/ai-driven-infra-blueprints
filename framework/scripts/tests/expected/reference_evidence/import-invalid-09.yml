@@ -1,0 +1,4 @@
+error:
+  message: 'reference property contract unproven: CodeBuild.Project.Name'
+  type: Blocked
+issue_count: 1

@@ -1,0 +1,3 @@
+error:
+  message: 'ImportValue handoff matches=2 or same-stack export: shared'
+  type: Blocked

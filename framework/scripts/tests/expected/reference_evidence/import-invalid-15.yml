@@ -1,0 +1,4 @@
+error:
+  message: identifier_unobserved
+  type: Blocked
+issue_count: 1

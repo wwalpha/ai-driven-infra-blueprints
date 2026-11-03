@@ -1,0 +1,89 @@
+decisions:
+- comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    declarations:
+    - producer: s3/001
+      property: S3.Bucket.BucketName
+    evidence_type: logical_reference
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $expression: Join
+      $operands:
+      - ''
+      - - $attribute: Arn
+          $resource:
+          - s3
+          - '001'
+        - /*
+    identity: unproven
+    local_comparison: difference
+    model:
+      $expression: Join
+      $operands:
+      - ''
+      - - 'arn:aws:s3:::'
+        - $attribute: BucketName
+          $resource:
+          - s3
+          - '001'
+        - /?
+    path: IAM.Role.Policies
+    producers:
+    - attribute: BucketName
+      producer: s3/001
+    - attribute: Arn
+      producer: s3/001
+    reason: different Producer or fixed expression parts
+  equal: false
+  equivalent: false
+- comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    declarations:
+    - producer: s3/001
+      property: S3.Bucket.BucketName
+    evidence_type: logical_reference
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $expression: Join
+      $operands:
+      - ''
+      - - 'arn:aws:s3:::'
+        - $attribute: BucketName
+          $resource:
+          - s3
+          - '001'
+        - /?
+    identity: unproven
+    local_comparison: difference
+    model:
+      $expression: Join
+      $operands:
+      - ''
+      - - $attribute: Arn
+          $resource:
+          - s3
+          - '001'
+        - /*
+    path: IAM.Role.Policies
+    producers:
+    - attribute: BucketName
+      producer: s3/001
+    - attribute: Arn
+      producer: s3/001
+    reason: different Producer or fixed expression parts
+  equal: false
+  equivalent: false

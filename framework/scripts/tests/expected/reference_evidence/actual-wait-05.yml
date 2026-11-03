@@ -1,0 +1,43 @@
+failure_pointer: /Subnets/0
+records:
+- actual:
+    Subnets:
+    - <unresolved>
+    VpcId: vpc-different
+  category: difference
+  desired:
+    Subnets:
+    - subnet-fixed
+    VpcId: vpc-0123456789abcdef0
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  property: CodeBuild.Project.VpcConfig
+  reason: value mismatch
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: deferred
+  cause:
+    consumer_property: CodeBuild.Project.VpcConfig.Subnets[]
+    kind: import-reference-deferred
+    phase: awaiting_handoff
+    producer:
+      attribute: SubnetId
+      resource: '004'
+      resourceType: EC2.Subnet
+      service: vpc
+  desired: null
+  iac:
+    path: synthetic.yaml
+    pointer: /Subnets/0
+  model: null
+  property: CodeBuild.Project.VpcConfig#/Subnets/0
+  reason: 'IMPORT reference comparison deferred: awaiting_handoff; approved handoff
+    required'
+  resource: '001'
+  service: codebuild
+  stack: producer

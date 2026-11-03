@@ -1,0 +1,7 @@
+error:
+  message: 'duplicate logicalId: S3_Bucket_001; [{"category": "MODEL_NEEDS_FIX", "code":
+    "MODEL_REF_TARGET_AMBIGUOUS", "message": "duplicate logicalId: S3_Bucket_001",
+    "status": "FAIL", "action": "Correct the Model reference or the invalid producer
+    field.", "targetLogicalId": "S3_Bucket_001", "resourceLogicalId": "S3_Bucket_001",
+    "modelKey": "desired.resource.002.logicalId", "resourceIds": ["001", "002"]}]'
+  type: Blocked

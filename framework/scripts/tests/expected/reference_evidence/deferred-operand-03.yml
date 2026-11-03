@@ -1,0 +1,35 @@
+records:
+- actual: null
+  category: excluded
+  cause:
+    consumer_property: CodeBuild.Project.VpcConfig.VpcId
+    kind: import-reference-excluded
+    phase: pending_deploy
+    producer:
+      attribute: VpcId
+      resource: '001'
+      resourceType: EC2.VPC
+      service: vpc
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model:
+    pointer: /VpcId/Fn::Join/1/0
+  property: CodeBuild.Project.VpcConfig.VpcId
+  reason: 'IMPORT reference comparison excluded: pending_deploy'
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: error
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.VpcConfig
+  reason: 'independent AWS JSON: JSON Pointer=''/VpcId/Fn::Join/1/1'', expression={"Fn::Join":
+    ["", 1]}; invalid Fn::Join structure: invalid argument shape; correct the Model
+    with confirmed AWS values'
+  resource: '001'
+  service: codebuild
+  stack: producer

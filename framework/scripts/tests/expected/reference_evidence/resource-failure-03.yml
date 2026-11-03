@@ -1,0 +1,20 @@
+record:
+  actual: null
+  category: deferred
+  cause:
+    consumer_property: CodeBuild.Project.VpcConfig.Subnets[]
+    kind: import-reference-deferred
+    phase: unobserved
+    producer:
+      attribute: SubnetId
+      resource: '004'
+      resourceType: EC2.Subnet
+      service: vpc
+  desired: null
+  iac: null
+  model: null
+  property: '*'
+  reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+  resource: '001'
+  service: codebuild
+  stack: null

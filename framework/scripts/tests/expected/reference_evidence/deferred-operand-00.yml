@@ -1,0 +1,34 @@
+records:
+- actual: null
+  category: deferred
+  cause:
+    consumer_property: CodeBuild.Project.VpcConfig.VpcId
+    kind: import-reference-deferred
+    phase: unobserved
+    producer:
+      attribute: VpcId
+      resource: '001'
+      resourceType: EC2.VPC
+      service: vpc
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model:
+    pointer: /VpcId/Fn::Join/1/0
+  property: CodeBuild.Project.VpcConfig.VpcId
+  reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.VpcConfig
+  reason: reference identity or property format is unproven
+  reference_diagnostics: []
+  resource: '001'
+  service: codebuild
+  stack: producer

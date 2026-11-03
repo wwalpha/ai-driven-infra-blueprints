@@ -10579,3 +10579,1176 @@ cases:
             Fn::Select:
             - 2
             - - only
+  fragment-scalar-00:
+    data:
+      text: fixture-bucket
+      occurrence: '1'
+      value: pre/fixture-bucket/post
+  fragment-scalar-01:
+    data:
+      text: fixture-bucket
+      occurrence: '2'
+      value: fixture-bucket/fixture-bucket
+  fragment-scalar-02:
+    data:
+      text: '`fixture-bucket`'
+      occurrence: '1'
+      value: fixture-bucket
+  fragment-scalar-03:
+    data:
+      text: fixture-bucket
+      occurrence: '1'
+      value: '`fixture-bucket`'
+  fragment-affix-00:
+    data:
+      kind: S3.Bucket
+      value: arn:aws-cn:s3:::fixture-bucket/*
+  fragment-affix-01:
+    data:
+      kind: S3.Bucket
+      value: xrn:aws:s3:::fixture-bucket/*
+  fragment-affix-02:
+    data:
+      kind: S3.Bucket
+      value: arn:aws:s3:::fixture-bucket/*/extra
+  fragment-affix-03:
+    data:
+      kind: S3.Bucket
+      value: arn:aws:s3:::fixture-bucket/?
+  fragment-affix-04:
+    data:
+      kind: KMS.Key
+      value: arn:aws-cn:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+  fragment-affix-05:
+    data:
+      kind: KMS.Key
+      value: xrn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+  fragment-affix-06:
+    data:
+      kind: KMS.Key
+      value: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012/extra
+  fragment-affix-07:
+    data:
+      kind: KMS.Key
+      value: arn:aws:kms:ap-northeast-1:123456789012:kez/12345678-1234-1234-1234-123456789012
+  fragment-affix-08:
+    data:
+      kind: KMS.Key
+      value: arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012
+  fragment-affix-09:
+    data:
+      kind: KMS.Key
+      value: arn:aws:kms:ap-northeast-1:999999999999:key/12345678-1234-1234-1234-123456789012
+  fragment-observed-00:
+    data:
+      observed: null
+  fragment-observed-01:
+    data:
+      observed: ''
+  fragment-observed-02:
+    data:
+      observed: PENDING_DEPLOY
+  fragment-observed-03:
+    data:
+      observed: UNSET
+  fragment-observed-04:
+    data:
+      observed: TODO
+  fragment-observed-05:
+    data:
+      observed: TBD
+  fragment-observed-06:
+    data:
+      observed: 未確定
+  fragment-observed-07:
+    data:
+      observed: other-key
+  fragment-invalid-00:
+    data:
+      fields: {}
+      second_text: bucket
+      duplicate_producer: false
+  fragment-invalid-01:
+    data:
+      fields: {}
+      second_text: fixture-bucket
+      duplicate_producer: false
+  fragment-invalid-02:
+    data:
+      fields:
+        occurrence: '2'
+      second_text: null
+      duplicate_producer: false
+  fragment-invalid-03:
+    data:
+      fields:
+        producerScope: fixture/other/s3
+      second_text: null
+      duplicate_producer: false
+  fragment-invalid-04:
+    data:
+      fields:
+        producerLogicalId: S3_Bucket_999
+      second_text: null
+      duplicate_producer: false
+  fragment-invalid-05:
+    data:
+      fields: {}
+      second_text: null
+      duplicate_producer: true
+  fragment-invalid-06:
+    data:
+      fields:
+        resourceType: KMS.Key
+      second_text: null
+      duplicate_producer: false
+  fragment-invalid-07:
+    data:
+      fields:
+        property: KMS.Key.KeyId
+      second_text: null
+      duplicate_producer: false
+  fragment-producer-00:
+    data:
+      kind: S3.Bucket
+      other_producer: true
+      actual_literal: null
+      unknown_attribute: false
+      remove_resource: false
+      wrong_type: false
+      import_mode: false
+      clear_arn_contract: false
+  fragment-producer-01:
+    data:
+      kind: S3.Bucket
+      other_producer: false
+      actual_literal: null
+      unknown_attribute: false
+      remove_resource: true
+      wrong_type: false
+      import_mode: false
+      clear_arn_contract: false
+  fragment-producer-02:
+    data:
+      kind: S3.Bucket
+      other_producer: false
+      actual_literal: null
+      unknown_attribute: false
+      remove_resource: false
+      wrong_type: true
+      import_mode: false
+      clear_arn_contract: false
+  fragment-producer-03:
+    data:
+      kind: S3.Bucket
+      other_producer: false
+      actual_literal: null
+      unknown_attribute: false
+      remove_resource: false
+      wrong_type: false
+      import_mode: true
+      clear_arn_contract: false
+  fragment-producer-04:
+    data:
+      kind: S3.Bucket
+      other_producer: false
+      actual_literal: arn:aws:s3:::fixture-bucket/*
+      unknown_attribute: false
+      remove_resource: false
+      wrong_type: false
+      import_mode: false
+      clear_arn_contract: false
+  fragment-producer-05:
+    data:
+      kind: S3.Bucket
+      other_producer: false
+      actual_literal: null
+      unknown_attribute: true
+      remove_resource: false
+      wrong_type: false
+      import_mode: false
+      clear_arn_contract: false
+  fragment-producer-06:
+    data:
+      kind: S3.Bucket
+      other_producer: false
+      actual_literal: null
+      unknown_attribute: false
+      remove_resource: false
+      wrong_type: false
+      import_mode: false
+      clear_arn_contract: true
+  fragment-producer-07:
+    data:
+      kind: KMS.Key
+      other_producer: true
+      actual_literal: null
+      unknown_attribute: false
+      remove_resource: false
+      wrong_type: false
+      import_mode: false
+      clear_arn_contract: false
+  fragment-producer-08:
+    data:
+      kind: KMS.Key
+      other_producer: false
+      actual_literal: null
+      unknown_attribute: false
+      remove_resource: true
+      wrong_type: false
+      import_mode: false
+      clear_arn_contract: false
+  fragment-producer-09:
+    data:
+      kind: KMS.Key
+      other_producer: false
+      actual_literal: null
+      unknown_attribute: false
+      remove_resource: false
+      wrong_type: true
+      import_mode: false
+      clear_arn_contract: false
+  fragment-producer-10:
+    data:
+      kind: KMS.Key
+      other_producer: false
+      actual_literal: null
+      unknown_attribute: false
+      remove_resource: false
+      wrong_type: false
+      import_mode: true
+      clear_arn_contract: false
+  fragment-producer-11:
+    data:
+      kind: KMS.Key
+      other_producer: false
+      actual_literal: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+      unknown_attribute: false
+      remove_resource: false
+      wrong_type: false
+      import_mode: false
+      clear_arn_contract: false
+  fragment-producer-12:
+    data:
+      kind: KMS.Key
+      other_producer: false
+      actual_literal: null
+      unknown_attribute: true
+      remove_resource: false
+      wrong_type: false
+      import_mode: false
+      clear_arn_contract: false
+  fragment-producer-13:
+    data:
+      kind: KMS.Key
+      other_producer: false
+      actual_literal: null
+      unknown_attribute: false
+      remove_resource: false
+      wrong_type: false
+      import_mode: false
+      clear_arn_contract: true
+  fragment-origin-00:
+    data:
+      literal: false
+      producer_outputs: {}
+      consumer_outputs: {}
+      pseudo_fields: {}
+  fragment-origin-01:
+    data:
+      literal: false
+      producer_outputs:
+        shared:
+          Value:
+            Fn::GetAtt:
+            - Producer
+            - Arn
+          Export:
+            Name: shared
+      consumer_outputs:
+        other:
+          Value:
+            Ref: Consumer
+          Export:
+            Name: shared
+      pseudo_fields: {}
+  fragment-origin-02:
+    data:
+      literal: false
+      producer_outputs:
+        shared:
+          Value:
+            Fn::GetAtt:
+            - Producer
+            - Arn
+          Export:
+            Name: shared
+      consumer_outputs: {}
+      pseudo_fields:
+        AWS::AccountId: '999999999999'
+  fragment-origin-03:
+    data:
+      literal: true
+      producer_outputs:
+        shared:
+          Value:
+            Fn::GetAtt:
+            - Producer
+            - Arn
+          Export:
+            Name: shared
+      consumer_outputs: {}
+      pseudo_fields: {}
+  fragment-reproduction-00:
+    data:
+      producer: s3
+      kind: S3.Bucket
+      prop: BucketName
+      text: fixture-bucket
+      full: arn:aws:s3:::fixture-bucket/*
+      expression:
+        Fn::Sub:
+        - ${BucketArn}/*
+        - BucketArn:
+            Fn::GetAtt:
+            - Producer
+            - Arn
+      properties:
+        BucketName: fixture-bucket
+  fragment-reproduction-01:
+    data:
+      producer: kms
+      kind: KMS.Key
+      prop: KeyId
+      text: 12345678-1234-1234-1234-123456789012
+      full: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::GetAtt:
+        - Producer
+        - Arn
+      properties: {}
+  import-wait-00:
+    data:
+      observed: null
+      kind: EC2.Subnet
+      prop: VpcId
+      desired:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      actual: vpc-external
+  import-wait-01:
+    data:
+      observed: null
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}},
+        "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-wait-02:
+    data:
+      observed: null
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}},
+        "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-wait-03:
+    data:
+      observed: null
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"Fn::Join": ["", [{"$modelRef": {"logicalId": "EC2_VPC_001",
+        "attribute": "VpcId"}}]]}, "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-wait-04:
+    data:
+      observed: null
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"Fn::Join": ["", [{"$modelRef": {"logicalId": "EC2_VPC_001",
+        "attribute": "VpcId"}}]]}, "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-wait-05:
+    data:
+      observed: PENDING_DEPLOY
+      kind: EC2.Subnet
+      prop: VpcId
+      desired:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      actual: vpc-external
+  import-wait-06:
+    data:
+      observed: PENDING_DEPLOY
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}},
+        "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-wait-07:
+    data:
+      observed: PENDING_DEPLOY
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}},
+        "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-wait-08:
+    data:
+      observed: PENDING_DEPLOY
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"Fn::Join": ["", [{"$modelRef": {"logicalId": "EC2_VPC_001",
+        "attribute": "VpcId"}}]]}, "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-wait-09:
+    data:
+      observed: PENDING_DEPLOY
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"Fn::Join": ["", [{"$modelRef": {"logicalId": "EC2_VPC_001",
+        "attribute": "VpcId"}}]]}, "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-wait-10:
+    data:
+      observed: vpc-0123456789abcdef0
+      kind: EC2.Subnet
+      prop: VpcId
+      desired:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      actual: vpc-external
+  import-wait-11:
+    data:
+      observed: vpc-0123456789abcdef0
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}},
+        "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-wait-12:
+    data:
+      observed: vpc-0123456789abcdef0
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}},
+        "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-wait-13:
+    data:
+      observed: vpc-0123456789abcdef0
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"Fn::Join": ["", [{"$modelRef": {"logicalId": "EC2_VPC_001",
+        "attribute": "VpcId"}}]]}, "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-wait-14:
+    data:
+      observed: vpc-0123456789abcdef0
+      kind: CodeBuild.Project
+      prop: VpcConfig
+      desired: '{"VpcId": {"Fn::Join": ["", [{"$modelRef": {"logicalId": "EC2_VPC_001",
+        "attribute": "VpcId"}}]]}, "Subnets": ["subnet-fixed"]}'
+      actual:
+        VpcId: vpc-external
+        Subnets:
+        - subnet-fixed
+  import-invalid-00:
+    data:
+      observed: vpc-0123456789abcdef0
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_999
+          attribute: VpcId
+      prop: EC2.Subnet.VpcId
+      ambiguous: false
+      typed_link: false
+  import-invalid-01:
+    data:
+      observed: PENDING_DEPLOY
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_999
+          attribute: VpcId
+      prop: EC2.Subnet.VpcId
+      ambiguous: false
+      typed_link: false
+  import-invalid-02:
+    data:
+      observed: vpc-0123456789abcdef0
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: EC2.Subnet.VpcId
+      ambiguous: true
+      typed_link: false
+  import-invalid-03:
+    data:
+      observed: PENDING_DEPLOY
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: EC2.Subnet.VpcId
+      ambiguous: true
+      typed_link: false
+  import-invalid-04:
+    data:
+      observed: vpc-0123456789abcdef0
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: EC2.Instance.SubnetId
+      ambiguous: false
+      typed_link: false
+  import-invalid-05:
+    data:
+      observed: PENDING_DEPLOY
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: EC2.Instance.SubnetId
+      ambiguous: false
+      typed_link: false
+  import-invalid-06:
+    data:
+      observed: vpc-0123456789abcdef0
+      link:
+        $resource:
+        - vpc
+        - '001'
+        $attribute: Arn
+      prop: EC2.Subnet.VpcId
+      ambiguous: false
+      typed_link: true
+  import-invalid-07:
+    data:
+      observed: PENDING_DEPLOY
+      link:
+        $resource:
+        - vpc
+        - '001'
+        $attribute: Arn
+      prop: EC2.Subnet.VpcId
+      ambiguous: false
+      typed_link: true
+  import-invalid-08:
+    data:
+      observed: vpc-0123456789abcdef0
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: CodeBuild.Project.Name
+      ambiguous: false
+      typed_link: false
+  import-invalid-09:
+    data:
+      observed: PENDING_DEPLOY
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: CodeBuild.Project.Name
+      ambiguous: false
+      typed_link: false
+  import-invalid-10:
+    data:
+      observed: ''
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: EC2.Subnet.VpcId
+      ambiguous: false
+      typed_link: false
+  import-invalid-11:
+    data:
+      observed: UNSET
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: EC2.Subnet.VpcId
+      ambiguous: false
+      typed_link: false
+  import-invalid-12:
+    data:
+      observed: TODO
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: EC2.Subnet.VpcId
+      ambiguous: false
+      typed_link: false
+  import-invalid-13:
+    data:
+      observed: TBD
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: EC2.Subnet.VpcId
+      ambiguous: false
+      typed_link: false
+  import-invalid-14:
+    data:
+      observed: invalid/vpc
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: EC2.Subnet.VpcId
+      ambiguous: false
+      typed_link: false
+  import-invalid-15:
+    data:
+      observed: ${unresolved}
+      link:
+        $modelRef:
+          logicalId: EC2_VPC_001
+          attribute: VpcId
+      prop: EC2.Subnet.VpcId
+      ambiguous: false
+      typed_link: false
+  import-difference-00:
+    data:
+      observed: null
+      desired:
+        VpcId:
+          $modelRef:
+            logicalId: EC2_VPC_001
+            attribute: VpcId
+        Subnets:
+        - subnet-first
+      actual:
+        VpcId: vpc-unknown
+        Subnets:
+        - subnet-second
+      subnet: false
+  import-difference-01:
+    data:
+      observed: PENDING_DEPLOY
+      desired:
+        VpcId:
+          $modelRef:
+            logicalId: EC2_VPC_001
+            attribute: VpcId
+        Subnets:
+        - subnet-first
+      actual:
+        VpcId: vpc-unknown
+        Subnets:
+        - subnet-second
+      subnet: false
+  import-difference-02:
+    data:
+      observed: null
+      desired:
+        VpcId:
+          $modelRef:
+            logicalId: EC2_VPC_001
+            attribute: VpcId
+        Subnets:
+        - subnet-first
+      actual:
+        VpcId: vpc-unknown
+        Subnets:
+        - subnet-second
+      subnet: false
+  import-difference-03:
+    data:
+      observed: PENDING_DEPLOY
+      desired:
+        VpcId:
+          $modelRef:
+            logicalId: EC2_VPC_001
+            attribute: VpcId
+        Subnets:
+        - subnet-first
+      actual:
+        VpcId: vpc-unknown
+        Subnets:
+        - subnet-second
+      subnet: false
+  import-difference-04:
+    data:
+      observed: null
+      desired:
+        VpcId:
+          Fn::Join:
+          - ''
+          - - $modelRef:
+                logicalId: EC2_VPC_001
+                attribute: VpcId
+        Subnets:
+        - subnet-first
+      actual:
+        VpcId: vpc-unknown
+        Subnets:
+        - subnet-second
+      subnet: false
+  import-difference-05:
+    data:
+      observed: PENDING_DEPLOY
+      desired:
+        VpcId:
+          Fn::Join:
+          - ''
+          - - $modelRef:
+                logicalId: EC2_VPC_001
+                attribute: VpcId
+        Subnets:
+        - subnet-first
+      actual:
+        VpcId: vpc-unknown
+        Subnets:
+        - subnet-second
+      subnet: false
+  import-difference-06:
+    data:
+      observed: null
+      desired:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - $modelRef:
+            logicalId: EC2_Subnet_002
+            attribute: SubnetId
+        - subnet-first
+      actual:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - subnet-external
+        - subnet-second
+      subnet: true
+  import-difference-07:
+    data:
+      observed: PENDING_DEPLOY
+      desired:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - $modelRef:
+            logicalId: EC2_Subnet_002
+            attribute: SubnetId
+        - subnet-first
+      actual:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - subnet-external
+        - subnet-second
+      subnet: true
+  route53-pending-00:
+    data:
+      environment: dev
+      desired: PENDING_DEPLOY
+  route53-pending-01:
+    data:
+      environment: dev
+      desired: UNSET
+  route53-pending-02:
+    data:
+      environment: dev
+      desired: TODO
+  route53-pending-03:
+    data:
+      environment: dev
+      desired: TBD
+  route53-pending-04:
+    data:
+      environment: dev
+      desired: 未確定
+  route53-pending-05:
+    data:
+      environment: dev
+      desired: desired.example
+  route53-pending-06:
+    data:
+      environment: stg
+      desired: PENDING_DEPLOY
+  route53-pending-07:
+    data:
+      environment: stg
+      desired: UNSET
+  route53-pending-08:
+    data:
+      environment: stg
+      desired: TODO
+  route53-pending-09:
+    data:
+      environment: stg
+      desired: TBD
+  route53-pending-10:
+    data:
+      environment: stg
+      desired: 未確定
+  route53-pending-11:
+    data:
+      environment: stg
+      desired: desired.example
+  pending-sibling-00:
+    data:
+      sibling: Name
+      desired: PENDING_DEPLOY
+  pending-sibling-01:
+    data:
+      sibling: Name
+      desired: fixed
+  pending-sibling-02:
+    data:
+      sibling: Name
+      desired: different
+  pending-sibling-03:
+    data:
+      sibling: Name
+      desired: TODO
+  pending-sibling-04:
+    data:
+      sibling: AliasTarget.HostedZoneId
+      desired: PENDING_DEPLOY
+  pending-sibling-05:
+    data:
+      sibling: AliasTarget.HostedZoneId
+      desired: fixed
+  pending-sibling-06:
+    data:
+      sibling: AliasTarget.HostedZoneId
+      desired: different
+  pending-sibling-07:
+    data:
+      sibling: AliasTarget.HostedZoneId
+      desired: TODO
+  pending-actual-00:
+    data:
+      actual:
+        DNSName:
+          Ref: Missing
+        HostedZoneId: fixed
+  pending-actual-01:
+    data:
+      actual:
+        DNSName: actual.example
+        HostedZoneId:
+          Ref: Missing
+  actual-wait-00:
+    data:
+      phase: unobserved
+      desired:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - subnet-fixed
+      actual:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - Ref: External
+      projection:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - Ref: External
+  actual-wait-01:
+    data:
+      phase: unobserved
+      desired:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - subnet-fixed
+      actual:
+        VpcId: vpc-different
+        Subnets:
+        - Ref: External
+      projection:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - Ref: External
+  actual-wait-02:
+    data:
+      phase: pending_deploy
+      desired:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - subnet-fixed
+      actual:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - Ref: External
+      projection:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - Ref: External
+  actual-wait-03:
+    data:
+      phase: pending_deploy
+      desired:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - subnet-fixed
+      actual:
+        VpcId: vpc-different
+        Subnets:
+        - Ref: External
+      projection:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - Ref: External
+  actual-wait-04:
+    data:
+      phase: awaiting_handoff
+      desired:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - subnet-fixed
+      actual:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - Ref: External
+      projection:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - Ref: External
+  actual-wait-05:
+    data:
+      phase: awaiting_handoff
+      desired:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - subnet-fixed
+      actual:
+        VpcId: vpc-different
+        Subnets:
+        - Ref: External
+      projection:
+        VpcId: vpc-0123456789abcdef0
+        Subnets:
+        - Ref: External
+  resource-failure-00:
+    data:
+      error_type: Blocked
+      message: not proven
+      phase: null
+  resource-failure-01:
+    data:
+      error_type: ValueError
+      message: malformed
+      phase: null
+  resource-failure-02:
+    data:
+      error_type: null
+      message: null
+      phase: pending_deploy
+  resource-failure-03:
+    data:
+      error_type: null
+      message: null
+      phase: unobserved
+  resource-failure-04:
+    data:
+      error_type: null
+      message: null
+      phase: awaiting_handoff
+  deferred-operand-00:
+    data:
+      observed: null
+      expression:
+        Fn::Join:
+        - ''
+        - - $modelRef:
+              logicalId: EC2_VPC_001
+              attribute: VpcId
+          - Ref: Missing
+  deferred-operand-01:
+    data:
+      observed: null
+      expression:
+        Fn::Join:
+        - ''
+        - - $modelRef:
+              logicalId: EC2_VPC_001
+              attribute: VpcId
+          - Fn::Join:
+            - ''
+            - 1
+  deferred-operand-02:
+    data:
+      observed: PENDING_DEPLOY
+      expression:
+        Fn::Join:
+        - ''
+        - - $modelRef:
+              logicalId: EC2_VPC_001
+              attribute: VpcId
+          - Ref: Missing
+  deferred-operand-03:
+    data:
+      observed: PENDING_DEPLOY
+      expression:
+        Fn::Join:
+        - ''
+        - - $modelRef:
+              logicalId: EC2_VPC_001
+              attribute: VpcId
+          - Fn::Join:
+            - ''
+            - 1
+  other-unresolved-00:
+    data:
+      kind: EC2.Subnet
+      path: VpcId
+      desired: vpc-123abc
+      expression:
+        Ref: Value
+  other-unresolved-01:
+    data:
+      kind: EC2.Subnet
+      path: VpcId
+      desired: vpc-123abc
+      expression:
+        Fn::Sub: vpc-${Value}
+  other-unresolved-02:
+    data:
+      kind: EC2.Subnet
+      path: VpcId
+      desired: vpc-123abc
+      expression:
+        Fn::Sub:
+        - vpc-${Id}
+        - Id:
+            Ref: Value
+  other-unresolved-03:
+    data:
+      kind: EC2.Subnet
+      path: VpcId
+      desired: vpc-123abc
+      expression:
+        Fn::Join:
+        - ''
+        - - vpc-
+          - Ref: Value
+  other-unresolved-04:
+    data:
+      kind: EC2.Subnet
+      path: VpcId
+      desired: vpc-123abc
+      expression:
+        Fn::If:
+        - Active
+        - Ref: Value
+        - vpc-123abc
+  other-unresolved-05:
+    data:
+      kind: EC2.Subnet
+      path: VpcId
+      desired: vpc-123abc
+      expression:
+        Fn::ImportValue:
+          Fn::Sub: External${Value}
+  other-unresolved-06:
+    data:
+      kind: Lambda.Function
+      path: Code.S3Bucket
+      desired: bucket-123abc
+      expression:
+        Ref: Value
+  other-unresolved-07:
+    data:
+      kind: Lambda.Function
+      path: Code.S3Bucket
+      desired: bucket-123abc
+      expression:
+        Fn::Sub: bucket-${Value}
+  other-unresolved-08:
+    data:
+      kind: Lambda.Function
+      path: Code.S3Bucket
+      desired: bucket-123abc
+      expression:
+        Fn::Sub:
+        - bucket-${Id}
+        - Id:
+            Ref: Value
+  other-unresolved-09:
+    data:
+      kind: Lambda.Function
+      path: Code.S3Bucket
+      desired: bucket-123abc
+      expression:
+        Fn::Join:
+        - ''
+        - - bucket-
+          - Ref: Value
+  other-unresolved-10:
+    data:
+      kind: Lambda.Function
+      path: Code.S3Bucket
+      desired: bucket-123abc
+      expression:
+        Fn::If:
+        - Active
+        - Ref: Value
+        - bucket-123abc
+  other-unresolved-11:
+    data:
+      kind: Lambda.Function
+      path: Code.S3Bucket
+      desired: bucket-123abc
+      expression:
+        Fn::ImportValue:
+          Fn::Sub: External${Value}
+  condition-unresolved-00:
+    data:
+      condition:
+      - 'yes'
+      - 'yes'
+      expression:
+        Fn::If:
+        - Choose
+        - vpc-123abc
+        - Ref: Value
+  condition-unresolved-01:
+    data:
+      condition:
+      - Ref: Value
+      - 'yes'
+      expression:
+        Fn::If:
+        - Choose
+        - vpc-123abc
+        - vpc-456def

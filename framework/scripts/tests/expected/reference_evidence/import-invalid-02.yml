@@ -1,0 +1,8 @@
+error:
+  message: 'producer logicalId is ambiguous; [{"category": "MODEL_NEEDS_FIX", "code":
+    "MODEL_REF_TARGET_AMBIGUOUS", "message": "producer logicalId is ambiguous", "status":
+    "FAIL", "action": "Correct the Model reference or the invalid producer field.",
+    "targetLogicalId": "EC2_VPC_001", "fixModels": ["synthetic-project/model/fixture/team/duplicate.properties",
+    "synthetic-project/model/fixture/team/vpc.properties"]}]'
+  type: Blocked
+issue_count: 1

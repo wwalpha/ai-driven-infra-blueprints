@@ -1,0 +1,33 @@
+decision:
+  comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    declarations:
+    - producer: s3/001
+      property: S3.Bucket.BucketName
+    evidence_type: local_evaluation
+    format:
+      iac: unproven
+      model: unproven
+    iac: arn:aws:s3:::fixture-bucket/*
+    identity: unproven
+    local_comparison: uncompared
+    model:
+      $expression: Join
+      $operands:
+      - ''
+      - - 'arn:aws:s3:::'
+        - $attribute: BucketName
+          $resource:
+          - s3
+          - '001'
+        - /*
+    path: IAM.Role.Policies
+    producers:
+    - attribute: BucketName
+      producer: s3/001
+    reason: expression Producer or attribute equivalence is unproven; recorded_observed
+      cannot prove physical identity
+  equal: null
+  equivalent: false

@@ -1,0 +1,46 @@
+display:
+  349fe677097c6e8f5878:
+  - iac: subnet-second
+    model: subnet-first
+    path: Subnets[0]
+records:
+- actual: null
+  category: deferred
+  cause:
+    consumer_property: CodeBuild.Project.VpcConfig.VpcId
+    kind: import-reference-deferred
+    phase: unobserved
+    producer:
+      attribute: VpcId
+      resource: '001'
+      resourceType: EC2.VPC
+      service: vpc
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model:
+    pointer: /VpcId/Fn::Join/1/0
+  property: CodeBuild.Project.VpcConfig.VpcId
+  reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+  resource: '001'
+  service: codebuild
+  stack: producer
+- actual:
+    Subnets:
+    - subnet-second
+    VpcId: vpc-unknown
+  category: difference
+  desired:
+    Subnets:
+    - subnet-first
+    VpcId: <unresolved>
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  property: CodeBuild.Project.VpcConfig
+  reason: value mismatch
+  resource: '001'
+  service: codebuild
+  stack: producer
