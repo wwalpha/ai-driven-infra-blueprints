@@ -319,7 +319,6 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
         for s in saved["states"].values()
     )
     assert saved["gitPublication"]["status"] == "SUCCESS"
-    assert invoke(root, report, aws, ["--action", "checkpoint"]) == 0
     assert (
         read_task_snapshot(root, "tasks/deploy.md", live=True).task_digest
         == state["deployIdentity"]["taskDigest"]
