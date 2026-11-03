@@ -97,6 +97,60 @@ def check_model_finalize_cannot_bypass_candidate(tmp_path, action):
             )
 
 
+@pytest.mark.parametrize(
+    ("workflow", "model", "status", "expected"),
+    [
+        (None, True, "running", "Current workflow: missing"),
+        ("import", True, "running", "Current workflow: import"),
+        ("update", True, "running", "model path"),
+        (None, False, "running", "ordinary path"),
+        (None, False, "completed", "ordinary path"),
+        (None, "framework", "running", "model path"),
+    ],
+)
+def check_finalize_workflow_diagnostic(tmp_path, workflow, model, status, expected):
+    source = (
+        "framework/scripts/example.py"
+        if model == "framework"
+        else "model/dev/team/iam.properties"
+        if model
+        else "docs/designs/example.md"
+    )
+    name = "tasks/example.md"
+    text = repository_contract("example", [source])
+    if model != "framework":
+        text = text.replace("`governance`", "`design`")
+    text = text.replace("`running`", f"`{status}`").replace(
+        "- Task status:",
+        (f"- Workflow: `{workflow}`\n" if workflow else "")
+        + "- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n- Task status:",
+    )
+    (tmp_path / "tasks").mkdir()
+    (tmp_path / name).write_text(text, encoding="utf-8")
+    state = {"task_file": name, "merged": None, "python_setup": {"status": "ready"}}
+    with (
+        patch.object(
+            wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", state)
+        ),
+        patch.object(wt, "task_worktree", return_value=tmp_path),
+        patch.object(wt, "integration_changed_paths", return_value={source}),
+        patch.object(wt.python_env, "runtime", side_effect=RuntimeError("model path")),
+        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(wt, "integration_task", side_effect=RuntimeError("ordinary path")),
+        patch.object(
+            wt, "_prepare_commit", side_effect=AssertionError("must not commit")
+        ),
+    ):
+        with pytest.raises((wt.Blocked, RuntimeError), match=expected) as error:
+            wt._finalize(tmp_path, "example")
+        if expected.startswith("Current workflow"):
+            message = str(error.value)
+            assert "Workflow: update" in message
+            assert "Current task status: running" in message
+            assert "Do not change the task status to completed" in message
+            assert "retry finalize" in message
+
+
 def _callback_check_git_baseline_fail_closed_task(tmp_path, /):
     return TaskValidation(tmp_path, Findings(tmp_path))
 

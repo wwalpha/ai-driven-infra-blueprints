@@ -1208,6 +1208,32 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
                 return load(root, task_id)[3]
             # The surviving launcher owns cleanup, after the registered child exits.
             return automatic_cleanup(root, task_id, publication_held=True)
+        lines = tasks.section(text, "## Task contract")
+        workflows = [line for line in lines if re.match(r"-\s*Workflow\b", line)]
+        if len(workflows) <= 1 and tasks.status(text) == "running":
+            corrected = re.sub(
+                r"(?ms)^## Task contract\n.*?(?=^## |\Z)",
+                "## Task contract\n"
+                + "\n".join(line for line in lines if line not in workflows)
+                + "\n- Workflow: `update`\n",
+                text,
+                count=1,
+            )
+            if tasks.final_model_task(
+                corrected,
+                partial(integration_changed_paths, target, state["task_file"]),
+            ):
+                current = (
+                    workflows[0].partition(":")[2].strip().strip("`")
+                    if workflows
+                    else "missing"
+                )
+                raise Blocked(
+                    "Task declaration error:\nModel-only finalize requires `Workflow: update`.\n\n"
+                    f"Current workflow: {current}\nCurrent task status: running\n\n"
+                    "Add or correct `- Workflow: `update`` in the Task declaration and retry finalize.\n"
+                    "Do not change the task status to completed."
+                )
     with lifecycle_lock(root):
         if path.with_suffix(".setup-lock").exists():
             raise Blocked("Python setup busy; integration refused")

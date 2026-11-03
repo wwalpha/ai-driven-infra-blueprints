@@ -165,6 +165,7 @@ WORKTREE_CASES = {
         "check_ownership",
         "check_finalize_rejects_incomplete_leaves",
         "check_model_finalize_cannot_bypass_candidate",
+        "check_finalize_workflow_diagnostic",
         "check_git_baseline_fail_closed",
         "check_candidate_staleness",
         "check_final_candidate_scope",
