@@ -1,0 +1,78 @@
+version: 1
+base:
+  data:
+    clients:
+      cfn:
+        service: cloudformation
+        region: us-east-1
+cases:
+  validate-template:
+    data:
+      steps:
+      - client: cfn
+        operation: validate_template
+        params:
+          TemplateBody: 'Resources: {}'
+        response:
+          Parameters: []
+      arguments:
+        TemplateBody: 'Resources: {}'
+      context:
+      - offline
+  exports-retry:
+    data:
+      steps:
+      - client: cfn
+        operation: list_exports
+        params: {}
+        response:
+          Exports:
+          - Name: Required
+            Value: first
+            ExportingStackId: stack
+          NextToken: next
+      - client: cfn
+        operation: list_exports
+        params:
+          NextToken: next
+        error:
+          code: Throttling
+          message: private
+          http_status: 400
+      - client: cfn
+        operation: list_exports
+        params:
+          NextToken: next
+        response:
+          Exports: []
+      arguments: {}
+      context:
+      - offline
+      - us-east-1
+      - '123456789012'
+      - auth
+  imports-pages:
+    data:
+      steps:
+      - client: cfn
+        operation: list_imports
+        params:
+          ExportName: Required
+        response:
+          Imports:
+          - Consumer
+          NextToken: next
+      - client: cfn
+        operation: list_imports
+        params:
+          ExportName: Required
+          NextToken: next
+        response:
+          Imports: []
+      arguments:
+        ExportName: Required
+      context:
+      - offline
+      - us-east-1
+      - '123456789012'
+      - auth

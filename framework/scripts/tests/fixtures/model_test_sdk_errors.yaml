@@ -1,0 +1,23 @@
+version: 1
+cases:
+  sdk-error-not-found:
+    data:
+      code: ResourceNotFoundException
+      message: sensitive text
+      operation: DescribeStacks
+      api: cloudformation.describe_stacks
+      request: []
+  sdk-error-denied:
+    data:
+      code: AccessDeniedException
+      message: sensitive text
+      operation: DescribeStacks
+      api: cloudformation.describe_stacks
+      request: []
+  sdk-error-validation:
+    data:
+      code: ValidationError
+      message: sensitive text
+      operation: DescribeStacks
+      api: cloudformation.describe_stacks
+      request: []

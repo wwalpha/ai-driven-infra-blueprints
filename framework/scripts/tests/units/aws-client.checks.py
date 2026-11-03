@@ -14,14 +14,17 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from threading import Lock
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest import TestCase
+from unittest.mock import Mock, patch
 
 import boto3
 import pytest
-from botocore.exceptions import ClientError
-from botocore.stub import Stubber
+from botocore.exceptions import ClientError, ParamValidationError, UnknownServiceError
+from botocore.stub import StubResponseError
 from model.adapters.aws import AcquisitionError
+from support.aws_sdk_cases import SdkCase
 from support.cloudformation_destroy_fixtures import M as destroy
+from support.fixture_cases import load_case
 from utils.aws import client as sdk
 from utils.aws import cloudformation, secretsmanager
 
@@ -710,57 +713,143 @@ def check_effective_default_profile(tmp_path, monkeypatch):
         sdk._sessions.clear()
 
 
-def check_sdk_arguments_and_pages(tmp_path, monkeypatch):
-    session = boto3.Session(
-        aws_access_key_id="synthetic",
-        aws_secret_access_key="synthetic",
-        region_name="us-east-1",
+@pytest.mark.parametrize("case_id", ["validate-template"])
+def check_sdk_arguments_and_pages(case_runner, tmp_path, monkeypatch, case_id):
+    _run_sdk_case(
+        case_runner, tmp_path, monkeypatch, case_id, cloudformation.validate_template
     )
-    cfn = session.client("cloudformation")
-    monkeypatch.setattr(sdk, "client", lambda context, service, **kw: cfn)
-    sleep = Mock()
-    monkeypatch.setattr(
-        sdk, "time", SimpleNamespace(monotonic=lambda: 100, sleep=sleep)
+
+
+@pytest.mark.parametrize("case_id", ["exports-retry"])
+def check_sdk_export_pages_and_retry(case_runner, tmp_path, monkeypatch, case_id):
+    _run_sdk_case(
+        case_runner, tmp_path, monkeypatch, case_id, cloudformation.list_exports
     )
-    monkeypatch.setattr(
-        "socket.socket.connect", lambda *a, **k: pytest.fail("network forbidden")
+
+
+@pytest.mark.parametrize("case_id", ["imports-pages"])
+def check_sdk_import_pages(case_runner, tmp_path, monkeypatch, case_id):
+    _run_sdk_case(
+        case_runner, tmp_path, monkeypatch, case_id, cloudformation.list_imports
     )
-    with Stubber(cfn) as stub:
-        stub.add_response(
-            "validate_template", {"Parameters": []}, {"TemplateBody": "Resources: {}"}
+
+
+def _run_sdk_case(case_runner, tmp_path, monkeypatch, case_id, execute):
+    data = load_case("aws_sdk", case_id)["data"]
+    clock = Clock()
+    monkeypatch.setattr(sdk, "time", clock)
+    monkeypatch.setattr(sdk.random, "uniform", Mock(return_value=0.5))
+    monkeypatch.setattr(sdk, "_rate_next", {})
+    monkeypatch.setattr(sdk, "_rate_locks", {})
+    with SdkCase(data, tmp_path, monkeypatch) as stub:
+        monkeypatch.setattr(sdk, "client", stub.client)
+        case_runner.run(
+            "aws_sdk",
+            case_id,
+            _bind_framework_callback(_execute_sdk_case, stub, clock, execute),
         )
-        assert cloudformation.validate_template(
-            ("offline",), TemplateBody="Resources: {}"
-        ) == {"Parameters": []}
-        export = {"Name": "Required", "Value": "first", "ExportingStackId": "stack"}
-        stub.add_response(
-            "list_exports", {"Exports": [export], "NextToken": "next"}, {}
+
+
+def _execute_sdk_case(stub, clock, execute, case):
+    data = case["data"]
+    result = execute(tuple(data["context"]), **data["arguments"])
+    stub.finish()
+    backoffs = sum(
+        step.get("error", {}).get("code") in sdk.THROTTLING for step in data["steps"]
+    )
+    TestCase().assertEqual(clock.waits.count(0.5), backoffs)
+    return {"result": result}
+
+
+@pytest.mark.parametrize("fault", ["params", "order", "extra", "pending"])
+def check_sdk_case_rejects_request_faults(tmp_path, monkeypatch, fault):
+    data = load_case("aws_sdk", "validate-template")["data"]
+    with SdkCase(data, tmp_path, monkeypatch) as stub:
+        client = stub.clients["cfn"]
+        if fault == "pending":
+            with pytest.raises(AssertionError, match="responses remaining"):
+                stub.finish()
+            client.validate_template(**data["arguments"])
+        else:
+            if fault == "extra":
+                client.validate_template(**data["arguments"])
+            with pytest.raises(StubResponseError):
+                if fault == "params":
+                    client.validate_template(TemplateURL="https://example.com/other")
+                elif fault == "order":
+                    client.list_exports()
+                else:
+                    client.validate_template(**data["arguments"])
+            if fault != "extra":
+                client.validate_template(**data["arguments"])
+
+
+@pytest.mark.parametrize(
+    "fault", ["operation", "response", "request", "both", "client", "service", "error"]
+)
+def check_sdk_case_rejects_invalid_steps(tmp_path, monkeypatch, fault):
+    data = load_case("aws_sdk", "validate-template")["data"]
+    step = data["steps"][0]
+    if fault == "operation":
+        step["operation"] = "not_an_operation"
+    elif fault == "response":
+        step["response"] = {"UnknownField": True}
+    elif fault == "request":
+        step["params"] = {"UnknownField": True}
+    elif fault == "both":
+        step["error"] = {}
+    elif fault == "client":
+        step["client"] = "unknown"
+    elif fault == "service":
+        data["clients"]["cfn"]["service"] = "not-a-service"
+    else:
+        del step["response"]
+        step["error"] = {"code": "Denied"}
+    with pytest.raises((ValueError, ParamValidationError, UnknownServiceError)):
+        SdkCase(data, tmp_path, monkeypatch)
+
+
+@pytest.mark.parametrize("position", [0, 1, 2, 3])
+def check_sdk_case_context_mismatch_fails(tmp_path, monkeypatch, position):
+    data = load_case("aws_sdk", "exports-retry")["data"]
+    # A single expected request isolates context validation from retry/pagination.
+    data["steps"] = [
+        dict(
+            client="cfn",
+            operation="validate_template",
+            params={"TemplateBody": "Resources: {}"},
+            response={"Parameters": []},
         )
-        stub.add_client_error(
-            "list_exports",
-            service_error_code="Throttling",
-            service_message="private",
-            expected_params={"NextToken": "next"},
-        )
-        stub.add_response("list_exports", {"Exports": []}, {"NextToken": "next"})
-        assert cloudformation.list_exports(
-            ("offline", "us-east-1", "123456789012", "auth")
-        )["Exports"] == [export]
-        assert sleep.called
-        stub.add_response(
-            "list_imports",
-            {"Imports": ["Consumer"], "NextToken": "next"},
-            {"ExportName": "Required"},
-        )
-        stub.add_response(
-            "list_imports",
-            {"Imports": []},
-            {"ExportName": "Required", "NextToken": "next"},
-        )
-        assert cloudformation.list_imports(
-            ("offline", "us-east-1", "123456789012", "auth"), ExportName="Required"
-        )["Imports"] == ["Consumer"]
-        stub.assert_no_pending_responses()
+    ]
+    wrong = list(data["context"])
+    wrong[position] = "different"
+    with SdkCase(data, tmp_path, monkeypatch) as stub:
+        monkeypatch.setattr(sdk, "client", stub.client)
+        with pytest.raises(ValueError, match="SDK context"):
+            cloudformation.validate_template(tuple(wrong), TemplateBody="Resources: {}")
+        stub.clients["cfn"].validate_template(TemplateBody="Resources: {}")
+
+
+def check_sdk_case_preserves_exception_and_deactivates(tmp_path, monkeypatch):
+    data = load_case("aws_sdk", "validate-template")["data"]
+    stub = SdkCase(data, tmp_path, monkeypatch)
+    primary = RuntimeError("primary failure")
+    with patch.object(
+        stub.stubbers["cfn"], "deactivate", wraps=stub.stubbers["cfn"].deactivate
+    ) as deactivate:
+        with pytest.raises(RuntimeError) as caught:
+            with stub:
+                raise primary
+        TestCase().assertIs(caught.value, primary)
+        deactivate.assert_called_once()
+
+
+def check_sdk_case_pending_responses_fail_on_exit(tmp_path, monkeypatch):
+    with pytest.raises(AssertionError, match="responses remaining"):
+        with SdkCase(
+            load_case("aws_sdk", "validate-template")["data"], tmp_path, monkeypatch
+        ):
+            pass
 
 
 if __name__ == "__main__":

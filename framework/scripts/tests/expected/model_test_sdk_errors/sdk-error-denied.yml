@@ -1,0 +1,4 @@
+api: cloudformation.describe_stacks
+code: AccessDeniedException
+message: AccessDeniedException
+status: acquisition_failed

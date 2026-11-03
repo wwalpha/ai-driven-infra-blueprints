@@ -1,0 +1,4 @@
+api: cloudformation.describe_stacks
+code: ResourceNotFoundException
+message: ResourceNotFoundException
+status: resource_missing

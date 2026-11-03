@@ -1,0 +1,5 @@
+result:
+  Exports:
+  - ExportingStackId: stack
+    Name: Required
+    Value: first

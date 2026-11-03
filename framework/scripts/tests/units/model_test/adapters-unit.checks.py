@@ -2,16 +2,22 @@ import json
 import subprocess
 import sys
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from unittest import TestCase
+
+import pytest
 from botocore.exceptions import ClientError
 from model.adapters.aws import AcquisitionError, Unresolved, sdk_error, service_module
 from model.literal_values import normalize, value_shape
 from support.check_model_aws_fixtures import m
+from support.fixture_cases import load_case
+from support.regression_cases import case_ids
 from utils.cloudformation.schema import native_type_errors
 
 from model import audit_runtime as audit
@@ -21,21 +27,6 @@ if not __debug__:
 
 
 class SdkErrorTests(unittest.TestCase):
-    def test_structured_errors_ignore_message(self):
-        message = "sensitive text"
-        for code, expected in [
-            ("ResourceNotFoundException", "resource_missing"),
-            ("AccessDeniedException", "acquisition_failed"),
-            ("ValidationError", "acquisition_failed"),
-        ]:
-            with self.subTest(code=code, message=message):
-                error = ClientError(
-                    {"Error": {"Code": code, "Message": message}}, "DescribeStacks"
-                )
-                result = sdk_error("cloudformation.describe_stacks", error, ())
-                self.assertEqual((result.code, result.status), (code, expected))
-                self.assertNotIn(message, str(result))
-
     def test_cli_structured_errors_match_sdk(self):
         message = "private secret"
         for code, status in (
@@ -321,6 +312,46 @@ class GuardDutyPlanAdapterTests(unittest.TestCase):
             with self.subTest(tags=tags), self.assertRaises(ValueError):
                 adapter.fetch(context, resource, "plan")
         self.assertNotIn(("cloudcontrol", "get_resource"), adapter.APIS)
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("model_test_sdk_errors", prefix="sdk-error-")
+)
+def test_sdk_error_classification(case_runner, case_id):
+    case_runner.run("model_test_sdk_errors", case_id, _execute_sdk_error_case)
+
+
+def _execute_sdk_error_case(case):
+    data = case["data"]
+    error = ClientError(
+        {"Error": {"Code": data["code"], "Message": data["message"]}}, data["operation"]
+    )
+    before = deepcopy(error.response)
+    request = tuple(data["request"])
+    result = sdk_error(data["api"], error, request)
+    TestCase().assertIs(type(result), AcquisitionError)
+    TestCase().assertIs(result.request, request)
+    TestCase().assertEqual(error.response, before)
+    if data["message"] in str(result):
+        pytest.fail("SDK error exposed private message before snapshot", pytrace=False)
+    return {
+        "api": result.api,
+        "code": result.code,
+        "status": result.status,
+        "message": str(result),
+    }
+
+
+def test_sdk_error_secret_failure_before_snapshot(monkeypatch):
+    case = load_case("model_test_sdk_errors", "sdk-error-denied")
+    secret = case["data"]["message"]
+    unsafe = AcquisitionError(case["data"]["api"], secret, request=())
+    monkeypatch.setitem(
+        _execute_sdk_error_case.__globals__, "sdk_error", Mock(return_value=unsafe)
+    )
+    with pytest.raises(pytest.fail.Exception, match="private message") as caught:
+        _execute_sdk_error_case(case)
+    TestCase().assertNotIn(secret, str(caught.value))
 
 
 if __name__ == "__main__":
