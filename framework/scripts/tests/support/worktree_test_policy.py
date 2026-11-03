@@ -1,7 +1,11 @@
 """Responsibility registry and recurrence checks for test-only Worktree dependencies."""
 
 import ast
+import hashlib
+import json
+import os
 import re
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -236,6 +240,60 @@ WORKTREE_SUPPORT = frozenset(
 _active = None
 
 
+POLICY_RECEIPT = "BLUEPRINT_WORKTREE_POLICY_RECEIPT"
+POLICY_TOKEN = "BLUEPRINT_WORKTREE_POLICY_TOKEN"
+
+
+def source_snapshot(tests):
+    digest = hashlib.sha256()
+    for path in sorted(tests.rglob("*.py")):
+        name = path.relative_to(tests).as_posix().encode("utf-8")
+        data = path.read_bytes()
+        digest.update(len(name).to_bytes(8, "big") + name)
+        digest.update(len(data).to_bytes(8, "big") + data)
+    return digest.hexdigest()
+
+
+def runner_parent(tests):
+    # Unknown platforms and unrecognised launchers retain the full inspection.
+    process = Path("/proc") / str(os.getppid())
+    try:
+        if (process / "exe").resolve(strict=True) != Path(sys.executable).resolve(
+            strict=True
+        ):
+            return False
+        argv = (process / "cmdline").read_bytes().split(b"\0")
+        args = [os.fsdecode(arg) for arg in argv[1:] if arg]
+        while args and args[0] in ("-B", "-u"):
+            args.pop(0)
+        if not args or args[0].startswith("-") or args[1:] not in ([], ["--ut-only"]):
+            return False
+        cwd = (process / "cwd").resolve(strict=True)
+        script = Path(args[0])
+        return (cwd / script).resolve(strict=True) == (tests / "run_it.py").resolve(
+            strict=True
+        )
+    except (OSError, ValueError):
+        return False
+
+
+def verified_receipt(tests):
+    path = os.environ.pop(POLICY_RECEIPT, None)
+    token = os.environ.pop(POLICY_TOKEN, None)
+    if not path or not token or not runner_parent(tests):
+        return False
+    try:
+        receipt = json.loads(Path(path).read_text(encoding="utf-8"))
+        return receipt == {
+            "root": str(tests.resolve()),
+            "pid": os.getppid(),
+            "token": token,
+            "snapshot": source_snapshot(tests),
+        }
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def worktree_suite(path, tests):
     relative = Path(path).resolve().relative_to(tests.resolve()).as_posix()
     expected = WORKTREE_CASES.get(relative)
@@ -247,6 +305,31 @@ def worktree_suite(path, tests):
         for n in tree.body
         if isinstance(n, ast.FunctionDef) and n.name.startswith("check_")
     } == set(expected)
+
+
+class SessionClassifier:
+    def __init__(self):
+        self.cache = {}
+
+    def __call__(self, path, tests):
+        resolved, root = Path(path).resolve(), Path(tests).resolve()
+        relative = resolved.relative_to(root).as_posix()
+        expected = WORKTREE_CASES.get(relative)
+        if expected is None:
+            return False
+        source = resolved.read_bytes()
+        key = (resolved, root, source, expected)
+        if key not in self.cache:
+            result = worktree_suite(resolved, root)
+            if (
+                resolved.read_bytes() != source
+                or WORKTREE_CASES.get(relative) != expected
+            ):
+                raise ValueError(
+                    f"Worktree test source changed during classification: {resolved}"
+                )
+            self.cache[key] = result
+        return self.cache[key]
 
 
 def violations(tests):
@@ -399,10 +482,13 @@ def audit(event, args):
 
 
 @contextmanager
-def ordinary_suite(path, tests):
+def ordinary_suite(path, tests, classifier=None):
     global _active
     previous = _active
-    _active = None if worktree_suite(path, tests) else str(path)
+    if classifier is not None and type(classifier) is not SessionClassifier:
+        raise TypeError("expected a session Worktree classifier")
+    worktree = (classifier if classifier is not None else worktree_suite)(path, tests)
+    _active = None if worktree else str(path)
     try:
         yield
     finally:
