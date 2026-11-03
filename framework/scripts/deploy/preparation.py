@@ -250,11 +250,9 @@ def candidate(
 
 @_imports_task_contract.task_read_scope
 def prepare(root, args, run, timing):
-    TASK_NAME = _imports_task_contract.TASK_NAME
     contracts = _imports_task_contract.contracts
     safe_path = _imports_task_contract.safe_path
-    if not TASK_NAME.fullmatch(args.task_file):
-        raise ValueError("use a new tasks/<task-name>.md")
+    args.task_file = _imports_task_contract.normalize_selector(args.task_file)
     if (
         not args.stack
         and getattr(args, "order_from", None) is None

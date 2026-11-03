@@ -126,6 +126,37 @@ def check_identity_failure_precedes_preparation(tmp_path):
         aws.assert_not_called()
 
 
+def test_windows_task_selector_is_normalized_through_preparation(tmp_path):
+    root, run = tmp_path / "repo", tmp_path / "run"
+    fixture(root)
+    run.mkdir()
+    args = SimpleNamespace(
+        task_file=r"tasks\deploy-test.md",
+        service=["ec2", "iam"],
+        environment="dev",
+        aws_account_id="123456789012",
+        alias=None,
+        stack=STACKS,
+        profile=None,
+        sequential=True,
+    )
+    with patch.object(
+        M, "environment", return_value={"python": sys.executable, "tools": {}}
+    ):
+        plan = M.prepare(root, args, run, M.Timing(root))
+    assert plan["taskFile"] == "tasks/deploy-test.md"
+    assert plan["environment"]["BLUEPRINT_TASK_FILE"] == plan["taskFile"]
+    assert "tasks/deploy-test.md" in Path(plan["contract"]).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("selector", [r"tasks\..\bad.md", r"C:\tasks\bad.md"])
+def test_unsafe_windows_task_selector_is_rejected(tmp_path, selector):
+    with patch.object(M, "environment") as environment:
+        with pytest.raises(ValueError, match="invalid task selector"):
+            M.prepare(tmp_path, SimpleNamespace(task_file=selector), tmp_path, None)
+        environment.assert_not_called()
+
+
 def check_instruction_changes_do_not_invalidate_registration(tmp_path):
     root, run = tmp_path / "repo", tmp_path / "run"
     fixture(root)
