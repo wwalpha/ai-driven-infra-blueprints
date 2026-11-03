@@ -1,0 +1,136 @@
+version: 1
+cases:
+  producer-01:
+    data:
+      defect: id
+      stack:
+        StackId: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original-replacement
+        StackStatus: UPDATE_COMPLETE
+        Outputs:
+        - OutputKey: A
+          ExportName: A
+          OutputValue: value-A
+        - OutputKey: B
+          ExportName: B
+          OutputValue: value-B
+      hints: &id001
+        A: &id002
+          Name: A
+          Value: value-A
+          ExportingStackId: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+        B:
+          Name: B
+          Value: value-B
+          ExportingStackId: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+  producer-02:
+    data:
+      defect: status
+      stack:
+        StackId: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+        StackStatus: UPDATE_IN_PROGRESS
+        Outputs:
+        - OutputKey: A
+          ExportName: A
+          OutputValue: value-A
+        - OutputKey: B
+          ExportName: B
+          OutputValue: value-B
+      hints: *id001
+  producer-03:
+    data:
+      defect: value
+      stack:
+        StackId: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+        StackStatus: UPDATE_COMPLETE
+        Outputs:
+        - OutputKey: A
+          ExportName: A
+          OutputValue: changed
+        - OutputKey: B
+          ExportName: B
+          OutputValue: value-B
+      hints: *id001
+  producer-04:
+    data:
+      defect: missing
+      stack:
+        StackId: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+        StackStatus: UPDATE_COMPLETE
+        Outputs:
+        - OutputKey: B
+          ExportName: B
+          OutputValue: value-B
+      hints: *id001
+  producer-05:
+    data:
+      defect: duplicate-export
+      stack:
+        StackId: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+        StackStatus: UPDATE_COMPLETE
+        Outputs:
+        - OutputKey: A
+          ExportName: A
+          OutputValue: value-A
+        - OutputKey: B
+          ExportName: A
+          OutputValue: value-B
+      hints: *id001
+  producer-06:
+    data:
+      defect: duplicate-output
+      stack:
+        StackId: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+        StackStatus: UPDATE_COMPLETE
+        Outputs:
+        - OutputKey: A
+          ExportName: A
+          OutputValue: value-A
+        - OutputKey: B
+          ExportName: B
+          OutputValue: value-B
+        - OutputKey: A
+          ExportName: A
+          OutputValue: value-A
+      hints: *id001
+  producer-07:
+    data:
+      defect: output-type
+      stack:
+        StackId: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+        StackStatus: UPDATE_COMPLETE
+        Outputs: null
+      hints: *id001
+  producer-08:
+    data:
+      defect: invalid-key
+      stack:
+        StackId: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+        StackStatus: UPDATE_COMPLETE
+        Outputs:
+        - ExportName: A
+          OutputValue: value-A
+        - OutputKey: B
+          ExportName: B
+          OutputValue: value-B
+      hints: *id001
+  inventory-01:
+    data:
+      response: null
+  inventory-02:
+    data:
+      response: {}
+  inventory-03:
+    data:
+      response:
+        Exports: null
+  inventory-04:
+    data:
+      response:
+        Exports: []
+        NextToken: more
+  inventory-05:
+    data:
+      response:
+        Exports:
+        - *id002
+        - *id002

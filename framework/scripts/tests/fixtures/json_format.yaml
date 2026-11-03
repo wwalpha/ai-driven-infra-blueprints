@@ -1,0 +1,98 @@
+version: 1
+cases:
+  parse-strict-01:
+    data:
+      reader: strict
+      shape: object
+    files:
+      input.json: '{"日本語":[true,false,null,2,-0.0,1.25],"empty":{}}'
+  parse-policy-01:
+    data:
+      reader: policy
+      shape: object
+    files:
+      input.json: '{"日本語":[true,false,null,2,-0.0,1.25],"empty":{}}'
+  parse-strict-02:
+    data:
+      reader: strict
+      shape: list
+    files:
+      input.json: '[123456789012345678901234567890,"\u65e5\u672c",[]]'
+  parse-policy-02:
+    data:
+      reader: policy
+      shape: list
+    files:
+      input.json: '[123456789012345678901234567890,"\u65e5\u672c",[]]'
+  error-strict-01:
+    data:
+      reader: strict
+      message: 'duplicate JSON key: x'
+    files:
+      input.json: '{"x":1,"x":2}'
+  error-policy-01:
+    data:
+      reader: policy
+      message: 'duplicate policy JSON key: x'
+    files:
+      input.json: '{"x":1,"x":2}'
+  error-strict-02:
+    data:
+      reader: strict
+      message: 'duplicate JSON key: 日本'
+    files:
+      input.json: '{"nested":[{"日本":1,"日本":2}]}'
+  error-policy-02:
+    data:
+      reader: policy
+      message: 'duplicate policy JSON key: 日本'
+    files:
+      input.json: '{"nested":[{"日本":1,"日本":2}]}'
+  error-strict-03:
+    data:
+      reader: strict
+      message: 'invalid JSON constant: NaN'
+    files:
+      input.json: NaN
+  error-policy-03:
+    data:
+      reader: policy
+      message: 'invalid JSON constant: NaN'
+    files:
+      input.json: NaN
+  error-strict-04:
+    data:
+      reader: strict
+      message: 'invalid JSON constant: Infinity'
+    files:
+      input.json: '[Infinity]'
+  error-policy-04:
+    data:
+      reader: policy
+      message: 'invalid JSON constant: Infinity'
+    files:
+      input.json: '[Infinity]'
+  error-strict-05:
+    data:
+      reader: strict
+      message: 'invalid JSON constant: -Infinity'
+    files:
+      input.json: '{"x":-Infinity}'
+  error-policy-05:
+    data:
+      reader: policy
+      message: 'invalid JSON constant: -Infinity'
+    files:
+      input.json: '{"x":-Infinity}'
+  error-strict-06:
+    data:
+      reader: strict
+      message: 'Expecting value: line 1 column 6 (char 5)'
+    files:
+      input.json: '{"x":}'
+  error-policy-06:
+    data:
+      reader: policy
+      message: 'Expecting value: line 1 column 6 (char 5)'
+    files:
+      input.json: '{"x":}'

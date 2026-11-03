@@ -7,10 +7,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import json
+from copy import deepcopy
+from unittest import TestCase
 from unittest.mock import Mock
 
 import pytest
 from support.cloudformation_inputs_fixtures import condition_document
+from support.regression_cases import case_ids
 from utils.cloudformation.inputs import (
     Blocked,
     checked_parameters,
@@ -22,89 +25,85 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
-def check_parameters():
-    # Strict comparison typing has a separate contract from permissive deployment inputs.
-    for kind, default, expected in [
-        ("String", "abc", "abc"),
-        ("Number", "7", 7),
-        ("Number", "9007199254740993", 9007199254740993),
-        ("Number", "0.5", 0.5),
-        ("CommaDelimitedList", "a, b", ["a", "b"]),
-        ("List<Number>", "1, 2.5", [1, 2.5]),
-    ]:
-        document = {"Parameters": {"Extra": {"Type": kind, "Default": default}}}
-        assert checked_parameters(document, [])["Extra"] == expected
-        assert (
-            checked_parameters(
-                document, [{"ParameterKey": "Extra", "ParameterValue": default}]
-            )["Extra"]
-            == expected
-        )
-    for definition, reason in [
-        (
-            {"Type": "String", "Default": "bad", "AllowedValues": ["dev", "stg"]},
-            "AllowedValues",
-        ),
-        (
-            {
-                "Type": "String",
-                "Default": "prefix-good-suffix",
-                "AllowedPattern": "good",
-            },
-            "AllowedPattern",
-        ),
-        ({"Type": "String", "Default": "a", "MinLength": 2}, "MinLength"),
-        ({"Type": "String", "Default": "abcd", "MaxLength": 3}, "MaxLength"),
-        ({"Type": "Number", "Default": "1", "MinValue": 2}, "MinValue"),
-        ({"Type": "Number", "Default": "3", "MaxValue": 2}, "MaxValue"),
-        ({"Type": "Number", "Default": "NaN"}, "Number"),
-        ({"Type": "Number", "Default": True}, "Number"),
-        ({"Type": "String", "Default": []}, "String"),
-        ({"Type": "String"}, "required parameter"),
-        (
-            {"Type": "CommaDelimitedList", "Default": "a,bad", "AllowedValues": ["a"]},
-            "AllowedValues",
-        ),
-        (
-            {
-                "Type": "CommaDelimitedList",
-                "Default": "a,1",
-                "AllowedPattern": "[a-z]+",
-            },
-            "AllowedPattern",
-        ),
-    ]:
-        with pytest.raises(ValueError, match=reason):
-            checked_parameters({"Parameters": {"Extra": definition}}, [])
-    for text, reason in [
-        ("[]", "required parameter"),
-        ('[{"ParameterKey":"Unknown","ParameterValue":"x"}]', "undeclared"),
-        ('[{"ParameterKey":"Name","ParameterValue":7}]', "explicit"),
-        (
-            '[{"ParameterKey":"Name","ParameterValue":"a"},{"ParameterKey":"Name","ParameterValue":"b"}]',
-            "duplicate",
-        ),
-        (
-            '[{"ParameterKey":"Name","ParameterValue":"a","ParameterValue":"b"}]',
-            "duplicate",
-        ),
-    ]:
-        parameter_file = Mock()
-        parameter_file.read_text.return_value = text
-        with pytest.raises(ValueError, match=reason):
-            load_template_inputs(
-                None,
-                parameter_file,
-                strict_parameters=True,
-                document={"Parameters": {"Name": {"Type": "String"}}},
+def parameter_case(case):
+    document = case["data"]["document"]
+    before = deepcopy(document)
+    definition = document["Parameters"]["Extra"]
+    defaults = checked_parameters(document, [])
+    explicit = checked_parameters(
+        document, [{"ParameterKey": "Extra", "ParameterValue": definition["Default"]}]
+    )
+    TestCase().assertEqual(defaults, explicit)
+    TestCase().assertEqual(document, before)
+    kind, value = definition["Type"], defaults["Extra"]
+    if kind == "String":
+        TestCase().assertIs(type(value), str)
+    elif kind == "Number":
+        TestCase().assertIn(type(value), (int, float))
+    else:
+        TestCase().assertIs(type(value), list)
+        for item in value:
+            TestCase().assertIn(
+                type(item), (int, float) if kind == "List<Number>" else (str,)
             )
+    return {"defaults": defaults, "explicit": explicit}
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("cloudformation_inputs", prefix="parameter-")
+)
+def check_parameters(case_runner, case_id):
+    case_runner.run("cloudformation_inputs", case_id, parameter_case)
+
+
+def definition_error_case(case):
+    data = case["data"]
+    before = deepcopy(data)
+    with pytest.raises(ValueError, match=data["reason"]) as caught:
+        checked_parameters(data["document"], [])
+    TestCase().assertEqual(data, before)
+    return {"error": type(caught.value).__name__, "message": str(caught.value)}
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("cloudformation_inputs", prefix="definition-error-")
+)
+def check_parameter_definitions(case_runner, case_id):
+    case_runner.run("cloudformation_inputs", case_id, definition_error_case)
+
+
+def parameter_file_error_case(case):
+    data = case["data"]
+    before = deepcopy(case)
+    parameter_file = Mock()
+    parameter_file.read_text.return_value = case["files"]["parameters.json"]
+    with pytest.raises(ValueError, match=data["reason"]) as caught:
+        load_template_inputs(
+            None, parameter_file, strict_parameters=True, document=data["document"]
+        )
+    parameter_file.read_text.assert_called_once_with(encoding="utf-8")
+    TestCase().assertEqual(case, before)
+    return {"error": type(caught.value).__name__, "message": str(caught.value)}
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("cloudformation_inputs", prefix="file-error-")
+)
+def check_parameter_files(case_runner, case_id):
+    case_runner.run("cloudformation_inputs", case_id, parameter_file_error_case)
+
+
+def check_deploy_parameter_inputs_remain_permissive():
     parameter_file = Mock()
     parameter_file.read_text.return_value = "[]"
-    assert load_template_inputs(
-        None,
-        parameter_file,
-        document={"Parameters": {"Extra": {"Type": "Number", "Default": "7"}}},
-    )[1] == {"Extra": "7"}
+    TestCase().assertEqual(
+        load_template_inputs(
+            None,
+            parameter_file,
+            document={"Parameters": {"Extra": {"Type": "Number", "Default": "7"}}},
+        )[1],
+        {"Extra": "7"},
+    )
 
 
 def check_conditions():

@@ -1,0 +1,9 @@
+value:
+  empty: {}
+  日本語:
+  - true
+  - false
+  - null
+  - 2
+  - -0.0
+  - 1.25

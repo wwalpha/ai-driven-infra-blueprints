@@ -1,0 +1,2 @@
+error: ValueError
+message: 'duplicate JSON key: x'

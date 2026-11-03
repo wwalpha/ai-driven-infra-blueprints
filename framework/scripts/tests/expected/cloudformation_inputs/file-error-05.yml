@@ -1,0 +1,2 @@
+error: ValueError
+message: 'duplicate policy JSON key: ParameterValue'

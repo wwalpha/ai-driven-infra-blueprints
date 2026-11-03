@@ -1,0 +1,2 @@
+error: JSONDecodeError
+message: 'Expecting value: line 1 column 6 (char 5)'

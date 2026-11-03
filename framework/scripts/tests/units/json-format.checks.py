@@ -7,8 +7,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import math
+from unittest import TestCase
 
 import pytest
+from support.regression_cases import case_ids
 from utils.json_format import (
     canonical_json,
     document_sha256,
@@ -23,42 +25,43 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
-@pytest.mark.parametrize("reader", [strict_json, policy_json])
-@pytest.mark.parametrize(
-    "raw, expected",
-    [
-        (
-            '{"日本語":[true,false,null,2,-0.0,1.25],"empty":{}}',
-            {"日本語": [True, False, None, 2, -0.0, 1.25], "empty": {}},
-        ),
-        (
-            '[123456789012345678901234567890,"\\u65e5\\u672c",[]]',
-            [123456789012345678901234567890, "日本", []],
-        ),
-    ],
-)
-def check_parse(reader, raw, expected):
-    assert reader(raw) == expected
+def json_parse_case(case):
+    data = case["data"]
+    reader = {"strict": strict_json, "policy": policy_json}[data["reader"]]
+    value = reader(case["files"]["input.json"])
+    if data["shape"] == "object":
+        TestCase().assertIs(type(value), dict)
+        items = value["日本語"]
+        TestCase().assertIs(type(items[0]), bool)
+        TestCase().assertIs(type(items[1]), bool)
+        TestCase().assertIsNone(items[2])
+        TestCase().assertIs(type(items[3]), int)
+        TestCase().assertIs(type(items[4]), float)
+        TestCase().assertEqual(math.copysign(1, items[4]), -1)
+        TestCase().assertIs(type(items[5]), float)
+    else:
+        TestCase().assertIs(type(value), list)
+        TestCase().assertIs(type(value[0]), int)
+    return {"value": value}
 
 
-@pytest.mark.parametrize(
-    "reader, label", [(strict_json, "JSON"), (policy_json, "policy JSON")]
-)
-@pytest.mark.parametrize(
-    "raw, message",
-    [
-        ('{"x":1,"x":2}', "duplicate {label} key: x"),
-        ('{"nested":[{"日本":1,"日本":2}]}', "duplicate {label} key: 日本"),
-        ("NaN", "invalid JSON constant: NaN"),
-        ("[Infinity]", "invalid JSON constant: Infinity"),
-        ('{"x":-Infinity}', "invalid JSON constant: -Infinity"),
-        ('{"x":}', "Expecting value: line 1 column 6 (char 5)"),
-    ],
-)
-def check_errors(reader, label, raw, message):
-    with pytest.raises(ValueError) as error:
-        reader(raw)
-    assert str(error.value) == message.format(label=label)
+@pytest.mark.parametrize("case_id", case_ids("json_format", prefix="parse-"))
+def check_parse(case_runner, case_id):
+    case_runner.run("json_format", case_id, json_parse_case)
+
+
+def json_error_case(case):
+    data = case["data"]
+    reader = {"strict": strict_json, "policy": policy_json}[data["reader"]]
+    with pytest.raises(ValueError) as caught:
+        reader(case["files"]["input.json"])
+    TestCase().assertEqual(str(caught.value), data["message"])
+    return {"error": type(caught.value).__name__, "message": str(caught.value)}
+
+
+@pytest.mark.parametrize("case_id", case_ids("json_format", prefix="error-"))
+def check_errors(case_runner, case_id):
+    case_runner.run("json_format", case_id, json_error_case)
 
 
 @pytest.mark.parametrize("raw", ["1e999", "-1e999", "[1e999]"])

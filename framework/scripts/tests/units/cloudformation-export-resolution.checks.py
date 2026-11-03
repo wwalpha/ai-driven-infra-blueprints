@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import copy
 import json
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 import pytest
@@ -17,6 +18,7 @@ import support.cloudformation_deploy_fixtures as from_fixture
 from deploy.controller import exports_for
 from model.adapters import aws as model_aws
 from support.pytest_cli import run
+from support.regression_cases import case_ids
 from utils.cloudformation import export_resolution as exports
 from utils.cloudformation.inputs import Blocked
 
@@ -152,55 +154,48 @@ def check_known_in_progress_producer_blocks_without_discovery():
     assert [op for op, _ in aws.calls] == ["describe_stacks"]
 
 
-@pytest.mark.parametrize(
-    "defect",
-    [
-        "id",
-        "status",
-        "value",
-        "missing",
-        "duplicate-export",
-        "duplicate-output",
-        "output-type",
-        "invalid-key",
-    ],
-)
-def check_known_producer_must_be_current_and_complete(defect):
+def producer_error_case(case):
+    data = case["data"]
+    before = copy.deepcopy(data)
     aws = ExportAws()
-    if defect == "id":
-        aws.stack["StackId"] += "-replacement"
-    elif defect == "status":
-        aws.stack["StackStatus"] = "UPDATE_IN_PROGRESS"
-    elif defect == "value":
-        aws.stack["Outputs"][0]["OutputValue"] = "changed"
-    elif defect == "missing":
-        aws.stack["Outputs"].pop(0)
-    elif defect == "duplicate-export":
-        aws.stack["Outputs"][1]["ExportName"] = "A"
-    elif defect == "duplicate-output":
-        aws.stack["Outputs"].append(aws.stack["Outputs"][0])
-    elif defect == "output-type":
-        aws.stack["Outputs"] = None
-    else:
-        aws.stack["Outputs"][0].pop("OutputKey")
-    with pytest.raises(Blocked):
-        exports.resolve_exports(aws, {"A"}, hints=ENTRIES)
-    assert all(op != "list_exports" for op, _ in aws.calls)
+    aws.stack = copy.deepcopy(data["stack"])
+    with pytest.raises(Blocked) as caught:
+        exports.resolve_exports(aws, {"A"}, hints=data["hints"])
+    TestCase().assertTrue(
+        all(operation != "list_exports" for operation, _ in aws.calls)
+    )
+    TestCase().assertEqual(aws.calls, [("describe_stacks", {"StackName": STACK})])
+    TestCase().assertEqual(data, before)
+    return {
+        "error": type(caught.value).__name__,
+        "message": str(caught.value),
+        "calls": [[operation, params] for operation, params in aws.calls],
+    }
 
 
 @pytest.mark.parametrize(
-    "response",
-    [
-        None,
-        {},
-        {"Exports": None},
-        {"Exports": [], "NextToken": "more"},
-        {"Exports": [ENTRIES["A"]] * 2},
-    ],
+    "case_id", case_ids("cloudformation_exports", prefix="producer-")
 )
-def check_unknown_inventory_must_be_complete(response):
-    with pytest.raises(Blocked):
-        exports.resolve_exports(Mock(return_value=response), {"A"})
+def check_known_producer_must_be_current_and_complete(case_runner, case_id):
+    case_runner.run("cloudformation_exports", case_id, producer_error_case)
+
+
+def inventory_error_case(case):
+    data = case["data"]
+    before = copy.deepcopy(data)
+    aws = Mock(return_value=data["response"])
+    with pytest.raises(Blocked) as caught:
+        exports.resolve_exports(aws, {"A"})
+    aws.assert_called_once_with("list_exports")
+    TestCase().assertEqual(data, before)
+    return {"error": type(caught.value).__name__, "message": str(caught.value)}
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("cloudformation_exports", prefix="inventory-")
+)
+def check_unknown_inventory_must_be_complete(case_runner, case_id):
+    case_runner.run("cloudformation_exports", case_id, inventory_error_case)
 
 
 def check_unknown_discovery_is_reconfirmed_and_scoped():

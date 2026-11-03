@@ -1,0 +1,195 @@
+version: 1
+cases:
+  parameter-01:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: String
+            Default: abc
+  parameter-02:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: Number
+            Default: '7'
+  parameter-03:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: Number
+            Default: '9007199254740993'
+  parameter-04:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: Number
+            Default: '0.5'
+  parameter-05:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: CommaDelimitedList
+            Default: a, b
+  parameter-06:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: List<Number>
+            Default: 1, 2.5
+  definition-error-01:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: String
+            Default: bad
+            AllowedValues:
+            - dev
+            - stg
+      reason: AllowedValues
+  definition-error-02:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: String
+            Default: prefix-good-suffix
+            AllowedPattern: good
+      reason: AllowedPattern
+  definition-error-03:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: String
+            Default: a
+            MinLength: 2
+      reason: MinLength
+  definition-error-04:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: String
+            Default: abcd
+            MaxLength: 3
+      reason: MaxLength
+  definition-error-05:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: Number
+            Default: '1'
+            MinValue: 2
+      reason: MinValue
+  definition-error-06:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: Number
+            Default: '3'
+            MaxValue: 2
+      reason: MaxValue
+  definition-error-07:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: Number
+            Default: NaN
+      reason: Number
+  definition-error-08:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: Number
+            Default: true
+      reason: Number
+  definition-error-09:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: String
+            Default: []
+      reason: String
+  definition-error-10:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: String
+      reason: required parameter
+  definition-error-11:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: CommaDelimitedList
+            Default: a,bad
+            AllowedValues:
+            - a
+      reason: AllowedValues
+  definition-error-12:
+    data:
+      document:
+        Parameters:
+          Extra:
+            Type: CommaDelimitedList
+            Default: a,1
+            AllowedPattern: '[a-z]+'
+      reason: AllowedPattern
+  file-error-01:
+    data:
+      document:
+        Parameters:
+          Name:
+            Type: String
+      reason: required parameter
+    files:
+      parameters.json: '[]'
+  file-error-02:
+    data:
+      document:
+        Parameters:
+          Name:
+            Type: String
+      reason: undeclared
+    files:
+      parameters.json: '[{"ParameterKey":"Unknown","ParameterValue":"x"}]'
+  file-error-03:
+    data:
+      document:
+        Parameters:
+          Name:
+            Type: String
+      reason: explicit
+    files:
+      parameters.json: '[{"ParameterKey":"Name","ParameterValue":7}]'
+  file-error-04:
+    data:
+      document:
+        Parameters:
+          Name:
+            Type: String
+      reason: duplicate
+    files:
+      parameters.json: '[{"ParameterKey":"Name","ParameterValue":"a"},{"ParameterKey":"Name","ParameterValue":"b"}]'
+  file-error-05:
+    data:
+      document:
+        Parameters:
+          Name:
+            Type: String
+      reason: duplicate
+    files:
+      parameters.json: '[{"ParameterKey":"Name","ParameterValue":"a","ParameterValue":"b"}]'
