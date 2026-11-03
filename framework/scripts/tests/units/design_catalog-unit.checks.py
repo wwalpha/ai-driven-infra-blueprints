@@ -3,6 +3,7 @@
 
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -65,22 +66,16 @@ pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 
 def test_catalog_cli_batch_and_single(monkeypatch, capsys):
-    original = catalog_module.DesignSchemaCatalog
-    calls = []
-
-    def create_catalog(*args, **kwargs):
-        calls.append(1)
-        return original(*args, **kwargs)
-
+    create_catalog = Mock(wraps=catalog_module.DesignSchemaCatalog)
     monkeypatch.setattr(catalog_module, "DesignSchemaCatalog", create_catalog)
     monkeypatch.setattr(
         sys, "argv", ["catalog", "--cloudformation-type", "Macie.Session"]
     )
     assert catalog_module.main() == 0
     assert capsys.readouterr().out == "AWS::Macie::Session\nAPI design catalog: PASS\n"
-    assert len(calls) == 1
+    assert create_catalog.call_count == 1
 
-    calls.clear()
+    create_catalog.reset_mock()
     monkeypatch.setattr(
         sys, "argv", ["catalog", "--cloudformation-type", "Macie.ClassificationJob"]
     )
@@ -91,9 +86,9 @@ def test_catalog_cli_batch_and_single(monkeypatch, capsys):
         "API design catalog: FAIL\n- Macie.ClassificationJob: CloudFormation unsupported; "
         "implementation remains incomplete if this resource is in scope\n"
     )
-    assert len(calls) == 1
+    assert create_catalog.call_count == 1
 
-    calls.clear()
+    create_catalog.reset_mock()
     monkeypatch.setattr(
         sys,
         "argv",
@@ -114,7 +109,7 @@ def test_catalog_cli_batch_and_single(monkeypatch, capsys):
         "Macie.ClassificationJob" in output and "CloudFormation unsupported" in output
     )
     assert "API design catalog: FAIL" in output
-    assert len(calls) == 1
+    assert create_catalog.call_count == 1
 
     monkeypatch.setattr(
         catalog_module,
