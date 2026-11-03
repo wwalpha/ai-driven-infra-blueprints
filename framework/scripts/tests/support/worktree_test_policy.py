@@ -5,6 +5,8 @@ import re
 from contextlib import contextmanager
 from pathlib import Path
 
+from support.regression_cases import _EXPECTED_UPDATE
+
 # Reviewed Worktree responsibilities, not a filename convention. Exact cases are checked.
 WORKTREE_CASES = {
     "units/cli-deploy-local.checks.py": (
@@ -360,6 +362,15 @@ def audit(event, args):
             in Path(value.decode() if isinstance(value, bytes) else value).parts
             for value in values
         ):
+            expected = _EXPECTED_UPDATE.get()
+            path = Path(args[0]) if isinstance(args[0], str) else None
+            if expected is not None and (
+                event == "open"
+                and path == expected
+                or event == "os.mkdir"
+                and path in (expected.parent, expected.parent.parent)
+            ):
+                return
             raise AssertionError(suite + ": non-Worktree test wrote lifecycle storage")
 
 

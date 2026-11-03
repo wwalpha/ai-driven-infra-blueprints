@@ -1,0 +1,4 @@
+result:
+- iac: two
+  model: one
+  path: Tags[Key=Name].Value

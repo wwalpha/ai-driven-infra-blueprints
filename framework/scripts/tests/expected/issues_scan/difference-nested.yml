@@ -1,0 +1,4 @@
+result:
+- iac: '2'
+  model: '1'
+  path: Settings.Timeout

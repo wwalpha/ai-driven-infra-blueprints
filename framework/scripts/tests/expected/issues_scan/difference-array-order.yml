@@ -1,0 +1,7 @@
+result:
+- iac: '2'
+  model: '1'
+  path: Items[0]
+- iac: '1'
+  model: '2'
+  path: Items[1]

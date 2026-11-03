@@ -1,0 +1,4 @@
+result:
+- iac: 欠落
+  model: '{"Key":"Name","Value":"one"}'
+  path: HostedZoneTags[Key=Name]

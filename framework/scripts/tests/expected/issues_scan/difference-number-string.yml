@@ -1,0 +1,4 @@
+result:
+- iac: '"1"'
+  model: '1'
+  path: Setting

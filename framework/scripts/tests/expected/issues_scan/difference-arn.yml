@@ -1,0 +1,4 @@
+result:
+- iac: arn:aws:iam::123456789012:role/b
+  model: arn:aws:iam::123456789012:role/a
+  path: Setting

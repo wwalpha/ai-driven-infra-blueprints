@@ -1,0 +1,4 @@
+result:
+- iac: Arn
+  model: RoleName
+  path: $attribute

@@ -24,3 +24,223 @@ cases:
     files:
       issues/dev/123456789012/issues.md: |
         malformed report without inventory
+  difference-reference-attribute:
+    data:
+      left:
+        $resource: &id001
+        - iam
+        - 089
+        $attribute: RoleName
+      right:
+        $resource: *id001
+        $attribute: Arn
+      name: Setting
+      whole: false
+  difference-multiple-keys:
+    data:
+      left:
+        a: 1
+        b: 2
+      right:
+        a: 3
+        b: 4
+      name: Setting
+      whole: false
+  difference-nested:
+    data:
+      left:
+        Settings:
+          Timeout: 1
+          Enabled: true
+      right:
+        Settings:
+          Timeout: 2
+          Enabled: true
+      name: Setting
+      whole: false
+  difference-extra-ignored:
+    data:
+      left:
+        a: 1
+      right:
+        a: 1
+        extra: 2
+      name: Setting
+      whole: false
+  difference-extra-whole:
+    data:
+      left:
+        a: 1
+      right:
+        a: 1
+        extra: 2
+      name: Setting
+      whole: true
+  difference-missing-null:
+    data:
+      left:
+        a: null
+      right: {}
+      name: Setting
+      whole: false
+  difference-null-false:
+    data:
+      left: null
+      right: false
+      name: Setting
+      whole: false
+  difference-true-one:
+    data:
+      left: true
+      right: 1
+      name: Setting
+      whole: false
+  difference-number-string:
+    data:
+      left: 1
+      right: '1'
+      name: Setting
+      whole: false
+  difference-false-string:
+    data:
+      left: false
+      right: 'false'
+      name: Setting
+      whole: false
+  difference-false-zero:
+    data:
+      left: false
+      right: 0
+      name: Setting
+      whole: false
+  difference-array-order:
+    data:
+      left:
+      - 1
+      - 2
+      right:
+      - 2
+      - 1
+      name: Items
+      whole: false
+  difference-array-missing:
+    data:
+      left:
+      - null
+      right: []
+      name: Items
+      whole: false
+  difference-array-extra:
+    data:
+      left: []
+      right:
+      - null
+      name: Items
+      whole: false
+  difference-tags-subset:
+    data:
+      left: &id003
+      - &id002
+        Key: Name
+        Value: one
+      right: &id004
+      - Key: owner
+        Value: other
+      - *id002
+      name: Tags
+      whole: false
+  difference-tags-value:
+    data:
+      left: *id003
+      right:
+      - Key: owner
+        Value: other
+      - Key: Name
+        Value: two
+      name: Tags
+      whole: false
+  difference-hosted-tags-missing:
+    data:
+      left: *id003
+      right: []
+      name: HostedZoneTags
+      whole: false
+  difference-tags-duplicate:
+    data:
+      left: *id003
+      right:
+      - *id002
+      - *id002
+      name: Tags
+      whole: false
+  difference-tags-both-duplicate:
+    data:
+      left:
+      - *id002
+      - *id002
+      right:
+      - *id002
+      - *id002
+      name: Tags
+      whole: false
+  difference-tags-whole:
+    data:
+      left: *id003
+      right: *id004
+      name: Tags
+      whole: true
+  difference-long-tail:
+    data:
+      left:
+        Config: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxA
+      right:
+        Config: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxB
+      name: Setting
+      whole: false
+  difference-secret-field:
+    data:
+      left:
+        Password: first
+        Same: unchanged
+      right:
+        Password: second
+        Same: unchanged
+      name: Setting
+      whole: false
+      secret_values:
+      - first
+      - second
+  difference-tags-equal:
+    data:
+      left: *id003
+      right: *id003
+      name: Tags
+      whole: false
+  difference-secret-tags:
+    data:
+      left:
+      - Key: SECRET_TOKEN
+        Value: first
+      right:
+      - Key: SECRET_TOKEN
+        Value: second
+      name: Tags
+      whole: false
+      secret_values:
+      - first
+      - second
+  difference-arn:
+    data:
+      left: arn:aws:iam::123456789012:role/a
+      right: arn:aws:iam::123456789012:role/b
+      name: Setting
+      whole: false
+  difference-secret-reference:
+    data:
+      left: '{{resolve:secretsmanager:first}}'
+      right: '{{resolve:secretsmanager:second}}'
+      name: Setting
+      whole: false
+      secret_values:
+      - first
+      - second

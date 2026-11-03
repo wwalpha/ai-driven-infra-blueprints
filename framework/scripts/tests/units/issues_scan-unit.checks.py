@@ -42,6 +42,7 @@ from issues.reports import notice_content, ordinary_report
 from model.core import ReferenceResolutionError, resource_row_index
 from model.format import split
 from model.sources import load_model as real_load
+from support.fixture_cases import load_case
 from support.issues_scan_fixtures import (
     Comparison,
     Counter,
@@ -70,6 +71,7 @@ from support.issues_scan_fixtures import (
     write,
 )
 from support.issues_scan_fixtures import pytestmark as pytestmark
+from support.regression_cases import case_ids
 from task_contract_core import contract_snapshot, task_reads, task_snapshot
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.iac_values import ResourceReference, safe_value
@@ -94,97 +96,58 @@ def _callback_check_mismatch_rendering_fields(left, right, name="Setting", whole
     return difference_fields(left, right, name, whole=whole)
 
 
+def _execute_difference_case(case):
+    data = case["data"]
+    before = deepcopy(data)
+    result = difference_fields(
+        data["left"], data["right"], data["name"], whole=data["whole"]
+    )
+    if json.dumps(data, ensure_ascii=False) != json.dumps(before, ensure_ascii=False):
+        pytest.fail("difference_fields mutated its input", pytrace=False)
+    if type(result) is not list or any(
+        type(row) is not dict
+        or row.keys() != {"path", "model", "iac"}
+        or any(type(value) is not str for value in row.values())
+        for row in result
+    ):
+        pytest.fail("difference_fields returned an invalid output type", pytrace=False)
+    serialized = json.dumps(result, ensure_ascii=False)
+    if any(secret in serialized for secret in data.get("secret_values", ())):
+        pytest.fail("difference_fields exposed a secret", pytrace=False)
+    return {"result": result}
+
+
+@pytest.mark.parametrize("case_id", case_ids("issues_scan", prefix="difference-"))
+def check_difference_fields_cases(case_runner, case_id):
+    case_runner.run("issues_scan", case_id, _execute_difference_case)
+
+
+@pytest.mark.parametrize(
+    "bad_result, message",
+    [
+        ([{"path": "Password", "model": "first", "iac": "second"}], "exposed a secret"),
+        ([{"path": "Password", "model": True, "iac": 1}], "invalid output type"),
+        ([{"path": "Password", "model": "masked"}], "invalid output type"),
+    ],
+    ids=["secret", "types", "missing-field"],
+)
+def check_difference_contract_before_snapshot(bad_result, message):
+    with (
+        patch.object(
+            sys.modules[__name__], "difference_fields", return_value=bad_result
+        ),
+        pytest.raises(pytest.fail.Exception, match=message),
+    ):
+        _execute_difference_case(load_case("issues_scan", "difference-secret-field"))
+
+
 def check_mismatch_rendering():
     fields = _callback_check_mismatch_rendering_fields
-
     role = {"$resource": ["iam", "089"], "$attribute": "RoleName"}
     arn_role = dict(role, **{"$attribute": "Arn"})
-    assert fields(role, arn_role) == [
-        {"path": "$attribute", "model": "RoleName", "iac": "Arn"}
-    ]
-    assert [item["path"] for item in fields({"a": 1, "b": 2}, {"a": 3, "b": 4})] == [
-        "a",
-        "b",
-    ]
-    assert fields(
-        {"Settings": {"Timeout": 1, "Enabled": True}},
-        {"Settings": {"Timeout": 2, "Enabled": True}},
-    ) == [{"path": "Settings.Timeout", "model": "1", "iac": "2"}]
-    assert fields({"a": 1}, {"a": 1, "extra": 2}) == []
-    assert fields({"a": 1}, {"a": 1, "extra": 2}, whole=True) == [
-        {"path": "extra", "model": "欠落", "iac": "2"}
-    ]
-    assert fields({"a": None}, {}) == [{"path": "a", "model": "null", "iac": "欠落"}]
-    for left, right, model, iac in [
-        (None, False, "null", "false"),
-        (True, 1, "true", "1"),
-        (1, "1", "1", '"1"'),
-        (False, "false", "false", '"false"'),
-    ]:
-        assert fields(left, right)[0] == {"path": "Setting", "model": model, "iac": iac}
-    assert fields([1, 2], [2, 1], "Items") == [
-        {"path": "Items[0]", "model": "1", "iac": "2"},
-        {"path": "Items[1]", "model": "2", "iac": "1"},
-    ]
-    assert fields([None], [], "Items") == [
-        {"path": "Items[0]", "model": "null", "iac": "欠落"}
-    ]
-    assert fields([], [None], "Items") == [
-        {"path": "Items[0]", "model": "欠落", "iac": "null"}
-    ]
-    tags = [{"Key": "Name", "Value": "one"}]
-    reordered = [{"Key": "owner", "Value": "other"}, *tags]
-    assert fields(tags, reordered, "Tags") == []
-    assert fields(
-        tags,
-        [{"Key": "owner", "Value": "other"}, {"Key": "Name", "Value": "two"}],
-        "Tags",
-    ) == [{"path": "Tags[Key=Name].Value", "model": "one", "iac": "two"}]
-    assert fields(tags, [], "HostedZoneTags")[0]["iac"] == "欠落"
-    assert fields(tags, tags * 2, "Tags") == [
-        {"path": "Tags[Key=Name].要素数（キー重複）", "model": "1", "iac": "2"}
-    ]
-    assert fields(tags * 2, tags * 2, "Tags")[0]["model"] == "2"
-    assert fields(
-        tags, reordered, "Tags", whole=True
-    )  # Exact whole-property arrays retain order/membership.
     long_value = "x" * 1000
-    assert fields({"Config": long_value + "A"}, {"Config": long_value + "B"})[0][
-        "model"
-    ].endswith("A")
-    secrets = fields(
-        {"Password": "first", "Same": "unchanged"},
-        {"Password": "second", "Same": "unchanged"},
-    )
-    assert secrets == [{"path": "Password", "model": '"<masked>"', "iac": '"<masked>"'}]
-    assert "first" not in json.dumps(secrets) and "second" not in json.dumps(secrets)
-    assert fields(tags, [{"Key": "Name", "Value": "one"}], "Tags") == []
-    secret_tags = fields(
-        [{"Key": "SECRET_TOKEN", "Value": "first"}],
-        [{"Key": "SECRET_TOKEN", "Value": "second"}],
-        "Tags",
-    )
-    assert (
-        secret_tags[0]["model"] == '"<masked>"'
-        and secret_tags[0]["iac"] == '"<masked>"'
-    )
-    assert fields(
-        "arn:aws:iam::123456789012:role/a", "arn:aws:iam::123456789012:role/b"
-    ) == [
-        {
-            "path": "Setting",
-            "model": "arn:aws:iam::123456789012:role/a",
-            "iac": "arn:aws:iam::123456789012:role/b",
-        }
-    ]
     assert brief("Resource <arn:aws:s3:::example-bucket> | differs") == (
         "Resource &lt;arn:aws:s3:::example-bucket&gt; ／ differs"
-    )
-    assert (
-        fields("{{resolve:secretsmanager:first}}", "{{resolve:secretsmanager:second}}")[
-            0
-        ]["iac"]
-        == '"<masked ARN/secret>"'
     )
 
     with tempfile.TemporaryDirectory(prefix="mismatch-display-") as directory:

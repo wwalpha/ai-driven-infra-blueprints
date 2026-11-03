@@ -157,7 +157,8 @@ def check_materialize_files(tmp_path):
 
 def check_authored_suite():
     suite = fixtures.load_suite("issues_scan")
-    assert list(suite["cases"]) == ["naming-target-scope", "malformed-report"]
+    if list(suite["cases"])[:2] != ["naming-target-scope", "malformed-report"]:
+        pytest.fail("legacy issues_scan fixture cases changed")
     assert list(
         fixtures.load_case("issues_scan", "naming-target-scope")["data"][
             "specifications"

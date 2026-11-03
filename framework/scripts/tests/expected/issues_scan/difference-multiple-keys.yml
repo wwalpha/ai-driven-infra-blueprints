@@ -1,0 +1,7 @@
+result:
+- iac: '3'
+  model: '1'
+  path: a
+- iac: '4'
+  model: '2'
+  path: b

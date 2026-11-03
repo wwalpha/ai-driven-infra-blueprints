@@ -57,7 +57,7 @@ Runnerの同じcleanup故障をRepair/Checkpointの両スイートで繰り返�
 スイート別dispatch・期限と、4つの合成ケースでも同時起動が2つを超えない判定は別UTに残す。
 Reference/ARN/Projectionの直積は、[Issue #92](https://github.com/wwalpha/ai-driven-infra-blueprints/issues/92) の前提である#80〜#91の同等移行が未完了のため削らない。
 例えばreference-evidenceのSecurity Groupは、受信サービスの配線、式の型/欠落/順序、異なるProducerの同一性を区別する。
-同じExpected値やcoverageだけでは、同じ故障を検出する証拠にしない。新しいCase RunnerやExpected管理は追加しない。
+同じExpected値やcoverageだけでは、同じ故障を検出する証拠にしない。Case Runnerの導入は#80の範囲に限定し、後続移行や重複削減は別段階とする。
 
 実装修正では関連UT、必要な収集/到達性、静的チェックと変更した代表ITを確認する。全量UT/IT、CIの起動、性能比較・達成判定は別Taskで行う。
 以下の旧移管記録にあるケース数・異常系IT・計測手順は当時の記録であり、現行の責務と実行上限は本節を優先する。
@@ -283,6 +283,32 @@ Model/stack/template/Markdown生成、mock、assertion、状態変更の流れ�
 既存IT seedの生成・読取専用管理・独立workspace・receipt契約は変更しない。
 loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体比較は
 既存Framework ITの `baseline_ref` を使い、未実行のITをPASSとしない。
+
+### 外部Expectedを使うUT
+
+移行済みケースは既存loaderと `support.regression_cases.case_ids` / `case_runner.run`
+を使う。入力YAMLは各checksモジュールに最大1ファイル、期待値は
+`expected/<suite>/<case-id>.yml` の1ケース1ファイル。移行済み入力のinline
+`expected` は禁止し、未移行loaderの互換性は維持する。別テストによる同じ出力先の共有、
+symlink、hardlink、空選択・未知IDは拒否する。
+Pythonの固定callableが本体を呼び、辞書（例: `{"result": ...}`）を返す。
+型・入力不変・秘密非露出などの独立した契約検証は照合の前に行う。
+配列ソート、型変換、フィールド除去、丸めや事後マスクはしない。
+
+通常検証ではExpected欠落・不一致をFAILとし、Expectedを作成・更新しない。
+初回作成・意図的更新には、ローカルで完全なパラメーター付きnode IDを明示する:
+
+```console
+python3 -B framework/scripts/run-python.py -m pytest -q 'framework/scripts/tests/units/issues_scan-unit.checks.py::check_difference_fields_cases[difference-true-one]' --force-regen
+```
+
+更新回は必ずFAILし、合格証拠にはしない。入力とExpectedの差分をレビュー後、
+同じnode IDを更新オプションなしで実行する。`--regen-all` は拒否する。
+GitHub Actionsの `GITHUB_ACTIONS` または `CI` が非空の環境では更新を拒否する。
+秘密の合成値が結果に残る場合は、Expected書込・diff出力より前に汎用メッセージで停止する。
+Worktreeガードは、明示更新のplugin呼出中だけ検証済みExpectedファイルと
+その2階層のディレクトリ作成を許可する。他ファイル・Lifecycle・削除/移動の禁止と、
+既存cleanup、直接起動、公式IT/Receiptの責務は維持する。
 
 ## Issues Artifact v5 / Immutable Snapshot / cfn-lint
 

@@ -1,0 +1,4 @@
+result:
+- iac: '2'
+  model: '2'
+  path: Tags[Key=Name].要素数（キー重複）

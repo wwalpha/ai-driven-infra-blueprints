@@ -18,6 +18,7 @@ import pytest
 import support.model_sources as _imports_support_model_sources
 import utils.aws_mappings as _imports_utils_aws_mappings
 from support.publication_fixtures import publication_repository
+from support.regression_cases import CaseRunner, check_update_options
 from support.worktree_test_policy import (
     audit,
     ordinary_suite,
@@ -28,6 +29,7 @@ from support.worktree_test_policy import (
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
+    check_update_options(config)
     sys.addaudithook(audit)
     if os.environ.get("BLUEPRINT_UT_TIMING_DIR"):
         config.pluginmanager.register(UnitTiming(config))
@@ -140,3 +142,8 @@ def pytest_sessionstart(session):
     errors = violations(Path(__file__).resolve().parent)
     if errors:
         raise pytest.UsageError("Worktree test policy: " + "; ".join(errors))
+
+
+@pytest.fixture
+def case_runner(request, data_regression):
+    return CaseRunner(request, data_regression)

@@ -1,0 +1,4 @@
+result:
+- iac: 欠落
+  model: 'null'
+  path: Items[0]

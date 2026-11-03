@@ -1,0 +1,10 @@
+result:
+- iac: owner
+  model: Name
+  path: Tags[0].Key
+- iac: other
+  model: one
+  path: Tags[0].Value
+- iac: '{"Key":"Name","Value":"one"}'
+  model: 欠落
+  path: Tags[1]
