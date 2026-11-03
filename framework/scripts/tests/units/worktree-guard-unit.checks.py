@@ -1971,6 +1971,29 @@ def _recovery_output(trace, base, where, *args, **kwargs):
     raise AssertionError(f"unexpected recovery read: {args}")
 
 
+def _rewritten_recovery_output(primary, latest, violation, head, old, /, where, *args):
+    if args == ("rev-parse", "HEAD"):
+        return latest if where == primary else "4" * 40 if violation == "head" else head
+    if args[:2] == ("rev-list", "--merges"):
+        return "merge" if violation == "merge" else ""
+    if args[:2] == ("rev-list", "--count"):
+        assert args[-1] == old + ".." + head
+        return "2"
+    raise AssertionError(args)
+
+
+def _rewritten_recovery_git(violation, old, latest, head, /, where, *args, **kwargs):
+    assert args[:2] == ("merge-base", "--is-ancestor")
+    result = (
+        int(violation != "descendant")
+        if args[-2:] == (old, latest)
+        else int(violation == "ancestor")
+        if args[-2:] == (old, head)
+        else 0
+    )
+    return subprocess.CompletedProcess([], result, "", "")
+
+
 @pytest.mark.parametrize(
     "violation",
     [
@@ -2024,32 +2047,13 @@ def check_rewritten_governance_recovery_guards(tmp_path, violation):
     before = copy.deepcopy(state)
     primary = tmp_path / "primary"
 
-    def output(where, *args):
-        if args == ("rev-parse", "HEAD"):
-            return (
-                latest
-                if where == primary
-                else "4" * 40
-                if violation == "head"
-                else head
-            )
-        if args[:2] == ("rev-list", "--merges"):
-            return "merge" if violation == "merge" else ""
-        if args[:2] == ("rev-list", "--count"):
-            assert args[-1] == old + ".." + head
-            return "2"
-        raise AssertionError(args)
+    output = _bind_framework_callback(
+        _rewritten_recovery_output, primary, latest, violation, head, old
+    )
 
-    def git(where, *args, **kwargs):
-        assert args[:2] == ("merge-base", "--is-ancestor")
-        result = (
-            int(violation != "descendant")
-            if args[-2:] == (old, latest)
-            else int(violation == "ancestor")
-            if args[-2:] == (old, head)
-            else 0
-        )
-        return subprocess.CompletedProcess([], result, "", "")
+    git = _bind_framework_callback(
+        _rewritten_recovery_git, violation, old, latest, head
+    )
 
     with (
         patch.object(

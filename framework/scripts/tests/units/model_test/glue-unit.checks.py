@@ -2,6 +2,7 @@
 
 import json
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
 from unittest.mock import patch
 
@@ -157,13 +158,16 @@ def test_glue_athena_sdk_projection(tmp_path, athena, status):
     assert item["status"] == status
 
 
+def _unavailable_shape(original, /, shape, path):
+    if path == "Connection.AthenaProperties":
+        raise ValueError("unknown SDK response path: " + path)
+    return original(shape, path)
+
+
 def test_glue_projection_requires_sdk_shape(tmp_path):
     original = generator._imports_aws_mapping.response_shape
 
-    def unavailable(shape, path):
-        if path == "Connection.AthenaProperties":
-            raise ValueError("unknown SDK response path: " + path)
-        return original(shape, path)
+    unavailable = _bind_framework_callback(_unavailable_shape, original)
 
     with patch.object(generator._imports_aws_mapping, "response_shape", unavailable):
         with pytest.raises(ValueError, match="Connection.AthenaProperties"):

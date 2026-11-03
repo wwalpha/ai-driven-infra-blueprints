@@ -1119,6 +1119,13 @@ def test_audit_cli_failure_preserves_output(tmp_path, failure, existing):
     check.assertEqual(generate.call_count, int(failure == "changed"))
 
 
+def _role_tags_response(tags):
+    role = {"RoleName": "fixture-role"}
+    if tags is not None:
+        role["Tags"] = tags
+    return [{"api": ["iam", "get-role"], "response": {"Role": role}}]
+
+
 def test_iam_role_tags_reuse_get_role_and_preserve_pairs():
     inputs, _ = load_fixture("iam/model-reference")
     inputs.pop("models")
@@ -1145,11 +1152,7 @@ def test_iam_role_tags_reuse_get_role_and_preserve_pairs():
     inputs["properties"] = ["IAM.Role.Tags[].Key", "IAM.Role.Tags[].Value"]
     inputs["report"] = False
 
-    def response(tags):
-        role = {"RoleName": "fixture-role"}
-        if tags is not None:
-            role["Tags"] = tags
-        return [{"api": ["iam", "get-role"], "response": {"Role": role}}]
+    response = _role_tags_response
 
     inputs["scenarios"] = [
         {"responses": response(None)},

@@ -399,6 +399,13 @@ def check_sync_base_preserves_candidate():
         assert cli(root, "finalize")["cleaned"]
 
 
+def _interrupt_rebase(original_git, /, where, *args, **kwargs):
+    result = original_git(where, *args, **kwargs)
+    if "rebase" in args:
+        raise RuntimeError("simulated interruption")
+    return result
+
+
 @it_case
 def check_rewritten_base_preserves_candidate():
     for interrupt in (False, True):
@@ -417,11 +424,7 @@ def check_rewritten_base_preserves_candidate():
             if interrupt:
                 original_git = wt.git
 
-                def interrupted(where, *args, original_git=original_git, **kwargs):
-                    result = original_git(where, *args, **kwargs)
-                    if "rebase" in args:
-                        raise RuntimeError("simulated interruption")
-                    return result
+                interrupted = _bind_framework_callback(_interrupt_rebase, original_git)
 
                 with patch.object(wt, "git", side_effect=interrupted):
                     try:
@@ -1360,6 +1363,13 @@ class PRUpdateScenario:
             task.write("\nLocal task edit\n")
 
 
+def _interrupt_merge(remote, /, where, *args, **kwargs):
+    result = remote.git(where, *args, **kwargs)
+    if args[0] == "merge" and "--no-ff" in args:
+        raise wt.Blocked("simulated interruption after merge")
+    return result
+
+
 @it_case
 def check_pr_remote_base_only_sync():
     assert runpy.run_path(str(SCRIPT))["NeedsSync"] is wt.NeedsSync
@@ -1398,11 +1408,7 @@ def check_pr_remote_base_only_sync():
             git(upstream, "push", "-q", "origin", "HEAD:refs/heads/" + state["base"])
             base = git(upstream, "rev-parse", "HEAD")
 
-            def interrupt_merge(where, *args, **kwargs):
-                result = remote.git(where, *args, **kwargs)
-                if args[0] == "merge" and "--no-ff" in args:
-                    raise wt.Blocked("simulated interruption after merge")
-                return result
+            interrupt_merge = _bind_framework_callback(_interrupt_merge, remote)
 
             with patch.object(wt, "git", side_effect=interrupt_merge):
                 with TestCase().assertRaises(wt.Blocked):

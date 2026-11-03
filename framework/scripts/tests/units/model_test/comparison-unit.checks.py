@@ -1053,6 +1053,12 @@ class IngressRuleTests(unittest.TestCase):
                 self.assertEqual(unresolved["status"], "design_unresolved")
 
 
+def _parse_pending_ingress(row, norm):
+    if row["value"] == "PENDING_DEPLOY":
+        raise Unresolved("Design reference unresolved: REFERENCE_PENDING_DEPLOY")
+    return row["value"]
+
+
 def test_pending_source_does_not_select_ingress_rule():
     module = service_module("security-group")
     resource = Mock()
@@ -1069,10 +1075,7 @@ def test_pending_source_does_not_select_ingress_rule():
         }.items()
     ]
 
-    def parse(row, norm):
-        if row["value"] == "PENDING_DEPLOY":
-            raise Unresolved("Design reference unresolved: REFERENCE_PENDING_DEPLOY")
-        return row["value"]
+    parse = _parse_pending_ingress
 
     resource.parse.side_effect = parse
     ctx = Mock()
@@ -1102,6 +1105,12 @@ def test_quicksight_datasource_fixture():
     fixture = load_fixture("quicksight/datasource")
     actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
+
+
+def _record_status(record, key):
+    return next(
+        row["status"] for row in record["records"] if row["propertiesKey"] == key
+    )
 
 
 def test_quicksight_group_reference_and_pending_principal_offline():
@@ -1186,10 +1195,7 @@ def test_quicksight_group_reference_and_pending_principal_offline():
     ]
     results = execute((inputs, []))
 
-    def status(record, key):
-        return next(
-            row["status"] for row in record["records"] if row["propertiesKey"] == key
-        )
+    status = _record_status
 
     principal = "QuickSight.DataSource.Permissions[].Principal"
     assert [status(record, principal) for record in results] == [

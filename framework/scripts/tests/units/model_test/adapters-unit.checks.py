@@ -6,6 +6,7 @@ import unittest
 from copy import deepcopy
 from datetime import datetime, timezone
 from functools import partial
+from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -386,6 +387,36 @@ def test_secrets_rotation_parent_reference():
         adapter.fetch(ctx, resource, "base")
 
 
+def _rotation_cli(calls, /, command, **kwargs):
+    calls.append(command)
+    if command[1] == "sts":
+        result = {
+            "Account": "123456789012",
+            "Arn": "arn:aws:iam::123456789012:user/offline",
+        }
+    else:
+        result = {
+            "Name": "fixture-secret",
+            "ARN": "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture",
+            "RotationRules": {"AutomaticallyAfterDays": 60, "Duration": "2h"},
+            "SecretString": "never-print-secret-value",
+        }
+    return subprocess.CompletedProcess(command, 0, json.dumps(result), "")
+
+
+def _rotation_denied(cli, /, command, **kwargs):
+    if command[1] == "sts":
+        return cli(command, **kwargs)
+    return subprocess.CompletedProcess(
+        command,
+        1,
+        "",
+        json.dumps(
+            {"Code": "AccessDeniedException", "Message": "never-print-secret-value"}
+        ),
+    )
+
+
 def test_secrets_rotation_generated_audit(tmp_path):
     (tmp_path / "project.json").write_text(
         json.dumps(
@@ -435,21 +466,7 @@ def test_secrets_rotation_generated_audit(tmp_path):
     snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
     calls = []
 
-    def cli(command, **kwargs):
-        calls.append(command)
-        if command[1] == "sts":
-            result = {
-                "Account": "123456789012",
-                "Arn": "arn:aws:iam::123456789012:user/offline",
-            }
-        else:
-            result = {
-                "Name": "fixture-secret",
-                "ARN": "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture",
-                "RotationRules": {"AutomaticallyAfterDays": 60, "Duration": "2h"},
-                "SecretString": "never-print-secret-value",
-            }
-        return subprocess.CompletedProcess(command, 0, json.dumps(result), "")
+    cli = _bind_framework_callback(_rotation_cli, calls)
 
     records = audit.audit(snapshot, cli_runner=cli)[2]
     selected = {
@@ -470,17 +487,7 @@ def test_secrets_rotation_generated_audit(tmp_path):
     )
     assert "never-print-secret-value" not in report
 
-    def denied(command, **kwargs):
-        if command[1] == "sts":
-            return cli(command, **kwargs)
-        return subprocess.CompletedProcess(
-            command,
-            1,
-            "",
-            json.dumps(
-                {"Code": "AccessDeniedException", "Message": "never-print-secret-value"}
-            ),
-        )
+    denied = _bind_framework_callback(_rotation_denied, cli)
 
     failed = audit.audit(snapshot, cli_runner=denied)[2]
     days = next(
