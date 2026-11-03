@@ -726,6 +726,38 @@ def _build(root, environment, selector, service, standalone):
             continue
         mapping, props = comparison(ROOT, name)
         props = dict(props)
+        if name == "datazone":
+            # Audit-only SDK projections retain the existing selectors and fetch cache.
+            response_shape = _imports_aws_mapping.response_shape
+            sdk = aws_runtime().sdk_session().get_service_model("datazone")
+            for kind, operation, fields in [
+                (
+                    "Domain",
+                    "GetDomain",
+                    [("Name", "name"), ("SingleSignOn.Type", "singleSignOn.type")],
+                ),
+                (
+                    "Project",
+                    "GetProject",
+                    [("DomainId", "domainId"), ("Id", "id"), ("Name", "name")],
+                ),
+            ]:
+                for attribute, response_path in fields:
+                    response_shape(
+                        sdk.operation_model(operation).output_shape, response_path
+                    )
+                    key = "DataZone." + kind + "." + attribute
+                    prop = props[key]
+                    props[key] = replace(
+                        prop,
+                        field=replace(
+                            prop.field,
+                            getter="sdk-datazone-" + kind.lower(),
+                            path=response_path,
+                            classification="supported",
+                            reason="",
+                        ),
+                    )
         if name == "iam":
             # Audit-only projection: existing Compare keeps its CloudControl classification.
             response_shape = _imports_aws_mapping.response_shape

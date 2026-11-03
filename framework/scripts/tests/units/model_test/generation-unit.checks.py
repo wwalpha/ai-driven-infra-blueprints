@@ -24,12 +24,15 @@ from model.audit import (
 )
 from support.check_model_aws_fixtures import FakeResource, SchemaOffline, m
 from support.model_sources import write_model
+from support.model_test_references import ReferenceFixture
 from support.model_test_runner import (
     CLI,
     assert_result,
     execute,
     fixture,
+    generated,
     load_fixture,
+    prepare,
     snapshot,
 )
 from support.model_test_runtime import runtime
@@ -90,6 +93,245 @@ class DataZoneDomainTests(unittest.TestCase):
         fixture = load_fixture("datazone/version")
         actual = execute(fixture)
         assert_result(actual, fixture)
+
+
+def _datazone_inputs(kind):
+    inputs = load_fixture("datazone/version")[0]
+    logical = "DataZone_" + kind + "_001"
+    rows = (
+        {
+            "Id": ReferenceFixture.ref(logical, "Id"),
+            "Name": "fixture",
+            "SingleSignOn.Type": "IAM_IDC",
+        }
+        if kind == "Domain"
+        else {
+            "Id": ReferenceFixture.ref(logical, "Id"),
+            "DomainIdentifier": "dzd-confirmed",
+            "DomainId": ReferenceFixture.ref(logical, "DomainId"),
+            "Name": "fixture",
+        }
+    )
+    inputs["model"] = ReferenceFixture.model("DataZone." + kind, logical, rows)
+    inputs["model"]["observed.row.001-001.value"] = (
+        "`dzd-confirmed`" if kind == "Domain" else "`project-confirmed`"
+    )
+    if kind == "Project":
+        inputs["model"]["observed.row.001-003.value"] = "`dzd-confirmed`"
+    return inputs
+
+
+@pytest.mark.parametrize("kind", ["Domain", "Project"])
+@pytest.mark.parametrize(
+    "outcome", ["match", "difference", "missing", "denied", "not-found"]
+)
+def test_datazone_audit_sdk_projection(tmp_path, kind, outcome):
+    inputs = _datazone_inputs(kind)
+    namespace = generated(prepare(tmp_path, inputs), tmp_path)
+    snap = namespace["SNAPSHOT"]
+    operation = "get-domain" if kind == "Domain" else "get-project"
+    response = (
+        {"id": "dzd-confirmed", "name": "fixture", "singleSignOn": {"type": "IAM_IDC"}}
+        if kind == "Domain"
+        else {"id": "project-confirmed", "domainId": "dzd-confirmed", "name": "fixture"}
+    )
+    if outcome == "difference":
+        response["name"] = "different"
+    elif outcome == "missing":
+        response.pop("name")
+    elif outcome in {"denied", "not-found"}:
+        response = {
+            "$error": json.dumps(
+                {
+                    "Code": "AccessDeniedException"
+                    if outcome == "denied"
+                    else "ResourceNotFoundException"
+                }
+            )
+        }
+    cli = CLI({("datazone", operation): response})
+    _, account, records = namespace["audit"](snap, None, cli)
+    by_property = {item["propertiesKey"]: item for item in records}
+    status = {
+        "match": "match",
+        "difference": "difference",
+        "missing": "difference",
+        "denied": "acquisition_failed",
+        "not-found": "resource_missing",
+    }[outcome]
+    assert by_property["DataZone." + kind + ".Name"]["status"] == status, records
+    if outcome in {"denied", "not-found"}:
+        assert all(item["status"] == status for item in records), records
+    else:
+        assert all(
+            item["status"] == "match"
+            for key, item in by_property.items()
+            if not key.endswith(".Name")
+        ), records
+    calls = [(api, args) for api, args, _ in cli.calls if api[0] != "sts"]
+    assert calls == [
+        (
+            ("datazone", operation),
+            {"identifier": "dzd-confirmed"}
+            if kind == "Domain"
+            else {
+                "domainIdentifier": "dzd-confirmed",
+                "identifier": "project-confirmed",
+            },
+        )
+    ]
+    mappings = snap["mappings"]["datazone"]
+    for item in records:
+        field = mappings["properties"][item["propertiesKey"]]["field"]
+        assert field["getter"] == "sdk-datazone-" + kind.lower()
+        assert field["classification"] == "supported"
+    text, code = namespace["report"](
+        snap, None, account, records, datetime.now(timezone.utc)
+    )
+    assert code == (0 if outcome == "match" else 2 if outcome == "denied" else 1)
+    if outcome == "denied":
+        assert "[ERROR]" in text
+    elif outcome == "not-found":
+        assert "[NG]" in text
+    # Ordinary Compare retains its provider classification and read-only allowlist.
+    _, original = generator.comparison(generator.ROOT, "datazone")
+    assert (
+        original["DataZone." + kind + ".Name"].field.classification == "sdk_unavailable"
+    )
+    assert ("cloudcontrol", "get_resource") not in service_module("datazone").APIS
+
+
+def test_datazone_audit_domain_discovery_keeps_pending_error(tmp_path):
+    inputs = _datazone_inputs("Domain")
+    inputs["project"]["targets"][0].update(
+        awsAccountId="111111111111", awsExecutionAccountId="123456789012"
+    )
+    inputs["model"]["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
+    namespace = generated(prepare(tmp_path, inputs), tmp_path)
+    snap = namespace["SNAPSHOT"]
+    cli = CLI(
+        {
+            ("datazone", "list-domains"): {
+                "items": [
+                    {
+                        "id": "dzd-other-account",
+                        "name": "fixture",
+                        "managedAccountId": "999999999999",
+                    },
+                    {
+                        "id": "dzd-other-name",
+                        "name": "other",
+                        "managedAccountId": "123456789012",
+                    },
+                    {
+                        "id": "dzd-discovered",
+                        "name": "fixture",
+                        "managedAccountId": "123456789012",
+                    },
+                ]
+            },
+            ("datazone", "get-domain"): {
+                "id": "dzd-discovered",
+                "name": "fixture",
+                "singleSignOn": {"type": "IAM_IDC"},
+            },
+        }
+    )
+    _, account, records = namespace["audit"](snap, None, cli)
+    by_property = {item["propertiesKey"]: item for item in records}
+    assert by_property["DataZone.Domain.Name"]["status"] == "match"
+    assert by_property["DataZone.Domain.SingleSignOn.Type"]["status"] == "match"
+    pending = by_property["DataZone.Domain.Id"]
+    assert pending["status"] == "design_unresolved", pending
+    assert "PENDING_DEPLOY" in pending["reason"]
+    assert [(api, args) for api, args, _ in cli.calls if api[0] != "sts"] == [
+        (("datazone", "list-domains"), {}),
+        (("datazone", "get-domain"), {"identifier": "dzd-discovered"}),
+    ]
+    text, code = namespace["report"](
+        snap, None, account, records, datetime.now(timezone.utc)
+    )
+    assert code == 2 and "[ERROR]" in text and "PENDING_DEPLOY" in text
+
+
+@pytest.mark.parametrize("selector", ["Id", "DomainIdentifier"])
+@pytest.mark.parametrize("pending", ["PENDING_DEPLOY", "UNSET"])
+def test_datazone_audit_project_unresolved_selector(tmp_path, selector, pending):
+    inputs = _datazone_inputs("Project")
+    if selector == "Id":
+        inputs["model"]["observed.row.001-001.value"] = "`" + pending + "`"
+    else:
+        inputs["model"]["desired.row.001-002.value"] = (
+            "`" + json.dumps(ReferenceFixture.ref("DataZone_Domain_001", "Id")) + "`"
+        )
+        domain = ReferenceFixture.model(
+            "DataZone.Domain",
+            "DataZone_Domain_001",
+            {"Id": ReferenceFixture.ref("DataZone_Domain_001", "Id")},
+        )
+        inputs["model"].update(
+            {
+                key.replace("resource.001.", "resource.002.").replace(
+                    "row.001-", "row.002-"
+                ): value
+                for key, value in domain.items()
+                if key != "desired.service.identity.lastAllocated"
+            }
+        )
+        inputs["model"]["desired.service.identity.lastAllocated"] = json.dumps(
+            {"DataZone.Domain": 1, "DataZone.Project": 1}
+        )
+        inputs["model"]["observed.row.002-001.value"] = "`" + pending + "`"
+    namespace = generated(prepare(tmp_path, inputs), tmp_path)
+    snap = namespace["SNAPSHOT"]
+    cli = CLI({})
+    _, account, records = namespace["audit"](snap, None, cli)
+    records = [item for item in records if item["resourceType"] == "DataZone.Project"]
+    assert len(records) == 4
+    assert all(item["status"] == "design_unresolved" for item in records), records
+    assert all(item["reason"] for item in records), records
+    if pending == "PENDING_DEPLOY":
+        assert all("REFERENCE_PENDING_DEPLOY" in item["reason"] for item in records), (
+            records
+        )
+    assert [api for api, _, _ in cli.calls] == [("sts", "get-caller-identity")]
+    text, code = namespace["report"](
+        snap, None, account, records, datetime.now(timezone.utc)
+    )
+    assert code == 2 and text.count("[ERROR]") == 4
+
+
+def test_datazone_audit_project_pending_output_is_not_confirmed_by_sdk(tmp_path):
+    inputs = _datazone_inputs("Project")
+    inputs["model"]["observed.row.001-003.value"] = "`PENDING_DEPLOY`"
+    namespace = generated(prepare(tmp_path, inputs), tmp_path)
+    snap = namespace["SNAPSHOT"]
+    cli = CLI(
+        {
+            ("datazone", "get-project"): {
+                "id": "project-confirmed",
+                "domainId": "dzd-confirmed",
+                "name": "fixture",
+            }
+        }
+    )
+    _, account, records = namespace["audit"](snap, None, cli)
+    pending = next(
+        item for item in records if item["propertiesKey"] == "DataZone.Project.DomainId"
+    )
+    assert pending["status"] == "design_unresolved", pending
+    assert "REFERENCE_PENDING_DEPLOY" in pending["reason"]
+    assert all(item["status"] == "match" for item in records if item is not pending), (
+        records
+    )
+    assert [api for api, _, _ in cli.calls] == [
+        ("sts", "get-caller-identity"),
+        ("datazone", "get-project"),
+    ]
+    text, code = namespace["report"](
+        snap, None, account, records, datetime.now(timezone.utc)
+    )
+    assert code == 2 and text.count("[ERROR]") == 1
 
 
 class EmbeddedImportTests(unittest.TestCase):
