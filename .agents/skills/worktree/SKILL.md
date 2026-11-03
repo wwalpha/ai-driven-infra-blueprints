@@ -237,7 +237,17 @@ lock file stays at the same inode and the OS releases exclusion on process exit.
 After failure, retain Worktree/branch/lifecycle and retry the same Task with `--create-pr`.
 Reconcile remote refs and the matching PR after a push/API or creation/state-save interruption;
 never silently create a second PR or fall back to FF Merge. A prior create intent with no
-matching PR has an uncertain outcome and requires Human review. Plain finalize on a PR Task
+matching PR has an uncertain outcome and requires Human review. After explicit Human
+approval to retry that exact Task, verify repository, base/head, candidate SHA, current
+remote head, and absence of a matching PR, then use:
+
+```console
+python3 -B framework/scripts/worktree_task.py pr-retry-create --task-id <task-id> --expected-commit <reviewed-candidate-sha>
+```
+
+The helper rechecks these boundaries and records a single retry intent before the request.
+It reconciles an existing matching PR without another request. A second uncertain retry,
+changed head, foreign PR, or failed check retains state for review. Plain finalize on a PR Task
 stops with explicit guidance. Candidate/authority changes and unsafe Git state require
 review; do not hand-edit lifecycle metadata or overwrite remote refs. PR success returns
 `prPublication.url`, `number`, `prState` and `status: OPEN`; worktree and branch remain.

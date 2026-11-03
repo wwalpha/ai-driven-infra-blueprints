@@ -1345,6 +1345,8 @@ def check_pr_gh_noninteractive(tmp_path, failure):
             assert "sensitive" not in str(error.value)
             if failure == "api":
                 assert "HTTP 422" in str(error.value)
+            if failure == "exit":
+                assert "exit 1" in str(error.value)
 
 
 def check_pr_lock_and_mode_retention(tmp_path):

@@ -1312,8 +1312,81 @@ def _check_pr_creation_with_advancing_base():
                 assert remote.created == 1
 
 
+def _check_reviewed_pr_creation_retry():
+    for retry_fails in (False, True):
+        with fixture() as root:
+            target, state = start(root)
+            (target / "file.txt").write_text("candidate\n", encoding="utf-8")
+            finish_contract(target, state)
+            remote = PRGitHub(root, state)
+            attempts = []
+
+            def checked_gh(
+                target,
+                host,
+                *args,
+                attempts=attempts,
+                retry_fails=retry_fails,
+                remote=remote,
+            ):
+                if args[:2] == ("pr", "create"):
+                    attempts.append(args)
+                    if len(attempts) == 1 or retry_fails:
+                        raise wt.Blocked("simulated create failure")
+                return remote.gh(target, host, *args)
+
+            with (
+                patch.object(wt, "git", side_effect=remote.git),
+                patch.object(pr, "gh", side_effect=checked_gh),
+            ):
+                with pytest.raises(wt.Blocked, match="simulated create failure"):
+                    wt.finalize(root, "example", create_pr=True)
+                saved = wt.load(root, "example")[3]
+                candidate = saved["tip"]
+                assert saved["prPublication"]["createIntent"]
+                with pytest.raises(wt.Blocked, match="unconfirmed"):
+                    wt.finalize(root, "example", create_pr=True)
+                with pytest.raises(wt.Blocked, match="reviewed pushed candidate"):
+                    pr.retry_create(root, "example", "wrong")
+                if retry_fails:
+                    with pytest.raises(wt.Blocked, match="simulated create failure"):
+                        pr.retry_create(root, "example", candidate)
+                    with pytest.raises(wt.Blocked, match="unconfirmed"):
+                        pr.retry_create(root, "example", candidate)
+                    assert remote.created == 0 and len(attempts) == 2
+                else:
+                    with (
+                        patch.object(
+                            sys,
+                            "argv",
+                            [
+                                "worktree_task.py",
+                                "pr-retry-create",
+                                "--repository-root",
+                                str(root),
+                                "--task-id",
+                                "example",
+                                "--expected-commit",
+                                candidate,
+                            ],
+                        ),
+                        patch("sys.stdout", new_callable=io.StringIO) as output,
+                    ):
+                        assert wt.main() == 0, output.getvalue()
+                        result = json.loads(output.getvalue())
+                    assert result["prPublication"]["number"] == 7
+                    assert (
+                        pr.retry_create(root, "example", candidate)["prPublication"][
+                            "number"
+                        ]
+                        == 7
+                    )
+                    assert remote.created == 1 and len(attempts) == 2
+
+
 @it_case
 def check_pr_publication_recovery():
+    _check_reviewed_pr_creation_retry()
     _check_pr_creation_with_advancing_base()
     for framework in (False, True):
         with fixture(branch="release") as root:

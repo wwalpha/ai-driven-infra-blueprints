@@ -175,6 +175,28 @@ def record(root, path, state, *, finish_update=False, progress_only=False, **val
         wt.save(path, state)
 
 
+def retry_create(where, task_id, expected_commit):
+    root, _, path, _ = wt.load(where, task_id)
+    with publication_lock(path):
+        root, _, path, state = wt.load(root, task_id)
+        prepared = state.get("prPublication", {})
+        if (
+            state.get("integrationMode") != "pr"
+            or state.get("merged")
+            or state.get("prUpdate")
+            or not expected_commit
+            or expected_commit != state.get("tip")
+            or expected_commit != prepared.get("candidate")
+            or not prepared.get("pushIntent")
+            or not prepared.get("createIntent")
+            or prepared.get("status") not in {"PUSHED", "OPEN"}
+        ):
+            raise wt.Blocked(
+                "PR creation recovery requires the reviewed pushed candidate and creation intent"
+            )
+        return publish(root, path, state, retry_create=True)
+
+
 def repository_identity(url):
     match = re.fullmatch(
         r"(?:https://|ssh://git@|git@)([A-Za-z0-9.-]+)[/:]([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?",
@@ -213,7 +235,23 @@ def gh(target, host, *arguments):
         status = re.search(r"\(HTTP ([1-5][0-9]{2})\)", result.stderr)
         if status:
             raise wt.Blocked(f"GitHub API request failed (HTTP {status.group(1)})")
-        raise wt.Blocked("GitHub CLI request failed; retain PR intent and review")
+        for marker, reason in (
+            (
+                "resource not accessible by integration",
+                "GitHub integration lacks access",
+            ),
+            (
+                "not permitted to create pull requests",
+                "GitHub policy prohibits PR creation",
+            ),
+            ("no commits between", "GitHub found no commits between branches"),
+            ("pull request already exists", "GitHub reports an existing PR"),
+        ):
+            if marker in result.stderr.lower():
+                raise wt.Blocked(reason)
+        raise wt.Blocked(
+            f"GitHub CLI request failed (exit {result.returncode}); retain PR intent and review"
+        )
     return result.stdout
 
 
@@ -414,7 +452,7 @@ def push_candidate(target, publication):
             ) from None
 
 
-def publish(root, path, state):
+def publish(root, path, state, *, retry_create=False):
     with wt.lifecycle_lock(root):
         target, text = check_candidate(root, path, state)
     publication = state["prPublication"]
@@ -457,10 +495,13 @@ def publish(root, path, state):
     pr = existing_pr(target, publication)
     if pr is None:
         if publication.get("createIntent"):
-            raise wt.Blocked(
-                "previous PR creation outcome is unconfirmed; retain intent for human review"
-            )
-        record(root, path, state, createIntent=True)
+            if not retry_create or publication.get("createRetryIntent"):
+                raise wt.Blocked(
+                    "previous PR creation outcome is unconfirmed; retain intent for human review"
+                )
+            record(root, path, state, createRetryIntent=True)
+        else:
+            record(root, path, state, createIntent=True)
         with tempfile.TemporaryDirectory(prefix="blueprint-pr-") as directory:
             body = Path(directory) / "body.md"
             body.write_text(
