@@ -853,6 +853,55 @@ def run(
                     if args.action == "sync"
                     else units,
                 )
+                if args.action == "status":
+                    for unit in units:
+                        state = backend.states[unit["name"]]
+                        current = state.get("currentStack", {})
+                        evidence = state.get("executionEvidence", {})
+                        token = state.get("clientToken")
+                        stack_id = evidence.get("StackId") or current.get("StackId")
+                        if (
+                            not token
+                            or state.get("externalOperation")
+                            or (
+                                evidence.get("clientToken")
+                                and evidence["clientToken"] != token
+                            )
+                            or (
+                                evidence.get("ChangeSetId")
+                                and not current_state.same_change_set(
+                                    state.get("changeSetId"), evidence["ChangeSetId"]
+                                )
+                            )
+                            or (
+                                state.get("progress")
+                                and not state["progress"].get("stale")
+                            )
+                        ):
+                            continue
+                        if not stack_id or current.get("StackId") != stack_id:
+                            state["progress"] = {
+                                "available": False,
+                                "partial": True,
+                                "stale": True,
+                            }
+                            continue
+                        try:
+                            events = current_state.pages(
+                                partial(current_state._event_page, backend.aws),
+                                "describe_stack_events",
+                                "StackEvents",
+                                StackName=stack_id,
+                            )
+                            state["progress"] = current_state.event_progress(
+                                current, events, token, stack_id, unit["name"]
+                            )
+                        except (OSError, AwsError, ValueError, RuntimeError):
+                            state["progress"] = {
+                                "available": False,
+                                "partial": True,
+                                "stale": True,
+                            }
                 if args.action == "advance":
                     previous_terminal.update(
                         name

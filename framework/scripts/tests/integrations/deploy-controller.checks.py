@@ -20,6 +20,8 @@ from deploy import (
     contracts,
     controller,
     current_request,
+    current_state,
+    failures,
     generation_resume,
     operation_journal,
     steps,
@@ -354,6 +356,22 @@ def check_failure_evidence_survives_progress_reload_and_status(tmp_path):
     assert report["states"]["A"]["progress"]["phase"] == "ROLLBACK"
     assert secret not in json.dumps(loaded) + json.dumps(report)
     assert "foreign" not in json.dumps(saved["failureEvents"])
+    runtime = SimpleNamespace(root=root, guard=lambda: None, save=lambda: None)
+    with patch.object(controller.repair_ops, "require_authorized"):
+        assert not controller.repair(runtime, {"name": "A"}, saved)
+    backend.run_context = loaded
+    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    restored = worktree.read_progress(root, {"deployIdentity": identity})["runContext"]
+    diagnostic = steps.describe(
+        SimpleNamespace(states=restored["states"], run_context=restored)
+    )["states"]["A"]["diagnostic"]
+    assert diagnostic["classification"] == "HUMAN_REQUIRED"
+    assert diagnostic["code"] == "RECOVERY_BLOCKED"
+    assert "unsafe rollback state" in diagnostic["message"]
+    assert diagnostic["eventId"] == "first"
+    assert diagnostic["requiredAction"]
+    current_state.record_attempt(saved, "ATTEMPT_SUCCESS")
+    assert failures.diagnostic(saved) is None
 
 
 def check_event_read_failure_keeps_running_operation_unconfirmed():
@@ -414,12 +432,43 @@ def check_advance_and_status_expose_observed_progress(tmp_path, monkeypatch, cap
     progress = advanced["states"][FIRST]["progress"]
     assert progress["available"] and progress["observedResources"] == 1
     assert progress["activeResources"][0]["logicalId"] == "ObservedResource"
+    provider = json.loads(aws.read_text())
+    provider["knobs"]["resource_events"][FIRST].append(
+        {
+            "LogicalResourceId": "ObservedResource",
+            "ResourceType": "AWS::S3::Bucket",
+            "ResourceStatus": "CREATE_COMPLETE",
+            "EventId": "event-2",
+            "Timestamp": "2026-01-01T00:00:02Z",
+        }
+    )
+    provider["knobs"]["resource_events"][FIRST].append(
+        {
+            "LogicalResourceId": "ForeignResource",
+            "ResourceType": "AWS::S3::Bucket",
+            "ResourceStatus": "CREATE_IN_PROGRESS",
+            "ClientRequestToken": "different-attempt",
+            "EventId": "foreign-event",
+            "Timestamp": "2026-01-01T00:00:03Z",
+        }
+    )
+    before_calls = len(provider["calls"])
+    aws.write_text(json.dumps(provider))
     assert invoke_step(root, report, aws, ["--action", "status"]) == 0
     status = json.loads(capsys.readouterr().out)
     progress = status["states"][FIRST]["progress"]
+    assert progress["observedResources"] == 1 and progress["completed"] == 1
+    assert progress["resources"][0]["resourceStatus"] == "CREATE_COMPLETE"
+    assert not progress["stale"]
+    calls = json.loads(aws.read_text())["calls"][before_calls:]
     assert (
-        progress["observedResources"] == 1 and progress["stale"] and progress["partial"]
+        sum(
+            op == "describe_stack_events" and args.get("StackName", "").endswith(FIRST)
+            for _, op, args in calls
+        )
+        <= 1
     )
+    assert all(op.startswith(("describe_", "list_", "get_")) for _, op, _ in calls)
 
 
 if __name__ == "__main__":

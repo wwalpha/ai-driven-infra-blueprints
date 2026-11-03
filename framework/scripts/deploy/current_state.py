@@ -70,6 +70,13 @@ def pages(aws, operation, field, **arguments):
         seen.add(token)
 
 
+def _event_page(aws, operation, **arguments):
+    response = aws(operation, **arguments)
+    if not isinstance(response, dict) or "StackEvents" not in response:
+        raise Blocked("incomplete Stack event page")
+    return response
+
+
 def unavailable(code, operation, **arguments):
     raise AwsError("cloudformation", operation, code)
 
@@ -307,6 +314,7 @@ def event_progress(stack, events, token, stack_id, stack_name):
         else None,
         inProgress=len(active) if counts_available else None,
         failed=len(failed) if counts_available else None,
+        resources=sorted(records, key=lambda item: item["logicalId"]),
         activeResources=active[:30],
         activeResourcesTruncated=len(active) > 30,
         recentFailures=history[:10],
@@ -357,6 +365,16 @@ def record_attempt(state, status):
     state["stackStatus"] = state.get("currentStack", {}).get("StackStatus", status)
     if status in {"ATTEMPT_SUCCESS", "ATTEMPT_FAIL"}:
         state["status"] = DEPLOY_SUCCESS if status == "ATTEMPT_SUCCESS" else "FAILED"
+        if status == "ATTEMPT_SUCCESS":
+            for key in (
+                "failure",
+                "failureClassification",
+                "failureEvents",
+                "changeSetFailure",
+                "eventReadStatus",
+                "reason",
+            ):
+                state.pop(key, None)
         state.pop("failureDetected", None)
         state.pop("unexecutedReason", None)
         state.pop("attemptResult", None)

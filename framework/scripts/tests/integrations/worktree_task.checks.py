@@ -1878,6 +1878,7 @@ def main():
         check_latest_base_rejects_old_merge_history,
         check_base_advance_after_validation,
         check_sync_base_preserves_candidate,
+        check_unpublished_pr_intent_base_sync_preserves_candidate,
         check_rewritten_base_preserves_candidate,
         check_rewritten_base_rejects_overlap,
         check_committed_recovery_across_rewritten_base,

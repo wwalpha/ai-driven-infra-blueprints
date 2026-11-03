@@ -212,6 +212,7 @@ def security_group_rule_id(
 def readiness(backend, unit, state=None):
     """Check only this Stack's known synchronization inputs; never publish placeholders."""
     name = unit["name"]
+    check = "dependency index"
     try:
         dependency_index.load(backend.root)
         document, parameters = backend.templates[name]
@@ -232,9 +233,11 @@ def readiness(backend, unit, state=None):
             for kind, rule in _imports_design_layout.GROUPED.items()
             if rule["identityProperty"] is None
         }
+        check = "CloudFormation resource selection"
         selected = selected_resources(
             document, parameters, pseudo, removed[name], grouped
         )
+        check = "Model resource mapping"
         loaded, mapped = resolve_resources(
             backend.root,
             backend.environment,
@@ -246,11 +249,13 @@ def readiness(backend, unit, state=None):
             target=backend.target,
             check_scope=False,
         )
+        check = "fixed resource scope"
         execution_scope.check_fixed_resources(
             backend.root,
             mapped,
             keys={(name, logical) for logical in document.get("Resources", {})},
         )
+        check = "owner Validation scope"
         scope = active_scope(backend.root)
         missing = [
             {
@@ -273,6 +278,7 @@ def readiness(backend, unit, state=None):
                 "owners": sorted(missing, key=lambda item: item["logicalId"]),
             }
             raise error
+        check = "Observed reference propagation"
         changes, identifiers = {}, {}
         for path, _identity, resource, rows, outputs in (
             mapped[name].values() if state is not None else ()
@@ -309,6 +315,58 @@ def readiness(backend, unit, state=None):
         wrapped = Blocked(f"{name}: Observed readiness: {error}")
         if hasattr(error, "deploy_failure"):
             wrapped.deploy_failure = error.deploy_failure
+        else:
+            wrapped.deploy_failure = {}
+        wrapped.deploy_failure.setdefault("stage", "PREPARATION")
+        wrapped.deploy_failure.setdefault("classification", "INPUT_CANDIDATE")
+        wrapped.deploy_failure.setdefault("code", "OBSERVED_READINESS")
+        wrapped.deploy_failure.setdefault("executionState", "NOT_EXECUTED")
+        reason = str(error)
+        detail = (
+            "the dependency index is missing"
+            if "dependency index missing" in reason
+            else "the dependency index seal is invalid"
+            if "sealed evidence" in reason or "evidence was modified" in reason
+            else "the dependency index is invalid"
+            if "invalid Model dependency index" in reason
+            else "the dependency index does not match the Model"
+            if "dependency index differs" in reason
+            else "more than one Model Resource claims the same CloudFormation Resource"
+            if "duplicate ownership" in reason
+            else "the Model and CloudFormation Resource types do not match"
+            if "type mismatch" in reason
+            else "the Model Resource mapping is ambiguous or missing"
+            if "AMBIGUOUS_OBSERVED_MAPPING" in reason
+            else "the Task scope does not permit the required observation"
+            if "task scope violation" in reason
+            else f"{check} could not be validated"
+        )
+        wrapped.deploy_failure.setdefault(
+            "message", f"{name}: Observed readiness: {detail}."
+        )
+        wrapped.deploy_failure.setdefault(
+            "requiredAction", f"Review {check} for this Stack before deployment."
+        )
+        if "dependency index missing" in reason:
+            wrapped.deploy_failure["message"] += (
+                " Run python framework/scripts/model/cli.py index --repository-root <repository-root>."
+            )
+            wrapped.deploy_failure["requiredAction"] = (
+                "Build the Model dependency index for the current repository, then retry."
+            )
+        document = backend.templates.get(name, ({}, {}))[0]
+        resources = [
+            logical
+            for logical in document.get("Resources", {})
+            if isinstance(logical, str)
+            and re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", logical)
+            and re.search(
+                r"(?<![A-Za-z0-9])" + re.escape(logical) + r"(?![A-Za-z0-9])", reason
+            )
+        ]
+        if resources:
+            wrapped.deploy_failure.setdefault("resources", sorted(resources))
+        wrapped.deploy_failure.setdefault("retryable", False)
         raise wrapped from error
 
 

@@ -388,6 +388,7 @@ def check_safe_failure_diagnostics_distinguish_root_rollback_and_unknown():
     assert diagnostic["eventId"] == "first"
     assert diagnostic["code"] == "InvalidRequest"
     assert diagnostic["resource"]["LogicalResourceId"] == "Bucket"
+    assert diagnostic["resource"]["properties"] == ["BucketName"]
     assert diagnostic["reasonRedacted"]
     assert "private-value" not in json.dumps(state) + json.dumps(diagnostic)
     duplicate = dict(first, LogicalResourceId="Other", EventId="same-time")

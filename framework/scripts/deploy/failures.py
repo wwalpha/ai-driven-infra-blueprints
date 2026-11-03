@@ -50,7 +50,7 @@ HANDLER_CODES = AUTH_CODES | {
 }
 
 
-def safe_reason(reason):
+def safe_reason(reason: AwsValue) -> JsonObject:
     """Return only recognized evidence, never AWS prose or untrusted error values."""
     reason = reason if isinstance(reason, str) else ""
     match = re.search(r"HandlerErrorCode:\s*([A-Za-z][A-Za-z0-9]+)", reason)
@@ -70,7 +70,9 @@ def safe_reason(reason):
     return {"code": code, "message": message, "reasonRedacted": bool(reason)}
 
 
-def exception_message(error):
+def exception_message(error: Exception) -> str:
+    if hasattr(error, "deploy_failure") and error.deploy_failure.get("message"):
+        return error.deploy_failure["message"]
     code = getattr(error, "code", None)
     if code in AUTH_CODES:
         return f"AWS access was denied or credentials were rejected ({code})."
@@ -79,6 +81,25 @@ def exception_message(error):
     if str(error) == "busy":
         return "busy"
     if str(error) == "unsafe rollback state; no automatic delete or ResourcesToSkip":
+        return str(error)
+    if str(error) in {
+        "runtime recovery not authorized in task contract",
+        "failed CREATE StackId missing; never delete by name",
+        "failed CREATE identity/state changed or protected",
+        "failed CREATE still owns resources; cleanup requires human",
+        "consumer resource ownership/scope unknown",
+        "failed consumer Secret reference missing/ambiguous",
+        "Secret owner StackId/account/region/state unconfirmed",
+        "Secret account/region/identity mismatch",
+        "Secret version inventory incomplete/ambiguous",
+        "Secret version inventory invalid",
+        "Secret version metadata ambiguous/inconsistent",
+        "Secret already has a current value; never overwrite",
+        "same Secret bootstrap already attempted in this run",
+        "persisted bootstrap ownership/schema/identity changed",
+        "bootstrap PUT not confirmed; resume same intent/token",
+        "bootstrap current version not confirmed",
+    }:
         return str(error)
     if "missing Export" in str(error):
         return "A required CloudFormation import has a missing Export; review the producer."
@@ -179,7 +200,7 @@ def event(event: AwsResponse, document: AwsResponse) -> JsonObject:
     return result
 
 
-def diagnostic(state):
+def diagnostic(state: StackState) -> JsonObject | None:
     """Describe saved evidence without changing the attempt or requesting AWS."""
     failure = state.get("failure") or {}
     events = state.get("failureEvents") or []
@@ -217,6 +238,18 @@ def diagnostic(state):
             or "Review the listed changes and approve or reject the ChangeSet."
         )
         code, stage, source = "APPROVAL_REQUIRED", "CHANGESET_REVIEW", "CHANGE_SET"
+    elif failure and (
+        state.get("failureClassification") == "HUMAN_REQUIRED"
+        or failure.get("code") == "OBSERVED_READINESS"
+        or failure.get("classification") == "OWNER_SCOPE_MISSING"
+    ):
+        message = failure.get("message") or "The operation requires Human review."
+        action = (
+            failure.get("requiredAction") or "Review the operation before continuing."
+        )
+        code = failure.get("code") or "HUMAN_REQUIRED"
+        stage = failure.get("stage") or "STACK_EXECUTION"
+        source = "CONTROLLER"
     elif root:
         message = (
             root.get("message")
@@ -269,7 +302,11 @@ def diagnostic(state):
             or "Review the operation and available evidence before deciding how to continue."
         )
         code = detail.get("code") or failure.get("code") or "UNKNOWN_REASON"
-        if code not in HANDLER_CODES | {"InputDecodeError", "UNKNOWN_REASON"}:
+        if code not in HANDLER_CODES | {
+            "InputDecodeError",
+            "UNKNOWN_REASON",
+            "OBSERVED_READINESS",
+        }:
             code = "UNKNOWN_REASON"
         stage = failure.get("stage") or "STACK_EXECUTION"
         source = (
@@ -309,7 +346,12 @@ def diagnostic(state):
                 for key in ("LogicalResourceId", "ResourceType", "ResourceStatus")
             }
         )
+        result["resource"]["properties"] = root.get("properties", [])
         result.update(eventId=root.get("EventId"), timestamp=root.get("timestamp"))
+    if failure.get("resources"):
+        result["resources"] = failure["resources"]
+    if failure.get("owners"):
+        result["owners"] = failure["owners"]
     if pending and not root and operation:
         result["operation"] = operation
     return result
