@@ -70,6 +70,21 @@ cases:
             fixtures.load_suite(name)
 
 
+def check_case_ids_are_immutable_and_do_not_copy(suite):
+    suite("version: 1\ncases:\n  first: {data: {nested: [1]}}\n  second: {}\n")
+    with patch.object(
+        fixtures, "deepcopy", side_effect=AssertionError("unexpected copy")
+    ):
+        ids = fixtures.suite_case_ids("example")
+        assert ids == ("first", "second")
+        with pytest.raises(TypeError):
+            ids[0] = "changed"
+        assert fixtures.suite_case_ids("example") == ids
+    assert fixtures.load_case("example", "first")["data"] == {"nested": [1]}
+    with pytest.raises(ValueError, match="invalid fixture suite"):
+        fixtures.suite_case_ids("../example")
+
+
 def check_invalid_schema(suite):
     documents = [
         "version: 1\nversion: 1\ncases: {ok: {}}",
@@ -98,6 +113,8 @@ def check_invalid_schema(suite):
         suite(document)
         with pytest.raises(ValueError):
             fixtures.load_suite("example")
+        with pytest.raises(ValueError):
+            fixtures.suite_case_ids("example")
 
 
 def check_materialize_files(tmp_path):

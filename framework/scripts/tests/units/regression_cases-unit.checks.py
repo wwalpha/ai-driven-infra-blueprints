@@ -88,6 +88,21 @@ def check_ids_and_independent_reordered_runs(runner_environment):
         regression_cases.case_ids("../example")
 
 
+def check_case_selection_does_not_copy_or_expose_fixtures(runner_environment):
+    with patch.object(
+        fixture_cases, "deepcopy", side_effect=AssertionError("unexpected copy")
+    ):
+        ids = regression_cases.case_ids("example")
+        assert ids == ["first", "second"]
+        ids.reverse()
+        ids.append("injected")
+        assert regression_cases.case_ids("example", prefix="f") == ["first"]
+        assert regression_cases.case_ids("example") == ["first", "second"]
+    assert fixture_cases.load_case("example", "first")["data"]["result"] == [
+        True, False, 0, "1", None
+    ]
+
+
 @pytest.mark.parametrize("case_id", ["../first", "first/child", "First", "", "a\\b"])
 def check_invalid_paths(case_id):
     with pytest.raises(ValueError, match="invalid"):

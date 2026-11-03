@@ -90,6 +90,11 @@ def _suite(name):
     return suite
 
 
+def suite_case_ids(name):
+    """Return immutable case IDs in authored order from the validated suite."""
+    return tuple(_suite(name)["cases"])
+
+
 def load_suite(name):
     """Read/validate once per process; callers never receive the cached object."""
     return deepcopy(_suite(name))

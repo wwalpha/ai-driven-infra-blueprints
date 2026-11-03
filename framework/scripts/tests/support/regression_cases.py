@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 from pytest_regressions.data_regression import RegressionYamlDumper
-from support.fixture_cases import _identifier, load_case, load_suite
+from support.fixture_cases import _identifier, load_case, suite_case_ids
 from utils.yaml_format import yaml_read
 
 _EXPECTED = Path(__file__).resolve().parents[1] / "expected"
@@ -18,7 +18,7 @@ _DESTINATIONS = pytest.StashKey[dict[tuple[Path, str | None], str]]()
 
 
 def case_ids(suite, *, prefix=""):
-    selected = [name for name in load_suite(suite)["cases"] if name.startswith(prefix)]
+    selected = [name for name in suite_case_ids(suite) if name.startswith(prefix)]
     if not selected:
         raise ValueError("empty regression case selection")
     return selected
