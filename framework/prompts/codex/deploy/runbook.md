@@ -1,16 +1,10 @@
 # Deploy operation runbook
 
-Select the operation from the router; read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. The route matrix at the end is an operation index, not an instruction to read every route.
+Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. The route matrix at the end is an operation index, not an instruction to read every route.
 
 ## Managed entry
 
-Resolve the Task ID and Target; follow the Worktree [permission inspection and continuation procedure](../../../../.agents/skills/worktree/SKILL.md#sandbox-permission-approval-and-continuation), then use the existing lifecycle entry from a surviving root:
-
-```console
-python3 -B framework/scripts/worktree_task.py deploy-start --task-id <task-id>
-```
-
-Use its returned Worktree for registration/preparation/child commands. Reuse the same valid unfinished Task and preserve Snapshot/progress/current requests; ambiguous ownership stops, never create a replacement Task. Offline preparation/help/read-only diagnostics remain available outside managed Worktrees. Continue with [Prepare](#prepare).
+Use the [Deploy Skill managed entry](../../../../.agents/skills/deploy/SKILL.md#managed-entry).
 
 ## Prepare
 
@@ -20,16 +14,11 @@ For Terraform select [Terraform](#terraform). For CloudFormation select only [SD
 
 ## SDK Prepare
 
-Read [DeployOrder selection and synchronization scope](../../../rules/cloudformation.md#deployorder-selection-and-synchronization-scope) and [Managed Deploy snapshot and Git publication](../../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication). Offline preparation produces an external contract and summary; inspect the original contract, exact StackNames, Resource owners, Validation scope and Model/View paths before registering:
-
-```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> --task-file tasks/<task-id>.md
-python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --register <absolute-preparation.json>
-```
-
-Repeat `--stack`, or use inclusive `--order-from`/`--order-to` instead; never combine the selectors. Optional `--service` checks the discovered owners and grants no additional services. Use `--aws-account-id` instead of `--alias` when no alias exists and the configured `--profile` when set. Missing/invalid scope, changed inputs or ambiguous ownership stop registration. Preserve the registered Snapshot and all fixed StackNames on resume; do not rerun old preparation to replace evidence. External consumers are deferred without Model/View authority. Then select [SDK Stack](#sdk-stack).
+Use [SDK preparation](../../../../.agents/skills/deploy/SKILL.md#sdk-preparation).
 
 ## CLI Prepare
+
+Before CloudFormation AWS operations read [Common rules](../../../rules/cloudformation.md#common-rules), [AWS execution context](../../../rules/cloudformation.md#aws-execution-context), [Resource mode boundary](../../../rules/cloudformation.md#resource-mode-boundary), [Deployment validation and execution](../../../rules/cloudformation.md#deployment-validation-and-execution), [Model authority](../../../rules/model-information.md#model-authority), [Resource management mode](../../../rules/model-information.md#resource-management-mode), [CloudFormation deployment policy](../../../rules/model-information.md#cloudformation-deployment-policy) and [Properties format](../../../rules/model-information.md#properties-format). Model, Template, Parameters and Stack definitions are authority; ordinary Deploy does not read generated detailed-design prose as execution input. Resolve ownership, Conditions and dependencies without guessing or expanding scope.
 
 Read [Method and local lifecycle](../../../rules/cloudformation.md#method-and-local-lifecycle) and [Preflight and fixed Snapshot](../../../rules/cloudformation.md#preflight-and-fixed-snapshot). These are the sole CLI preflight command authority: verify CLI v2/options, configured context with STS, declare confirmed account/Region/Partition, select/register the infrastructure/deploy Task and retain the original input manifest and immutable copies outside Git. Confirm exact StackNames, Model/View paths, DeployOrder and MaxConcurrentStacks. CLI uses no SDK Preparation, Controller, boto3/botocore or Python AWS wrapper. `model/cli.py observed` is an offline mapping check, not an observation-saving command.
 
@@ -37,27 +26,7 @@ Read current scoped Stacks, resources and ChangeSets as directed by that preflig
 
 ## SDK Stack
 
-Read [LLM-controlled short operations](../../../rules/cloudformation.md#llm-controlled-short-operations) and [Explicit operations](../../../rules/cloudformation.md#explicit-operations) before the first Stack turn. Keep the same Task/Target and repeat `--stack` for **every fixed StackName** on all actions, including when saving only one Stack. Use `--aws-account-id` instead of `--alias` where applicable, configured `--profile` when set; `--sequential` can only lower concurrency.
-
-```console
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action advance
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --sync-stack <StackName>
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action checkpoint --sync-stack <StackName>
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action status
-```
-
-| Current need/result | Next operation or stop |
-| --- | --- |
-| First or continuing ordinary turn | `advance` reads current AWS and advances one bounded turn; no unconditional status-before-advance call. |
-| Multiple Stacks | Retain full scope and configured concurrency; independent same-Order peers may continue after one failure, later Orders require earlier success. |
-| Independent inspection, interruption or uncertain request | `status` and [SDK Recovery](#unfinished-aws-operation-recovery); retain original identity/token. |
-| Current observations must be saved, including failure/running/unknown facts | Read [Observation reads](#observation-reads), then `sync --sync-stack`; repeat `--sync-stack` for an indivisible candidate. Intermediate sync keeps running. |
-| Already saved candidate requires validation/commit/publication | `checkpoint`, with saved scope; no new AWS execution or recollection. A separate checkpoint is normally unnecessary after sync. |
-| Required destructive change is unapproved | [Approval wait](#confirm-unapproved-deletereplacement); after full consent add `--approve-change-set <actual-approved-ID>` to the same target/scope turn. |
-| Final observations/checks are ready, all requests settled | [SDK Finish](#sdk-finish). |
-| Git publication pending/conflicted | [Git Recovery](#git-recovery); never redeploy because saving failed. |
-
-Inspect `stage`, `cause`, `nextAction`/`nextActions` and actual result separately. A null or missing command means review; do not infer authority or a retry. Stop new starts on Task/context/input mismatch or unresolved dependencies, retaining accepted requests for observation. No Sub Agents, fixed-period sync or background Model writer.
+Use [SDK operations](../../../../.agents/skills/deploy/SKILL.md#sdk-operations).
 
 ## CLI Stack
 
@@ -116,17 +85,11 @@ Read [Validation policy](../../../rules/loop-engineering.md#validation-policy), 
 
 ## SDK Finish
 
-Read [Verify and finish](#verify-and-finish). When ending the Task, use the SDK command in [SDK Stack](#sdk-stack) with `--action sync --final`, retaining full Stack scope. Add only needed `--sync-stack` observations; omit when already saved. This privately validates completed with Model/Views and adopts only PASS. Failure retains running, saved Model and successful Views. `checkpoint` resumes the same saved final intent without another `--final` or recollection. No all-Stack SUCCESS or separate pre-final complete is required. After publication select [SDK Publication](#sdk-publication); unresolved Git work selects [Git Recovery](#git-recovery).
+Use [SDK finish](../../../../.agents/skills/deploy/SKILL.md#sdk-finish).
 
 ## SDK Publication
 
-After verified final publication, use ordinary lifecycle finalization:
-
-```console
-python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id>
-```
-
-No finalization while requests remain active/uncertain, required saves/checks are incomplete or publication is pending. Never use cleanup to claim successful publication. Follow [Managed Deploy snapshot and Git publication](../../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) and Worktree completion/permission guards.
+Use [SDK finish](../../../../.agents/skills/deploy/SKILL.md#sdk-finish) after verified publication; Worktree permission/finalize/cleanup guards are unchanged.
 
 ## CLI Finish
 
