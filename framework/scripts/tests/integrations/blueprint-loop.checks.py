@@ -207,7 +207,10 @@ def check_group_process_connection(tmp_path):
     isolated.write_text(
         "import os\nfrom support.pytest_cli import run\n"
         "def check_isolated():\n    assert 'GROUP_CONNECTION' not in os.environ\n"
-        "    os.environ['GROUP_CONNECTION'] = 'isolated'\n" + suffix,
+        "    os.environ['GROUP_CONNECTION'] = 'isolated'\n"
+        "if __name__ == '__main__':\n"
+        "    os.environ.pop('PYTEST_ADDOPTS', None)\n"
+        "    raise SystemExit(run(__file__))\n",
         encoding="utf-8",
     )
     assert groupable(first) and groupable(second) and not groupable(isolated)
