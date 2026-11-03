@@ -1220,7 +1220,7 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
         if len(workflows) <= 1 and tasks.status(text) == "running":
             corrected = re.sub(
                 r"(?ms)^## Task contract\n.*?(?=^## |\Z)",
-                "## Task contract\n"
+                lambda _: "## Task contract\n"
                 + "\n".join(line for line in lines if line not in workflows)
                 + "\n- Workflow: `update`\n",
                 text,

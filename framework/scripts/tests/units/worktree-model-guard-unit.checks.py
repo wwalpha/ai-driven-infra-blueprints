@@ -98,17 +98,20 @@ def check_model_finalize_cannot_bypass_candidate(tmp_path, action):
 
 
 @pytest.mark.parametrize(
-    ("workflow", "model", "status", "expected"),
+    ("workflow", "model", "status", "expected", "backslash"),
     [
-        (None, True, "running", "current: missing"),
-        ("import", True, "running", "current: import"),
-        ("update", True, "running", "model path"),
-        (None, False, "running", "ordinary path"),
-        (None, False, "completed", "ordinary path"),
-        (None, "framework", "running", "model path"),
+        (None, True, "running", "current: missing", False),
+        ("import", True, "running", "current: import", False),
+        (None, True, "running", "current: missing", True),
+        ("update", True, "running", "model path", True),
+        (None, False, "running", "ordinary path", False),
+        (None, False, "completed", "ordinary path", False),
+        (None, "framework", "running", "model path", False),
     ],
 )
-def check_finalize_workflow_diagnostic(tmp_path, workflow, model, status, expected):
+def check_finalize_workflow_diagnostic(
+    tmp_path, workflow, model, status, expected, backslash
+):
     source = (
         "framework/scripts/example.py"
         if model == "framework"
@@ -118,6 +121,10 @@ def check_finalize_workflow_diagnostic(tmp_path, workflow, model, status, expect
     )
     name = "tasks/example.md"
     text = repository_contract("example", [source])
+    if backslash:
+        text = text.replace(
+            "## Task contract\n", "## Task contract\n- Goal: `C:\\dev\\models`\n"
+        )
     if model != "framework":
         text = text.replace("`governance`", "`design`")
     text = text.replace("`running`", f"`{status}`").replace(
@@ -143,6 +150,7 @@ def check_finalize_workflow_diagnostic(tmp_path, workflow, model, status, expect
     ):
         with pytest.raises((wt.Blocked, RuntimeError), match=expected) as error:
             wt._finalize(tmp_path, "example")
+        assert (tmp_path / name).read_text(encoding="utf-8") == text
         if expected.startswith("current:"):
             message = str(error.value)
             assert "Workflow: update" in message
