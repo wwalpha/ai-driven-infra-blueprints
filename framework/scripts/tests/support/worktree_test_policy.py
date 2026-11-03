@@ -97,6 +97,7 @@ WORKTREE_CASES = {
     "units/worktree-guard-unit.checks.py": (
         "check_pr_update_failure_retains_candidate",
         "check_pr_merge_response_is_reconciled_without_repeating",
+        "check_pr_merge_methods",
         "check_pr_lifecycle_cli",
         "check_pr_update_commit_boundary",
         "check_pr_draft_and_closed_state",
@@ -128,6 +129,10 @@ WORKTREE_CASES = {
         "check_pr_git_deadline",
         "check_create_refusals_before_mutation",
         "check_base_worktree_refusals",
+        "check_shared_records_reject_other_repository",
+        "check_pr_record_update_cleanup_is_atomic",
+        "check_pr_progress_requires_matching_state",
+        "check_candidate_history_without_merge_base",
         "check_commit_and_rebase_failure_retention",
         "check_cleanup_operation_failure_and_retry",
         "check_reviewed_recovery_transitions",

@@ -680,8 +680,6 @@ def check_pr_update_and_operations():
         "cleanup-first",
         "external",
         "merge",
-        "squash",
-        "rebase",
     ):
         with fixture() as root:
             target, state = start(root, files=("framework/scripts/candidate.txt",))
@@ -709,26 +707,29 @@ def check_pr_update_and_operations():
                 published = wt.finalize(root, "example", create_pr=True, draft=True)
                 old = published["tip"]
                 assert published["prPublication"]["isDraft"] and target.exists()
-                assert wt.finalize(root, "example", create_pr=True)["prPublication"][
-                    "isDraft"
-                ]
-                assert not pr.operate(root, "example", "pr-ready")["prPublication"][
-                    "isDraft"
-                ]
-                assert pr.operate(root, "example", "pr-draft")["prPublication"][
-                    "isDraft"
-                ]
-                source.write_text("review revision\n", encoding="utf-8")
-                updated = pr.update(root, "example")
-                assert updated["prPublication"]["number"] == 7 and remote.created == 1
-                assert (
-                    updated["tip"] != old
-                    and target.exists()
-                    and updated["merged"] is None
-                )
-                assert git(target, "merge-base", old, updated["tip"]) == old
-                assert remote.validations == [old, updated["tip"]]
-                assert git(root, "rev-parse", "HEAD") == state["start"]
+                if ending == "close":
+                    assert wt.finalize(root, "example", create_pr=True)[
+                        "prPublication"
+                    ]["isDraft"]
+                    assert not pr.operate(root, "example", "pr-ready")["prPublication"][
+                        "isDraft"
+                    ]
+                    assert pr.operate(root, "example", "pr-draft")["prPublication"][
+                        "isDraft"
+                    ]
+                    source.write_text("review revision\n", encoding="utf-8")
+                    updated = pr.update(root, "example")
+                    assert (
+                        updated["prPublication"]["number"] == 7 and remote.created == 1
+                    )
+                    assert (
+                        updated["tip"] != old
+                        and target.exists()
+                        and updated["merged"] is None
+                    )
+                    assert git(target, "merge-base", old, updated["tip"]) == old
+                    assert remote.validations == [old, updated["tip"]]
+                    assert git(root, "rev-parse", "HEAD") == state["start"]
                 if ending == "close":
                     assert (
                         pr.operate(root, "example", "pr-close")["prPublication"][

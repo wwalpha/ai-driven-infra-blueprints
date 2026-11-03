@@ -222,7 +222,9 @@ def setup(where, task_id):
         lock.rmdir()
 
 
-def integration_task(target, state, approval=None):
+def integration_task(
+    target, state, approval=None, *, records=None, expected_common=None
+):
     # A human-approved Git integration does not turn failed validation into completion.
     snapshot = tasks.read_task_snapshot(target, state["task_file"], live=True)
     text = snapshot.text
@@ -230,8 +232,17 @@ def integration_task(target, state, approval=None):
         worktree_state.deploy_start_commit(
             target, state["task_file"], allow_merged=True
         )
-    else:
+    elif records is None:
         task_start_commit(target, state["task_file"])
+    else:
+        worktree_state._task_start_commit(
+            target,
+            state["task_file"],
+            records=records,
+            expected_common=expected_common,
+            merge_base=False,
+            verified_state=state,
+        )
     current = tasks.status(text)
     approval = approval or state.get("validation_failure_approval")
     if approval is not None and (not isinstance(approval, str) or not approval.strip()):
@@ -243,10 +254,10 @@ def integration_task(target, state, approval=None):
         )
 
 
-def base_worktree(root, state):
+def base_worktree(root, state, *, records=None):
     entries = [
         entry
-        for entry in worktrees(root)
+        for entry in (worktrees(root) if records is None else records)
         if entry.get("branch") == f"refs/heads/{state['base']}"
     ]
     if len(entries) != 1 or "locked" in entries[0] or "prunable" in entries[0]:
