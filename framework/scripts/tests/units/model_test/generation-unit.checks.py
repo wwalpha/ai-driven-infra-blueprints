@@ -874,5 +874,62 @@ def test_audit_cli_failure_preserves_output(tmp_path, failure, existing):
     check.assertEqual(generate.call_count, int(failure == "changed"))
 
 
+def test_iam_role_tags_reuse_get_role_and_preserve_pairs():
+    inputs, _ = load_fixture("iam/model-reference")
+    inputs.pop("models")
+    inputs["model"] = {
+        key: value
+        for key, value in inputs["model"].items()
+        if not key.startswith("desired.row.001-002.")
+    }
+    for number, field, value in [
+        (2, "Key", "a"),
+        (3, "Value", "one"),
+        (4, "Key", "b"),
+        (5, "Value", "two"),
+    ]:
+        prefix = f"desired.row.001-{number:03d}."
+        inputs["model"].update(
+            {
+                prefix + "property": "IAM.Role.Tags[]." + field,
+                prefix + "value": f"`{value}`",
+                prefix + "comment": "fixture",
+            }
+        )
+    inputs["fields"] = ["propertiesKey", "status"]
+    inputs["properties"] = ["IAM.Role.Tags[].Key", "IAM.Role.Tags[].Value"]
+    inputs["report"] = False
+
+    def response(tags):
+        role = {"RoleName": "fixture-role"}
+        if tags is not None:
+            role["Tags"] = tags
+        return [{"api": ["iam", "get-role"], "response": {"Role": role}}]
+
+    inputs["scenarios"] = [
+        {"responses": response(None)},
+        {
+            "responses": response(
+                [{"Key": "b", "Value": "two"}, {"Key": "a", "Value": "one"}]
+            )
+        },
+        {
+            "responses": response(
+                [{"Key": "b", "Value": "one"}, {"Key": "a", "Value": "two"}]
+            )
+        },
+        {"fail": ["iam", "get-role"]},
+    ]
+    results = execute((inputs, []))
+    assert [[row["status"] for row in result["records"]] for result in results] == [
+        ["difference", "difference"],
+        ["match", "match"],
+        ["match", "difference"],
+        ["acquisition_failed", "acquisition_failed"],
+    ]
+    for result in results:
+        assert result["calls"] == [[["iam", "get-role"], {"RoleName": "fixture-role"}]]
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

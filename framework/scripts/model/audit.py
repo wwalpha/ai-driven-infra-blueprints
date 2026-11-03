@@ -752,6 +752,23 @@ def _build(root, environment, selector, service, standalone):
                         reason="",
                     ),
                 )
+            for field in ("Key", "Value"):
+                key = "IAM.Role.Tags[]." + field
+                prop = props[key]
+                response_shape(
+                    sdk.operation_model("GetRole").output_shape, "Role.Tags[]." + field
+                )
+                props[key] = replace(
+                    prop,
+                    field=replace(
+                        prop.field,
+                        getter="base",
+                        path="Tags[]." + field,
+                        default=[],
+                        classification="supported",
+                        reason="",
+                    ),
+                )
         for row in selected_rows:
             key = row["property"]
             prop = props.get(key)
