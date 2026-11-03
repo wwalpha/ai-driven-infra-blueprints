@@ -822,11 +822,32 @@ def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool
         state["failureClassification"] = (
             "HUMAN_REQUIRED" if state.get("emptyStackRecreated") else "NEEDS_DIAGNOSIS"
         )
+        if state["failureClassification"] == "HUMAN_REQUIRED":
+            previous_failure = state.get("failure")
+            state["failure"] = {
+                "classification": "HUMAN_REQUIRED",
+                "code": "RECREATE_ALREADY_ATTEMPTED",
+                "stage": "RECOVERY",
+                "message": "Automatic recreation has already been attempted for this Stack.",
+                "requiredAction": "Review the original failure and decide how to recover the Stack.",
+            }
+            if previous_failure:
+                state["failure"]["previousFailure"] = previous_failure.get(
+                    "previousFailure", previous_failure
+                )
         runtime.save()
         return False
     except Exception as error:
         state["failureClassification"] = "HUMAN_REQUIRED"
-        state["reason"] = str(error)
+        state["reason"] = _imports_deploy_failures.exception_message(error)
+        previous_failure = state.get("failure")
+        _imports_deploy_failures.exception(state, error, "RECOVERY")
+        if previous_failure:
+            state["failure"]["previousFailure"] = previous_failure.get(
+                "previousFailure", previous_failure
+            )
+        state["failure"]["classification"] = "HUMAN_REQUIRED"
+        state["failure"]["code"] = state["failure"].get("code") or "RECOVERY_BLOCKED"
         runtime.save()
         return False
 
@@ -852,10 +873,17 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     if state.get("clientToken"):
         try:
             events = current_state.pages(
-                runtime.aws,
+                partial(current_state._event_page, runtime.aws),
                 "describe_stack_events",
                 "StackEvents",
                 StackName=execution_stack or unit["name"],
+            )
+            state["progress"] = current_state.event_progress(
+                current,
+                events,
+                state["clientToken"],
+                execution_stack or current.get("StackId"),
+                unit["name"],
             )
             matched = [
                 event
@@ -867,9 +895,15 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
                     event, runtime.templates.get(unit["name"], ({}, {}))[0]
                 )
                 for event in matched
-                if event.get("ResourceStatus", "").endswith("_FAILED")
-                or event.get("ResourceStatus") == "DELETE_SKIPPED"
+                if (execution_stack or current.get("StackId"))
+                and event.get("StackId") == (execution_stack or current.get("StackId"))
+                and isinstance(event.get("ResourceStatus"), str)
+                and (
+                    event.get("ResourceStatus", "").endswith("_FAILED")
+                    or event.get("ResourceStatus") == "DELETE_SKIPPED"
+                )
             ]
+            state["eventReadStatus"] = "COMPLETE"
             stack_events = current_request.root_events(
                 matched, state["clientToken"], execution_stack
             )
@@ -885,7 +919,19 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
                 if attempt_status in current_state.FAILED:
                     state["failureDetected"] = True
         except (OSError, Blocked):
-            pass  # Diagnostics cannot veto an otherwise confirmed current observation.
+            # Diagnostics cannot veto an otherwise confirmed current observation.
+            state["eventReadStatus"] = "EVENT_READ_FAILED"
+            state["progress"] = {
+                "available": False,
+                "partial": True,
+                "eventAsOf": current.get("observedAt"),
+            }
+    else:
+        state["progress"] = {
+            "available": False,
+            "partial": True,
+            "eventAsOf": current.get("observedAt"),
+        }
     request = current_request.reconcile(runtime, unit, state)
     if request and state.get("requestError"):
         raise Blocked(state["requestError"])

@@ -18,6 +18,7 @@ import model.validations.full_inputs as _model_validation_full_inputs
 import pytest
 from deploy import (
     controller,
+    failures,
     inputs,
     model_cache,
     observed,
@@ -929,6 +930,9 @@ def check_readiness_blocks_before_mutation(tmp_path, monkeypatch, problem, statu
         assert advance_group(units, 1, states, backend) == "STOPPED"
     assert states["fixture"]["status"] == "BLOCKED"
     assert "fixture: Observed readiness:" in states["fixture"]["reason"]
+    diagnostic = failures.diagnostic(states["fixture"])
+    assert diagnostic["message"] == states["fixture"]["reason"]
+    assert diagnostic["stage"] == "PREPARATION" and diagnostic["requiredAction"]
     if problem == "missing":
         assert (
             "python framework/scripts/model/cli.py index --repository-root"

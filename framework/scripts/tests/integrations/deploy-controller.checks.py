@@ -7,8 +7,9 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -17,7 +18,13 @@ import pytest
 import sync_runtime
 from deploy import (
     contracts,
+    controller,
+    current_request,
+    current_state,
+    failures,
     generation_resume,
+    operation_journal,
+    steps,
     worktree,
 )
 from model.core import properties
@@ -33,7 +40,9 @@ from support.deploy_controller_fixtures import (
 from support.deploy_controller_fixtures import (
     drive as invoke,
 )
+from support.deploy_controller_fixtures import invoke as invoke_step
 from support.pytest_cli import run
+from support.worktree_deploy_fixtures import seed as managed_seed
 from task_contract_core import selected_task, status
 from task_contract_runtime import complete
 from validation.findings import Findings
@@ -245,6 +254,226 @@ def check_model_publication_across_process(tmp_path):
         ),
         1,
     )
+
+
+def check_failure_evidence_survives_progress_reload_and_status(tmp_path):
+    root = tmp_path / "project"
+    stack = "stack-a"
+    secret = "private-parameter-value"
+    events = [
+        {
+            "StackId": stack,
+            "ClientRequestToken": "own",
+            "LogicalResourceId": "Bucket",
+            "ResourceType": "AWS::S3::Bucket",
+            "ResourceStatus": "CREATE_FAILED",
+            "EventId": "first",
+            "Timestamp": "2026-01-01T00:00:01Z",
+            "ResourceStatusReason": f"{secret} (HandlerErrorCode: InvalidRequest)",
+        },
+        {
+            "StackId": stack,
+            "ClientRequestToken": "other",
+            "LogicalResourceId": "Other",
+            "ResourceStatus": "CREATE_FAILED",
+            "EventId": "foreign",
+            "Timestamp": "2026-01-01T00:00:00Z",
+        },
+        {
+            "StackId": stack,
+            "ClientRequestToken": "own",
+            "LogicalResourceId": "Bucket",
+            "ResourceStatus": "DELETE_FAILED",
+            "EventId": "rollback",
+            "Timestamp": "2026-01-01T00:00:02Z",
+        },
+    ]
+    state = {"status": "RUNNING", "clientToken": "own"}
+    runtime = SimpleNamespace(
+        aws=Mock(
+            side_effect=[
+                {
+                    "Stacks": [
+                        {
+                            "StackId": stack,
+                            "StackStatus": "UPDATE_ROLLBACK_IN_PROGRESS",
+                            "StackStatusReason": secret,
+                        }
+                    ]
+                },
+                {"StackEvents": events},
+            ]
+        ),
+        templates={"A": ({"Resources": {"Bucket": {"Properties": {}}}}, {})},
+    )
+    with patch.object(current_request, "reconcile", return_value=None):
+        assert (
+            controller.poll(runtime, {"name": "A"}, state)
+            == "UPDATE_ROLLBACK_IN_PROGRESS"
+        )
+    state["changeSetFailure"] = {"code": "InvalidRequest", "message": "safe"}
+    state["failureClassification"] = "HUMAN_REQUIRED"
+    identity = {
+        "taskFile": "tasks/deploy.md",
+        "taskDigest": "digest",
+        "target": {},
+        "environment": "dev",
+        "stacks": ["A"],
+        "snapshot": "fixed",
+    }
+    context = {
+        **{
+            key: identity[key]
+            for key in ("taskFile", "taskDigest", "target", "environment")
+        },
+        "repository": str(root),
+        "states": {"A": state},
+        "consumedInputs": {},
+        "inputDigests": {},
+        "stepUnits": [{"name": "A"}],
+    }
+    backend = SimpleNamespace(
+        root=root,
+        phase="deploy",
+        run_context=context,
+        progress_identity=identity,
+        progress_root=root.resolve(),
+        progress_directory=None,
+        progress_destination=worktree.progress_path(root, create=True),
+    )
+    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    loaded = worktree.read_progress(root, {"deployIdentity": identity})["runContext"]
+    saved = loaded["states"]["A"]
+    report = steps.describe(
+        SimpleNamespace(states=loaded["states"], run_context=loaded)
+    )
+    diagnostic = report["states"]["A"]["diagnostic"]
+    assert diagnostic["eventId"] == "first" and diagnostic["code"] == "InvalidRequest"
+    assert report["deployResult"] != "FAIL"
+    assert saved["changeSetFailure"]["code"] == "InvalidRequest"
+    assert saved["currentStack"]["statusReason"]["reasonRedacted"]
+    assert report["states"]["A"]["progress"]["available"]
+    assert report["states"]["A"]["progress"]["phase"] == "ROLLBACK"
+    assert secret not in json.dumps(loaded) + json.dumps(report)
+    assert "foreign" not in json.dumps(saved["failureEvents"])
+    runtime = SimpleNamespace(root=root, guard=lambda: None, save=lambda: None)
+    with patch.object(controller.repair_ops, "require_authorized"):
+        assert not controller.repair(runtime, {"name": "A"}, saved)
+    backend.run_context = loaded
+    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    restored = worktree.read_progress(root, {"deployIdentity": identity})["runContext"]
+    diagnostic = steps.describe(
+        SimpleNamespace(states=restored["states"], run_context=restored)
+    )["states"]["A"]["diagnostic"]
+    assert diagnostic["classification"] == "HUMAN_REQUIRED"
+    assert diagnostic["code"] == "InvalidRequest"
+    assert diagnostic["primaryFailure"]["eventId"] == "first"
+    assert diagnostic["primaryFailure"]["resource"]["LogicalResourceId"] == "Bucket"
+    assert diagnostic["recoveryFailure"]["code"] == "RECOVERY_BLOCKED"
+    assert "unsafe rollback state" in diagnostic["recoveryFailure"]["message"]
+    assert "eventId" not in diagnostic["recoveryFailure"]
+    assert diagnostic["eventId"] == "first"
+    assert diagnostic["requiredAction"]
+    assert secret not in json.dumps(diagnostic)
+    current_state.record_attempt(saved, "ATTEMPT_SUCCESS")
+    assert failures.diagnostic(saved) is None
+
+
+def check_event_read_failure_keeps_running_operation_unconfirmed():
+    state = {"status": "RUNNING", "clientToken": "own"}
+    runtime = SimpleNamespace(
+        aws=Mock(
+            side_effect=[
+                {"Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_IN_PROGRESS"}]},
+                OSError("private-secret"),
+            ]
+        ),
+        templates={},
+    )
+    with patch.object(current_request, "reconcile", return_value=None):
+        assert controller.poll(runtime, {"name": "A"}, state) == "UPDATE_IN_PROGRESS"
+    report = steps.describe(
+        SimpleNamespace(states={"A": state}, run_context={"states": {"A": state}})
+    )
+    assert report["states"]["A"]["diagnostic"]["code"] == "EVENT_READ_FAILED"
+    assert not report["states"]["A"]["progress"]["available"]
+    assert report["deployResult"] == "PENDING"
+    assert "private-secret" not in json.dumps(report) + json.dumps(state)
+
+
+def check_advance_and_status_expose_observed_progress(tmp_path, monkeypatch, capsys):
+    report, aws = tmp_path / "report.json", tmp_path / "aws.json"
+    root = managed_seed(tmp_path / "project", report, "orders", same_group=True)
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    aws_state(aws)
+    capsys.readouterr()
+    assert invoke_step(root, report, aws, ["--action", "advance"]) == 0
+    capsys.readouterr()
+    provider = json.loads(aws.read_text())
+    provider["stacks"][FIRST]["status"] = "CREATE_IN_PROGRESS"
+    provider["knobs"]["resource_events"] = {
+        FIRST: [
+            {
+                "LogicalResourceId": FIRST,
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "ResourceStatus": "CREATE_IN_PROGRESS",
+                "EventId": "root-start",
+                "Timestamp": "2026-01-01T00:00:00Z",
+            },
+            {
+                "LogicalResourceId": "ObservedResource",
+                "ResourceType": "AWS::S3::Bucket",
+                "ResourceStatus": "CREATE_IN_PROGRESS",
+                "EventId": "event-1",
+                "Timestamp": "2026-01-01T00:00:01Z",
+            },
+        ]
+    }
+    aws.write_text(json.dumps(provider))
+    assert invoke_step(root, report, aws, ["--action", "advance"]) == 0
+    advanced = json.loads(capsys.readouterr().out)
+    assert advanced["result"] == "PENDING"
+    progress = advanced["states"][FIRST]["progress"]
+    assert progress["available"] and progress["observedResources"] == 1
+    assert progress["activeResources"][0]["logicalId"] == "ObservedResource"
+    provider = json.loads(aws.read_text())
+    provider["knobs"]["resource_events"][FIRST].append(
+        {
+            "LogicalResourceId": "ObservedResource",
+            "ResourceType": "AWS::S3::Bucket",
+            "ResourceStatus": "CREATE_COMPLETE",
+            "EventId": "event-2",
+            "Timestamp": "2026-01-01T00:00:02Z",
+        }
+    )
+    provider["knobs"]["resource_events"][FIRST].append(
+        {
+            "LogicalResourceId": "ForeignResource",
+            "ResourceType": "AWS::S3::Bucket",
+            "ResourceStatus": "CREATE_IN_PROGRESS",
+            "ClientRequestToken": "different-attempt",
+            "EventId": "foreign-event",
+            "Timestamp": "2026-01-01T00:00:03Z",
+        }
+    )
+    before_calls = len(provider["calls"])
+    aws.write_text(json.dumps(provider))
+    assert invoke_step(root, report, aws, ["--action", "status"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    progress = status["states"][FIRST]["progress"]
+    assert progress["observedResources"] == 1 and progress["completed"] == 1
+    assert progress["resources"][0]["resourceStatus"] == "CREATE_COMPLETE"
+    assert not progress["stale"]
+    calls = json.loads(aws.read_text())["calls"][before_calls:]
+    assert (
+        sum(
+            op == "describe_stack_events" and args.get("StackName", "").endswith(FIRST)
+            for _, op, args in calls
+        )
+        <= 1
+    )
+    assert all(op.startswith(("describe_", "list_", "get_")) for _, op, _ in calls)
 
 
 if __name__ == "__main__":

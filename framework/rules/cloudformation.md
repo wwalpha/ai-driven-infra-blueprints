@@ -535,8 +535,8 @@ block only the affected Stack's new mutations; other Stacks and Snapshot saves c
 
 ### Managed Deploy snapshot and Git publication
 
-Independent Deploy uses `worktree_task.py deploy-start --task-id <id>`, reusing a
-suitable valid managed Worktree. Keep lifecycle ownership, current Task authority,
+Independent new Deploy uses `worktree_task.py deploy-start --task-id <id>` with a
+currently unused ID. Continue an existing Task in its own Worktree. Keep lifecycle ownership, current Task authority,
 Target/Account/Region, destructive-change consent and fixed IaC/parameters/artifacts.
 Self-authored Observed/View/contract commits advance HEAD without changing execution
 inputs. Base advancement or rewritten publication history does not replace fixed inputs.

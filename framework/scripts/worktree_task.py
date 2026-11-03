@@ -100,6 +100,16 @@ def base_branch(root):
     raise Blocked("no configured base, main or master branch exists")
 
 
+def base_upstream_config(root, base):
+    values = []
+    for key in ("remote", "merge"):
+        result = git(root, "config", "--get-all", f"branch.{base}.{key}", check=False)
+        if result.returncode not in {0, 1}:
+            raise Blocked("Deploy base upstream configuration could not be read")
+        values.append(result.stdout.splitlines())
+    return values
+
+
 def save(path, state):
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
@@ -124,7 +134,9 @@ def lifecycle_lock(primary):
         lock.rmdir()
 
 
-def create(where, task_id, repair_request=None):
+def create(
+    where, task_id, repair_request=None, *, expected_base=None, expected_upstream=None
+):
     root, common, primary = repository(where)
     state_file = state_path(primary, task_id)
     branch = f"codex/worktree/{task_id}"
@@ -164,6 +176,15 @@ def create(where, task_id, repair_request=None):
                 f"registered/stale worktree path collision: {target}; do not prune automatically"
             )
         start = output(root, "rev-parse", f"refs/heads/{base}")
+        if expected_base is not None and (base, start) != expected_base:
+            raise Blocked(
+                "Deploy base changed between verification and worktree creation"
+            )
+        if (
+            expected_upstream is not None
+            and base_upstream_config(root, base) != expected_upstream
+        ):
+            raise Blocked("Deploy base upstream changed before worktree creation")
         if request and start != request["parentTip"]:
             raise Blocked("repair parent tip changed")
         git(root, "worktree", "add", "-b", branch, str(target), start)
@@ -1889,9 +1910,28 @@ def sync_base(where, task_id, expected_base):
     """
 
     root, _, path, state = load(where, task_id)
-    with lifecycle_lock(root):
+    pr_mode = state.get("integrationMode") == "pr"
+    publication_lock = (
+        module("worktree_pr.py", "worktree_pr").publication_lock(path)
+        if pr_mode
+        else nullcontext()
+    )
+    with publication_lock, lifecycle_lock(root):
         root, _, path, state = load(root, task_id)
-        if state.get("integrationMode") == "pr":
+        if (state.get("integrationMode") == "pr") != pr_mode:
+            raise Blocked("Task integration mode changed before base sync")
+        if pr_mode and (
+            any(key in state for key in ("prPublication", "prUpdate", "githubMerged"))
+            or state.get("verified")
+            or state.get("validation_failure_approval")
+            or state.get("deployIdentity")
+            or state.get("deployRepair")
+            or state.get("recovery")
+            or state.get("latestBaseSync")
+            or state.get("rewrittenBaseIntent")
+            or path.with_suffix(".setup-lock").exists()
+            or state.get("python_setup", {}).get("status") != "ready"
+        ):
             raise Blocked("PR Task intent is immutable; base sync refused")
         target = task_worktree(root, state)
         text = tasks.read_task_snapshot(target, state["task_file"], live=True).text

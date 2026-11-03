@@ -17,13 +17,13 @@ Select only the fixed method: SDK follows the sections below directly. Read only
 
 ## Managed entry
 
-Resolve the Task ID and Target; follow the Worktree [permission inspection and continuation procedure](../worktree/SKILL.md#sandbox-permission-approval-and-continuation), then use the existing lifecycle entry from a surviving root:
+For a new Deploy choose a Task ID not currently in use and resolve the Target; follow the Worktree [permission inspection and continuation procedure](../worktree/SKILL.md#sandbox-permission-approval-and-continuation), then use the existing lifecycle entry from a surviving root:
 
 ```console
 python3 -B framework/scripts/worktree_task.py deploy-start --task-id <task-id>
 ```
 
-Adopt its returned `worktree` and `task_file` for registration/preparation/child commands. Inspect only the selected Task/current checkout and necessary shared metadata under the Worktree entry procedure; never investigate unrelated checkout contents or infer scope from another Task. Do not repeat the helper's Task/Git inventory after success. Reuse the same valid unfinished Task and preserve Snapshot/progress/current requests; ambiguous ownership stops, never create a replacement Task. Offline preparation/help/read-only diagnostics remain available outside managed Worktrees.
+Adopt its returned `worktree` and `task_file` for registration/preparation/child commands. The entry verifies configured upstream and fast-forwards only a clean base; `LOCAL_ONLY` means no upstream was configured, not proof of remote freshness. Existing IDs are rejected. Inspect only the selected Task/current checkout and necessary shared metadata under the Worktree entry procedure; never investigate unrelated checkout contents or infer scope from another Task. Do not repeat the helper's Task/Git inventory after success. Continue an unfinished Task in its existing Worktree with its fixed Snapshot/progress/current requests, without calling `deploy-start` again; ambiguous ownership stops. Offline preparation/help/read-only diagnostics remain available outside managed Worktrees.
 
 ## SDK preparation
 
@@ -49,6 +49,8 @@ env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-pyth
 Use `advance` for the first or continuing ordinary turn; no unconditional status-before-advance call. Retain full scope and configured concurrency: independent same-Order peers may continue after one failure; later Orders require earlier success. Only the LLM chooses save timing, never fixed-period sync.
 
 Inspect `stage`, `cause`, `nextAction`/`nextActions` and actual result separately. Stop new starts on Task/context/input mismatch or unresolved dependencies, retaining accepted requests for observation.
+
+For each Stack, inspect `states[*].progress` for Stack status, phase, observed counts and active Resources. `available`, `partial`, `stale`, `countsAvailable` and `eventAsOf` qualify that observation; no total or percentage is inferred. For stops, read `states[*].diagnostic` including `code`, `message`, `resource`, `requiredAction` and available event evidence; report redaction or unavailable events. Approval waits and uncertain requests retain their existing Human and no-blind-retry boundaries.
 
 Only CREATE resources with unique explicit cfn-logicalId, active Conditions and confirmed ownership are deployable; IMPORT resources and external owners remain untouched. The Controller validates current AWS context, fixed Snapshot, template/parameters/artifacts, full ChangeSets, dependencies, DeployOrder and MaxConcurrentStacks at execution boundaries. Do not manually repeat its AWS inventory or DeployOrder calculation; these checks still run at every required boundary. Do not infer AWS absence from read errors or success from an old COMPLETE/Outputs/checkpoint. Retain original StackId/ChangeSetId/token for uncertain requests; never blindly resend Create/Execute, delete, rollback or redeploy successful Stacks.
 

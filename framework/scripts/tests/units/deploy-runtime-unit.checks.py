@@ -2103,6 +2103,7 @@ def _callback_check_secret_runtime_bootstrap_configure_aws(
                     "ResourceType": "AWS::QuickSight::DataSource",
                     "ResourceStatus": "CREATE_FAILED",
                     "ClientRequestToken": tokens[name],
+                    "StackId": stack_ids[name],
                     "ResourceStatusReason": "Secrets Manager can't find the specified secret value for staging label: AWSCURRENT",
                 }
             )

@@ -23,6 +23,7 @@ from deploy import (
     controller,
     current_request,
     current_state,
+    failures,
     observed,
     operation_journal,
     recovery,
@@ -349,6 +350,255 @@ def check_step_diagnostics_do_not_expose_unknown_error_values():
     )
     assert known["code"] == "DEPLOY_STEP_BLOCKED"
     assert known["reason"] == "base advanced; review retained commit"
+    assert "private-value" not in json.dumps(
+        cli_guidance.safe_error(cli_guidance.DeployStepBlocked("private-value"))
+    )
+
+
+def check_safe_failure_diagnostics_distinguish_root_rollback_and_unknown():
+    template = {"Resources": {"Bucket": {"Properties": {"BucketName": "x"}}}}
+    first = failures.event(
+        {
+            "LogicalResourceId": "Bucket",
+            "ResourceType": "AWS::S3::Bucket",
+            "ResourceStatus": "CREATE_FAILED",
+            "EventId": "first",
+            "Timestamp": "2026-01-01T00:00:01Z",
+            "ResourceStatusReason": "private-value BucketName (HandlerErrorCode: InvalidRequest)",
+        },
+        template,
+    )
+    rollback = failures.event(
+        {
+            "LogicalResourceId": "Bucket",
+            "ResourceStatus": "DELETE_FAILED",
+            "EventId": "second",
+            "Timestamp": "2026-01-01T00:00:02Z",
+            "ResourceStatusReason": "private-value",
+        },
+        template,
+    )
+    state = {
+        "status": "FAILED",
+        "stackId": "stack",
+        "failureEvents": [rollback, first],
+        "eventReadStatus": "COMPLETE",
+    }
+    diagnostic = failures.diagnostic(state)
+    assert diagnostic["eventId"] == "first"
+    assert diagnostic["code"] == "InvalidRequest"
+    assert diagnostic["resource"]["LogicalResourceId"] == "Bucket"
+    assert diagnostic["resource"]["properties"] == ["BucketName"]
+    assert diagnostic["reasonRedacted"]
+    assert "private-value" not in json.dumps(state) + json.dumps(diagnostic)
+    state.update(
+        failureClassification="HUMAN_REQUIRED",
+        failure={
+            "classification": "HUMAN_REQUIRED",
+            "stage": "RECOVERY",
+            "code": "RECOVERY_BLOCKED",
+            "message": "Recovery blocked",
+            "requiredAction": "Review recovery",
+            "previousFailure": {"code": "older"},
+        },
+    )
+    separated = failures.diagnostic(state)
+    assert separated["primaryFailure"]["code"] == "InvalidRequest"
+    assert separated["primaryFailure"]["eventId"] == "first"
+    assert separated["recoveryFailure"]["code"] == "RECOVERY_BLOCKED"
+    assert "eventId" not in separated["recoveryFailure"]
+    assert separated["requiredAction"] == "Review recovery"
+    state["requestPending"] = True
+    unconfirmed = failures.diagnostic(state)
+    assert unconfirmed["code"] == "REQUEST_UNCONFIRMED"
+    assert "primaryFailure" not in unconfirmed and "eventId" not in unconfirmed
+    assert not unconfirmed["retryable"]
+    state.pop("requestPending")
+    state["failureEvents"] = [rollback]
+    assert failures.diagnostic(state)["primaryFailure"]["code"] == "UNKNOWN_REASON"
+    state.pop("failureClassification")
+    state.pop("failure")
+    duplicate = dict(first, LogicalResourceId="Other", EventId="same-time")
+    state["failureEvents"] = [first, duplicate]
+    assert failures.diagnostic(state)["code"] == "UNKNOWN_REASON"
+    assert "eventId" not in failures.diagnostic(state)
+    state.update(failureEvents=[rollback], eventReadStatus="EVENT_READ_FAILED")
+    assert failures.diagnostic(state)["code"] == "EVENT_READ_FAILED"
+    state.update(status="BLOCKED", requestPending=True)
+    assert failures.diagnostic(state)["code"] == "REQUEST_UNCONFIRMED"
+    denied = {"status": "BLOCKED"}
+    failures.exception(
+        denied,
+        AwsError("cloudformation", "create_change_set", "AccessDenied"),
+        "CHANGESET_REVIEW",
+    )
+    assert failures.diagnostic(denied)["classification"] == "AUTHORIZATION"
+    assert failures.diagnostic(denied)["code"] == "AccessDenied"
+    observed = current_state.observation(
+        {
+            "StackStatus": "CREATE_FAILED",
+            "StackStatusReason": "private-value (HandlerErrorCode: InvalidRequest)",
+        }
+    )
+    assert observed["statusReason"]["code"] == "InvalidRequest"
+    assert "private-value" not in json.dumps(observed)
+    unknown = {"status": "RUNNING"}
+    error = AwsError("cloudformation", "execute_change_set", "ReadTimeoutError")
+    error.deploy_operation = "execute_change_set"
+    failures.exception(unknown, error, "EXECUTE")
+    result = failures.diagnostic(unknown)
+    assert (
+        result["operation"] == "execute_change_set"
+        and result["code"] == "ReadTimeoutError"
+    )
+    assert not result["retryable"]
+
+
+@pytest.mark.parametrize(
+    "stack_status",
+    ["CREATE_IN_PROGRESS", "UPDATE_IN_PROGRESS", "UPDATE_ROLLBACK_IN_PROGRESS"],
+)
+def check_observed_resource_progress_deduplicates_and_marks_uncertainty(stack_status):
+    common = {
+        "StackId": "stack-a",
+        "ClientRequestToken": "current",
+        "ResourceType": "AWS::S3::Bucket",
+    }
+    start = {
+        **common,
+        "LogicalResourceId": "Bucket",
+        "ResourceStatus": "CREATE_IN_PROGRESS",
+        "EventId": "one",
+        "Timestamp": "2026-01-01T00:00:01Z",
+    }
+    complete = {
+        **start,
+        "ResourceStatus": "CREATE_COMPLETE",
+        "EventId": "two",
+        "Timestamp": "2026-01-01T00:00:02Z",
+    }
+    active = {
+        **start,
+        "LogicalResourceId": "Key",
+        "ResourceStatus": "UPDATE_IN_PROGRESS",
+        "EventId": "three",
+    }
+    foreign = {
+        **start,
+        "LogicalResourceId": "Foreign",
+        "ClientRequestToken": "old",
+        "EventId": "four",
+    }
+    other_stack = {
+        **start,
+        "LogicalResourceId": "OtherStack",
+        "StackId": "stack-b",
+        "EventId": "five",
+    }
+    stack = {"StackId": "stack-a", "StackStatus": stack_status, "observedAt": "now"}
+    root = {
+        "StackId": "stack-a",
+        "ClientRequestToken": "current",
+        "PhysicalResourceId": "stack-a",
+        "ResourceStatus": stack_status,
+        "Timestamp": "2026-01-01T00:00:00Z",
+    }
+    progress = current_state.event_progress(
+        stack,
+        [root, start, complete, complete, active, foreign, other_stack],
+        "current",
+        "stack-a",
+        "A",
+    )
+    assert progress["available"] and progress["partial"]
+    assert (
+        progress["observedResources"],
+        progress["completed"],
+        progress["inProgress"],
+        progress["failed"],
+    ) == (2, 1, 1, 0)
+    assert [item["logicalId"] for item in progress["activeResources"]] == ["Key"]
+    assert len(progress["resources"]) == 2 and not progress["resourcesTruncated"]
+    assert progress["resourcesOmitted"] == 0
+    many = [
+        {
+            **start,
+            "LogicalResourceId": f"Item{i:03}",
+            "EventId": f"large-{i}",
+            "ResourceStatus": "CREATE_FAILED"
+            if i == 100
+            else "CREATE_IN_PROGRESS"
+            if i == 99
+            else "CREATE_COMPLETE",
+        }
+        for i in range(101)
+    ]
+    large = current_state.event_progress(
+        stack, [root, *many, foreign, other_stack], "current", "stack-a", "A"
+    )
+    assert (
+        large["observedResources"],
+        large["completed"],
+        large["inProgress"],
+        large["failed"],
+    ) == (101, 99, 1, 1)
+    assert len(large["resources"]) == 30 and large["resourcesOmitted"] == 71
+    assert large["resourcesTruncated"]
+    assert {item["logicalId"] for item in large["resources"][:2]} == {
+        "Item099",
+        "Item100",
+    }
+    assert "percent" not in progress and "total" not in progress
+    missing_token = current_state.event_progress(
+        stack,
+        [root, active, {**complete, "ClientRequestToken": None}],
+        "current",
+        "stack-a",
+        "A",
+    )
+    assert missing_token["partial"] and missing_token["inProgress"] == 1
+    assert not current_state.event_progress(stack, [active], None, "stack-a", "A")[
+        "available"
+    ]
+    assert not current_state.event_progress(
+        stack, [active], "current", "old-stack", "A"
+    )["available"]
+    failure = {
+        **start,
+        "ResourceStatus": "CREATE_FAILED",
+        "EventId": "failure",
+        "ResourceStatusReason": "private-value (HandlerErrorCode: InvalidRequest)",
+    }
+    recovered = current_state.event_progress(
+        stack, [root, failure, complete], "current", "stack-a", "A"
+    )
+    assert recovered["failed"] == 0 and recovered["completed"] == 1
+    assert recovered["recentFailures"][0]["eventId"] == "failure"
+    assert "private-value" not in json.dumps(recovered)
+    incomplete = current_state.event_progress(
+        stack, [root, {**active, "Timestamp": None}], "current", "stack-a", "A"
+    )
+    assert incomplete["partial"] and incomplete["observedResources"] == 0
+    unknown_boundary = current_state.event_progress(
+        stack, [complete], "current", "stack-a", "A"
+    )
+    assert (
+        not unknown_boundary["countsAvailable"]
+        and unknown_boundary["completed"] is None
+    )
+    rollback = {**stack, "StackStatus": "UPDATE_ROLLBACK_IN_PROGRESS"}
+    rollback_start = {
+        **root,
+        "ResourceStatus": "UPDATE_ROLLBACK_IN_PROGRESS",
+        "Timestamp": "2026-01-01T00:00:03Z",
+    }
+    after_rollback = current_state.event_progress(
+        rollback, [failure, complete, rollback_start], "current", "stack-a", "A"
+    )
+    assert (
+        after_rollback["completed"] == 0
+        and after_rollback["recentFailures"][0]["eventId"] == "failure"
+    )
 
 
 @pytest.mark.parametrize(
