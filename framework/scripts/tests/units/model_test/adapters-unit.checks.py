@@ -1,8 +1,10 @@
+import ast
 import json
 import subprocess
 import sys
 import unittest
 from copy import deepcopy
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,16 +18,19 @@ import pytest
 from botocore.exceptions import ClientError
 from model.adapters import aws as adapter_aws
 from model.adapters.aws import AcquisitionError, Unresolved, sdk_error, service_module
+from model.audit import generate
 from model.literal_values import normalize, value_shape
 from support.aws_sdk_cases import SdkCase
 from support.check_model_aws_fixtures import m
 from support.fixture_cases import load_case
+from support.model_sources import write_model
 from support.model_test_adapter_cases import (
     guardduty_case,
     guardduty_invalid_case,
     macie_case,
     verified_context,
 )
+from support.model_test_references import ReferenceFixture
 from support.regression_cases import case_ids
 from utils.cloudformation.schema import native_type_errors
 
@@ -342,3 +347,149 @@ if __name__ == "__main__":
     from support.pytest_cli import run
 
     raise SystemExit(run(__file__))
+
+
+def test_secrets_rotation_parent_reference():
+    adapter = service_module("secrets-manager")
+    parent = SimpleNamespace(
+        kind="SecretsManager.Secret",
+        model=SimpleNamespace(path=Path("secret")),
+        number="001",
+        value=Mock(return_value="parent-name"),
+    )
+    other = SimpleNamespace(kind=parent.kind, model=parent.model, number="002")
+    ref = {"$modelRef": {"logicalId": "Secret_001", "attribute": "Id"}}
+    resource = SimpleNamespace(
+        kind="SecretsManager.RotationSchedule",
+        parent=Mock(return_value=parent),
+        rows_for=Mock(return_value=[("001", {"value": "`" + json.dumps(ref) + "`"})]),
+        reference=Mock(return_value=parent),
+        value=Mock(side_effect=Unresolved("logical_only")),
+    )
+    response = {"RotationRules": {"AutomaticallyAfterDays": 30}}
+    ctx = SimpleNamespace(call=Mock(return_value=response))
+    assert adapter.fetch(ctx, resource, "base") == response
+    ctx.call.assert_called_once_with(
+        "secretsmanager", "describe_secret", SecretId="parent-name"
+    )
+    resource.value.assert_not_called()
+    resource.reference.return_value = other
+    ctx.call.reset_mock()
+    with pytest.raises(Unresolved, match="does not identify its parent"):
+        adapter.fetch(ctx, resource, "base")
+    ctx.call.assert_not_called()
+    resource.reference.return_value = parent
+    ctx.call.side_effect = AcquisitionError(
+        "secretsmanager.describe_secret", "AccessDenied", "acquisition_failed"
+    )
+    with pytest.raises(AcquisitionError):
+        adapter.fetch(ctx, resource, "base")
+
+
+def test_secrets_rotation_generated_audit(tmp_path):
+    (tmp_path / "project.json").write_text(
+        json.dumps(
+            {
+                "projectName": "fixture",
+                "targets": [
+                    {
+                        "environment": "dev",
+                        "alias": "cde",
+                        "awsAccountId": "123456789012",
+                        "awsRegion": "ap-northeast-1",
+                        "iacEngine": "cloudformation",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    model = ReferenceFixture.model
+    ref = ReferenceFixture.ref("SecretsManager_Secret_001", "Id")
+    values = model(
+        "SecretsManager.Secret", "SecretsManager_Secret_001", {"Name": "fixture-secret"}
+    )
+    schedule = model(
+        "SecretsManager.RotationSchedule",
+        "SecretsManager_RotationSchedule_001",
+        {
+            "SecretId": ref,
+            "RotationRules.AutomaticallyAfterDays": "30",
+            "RotationRules.Duration": "2h",
+        },
+    )
+    for key, value in schedule.items():
+        if key.startswith("desired.resource.001.") or key.startswith(
+            "desired.row.001-"
+        ):
+            values[key.replace(".001", ".002", 1)] = value
+    values["desired.service.identity.lastAllocated"] = json.dumps(
+        {"SecretsManager.Secret": 1, "SecretsManager.RotationSchedule": 1}
+    )
+    values["desired.resource.002.parentReference"] = json.dumps(ref)
+    values["desired.resource.002.parentProperty"] = (
+        "SecretsManager.RotationSchedule.SecretId"
+    )
+    write_model(tmp_path / "model/dev/cde/secrets-manager.properties", values)
+    source = generate(tmp_path, "dev", "cde", "secrets-manager")[0]
+    snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
+    calls = []
+
+    def cli(command, **kwargs):
+        calls.append(command)
+        if command[1] == "sts":
+            result = {
+                "Account": "123456789012",
+                "Arn": "arn:aws:iam::123456789012:user/offline",
+            }
+        else:
+            result = {
+                "Name": "fixture-secret",
+                "ARN": "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture",
+                "RotationRules": {"AutomaticallyAfterDays": 60, "Duration": "2h"},
+                "SecretString": "never-print-secret-value",
+            }
+        return subprocess.CompletedProcess(command, 0, json.dumps(result), "")
+
+    records = audit.audit(snapshot, cli_runner=cli)[2]
+    selected = {
+        item["propertiesKey"].rsplit(".", 1)[-1]: item
+        for item in records
+        if item["propertiesKey"].startswith("SecretsManager.RotationSchedule.")
+    }
+    assert selected["SecretId"]["status"] == "design_unresolved", selected
+    assert selected["AutomaticallyAfterDays"]["status"] == "difference", selected
+    assert selected["Duration"]["status"] == "match", selected
+    assert all(
+        command[1] in {"sts", "secretsmanager"}
+        and (command[1] != "secretsmanager" or command[2] == "describe-secret")
+        for command in calls
+    )
+    report, _ = audit.report(
+        snapshot, None, "account", records, datetime.now(timezone.utc)
+    )
+    assert "never-print-secret-value" not in report
+
+    def denied(command, **kwargs):
+        if command[1] == "sts":
+            return cli(command, **kwargs)
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            "",
+            json.dumps(
+                {"Code": "AccessDeniedException", "Message": "never-print-secret-value"}
+            ),
+        )
+
+    failed = audit.audit(snapshot, cli_runner=denied)[2]
+    days = next(
+        item
+        for item in failed
+        if item["propertiesKey"].endswith(".AutomaticallyAfterDays")
+    )
+    assert days["status"] == "acquisition_failed", days
+    report, _ = audit.report(
+        snapshot, None, "account", failed, datetime.now(timezone.utc)
+    )
+    assert "never-print-secret-value" not in report
