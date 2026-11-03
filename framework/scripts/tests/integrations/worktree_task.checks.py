@@ -778,6 +778,7 @@ def _check_pr_update_recovery_and_base():
         "rewrite",
         "foreign",
         "postpush",
+        "postpush-dirty",
         "push-old",
         "push-foreign",
     ):
@@ -853,15 +854,25 @@ class PRUpdateScenario:
         file.write_text(content, encoding="utf-8")
         git(self.root, "add", path)
         git(self.root, "commit", "-qm", "base advance")
-        git(self.root, "push", str(self.remote.remote), "HEAD:refs/heads/" + self.state["base"])
+        git(
+            self.root,
+            "push",
+            str(self.remote.remote),
+            "HEAD:refs/heads/" + self.state["base"],
+        )
 
     def validate(self, interpreter, environment, snapshot, task_file, base, head):
         result = self.remote.validate_update_snapshot(
             interpreter, environment, snapshot, task_file, base, head
         )
-        assert git(snapshot, "diff", "--name-only", base, head) == "framework/scripts/candidate.txt"
+        assert (
+            git(snapshot, "diff", "--name-only", base, head)
+            == "framework/scripts/candidate.txt"
+        )
         if self.mode == "remote":
-            assert (snapshot / "base.txt").read_text(encoding="utf-8") == "remote-only content\n"
+            assert (snapshot / "base.txt").read_text(
+                encoding="utf-8"
+            ) == "remote-only content\n"
         if self.mode in {"repair", "retry"} and not self.failures:
             self.failures.append(True)
             return subprocess.CompletedProcess([], 1, "", "validation failed")
@@ -879,13 +890,31 @@ class PRUpdateScenario:
         if self.mode == "push-foreign":
             tree = git(self.root, "rev-parse", "HEAD^{tree}")
             foreign = git(self.root, "commit-tree", tree, "-m", "foreign")
-            git(self.root, "push", str(self.remote.remote), foreign + ":refs/heads/test-third")
-            git(self.remote.remote, "update-ref", "refs/heads/" + self.state["branch"], foreign)
+            git(
+                self.root,
+                "push",
+                str(self.remote.remote),
+                foreign + ":refs/heads/test-third",
+            )
+            git(
+                self.remote.remote,
+                "update-ref",
+                "refs/heads/" + self.state["branch"],
+                foreign,
+            )
         raise wt.Blocked("push outcome unknown")
 
     def push_then_advance(self, target, publication):
         self.real_push(target, publication)
         self.advance("after-push.txt", "later base\n")
+
+    def push_then_dirty(self, target, publication):
+        self.real_push(target, publication)
+        (target / "framework/scripts/candidate.txt").write_text(
+            "local edit\n", encoding="utf-8"
+        )
+        with (target / self.state["task_file"]).open("a", encoding="utf-8") as task:
+            task.write("\nLocal task edit\n")
 
 
 def _check_pr_update_scenario(mode):
@@ -926,7 +955,9 @@ def _check_pr_update_scenario(mode):
                 git(root, "add", "local.txt")
                 git(root, "commit", "-qm", "local advance")
             elif mode == "conflict":
-                scenario.advance("framework/scripts/candidate.txt", "conflicting base\n")
+                scenario.advance(
+                    "framework/scripts/candidate.txt", "conflicting base\n"
+                )
             elif mode == "rewrite":
                 tree = git(root, "rev-parse", "HEAD^{tree}")
                 unrelated = git(root, "commit-tree", tree, "-m", "unrelated base")
@@ -958,8 +989,9 @@ def _check_pr_update_scenario(mode):
                     foreign,
                 )
             if mode in {"push-old", "push-foreign"}:
-
-                with patch.object(pr, "push_candidate", side_effect=scenario.failed_push):
+                with patch.object(
+                    pr, "push_candidate", side_effect=scenario.failed_push
+                ):
                     with TestCase().assertRaises(wt.Blocked):
                         pr.update(root, "example")
                 if mode == "push-foreign":
@@ -968,14 +1000,29 @@ def _check_pr_update_scenario(mode):
                             pr.update(root, "example")
                         retry_push.assert_not_called()
                     return
+            elif mode == "postpush-dirty":
+                with patch.object(
+                    pr, "push_candidate", side_effect=scenario.push_then_dirty
+                ):
+                    updated = pr.update(root, "example")
+                assert "prUpdate" not in updated
+                assert source.read_text(encoding="utf-8") == "local edit\n"
+                assert (
+                    (target / state["task_file"])
+                    .read_text(encoding="utf-8")
+                    .endswith("Local task edit\n")
+                )
+                assert updated["prPublication"]["candidate"] != old
+                return
             elif mode == "postpush":
-
-                with patch.object(pr, "push_candidate", side_effect=scenario.push_then_advance):
-                    with TestCase().assertRaises(wt.Blocked):
-                        pr.update(root, "example")
-                retained_state = wt.load(root, "example")[3]
-                assert retained_state["prUpdate"]["validation"] == "STALE"
-                assert retained_state["prPublication"]["candidate"] != old
+                with patch.object(
+                    pr, "push_candidate", side_effect=scenario.push_then_advance
+                ):
+                    updated = pr.update(root, "example")
+                assert "prUpdate" not in updated
+                assert updated["prPublication"]["candidate"] != old
+                assert updated["prPublication"]["baseCommit"] == state["start"]
+                return
             elif mode == "interrupted":
                 with patch.object(
                     pr, "push_candidate", side_effect=scenario.push_then_interrupt

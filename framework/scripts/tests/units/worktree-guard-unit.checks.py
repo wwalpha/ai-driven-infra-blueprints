@@ -1221,7 +1221,11 @@ def _check_pr_integration_guard(tmp_path, failure):
         patch.object(pr, "update_refs", return_value=(base, old)),
         patch.object(pr, "existing_pr"),
         patch.object(wt.python_env, "runtime", return_value=(Path(sys.executable), {})),
-        patch.object(wt, "git", side_effect=_bind_framework_callback(_pr_integration_git, failure)),
+        patch.object(
+            wt,
+            "git",
+            side_effect=_bind_framework_callback(_pr_integration_git, failure),
+        ),
         patch.object(
             wt, "output", return_value="d" * 40 if failure == "fetch" else base
         ),
@@ -2270,14 +2274,27 @@ def check_pr_lifecycle_cli(tmp_path, capsys, arguments, valid):
         "unchanged",
         "remote-head",
         "validation",
+        "validation-detail",
         "validated-edit",
         "suspended",
         "stale-base",
         "push-third",
         "hash-changed",
+        "legacy-review",
+        "legacy-stale",
+        "published-valid",
+        "published-unverified",
     ],
 )
 def check_pr_update_failure_retains_candidate(tmp_path, failure):
+    if failure in {
+        "legacy-review",
+        "legacy-stale",
+        "published-valid",
+        "published-unverified",
+    }:
+        _check_pr_update_published_recovery(tmp_path, failure)
+        return
     publication = dict(_pr_publication(), number=7)
     state = dict(
         task_id="example",
@@ -2297,6 +2314,7 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
         )
     if failure in {
         "validation",
+        "validation-detail",
         "validated-edit",
         "suspended",
         "stale-base",
@@ -2327,6 +2345,11 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
         patch.object(pr, "existing_pr"),
         patch.object(
             pr,
+            "remote_heads",
+            return_value={"refs/heads/" + publication["head"]: "foreign"},
+        ),
+        patch.object(
+            pr,
             "update_refs",
             return_value=(
                 "new-base" if failure == "stale-base" else "base",
@@ -2350,7 +2373,14 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
             pr.subprocess,
             "run",
             return_value=subprocess.CompletedProcess(
-                [], 2, "case-id", "validation diagnostic"
+                [],
+                2,
+                "case-id",
+                (
+                    'PR_VALIDATOR_DIAGNOSTICS={"returncode": 7, "stdout": "validator output", "stderr": "specific reason"}\n'
+                    if failure == "validation-detail"
+                    else "validation diagnostic"
+                ),
             ),
         ) as child,
         patch.object(pr, "push_candidate") as push,
@@ -2358,9 +2388,13 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
         with pytest.raises(wt.Blocked) as error:
             pr.update(tmp_path, "example")
         push.assert_not_called()
-        if failure == "validation":
-            assert error.value.diagnostics == dict(
-                returncode=2, stdout="case-id", stderr="validation diagnostic"
+        if failure in {"validation", "validation-detail"}:
+            assert error.value.diagnostics == (
+                dict(returncode=7, stdout="validator output", stderr="specific reason")
+                if failure == "validation-detail"
+                else dict(
+                    returncode=2, stdout="case-id", stderr="validation diagnostic"
+                )
             )
             assert state["prUpdate"]["status"] == "PREPARED"
             assert "validate_update" in child.call_args.args[0][3]
@@ -2373,6 +2407,67 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
             if failure == "stale-base":
                 assert state["prUpdate"]["validation"] == "STALE"
                 assert state["prUpdate"]["status"] == "PREPARED"
+
+
+def _check_pr_update_published_recovery(tmp_path, failure):
+    status, validation, confirmed = {
+        "legacy-review": ("PUBLISHED_REVIEW", "STALE", True),
+        "legacy-stale": ("PREPARED", "STALE", True),
+        "published-valid": ("VALIDATED", "PASS", False),
+        "published-unverified": ("VALIDATED", "PASS", False),
+    }[failure]
+    valid = failure != "published-unverified"
+    old, candidate, base = "a" * 40, "b" * 40, "c" * 40
+    publication = dict(
+        _pr_publication(), number=7, candidate=candidate if confirmed else old
+    )
+    intent = dict(
+        status=status,
+        validation=validation,
+        pushConfirmed=confirmed,
+        pushIntent=True,
+        candidate=candidate,
+        previousCandidate=old,
+        baseCommit=base,
+        integrationTree="d" * 40 if valid else "",
+        taskHash="e" * 64,
+    )
+    state = dict(
+        task_id="example",
+        integrationMode="pr",
+        merged=None,
+        prPublication=publication,
+        prUpdate=intent,
+    )
+    with (
+        patch.object(
+            wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", state)
+        ),
+        patch.object(pr, "publication_lock", return_value=nullcontext()),
+        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(pr, "remote_identity", return_value={}),
+        patch.object(
+            pr,
+            "remote_heads",
+            return_value={"refs/heads/" + publication["head"]: candidate},
+        ),
+        patch.object(pr, "existing_pr"),
+        patch.object(wt, "save"),
+        patch.object(pr, "push_candidate") as push,
+        patch.object(pr, "update_snapshot") as snapshot,
+    ):
+        if valid:
+            result = pr.update(tmp_path, "example")
+            assert "prUpdate" not in result
+            assert (
+                publication["publishedHead"] == candidate
+                and publication["baseCommit"] == base
+            )
+        else:
+            with pytest.raises(wt.Blocked, match="lacks validated"):
+                pr.update(tmp_path, "example")
+        push.assert_not_called()
+        snapshot.assert_not_called()
 
 
 def _pr_merge_response(publication, merged, *_args):

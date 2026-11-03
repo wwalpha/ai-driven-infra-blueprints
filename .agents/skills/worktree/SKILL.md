@@ -242,8 +242,10 @@ The saved intent retains the previous published HEAD, candidate, remote base, in
 tree, Task hash, validation result and Push state. The existing remote HEAD must equal
 the recorded previous HEAD; only an ordinary non-force Push is permitted. An uncertain
 Push is reconciled against the old and candidate HEAD before another attempt; a third
-HEAD stops for review. If the target base advances after Push, the published HEAD is
-retained and revalidation remains required. Published commits are never rebased or
+HEAD stops for review. After Push, confirm the PR identity and published HEAD against the saved validated
+intent. Local changes or a later base advance do not invalidate publication; retain the
+base SHA actually validated. A matching previously interrupted Push is confirmed without
+another Push or revalidation. Published commits are never rebased or
 reset; local base checkout/merge is not changed. Retry `pr-update` without editing
 management JSON or discarding the intent. Update never recreates the PR or cleans up
 the Worktree.
