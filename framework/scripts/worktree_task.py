@@ -984,6 +984,22 @@ def _prepare_commit(
     return latest
 
 
+def _recovery_count(target, recovery):
+    count = int(recovery["count"])
+    if not recovery.get("count_excludes_merges"):
+        merges = output(
+            target,
+            "rev-list",
+            "--count",
+            "--merges",
+            recovery["base"] + ".." + recovery["commit"],
+        )
+        count -= int(merges)
+    if count < 0:
+        raise Blocked("invalid recovery commit count")
+    return str(count)
+
+
 def _recovery_candidate(target, state, text, recovery):
     """Reuse the exact history/scope boundary for finishing and explicitly re-pinning."""
     base = recovery["base"]
@@ -1005,7 +1021,7 @@ def _recovery_candidate(target, state, text, recovery):
         ).returncode
         != 0
         or output(target, "rev-list", "--count", base + ".." + head)
-        != recovery["count"]
+        != _recovery_count(target, recovery)
         or output(target, "rev-list", "--merges", base + ".." + head)
     ):
         raise Blocked(
@@ -1073,7 +1089,8 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
                 **{k: v for k, v in recovery.items() if k in {"approval", "contract"}},
                 commit=head,
                 base=expected_base,
-                count=recovery["count"],
+                count=_recovery_count(target, recovery),
+                count_excludes_merges=True,
                 previous=recovery,
             )
             save(path, state)
@@ -1116,14 +1133,21 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
             raise Blocked("recovery base history was rewritten")
         count = int(
             output(
-                target, "rev-list", "--count", expected_base + ".." + expected_commit
+                target,
+                "rev-list",
+                "--count",
+                "--no-merges",
+                expected_base + ".." + expected_commit,
             )
         )
         changed = bool(changed_paths(target))
         if approval and changed:
             raise Blocked("approved failure recovery requires a clean reviewed task")
         state["recovery"] = dict(
-            commit=expected_commit, base=expected_base, count=str(count + changed)
+            commit=expected_commit,
+            base=expected_base,
+            count=str(count + changed),
+            count_excludes_merges=True,
         )
         if approval:
             state["recovery"].update(

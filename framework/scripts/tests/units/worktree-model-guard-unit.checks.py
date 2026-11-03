@@ -214,7 +214,9 @@ def check_git_baseline_fail_closed(tmp_path):
         task().fix_baseline()
 
 
-@pytest.mark.parametrize("change", ["base", "head", "task", "dirty", "completion"])
+@pytest.mark.parametrize(
+    "change", ["base", "base_rewritten", "head", "task", "dirty", "completion"]
+)
 def check_candidate_staleness(tmp_path, change):
     target, base = tmp_path / "task", tmp_path / "base"
     target.mkdir()
@@ -248,7 +250,7 @@ def check_candidate_staleness(tmp_path, change):
             if change == "completion"
             else (
                 "changed"
-                if change == "base"
+                if change in {"base", "base_rewritten"}
                 and root == base
                 or change == "head"
                 and root == target
@@ -257,12 +259,21 @@ def check_candidate_staleness(tmp_path, change):
                 else "head"
             ),
         ),
+        patch.object(wt, "ancestor", return_value=change != "base_rewritten"),
         patch.object(
             wt, "git", side_effect=AssertionError("stale candidate must not merge")
         ),
     ):
-        with pytest.raises(wt.Blocked, match="changed"):
-            wt.merge_validated_candidate(result)
+        if change == "base":
+            with pytest.raises(wt.NeedsSync) as error:
+                wt.merge_validated_candidate(result)
+            assert error.value.base == "changed"
+        else:
+            with pytest.raises(
+                wt.Blocked,
+                match="rewritten" if change == "base_rewritten" else "changed",
+            ):
+                wt.merge_validated_candidate(result)
 
 
 @pytest.mark.parametrize("kind", ["framework", "model", "missing", "empty"])

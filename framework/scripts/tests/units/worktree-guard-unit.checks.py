@@ -1962,6 +1962,8 @@ def check_cleanup_operation_failure_and_retry(tmp_path, failure):
 def _recovery_output(trace, base, where, *args, **kwargs):
     if args[:2] == ("rev-parse", "HEAD"):
         return trace.base if where == base else trace.head
+    if args[:3] == ("rev-list", "--count", "--merges"):
+        return "0"
     if args[:2] == ("rev-list", "--count"):
         return "1"
     if args[:2] == ("rev-list", "--merges"):
@@ -1974,6 +1976,7 @@ def _recovery_output(trace, base, where, *args, **kwargs):
 )
 @pytest.mark.parametrize("repin", [False, True])
 def check_reviewed_recovery_transitions(tmp_path, approval, repin):
+    _check_recovery_count_excludes_merges_for_legacy_and_new_receipts()
     check = TestCase()
     old, base, reviewed = "1" * 40, "2" * 40, "3" * 40
     target, primary = tmp_path / "task", tmp_path / "primary"
@@ -2046,6 +2049,42 @@ def check_reviewed_recovery_transitions(tmp_path, approval, repin):
     )
     check.assertEqual(state.get("validation_failure_approval"), approval)
     check.assertEqual(save.call_count, 3 if repin else 2)
+
+
+def _recovery_candidate_output(target, *args, **kwargs):
+    if args == ("rev-parse", "HEAD"):
+        return "new"
+    if args == ("rev-list", "--count", "base..new"):
+        return "2"
+    if args == ("rev-list", "--count", "--merges", "base..old"):
+        return "1"
+    if args == ("rev-list", "--merges", "base..new"):
+        return ""
+    raise AssertionError(args)
+
+
+def _check_recovery_count_excludes_merges_for_legacy_and_new_receipts():
+    legacy = {"base": "base", "commit": "old", "count": "3"}
+    modern = {**legacy, "count": "2", "count_excludes_merges": True}
+    with patch.object(wt, "output", return_value="1") as git_output:
+        assert wt._recovery_count(Path("."), legacy) == "2"
+        assert wt._recovery_count(Path("."), modern) == "2"
+        git_output.assert_called_once_with(
+            Path("."), "rev-list", "--count", "--merges", "base..old"
+        )
+        with pytest.raises(wt.Blocked, match="invalid recovery commit count"):
+            wt._recovery_count(Path("."), {**legacy, "count": "0"})
+    text = contract("example", ["file.txt"])
+
+    with (
+        patch.object(wt, "output", side_effect=_recovery_candidate_output),
+        patch.object(wt, "changed_paths", return_value=set()),
+        patch.object(wt, "paths", return_value={"file.txt"}),
+        patch.object(wt, "git", return_value=subprocess.CompletedProcess([], 0)),
+    ):
+        assert wt._recovery_candidate(Path("."), {}, text, legacy) == "new"
+        with pytest.raises(wt.Blocked, match="unexpected history"):
+            wt._recovery_candidate(Path("."), {}, text, {**legacy, "count": "4"})
 
 
 @pytest.mark.parametrize(
