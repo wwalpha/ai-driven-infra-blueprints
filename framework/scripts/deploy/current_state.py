@@ -6,6 +6,8 @@ from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
 
+from deploy.failures import safe_reason
+
 SUCCESS = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
 UPDATEABLE = SUCCESS | {"UPDATE_ROLLBACK_COMPLETE", "IMPORT_ROLLBACK_COMPLETE"}
 FAILED = {
@@ -131,7 +133,7 @@ def identity(stack):
 
 
 def observation(stack):
-    return {
+    result = {
         key: value
         for key, value in stack.items()
         if key
@@ -146,6 +148,11 @@ def observation(stack):
             "classification",
         }
     }
+    if stack.get("StackStatusReason"):
+        result["statusReason"] = safe_reason(stack["StackStatusReason"])
+    elif stack.get("statusReason"):
+        result["statusReason"] = stack["statusReason"]
+    return result
 
 
 def category(stack):

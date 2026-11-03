@@ -84,6 +84,19 @@ unknownPeer:
       checkpoint: PENDING
       coverage: {}
       deferredConsumers: []
+      diagnostic:
+        classification: REQUEST_UNCONFIRMED
+        code: REQUEST_UNCONFIRMED
+        eventReadStatus: NOT_OBSERVED
+        message: The AWS request outcome is not yet confirmed.
+        reasonRedacted: false
+        requiredAction: Review the current request and AWS observation before deciding
+          how to continue.
+        resource:
+          StackId: null
+        retryable: false
+        source: REQUEST
+        stage: STACK_EXECUTION
       endedRequest: null
       failure: null
       generation: COMPLETE

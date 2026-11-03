@@ -23,6 +23,7 @@ from deploy import (
     controller,
     current_request,
     current_state,
+    failures,
     observed,
     operation_journal,
     recovery,
@@ -349,6 +350,80 @@ def check_step_diagnostics_do_not_expose_unknown_error_values():
     )
     assert known["code"] == "DEPLOY_STEP_BLOCKED"
     assert known["reason"] == "base advanced; review retained commit"
+    assert "private-value" not in json.dumps(
+        cli_guidance.safe_error(cli_guidance.DeployStepBlocked("private-value"))
+    )
+
+
+def check_safe_failure_diagnostics_distinguish_root_rollback_and_unknown():
+    template = {"Resources": {"Bucket": {"Properties": {"BucketName": "x"}}}}
+    first = failures.event(
+        {
+            "LogicalResourceId": "Bucket",
+            "ResourceType": "AWS::S3::Bucket",
+            "ResourceStatus": "CREATE_FAILED",
+            "EventId": "first",
+            "Timestamp": "2026-01-01T00:00:01Z",
+            "ResourceStatusReason": "private-value BucketName (HandlerErrorCode: InvalidRequest)",
+        },
+        template,
+    )
+    rollback = failures.event(
+        {
+            "LogicalResourceId": "Bucket",
+            "ResourceStatus": "DELETE_FAILED",
+            "EventId": "second",
+            "Timestamp": "2026-01-01T00:00:02Z",
+            "ResourceStatusReason": "private-value",
+        },
+        template,
+    )
+    state = {
+        "status": "FAILED",
+        "stackId": "stack",
+        "failureEvents": [rollback, first],
+        "eventReadStatus": "COMPLETE",
+    }
+    diagnostic = failures.diagnostic(state)
+    assert diagnostic["eventId"] == "first"
+    assert diagnostic["code"] == "InvalidRequest"
+    assert diagnostic["resource"]["LogicalResourceId"] == "Bucket"
+    assert diagnostic["reasonRedacted"]
+    assert "private-value" not in json.dumps(state) + json.dumps(diagnostic)
+    duplicate = dict(first, LogicalResourceId="Other", EventId="same-time")
+    state["failureEvents"] = [first, duplicate]
+    assert failures.diagnostic(state)["code"] == "UNKNOWN_REASON"
+    assert "eventId" not in failures.diagnostic(state)
+    state.update(failureEvents=[rollback], eventReadStatus="EVENT_READ_FAILED")
+    assert failures.diagnostic(state)["code"] == "EVENT_READ_FAILED"
+    state.update(status="BLOCKED", requestPending=True)
+    assert failures.diagnostic(state)["code"] == "REQUEST_UNCONFIRMED"
+    denied = {"status": "BLOCKED"}
+    failures.exception(
+        denied,
+        AwsError("cloudformation", "create_change_set", "AccessDenied"),
+        "CHANGESET_REVIEW",
+    )
+    assert failures.diagnostic(denied)["classification"] == "AUTHORIZATION"
+    assert failures.diagnostic(denied)["code"] == "AccessDenied"
+    observed = current_state.observation(
+        {
+            "StackStatus": "CREATE_FAILED",
+            "StackStatusReason": "private-value (HandlerErrorCode: InvalidRequest)",
+        }
+    )
+    assert observed["statusReason"]["code"] == "InvalidRequest"
+    assert "private-value" not in json.dumps(observed)
+    unknown = {"status": "RUNNING"}
+    error = AwsError("cloudformation", "execute_change_set", "ReadTimeoutError")
+    error.deploy_operation = "execute_change_set"
+    failures.exception(unknown, error, "EXECUTE")
+    result = failures.diagnostic(unknown)
+    assert (
+        result["operation"] == "execute_change_set"
+        and result["code"] == "ReadTimeoutError"
+    )
+    assert not result["retryable"]
 
 
 @pytest.mark.parametrize(

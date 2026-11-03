@@ -370,6 +370,8 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
     if no_changes(change_set):
         state["stackStatus"] = verify_no_change_completion(aws, unit, state, change_set)
         state.pop("failure", None)
+        state.pop("failureClassification", None)
+        state.pop("changeSetFailure", None)
         state["noChangeCandidate"] = change_set
         state["reason"] = "no changes; existing stack terminal success"
         return DEPLOY_SUCCESS
@@ -377,6 +379,7 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
         change_set["Status"] != "CREATE_COMPLETE"
         or change_set["ExecutionStatus"] != "AVAILABLE"
     ):
+        state.pop("failureClassification", None)
         failures = _imports_deploy_failures
         diagnostic = failures.event(
             {"ResourceStatusReason": change_set.get("StatusReason", "")}, {}
@@ -386,6 +389,8 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
             "executionStatus": change_set.get("ExecutionStatus"),
             "code": diagnostic["code"],
             "reasonDigest": diagnostic["reasonDigest"],
+            "message": diagnostic["message"],
+            "reasonRedacted": diagnostic["reasonRedacted"],
         }
         code = diagnostic["code"]
         classification = (
@@ -406,6 +411,10 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
             "code": code,
             "classification": classification,
             "executionState": "NOT_EXECUTED",
+            "message": diagnostic["message"],
+            "reasonRedacted": diagnostic["reasonRedacted"],
+            "requiredAction": "Review the ChangeSet failure and request a correction if needed before starting another operation.",
+            "retryable": False,
         }
         raise error
     if state.get("preparationId"):
@@ -422,11 +431,16 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
         for item in summary
     )
     if destructive and state["changeSetId"] not in approvals:
+        state.pop("changeSetFailure", None)
         state["failureClassification"] = "HUMAN_REQUIRED"
         state["failure"] = {
             "classification": "APPROVAL",
             "stage": "CHANGESET_REVIEW",
             "executionState": "NOT_EXECUTED",
+            "code": "APPROVAL_REQUIRED",
+            "message": "The ChangeSet contains an unapproved deletion or replacement.",
+            "requiredAction": "Review the listed changes and explicitly approve or reject the ChangeSet.",
+            "retryable": False,
         }
         state["reason"] = (
             "unapproved delete/replacement; change set unexecuted; human confirmation required"
@@ -435,6 +449,8 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
     state["approvedChangeDigest"] = digest
     state.pop("reason", None)
     state.pop("failure", None)
+    state.pop("failureClassification", None)
+    state.pop("changeSetFailure", None)
     return "READY"
 
 

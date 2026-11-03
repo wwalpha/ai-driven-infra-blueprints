@@ -826,7 +826,7 @@ def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool
         return False
     except Exception as error:
         state["failureClassification"] = "HUMAN_REQUIRED"
-        state["reason"] = str(error)
+        state["reason"] = _imports_deploy_failures.exception_message(error)
         runtime.save()
         return False
 
@@ -870,6 +870,7 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
                 if event.get("ResourceStatus", "").endswith("_FAILED")
                 or event.get("ResourceStatus") == "DELETE_SKIPPED"
             ]
+            state["eventReadStatus"] = "COMPLETE"
             stack_events = current_request.root_events(
                 matched, state["clientToken"], execution_stack
             )
@@ -885,7 +886,8 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
                 if attempt_status in current_state.FAILED:
                     state["failureDetected"] = True
         except (OSError, Blocked):
-            pass  # Diagnostics cannot veto an otherwise confirmed current observation.
+            # Diagnostics cannot veto an otherwise confirmed current observation.
+            state["eventReadStatus"] = "EVENT_READ_FAILED"
     request = current_request.reconcile(runtime, unit, state)
     if request and state.get("requestError"):
         raise Blocked(state["requestError"])

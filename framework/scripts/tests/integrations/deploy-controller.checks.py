@@ -7,8 +7,9 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -17,7 +18,11 @@ import pytest
 import sync_runtime
 from deploy import (
     contracts,
+    controller,
+    current_request,
     generation_resume,
+    operation_journal,
+    steps,
     worktree,
 )
 from model.core import properties
@@ -245,6 +250,127 @@ def check_model_publication_across_process(tmp_path):
         ),
         1,
     )
+
+
+def check_failure_evidence_survives_progress_reload_and_status(tmp_path):
+    root = tmp_path / "project"
+    stack = "stack-a"
+    secret = "private-parameter-value"
+    events = [
+        {
+            "StackId": stack,
+            "ClientRequestToken": "own",
+            "LogicalResourceId": "Bucket",
+            "ResourceType": "AWS::S3::Bucket",
+            "ResourceStatus": "CREATE_FAILED",
+            "EventId": "first",
+            "Timestamp": "2026-01-01T00:00:01Z",
+            "ResourceStatusReason": f"{secret} (HandlerErrorCode: InvalidRequest)",
+        },
+        {
+            "StackId": stack,
+            "ClientRequestToken": "other",
+            "LogicalResourceId": "Other",
+            "ResourceStatus": "CREATE_FAILED",
+            "EventId": "foreign",
+            "Timestamp": "2026-01-01T00:00:00Z",
+        },
+        {
+            "StackId": stack,
+            "ClientRequestToken": "own",
+            "LogicalResourceId": "Bucket",
+            "ResourceStatus": "DELETE_FAILED",
+            "EventId": "rollback",
+            "Timestamp": "2026-01-01T00:00:02Z",
+        },
+    ]
+    state = {"status": "RUNNING", "clientToken": "own"}
+    runtime = SimpleNamespace(
+        aws=Mock(
+            side_effect=[
+                {
+                    "Stacks": [
+                        {
+                            "StackId": stack,
+                            "StackStatus": "UPDATE_ROLLBACK_IN_PROGRESS",
+                            "StackStatusReason": secret,
+                        }
+                    ]
+                },
+                {"StackEvents": events},
+            ]
+        ),
+        templates={"A": ({"Resources": {"Bucket": {"Properties": {}}}}, {})},
+    )
+    with patch.object(current_request, "reconcile", return_value=None):
+        assert (
+            controller.poll(runtime, {"name": "A"}, state)
+            == "UPDATE_ROLLBACK_IN_PROGRESS"
+        )
+    state["changeSetFailure"] = {"code": "InvalidRequest", "message": "safe"}
+    state["failureClassification"] = "HUMAN_REQUIRED"
+    identity = {
+        "taskFile": "tasks/deploy.md",
+        "taskDigest": "digest",
+        "target": {},
+        "environment": "dev",
+        "stacks": ["A"],
+        "snapshot": "fixed",
+    }
+    context = {
+        **{
+            key: identity[key]
+            for key in ("taskFile", "taskDigest", "target", "environment")
+        },
+        "repository": str(root),
+        "states": {"A": state},
+        "consumedInputs": {},
+        "inputDigests": {},
+        "stepUnits": [{"name": "A"}],
+    }
+    backend = SimpleNamespace(
+        root=root,
+        phase="deploy",
+        run_context=context,
+        progress_identity=identity,
+        progress_root=root.resolve(),
+        progress_directory=None,
+        progress_destination=worktree.progress_path(root, create=True),
+    )
+    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    loaded = worktree.read_progress(root, {"deployIdentity": identity})["runContext"]
+    saved = loaded["states"]["A"]
+    report = steps.describe(
+        SimpleNamespace(states=loaded["states"], run_context=loaded)
+    )
+    diagnostic = report["states"]["A"]["diagnostic"]
+    assert diagnostic["eventId"] == "first" and diagnostic["code"] == "InvalidRequest"
+    assert report["deployResult"] != "FAIL"
+    assert saved["changeSetFailure"]["code"] == "InvalidRequest"
+    assert saved["currentStack"]["statusReason"]["reasonRedacted"]
+    assert secret not in json.dumps(loaded) + json.dumps(report)
+    assert "foreign" not in json.dumps(saved["failureEvents"])
+
+
+def check_event_read_failure_keeps_running_operation_unconfirmed():
+    state = {"status": "RUNNING", "clientToken": "own"}
+    runtime = SimpleNamespace(
+        aws=Mock(
+            side_effect=[
+                {"Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_IN_PROGRESS"}]},
+                OSError("private-secret"),
+            ]
+        ),
+        templates={},
+    )
+    with patch.object(current_request, "reconcile", return_value=None):
+        assert controller.poll(runtime, {"name": "A"}, state) == "UPDATE_IN_PROGRESS"
+    report = steps.describe(
+        SimpleNamespace(states={"A": state}, run_context={"states": {"A": state}})
+    )
+    assert report["states"]["A"]["diagnostic"]["code"] == "EVENT_READ_FAILED"
+    assert report["deployResult"] == "PENDING"
+    assert "private-secret" not in json.dumps(report) + json.dumps(state)
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ def run_group(
         try:
             backend.current_satisfied(unit)
         except Exception as error:
-            state["reason"] = str(error)
+            state["reason"] = failures.exception_message(error)
         else:
             state.pop("reason", None)
             backend.verified_settled.add(unit["name"])
@@ -129,7 +129,7 @@ def run_group(
                 )
         except Exception as error:
             # Lost read access is not proof of terminal failure. Drain/retry only.
-            state["pollError"] = str(error)
+            state["pollError"] = failures.exception_message(error)
             state["pollReadFailures"] = state.get("pollReadFailures", 0) + 1
             failures.exception(state, error, "POLL")
         request = state.get("settledRequest")
@@ -206,7 +206,7 @@ def run_group(
                     else "PREPARATION",
                 )
                 state["status"] = "BLOCKED"
-                state["reason"] = str(error)
+                state["reason"] = failures.exception_message(error)
                 input_blocked.add(unit["name"])
             if state["status"] == "BLOCKED":
                 input_blocked.add(unit["name"])
@@ -232,7 +232,10 @@ def run_group(
                 state["status"] = backend.review_prepared(unit, state, change_set)
             except Exception as error:
                 failures.exception(state, error, "CHANGESET_REVIEW")
-                state["status"], state["reason"] = "BLOCKED", str(error)
+                state["status"], state["reason"] = (
+                    "BLOCKED",
+                    failures.exception_message(error),
+                )
             if state["status"] == "BLOCKED":
                 input_blocked.add(unit["name"])
             save()
@@ -250,7 +253,7 @@ def run_group(
                 backend.execute(unit, state)
             except Exception as error:
                 failures.exception(state, error, "EXECUTE")
-                state["reason"] = str(error)
+                state["reason"] = failures.exception_message(error)
                 if isinstance(error, EnvironmentValuePending):
                     state["status"] = "BLOCKED"
                     input_blocked.add(unit["name"])

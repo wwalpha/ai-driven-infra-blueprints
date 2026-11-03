@@ -44,12 +44,29 @@ report:
       checkpoint: PENDING
       coverage: {}
       deferredConsumers: []
+      diagnostic:
+        classification: SUBMISSION_UNKNOWN
+        code: REQUEST_UNCONFIRMED
+        eventReadStatus: NOT_OBSERVED
+        message: The AWS request outcome is not yet confirmed.
+        reasonRedacted: false
+        requiredAction: Review the current request and AWS observation before deciding
+          how to continue.
+        resource:
+          StackId: null
+        retryable: false
+        source: REQUEST
+        stage: POLL
       endedRequest: null
       failure:
         classification: SUBMISSION_UNKNOWN
         code: null
         executionState: UNKNOWN
+        message: The operation could not be confirmed; inspect the structured diagnostic.
         operation: null
+        requiredAction: Review the operation and its available evidence before deciding
+          how to continue.
+        retryable: false
         service: null
         stage: POLL
       generation: NOT_STARTED

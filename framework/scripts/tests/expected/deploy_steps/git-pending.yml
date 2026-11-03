@@ -35,6 +35,19 @@ failedAttempt:
       checkpoint: CHECKPOINTED
       coverage: {}
       deferredConsumers: []
+      diagnostic:
+        classification: NEEDS_DIAGNOSIS
+        code: UNKNOWN_REASON
+        eventReadStatus: NOT_OBSERVED
+        message: The operation stopped; a specific safe cause is not available.
+        reasonRedacted: false
+        requiredAction: Review the operation and available evidence before deciding
+          how to continue.
+        resource:
+          StackId: null
+        retryable: false
+        source: CONTROLLER
+        stage: STACK_EXECUTION
       endedRequest: null
       failure: null
       generation: COMPLETE

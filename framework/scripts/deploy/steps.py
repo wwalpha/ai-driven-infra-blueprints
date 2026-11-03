@@ -27,6 +27,7 @@ from deploy import (
     contracts,
     current_request,
     current_state,
+    failures,
     generation_resume,
     git_publication,
     handoff,
@@ -197,7 +198,9 @@ def refresh_requests(backend, units=None):
         try:
             request = current_request.reconcile(backend, unit)
         except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
-            state.update(requestPending=True, requestError=str(error))
+            state.update(
+                requestPending=True, requestError=failures.exception_message(error)
+            )
             continue
         if request and request.get("settled"):
             if (
@@ -294,7 +297,7 @@ def refresh_requests(backend, units=None):
                     TypeError,
                     RuntimeError,
                 ) as error:
-                    state["requestError"] = str(error)
+                    state["requestError"] = failures.exception_message(error)
 
         elif (
             state["status"] != "SETTLED"
@@ -650,6 +653,25 @@ def describe(backend: SimpleNamespace) -> dict:
                 if state.get("checkpointed")
                 else "PENDING",
                 "failure": state.get("failure"),
+                **(
+                    {"diagnostic": diagnostic}
+                    if (diagnostic := failures.diagnostic(state))
+                    else {}
+                ),
+                **{
+                    key: state[key]
+                    for key in (
+                        "failureClassification",
+                        "changeSetFailure",
+                        "failureEvents",
+                    )
+                    if state.get(key)
+                },
+                **(
+                    {"stackStatusReason": state["currentStack"]["statusReason"]}
+                    if state.get("currentStack", {}).get("statusReason")
+                    else {}
+                ),
                 "unexecutedReason": state.get("unexecutedReason")
                 if state["status"] in {"READY", "NOT_STARTED"}
                 else None,
