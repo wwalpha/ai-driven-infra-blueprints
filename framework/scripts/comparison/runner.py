@@ -202,7 +202,10 @@ class Comparison(Inputs):
                     kind = resource.get(RESOURCE_TYPE_KEY)
                     if not isinstance(kind, str) or not kind:
                         raise ValueError("resourceType is missing or malformed")
-                    if kind in self.catalog.api_schemas:
+                    if (
+                        kind in self.catalog.api_schemas
+                        and not self.catalog.api_schemas[kind].get("cloudFormationType")
+                    ):
                         self.record(
                             "uncompared",
                             service,

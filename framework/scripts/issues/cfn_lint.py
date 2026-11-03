@@ -189,9 +189,11 @@ def plan(comparison):
             origin = dict(service=service, resource=identity)
             try:
                 mode = resource_mode(resource)
-                if (
-                    mode == RESOURCE_MODE_IMPORT
-                    or resource.get(RESOURCE_TYPE_KEY) in comparison.catalog.api_schemas
+                if mode == RESOURCE_MODE_IMPORT or (
+                    resource.get(RESOURCE_TYPE_KEY) in comparison.catalog.api_schemas
+                    and not comparison.catalog.api_schemas[
+                        resource[RESOURCE_TYPE_KEY]
+                    ].get("cloudFormationType")
                 ):
                     coverage.append(
                         dict(

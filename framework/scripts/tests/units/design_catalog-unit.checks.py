@@ -33,6 +33,7 @@ def check_api_schema():
     assert not api_snapshot_errors(ROOT)
     catalog = DesignSchemaCatalog(ROOT)
     assert catalog.cloudformation_type("Macie.Session") == "AWS::Macie::Session"
+    assert catalog.cloudformation_type(QUICKSIGHT_GROUP) == "AWS::QuickSight::Group"
     group = catalog.schema(QUICKSIGHT_GROUP)
     assert group["identityProperties"] == ["AwsAccountId", "Namespace", "GroupName"]
     assert group["identifierOutputs"] == ["Arn", "PrincipalId"]
@@ -44,7 +45,7 @@ def check_api_schema():
         "Namespace",
         "GroupName",
     }
-    for resource_type in (MACIE_JOB, QUICKSIGHT_GROUP, "Macie.Unknown"):
+    for resource_type in (MACIE_JOB, "Macie.Unknown"):
         try:
             catalog.cloudformation_type(resource_type)
         except (ValueError, KeyError):

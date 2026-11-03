@@ -53,14 +53,28 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
 
     def schema(self, resource_type: str) -> dict:
         if resource_type in self.api_schemas:
-            return self.api_schemas[resource_type]
+            schema = self.api_schemas[resource_type]
+            if formal := schema.get("cloudFormationType"):
+                provider = super().schema(formal)
+                # Keep API Model identity fields alongside formal CFn output semantics.
+                return {
+                    **schema,
+                    **{
+                        key: provider[key]
+                        for key in ("readOnlyProperties", "primaryIdentifier")
+                    },
+                }
+            return schema
         return super().schema(resource_type)
 
     def cloudformation_type(self, resource_type: str) -> str:
         if resource_type in self.api_schemas:
-            raise ValueError(
-                f"{resource_type}: CloudFormation unsupported; implementation remains incomplete if this resource is in scope"
-            )
+            formal = self.api_schemas[resource_type].get("cloudFormationType")
+            if not formal:
+                raise ValueError(
+                    f"{resource_type}: CloudFormation unsupported; implementation remains incomplete if this resource is in scope"
+                )
+            return super().schema(formal)["typeName"]
         return super().schema(resource_type)["typeName"]
 
     def required_design_properties(self, resource_type: str) -> set[str]:
@@ -282,15 +296,10 @@ def api_snapshot_errors(root: Path) -> list[str]:
         }
         if (
             schema["resourceType"] != QUICKSIGHT_GROUP
-            or schema["cloudFormationType"] is not None
+            or schema["cloudFormationType"] != "AWS::QuickSight::Group"
+            or catalog.cloudformation_type(QUICKSIGHT_GROUP) != "AWS::QuickSight::Group"
         ):
-            return [
-                "QuickSight Group must be an API design type without a CloudFormation type"
-            ]
-        if catalog.canonical_type(QUICKSIGHT_GROUP) in catalog.resource_types:
-            return [
-                "QuickSight Group API and CloudFormation catalogs overlap; explicit migration required"
-            ]
+            return ["QuickSight Group must resolve to its formal CloudFormation type"]
         if schema["identityProperties"] != ["AwsAccountId", "Namespace", "GroupName"]:
             return [
                 "QuickSight Group identity must be AwsAccountId + Namespace + GroupName"

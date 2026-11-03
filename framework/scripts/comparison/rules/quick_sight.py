@@ -6,7 +6,7 @@ from model.importing.references import known
 from utils.cloudformation.inputs import Blocked
 
 from ..contracts import ResourceContract
-from ..methods import properties
+from ..methods import Rule, properties
 
 
 def imported_group_arn(all_rows, catalog, partition, target, stack_inputs):
@@ -274,7 +274,15 @@ RULES = {
 }
 
 
-# IMPORT-only Producer identity; this type has no comparable Catalog properties.
+def group_account(inputs, service, identity, name, owner, key):
+    return inputs.stack_inputs[name][2]["AWS::AccountId"]
+
+
 RULES["QuickSight.Group"] = properties(
-    resource=ResourceContract(imported_arn=imported_group_arn)
+    scalars="AwsAccountId Namespace GroupName Description",
+    resource=ResourceContract(imported_arn=imported_group_arn),
+)
+# CFn owns Groups in the execution account; AwsAccountId remains API Model identity.
+RULES["QuickSight.Group"]["AwsAccountId"] = Rule(
+    "SCALAR", "SCALAR", actual=group_account, local=True
 )

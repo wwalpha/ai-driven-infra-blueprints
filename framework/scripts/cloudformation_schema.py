@@ -23,7 +23,7 @@ def main() -> int:
             print(f"- {error}")
         return 1
     print(
-        f"CloudFormation schema snapshot: PASS ({len(schema.material_files(args.repository_root))} resource types)"
+        f"CloudFormation schema snapshot: PASS ({len(schema.selected_types(args.repository_root))} resource types)"
     )
     return 0
 

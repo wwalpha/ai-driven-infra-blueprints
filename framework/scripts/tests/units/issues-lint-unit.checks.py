@@ -97,7 +97,9 @@ def check_explicit_plan():
             services=["s3", "sqs"],
             models={"s3": True, "sqs": True},
             model=lambda _: SimpleNamespace(values=values),
-            catalog=SimpleNamespace(api_schemas={"QuickSight.Group"}),
+            catalog=SimpleNamespace(
+                api_schemas={"Macie.ClassificationJob": {"cloudFormationType": None}}
+            ),
             track=Mock(),
             resources={
                 "s3": {
@@ -107,7 +109,7 @@ def check_explicit_plan():
                 },
                 "sqs": {
                     "1": {"cfn-logicalId": "StackB-Queue"},
-                    "2": {"resourceType": "QuickSight.Group"},
+                    "2": {"resourceType": "Macie.ClassificationJob"},
                 },
             },
         )
@@ -689,7 +691,7 @@ def check_plan_without_stack(kinds, needs_stack):
         str(i): (
             {"resourceMode": "IMPORT"}
             if kind == "IMPORT"
-            else {"resourceType": "QuickSight.Group"}
+            else {"resourceType": "Macie.ClassificationJob"}
             if kind == "API"
             else {"cfn-logicalId": "Stack-Bucket"}
         )
@@ -702,7 +704,9 @@ def check_plan_without_stack(kinds, needs_stack):
         models={"s3": True},
         resources={"s3": resources},
         model=loader,
-        catalog=SimpleNamespace(api_schemas={"QuickSight.Group"}),
+        catalog=SimpleNamespace(
+            api_schemas={"Macie.ClassificationJob": {"cloudFormationType": None}}
+        ),
     )
     jobs, coverage = plan(comparison)
     assert not jobs and loader.call_count == int(needs_stack)

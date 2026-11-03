@@ -83,7 +83,8 @@ Before selecting additional rules, inspect relevant Model Resources, Stack place
 ## Design coverage and CloudFormation support
 
 - Detailed designs/models also contain CFn-unsupported resources. Resolve formal CFn types for every implementation target resource type with `python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type>`. Unknown types or `cloudFormationType: null` are failures; do not invent `AWS::` types merely by resource type string replacement.
-- `Macie.Session` uses existing CFn schemas. Treat `Macie.ClassificationJob` and `QuickSight.Group` as CFn-unsupported; do not include them in CFn templates, Outputs, or `!Ref`.
+- `Macie.Session` uses existing CFn schemas. Treat `Macie.ClassificationJob` as CFn-unsupported; do not include it in CFn templates, Outputs, or `!Ref`.
+- `QuickSight.Group` resolves to `AWS::QuickSight::Group`. Retain API Model identity `AwsAccountId`, but implement only `GroupName`, `Namespace` and optional `Description`; CFn uses the execution account. Expose `Arn` and `PrincipalId` through `!GetAtt` when needed; retain hidden-ARN Model rules. The pinned Group provider schema comes from the official `us-east-1` archive because it was absent from the `ap-northeast-1` archive on 2026-11-03. This type mapping does not prove regional availability; confirm the deployment region supports it before deployment.
 - If the active task specifies only CFn-supported scope, implement that scope and finish. If API-only resources are requested for implementation, explicitly state them as unimplemented; do not silently narrow scope or call the request complete. Do not automatically add Custom Resources or other engines.
 - Even if CFn resources need API resource identifiers, do not generate fictitious `!Ref`. Without approved external input handoff design, report missing dependencies and stop. Do not infer implementation methods from link display current IDs.
 

@@ -135,6 +135,7 @@
     "AWS::QuickSight::Dashboard": "aws-quicksight-dashboard.json",
     "AWS::QuickSight::DataSet": "aws-quicksight-dataset.json",
     "AWS::QuickSight::DataSource": "aws-quicksight-datasource.json",
+    "AWS::QuickSight::Group": "aws-quicksight-group.json",
     "AWS::QuickSight::VPCConnection": "aws-quicksight-vpcconnection.json",
     "AWS::RDS::DBCluster": "aws-rds-dbcluster.json",
     "AWS::RDS::DBClusterParameterGroup": "aws-rds-dbclusterparametergroup.json",

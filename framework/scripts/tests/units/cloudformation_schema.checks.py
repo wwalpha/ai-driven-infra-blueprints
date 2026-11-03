@@ -23,6 +23,19 @@ def main() -> None:
     root = Path(__file__).resolve().parents[4]
     assert snapshot_errors(root) == []
     catalog = CloudFormationSchemaCatalog(root)
+    group = catalog.schema("QuickSight.Group")
+    assert group["typeName"] == "AWS::QuickSight::Group"
+    assert catalog.required_properties("QuickSight.Group") == {"GroupName", "Namespace"}
+    assert "AwsAccountId" not in group["properties"]
+    assert group["readOnlyProperties"] == ["/properties/Arn", "/properties/PrincipalId"]
+    assert group["createOnlyProperties"] == [
+        "/properties/GroupName",
+        "/properties/Namespace",
+    ]
+    assert not catalog.literal_errors("QuickSight.Group", "GroupName", "reader-group")
+    assert catalog.literal_errors("QuickSight.Group", "GroupName", "日本語")
+    assert catalog.literal_errors("QuickSight.Group", "Description", "x" * 513)
+    assert catalog.literal_errors("QuickSight.Group", "Namespace", "x" * 65)
     resource = catalog.schema("LakeFormation.Resource")
     assert catalog.required_properties("LakeFormation.Resource") == {
         "ResourceArn",

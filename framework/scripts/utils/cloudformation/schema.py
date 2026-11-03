@@ -454,10 +454,19 @@ class CloudFormationSchemaCatalog:
         )
 
 
+def selected_types(root: Path) -> set[str]:
+    definitions = _imports_utils_aws_schemas.schemas_for(root)
+    return {aws_type(path) for path in material_files(root)} | {
+        formal
+        for kind in definitions.api_paths
+        if (formal := definitions.api(kind).get("cloudFormationType"))
+    }
+
+
 def refresh(root: Path) -> None:
     with urllib.request.urlopen(SOURCE_URL, timeout=60) as response:
         archive = response.read()
-    selected = {aws_type(path) for path in material_files(root)}
+    selected = selected_types(root)
     schemas: dict[str, tuple[str, dict[str, Any]]] = {}
     with zipfile.ZipFile(io.BytesIO(archive)) as source:
         for filename in source.namelist():
@@ -522,10 +531,10 @@ def snapshot_errors(root: Path) -> list[str]:
     except (FileNotFoundError, KeyError, json.JSONDecodeError) as error:
         return [f"schema snapshot cannot be loaded: {error}"]
 
-    selected = {aws_type(path) for path in material_files(root)}
+    selected = selected_types(root)
     if set(catalog.resource_types) != selected:
         errors.append(
-            "schema index resource types do not match framework/materials/aws"
+            "schema index resource types do not match the CFn-supported catalogs"
         )
     if (
         metadata.get("schema.sourceUrl") != SOURCE_URL
@@ -533,7 +542,9 @@ def snapshot_errors(root: Path) -> list[str]:
     ):
         errors.append("schema provenance does not match the configured regional source")
     if metadata.get("schema.resourceTypeCount") != str(len(selected)):
-        errors.append("schema.resourceTypeCount does not match framework/materials/aws")
+        errors.append(
+            "schema.resourceTypeCount does not match the CFn-supported catalogs"
+        )
     if re.fullmatch(r"[0-9a-f]{64}", metadata.get("schema.archiveSha256", "")) is None:
         errors.append("schema.archiveSha256 is invalid")
 

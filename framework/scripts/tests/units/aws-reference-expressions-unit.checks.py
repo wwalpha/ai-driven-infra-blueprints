@@ -635,7 +635,7 @@ def test_arn_contract_inventory_covers_every_derivable_type():
     }
     assert {kind for kind, _, _ in CASES} == ARN_SHAPES.keys() - generated
     catalog = DesignSchemaCatalog(FRAMEWORK)
-    assert len(catalog.resource_types) == 177
+    assert len(catalog.resource_types) == 178
     assert set(catalog.api_schemas) == {"Macie.ClassificationJob", "QuickSight.Group"}
     assert all(
         "AWS::" + kind.replace(".", "::") in catalog.resource_types

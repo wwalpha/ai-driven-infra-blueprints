@@ -36,7 +36,7 @@
     "GroupName"
   ],
   "resourceType": "QuickSight.Group",
-  "cloudFormationType": null,
+  "cloudFormationType": "AWS::QuickSight::Group",
   "identityProperties": [
     "AwsAccountId",
     "Namespace",

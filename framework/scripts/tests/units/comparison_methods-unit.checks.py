@@ -421,6 +421,7 @@ def test_rulebook_complete_static_coverage():
         path.stem.replace("_", ".", 1)
         for path in catalogs.paths
         if path.parent.name == "aws"
+        or catalog.api_schemas[path.stem.replace("_", ".", 1)].get("cloudFormationType")
     }
     assert {kind for kind, rules in registry.RULES.items() if rules} == kinds
     for kind in sorted(kinds):
@@ -451,8 +452,8 @@ def test_rulebook_complete_static_coverage():
                 assert rule.whole in {"ORDERED", "UNORDERED", "KEYED"}, (kind, path)
         # Reading the schema here is test-time evidence, never a runtime prerequisite.
         assert catalog.cloudformation_type(kind).startswith("AWS::")
-    assert len(kinds) == 177 and len({k.split(".")[0] for k in kinds}) == 46
-    assert set(registry.RULES) - kinds == {"QuickSight.Group"}
+    assert len(kinds) == 178 and len({k.split(".")[0] for k in kinds}) == 46
+    assert not set(registry.RULES) - kinds
     assert registry.resource("QuickSight.Group").imported_arn is not None
     assert not (ROOT / "framework/scripts/comparison/services").exists()
     assert not (ROOT / "framework/scripts/comparison/rulebook.py").exists()
