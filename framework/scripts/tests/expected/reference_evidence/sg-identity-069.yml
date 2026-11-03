@@ -1,0 +1,24 @@
+evaluation:
+  attribute: GroupId
+records:
+- actual:
+    $attribute: GroupId
+    $resource:
+    - security-group
+    - '002'
+  category: difference
+  desired:
+    $attribute: GroupId
+    $resource:
+    - security-group
+    - '001'
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  property: EC2.SecurityGroupIngress.GroupId
+  reason: value mismatch
+  resource: 090
+  service: consumer
+  stack: producer

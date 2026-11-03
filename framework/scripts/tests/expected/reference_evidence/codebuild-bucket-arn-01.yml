@@ -1,0 +1,46 @@
+records:
+- actual:
+    EnvironmentVariables:
+    - Name: BUCKET_ARN
+      Type: PLAINTEXT
+      Value:
+        $attribute: Arn
+        $resource:
+        - s3
+        - '001'
+  category: difference
+  desired:
+    EnvironmentVariables:
+    - Name: BUCKET_ARN
+      Type: PLAINTEXT
+      Value: arn:aws:s3:::other-bucket
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - {}
+  property: CodeBuild.Project.Environment
+  reason: value mismatch
+  reference_diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: local_evaluation
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: Arn
+      $resource:
+      - s3
+      - '001'
+    identity: unproven
+    local_comparison: difference
+    model: arn:aws:s3:::other-bucket
+    path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+    producers:
+    - attribute: Arn
+      producer: s3/001
+    reason: iac_concrete
+  resource: '002'
+  service: codebuild
+  stack: producer

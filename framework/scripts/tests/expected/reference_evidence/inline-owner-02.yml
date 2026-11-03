@@ -1,0 +1,4 @@
+failure:
+- uncompared
+- 'inline child correspondence matches=2; '
+selected: false

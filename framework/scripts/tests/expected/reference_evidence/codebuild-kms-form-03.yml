@@ -1,0 +1,60 @@
+records:
+- actual:
+    EnvironmentVariables:
+    - Name: MATERIAL_KEY_ID
+      Type: PLAINTEXT
+      Value:
+        $expression: Sub
+        $operands:
+        - arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}
+        - AWS::AccountId: '123456789012'
+          AWS::Partition: aws
+          AWS::Region: ap-northeast-1
+          Alias:
+            $attribute: AliasName
+            $resource:
+            - kms
+            - '002'
+  category: difference
+  desired:
+    EnvironmentVariables:
+    - Name: MATERIAL_KEY_ID
+      Type: PLAINTEXT
+      Value: arn:aws:kms:ap-northeast-1:123456789012:alias/other
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - {}
+  property: CodeBuild.Project.Environment
+  reason: value mismatch
+  reference_diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: local_evaluation
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $expression: Sub
+      $operands:
+      - arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}
+      - AWS::AccountId: '123456789012'
+        AWS::Partition: aws
+        AWS::Region: ap-northeast-1
+        Alias:
+          $attribute: AliasName
+          $resource:
+          - kms
+          - '002'
+    identity: unproven
+    local_comparison: difference
+    model: arn:aws:kms:ap-northeast-1:123456789012:alias/other
+    path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+    producers:
+    - attribute: AliasName
+      producer: kms/002
+    reason: iac_concrete
+  resource: '002'
+  service: codebuild
+  stack: producer

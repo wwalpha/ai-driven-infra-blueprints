@@ -3428,3 +3428,5637 @@ cases:
         - KmsAliasName:
             Fn::ImportValue:
               Fn::Sub: KmsLogKeyAliasName${Suffix}
+  glue-secret-00:
+    data:
+      actual:
+        Ref: Secret
+  glue-secret-01:
+    data:
+      actual:
+        Ref: OtherSecret
+  glue-secret-02:
+    data:
+      actual:
+        Fn::GetAtt:
+        - Secret
+        - Arn
+  event-bus-valid-00:
+    data:
+      bus: null
+      tail: ''
+  event-bus-valid-01:
+    data:
+      bus: default
+      tail: ''
+  event-bus-valid-02:
+    data:
+      bus: custom
+      tail: custom/
+  event-bus-valid-03:
+    data:
+      bus: arn:aws:events:ap-northeast-1:123456789012:event-bus/default
+      tail: ''
+  event-bus-valid-04:
+    data:
+      bus: arn:aws:events:ap-northeast-1:123456789012:event-bus/custom
+      tail: custom/
+  event-bus-valid-05:
+    data:
+      bus:
+        Ref: Bus
+      tail: custom/
+  event-bus-valid-06:
+    data:
+      bus:
+        Fn::GetAtt:
+        - Bus
+        - Arn
+      tail: custom/
+  event-bus-valid-07:
+    data:
+      bus:
+        Fn::Sub: ${Bus.Arn}
+      tail: custom/
+  event-bus-unproven-00:
+    data:
+      bus: arn:aws:events:ap-northeast-1:999999999999:event-bus/custom
+  event-bus-unproven-01:
+    data:
+      bus: arn:aws:events:us-east-1:123456789012:event-bus/custom
+  event-bus-unproven-02:
+    data:
+      bus: arn:aws-cn:events:ap-northeast-1:123456789012:event-bus/custom
+  event-bus-unproven-03:
+    data:
+      bus: arn:aws:events:ap-northeast-1:123456789012:rule/custom
+  event-bus-unproven-04:
+    data:
+      bus: arn:aws:sns:ap-northeast-1:123456789012:event-bus/custom
+  event-bus-unproven-05:
+    data:
+      bus: arn:aws:events:ap-northeast-1:123:event-bus/custom
+  event-bus-unproven-06:
+    data:
+      bus: arn:aws:events:ap-northeast-1:123456789012:event-bus/
+  event-bus-unproven-07:
+    data:
+      bus: arn:aws:events:ap-northeast-1:123456789012:event-bus/custom/suffix
+  event-bus-unproven-08:
+    data:
+      bus: arn:aws:events:ap-northeast-1:123456789012:event-bus/*
+  event-bus-unproven-09:
+    data:
+      bus: ''
+  event-bus-unproven-10:
+    data:
+      bus: UNSET
+  event-bus-unproven-11:
+    data:
+      bus:
+        Ref: Missing
+  event-bus-unproven-12:
+    data:
+      bus:
+        Fn::GetAtt:
+        - Bus
+        - Arn
+  event-bus-unproven-13:
+    data:
+      bus:
+        Fn::GetAtt:
+        - Rule
+        - Arn
+  sg-identity-000:
+    data:
+      receiver: &service125_001
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - CodeBuild.Project
+      - VpcConfig.SecurityGroupIds[]
+      expression: &service125_002
+        Ref: VpcId
+      active: 'yes'
+      target: Producer
+  sg-identity-001:
+    data:
+      receiver: *service125_001
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-002:
+    data:
+      receiver: *service125_001
+      expression: &service125_003
+        Fn::Sub: ${VpcId}
+      active: 'yes'
+      target: Producer
+  sg-identity-003:
+    data:
+      receiver: *service125_001
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-004:
+    data:
+      receiver: *service125_001
+      expression: &service125_004
+        Fn::Sub:
+        - ${Id}
+        - Id:
+            Ref: VpcId
+      active: 'yes'
+      target: Producer
+  sg-identity-005:
+    data:
+      receiver: *service125_001
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-006:
+    data:
+      receiver: *service125_001
+      expression: &service125_005
+        Fn::Join:
+        - ''
+        - - Ref: VpcId
+      active: 'yes'
+      target: Producer
+  sg-identity-007:
+    data:
+      receiver: *service125_001
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-008:
+    data:
+      receiver: *service125_001
+      expression: &service125_006
+        Fn::Sub:
+        - vpc-${Id}
+        - Id:
+            Fn::If:
+            - Active
+            - Ref: Suffix
+            - invalid
+      active: 'yes'
+      target: Producer
+  sg-identity-009:
+    data:
+      receiver: *service125_001
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-010:
+    data:
+      receiver: *service125_001
+      expression: &service125_007
+        Fn::Sub:
+        - vpc-${Id}
+        - Id:
+            Fn::If:
+            - Active
+            - Ref: Suffix
+            - 123abc
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-011:
+    data:
+      receiver: *service125_001
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-012:
+    data:
+      receiver: *service125_001
+      expression: &service125_008
+        Fn::Sub:
+        - vpc-${Id}
+        - Id:
+            Fn::If:
+            - Active
+            - invalid
+            - 123abc
+      active: 'yes'
+      target: Producer
+  sg-identity-013:
+    data:
+      receiver: *service125_001
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-014:
+    data:
+      receiver: *service125_001
+      expression: &service125_009
+        Fn::Sub:
+        - vpc-${Id}
+        - Id:
+            Fn::If:
+            - Active
+            - Ref: AWS::NoValue
+            - 123abc
+      active: 'yes'
+      target: Producer
+  sg-identity-015:
+    data:
+      receiver: *service125_001
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-016:
+    data:
+      receiver: *service125_001
+      expression: &service125_010
+        Fn::Sub: prefix-${VpcId}
+      active: 'yes'
+      target: Producer
+  sg-identity-017:
+    data:
+      receiver: *service125_001
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-018:
+    data:
+      receiver: *service125_001
+      expression: &service125_011
+        Fn::Sub: ${Missing}
+      active: 'yes'
+      target: Producer
+  sg-identity-019:
+    data:
+      receiver: *service125_001
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-020:
+    data:
+      receiver: *service125_001
+      expression: &service125_012
+        Fn::Join:
+        - ''
+        - - Ref: VpcId
+          - bad
+      active: 'yes'
+      target: Producer
+  sg-identity-021:
+    data:
+      receiver: *service125_001
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-022:
+    data:
+      receiver: *service125_001
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-023:
+    data:
+      receiver: *service125_001
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-024:
+    data:
+      receiver: *service125_001
+      expression: &service125_013
+        Ref: Role
+      active: 'yes'
+      target: Producer
+  sg-identity-025:
+    data:
+      receiver: *service125_001
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-026:
+    data:
+      receiver: *service125_001
+      expression: &service125_014
+        Fn::ImportValue: bad-export
+      active: 'yes'
+      target: Producer
+  sg-identity-027:
+    data:
+      receiver: *service125_001
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-028:
+    data:
+      receiver: *service125_001
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-029:
+    data:
+      receiver: *service125_001
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-030:
+    data:
+      receiver: &service125_015
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - EC2.Instance
+      - SecurityGroupIds[]
+      expression: *service125_002
+      active: 'yes'
+      target: Producer
+  sg-identity-031:
+    data:
+      receiver: *service125_015
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-032:
+    data:
+      receiver: *service125_015
+      expression: *service125_003
+      active: 'yes'
+      target: Producer
+  sg-identity-033:
+    data:
+      receiver: *service125_015
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-034:
+    data:
+      receiver: *service125_015
+      expression: *service125_004
+      active: 'yes'
+      target: Producer
+  sg-identity-035:
+    data:
+      receiver: *service125_015
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-036:
+    data:
+      receiver: *service125_015
+      expression: *service125_005
+      active: 'yes'
+      target: Producer
+  sg-identity-037:
+    data:
+      receiver: *service125_015
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-038:
+    data:
+      receiver: *service125_015
+      expression: *service125_006
+      active: 'yes'
+      target: Producer
+  sg-identity-039:
+    data:
+      receiver: *service125_015
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-040:
+    data:
+      receiver: *service125_015
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-041:
+    data:
+      receiver: *service125_015
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-042:
+    data:
+      receiver: *service125_015
+      expression: *service125_008
+      active: 'yes'
+      target: Producer
+  sg-identity-043:
+    data:
+      receiver: *service125_015
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-044:
+    data:
+      receiver: *service125_015
+      expression: *service125_009
+      active: 'yes'
+      target: Producer
+  sg-identity-045:
+    data:
+      receiver: *service125_015
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-046:
+    data:
+      receiver: *service125_015
+      expression: *service125_010
+      active: 'yes'
+      target: Producer
+  sg-identity-047:
+    data:
+      receiver: *service125_015
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-048:
+    data:
+      receiver: *service125_015
+      expression: *service125_011
+      active: 'yes'
+      target: Producer
+  sg-identity-049:
+    data:
+      receiver: *service125_015
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-050:
+    data:
+      receiver: *service125_015
+      expression: *service125_012
+      active: 'yes'
+      target: Producer
+  sg-identity-051:
+    data:
+      receiver: *service125_015
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-052:
+    data:
+      receiver: *service125_015
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-053:
+    data:
+      receiver: *service125_015
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-054:
+    data:
+      receiver: *service125_015
+      expression: *service125_013
+      active: 'yes'
+      target: Producer
+  sg-identity-055:
+    data:
+      receiver: *service125_015
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-056:
+    data:
+      receiver: *service125_015
+      expression: *service125_014
+      active: 'yes'
+      target: Producer
+  sg-identity-057:
+    data:
+      receiver: *service125_015
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-058:
+    data:
+      receiver: *service125_015
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-059:
+    data:
+      receiver: *service125_015
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-060:
+    data:
+      receiver: &service125_016
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - EC2.SecurityGroupIngress
+      - GroupId
+      expression: *service125_002
+      active: 'yes'
+      target: Producer
+  sg-identity-061:
+    data:
+      receiver: *service125_016
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-062:
+    data:
+      receiver: *service125_016
+      expression: *service125_003
+      active: 'yes'
+      target: Producer
+  sg-identity-063:
+    data:
+      receiver: *service125_016
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-064:
+    data:
+      receiver: *service125_016
+      expression: *service125_004
+      active: 'yes'
+      target: Producer
+  sg-identity-065:
+    data:
+      receiver: *service125_016
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-066:
+    data:
+      receiver: *service125_016
+      expression: *service125_005
+      active: 'yes'
+      target: Producer
+  sg-identity-067:
+    data:
+      receiver: *service125_016
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-068:
+    data:
+      receiver: *service125_016
+      expression: *service125_006
+      active: 'yes'
+      target: Producer
+  sg-identity-069:
+    data:
+      receiver: *service125_016
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-070:
+    data:
+      receiver: *service125_016
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-071:
+    data:
+      receiver: *service125_016
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-072:
+    data:
+      receiver: *service125_016
+      expression: *service125_008
+      active: 'yes'
+      target: Producer
+  sg-identity-073:
+    data:
+      receiver: *service125_016
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-074:
+    data:
+      receiver: *service125_016
+      expression: *service125_009
+      active: 'yes'
+      target: Producer
+  sg-identity-075:
+    data:
+      receiver: *service125_016
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-076:
+    data:
+      receiver: *service125_016
+      expression: *service125_010
+      active: 'yes'
+      target: Producer
+  sg-identity-077:
+    data:
+      receiver: *service125_016
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-078:
+    data:
+      receiver: *service125_016
+      expression: *service125_011
+      active: 'yes'
+      target: Producer
+  sg-identity-079:
+    data:
+      receiver: *service125_016
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-080:
+    data:
+      receiver: *service125_016
+      expression: *service125_012
+      active: 'yes'
+      target: Producer
+  sg-identity-081:
+    data:
+      receiver: *service125_016
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-082:
+    data:
+      receiver: *service125_016
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-083:
+    data:
+      receiver: *service125_016
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-084:
+    data:
+      receiver: *service125_016
+      expression: *service125_013
+      active: 'yes'
+      target: Producer
+  sg-identity-085:
+    data:
+      receiver: *service125_016
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-086:
+    data:
+      receiver: *service125_016
+      expression: *service125_014
+      active: 'yes'
+      target: Producer
+  sg-identity-087:
+    data:
+      receiver: *service125_016
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-088:
+    data:
+      receiver: *service125_016
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-089:
+    data:
+      receiver: *service125_016
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-090:
+    data:
+      receiver: &service125_017
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - EC2.SecurityGroupIngress
+      - SourceSecurityGroupId
+      expression: *service125_002
+      active: 'yes'
+      target: Producer
+  sg-identity-091:
+    data:
+      receiver: *service125_017
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-092:
+    data:
+      receiver: *service125_017
+      expression: *service125_003
+      active: 'yes'
+      target: Producer
+  sg-identity-093:
+    data:
+      receiver: *service125_017
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-094:
+    data:
+      receiver: *service125_017
+      expression: *service125_004
+      active: 'yes'
+      target: Producer
+  sg-identity-095:
+    data:
+      receiver: *service125_017
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-096:
+    data:
+      receiver: *service125_017
+      expression: *service125_005
+      active: 'yes'
+      target: Producer
+  sg-identity-097:
+    data:
+      receiver: *service125_017
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-098:
+    data:
+      receiver: *service125_017
+      expression: *service125_006
+      active: 'yes'
+      target: Producer
+  sg-identity-099:
+    data:
+      receiver: *service125_017
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-100:
+    data:
+      receiver: *service125_017
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-101:
+    data:
+      receiver: *service125_017
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-102:
+    data:
+      receiver: *service125_017
+      expression: *service125_008
+      active: 'yes'
+      target: Producer
+  sg-identity-103:
+    data:
+      receiver: *service125_017
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-104:
+    data:
+      receiver: *service125_017
+      expression: *service125_009
+      active: 'yes'
+      target: Producer
+  sg-identity-105:
+    data:
+      receiver: *service125_017
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-106:
+    data:
+      receiver: *service125_017
+      expression: *service125_010
+      active: 'yes'
+      target: Producer
+  sg-identity-107:
+    data:
+      receiver: *service125_017
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-108:
+    data:
+      receiver: *service125_017
+      expression: *service125_011
+      active: 'yes'
+      target: Producer
+  sg-identity-109:
+    data:
+      receiver: *service125_017
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-110:
+    data:
+      receiver: *service125_017
+      expression: *service125_012
+      active: 'yes'
+      target: Producer
+  sg-identity-111:
+    data:
+      receiver: *service125_017
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-112:
+    data:
+      receiver: *service125_017
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-113:
+    data:
+      receiver: *service125_017
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-114:
+    data:
+      receiver: *service125_017
+      expression: *service125_013
+      active: 'yes'
+      target: Producer
+  sg-identity-115:
+    data:
+      receiver: *service125_017
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-116:
+    data:
+      receiver: *service125_017
+      expression: *service125_014
+      active: 'yes'
+      target: Producer
+  sg-identity-117:
+    data:
+      receiver: *service125_017
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-118:
+    data:
+      receiver: *service125_017
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-119:
+    data:
+      receiver: *service125_017
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-120:
+    data:
+      receiver: &service125_018
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - EC2.SecurityGroupEgress
+      - GroupId
+      expression: *service125_002
+      active: 'yes'
+      target: Producer
+  sg-identity-121:
+    data:
+      receiver: *service125_018
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-122:
+    data:
+      receiver: *service125_018
+      expression: *service125_003
+      active: 'yes'
+      target: Producer
+  sg-identity-123:
+    data:
+      receiver: *service125_018
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-124:
+    data:
+      receiver: *service125_018
+      expression: *service125_004
+      active: 'yes'
+      target: Producer
+  sg-identity-125:
+    data:
+      receiver: *service125_018
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-126:
+    data:
+      receiver: *service125_018
+      expression: *service125_005
+      active: 'yes'
+      target: Producer
+  sg-identity-127:
+    data:
+      receiver: *service125_018
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-128:
+    data:
+      receiver: *service125_018
+      expression: *service125_006
+      active: 'yes'
+      target: Producer
+  sg-identity-129:
+    data:
+      receiver: *service125_018
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-130:
+    data:
+      receiver: *service125_018
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-131:
+    data:
+      receiver: *service125_018
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-132:
+    data:
+      receiver: *service125_018
+      expression: *service125_008
+      active: 'yes'
+      target: Producer
+  sg-identity-133:
+    data:
+      receiver: *service125_018
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-134:
+    data:
+      receiver: *service125_018
+      expression: *service125_009
+      active: 'yes'
+      target: Producer
+  sg-identity-135:
+    data:
+      receiver: *service125_018
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-136:
+    data:
+      receiver: *service125_018
+      expression: *service125_010
+      active: 'yes'
+      target: Producer
+  sg-identity-137:
+    data:
+      receiver: *service125_018
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-138:
+    data:
+      receiver: *service125_018
+      expression: *service125_011
+      active: 'yes'
+      target: Producer
+  sg-identity-139:
+    data:
+      receiver: *service125_018
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-140:
+    data:
+      receiver: *service125_018
+      expression: *service125_012
+      active: 'yes'
+      target: Producer
+  sg-identity-141:
+    data:
+      receiver: *service125_018
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-142:
+    data:
+      receiver: *service125_018
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-143:
+    data:
+      receiver: *service125_018
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-144:
+    data:
+      receiver: *service125_018
+      expression: *service125_013
+      active: 'yes'
+      target: Producer
+  sg-identity-145:
+    data:
+      receiver: *service125_018
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-146:
+    data:
+      receiver: *service125_018
+      expression: *service125_014
+      active: 'yes'
+      target: Producer
+  sg-identity-147:
+    data:
+      receiver: *service125_018
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-148:
+    data:
+      receiver: *service125_018
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-149:
+    data:
+      receiver: *service125_018
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-150:
+    data:
+      receiver: &service125_019
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - EC2.SecurityGroupEgress
+      - DestinationSecurityGroupId
+      expression: *service125_002
+      active: 'yes'
+      target: Producer
+  sg-identity-151:
+    data:
+      receiver: *service125_019
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-152:
+    data:
+      receiver: *service125_019
+      expression: *service125_003
+      active: 'yes'
+      target: Producer
+  sg-identity-153:
+    data:
+      receiver: *service125_019
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-154:
+    data:
+      receiver: *service125_019
+      expression: *service125_004
+      active: 'yes'
+      target: Producer
+  sg-identity-155:
+    data:
+      receiver: *service125_019
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-156:
+    data:
+      receiver: *service125_019
+      expression: *service125_005
+      active: 'yes'
+      target: Producer
+  sg-identity-157:
+    data:
+      receiver: *service125_019
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-158:
+    data:
+      receiver: *service125_019
+      expression: *service125_006
+      active: 'yes'
+      target: Producer
+  sg-identity-159:
+    data:
+      receiver: *service125_019
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-160:
+    data:
+      receiver: *service125_019
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-161:
+    data:
+      receiver: *service125_019
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-162:
+    data:
+      receiver: *service125_019
+      expression: *service125_008
+      active: 'yes'
+      target: Producer
+  sg-identity-163:
+    data:
+      receiver: *service125_019
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-164:
+    data:
+      receiver: *service125_019
+      expression: *service125_009
+      active: 'yes'
+      target: Producer
+  sg-identity-165:
+    data:
+      receiver: *service125_019
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-166:
+    data:
+      receiver: *service125_019
+      expression: *service125_010
+      active: 'yes'
+      target: Producer
+  sg-identity-167:
+    data:
+      receiver: *service125_019
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-168:
+    data:
+      receiver: *service125_019
+      expression: *service125_011
+      active: 'yes'
+      target: Producer
+  sg-identity-169:
+    data:
+      receiver: *service125_019
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-170:
+    data:
+      receiver: *service125_019
+      expression: *service125_012
+      active: 'yes'
+      target: Producer
+  sg-identity-171:
+    data:
+      receiver: *service125_019
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-172:
+    data:
+      receiver: *service125_019
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-173:
+    data:
+      receiver: *service125_019
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-174:
+    data:
+      receiver: *service125_019
+      expression: *service125_013
+      active: 'yes'
+      target: Producer
+  sg-identity-175:
+    data:
+      receiver: *service125_019
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-176:
+    data:
+      receiver: *service125_019
+      expression: *service125_014
+      active: 'yes'
+      target: Producer
+  sg-identity-177:
+    data:
+      receiver: *service125_019
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-178:
+    data:
+      receiver: *service125_019
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-179:
+    data:
+      receiver: *service125_019
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-180:
+    data:
+      receiver: &service125_020
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - EC2.SecurityGroup
+      - SecurityGroupEgress[].DestinationSecurityGroupId
+      expression: *service125_002
+      active: 'yes'
+      target: Producer
+  sg-identity-181:
+    data:
+      receiver: *service125_020
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-182:
+    data:
+      receiver: *service125_020
+      expression: *service125_003
+      active: 'yes'
+      target: Producer
+  sg-identity-183:
+    data:
+      receiver: *service125_020
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-184:
+    data:
+      receiver: *service125_020
+      expression: *service125_004
+      active: 'yes'
+      target: Producer
+  sg-identity-185:
+    data:
+      receiver: *service125_020
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-186:
+    data:
+      receiver: *service125_020
+      expression: *service125_005
+      active: 'yes'
+      target: Producer
+  sg-identity-187:
+    data:
+      receiver: *service125_020
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-188:
+    data:
+      receiver: *service125_020
+      expression: *service125_006
+      active: 'yes'
+      target: Producer
+  sg-identity-189:
+    data:
+      receiver: *service125_020
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-190:
+    data:
+      receiver: *service125_020
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-191:
+    data:
+      receiver: *service125_020
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-192:
+    data:
+      receiver: *service125_020
+      expression: *service125_008
+      active: 'yes'
+      target: Producer
+  sg-identity-193:
+    data:
+      receiver: *service125_020
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-194:
+    data:
+      receiver: *service125_020
+      expression: *service125_009
+      active: 'yes'
+      target: Producer
+  sg-identity-195:
+    data:
+      receiver: *service125_020
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-196:
+    data:
+      receiver: *service125_020
+      expression: *service125_010
+      active: 'yes'
+      target: Producer
+  sg-identity-197:
+    data:
+      receiver: *service125_020
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-198:
+    data:
+      receiver: *service125_020
+      expression: *service125_011
+      active: 'yes'
+      target: Producer
+  sg-identity-199:
+    data:
+      receiver: *service125_020
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-200:
+    data:
+      receiver: *service125_020
+      expression: *service125_012
+      active: 'yes'
+      target: Producer
+  sg-identity-201:
+    data:
+      receiver: *service125_020
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-202:
+    data:
+      receiver: *service125_020
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-203:
+    data:
+      receiver: *service125_020
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-204:
+    data:
+      receiver: *service125_020
+      expression: *service125_013
+      active: 'yes'
+      target: Producer
+  sg-identity-205:
+    data:
+      receiver: *service125_020
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-206:
+    data:
+      receiver: *service125_020
+      expression: *service125_014
+      active: 'yes'
+      target: Producer
+  sg-identity-207:
+    data:
+      receiver: *service125_020
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-208:
+    data:
+      receiver: *service125_020
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-209:
+    data:
+      receiver: *service125_020
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-210:
+    data:
+      receiver: &service125_021
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - EC2.VPCEndpoint
+      - SecurityGroupIds[]
+      expression: *service125_002
+      active: 'yes'
+      target: Producer
+  sg-identity-211:
+    data:
+      receiver: *service125_021
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-212:
+    data:
+      receiver: *service125_021
+      expression: *service125_003
+      active: 'yes'
+      target: Producer
+  sg-identity-213:
+    data:
+      receiver: *service125_021
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-214:
+    data:
+      receiver: *service125_021
+      expression: *service125_004
+      active: 'yes'
+      target: Producer
+  sg-identity-215:
+    data:
+      receiver: *service125_021
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-216:
+    data:
+      receiver: *service125_021
+      expression: *service125_005
+      active: 'yes'
+      target: Producer
+  sg-identity-217:
+    data:
+      receiver: *service125_021
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-218:
+    data:
+      receiver: *service125_021
+      expression: *service125_006
+      active: 'yes'
+      target: Producer
+  sg-identity-219:
+    data:
+      receiver: *service125_021
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-220:
+    data:
+      receiver: *service125_021
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-221:
+    data:
+      receiver: *service125_021
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-222:
+    data:
+      receiver: *service125_021
+      expression: *service125_008
+      active: 'yes'
+      target: Producer
+  sg-identity-223:
+    data:
+      receiver: *service125_021
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-224:
+    data:
+      receiver: *service125_021
+      expression: *service125_009
+      active: 'yes'
+      target: Producer
+  sg-identity-225:
+    data:
+      receiver: *service125_021
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-226:
+    data:
+      receiver: *service125_021
+      expression: *service125_010
+      active: 'yes'
+      target: Producer
+  sg-identity-227:
+    data:
+      receiver: *service125_021
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-228:
+    data:
+      receiver: *service125_021
+      expression: *service125_011
+      active: 'yes'
+      target: Producer
+  sg-identity-229:
+    data:
+      receiver: *service125_021
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-230:
+    data:
+      receiver: *service125_021
+      expression: *service125_012
+      active: 'yes'
+      target: Producer
+  sg-identity-231:
+    data:
+      receiver: *service125_021
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-232:
+    data:
+      receiver: *service125_021
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-233:
+    data:
+      receiver: *service125_021
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-234:
+    data:
+      receiver: *service125_021
+      expression: *service125_013
+      active: 'yes'
+      target: Producer
+  sg-identity-235:
+    data:
+      receiver: *service125_021
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-236:
+    data:
+      receiver: *service125_021
+      expression: *service125_014
+      active: 'yes'
+      target: Producer
+  sg-identity-237:
+    data:
+      receiver: *service125_021
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-238:
+    data:
+      receiver: *service125_021
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-239:
+    data:
+      receiver: *service125_021
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-240:
+    data:
+      receiver: &service125_022
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - Glue.Connection
+      - ConnectionInput.PhysicalConnectionRequirements.SecurityGroupIdList[]
+      expression: *service125_002
+      active: 'yes'
+      target: Producer
+  sg-identity-241:
+    data:
+      receiver: *service125_022
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-242:
+    data:
+      receiver: *service125_022
+      expression: *service125_003
+      active: 'yes'
+      target: Producer
+  sg-identity-243:
+    data:
+      receiver: *service125_022
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-244:
+    data:
+      receiver: *service125_022
+      expression: *service125_004
+      active: 'yes'
+      target: Producer
+  sg-identity-245:
+    data:
+      receiver: *service125_022
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-246:
+    data:
+      receiver: *service125_022
+      expression: *service125_005
+      active: 'yes'
+      target: Producer
+  sg-identity-247:
+    data:
+      receiver: *service125_022
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-248:
+    data:
+      receiver: *service125_022
+      expression: *service125_006
+      active: 'yes'
+      target: Producer
+  sg-identity-249:
+    data:
+      receiver: *service125_022
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-250:
+    data:
+      receiver: *service125_022
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-251:
+    data:
+      receiver: *service125_022
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-252:
+    data:
+      receiver: *service125_022
+      expression: *service125_008
+      active: 'yes'
+      target: Producer
+  sg-identity-253:
+    data:
+      receiver: *service125_022
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-254:
+    data:
+      receiver: *service125_022
+      expression: *service125_009
+      active: 'yes'
+      target: Producer
+  sg-identity-255:
+    data:
+      receiver: *service125_022
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-256:
+    data:
+      receiver: *service125_022
+      expression: *service125_010
+      active: 'yes'
+      target: Producer
+  sg-identity-257:
+    data:
+      receiver: *service125_022
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-258:
+    data:
+      receiver: *service125_022
+      expression: *service125_011
+      active: 'yes'
+      target: Producer
+  sg-identity-259:
+    data:
+      receiver: *service125_022
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-260:
+    data:
+      receiver: *service125_022
+      expression: *service125_012
+      active: 'yes'
+      target: Producer
+  sg-identity-261:
+    data:
+      receiver: *service125_022
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-262:
+    data:
+      receiver: *service125_022
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-263:
+    data:
+      receiver: *service125_022
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-264:
+    data:
+      receiver: *service125_022
+      expression: *service125_013
+      active: 'yes'
+      target: Producer
+  sg-identity-265:
+    data:
+      receiver: *service125_022
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-266:
+    data:
+      receiver: *service125_022
+      expression: *service125_014
+      active: 'yes'
+      target: Producer
+  sg-identity-267:
+    data:
+      receiver: *service125_022
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-268:
+    data:
+      receiver: *service125_022
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-269:
+    data:
+      receiver: *service125_022
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-270:
+    data:
+      receiver: &service125_023
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - Lambda.Function
+      - VpcConfig.SecurityGroupIds[]
+      expression: *service125_002
+      active: 'yes'
+      target: Producer
+  sg-identity-271:
+    data:
+      receiver: *service125_023
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-272:
+    data:
+      receiver: *service125_023
+      expression: *service125_003
+      active: 'yes'
+      target: Producer
+  sg-identity-273:
+    data:
+      receiver: *service125_023
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-274:
+    data:
+      receiver: *service125_023
+      expression: *service125_004
+      active: 'yes'
+      target: Producer
+  sg-identity-275:
+    data:
+      receiver: *service125_023
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-276:
+    data:
+      receiver: *service125_023
+      expression: *service125_005
+      active: 'yes'
+      target: Producer
+  sg-identity-277:
+    data:
+      receiver: *service125_023
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-278:
+    data:
+      receiver: *service125_023
+      expression: *service125_006
+      active: 'yes'
+      target: Producer
+  sg-identity-279:
+    data:
+      receiver: *service125_023
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-280:
+    data:
+      receiver: *service125_023
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-281:
+    data:
+      receiver: *service125_023
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-282:
+    data:
+      receiver: *service125_023
+      expression: *service125_008
+      active: 'yes'
+      target: Producer
+  sg-identity-283:
+    data:
+      receiver: *service125_023
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-284:
+    data:
+      receiver: *service125_023
+      expression: *service125_009
+      active: 'yes'
+      target: Producer
+  sg-identity-285:
+    data:
+      receiver: *service125_023
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-286:
+    data:
+      receiver: *service125_023
+      expression: *service125_010
+      active: 'yes'
+      target: Producer
+  sg-identity-287:
+    data:
+      receiver: *service125_023
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-288:
+    data:
+      receiver: *service125_023
+      expression: *service125_011
+      active: 'yes'
+      target: Producer
+  sg-identity-289:
+    data:
+      receiver: *service125_023
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-290:
+    data:
+      receiver: *service125_023
+      expression: *service125_012
+      active: 'yes'
+      target: Producer
+  sg-identity-291:
+    data:
+      receiver: *service125_023
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-292:
+    data:
+      receiver: *service125_023
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-293:
+    data:
+      receiver: *service125_023
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-294:
+    data:
+      receiver: *service125_023
+      expression: *service125_013
+      active: 'yes'
+      target: Producer
+  sg-identity-295:
+    data:
+      receiver: *service125_023
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-296:
+    data:
+      receiver: *service125_023
+      expression: *service125_014
+      active: 'yes'
+      target: Producer
+  sg-identity-297:
+    data:
+      receiver: *service125_023
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-298:
+    data:
+      receiver: *service125_023
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-299:
+    data:
+      receiver: *service125_023
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-300:
+    data:
+      receiver: &service125_024
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - MWAA.Environment
+      - NetworkConfiguration.SecurityGroupIds[]
+      expression: *service125_002
+      active: 'yes'
+      target: Producer
+  sg-identity-301:
+    data:
+      receiver: *service125_024
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-302:
+    data:
+      receiver: *service125_024
+      expression: *service125_003
+      active: 'yes'
+      target: Producer
+  sg-identity-303:
+    data:
+      receiver: *service125_024
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-304:
+    data:
+      receiver: *service125_024
+      expression: *service125_004
+      active: 'yes'
+      target: Producer
+  sg-identity-305:
+    data:
+      receiver: *service125_024
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-306:
+    data:
+      receiver: *service125_024
+      expression: *service125_005
+      active: 'yes'
+      target: Producer
+  sg-identity-307:
+    data:
+      receiver: *service125_024
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-308:
+    data:
+      receiver: *service125_024
+      expression: *service125_006
+      active: 'yes'
+      target: Producer
+  sg-identity-309:
+    data:
+      receiver: *service125_024
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-310:
+    data:
+      receiver: *service125_024
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-311:
+    data:
+      receiver: *service125_024
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-312:
+    data:
+      receiver: *service125_024
+      expression: *service125_008
+      active: 'yes'
+      target: Producer
+  sg-identity-313:
+    data:
+      receiver: *service125_024
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-314:
+    data:
+      receiver: *service125_024
+      expression: *service125_009
+      active: 'yes'
+      target: Producer
+  sg-identity-315:
+    data:
+      receiver: *service125_024
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-316:
+    data:
+      receiver: *service125_024
+      expression: *service125_010
+      active: 'yes'
+      target: Producer
+  sg-identity-317:
+    data:
+      receiver: *service125_024
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-318:
+    data:
+      receiver: *service125_024
+      expression: *service125_011
+      active: 'yes'
+      target: Producer
+  sg-identity-319:
+    data:
+      receiver: *service125_024
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-320:
+    data:
+      receiver: *service125_024
+      expression: *service125_012
+      active: 'yes'
+      target: Producer
+  sg-identity-321:
+    data:
+      receiver: *service125_024
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-322:
+    data:
+      receiver: *service125_024
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-323:
+    data:
+      receiver: *service125_024
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-324:
+    data:
+      receiver: *service125_024
+      expression: *service125_013
+      active: 'yes'
+      target: Producer
+  sg-identity-325:
+    data:
+      receiver: *service125_024
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-326:
+    data:
+      receiver: *service125_024
+      expression: *service125_014
+      active: 'yes'
+      target: Producer
+  sg-identity-327:
+    data:
+      receiver: *service125_024
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-328:
+    data:
+      receiver: *service125_024
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-329:
+    data:
+      receiver: *service125_024
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-330:
+    data:
+      receiver: &service125_025
+      - security-group
+      - EC2.SecurityGroup
+      - GroupId
+      - QuickSight.VPCConnection
+      - SecurityGroupIds[]
+      expression: *service125_002
+      active: 'yes'
+      target: Producer
+  sg-identity-331:
+    data:
+      receiver: *service125_025
+      expression: *service125_002
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-332:
+    data:
+      receiver: *service125_025
+      expression: *service125_003
+      active: 'yes'
+      target: Producer
+  sg-identity-333:
+    data:
+      receiver: *service125_025
+      expression: *service125_003
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-334:
+    data:
+      receiver: *service125_025
+      expression: *service125_004
+      active: 'yes'
+      target: Producer
+  sg-identity-335:
+    data:
+      receiver: *service125_025
+      expression: *service125_004
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-336:
+    data:
+      receiver: *service125_025
+      expression: *service125_005
+      active: 'yes'
+      target: Producer
+  sg-identity-337:
+    data:
+      receiver: *service125_025
+      expression: *service125_005
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-338:
+    data:
+      receiver: *service125_025
+      expression: *service125_006
+      active: 'yes'
+      target: Producer
+  sg-identity-339:
+    data:
+      receiver: *service125_025
+      expression: *service125_006
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-340:
+    data:
+      receiver: *service125_025
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: Producer
+  sg-identity-341:
+    data:
+      receiver: *service125_025
+      expression: *service125_007
+      active: PENDING_DEPLOY
+      target: OtherProducer
+  sg-identity-342:
+    data:
+      receiver: *service125_025
+      expression: *service125_008
+      active: 'yes'
+      target: Producer
+  sg-identity-343:
+    data:
+      receiver: *service125_025
+      expression: *service125_008
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-344:
+    data:
+      receiver: *service125_025
+      expression: *service125_009
+      active: 'yes'
+      target: Producer
+  sg-identity-345:
+    data:
+      receiver: *service125_025
+      expression: *service125_009
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-346:
+    data:
+      receiver: *service125_025
+      expression: *service125_010
+      active: 'yes'
+      target: Producer
+  sg-identity-347:
+    data:
+      receiver: *service125_025
+      expression: *service125_010
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-348:
+    data:
+      receiver: *service125_025
+      expression: *service125_011
+      active: 'yes'
+      target: Producer
+  sg-identity-349:
+    data:
+      receiver: *service125_025
+      expression: *service125_011
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-350:
+    data:
+      receiver: *service125_025
+      expression: *service125_012
+      active: 'yes'
+      target: Producer
+  sg-identity-351:
+    data:
+      receiver: *service125_025
+      expression: *service125_012
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-352:
+    data:
+      receiver: *service125_025
+      expression: not-a-vpc
+      active: 'yes'
+      target: Producer
+  sg-identity-353:
+    data:
+      receiver: *service125_025
+      expression: not-a-vpc
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-354:
+    data:
+      receiver: *service125_025
+      expression: *service125_013
+      active: 'yes'
+      target: Producer
+  sg-identity-355:
+    data:
+      receiver: *service125_025
+      expression: *service125_013
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-356:
+    data:
+      receiver: *service125_025
+      expression: *service125_014
+      active: 'yes'
+      target: Producer
+  sg-identity-357:
+    data:
+      receiver: *service125_025
+      expression: *service125_014
+      active: 'yes'
+      target: OtherProducer
+  sg-identity-358:
+    data:
+      receiver: *service125_025
+      expression: null
+      active: 'yes'
+      target: Producer
+  sg-identity-359:
+    data:
+      receiver: *service125_025
+      expression: null
+      active: 'yes'
+      target: OtherProducer
+  sg-external-000:
+    data:
+      receiver: *service125_001
+      expression: &service125_026
+        Fn::ImportValue: ExternalVpcId
+      target: Producer
+  sg-external-001:
+    data:
+      receiver: *service125_001
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-002:
+    data:
+      receiver: *service125_001
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-003:
+    data:
+      receiver: *service125_001
+      expression: &service125_027
+        Fn::ImportValue:
+          Fn::Sub: External${Stage}
+      target: Producer
+  sg-external-004:
+    data:
+      receiver: *service125_001
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-005:
+    data:
+      receiver: *service125_001
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-006:
+    data:
+      receiver: *service125_001
+      expression: &service125_028
+        Fn::Sub: vpc-${Suffix}
+      target: Producer
+  sg-external-007:
+    data:
+      receiver: *service125_001
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-008:
+    data:
+      receiver: *service125_001
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-009:
+    data:
+      receiver: *service125_001
+      expression: &service125_029
+        Fn::Sub:
+        - vpc-${Id}
+        - Id:
+            Ref: Suffix
+      target: Producer
+  sg-external-010:
+    data:
+      receiver: *service125_001
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-011:
+    data:
+      receiver: *service125_001
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-012:
+    data:
+      receiver: *service125_001
+      expression: &service125_030
+        Fn::Sub:
+        - vpc-${Id}
+        - Id: ZZZZ
+      target: Producer
+  sg-external-013:
+    data:
+      receiver: *service125_001
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-014:
+    data:
+      receiver: *service125_001
+      expression: *service125_030
+      target: UnknownVpc
+  sg-external-015:
+    data:
+      receiver: *service125_015
+      expression: *service125_026
+      target: Producer
+  sg-external-016:
+    data:
+      receiver: *service125_015
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-017:
+    data:
+      receiver: *service125_015
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-018:
+    data:
+      receiver: *service125_015
+      expression: *service125_027
+      target: Producer
+  sg-external-019:
+    data:
+      receiver: *service125_015
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-020:
+    data:
+      receiver: *service125_015
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-021:
+    data:
+      receiver: *service125_015
+      expression: *service125_028
+      target: Producer
+  sg-external-022:
+    data:
+      receiver: *service125_015
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-023:
+    data:
+      receiver: *service125_015
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-024:
+    data:
+      receiver: *service125_015
+      expression: *service125_029
+      target: Producer
+  sg-external-025:
+    data:
+      receiver: *service125_015
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-026:
+    data:
+      receiver: *service125_015
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-027:
+    data:
+      receiver: *service125_015
+      expression: *service125_030
+      target: Producer
+  sg-external-028:
+    data:
+      receiver: *service125_015
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-029:
+    data:
+      receiver: *service125_015
+      expression: *service125_030
+      target: UnknownVpc
+  sg-external-030:
+    data:
+      receiver: *service125_016
+      expression: *service125_026
+      target: Producer
+  sg-external-031:
+    data:
+      receiver: *service125_016
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-032:
+    data:
+      receiver: *service125_016
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-033:
+    data:
+      receiver: *service125_016
+      expression: *service125_027
+      target: Producer
+  sg-external-034:
+    data:
+      receiver: *service125_016
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-035:
+    data:
+      receiver: *service125_016
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-036:
+    data:
+      receiver: *service125_016
+      expression: *service125_028
+      target: Producer
+  sg-external-037:
+    data:
+      receiver: *service125_016
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-038:
+    data:
+      receiver: *service125_016
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-039:
+    data:
+      receiver: *service125_016
+      expression: *service125_029
+      target: Producer
+  sg-external-040:
+    data:
+      receiver: *service125_016
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-041:
+    data:
+      receiver: *service125_016
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-042:
+    data:
+      receiver: *service125_016
+      expression: *service125_030
+      target: Producer
+  sg-external-043:
+    data:
+      receiver: *service125_016
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-044:
+    data:
+      receiver: *service125_016
+      expression: *service125_030
+      target: UnknownVpc
+  sg-external-045:
+    data:
+      receiver: *service125_017
+      expression: *service125_026
+      target: Producer
+  sg-external-046:
+    data:
+      receiver: *service125_017
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-047:
+    data:
+      receiver: *service125_017
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-048:
+    data:
+      receiver: *service125_017
+      expression: *service125_027
+      target: Producer
+  sg-external-049:
+    data:
+      receiver: *service125_017
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-050:
+    data:
+      receiver: *service125_017
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-051:
+    data:
+      receiver: *service125_017
+      expression: *service125_028
+      target: Producer
+  sg-external-052:
+    data:
+      receiver: *service125_017
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-053:
+    data:
+      receiver: *service125_017
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-054:
+    data:
+      receiver: *service125_017
+      expression: *service125_029
+      target: Producer
+  sg-external-055:
+    data:
+      receiver: *service125_017
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-056:
+    data:
+      receiver: *service125_017
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-057:
+    data:
+      receiver: *service125_017
+      expression: *service125_030
+      target: Producer
+  sg-external-058:
+    data:
+      receiver: *service125_017
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-059:
+    data:
+      receiver: *service125_017
+      expression: *service125_030
+      target: UnknownVpc
+  sg-external-060:
+    data:
+      receiver: *service125_018
+      expression: *service125_026
+      target: Producer
+  sg-external-061:
+    data:
+      receiver: *service125_018
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-062:
+    data:
+      receiver: *service125_018
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-063:
+    data:
+      receiver: *service125_018
+      expression: *service125_027
+      target: Producer
+  sg-external-064:
+    data:
+      receiver: *service125_018
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-065:
+    data:
+      receiver: *service125_018
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-066:
+    data:
+      receiver: *service125_018
+      expression: *service125_028
+      target: Producer
+  sg-external-067:
+    data:
+      receiver: *service125_018
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-068:
+    data:
+      receiver: *service125_018
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-069:
+    data:
+      receiver: *service125_018
+      expression: *service125_029
+      target: Producer
+  sg-external-070:
+    data:
+      receiver: *service125_018
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-071:
+    data:
+      receiver: *service125_018
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-072:
+    data:
+      receiver: *service125_018
+      expression: *service125_030
+      target: Producer
+  sg-external-073:
+    data:
+      receiver: *service125_018
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-074:
+    data:
+      receiver: *service125_018
+      expression: *service125_030
+      target: UnknownVpc
+  sg-external-075:
+    data:
+      receiver: *service125_019
+      expression: *service125_026
+      target: Producer
+  sg-external-076:
+    data:
+      receiver: *service125_019
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-077:
+    data:
+      receiver: *service125_019
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-078:
+    data:
+      receiver: *service125_019
+      expression: *service125_027
+      target: Producer
+  sg-external-079:
+    data:
+      receiver: *service125_019
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-080:
+    data:
+      receiver: *service125_019
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-081:
+    data:
+      receiver: *service125_019
+      expression: *service125_028
+      target: Producer
+  sg-external-082:
+    data:
+      receiver: *service125_019
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-083:
+    data:
+      receiver: *service125_019
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-084:
+    data:
+      receiver: *service125_019
+      expression: *service125_029
+      target: Producer
+  sg-external-085:
+    data:
+      receiver: *service125_019
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-086:
+    data:
+      receiver: *service125_019
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-087:
+    data:
+      receiver: *service125_019
+      expression: *service125_030
+      target: Producer
+  sg-external-088:
+    data:
+      receiver: *service125_019
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-089:
+    data:
+      receiver: *service125_019
+      expression: *service125_030
+      target: UnknownVpc
+  sg-external-090:
+    data:
+      receiver: *service125_020
+      expression: *service125_026
+      target: Producer
+  sg-external-091:
+    data:
+      receiver: *service125_020
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-092:
+    data:
+      receiver: *service125_020
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-093:
+    data:
+      receiver: *service125_020
+      expression: *service125_027
+      target: Producer
+  sg-external-094:
+    data:
+      receiver: *service125_020
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-095:
+    data:
+      receiver: *service125_020
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-096:
+    data:
+      receiver: *service125_020
+      expression: *service125_028
+      target: Producer
+  sg-external-097:
+    data:
+      receiver: *service125_020
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-098:
+    data:
+      receiver: *service125_020
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-099:
+    data:
+      receiver: *service125_020
+      expression: *service125_029
+      target: Producer
+  sg-external-100:
+    data:
+      receiver: *service125_020
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-101:
+    data:
+      receiver: *service125_020
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-102:
+    data:
+      receiver: *service125_020
+      expression: *service125_030
+      target: Producer
+  sg-external-103:
+    data:
+      receiver: *service125_020
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-104:
+    data:
+      receiver: *service125_020
+      expression: *service125_030
+      target: UnknownVpc
+  sg-external-105:
+    data:
+      receiver: *service125_021
+      expression: *service125_026
+      target: Producer
+  sg-external-106:
+    data:
+      receiver: *service125_021
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-107:
+    data:
+      receiver: *service125_021
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-108:
+    data:
+      receiver: *service125_021
+      expression: *service125_027
+      target: Producer
+  sg-external-109:
+    data:
+      receiver: *service125_021
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-110:
+    data:
+      receiver: *service125_021
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-111:
+    data:
+      receiver: *service125_021
+      expression: *service125_028
+      target: Producer
+  sg-external-112:
+    data:
+      receiver: *service125_021
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-113:
+    data:
+      receiver: *service125_021
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-114:
+    data:
+      receiver: *service125_021
+      expression: *service125_029
+      target: Producer
+  sg-external-115:
+    data:
+      receiver: *service125_021
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-116:
+    data:
+      receiver: *service125_021
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-117:
+    data:
+      receiver: *service125_021
+      expression: *service125_030
+      target: Producer
+  sg-external-118:
+    data:
+      receiver: *service125_021
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-119:
+    data:
+      receiver: *service125_021
+      expression: *service125_030
+      target: UnknownVpc
+  sg-external-120:
+    data:
+      receiver: *service125_022
+      expression: *service125_026
+      target: Producer
+  sg-external-121:
+    data:
+      receiver: *service125_022
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-122:
+    data:
+      receiver: *service125_022
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-123:
+    data:
+      receiver: *service125_022
+      expression: *service125_027
+      target: Producer
+  sg-external-124:
+    data:
+      receiver: *service125_022
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-125:
+    data:
+      receiver: *service125_022
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-126:
+    data:
+      receiver: *service125_022
+      expression: *service125_028
+      target: Producer
+  sg-external-127:
+    data:
+      receiver: *service125_022
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-128:
+    data:
+      receiver: *service125_022
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-129:
+    data:
+      receiver: *service125_022
+      expression: *service125_029
+      target: Producer
+  sg-external-130:
+    data:
+      receiver: *service125_022
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-131:
+    data:
+      receiver: *service125_022
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-132:
+    data:
+      receiver: *service125_022
+      expression: *service125_030
+      target: Producer
+  sg-external-133:
+    data:
+      receiver: *service125_022
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-134:
+    data:
+      receiver: *service125_022
+      expression: *service125_030
+      target: UnknownVpc
+  sg-external-135:
+    data:
+      receiver: *service125_023
+      expression: *service125_026
+      target: Producer
+  sg-external-136:
+    data:
+      receiver: *service125_023
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-137:
+    data:
+      receiver: *service125_023
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-138:
+    data:
+      receiver: *service125_023
+      expression: *service125_027
+      target: Producer
+  sg-external-139:
+    data:
+      receiver: *service125_023
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-140:
+    data:
+      receiver: *service125_023
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-141:
+    data:
+      receiver: *service125_023
+      expression: *service125_028
+      target: Producer
+  sg-external-142:
+    data:
+      receiver: *service125_023
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-143:
+    data:
+      receiver: *service125_023
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-144:
+    data:
+      receiver: *service125_023
+      expression: *service125_029
+      target: Producer
+  sg-external-145:
+    data:
+      receiver: *service125_023
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-146:
+    data:
+      receiver: *service125_023
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-147:
+    data:
+      receiver: *service125_023
+      expression: *service125_030
+      target: Producer
+  sg-external-148:
+    data:
+      receiver: *service125_023
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-149:
+    data:
+      receiver: *service125_023
+      expression: *service125_030
+      target: UnknownVpc
+  sg-external-150:
+    data:
+      receiver: *service125_024
+      expression: *service125_026
+      target: Producer
+  sg-external-151:
+    data:
+      receiver: *service125_024
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-152:
+    data:
+      receiver: *service125_024
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-153:
+    data:
+      receiver: *service125_024
+      expression: *service125_027
+      target: Producer
+  sg-external-154:
+    data:
+      receiver: *service125_024
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-155:
+    data:
+      receiver: *service125_024
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-156:
+    data:
+      receiver: *service125_024
+      expression: *service125_028
+      target: Producer
+  sg-external-157:
+    data:
+      receiver: *service125_024
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-158:
+    data:
+      receiver: *service125_024
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-159:
+    data:
+      receiver: *service125_024
+      expression: *service125_029
+      target: Producer
+  sg-external-160:
+    data:
+      receiver: *service125_024
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-161:
+    data:
+      receiver: *service125_024
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-162:
+    data:
+      receiver: *service125_024
+      expression: *service125_030
+      target: Producer
+  sg-external-163:
+    data:
+      receiver: *service125_024
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-164:
+    data:
+      receiver: *service125_024
+      expression: *service125_030
+      target: UnknownVpc
+  sg-external-165:
+    data:
+      receiver: *service125_025
+      expression: *service125_026
+      target: Producer
+  sg-external-166:
+    data:
+      receiver: *service125_025
+      expression: *service125_026
+      target: OtherProducer
+  sg-external-167:
+    data:
+      receiver: *service125_025
+      expression: *service125_026
+      target: UnknownVpc
+  sg-external-168:
+    data:
+      receiver: *service125_025
+      expression: *service125_027
+      target: Producer
+  sg-external-169:
+    data:
+      receiver: *service125_025
+      expression: *service125_027
+      target: OtherProducer
+  sg-external-170:
+    data:
+      receiver: *service125_025
+      expression: *service125_027
+      target: UnknownVpc
+  sg-external-171:
+    data:
+      receiver: *service125_025
+      expression: *service125_028
+      target: Producer
+  sg-external-172:
+    data:
+      receiver: *service125_025
+      expression: *service125_028
+      target: OtherProducer
+  sg-external-173:
+    data:
+      receiver: *service125_025
+      expression: *service125_028
+      target: UnknownVpc
+  sg-external-174:
+    data:
+      receiver: *service125_025
+      expression: *service125_029
+      target: Producer
+  sg-external-175:
+    data:
+      receiver: *service125_025
+      expression: *service125_029
+      target: OtherProducer
+  sg-external-176:
+    data:
+      receiver: *service125_025
+      expression: *service125_029
+      target: UnknownVpc
+  sg-external-177:
+    data:
+      receiver: *service125_025
+      expression: *service125_030
+      target: Producer
+  sg-external-178:
+    data:
+      receiver: *service125_025
+      expression: *service125_030
+      target: OtherProducer
+  sg-external-179:
+    data:
+      receiver: *service125_025
+      expression: *service125_030
+      target: UnknownVpc
+  sg-invalid-expr-000:
+    data:
+      receiver: *service125_001
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-001:
+    data:
+      receiver: *service125_001
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-002:
+    data:
+      receiver: *service125_001
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-003:
+    data:
+      receiver: *service125_001
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-004:
+    data:
+      receiver: *service125_001
+      expression: &service125_031
+        Fn::Sub:
+        - ${Id}
+        - Id:
+            Ref: Missing
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-005:
+    data:
+      receiver: *service125_001
+      expression: &service125_032
+        Fn::Join:
+        - '-'
+        - - Ref: VpcId
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-006:
+    data:
+      receiver: *service125_001
+      expression: &service125_033
+        Fn::Join:
+        - ''
+        - Ref: VpcId
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-007:
+    data:
+      receiver: *service125_001
+      expression: &service125_034
+        Ref: Producer
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-008:
+    data:
+      receiver: *service125_015
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-009:
+    data:
+      receiver: *service125_015
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-010:
+    data:
+      receiver: *service125_015
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-011:
+    data:
+      receiver: *service125_015
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-012:
+    data:
+      receiver: *service125_015
+      expression: *service125_031
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-013:
+    data:
+      receiver: *service125_015
+      expression: *service125_032
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-014:
+    data:
+      receiver: *service125_015
+      expression: *service125_033
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-015:
+    data:
+      receiver: *service125_015
+      expression: *service125_034
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-016:
+    data:
+      receiver: *service125_016
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-017:
+    data:
+      receiver: *service125_016
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-018:
+    data:
+      receiver: *service125_016
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-019:
+    data:
+      receiver: *service125_016
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-020:
+    data:
+      receiver: *service125_016
+      expression: *service125_031
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-021:
+    data:
+      receiver: *service125_016
+      expression: *service125_032
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-022:
+    data:
+      receiver: *service125_016
+      expression: *service125_033
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-023:
+    data:
+      receiver: *service125_016
+      expression: *service125_034
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-024:
+    data:
+      receiver: *service125_017
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-025:
+    data:
+      receiver: *service125_017
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-026:
+    data:
+      receiver: *service125_017
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-027:
+    data:
+      receiver: *service125_017
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-028:
+    data:
+      receiver: *service125_017
+      expression: *service125_031
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-029:
+    data:
+      receiver: *service125_017
+      expression: *service125_032
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-030:
+    data:
+      receiver: *service125_017
+      expression: *service125_033
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-031:
+    data:
+      receiver: *service125_017
+      expression: *service125_034
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-032:
+    data:
+      receiver: *service125_018
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-033:
+    data:
+      receiver: *service125_018
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-034:
+    data:
+      receiver: *service125_018
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-035:
+    data:
+      receiver: *service125_018
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-036:
+    data:
+      receiver: *service125_018
+      expression: *service125_031
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-037:
+    data:
+      receiver: *service125_018
+      expression: *service125_032
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-038:
+    data:
+      receiver: *service125_018
+      expression: *service125_033
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-039:
+    data:
+      receiver: *service125_018
+      expression: *service125_034
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-040:
+    data:
+      receiver: *service125_019
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-041:
+    data:
+      receiver: *service125_019
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-042:
+    data:
+      receiver: *service125_019
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-043:
+    data:
+      receiver: *service125_019
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-044:
+    data:
+      receiver: *service125_019
+      expression: *service125_031
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-045:
+    data:
+      receiver: *service125_019
+      expression: *service125_032
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-046:
+    data:
+      receiver: *service125_019
+      expression: *service125_033
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-047:
+    data:
+      receiver: *service125_019
+      expression: *service125_034
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-048:
+    data:
+      receiver: *service125_020
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-049:
+    data:
+      receiver: *service125_020
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-050:
+    data:
+      receiver: *service125_020
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-051:
+    data:
+      receiver: *service125_020
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-052:
+    data:
+      receiver: *service125_020
+      expression: *service125_031
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-053:
+    data:
+      receiver: *service125_020
+      expression: *service125_032
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-054:
+    data:
+      receiver: *service125_020
+      expression: *service125_033
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-055:
+    data:
+      receiver: *service125_020
+      expression: *service125_034
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-056:
+    data:
+      receiver: *service125_021
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-057:
+    data:
+      receiver: *service125_021
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-058:
+    data:
+      receiver: *service125_021
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-059:
+    data:
+      receiver: *service125_021
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-060:
+    data:
+      receiver: *service125_021
+      expression: *service125_031
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-061:
+    data:
+      receiver: *service125_021
+      expression: *service125_032
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-062:
+    data:
+      receiver: *service125_021
+      expression: *service125_033
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-063:
+    data:
+      receiver: *service125_021
+      expression: *service125_034
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-064:
+    data:
+      receiver: *service125_022
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-065:
+    data:
+      receiver: *service125_022
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-066:
+    data:
+      receiver: *service125_022
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-067:
+    data:
+      receiver: *service125_022
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-068:
+    data:
+      receiver: *service125_022
+      expression: *service125_031
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-069:
+    data:
+      receiver: *service125_022
+      expression: *service125_032
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-070:
+    data:
+      receiver: *service125_022
+      expression: *service125_033
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-071:
+    data:
+      receiver: *service125_022
+      expression: *service125_034
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-072:
+    data:
+      receiver: *service125_023
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-073:
+    data:
+      receiver: *service125_023
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-074:
+    data:
+      receiver: *service125_023
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-075:
+    data:
+      receiver: *service125_023
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-076:
+    data:
+      receiver: *service125_023
+      expression: *service125_031
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-077:
+    data:
+      receiver: *service125_023
+      expression: *service125_032
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-078:
+    data:
+      receiver: *service125_023
+      expression: *service125_033
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-079:
+    data:
+      receiver: *service125_023
+      expression: *service125_034
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-080:
+    data:
+      receiver: *service125_024
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-081:
+    data:
+      receiver: *service125_024
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-082:
+    data:
+      receiver: *service125_024
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-083:
+    data:
+      receiver: *service125_024
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-084:
+    data:
+      receiver: *service125_024
+      expression: *service125_031
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-085:
+    data:
+      receiver: *service125_024
+      expression: *service125_032
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-086:
+    data:
+      receiver: *service125_024
+      expression: *service125_033
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-087:
+    data:
+      receiver: *service125_024
+      expression: *service125_034
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-088:
+    data:
+      receiver: *service125_025
+      expression: *service125_002
+      vpc_value: UNSET
+  sg-invalid-expr-089:
+    data:
+      receiver: *service125_025
+      expression: *service125_002
+      vpc_value: TODO
+  sg-invalid-expr-090:
+    data:
+      receiver: *service125_025
+      expression: *service125_002
+      vpc_value: TBD
+  sg-invalid-expr-091:
+    data:
+      receiver: *service125_025
+      expression: *service125_003
+      vpc_value: invalid
+  sg-invalid-expr-092:
+    data:
+      receiver: *service125_025
+      expression: *service125_031
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-093:
+    data:
+      receiver: *service125_025
+      expression: *service125_032
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-094:
+    data:
+      receiver: *service125_025
+      expression: *service125_033
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-expr-095:
+    data:
+      receiver: *service125_025
+      expression: *service125_034
+      vpc_value: PENDING_DEPLOY
+  sg-invalid-evidence-000:
+    data:
+      receiver: *service125_001
+      expression: *service125_002
+  sg-invalid-evidence-001:
+    data:
+      receiver: *service125_001
+      expression: *service125_028
+  sg-invalid-evidence-002:
+    data:
+      receiver: *service125_001
+      expression: &service125_035
+        Fn::ImportValue: shared
+  sg-invalid-evidence-003:
+    data:
+      receiver: *service125_015
+      expression: *service125_002
+  sg-invalid-evidence-004:
+    data:
+      receiver: *service125_015
+      expression: *service125_028
+  sg-invalid-evidence-005:
+    data:
+      receiver: *service125_015
+      expression: *service125_035
+  sg-invalid-evidence-006:
+    data:
+      receiver: *service125_016
+      expression: *service125_002
+  sg-invalid-evidence-007:
+    data:
+      receiver: *service125_016
+      expression: *service125_028
+  sg-invalid-evidence-008:
+    data:
+      receiver: *service125_016
+      expression: *service125_035
+  sg-invalid-evidence-009:
+    data:
+      receiver: *service125_017
+      expression: *service125_002
+  sg-invalid-evidence-010:
+    data:
+      receiver: *service125_017
+      expression: *service125_028
+  sg-invalid-evidence-011:
+    data:
+      receiver: *service125_017
+      expression: *service125_035
+  sg-invalid-evidence-012:
+    data:
+      receiver: *service125_018
+      expression: *service125_002
+  sg-invalid-evidence-013:
+    data:
+      receiver: *service125_018
+      expression: *service125_028
+  sg-invalid-evidence-014:
+    data:
+      receiver: *service125_018
+      expression: *service125_035
+  sg-invalid-evidence-015:
+    data:
+      receiver: *service125_019
+      expression: *service125_002
+  sg-invalid-evidence-016:
+    data:
+      receiver: *service125_019
+      expression: *service125_028
+  sg-invalid-evidence-017:
+    data:
+      receiver: *service125_019
+      expression: *service125_035
+  sg-invalid-evidence-018:
+    data:
+      receiver: *service125_020
+      expression: *service125_002
+  sg-invalid-evidence-019:
+    data:
+      receiver: *service125_020
+      expression: *service125_028
+  sg-invalid-evidence-020:
+    data:
+      receiver: *service125_020
+      expression: *service125_035
+  sg-invalid-evidence-021:
+    data:
+      receiver: *service125_021
+      expression: *service125_002
+  sg-invalid-evidence-022:
+    data:
+      receiver: *service125_021
+      expression: *service125_028
+  sg-invalid-evidence-023:
+    data:
+      receiver: *service125_021
+      expression: *service125_035
+  sg-invalid-evidence-024:
+    data:
+      receiver: *service125_022
+      expression: *service125_002
+  sg-invalid-evidence-025:
+    data:
+      receiver: *service125_022
+      expression: *service125_028
+  sg-invalid-evidence-026:
+    data:
+      receiver: *service125_022
+      expression: *service125_035
+  sg-invalid-evidence-027:
+    data:
+      receiver: *service125_023
+      expression: *service125_002
+  sg-invalid-evidence-028:
+    data:
+      receiver: *service125_023
+      expression: *service125_028
+  sg-invalid-evidence-029:
+    data:
+      receiver: *service125_023
+      expression: *service125_035
+  sg-invalid-evidence-030:
+    data:
+      receiver: *service125_024
+      expression: *service125_002
+  sg-invalid-evidence-031:
+    data:
+      receiver: *service125_024
+      expression: *service125_028
+  sg-invalid-evidence-032:
+    data:
+      receiver: *service125_024
+      expression: *service125_035
+  sg-invalid-evidence-033:
+    data:
+      receiver: *service125_025
+      expression: *service125_002
+  sg-invalid-evidence-034:
+    data:
+      receiver: *service125_025
+      expression: *service125_028
+  sg-invalid-evidence-035:
+    data:
+      receiver: *service125_025
+      expression: *service125_035
+  sg-receiver-000:
+    data:
+      receiver: *service125_001
+      vpc: PENDING_DEPLOY
+  sg-receiver-001:
+    data:
+      receiver: *service125_001
+      vpc: vpc-0123456789abcdef0
+  sg-receiver-002:
+    data:
+      receiver: *service125_015
+      vpc: PENDING_DEPLOY
+  sg-receiver-003:
+    data:
+      receiver: *service125_015
+      vpc: vpc-0123456789abcdef0
+  sg-receiver-004:
+    data:
+      receiver: *service125_016
+      vpc: PENDING_DEPLOY
+  sg-receiver-005:
+    data:
+      receiver: *service125_016
+      vpc: vpc-0123456789abcdef0
+  sg-receiver-006:
+    data:
+      receiver: *service125_017
+      vpc: PENDING_DEPLOY
+  sg-receiver-007:
+    data:
+      receiver: *service125_017
+      vpc: vpc-0123456789abcdef0
+  sg-receiver-008:
+    data:
+      receiver: *service125_018
+      vpc: PENDING_DEPLOY
+  sg-receiver-009:
+    data:
+      receiver: *service125_018
+      vpc: vpc-0123456789abcdef0
+  sg-receiver-010:
+    data:
+      receiver: *service125_019
+      vpc: PENDING_DEPLOY
+  sg-receiver-011:
+    data:
+      receiver: *service125_019
+      vpc: vpc-0123456789abcdef0
+  sg-receiver-012:
+    data:
+      receiver: *service125_020
+      vpc: PENDING_DEPLOY
+  sg-receiver-013:
+    data:
+      receiver: *service125_020
+      vpc: vpc-0123456789abcdef0
+  sg-receiver-014:
+    data:
+      receiver: *service125_021
+      vpc: PENDING_DEPLOY
+  sg-receiver-015:
+    data:
+      receiver: *service125_021
+      vpc: vpc-0123456789abcdef0
+  sg-receiver-016:
+    data:
+      receiver: *service125_022
+      vpc: PENDING_DEPLOY
+  sg-receiver-017:
+    data:
+      receiver: *service125_022
+      vpc: vpc-0123456789abcdef0
+  sg-receiver-018:
+    data:
+      receiver: *service125_023
+      vpc: PENDING_DEPLOY
+  sg-receiver-019:
+    data:
+      receiver: *service125_023
+      vpc: vpc-0123456789abcdef0
+  sg-receiver-020:
+    data:
+      receiver: *service125_024
+      vpc: PENDING_DEPLOY
+  sg-receiver-021:
+    data:
+      receiver: *service125_024
+      vpc: vpc-0123456789abcdef0
+  sg-receiver-022:
+    data:
+      receiver: *service125_025
+      vpc: PENDING_DEPLOY
+  sg-receiver-023:
+    data:
+      receiver: *service125_025
+      vpc: vpc-0123456789abcdef0
+  codebuild-env-00:
+    data:
+      name: BUCKET
+      selector: PLAINTEXT
+      literal: fixture-bucket
+      reference:
+        Ref: Bucket
+      export: true
+      stack: producer
+      check_evidence: false
+  codebuild-env-01:
+    data:
+      name: BUCKET
+      selector: PLAINTEXT
+      literal: fixture-bucket
+      reference:
+        Fn::Join:
+        - ''
+        - - Ref: Bucket
+      export: true
+      stack: producer
+      check_evidence: false
+  codebuild-env-02:
+    data:
+      name: BUCKET
+      selector: PLAINTEXT
+      literal: other
+      reference:
+        Fn::Join:
+        - ''
+        - - Ref: Bucket
+      export: true
+      stack: producer
+      check_evidence: false
+  codebuild-env-03:
+    data:
+      name: BUCKET
+      selector: PLAINTEXT
+      literal: other
+      reference:
+        Ref: Bucket
+      export: true
+      stack: producer
+      check_evidence: false
+  codebuild-env-04:
+    data:
+      name: BUCKET
+      selector: PLAINTEXT
+      literal: fixture-bucket
+      reference:
+        Fn::ImportValue: shared
+      export: true
+      stack: consumer
+      check_evidence: false
+  codebuild-env-05:
+    data:
+      name: BUCKET
+      selector: PLAINTEXT
+      literal: other
+      reference:
+        Fn::ImportValue: shared
+      export: true
+      stack: consumer
+      check_evidence: false
+  codebuild-env-06:
+    data:
+      name: BUCKET
+      selector: PLAINTEXT
+      literal: fixture-bucket
+      reference:
+        Ref: Unknown
+      export: true
+      stack: producer
+      check_evidence: false
+  codebuild-env-07:
+    data:
+      name: BUCKET
+      selector: PLAINTEXT
+      literal: fixture-bucket
+      reference:
+        Fn::ImportValue: missing
+      export: true
+      stack: consumer
+      check_evidence: false
+  codebuild-producer-00:
+    data:
+      name: VAR
+      selector: SECRETS_MANAGER
+      literal: fixture-bucket
+      reference:
+        Ref: Bucket
+      export: false
+      stack: producer
+      check_evidence: false
+  codebuild-producer-01:
+    data:
+      name: VAR
+      selector: SECRETS_MANAGER
+      literal: fixture-bucket
+      reference:
+        Fn::Join:
+        - ''
+        - - Ref: Bucket
+      export: false
+      stack: producer
+      check_evidence: false
+  codebuild-producer-02:
+    data:
+      name: VAR
+      selector: PARAMETER_STORE
+      literal: fixture-bucket
+      reference:
+        Fn::Join:
+        - ''
+        - - Ref: Bucket
+      export: false
+      stack: producer
+      check_evidence: false
+  codebuild-bucket-arn-00:
+    data:
+      name: BUCKET_ARN
+      selector: PLAINTEXT
+      literal: arn:aws:s3:::fixture-bucket
+      reference:
+        Fn::GetAtt:
+        - Bucket
+        - Arn
+      export: false
+      stack: producer
+      check_evidence: true
+  codebuild-bucket-arn-01:
+    data:
+      name: BUCKET_ARN
+      selector: PLAINTEXT
+      literal: arn:aws:s3:::other-bucket
+      reference:
+        Fn::GetAtt:
+        - Bucket
+        - Arn
+      export: false
+      stack: producer
+      check_evidence: true
+  lambda-env-00:
+    data:
+      literal: fixture-bucket
+      reference:
+        Ref: Bucket
+  lambda-env-01:
+    data:
+      literal: different
+      reference:
+        Ref: Bucket
+  lambda-env-02:
+    data:
+      literal: arn:aws:s3:::fixture-bucket
+      reference:
+        Fn::GetAtt:
+        - Bucket
+        - Arn
+  lambda-env-03:
+    data:
+      literal: arn:aws:s3:::different
+      reference:
+        Fn::GetAtt:
+        - Bucket
+        - Arn
+  lambda-env-04:
+    data:
+      literal: fixture-bucket
+      reference:
+        Ref: Missing
+  codebuild-kms-form-00:
+    data:
+      literal: alias/material
+      reference:
+        Ref: Alias
+  codebuild-kms-form-01:
+    data:
+      literal: alias/other
+      reference:
+        Ref: Alias
+  codebuild-kms-form-02:
+    data:
+      literal: arn:aws:kms:ap-northeast-1:123456789012:alias/material
+      reference:
+        Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}
+  codebuild-kms-form-03:
+    data:
+      literal: arn:aws:kms:ap-northeast-1:123456789012:alias/other
+      reference:
+        Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}
+  codebuild-kms-form-04:
+    data:
+      literal: 12345678-1234-1234-1234-123456789012
+      reference:
+        Ref: Key
+  codebuild-kms-form-05:
+    data:
+      literal: 12345678-1234-1234-1234-000000000000
+      reference:
+        Ref: Key
+  codebuild-kms-form-06:
+    data:
+      literal: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+      reference:
+        Fn::GetAtt:
+        - Key
+        - Arn
+  sqs-unproven-00:
+    data:
+      properties: {}
+  sqs-unproven-01:
+    data:
+      properties:
+        QueueName: ''
+  sqs-unproven-02:
+    data:
+      properties:
+        QueueName: UNSET
+  sqs-unproven-03:
+    data:
+      properties:
+        QueueName: PENDING_DEPLOY
+  sqs-unproven-04:
+    data:
+      properties:
+        QueueName: TODO
+  sqs-unproven-05:
+    data:
+      properties:
+        QueueName: invalid/path
+  sqs-unproven-06:
+    data:
+      properties:
+        QueueName: invalid.name
+  sqs-unproven-07:
+    data:
+      properties:
+        QueueName: wildcard-*
+  sqs-unproven-08:
+    data:
+      properties:
+        QueueName: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  sqs-unproven-09:
+    data:
+      properties:
+        QueueName: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.fifo
+  sqs-unproven-10:
+    data:
+      properties:
+        QueueName:
+          Ref: Missing
+  sqs-unproven-11:
+    data:
+      properties:
+        QueueName:
+          Fn::If:
+          - Unknown
+          - one
+          - two
+  sqs-name-boundary-00:
+    data:
+      name: a
+  sqs-name-boundary-01:
+    data:
+      name: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  sqs-name-boundary-02:
+    data:
+      name: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.fifo
+  sqs-context-00:
+    data:
+      field: Partition
+      value: null
+  sqs-context-01:
+    data:
+      field: Partition
+      value: ''
+  sqs-context-02:
+    data:
+      field: Partition
+      value: UNSET
+  sqs-context-03:
+    data:
+      field: Partition
+      value: ${Unresolved}
+  sqs-context-04:
+    data:
+      field: Partition
+      value: 123
+  sqs-context-05:
+    data:
+      field: Partition
+      value: invalid:context
+  sqs-context-06:
+    data:
+      field: Region
+      value: null
+  sqs-context-07:
+    data:
+      field: Region
+      value: ''
+  sqs-context-08:
+    data:
+      field: Region
+      value: UNSET
+  sqs-context-09:
+    data:
+      field: Region
+      value: ${Unresolved}
+  sqs-context-10:
+    data:
+      field: Region
+      value: 123
+  sqs-context-11:
+    data:
+      field: Region
+      value: invalid:context
+  sqs-context-12:
+    data:
+      field: AccountId
+      value: null
+  sqs-context-13:
+    data:
+      field: AccountId
+      value: ''
+  sqs-context-14:
+    data:
+      field: AccountId
+      value: UNSET
+  sqs-context-15:
+    data:
+      field: AccountId
+      value: ${Unresolved}
+  sqs-context-16:
+    data:
+      field: AccountId
+      value: 123
+  sqs-context-17:
+    data:
+      field: AccountId
+      value: invalid:context
+  sqs-errors-00:
+    data:
+      error_type: OSError
+  sqs-errors-01:
+    data:
+      error_type: ValueError
+  sqs-errors-02:
+    data:
+      error_type: TypeError
+  sqs-policy-difference-00:
+    data:
+      queue_name: other-dlq
+      queue_arn: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
+      source_arn: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+  sqs-policy-difference-01:
+    data:
+      queue_name: fixture-dlq
+      queue_arn: arn:aws-cn:sqs:ap-northeast-1:123456789012:fixture-dlq
+      source_arn: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+  sqs-policy-difference-02:
+    data:
+      queue_name: fixture-dlq
+      queue_arn: arn:aws:sqs:us-east-1:123456789012:fixture-dlq
+      source_arn: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+  sqs-policy-difference-03:
+    data:
+      queue_name: fixture-dlq
+      queue_arn: arn:aws:sqs:ap-northeast-1:999999999999:fixture-dlq
+      source_arn: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+  sqs-policy-difference-04:
+    data:
+      queue_name: fixture-dlq
+      queue_arn: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
+      source_arn: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule-other
+  sqs-correspondence-00:
+    data:
+      queue_fields:
+        Type: AWS::SNS::Topic
+      model_fields: {}
+      document_fields: {}
+      duplicate: false
+      remove_model: false
+  sqs-correspondence-01:
+    data:
+      queue_fields: {}
+      model_fields:
+        cfn-logicalId: other-Queue
+      document_fields: {}
+      duplicate: false
+      remove_model: false
+  sqs-correspondence-02:
+    data:
+      queue_fields: {}
+      model_fields:
+        cfn-logicalId: producer-Other
+      document_fields: {}
+      duplicate: false
+      remove_model: false
+  sqs-correspondence-03:
+    data:
+      queue_fields: {}
+      model_fields: {}
+      document_fields: {}
+      duplicate: true
+      remove_model: false
+  sqs-correspondence-04:
+    data:
+      queue_fields: {}
+      model_fields: {}
+      document_fields: {}
+      duplicate: false
+      remove_model: true
+  sqs-correspondence-05:
+    data:
+      queue_fields:
+        Condition: Unknown
+      model_fields: {}
+      document_fields: {}
+      duplicate: false
+      remove_model: false
+  sqs-correspondence-06:
+    data:
+      queue_fields:
+        Condition: Unknown
+      model_fields: {}
+      document_fields:
+        Conditions:
+          Unknown: false
+      duplicate: false
+      remove_model: false
+  sqs-correspondence-07:
+    data:
+      queue_fields: {}
+      model_fields: {}
+      document_fields:
+        Transform: Unknown
+      duplicate: false
+      remove_model: false
+  sqs-correspondence-08:
+    data:
+      queue_fields: {}
+      model_fields:
+        resourceMode: IMPORT
+      document_fields: {}
+      duplicate: false
+      remove_model: false
+  sg-vpc-evidence-00:
+    data:
+      value:
+        Ref: VpcId
+      parameters:
+        VpcId: PENDING_DEPLOY
+      conditions: {}
+  sg-vpc-evidence-01:
+    data:
+      value:
+        Ref: VpcId
+      parameters:
+        VpcId: vpc-0123456789abcdef0
+      conditions: {}
+  sg-vpc-evidence-02:
+    data:
+      value:
+        Ref: VpcId
+      parameters:
+        VpcId: UNSET
+      conditions: {}
+  sg-vpc-evidence-03:
+    data:
+      value:
+        Ref: VpcId
+      parameters:
+        VpcId: TODO
+      conditions: {}
+  sg-vpc-evidence-04:
+    data:
+      value:
+        Ref: VpcId
+      parameters:
+        VpcId: TBD
+      conditions: {}
+  sg-vpc-evidence-05:
+    data:
+      value:
+        Ref: VpcId
+      parameters:
+        VpcId: not-a-vpc
+      conditions: {}
+  sg-vpc-evidence-06:
+    data:
+      value:
+        Fn::Sub: vpc-${VpcId}
+      parameters:
+        VpcId: '01234567'
+      conditions: {}
+  sg-vpc-evidence-07:
+    data:
+      value:
+        Fn::Sub: vpc-${VpcId}
+      parameters:
+        VpcId: ZZZZZZZZ
+      conditions: {}
+  sg-vpc-evidence-08:
+    data:
+      value:
+        Ref: Vpc
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-09:
+    data:
+      value:
+        Fn::GetAtt:
+        - Vpc
+        - VpcId
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-10:
+    data:
+      value:
+        Fn::ImportValue: ExternalVpcId
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-11:
+    data:
+      value:
+        Fn::Sub: vpc-${VpcId}
+      parameters:
+        VpcId: PENDING_DEPLOY
+      conditions: {}
+  sg-vpc-evidence-12:
+    data:
+      value:
+        Fn::Sub: vpc-${Missing}
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-13:
+    data:
+      value:
+        Fn::ImportValue: ''
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-14:
+    data:
+      value:
+        Fn::Join:
+        - ''
+        - - vpc-
+          - Ref: Missing
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-15:
+    data:
+      value:
+        Fn::GetAtt:
+        - Group
+        - GroupId
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-16:
+    data:
+      value: vpc-0123456789abcdef0
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-17:
+    data:
+      value:
+        Fn::If:
+        - Active
+        - Ref: VpcId
+        - Ref: AWS::NoValue
+      parameters:
+        VpcId: PENDING_DEPLOY
+      conditions:
+        Active:
+          Fn::Equals:
+          - 1
+          - 1
+  sg-vpc-evidence-18:
+    data:
+      value:
+        Fn::If:
+        - Active
+        - Ref: VpcId
+        - Ref: AWS::NoValue
+      parameters:
+        VpcId: PENDING_DEPLOY
+      conditions:
+        Active:
+          Fn::Equals:
+          - 1
+          - 2
+  sg-vpc-evidence-19:
+    data:
+      value:
+        Fn::If:
+        - Missing
+        - Ref: VpcId
+        - vpc-0123456789abcdef0
+      parameters:
+        VpcId: PENDING_DEPLOY
+      conditions: {}
+  sg-vpc-evidence-20:
+    data:
+      value:
+        Fn::If:
+        - Active
+        - vpc-0123456789abcdef0
+        - vpc-0123456789abcdef0
+      parameters:
+        VpcId: PENDING_DEPLOY
+      conditions:
+        Active:
+          Fn::Equals:
+          - Ref: VpcId
+          - vpc-0123456789abcdef0
+  sg-vpc-evidence-21:
+    data:
+      value:
+        Ref: Undeclared
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-22:
+    data:
+      value: ''
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-23:
+    data:
+      value: vpc-invalid
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-24:
+    data:
+      value: TODO
+      parameters: {}
+      conditions: {}
+  sg-vpc-evidence-25:
+    data:
+      value: TBD
+      parameters: {}
+      conditions: {}
+  sg-vpc-required-00:
+    data:
+      value: null
+  sg-vpc-required-01:
+    data:
+      value:
+        Ref: AWS::NoValue
+  sg-vpc-required-02:
+    data:
+      value:
+        Fn::If:
+        - Active
+        - Ref: AWS::NoValue
+        - Ref: Vpc
+  sg-vpc-required-03:
+    data:
+      value:
+        Ref: Role
+  sg-vpc-required-04:
+    data:
+      value:
+        Ref: Group
+  sg-vpc-required-05:
+    data:
+      value: UNSET
+  sg-import-proof-00:
+    data:
+      export:
+        Ref: Vpc
+  sg-import-proof-01:
+    data:
+      export:
+        Ref: Role
+  sg-import-proof-02:
+    data:
+      export: not-a-vpc
+  sg-sub-form-00:
+    data:
+      suffix: PENDING_DEPLOY
+      expression: *service125_028
+  sg-sub-form-01:
+    data:
+      suffix: PENDING_DEPLOY
+      expression: *service125_029
+  sg-sub-form-02:
+    data:
+      suffix: 123abc
+      expression: *service125_028
+  sg-sub-form-03:
+    data:
+      suffix: 123abc
+      expression: *service125_029
+  sg-sub-form-04:
+    data:
+      suffix: ZZZZ
+      expression: *service125_028
+  sg-sub-form-05:
+    data:
+      suffix: ZZZZ
+      expression: *service125_029
+  sg-sub-form-06:
+    data:
+      suffix: UNSET
+      expression: *service125_028
+  sg-sub-form-07:
+    data:
+      suffix: UNSET
+      expression: *service125_029
+  sg-sub-map-00:
+    data:
+      expression:
+        Fn::Sub:
+        - vpc-${Id}
+        - Id:
+            Ref: Missing
+  sg-sub-map-01:
+    data:
+      expression:
+        Fn::Sub:
+        - vpc-${Id}
+        - Id:
+            Ref: Role
+  sg-sub-map-02:
+    data:
+      expression:
+        Fn::Sub:
+        - vpc-${Missing}
+        - {}
+  sg-sub-map-03:
+    data:
+      expression:
+        Fn::Sub:
+        - vpc-123abc
+        - Unused:
+            Ref: Missing
+  sg-sub-map-04:
+    data:
+      expression:
+        Fn::Sub:
+        - vpc-${Id}
+        - invalid
+  sg-import-form-00:
+    data:
+      export: null
+      name: ExternalVpcId
+  sg-import-form-01:
+    data:
+      export: null
+      name:
+        Fn::Sub: External${Stage}
+  sg-import-form-02:
+    data:
+      export:
+        Ref: Vpc
+      name: ExternalVpcId
+  sg-import-form-03:
+    data:
+      export:
+        Ref: Vpc
+      name:
+        Fn::Sub: External${Stage}
+  sg-import-form-04:
+    data:
+      export:
+        Ref: Role
+      name: ExternalVpcId
+  sg-import-form-05:
+    data:
+      export:
+        Ref: Role
+      name:
+        Fn::Sub: External${Stage}
+  sg-import-form-06:
+    data:
+      export: invalid
+      name: ExternalVpcId
+  sg-import-form-07:
+    data:
+      export: invalid
+      name:
+        Fn::Sub: External${Stage}
+  sg-import-ambiguous-00:
+    data:
+      stage: PENDING_DEPLOY
+      producer_outputs: {}
+      consumer_outputs: {}
+      consumer_fields: {}
+  sg-import-ambiguous-01:
+    data:
+      stage: VpcId
+      producer_outputs:
+        Shared:
+          Value: vpc-123abc
+          Export:
+            Name: ExternalVpcId
+      consumer_outputs: {}
+      consumer_fields: {}
+  sg-import-ambiguous-02:
+    data:
+      stage: VpcId
+      producer_outputs:
+        Shared:
+          Value: vpc-123abc
+          Export:
+            Name: ExternalVpcId
+      consumer_outputs:
+        Shared:
+          Value: vpc-123abc
+          Export:
+            Name: ExternalVpcId
+      consumer_fields: {}
+  sg-import-ambiguous-03:
+    data:
+      stage: VpcId
+      producer_outputs: {}
+      consumer_outputs: {}
+      consumer_fields:
+        Transform: unknown
+  glue-name-00:
+    data:
+      expression: fixture
+  glue-name-01:
+    data:
+      expression:
+        Ref: Name
+  glue-name-02:
+    data:
+      expression:
+        Fn::Sub: ${Name}
+  glue-name-03:
+    data:
+      expression:
+        Fn::Join:
+        - '-'
+        - - fix
+          - ture
+  glue-name-04:
+    data:
+      expression:
+        Fn::If:
+        - Active
+        - Ref: Name
+        - inactive
+  glue-name-05:
+    data:
+      expression:
+        Fn::FindInMap:
+        - Names
+        - dev
+        - Connection
+  glue-name-06:
+    data:
+      expression:
+        Fn::Select:
+        - 0
+        - Fn::Split:
+          - ','
+          - fixture,other
+  glue-name-07:
+    data:
+      expression: different
+  glue-name-08:
+    data:
+      expression:
+        Ref: Missing
+  glue-name-09:
+    data:
+      expression:
+        Ref: Connection
+  glue-name-10:
+    data:
+      expression:
+        Fn::Sub: ${Connection}
+  glue-name-11:
+    data:
+      expression:
+        Ref: OtherConnection
+  glue-name-12:
+    data:
+      expression: UNSET
+  glue-name-13:
+    data:
+      expression: null
+  inline-document-00:
+    data:
+      document: '{"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action":
+        ["s3:GetObject"], "Resource": ["first", "second"]}]}'
+      actual:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:GetObject
+          Resource:
+          - first
+          - second
+  inline-document-01:
+    data:
+      document: '{"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action":
+        ["s3:GetObject"], "Resource": ["first", "second"]}]}'
+      actual:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:GetObject
+          Resource:
+          - second
+          - first
+  inline-document-02:
+    data:
+      document: '{bad json'
+      actual:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:GetObject
+          Resource:
+          - first
+          - second
+  inline-owner-00:
+    data:
+      child:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+          Bucket:
+            Ref: Bucket
+          PolicyDocument: {}
+      document:
+        Resources:
+          Policy:
+            Type: AWS::S3::BucketPolicy
+            Properties:
+              Bucket:
+                Ref: Bucket
+              PolicyDocument: {}
+  inline-owner-01:
+    data:
+      child:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+          Bucket:
+            Ref: Bucket
+          PolicyDocument: {}
+      document:
+        Resources: {}
+  inline-owner-02:
+    data:
+      child:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+          Bucket:
+            Ref: Bucket
+          PolicyDocument: {}
+      document:
+        Resources:
+          Policy:
+            Type: AWS::S3::BucketPolicy
+            Properties:
+              Bucket:
+                Ref: Bucket
+              PolicyDocument: {}
+          Other:
+            Type: AWS::S3::BucketPolicy
+            Properties:
+              Bucket:
+                Ref: Bucket
+              PolicyDocument: {}
+  inline-owner-03:
+    data:
+      child:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+          Bucket:
+            Ref: Other
+          PolicyDocument: {}
+      document:
+        Resources:
+          Policy:
+            Type: AWS::S3::BucketPolicy
+            Properties:
+              Bucket:
+                Ref: Other
+              PolicyDocument: {}
+  inline-owner-04:
+    data:
+      child:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+          Bucket: literal
+          PolicyDocument: {}
+      document:
+        Resources:
+          Policy:
+            Type: AWS::S3::BucketPolicy
+            Properties:
+              Bucket: literal
+              PolicyDocument: {}
+  managed-attachment-00:
+    data:
+      arns:
+      - Ref: Policy
+      document_fields: {}
+      role_fields: {}
+      attached:
+      - Ref: Role
+  managed-attachment-01:
+    data:
+      arns:
+      - Ref: Policy
+      document_fields:
+        Conditions:
+          'Off':
+            Fn::Equals:
+            - 1
+            - 2
+      role_fields:
+        Condition: 'Off'
+      attached: []
+  managed-attachment-02:
+    data:
+      arns: []
+      document_fields: {}
+      role_fields: {}
+      attached: []
+  managed-attachment-03:
+    data:
+      arns:
+      - Ref: Missing
+      document_fields: {}
+      role_fields: {}
+      attached: []
+  event-lambda-00:
+    data:
+      actual: arn:aws-cn:lambda:ap-northeast-1:123456789012:function:fixture
+      definition_fields: {}
+      metadata: {}
+      document_fields: {}
+  event-lambda-01:
+    data:
+      actual: arn:aws:lambda:us-east-1:123456789012:function:fixture
+      definition_fields: {}
+      metadata: {}
+      document_fields: {}
+  event-lambda-02:
+    data:
+      actual: arn:aws:lambda:ap-northeast-1:999999999999:function:fixture
+      definition_fields: {}
+      metadata: {}
+      document_fields: {}
+  event-lambda-03:
+    data:
+      actual: arn:aws:lambda:ap-northeast-1:123456789012:function:fixture:1
+      definition_fields: {}
+      metadata: {}
+      document_fields: {}
+  event-lambda-04:
+    data:
+      actual: arn:aws:lambda:ap-northeast-1:123456789012:function:fixture:alias
+      definition_fields: {}
+      metadata: {}
+      document_fields: {}
+  event-lambda-05:
+    data:
+      actual: arn:aws:lambda:ap-northeast-1:123456789012:layer:fixture
+      definition_fields: {}
+      metadata: {}
+      document_fields: {}
+  event-lambda-06:
+    data:
+      actual: arn:aws:lambda:ap-northeast-1:123456789012:function:other
+      definition_fields: {}
+      metadata: {}
+      document_fields: {}
+  event-lambda-07:
+    data:
+      actual:
+        $resource:
+        - lambda
+        - '002'
+        $attribute: Arn
+      definition_fields: {}
+      metadata: {}
+      document_fields: {}
+  event-lambda-08:
+    data:
+      actual:
+        $resource:
+        - lambda
+        - '001'
+        $attribute: FunctionName
+      definition_fields: {}
+      metadata: {}
+      document_fields: {}
+  event-lambda-09:
+    data:
+      actual: arn:aws:lambda:ap-northeast-1:123456789012:function:fixture
+      definition_fields:
+        Properties: {}
+      metadata: {}
+      document_fields: {}
+  event-lambda-10:
+    data:
+      actual: arn:aws:lambda:ap-northeast-1:123456789012:function:fixture
+      definition_fields:
+        Properties:
+          FunctionName: function:alias
+      metadata: {}
+      document_fields: {}
+  event-lambda-11:
+    data:
+      actual: arn:aws:lambda:ap-northeast-1:123456789012:function:fixture
+      definition_fields: {}
+      metadata:
+        cfn-logicalId: producer-Missing
+      document_fields: {}
+  event-lambda-12:
+    data:
+      actual: arn:aws:lambda:ap-northeast-1:123456789012:function:fixture
+      definition_fields:
+        Condition: 'Off'
+      metadata: {}
+      document_fields:
+        Conditions:
+          'Off':
+            Fn::Equals:
+            - 1
+            - 2
+  cloudtrail-membership-00:
+    data:
+      desired:
+      - IncludeManagementEvents: true
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - a
+          - a
+      - IncludeManagementEvents: false
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - b
+      actual:
+      - IncludeManagementEvents: true
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - a
+          - a
+        - Type: AWS::S3::Object
+          Values:
+          - b
+      - IncludeManagementEvents: false
+        DataResources: []
+      partial: false
+  cloudtrail-membership-01:
+    data:
+      desired:
+      - IncludeManagementEvents: true
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - a
+          - a
+      - IncludeManagementEvents: false
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - b
+      actual:
+      - IncludeManagementEvents: true
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - a
+      - IncludeManagementEvents: false
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - b
+      partial: false
+  cloudtrail-membership-02:
+    data:
+      desired:
+      - IncludeManagementEvents: true
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - a
+          - a
+      - IncludeManagementEvents: false
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - b
+      actual:
+      - IncludeManagementEvents: true
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - a
+          - a
+      - IncludeManagementEvents: false
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - b
+      - IncludeManagementEvents: false
+      partial: false
+  cloudtrail-membership-03:
+    data:
+      desired:
+      - IncludeManagementEvents: true
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - a
+          - a
+      - IncludeManagementEvents: false
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - b
+      actual:
+      - IncludeManagementEvents: true
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - a
+          - a
+      - IncludeManagementEvents: false
+        DataResources:
+        - Type: AWS::Lambda::Function
+          Values:
+          - b
+      partial: false
+  cloudtrail-membership-04:
+    data:
+      desired:
+      - IncludeManagementEvents: true
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - a
+          - a
+      - IncludeManagementEvents: false
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - b
+      actual:
+      - IncludeManagementEvents: true
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - a
+          - a
+      - IncludeManagementEvents: false
+        DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - b
+      partial: true
+  route53-composite-00:
+    data:
+      expression: &service125_036
+        Fn::Select:
+        - 0
+        - Fn::Split:
+          - ':'
+          - Fn::Select:
+            - 0
+            - Fn::GetAtt:
+              - Endpoint
+              - DnsEntries
+      desired:
+        DNSName:
+          Fn::ImportValue: EndpointDns
+        HostedZoneId: Z123
+      actual:
+        DNSName:
+          Fn::ImportValue: EndpointDns
+        HostedZoneId: Z123
+  route53-composite-01:
+    data:
+      expression: *service125_036
+      desired:
+        DNSName:
+          Fn::ImportValue: EndpointDns
+        HostedZoneId: Z123
+      actual:
+        DNSName:
+          Fn::Join:
+          - ''
+          - - Fn::ImportValue: EndpointDns
+            - .other
+        HostedZoneId: Z123
+  route53-composite-02:
+    data:
+      expression: *service125_036
+      desired:
+        DNSName:
+          Fn::Select:
+          - 0
+          - Fn::Split:
+            - '|'
+            - Fn::ImportValue: EndpointDns
+        HostedZoneId: Z123
+      actual:
+        DNSName:
+          Fn::Select:
+          - 1
+          - Fn::Split:
+            - '|'
+            - Fn::ImportValue: EndpointDns
+        HostedZoneId: Z123
+  route53-composite-03:
+    data:
+      expression: *service125_036
+      desired:
+        DNSName:
+          Fn::Select:
+          - 0
+          - Fn::Split:
+            - '|'
+            - Fn::ImportValue: EndpointDns
+        HostedZoneId: Z123
+      actual:
+        DNSName:
+          Fn::Select:
+          - 0
+          - Fn::Split:
+            - ','
+            - Fn::ImportValue: EndpointDns
+        HostedZoneId: Z123
+  model-policy-00:
+    data:
+      model:
+        Fn::Join:
+        - ''
+        - - Fn::Select:
+            - 0
+            - Fn::Split:
+              - :*
+              - $modelRef:
+                  logicalId: Logs_LogGroup_001
+                  attribute: Arn
+          - :stream
+      actual:
+        Fn::Join:
+        - ''
+        - - Fn::Select:
+            - 0
+            - Fn::Split:
+              - :*
+              - Fn::GetAtt:
+                - Log
+                - Arn
+          - :stream
+      prepare_directly: false
+  model-policy-01:
+    data:
+      model:
+        Fn::Sub: ${Log.Arn}
+      actual:
+        Fn::Join:
+        - ''
+        - - Fn::Select:
+            - 0
+            - Fn::Split:
+              - :*
+              - Fn::GetAtt:
+                - Log
+                - Arn
+          - :stream
+      prepare_directly: false
+  model-policy-02:
+    data:
+      model:
+        Fn::Join:
+        - ''
+        - - Fn::Select:
+            - 0
+            - Fn::Split:
+              - :*
+              - $modelRef:
+                  logicalId: Logs_LogGroup_999
+                  attribute: Arn
+          - :stream
+      actual:
+        Fn::Join:
+        - ''
+        - - Fn::Select:
+            - 0
+            - Fn::Split:
+              - :*
+              - Fn::GetAtt:
+                - Log
+                - Arn
+          - :stream
+      prepare_directly: false
+  model-policy-03:
+    data:
+      model:
+        Fn::Join:
+        - ''
+        - - Fn::Select:
+            - 0
+            - Fn::Split:
+              - :*
+              - Fn::GetAtt:
+                - Log
+                - Arn
+          - :stream
+      actual:
+        Fn::Join:
+        - ''
+        - - Fn::Select:
+            - 0
+            - Fn::Split:
+              - :*
+              - Fn::GetAtt:
+                - Log
+                - Arn
+          - :stream
+      prepare_directly: true
+  model-policy-04:
+    data:
+      model:
+        Fn::Sub:
+        - ${Arn}:stream
+        - Arn:
+            Fn::Select:
+            - 0
+            - Fn::Split:
+              - :*
+              - $modelRef:
+                  logicalId: Logs_LogGroup_001
+                  attribute: Arn
+      actual:
+        Fn::Join:
+        - ''
+        - - Fn::Select:
+            - 0
+            - Fn::Split:
+              - :*
+              - Fn::GetAtt:
+                - Log
+                - Arn
+          - :stream
+      prepare_directly: false
+  codebuild-secret-00:
+    data:
+      context:
+        Type: SECRETS_MANAGER
+  codebuild-secret-01:
+    data:
+      context: {}
+  codebuild-secret-02:
+    data:
+      context:
+        Type: PARAMETER_STORE
+  codebuild-secret-03:
+    data:
+      context:
+        Type: PLAINTEXT
+  policy-bijection-00:
+    data:
+      left:
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      - Sid: Two
+        Effect: Allow
+        Action: s3:PutObject
+        Resource: '*'
+      right:
+      - Sid: Two
+        Effect: Allow
+        Action: s3:PutObject
+        Resource: '*'
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      path: Policies[].PolicyDocument.Statement
+      ordered: false
+      reference_left: false
+  policy-bijection-01:
+    data:
+      left:
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      right:
+      - Sid: Two
+        Effect: Allow
+        Action: s3:PutObject
+        Resource: '*'
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      path: Policies[].PolicyDocument.Statement
+      ordered: false
+      reference_left: false
+  policy-bijection-02:
+    data:
+      left:
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      right:
+      - Sid: Two
+        Effect: Allow
+        Action: s3:PutObject
+        Resource: '*'
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      path: Policies[].PolicyDocument.Statement
+      ordered: false
+      reference_left: false
+  policy-bijection-03:
+    data:
+      left:
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      - Sid: Two
+        Effect: Allow
+        Action: s3:PutObject
+        Resource: '*'
+      right:
+      - Sid: Two
+        Effect: Allow
+        Action: s3:PutObject
+        Resource: '*'
+      - Sid: One
+        Effect: Deny
+        Action: s3:GetObject
+        Resource: '*'
+      path: Policies[].PolicyDocument.Statement
+      ordered: false
+      reference_left: false
+  policy-bijection-04:
+    data:
+      left:
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      - Sid: Two
+        Effect: Allow
+        Action: s3:PutObject
+        Resource: '*'
+      right:
+      - Sid: Two
+        Effect: Allow
+        Action: s3:PutObject
+        Resource: '*'
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      path: Unrelated
+      ordered: true
+      reference_left: false
+  policy-bijection-05:
+    data:
+      left:
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      - Sid: Two
+        Effect: Allow
+        Action: s3:PutObject
+        Resource: '*'
+      right:
+      - Sid: Two
+        Effect: Allow
+        Action: s3:PutObject
+        Resource: '*'
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      path: Policies[].PolicyDocument.Statement
+      ordered: false
+      reference_left: true
+  policy-bijection-06:
+    data:
+      left:
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      - Sid: Two
+        Effect: Allow
+        Action: s3:PutObject
+        Resource: '*'
+      right:
+      - Sid: Two
+        Effect: Deny
+        Action: s3:PutObject
+        Resource: '*'
+      - Sid: One
+        Effect: Allow
+        Action: s3:GetObject
+        Resource: '*'
+      path: Policies[].PolicyDocument.Statement
+      ordered: false
+      reference_left: true

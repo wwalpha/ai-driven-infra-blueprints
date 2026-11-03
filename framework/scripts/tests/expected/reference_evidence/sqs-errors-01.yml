@@ -1,0 +1,7 @@
+batch_failure:
+  message: synthetic reference evaluation failure
+  type: ValueError
+raised:
+  message: synthetic reference evaluation failure
+  type: ValueError
+records: []

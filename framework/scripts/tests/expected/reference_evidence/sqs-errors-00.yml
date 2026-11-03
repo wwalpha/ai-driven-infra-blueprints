@@ -1,0 +1,7 @@
+batch_failure:
+  message: synthetic reference evaluation failure
+  type: OSError
+raised:
+  message: synthetic reference evaluation failure
+  type: OSError
+records: []

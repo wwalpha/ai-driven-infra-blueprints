@@ -1,0 +1,13 @@
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Environment
+  reason: 'local resource reference missing/inactive: producer/Unknown'
+  reference_diagnostics: []
+  resource: '002'
+  service: codebuild
+  stack: null

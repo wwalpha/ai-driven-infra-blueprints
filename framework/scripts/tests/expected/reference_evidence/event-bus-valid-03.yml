@@ -1,0 +1,48 @@
+arn: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+decisions:
+- comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: local_evaluation
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: Arn
+      $resource:
+      - events
+      - '002'
+    identity: unproven
+    local_comparison: matched
+    model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+    path: IAM.Role.Policies
+    producers:
+    - attribute: Arn
+      producer: events/002
+    reason: iac_concrete
+  equal: true
+  equivalent: true
+- comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: local_evaluation
+    format:
+      iac: unproven
+      model: unproven
+    iac: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+    identity: unproven
+    local_comparison: matched
+    model:
+      $attribute: Arn
+      $resource:
+      - events
+      - '002'
+    path: IAM.Role.Policies
+    producers:
+    - attribute: Arn
+      producer: events/002
+    reason: iac_concrete
+  equal: true
+  equivalent: true

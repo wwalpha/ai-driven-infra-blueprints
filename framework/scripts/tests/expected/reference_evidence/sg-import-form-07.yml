@@ -1,0 +1,4 @@
+error:
+  message: SecurityGroup Ref requires a proven explicit VpcId; group name is not a
+    group ID
+  type: Blocked

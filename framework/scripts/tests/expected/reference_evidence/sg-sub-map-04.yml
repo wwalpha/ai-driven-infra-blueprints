@@ -1,0 +1,3 @@
+error:
+  message: 'invalid Fn::Sub: invalid argument shape'
+  type: ValueError

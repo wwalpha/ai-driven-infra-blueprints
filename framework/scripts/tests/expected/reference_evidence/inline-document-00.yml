@@ -1,0 +1,12 @@
+records:
+- actual: null
+  category: matched
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: S3.BucketPolicy.PolicyDocument
+  reason: equal
+  resource: '001'
+  service: s3
+  stack: producer

@@ -1,0 +1,13 @@
+records:
+- actual: null
+  category: error
+  desired: null
+  iac:
+    path: synthetic.yaml
+    pointer: /0/DestinationSecurityGroupId
+  model: null
+  property: EC2.SecurityGroup.SecurityGroupEgress#/0/DestinationSecurityGroupId
+  reason: invalid Join operands
+  resource: 090
+  service: consumer
+  stack: producer

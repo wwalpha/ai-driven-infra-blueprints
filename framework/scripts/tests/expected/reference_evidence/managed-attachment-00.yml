@@ -1,0 +1,7 @@
+result:
+- $caseType: ResourceReference
+  value:
+    $attribute: RoleName
+    $resource:
+    - iam
+    - '002'

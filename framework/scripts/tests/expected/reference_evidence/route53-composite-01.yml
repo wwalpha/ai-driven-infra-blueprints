@@ -1,0 +1,64 @@
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: Route53.RecordSet.AliasTarget
+  reason: reference identity or property format is unproven
+  reference_diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: export_expression
+    exports:
+    - export_name: EndpointDns
+      export_stack: consumer
+      scope:
+      - aws
+      - '123456789012'
+      - ap-northeast-1
+      unproven: 'Select bounds are unproven: index 0, symbolic array minItems=0'
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $expression: Join
+      $operands:
+      - ''
+      - - $expression: Select
+          $operands:
+          - 0
+          - $expression: Split
+            $operands:
+            - ':'
+            - $expression: Select
+              $operands:
+              - 0
+              - $attribute: DnsEntries
+                $resource:
+                - endpoint
+                - '001'
+        - .other
+    identity: unproven
+    model:
+      $expression: Select
+      $operands:
+      - 0
+      - $expression: Split
+        $operands:
+        - ':'
+        - $expression: Select
+          $operands:
+          - 0
+          - $attribute: DnsEntries
+            $resource:
+            - endpoint
+            - '001'
+    path: Route53.RecordSet.AliasTarget.DNSName
+    reason: Alias Endpoint DNS consumer correspondence is unproven
+    runtime_bounds_verified: false
+    structural_equivalence: null
+  resource: 090
+  service: consumer
+  stack: producer

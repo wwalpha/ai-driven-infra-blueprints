@@ -1,0 +1,3 @@
+error:
+  message: 'local resource reference missing/inactive: producer/Undeclared'
+  type: Blocked

@@ -1,0 +1,41 @@
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: IAM.ManagedPolicy.PolicyDocument
+  reason: reference identity or property format is unproven
+  reference_diagnostics:
+  - allowed_forms: null
+    correspondence: unproven
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $expression: Join
+      $operands:
+      - ''
+      - - $expression: Select
+          $operands:
+          - 0
+          - $expression: Split
+            $operands:
+            - :*
+            - $attribute: Arn
+              $resource:
+              - cloudwatch-logs
+              - '001'
+        - :stream
+    identity: unproven
+    model:
+      $attribute: Arn
+      $resource:
+      - cloudwatch-logs
+      - '001'
+    path: IAM.ManagedPolicy.PolicyDocument.Statement[].Resource
+    reason: expression string equivalence is unproven
+  resource: 090
+  service: consumer
+  stack: producer

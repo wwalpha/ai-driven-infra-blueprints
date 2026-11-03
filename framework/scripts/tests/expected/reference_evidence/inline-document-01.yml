@@ -1,0 +1,30 @@
+records:
+- actual:
+    Statement:
+    - Action:
+      - s3:GetObject
+      Effect: Allow
+      Resource:
+      - second
+      - first
+    Version: '2012-10-17'
+  category: difference
+  desired:
+    Statement:
+    - Action:
+      - s3:GetObject
+      Effect: Allow
+      Resource:
+      - first
+      - second
+    Version: '2012-10-17'
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  property: S3.BucketPolicy.PolicyDocument
+  reason: value mismatch
+  resource: '001'
+  service: s3
+  stack: producer

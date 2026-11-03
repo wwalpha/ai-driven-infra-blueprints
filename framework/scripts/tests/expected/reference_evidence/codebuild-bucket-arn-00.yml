@@ -1,0 +1,32 @@
+records:
+- actual: null
+  category: matched
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Environment
+  reason: reference expression equivalent
+  reference_diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: local_evaluation
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: Arn
+      $resource:
+      - s3
+      - '001'
+    identity: unproven
+    local_comparison: matched
+    model: arn:aws:s3:::fixture-bucket
+    path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+    producers:
+    - attribute: Arn
+      producer: s3/001
+    reason: iac_concrete
+  resource: '002'
+  service: codebuild
+  stack: producer

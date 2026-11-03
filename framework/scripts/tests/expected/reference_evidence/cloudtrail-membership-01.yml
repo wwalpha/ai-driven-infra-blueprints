@@ -1,0 +1,35 @@
+records:
+- actual:
+  - DataResources:
+    - Type: AWS::S3::Object
+      Values:
+      - a
+    IncludeManagementEvents: true
+  - DataResources:
+    - Type: AWS::S3::Object
+      Values:
+      - b
+    IncludeManagementEvents: false
+  category: difference
+  desired:
+  - DataResources:
+    - Type: AWS::S3::Object
+      Values:
+      - a
+      - a
+    IncludeManagementEvents: true
+  - DataResources:
+    - Type: AWS::S3::Object
+      Values:
+      - b
+    IncludeManagementEvents: false
+  iac:
+    path: synthetic.yaml
+  model: null
+  model_sources:
+  - null
+  property: CloudTrail.Trail.EventSelectors
+  reason: value mismatch
+  resource: 090
+  service: consumer
+  stack: producer

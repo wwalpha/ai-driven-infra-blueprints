@@ -1,0 +1,34 @@
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: SQS.QueuePolicy.PolicyDocument
+  reason: 'unproven resource correspondence: producer/Queue: formal CFn type mismatch:
+    AWS::SNS::Topic != AWS::SQS::Queue'
+  reference_diagnostics:
+  - allowed_forms:
+    - Arn
+    current_aws_verified: false
+    evidence_type: local_evaluation
+    format:
+      iac: allowed
+      model: unproven
+    iac:
+      $attribute: Arn
+      $resource:
+      - eventbridge
+      - '001'
+    identity: unproven
+    local_comparison: matched
+    model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+    path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
+    producers:
+    - attribute: Arn
+      producer: eventbridge/001
+    reason: iac_concrete
+  resource: 090
+  service: consumer
+  stack: null

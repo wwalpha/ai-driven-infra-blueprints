@@ -2001,26 +2001,13 @@ def test_receiver_contracts(service, producer, attribute, kind, path):
         )
 
 
-@pytest.mark.parametrize(
-    "expression,expected",
-    [
-        ("fixture", "matched"),
-        ({"Ref": "Name"}, "matched"),
-        ({"Fn::Sub": "${Name}"}, "matched"),
-        ({"Fn::Join": ["-", ["fix", "ture"]]}, "difference"),
-        ({"Fn::If": ["Active", {"Ref": "Name"}, "inactive"]}, "matched"),
-        ({"Fn::FindInMap": ["Names", "dev", "Connection"]}, "matched"),
-        ({"Fn::Select": [0, {"Fn::Split": [",", "fixture,other"]}]}, "matched"),
-        ("different", "difference"),
-        ({"Ref": "Missing"}, "uncompared"),
-        ({"Ref": "Connection"}, "uncompared"),
-        ({"Fn::Sub": "${Connection}"}, "uncompared"),
-        ({"Ref": "OtherConnection"}, "uncompared"),
-        ("UNSET", "uncompared"),
-        (None, "uncompared"),
-    ],
-)
-def test_glue_connection_name(expression, expected):
+@pytest.mark.parametrize("case_id", case_ids("reference_evidence", prefix="glue-name-"))
+def test_glue_connection_name(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_glue_name)
+
+
+def _execute_glue_name(case):
+    expression = case["data"]["expression"]
     comparison = fixture()
     resource(
         comparison,
@@ -2054,28 +2041,28 @@ def test_glue_connection_name(expression, expected):
         {"Connections": ["fixture"]},
     )
     record = records[0]
-    assert record["category"] == expected, record
-    if expected == "matched":
-        assert (
+    if record["category"] == "matched":
+        TestCase().assertEqual(
             comparison.reference_literal(
                 comparison.evaluate("producer", {"Fn::Sub": "prefix-${Connection}"})
-            )
-            == "prefix-fixture"
+            ),
+            "prefix-fixture",
         )
-        assert (
+        TestCase().assertEqual(
             comparison.reference_literal(
                 comparison.evaluate("producer", {"Fn::Sub": "${Connection.Name}"})
-            )
-            == "fixture"
+            ),
+            "fixture",
         )
     if expression is None:
-        assert (
-            record["reference_diagnostics"][0]["reason"]
-            == "identifier_unobserved: missing or ambiguous identifier Property"
+        TestCase().assertEqual(
+            record["reference_diagnostics"][0]["reason"],
+            "identifier_unobserved: missing or ambiguous identifier Property",
         )
     if expression == {"Ref": "Connection"}:
         with pytest.raises(Blocked, match="cyclic resource substitution"):
             comparison.evaluate("producer", {"Fn::Sub": "${Connection}"})
+    return {"records": projected(records)}
 
 
 @pytest.mark.parametrize(
@@ -2106,10 +2093,13 @@ def test_formal_return_attributes(kind, ref_attribute, attribute, invalid):
 
 
 @pytest.mark.parametrize(
-    "actual,expected",
-    [("same", "matched"), ("other", "difference"), ("wrong-attribute", "uncompared")],
+    "case_id", case_ids("reference_evidence", prefix="glue-secret-")
 )
-def test_glue_secret_identity(actual, expected):
+def test_glue_secret_identity(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_glue_secret)
+
+
+def _execute_glue_secret(case):
     comparison = fixture()
     for identity, logical in [("001", "Secret"), ("002", "OtherSecret")]:
         resource(
@@ -2121,19 +2111,14 @@ def test_glue_secret_identity(actual, expected):
             [],
             properties={"Name": "same-name"},
         )
-    value = (
-        {"Fn::GetAtt": ["Secret", "Arn"]}
-        if actual == "wrong-attribute"
-        else {"Ref": "OtherSecret" if actual == "other" else "Secret"}
-    )
     records = setting(
         comparison,
         "Glue.Connection",
         "ConnectionInput.AuthenticationConfiguration.SecretArn",
         model_ref("SecretsManager_Secret_001", "Id"),
-        value,
+        case["data"]["actual"],
     )
-    assert records[0]["category"] == expected, records
+    return {"records": projected(records)}
 
 
 @pytest.mark.parametrize(
@@ -2183,82 +2168,45 @@ def test_action_context_requires_own_codecommit_contract(bad):
 
 
 @pytest.mark.parametrize(
-    "fault",
-    [
-        "partition",
-        "region",
-        "account",
-        "version",
-        "alias",
-        "type",
-        "name",
-        "other-resource",
-        "attribute",
-        "missing-name",
-        "invalid-name",
-        "mapping",
-        "condition",
-    ],
+    "case_id", case_ids("reference_evidence", prefix="event-lambda-")
 )
-def test_eventbridge_literal_requires_exact_lambda_identity(fault):
+def test_eventbridge_literal_requires_exact_lambda_identity(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_event_lambda)
+
+
+def _execute_event_lambda(case):
+    data = case["data"]
     comparison = fixture()
-    resource(
-        comparison,
-        "lambda",
-        "001",
-        "Lambda.Function",
-        "Function",
-        [],
-        properties={"FunctionName": "fixture"},
-    )
-    resource(
-        comparison,
-        "lambda",
-        "002",
-        "Lambda.Function",
-        "Other",
-        [],
-        properties={"FunctionName": "fixture"},
-    )
+    for identity, logical in (("001", "Function"), ("002", "Other")):
+        resource(
+            comparison,
+            "lambda",
+            identity,
+            "Lambda.Function",
+            logical,
+            [],
+            properties={"FunctionName": "fixture"},
+        )
     function = comparison.evaluate("producer", {"Fn::GetAtt": ["Function", "Arn"]})
     arn = "arn:aws:lambda:ap-northeast-1:123456789012:function:fixture"
-    assert comparison.reference_same(function, arn, "Events.Rule", "") is True
-    replacements = {
-        "partition": ("arn:aws:", "arn:aws-cn:"),
-        "region": ("ap-northeast-1", "us-east-1"),
-        "account": ("123456789012", "999999999999"),
-        "type": (":function:", ":layer:"),
-        "name": ("fixture", "other"),
-    }
-    expected = False
-    actual = arn
+    TestCase().assertIs(
+        comparison.reference_same(function, arn, "Events.Rule", ""), True
+    )
     definition = comparison.stack_inputs["producer"][0]["Resources"]["Function"]
-    if fault in replacements:
-        actual = arn.replace(*replacements[fault])
-    elif fault in {"version", "alias"}:
-        actual += ":1" if fault == "version" else ":alias"
-    elif fault == "other-resource":
-        actual = ResourceReference(dict(function, **{"$resource": ["lambda", "002"]}))
-    elif fault == "attribute":
-        actual = ResourceReference(dict(function, **{"$attribute": "FunctionName"}))
-    else:
-        expected = None
-        if fault == "mapping":
-            comparison.resources["lambda"]["001"]["cfn-logicalId"] = "producer-Missing"
-        elif fault == "condition":
-            definition["Condition"] = "Off"
-            comparison.stack_inputs["producer"][0]["Conditions"] = {
-                "Off": {"Fn::Equals": [1, 2]}
-            }
-        else:
-            definition["Properties"] = (
-                {} if fault == "missing-name" else {"FunctionName": "function:alias"}
-            )
-        comparison.symbols.clear()
-    assert comparison.reference_same(function, actual, "Events.Rule", "") is expected
-    assert comparison.redacted(arn) == arn
+    definition.update(data["definition_fields"])
+    comparison.resources["lambda"]["001"].update(data["metadata"])
+    comparison.stack_inputs["producer"][0].update(data["document_fields"])
+    comparison.symbols.clear()
+    actual = (
+        ResourceReference(data["actual"])
+        if isinstance(data["actual"], dict)
+        else data["actual"]
+    )
+    result = comparison.reference_same(function, actual, "Events.Rule", "")
+    TestCase().assertEqual(comparison.redacted(arn), arn)
     comparison.sensitive_values.add(arn)
-    assert comparison.redacted(arn) == "<masked sensitive parameter>"
+    TestCase().assertEqual(comparison.redacted(arn), "<masked sensitive parameter>")
+    return {"result": result}
 
 
 @pytest.mark.parametrize(
@@ -2332,71 +2280,50 @@ def test_symbolic_setting_classification(fault):
     assert records[0]["category"] == expected, records
 
 
-@pytest.mark.parametrize("fault", [None, "id", "unknown", "intrinsic", "nested-sub"])
-def test_model_policy_links_bind_but_raw_intrinsics_do_not(fault):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="model-policy-")
+)
+def test_model_policy_links_bind_but_raw_intrinsics_do_not(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_model_policy)
+
+
+def _execute_model_policy(case):
+    data = case["data"]
     comparison = fixture()
     resource(comparison, "cloudwatch-logs", "001", "Logs.LogGroup", "Log", [])
-    link = model_ref("Logs_LogGroup_001", "Arn")
-    model = {
-        "Fn::Join": ["", [{"Fn::Select": [0, {"Fn::Split": [":*", link]}]}, ":stream"]]
-    }
-    actual = {
-        "Fn::Join": [
-            "",
-            [
-                {
-                    "Fn::Select": [
-                        0,
-                        {"Fn::Split": [":*", {"Fn::GetAtt": ["Log", "Arn"]}]},
-                    ]
-                },
-                ":stream",
-            ],
-        ]
-    }
-    if fault == "id":
-        model = {"Fn::Sub": "${Log.Arn}"}
-    elif fault == "intrinsic":
-        model = actual
-    elif fault == "unknown":
-        model = {"Fn::Join": ["", [model_ref("Logs_LogGroup_999", "Arn"), ":stream"]]}
-    elif fault == "nested-sub":
-        model = {
-            "Fn::Sub": [
-                "${Arn}:stream",
-                {"Arn": {"Fn::Select": [0, {"Fn::Split": [":*", link]}]}},
-            ]
-        }
-    if fault == "intrinsic":
+    if data["prepare_directly"]:
         pending = comparison.prepare_value(
             "consumer",
             {
                 "property": "IAM.ManagedPolicy.PolicyDocument",
                 "value": "",
-                "document": json.dumps({"Statement": [{"Resource": model}]}),
+                "document": json.dumps({"Statement": [{"Resource": data["model"]}]}),
             },
             "IAM.ManagedPolicy",
         )
-        assert (
-            pending.warnings
-            and pending.require_value()["Statement"][0]["Resource"].operation
-            == "Unverified"
-        )
-        return
+        TestCase().assertTrue(pending.warnings)
+        operation = pending.require_value()["Statement"][0]["Resource"].operation
+        TestCase().assertEqual(operation, "Unverified")
+        return {"warnings": projected(pending.warnings), "operation": operation}
     records = setting(
         comparison,
         "IAM.ManagedPolicy",
         "PolicyDocument",
-        {"Statement": [{"Resource": model}]},
-        {"Statement": [{"Resource": actual}]},
+        {"Statement": [{"Resource": data["model"]}]},
+        {"Statement": [{"Resource": data["actual"]}]},
     )
-    assert records[0]["category"] == (
-        "matched" if fault in {None, "nested-sub"} else "uncompared"
-    ), records
+    return {"records": projected(records)}
 
 
-@pytest.mark.parametrize("fault", [None, "off", "missing", "unknown"])
-def test_managed_policy_attachment_edges(fault):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="managed-attachment-")
+)
+def test_managed_policy_attachment_edges(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_managed_attachment)
+
+
+def _execute_managed_attachment(case):
+    data = case["data"]
     comparison = fixture()
     resource(comparison, "iam", "001", "IAM.ManagedPolicy", "Policy", [])
     resource(
@@ -2406,17 +2333,11 @@ def test_managed_policy_attachment_edges(fault):
         "IAM.Role",
         "Role",
         [],
-        properties={"ManagedPolicyArns": [{"Ref": "Policy"}]},
+        properties={"ManagedPolicyArns": data["arns"]},
     )
     document = comparison.stack_inputs["producer"][0]
-    role = document["Resources"]["Role"]
-    if fault == "off":
-        role["Condition"] = "Off"
-        document["Conditions"] = {"Off": {"Fn::Equals": [1, 2]}}
-    elif fault == "missing":
-        role["Properties"]["ManagedPolicyArns"] = []
-    elif fault == "unknown":
-        role["Properties"]["ManagedPolicyArns"] = [{"Ref": "Missing"}]
+    document.update(data["document_fields"])
+    document["Resources"]["Role"].update(data["role_fields"])
     callback = partial(
         managed_policy_roles,
         stack_inputs=comparison.stack_inputs,
@@ -2424,33 +2345,24 @@ def test_managed_policy_attachment_edges(fault):
         reference_same=comparison.reference_same,
         symbol=comparison.symbol,
     )
-    if fault == "unknown":
-        with pytest.raises(Blocked):
-            callback("iam", "001", "producer", [])
-    else:
-        result = callback(
-            "iam", "001", "producer", [{"Ref": "Role"}] if fault is None else []
-        )
-        assert len(result) == int(fault is None)
+    try:
+        result = callback("iam", "001", "producer", data["attached"])
+    except Blocked as failure:
+        return {"error": {"type": type(failure).__name__, "message": str(failure)}}
+    return {"result": projected(result)}
 
 
 @pytest.mark.parametrize(
-    "fault", [None, "missing", "ambiguous", "other-parent", "unresolved"]
+    "case_id", case_ids("reference_evidence", prefix="inline-owner-")
 )
-def test_inline_policy_ownership(fault):
-    child = {
-        "Type": "AWS::S3::BucketPolicy",
-        "Properties": {"Bucket": {"Ref": "Bucket"}, "PolicyDocument": {}},
-    }
-    document = {"Resources": {"Policy": child}}
-    if fault == "missing":
-        document["Resources"].clear()
-    elif fault == "ambiguous":
-        document["Resources"]["Other"] = copy.deepcopy(child)
-    elif fault == "other-parent":
-        child["Properties"]["Bucket"] = {"Ref": "Other"}
-    elif fault == "unresolved":
-        child["Properties"]["Bucket"] = "literal"
+def test_inline_policy_ownership(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_inline_owner)
+
+
+def _execute_inline_owner(case):
+    data = case["data"]
+    document = data["document"]
+    child = document["Resources"].get("Policy", data["child"])
     selected, failure = inline_owner(
         "S3.Bucket",
         "S3.BucketPolicy",
@@ -2461,11 +2373,9 @@ def test_inline_policy_ownership(fault):
         {},
         "AWS::S3::BucketPolicy",
     )
-    assert selected is child if fault is None else selected is None
-    if fault:
-        assert failure[0] == (
-            "difference" if fault in {"missing", "other-parent"} else "uncompared"
-        )
+    if selected is not None:
+        TestCase().assertIs(selected, child)
+    return {"selected": selected is not None, "failure": projected(failure)}
 
 
 @pytest.mark.parametrize(
@@ -2651,17 +2561,19 @@ def test_flowlog_resource_type_context(prop, context, producer, expected):
 
 
 @pytest.mark.parametrize(
-    "service,producer,attribute,kind,path",
-    [receiver for receiver in RECEIVERS if receiver[1] == "EC2.SecurityGroup"],
+    "case_id", case_ids("reference_evidence", prefix="sg-receiver-")
 )
-@pytest.mark.parametrize("vpc", ["PENDING_DEPLOY", VPC])
-def test_security_group_receiver_ref_evidence(
-    service, producer, attribute, kind, path, vpc
-):
+def test_security_group_receiver_ref_evidence(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_receiver)
+
+
+def _execute_sg_receiver(case):
+    data = case["data"]
+    service, producer, attribute, kind, path = data["receiver"]
     comparison = fixture()
     document, parameters, pseudo = comparison.stack_inputs["producer"]
     document["Parameters"] = {"VpcId": {"Type": "AWS::EC2::VPC::Id"}}
-    parameters["VpcId"] = vpc
+    parameters["VpcId"] = data["vpc"]
     for identity, logical in (("001", "Producer"), ("002", "OtherProducer")):
         resource(
             comparison,
@@ -2678,74 +2590,49 @@ def test_security_group_receiver_ref_evidence(
     actual = comparison.evaluate("producer", {"Ref": "Producer"})
     other = comparison.evaluate("producer", {"Ref": "OtherProducer"})
     getatt = comparison.evaluate("producer", {"Fn::GetAtt": ["Producer", "GroupId"]})
-    assert comparison.reference_same(desired, actual, kind, path) is True
-    assert comparison.reference_same(desired, other, kind, path) is False
-    assert comparison.reference_same(desired, getatt, kind, path) is True
-    assert parameters["VpcId"] == vpc
+    results = [
+        comparison.reference_same(desired, actual, kind, path),
+        comparison.reference_same(desired, other, kind, path),
+        comparison.reference_same(desired, getatt, kind, path),
+    ]
+    check = TestCase()
+    for result, expected in zip(results, (True, False, True), strict=True):
+        check.assertIs(result, expected)
+    check.assertEqual(parameters["VpcId"], data["vpc"])
     comparison.symbols.clear()
     parameters["VpcId"] = "UNSET"
-    with pytest.raises(Blocked):
+    with pytest.raises(Blocked) as failure:
         comparison.evaluate("producer", {"Ref": "Producer"})
-    assert parameters["VpcId"] == "UNSET"
+    check.assertEqual(parameters["VpcId"], "UNSET")
+    return {
+        "results": results,
+        "error": {"type": type(failure.value).__name__, "message": str(failure.value)},
+    }
 
 
 @pytest.mark.parametrize(
-    "value,parameters,conditions,valid",
-    [
-        ({"Ref": "VpcId"}, {"VpcId": "PENDING_DEPLOY"}, {}, True),
-        ({"Ref": "VpcId"}, {"VpcId": VPC}, {}, True),
-        *[
-            ({"Ref": "VpcId"}, {"VpcId": value}, {}, False)
-            for value in ("UNSET", "TODO", "TBD", "not-a-vpc")
-        ],
-        ({"Fn::Sub": "vpc-${VpcId}"}, {"VpcId": "01234567"}, {}, True),
-        ({"Fn::Sub": "vpc-${VpcId}"}, {"VpcId": "ZZZZZZZZ"}, {}, False),
-        ({"Ref": "Vpc"}, {}, {}, True),
-        ({"Fn::GetAtt": ["Vpc", "VpcId"]}, {}, {}, True),
-        ({"Fn::ImportValue": "ExternalVpcId"}, {}, {}, True),
-        ({"Fn::Sub": "vpc-${VpcId}"}, {"VpcId": "PENDING_DEPLOY"}, {}, True),
-        ({"Fn::Sub": "vpc-${Missing}"}, {}, {}, False),
-        ({"Fn::ImportValue": ""}, {}, {}, False),
-        ({"Fn::Join": ["", ["vpc-", {"Ref": "Missing"}]]}, {}, {}, False),
-        ({"Fn::GetAtt": ["Group", "GroupId"]}, {}, {}, False),
-        (VPC, {}, {}, True),
-        (
-            {"Fn::If": ["Active", {"Ref": "VpcId"}, {"Ref": "AWS::NoValue"}]},
-            {"VpcId": "PENDING_DEPLOY"},
-            {"Active": {"Fn::Equals": [1, 1]}},
-            True,
-        ),
-        (
-            {"Fn::If": ["Active", {"Ref": "VpcId"}, {"Ref": "AWS::NoValue"}]},
-            {"VpcId": "PENDING_DEPLOY"},
-            {"Active": {"Fn::Equals": [1, 2]}},
-            False,
-        ),
-        (
-            {"Fn::If": ["Missing", {"Ref": "VpcId"}, VPC]},
-            {"VpcId": "PENDING_DEPLOY"},
-            {},
-            False,
-        ),
-        (
-            {"Fn::If": ["Active", VPC, VPC]},
-            {"VpcId": "PENDING_DEPLOY"},
-            {"Active": {"Fn::Equals": [{"Ref": "VpcId"}, VPC]}},
-            False,
-        ),
-        ({"Ref": "Undeclared"}, {}, {}, False),
-        ("", {}, {}, False),
-        ("vpc-invalid", {}, {}, False),
-        ("TODO", {}, {}, False),
-        ("TBD", {}, {}, False),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="sg-vpc-evidence-")
 )
-def test_security_group_ref_vpc_evidence(value, parameters, conditions, valid):
+def test_security_group_ref_vpc_evidence(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_vpc_evidence)
+
+
+def _sg_reference_result(comparison):
+    try:
+        result = comparison.evaluate("producer", {"Ref": "Group"})
+    except (Blocked, ValueError) as failure:
+        return {"error": {"type": type(failure).__name__, "message": str(failure)}}
+    TestCase().assertEqual(result["$attribute"], "GroupId")
+    return {"attribute": result["$attribute"]}
+
+
+def _execute_sg_vpc_evidence(case):
+    data = case["data"]
     comparison = fixture()
     document, inputs, pseudo = comparison.stack_inputs["producer"]
     document["Parameters"] = {"VpcId": {"Type": "String"}}
-    document["Conditions"] = conditions
-    inputs.update(parameters)
+    document["Conditions"] = data["conditions"]
+    inputs.update(data["parameters"])
     resource(comparison, "vpc", "001", "EC2.VPC", "Vpc", [])
     resource(
         comparison,
@@ -2754,29 +2641,19 @@ def test_security_group_ref_vpc_evidence(value, parameters, conditions, valid):
         "EC2.SecurityGroup",
         "Group",
         [],
-        properties={"VpcId": value},
+        properties={"VpcId": data["value"]},
     )
-    if valid:
-        assert (
-            comparison.evaluate("producer", {"Ref": "Group"})["$attribute"] == "GroupId"
-        )
-    else:
-        with pytest.raises(Blocked):
-            comparison.evaluate("producer", {"Ref": "Group"})
+    return _sg_reference_result(comparison)
 
 
 @pytest.mark.parametrize(
-    "value",
-    [
-        None,
-        {"Ref": "AWS::NoValue"},
-        {"Fn::If": ["Active", {"Ref": "AWS::NoValue"}, {"Ref": "Vpc"}]},
-        {"Ref": "Role"},
-        {"Ref": "Group"},
-        "UNSET",
-    ],
+    "case_id", case_ids("reference_evidence", prefix="sg-vpc-required-")
 )
-def test_security_group_ref_requires_vpc(value):
+def test_security_group_ref_requires_vpc(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_vpc_required)
+
+
+def _execute_sg_vpc_required(case):
     comparison = fixture()
     resource(comparison, "vpc", "001", "EC2.VPC", "Vpc", [])
     resource(comparison, "iam", "001", "IAM.Role", "Role", [])
@@ -2787,48 +2664,42 @@ def test_security_group_ref_requires_vpc(value):
         "EC2.SecurityGroup",
         "Group",
         [],
-        properties={"VpcId": value},
+        properties={"VpcId": case["data"]["value"]},
     )
     comparison.stack_inputs["producer"][0]["Conditions"] = {
         "Active": {"Fn::Equals": [1, 1]}
     }
-    with pytest.raises(Blocked):
+    with pytest.raises(Blocked) as failure:
         comparison.evaluate("producer", {"Ref": "Group"})
-    assert (
-        comparison.evaluate("producer", {"Fn::GetAtt": ["Group", "GroupId"]})[
-            "$attribute"
-        ]
-        == "GroupId"
-    )
-
-
-@pytest.mark.parametrize("fault", ["move", "duplicate", "parent", "type", "invalid"])
-def test_cloudtrail_membership_comparison(fault):
-    comparison = fixture()
-    expected = [
-        {
-            "IncludeManagementEvents": True,
-            "DataResources": [{"Type": "AWS::S3::Object", "Values": ["a", "a"]}],
-        },
-        {
-            "IncludeManagementEvents": False,
-            "DataResources": [{"Type": "AWS::S3::Object", "Values": ["b"]}],
-        },
+    attribute = comparison.evaluate("producer", {"Fn::GetAtt": ["Group", "GroupId"]})[
+        "$attribute"
     ]
-    actual = copy.deepcopy(expected)
-    if fault == "move":
-        actual[0]["DataResources"].append(actual[1]["DataResources"].pop())
-    elif fault == "duplicate":
-        actual[0]["DataResources"][0]["Values"].pop()
-    elif fault == "parent":
-        actual.append({"IncludeManagementEvents": False})
-    elif fault == "type":
-        actual[1]["DataResources"][0]["Type"] = "AWS::Lambda::Function"
-    if fault != "invalid":
+    TestCase().assertEqual(attribute, "GroupId")
+    return {
+        "error": {"type": type(failure.value).__name__, "message": str(failure.value)},
+        "attribute": attribute,
+    }
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="cloudtrail-membership-")
+)
+def test_cloudtrail_membership_comparison(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_cloudtrail_membership)
+
+
+def _execute_cloudtrail_membership(case):
+    data = case["data"]
+    comparison = fixture()
+    if not data["partial"]:
         records = setting(
-            comparison, "CloudTrail.Trail", "EventSelectors", expected, actual
+            comparison,
+            "CloudTrail.Trail",
+            "EventSelectors",
+            data["desired"],
+            data["actual"],
         )
-        assert records[0]["category"] == "difference", records
+        TestCase().assertEqual(records[0]["category"], "difference")
     else:
         resource(
             comparison,
@@ -2843,7 +2714,7 @@ def test_cloudtrail_membership_comparison(fault):
         )
         document = comparison.stack_inputs["producer"][0]
         definition = document["Resources"]["Trail"]
-        definition["Properties"] = dict(IsLogging=False, EventSelectors=actual)
+        definition["Properties"] = dict(IsLogging=False, EventSelectors=data["actual"])
         records = comparison.compare_rows(
             "cloudtrail",
             "001",
@@ -2854,15 +2725,21 @@ def test_cloudtrail_membership_comparison(fault):
             definition,
             document,
         ).records
-        assert any(
-            item["category"] == "uncompared"
-            and "membership unresolved" in item["reason"]
-            for item in records
-        ), records
-        assert any(
-            item["property"].endswith(".IsLogging") and item["category"] == "difference"
-            for item in records
-        ), records
+        TestCase().assertTrue(
+            any(
+                item["category"] == "uncompared"
+                and "membership unresolved" in item["reason"]
+                for item in records
+            )
+        )
+        TestCase().assertTrue(
+            any(
+                item["property"].endswith(".IsLogging")
+                and item["category"] == "difference"
+                for item in records
+            )
+        )
+    return {"records": projected(records)}
 
 
 @pytest.mark.parametrize(
@@ -2967,8 +2844,15 @@ def test_unknown_reference_property_never_infers_from_name(field, context):
         )
 
 
-@pytest.mark.parametrize("mode", ["implicit", "missing", "wrong", "plaintext"])
-def test_codebuild_secret_context(mode):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="codebuild-secret-")
+)
+def test_codebuild_secret_context(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_codebuild_secret)
+
+
+def _execute_codebuild_secret(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -2980,98 +2864,63 @@ def test_codebuild_secret_context(mode):
         properties={"Name": "app/secret"},
     )
     link = model_ref("SecretsManager_Secret_001", "Id")
-    if mode == "implicit":
-        context = {"Type": "SECRETS_MANAGER" if mode == "implicit" else "PLAINTEXT"}
+    try:
         symbol = comparison.desired_reference(
             "secrets-manager",
             link,
             "CodeBuild.Project",
             "Environment.EnvironmentVariables[].Value",
-            context=context,
+            context=data["context"],
         )
-        desired = {"Name": "SECRET", "Type": context["Type"], "Value": symbol}
-        callback = partial(reference_for, comparison, "CodeBuild.Project")
-        assert same(
-            desired,
-            dict(desired, Value="app/secret"),
-            path="Environment.EnvironmentVariables[]",
-            reference=callback,
-        ) is (mode == "implicit")
-        assert (
-            same(
-                desired,
-                dict(desired, Value="app/secret:key:AWSPREVIOUS"),
-                path="Environment.EnvironmentVariables[]",
-                reference=callback,
-            )
-            is False
-        )
-    else:
-        with pytest.raises(Blocked):
-            comparison.desired_reference(
-                "secrets-manager",
-                link,
-                "CodeBuild.Project",
-                "Environment.EnvironmentVariables[].Value",
-                context={}
-                if mode == "missing"
-                else {
-                    "Type": "PLAINTEXT" if mode == "plaintext" else "PARAMETER_STORE"
-                },
-            )
+    except Blocked as failure:
+        return {"error": {"type": type(failure).__name__, "message": str(failure)}}
+    desired = {"Name": "SECRET", "Type": data["context"]["Type"], "Value": symbol}
+    callback = partial(reference_for, comparison, "CodeBuild.Project")
+    same_value = same(
+        desired,
+        dict(desired, Value="app/secret"),
+        path="Environment.EnvironmentVariables[]",
+        reference=callback,
+    )
+    suffix_value = same(
+        desired,
+        dict(desired, Value="app/secret:key:AWSPREVIOUS"),
+        path="Environment.EnvironmentVariables[]",
+        reference=callback,
+    )
+    TestCase().assertIs(same_value, True)
+    TestCase().assertIs(suffix_value, False)
+    return {"same": same_value, "suffix": suffix_value}
 
 
 @pytest.mark.parametrize(
-    "case,expected",
-    [
-        ("reverse", True),
-        ("duplicate", False),
-        ("missing", False),
-        ("value", False),
-        ("unrelated", False),
-        ("unknown", None),
-        ("known-difference", False),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="policy-bijection-")
 )
-def test_policy_statement_bijection(case, expected):
+def test_policy_statement_bijection(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_policy_bijection)
+
+
+def _execute_policy_bijection(case):
+    data = case["data"]
     comparison = fixture()
     resource(comparison, "kms", "001", "KMS.Key", "Key", [])
-    first = {"Sid": "One", "Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}
-    second = dict(first, Sid="Two", Action="s3:PutObject")
-    left, right = [first, second], [second, first]
-    path = "Policies[].PolicyDocument.Statement"
-    if case == "duplicate":
-        left = [first, first]
-    elif case == "missing":
-        left = [first]
-    elif case == "value":
-        right = [second, dict(first, Effect="Deny")]
-    elif case == "unrelated":
-        path = "Unrelated"
-    elif case in {"unknown", "known-difference"}:
-        left = [
-            dict(
-                first,
-                Resource=comparison.evaluate(
-                    "producer", {"Fn::GetAtt": ["Key", "Arn"]}
-                ),
-            ),
-            second,
-        ]
-        if case == "known-difference":
-            right = [dict(second, Effect="Deny"), first]
-    declared = rules("IAM.Role") if case != "unrelated" else {path: ORDERED}
-    assert (
-        compare_values(
-            left,
-            right,
-            path,
-            rules=declared,
-            whole=True,
-            reference=partial(policy_reference, comparison),
-        ).equal
-        is expected
+    left, right, path = data["left"], data["right"], data["path"]
+    if data["reference_left"]:
+        left[0]["Resource"] = comparison.evaluate(
+            "producer", {"Fn::GetAtt": ["Key", "Arn"]}
+        )
+    declared = {path: ORDERED} if data["ordered"] else rules("IAM.Role")
+    outcome = compare_values(
+        left,
+        right,
+        path,
+        rules=declared,
+        whole=True,
+        reference=partial(policy_reference, comparison),
     )
+    if outcome.equal is not None:
+        TestCase().assertIs(type(outcome.equal), bool)
+    return {"equal": outcome.equal}
 
 
 def reference_for(comparison, kind, left, right, path):
@@ -3969,38 +3818,30 @@ def test_inactive_inline_policy_provenance():
 
 
 @pytest.mark.parametrize(
-    "case,category", [("match", "matched"), ("order", "difference"), ("json", "error")]
+    "case_id", case_ids("reference_evidence", prefix="inline-document-")
 )
-def test_inline_policy_document(case, category):
+def test_inline_policy_document(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_inline_document)
+
+
+def _execute_inline_document(case):
+    data = case["data"]
     comparison = fixture()
     resource(comparison, "s3", "001", "S3.Bucket", "Bucket", [])
-    policy = {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": ["s3:GetObject"],
-                "Resource": ["first", "second"],
-            }
-        ],
-    }
     comparison.rows["s3"]["001"].append(
         (
             "001-001",
             dict(
                 property="S3.BucketPolicy.PolicyDocument",
                 value="policy.json",
-                document="{bad json" if case == "json" else json.dumps(policy),
+                document=data["document"],
             ),
         )
     )
-    actual = copy.deepcopy(policy)
-    if case == "order":
-        actual["Statement"][0]["Resource"].reverse()
     document = comparison.stack_inputs["producer"][0]
     document["Resources"]["Policy"] = dict(
         Type="AWS::S3::BucketPolicy",
-        Properties={"Bucket": {"Ref": "Bucket"}, "PolicyDocument": actual},
+        Properties={"Bucket": {"Ref": "Bucket"}, "PolicyDocument": data["actual"]},
     )
     result = comparison.compare_rows(
         "s3",
@@ -4012,7 +3853,7 @@ def test_inline_policy_document(case, category):
         document["Resources"]["Bucket"],
         document,
     )
-    assert any(item["category"] == category for item in result.records), result
+    return {"records": projected(result.records)}
 
 
 def test_grouped_parent_reference():
@@ -4752,118 +4593,120 @@ def test_sqs_policy_named_arn_match():
     assert comparison.models["sqs"].authoritative == before
 
 
-@pytest.mark.parametrize("change", ["name", "partition", "region", "account", "source"])
-def test_sqs_policy_proven_difference_is_sqs_specific(change):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="sqs-policy-difference-")
+)
+def test_sqs_policy_proven_difference_is_sqs_specific(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sqs_policy_difference)
+
+
+def _execute_sqs_policy_difference(case):
+    data = case["data"]
     comparison, desired, actual = sqs_policy_fixture()
     statement = desired["Statement"][0]
-    if change == "name":
-        comparison.stack_inputs["producer"][0]["Resources"]["Queue"]["Properties"][
-            "QueueName"
-        ] = "other-dlq"
-    elif change == "source":
-        statement["Condition"]["ArnEquals"]["aws:SourceArn"] = RULE_ARN + "-other"
-    else:
-        old, new = {
-            "partition": ("aws:", "aws-cn:"),
-            "region": ("ap-northeast-1", "us-east-1"),
-            "account": ("123456789012", "999999999999"),
-        }[change]
-        statement["Resource"] = QUEUE_ARN.replace(old, new)
+    comparison.stack_inputs["producer"][0]["Resources"]["Queue"]["Properties"][
+        "QueueName"
+    ] = data["queue_name"]
+    statement["Resource"] = data["queue_arn"]
+    statement["Condition"]["ArnEquals"]["aws:SourceArn"] = data["source_arn"]
     records = setting(comparison, "SQS.QueuePolicy", "PolicyDocument", desired, actual)
-    assert [record["category"] for record in records] == ["difference"], records
+    check = TestCase()
+    check.assertEqual([record["category"] for record in records], ["difference"])
     diagnostics = records[0]["reference_diagnostics"]
     queue = next(item for item in diagnostics if item["path"].endswith(".Resource"))
     rule = next(item for item in diagnostics if item["path"].endswith("aws:SourceArn"))
-    assert queue["producers"] == [{"producer": "sqs/001", "attribute": "Arn"}]
-    assert queue["local_comparison"] == (
-        "matched" if change == "source" else "difference"
+    check.assertEqual(queue["producers"], [{"producer": "sqs/001", "attribute": "Arn"}])
+    source_diff = data["source_arn"] != RULE_ARN
+    check.assertEqual(
+        queue["local_comparison"], "matched" if source_diff else "difference"
     )
-    assert rule["local_comparison"] == (
-        "difference" if change == "source" else "matched"
+    check.assertEqual(
+        rule["local_comparison"], "difference" if source_diff else "matched"
     )
-    assert queue["identity"] == "unproven" and queue["format"]["model"] == "unproven"
-    assert (
-        queue["evidence_type"] == "local_evaluation"
-        and queue["current_aws_verified"] is False
+    check.assertEqual(queue["identity"], "unproven")
+    check.assertEqual(queue["format"]["model"], "unproven")
+    check.assertEqual(queue["evidence_type"], "local_evaluation")
+    check.assertIs(queue["current_aws_verified"], False)
+    check.assertEqual(records[0]["desired"], desired)
+    check.assertIn(statement["Resource"], json.dumps(records))
+    check.assertIn(
+        statement["Condition"]["ArnEquals"]["aws:SourceArn"], json.dumps(records)
     )
-    assert records[0]["desired"] == desired
-    assert statement["Resource"] in json.dumps(records)
-    assert statement["Condition"]["ArnEquals"]["aws:SourceArn"] in json.dumps(records)
+    return {"records": projected(records)}
 
 
 @pytest.mark.parametrize(
-    "name",
-    [
-        None,
-        "",
-        "UNSET",
-        "PENDING_DEPLOY",
-        "TODO",
-        "invalid/path",
-        "invalid.name",
-        "wildcard-*",
-        "x" * 81,
-        "x" * 76 + ".fifo",
-        {"Ref": "Missing"},
-        {"Fn::If": ["Unknown", "one", "two"]},
-    ],
+    "case_id", case_ids("reference_evidence", prefix="sqs-unproven-")
 )
-def test_sqs_unproven_names(name):
+def test_sqs_unproven_names(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sqs_unproven)
+
+
+def _execute_sqs_unproven(case):
     comparison, desired, actual = sqs_policy_fixture()
     properties = comparison.stack_inputs["producer"][0]["Resources"]["Queue"][
         "Properties"
     ]
-    if name is None:
-        properties.clear()
-    else:
-        properties["QueueName"] = name
+    properties.clear()
+    properties.update(case["data"]["properties"])
     records = setting(comparison, "SQS.QueuePolicy", "PolicyDocument", desired, actual)
-    assert [record["category"] for record in records] == ["uncompared"], records
+    TestCase().assertEqual([record["category"] for record in records], ["uncompared"])
     queue = next(
         item
         for item in records[0]["reference_diagnostics"]
         if item["path"].endswith(".Resource")
     )
-    assert queue["local_comparison"] == "uncompared"
+    TestCase().assertEqual(queue["local_comparison"], "uncompared")
+    return {"records": projected(records)}
 
 
-@pytest.mark.parametrize("name", ["a", "x" * 80, "x" * 75 + ".fifo"])
-def test_sqs_explicit_name_boundaries(name):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="sqs-name-boundary-")
+)
+def test_sqs_explicit_name_boundaries(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sqs_name_boundary)
+
+
+def _execute_sqs_name_boundary(case):
+    name = case["data"]["name"]
     comparison, desired, actual = sqs_policy_fixture()
     comparison.stack_inputs["producer"][0]["Resources"]["Queue"]["Properties"][
         "QueueName"
     ] = name
     desired["Statement"][0]["Resource"] = QUEUE_ARN.rsplit(":", 1)[0] + ":" + name
-    assert [
-        item["category"]
-        for item in setting(
-            comparison, "SQS.QueuePolicy", "PolicyDocument", desired, actual
-        )
-    ] == ["matched"]
+    records = setting(comparison, "SQS.QueuePolicy", "PolicyDocument", desired, actual)
+    TestCase().assertEqual([item["category"] for item in records], ["matched"])
+    return {"records": projected(records)}
 
 
-@pytest.mark.parametrize("field", ["Partition", "Region", "AccountId"])
 @pytest.mark.parametrize(
-    "value", [None, "", "UNSET", "${Unresolved}", 123, "invalid:context"]
+    "case_id", case_ids("reference_evidence", prefix="sqs-context-")
 )
-def test_sqs_arn_context_requires_proof(field, value):
+def test_sqs_arn_context_requires_proof(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sqs_context)
+
+
+def _execute_sqs_context(case):
+    data = case["data"]
     comparison, desired, actual = sqs_policy_fixture()
     pseudo = comparison.stack_inputs["producer"][2]
-    if value is None:
-        pseudo.pop("AWS::" + field)
+    if data["value"] is None:
+        pseudo.pop("AWS::" + data["field"])
     else:
-        pseudo["AWS::" + field] = value
+        pseudo["AWS::" + data["field"]] = data["value"]
     reference = comparison.evaluate("producer", {"Fn::GetAtt": ["Queue", "Arn"]})
     decision = comparison.reference_decision(
         QUEUE_ARN, reference, "SQS.QueuePolicy", "PolicyDocument.Statement[].Resource"
     )
-    assert (
-        decision.equal is None
-        and decision.diagnostics[0]["local_comparison"] == "uncompared"
-    )
-    assert field in decision.diagnostics[0]["reason"]
+    TestCase().assertIsNone(decision.equal)
+    TestCase().assertEqual(decision.diagnostics[0]["local_comparison"], "uncompared")
+    TestCase().assertIn(data["field"], decision.diagnostics[0]["reason"])
     records = setting(comparison, "SQS.QueuePolicy", "PolicyDocument", desired, actual)
-    assert [item["category"] for item in records] == ["uncompared"], records
+    TestCase().assertEqual([record["category"] for record in records], ["uncompared"])
+    return {
+        "decision": _reference_decision_data(decision),
+        "records": projected(records),
+    }
 
 
 def test_existing_named_arn_context_guards():
@@ -4885,28 +4728,21 @@ def test_existing_named_arn_context_guards():
 
 
 @pytest.mark.parametrize(
-    "fault",
-    [
-        "type",
-        "stack",
-        "logical",
-        "duplicate",
-        "missing",
-        "condition",
-        "inactive",
-        "transform",
-        "import",
-    ],
+    "case_id", case_ids("reference_evidence", prefix="sqs-correspondence-")
 )
-def test_sqs_arn_correspondence_and_mode_guards(fault):
+def test_sqs_arn_correspondence_and_mode_guards(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sqs_correspondence)
+
+
+def _execute_sqs_correspondence(case):
+    data = case["data"]
     comparison, desired, actual = sqs_policy_fixture()
     queue = comparison.stack_inputs["producer"][0]["Resources"]["Queue"]
     model = comparison.resources["sqs"]["001"]
-    if fault == "type":
-        queue["Type"] = "AWS::SNS::Topic"
-    elif fault in {"stack", "logical"}:
-        model["cfn-logicalId"] = "other-Queue" if fault == "stack" else "producer-Other"
-    elif fault == "duplicate":
+    queue.update(data["queue_fields"])
+    model.update(data["model_fields"])
+    comparison.stack_inputs["producer"][0].update(data["document_fields"])
+    if data["duplicate"]:
         resource(
             comparison,
             "sqs",
@@ -4916,19 +4752,12 @@ def test_sqs_arn_correspondence_and_mode_guards(fault):
             [],
             properties={"QueueName": "fixture-dlq"},
         )
-    elif fault == "missing":
+    if data["remove_model"]:
         comparison.resources["sqs"].clear()
         comparison.models.pop("sqs")
-    elif fault in {"condition", "inactive"}:
-        queue["Condition"] = "Unknown"
-        if fault == "inactive":
-            comparison.stack_inputs["producer"][0]["Conditions"] = {"Unknown": False}
-    elif fault == "transform":
-        comparison.stack_inputs["producer"][0]["Transform"] = "Unknown"
-    else:
-        model["resourceMode"] = "IMPORT"
     records = setting(comparison, "SQS.QueuePolicy", "PolicyDocument", desired, actual)
-    assert [item["category"] for item in records] == ["uncompared"], records
+    TestCase().assertEqual([record["category"] for record in records], ["uncompared"])
+    return {"records": projected(records)}
 
 
 def test_sqs_queue_url_is_not_getatt_arn():
@@ -4959,15 +4788,26 @@ def test_sqs_queue_url_is_not_getatt_arn():
     )
 
 
-@pytest.mark.parametrize("error", [OSError, ValueError, TypeError])
-def test_sqs_reference_processing_errors_propagate(error):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="sqs-errors-")
+)
+def test_sqs_reference_processing_errors_propagate(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sqs_errors)
+
+
+def _execute_sqs_errors(case):
+    error = {"OSError": OSError, "ValueError": ValueError, "TypeError": TypeError}[
+        case["data"]["error_type"]
+    ]
     comparison, desired, actual = sqs_policy_fixture()
     reference = comparison.evaluate("producer", {"Fn::GetAtt": ["Queue", "Arn"]})
     with patch(
         "comparison.inputs.named_arn",
         side_effect=error("synthetic reference evaluation failure"),
     ):
-        with pytest.raises(error, match="synthetic reference evaluation failure"):
+        with pytest.raises(
+            error, match="synthetic reference evaluation failure"
+        ) as failure:
             comparison.reference_decision(
                 QUEUE_ARN,
                 reference,
@@ -4994,7 +4834,16 @@ def test_sqs_reference_processing_errors_propagate(error):
             document["Resources"]["Receiver"],
             document,
         )
-        assert isinstance(batch.failure, error) and not batch.records
+        TestCase().assertIsInstance(batch.failure, error)
+        TestCase().assertFalse(batch.records)
+    return {
+        "raised": {"type": type(failure.value).__name__, "message": str(failure.value)},
+        "batch_failure": {
+            "type": type(batch.failure).__name__,
+            "message": str(batch.failure),
+        },
+        "records": projected(batch.records),
+    }
 
 
 @pytest.mark.parametrize(
@@ -5077,19 +4926,14 @@ def test_replacement_and_old_observed_cannot_prove_physical_identity(operation):
 
 
 @pytest.mark.parametrize(
-    "bus,tail",
-    [
-        (None, ""),
-        ("default", ""),
-        ("custom", "custom/"),
-        ("arn:aws:events:ap-northeast-1:123456789012:event-bus/default", ""),
-        ("arn:aws:events:ap-northeast-1:123456789012:event-bus/custom", "custom/"),
-        ({"Ref": "Bus"}, "custom/"),
-        ({"Fn::GetAtt": ["Bus", "Arn"]}, "custom/"),
-        ({"Fn::Sub": "${Bus.Arn}"}, "custom/"),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="event-bus-valid-")
 )
-def test_eventbridge_bus_name_arn_and_proven_reference(bus, tail):
+def test_eventbridge_bus_name_arn_and_proven_reference(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_event_bus_valid)
+
+
+def _execute_event_bus_valid(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -5101,41 +4945,34 @@ def test_eventbridge_bus_name_arn_and_proven_reference(bus, tail):
         properties={"Name": "custom"},
     )
     properties = {"Name": "fixture-rule"}
-    if bus is not None:
-        properties["EventBusName"] = bus
+    if data["bus"] is not None:
+        properties["EventBusName"] = data["bus"]
     resource(
         comparison, "events", "002", "Events.Rule", "Rule", [], properties=properties
     )
     symbol = comparison.evaluate("producer", {"Fn::GetAtt": ["Rule", "Arn"]})
-    arn = "arn:aws:events:ap-northeast-1:123456789012:rule/" + tail + "fixture-rule"
-    assert comparison.reference_literal(symbol) == arn
+    arn = (
+        "arn:aws:events:ap-northeast-1:123456789012:rule/"
+        + data["tail"]
+        + "fixture-rule"
+    )
+    TestCase().assertEqual(comparison.reference_literal(symbol), arn)
+    decisions = []
     for left, right in [(arn, symbol), (symbol, arn)]:
-        assert (
-            comparison.reference_decision(left, right, "IAM.Role", "Policies").equal
-            is True
-        )
+        decision = comparison.reference_decision(left, right, "IAM.Role", "Policies")
+        TestCase().assertIs(decision.equal, True)
+        decisions.append(_reference_decision_data(decision))
+    return {"arn": arn, "decisions": decisions}
 
 
 @pytest.mark.parametrize(
-    "bus",
-    [
-        "arn:aws:events:ap-northeast-1:999999999999:event-bus/custom",
-        "arn:aws:events:us-east-1:123456789012:event-bus/custom",
-        "arn:aws-cn:events:ap-northeast-1:123456789012:event-bus/custom",
-        "arn:aws:events:ap-northeast-1:123456789012:rule/custom",
-        "arn:aws:sns:ap-northeast-1:123456789012:event-bus/custom",
-        "arn:aws:events:ap-northeast-1:123:event-bus/custom",
-        "arn:aws:events:ap-northeast-1:123456789012:event-bus/",
-        "arn:aws:events:ap-northeast-1:123456789012:event-bus/custom/suffix",
-        "arn:aws:events:ap-northeast-1:123456789012:event-bus/*",
-        "",
-        "UNSET",
-        {"Ref": "Missing"},
-        {"Fn::GetAtt": ["Bus", "Arn"]},
-        {"Fn::GetAtt": ["Rule", "Arn"]},
-    ],
+    "case_id", case_ids("reference_evidence", prefix="event-bus-unproven-")
 )
-def test_eventbridge_unproven_or_conflicting_bus_is_uncompared(bus):
+def test_eventbridge_unproven_or_conflicting_bus_is_uncompared(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_event_bus_unproven)
+
+
+def _execute_event_bus_unproven(case):
     comparison = fixture()
     resource(comparison, "events", "001", "Events.EventBus", "Bus", [], properties={})
     resource(
@@ -5145,19 +4982,30 @@ def test_eventbridge_unproven_or_conflicting_bus_is_uncompared(bus):
         "Events.Rule",
         "Rule",
         [],
-        properties={"Name": "fixture-rule", "EventBusName": bus},
+        properties={"Name": "fixture-rule", "EventBusName": case["data"]["bus"]},
     )
     symbol = comparison.evaluate("producer", {"Fn::GetAtt": ["Rule", "Arn"]})
-    for left, right in [
-        (symbol, "arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule"),
-        ("arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule", symbol),
-    ]:
+    arn = "arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule"
+    decisions = []
+    for left, right in [(symbol, arn), (arn, symbol)]:
         decision = comparison.reference_decision(left, right, "IAM.Role", "Policies")
-        assert decision.equal is None and not decision.equivalent
+        TestCase().assertIsNone(decision.equal)
+        TestCase().assertFalse(decision.equivalent)
+        decisions.append(_reference_decision_data(decision))
+    return {"decisions": decisions}
 
 
-@pytest.mark.parametrize("transform", ["same", "suffix", "select", "delimiter"])
-def test_route53_composite_export_uses_shared_nested_setting_comparison(transform):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="route53-composite-")
+)
+def test_route53_composite_export_uses_shared_nested_setting_comparison(
+    case_runner, case_id
+):
+    case_runner.run("reference_evidence", case_id, _execute_route53_composite)
+
+
+def _execute_route53_composite(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -5169,47 +5017,15 @@ def test_route53_composite_export_uses_shared_nested_setting_comparison(transfor
         stack="consumer",
         properties={"VpcEndpointType": "Interface"},
     )
-    expression = {
-        "Fn::Select": [
-            0,
-            {
-                "Fn::Split": [
-                    ":",
-                    {"Fn::Select": [0, {"Fn::GetAtt": ["Endpoint", "DnsEntries"]}]},
-                ]
-            },
-        ]
-    }
     comparison.stack_inputs["consumer"][0]["Outputs"]["Dns"] = {
-        "Value": expression,
+        "Value": data["expression"],
         "Export": {"Name": "EndpointDns"},
     }
-    imported = {"Fn::ImportValue": "EndpointDns"}
-    desired = {"DNSName": imported, "HostedZoneId": "Z123"}
-    actual = copy.deepcopy(desired)
-    if transform == "suffix":
-        actual["DNSName"] = {"Fn::Join": ["", [imported, ".other"]]}
-    elif transform in {"select", "delimiter"}:
-        desired["DNSName"] = {"Fn::Select": [0, {"Fn::Split": ["|", imported]}]}
-        actual["DNSName"] = {
-            "Fn::Select": [
-                1 if transform == "select" else 0,
-                {"Fn::Split": ["|" if transform == "select" else ",", imported]},
-            ]
-        }
-    results = setting(comparison, "Route53.RecordSet", "AliasTarget", desired, actual)
-    assert [item["category"] for item in results] == ["uncompared"], results
-    details = results[0].get("reference_diagnostics", [])
-    if transform == "same":
-        assert (
-            details[0]["reason"]
-            == "Alias Endpoint DNS consumer correspondence is unproven"
-        )
-        assert details[0]["current_aws_verified"] is False
-    if transform != "select":
-        assert details and details[0]["exports"][0]["unproven"].startswith(
-            "Select bounds are unproven"
-        )
+    records = setting(
+        comparison, "Route53.RecordSet", "AliasTarget", data["desired"], data["actual"]
+    )
+    TestCase().assertEqual([item["category"] for item in records], ["uncompared"])
+    return {"records": projected(records)}
 
 
 @pytest.mark.parametrize(
@@ -6542,19 +6358,14 @@ def test_iac_reference_display_runner_decisions_unchanged(desired, expected):
 
 
 @pytest.mark.parametrize(
-    "literal,reference,expected",
-    [
-        ("fixture-bucket", {"Ref": "Bucket"}, "matched"),
-        ("fixture-bucket", {"Fn::Join": ["", [{"Ref": "Bucket"}]]}, "matched"),
-        ("other", {"Fn::Join": ["", [{"Ref": "Bucket"}]]}, "difference"),
-        ("other", {"Ref": "Bucket"}, "difference"),
-        ("fixture-bucket", {"Fn::ImportValue": "shared"}, "matched"),
-        ("other", {"Fn::ImportValue": "shared"}, "difference"),
-        ("fixture-bucket", {"Ref": "Unknown"}, "uncompared"),
-        ("fixture-bucket", {"Fn::ImportValue": "missing"}, "uncompared"),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="codebuild-env-")
 )
-def test_codebuild_plaintext_iac_reference_environment(literal, reference, expected):
+def test_codebuild_plaintext_iac_reference_environment(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_codebuild_environment)
+
+
+def _execute_codebuild_environment(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -6566,17 +6377,18 @@ def test_codebuild_plaintext_iac_reference_environment(literal, reference, expec
         properties={"BucketName": "fixture-bucket"},
         stack="producer",
     )
-    comparison.stack_inputs["producer"][0]["Outputs"]["Shared"] = {
-        "Value": {"Ref": "Bucket"},
-        "Export": {"Name": "shared"},
-    }
+    if data["export"]:
+        comparison.stack_inputs["producer"][0]["Outputs"]["Shared"] = {
+            "Value": {"Ref": "Bucket"},
+            "Export": {"Name": "shared"},
+        }
     desired = {
         "EnvironmentVariables": [
-            {"Name": "BUCKET", "Type": "PLAINTEXT", "Value": literal}
+            {"Name": data["name"], "Type": data["selector"], "Value": data["literal"]}
         ]
     }
     actual = copy.deepcopy(desired)
-    actual["EnvironmentVariables"][0]["Value"] = reference
+    actual["EnvironmentVariables"][0]["Value"] = data["reference"]
     settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
     outcome = comparison.compare_setting(
         "codebuild",
@@ -6585,67 +6397,42 @@ def test_codebuild_plaintext_iac_reference_environment(literal, reference, expec
         "Environment",
         desired,
         settings,
-        "consumer" if "Fn::ImportValue" in reference else "producer",
+        data["stack"],
         {"Properties": {"Environment": actual}},
         ROOT / "synthetic.yaml",
     )
-    TestCase().assertEqual(
-        [record["category"] for record in outcome.records], [expected]
-    )
+    if data["check_evidence"]:
+        (record,) = outcome.records
+        (evidence,) = record["reference_diagnostics"]
+        TestCase().assertEqual(evidence["evidence_type"], "local_evaluation")
+        TestCase().assertEqual(evidence["local_comparison"], record["category"])
+        TestCase().assertIs(evidence["current_aws_verified"], False)
+    return {"records": projected(outcome.records)}
 
 
 @pytest.mark.parametrize(
-    "selector, reference",
-    [
-        ("SECRETS_MANAGER", {"Ref": "Bucket"}),
-        ("SECRETS_MANAGER", {"Fn::Join": ["", [{"Ref": "Bucket"}]]}),
-        ("PARAMETER_STORE", {"Fn::Join": ["", [{"Ref": "Bucket"}]]}),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="codebuild-producer-")
 )
-def test_codebuild_wrong_producer_expression(selector, reference):
-    comparison = fixture()
-    resource(
-        comparison,
-        "s3",
-        "001",
-        "S3.Bucket",
-        "Bucket",
-        [("BucketName", "fixture-bucket", None)],
-        properties={"BucketName": "fixture-bucket"},
-        stack="producer",
-    )
-    desired = {
-        "EnvironmentVariables": [
-            {"Name": "VAR", "Type": selector, "Value": "fixture-bucket"}
-        ]
-    }
-    actual = copy.deepcopy(desired)
-    actual["EnvironmentVariables"][0]["Value"] = reference
-    settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
-    result = comparison.compare_setting(
-        "codebuild",
-        "002",
-        "CodeBuild.Project",
-        "Environment",
-        desired,
-        settings,
-        "producer",
-        {"Properties": {"Environment": actual}},
-        ROOT / "synthetic.yaml",
-    )
-    TestCase().assertEqual(
-        [record["category"] for record in result.records], ["uncompared"]
-    )
+def test_codebuild_wrong_producer_expression(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_codebuild_environment)
 
 
 @pytest.mark.parametrize(
-    "literal, expected",
-    [
-        ("arn:aws:s3:::fixture-bucket", "matched"),
-        ("arn:aws:s3:::other-bucket", "difference"),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="codebuild-bucket-arn-")
 )
-def test_codebuild_plaintext_getatt_bucket_arn(literal, expected):
+def test_codebuild_plaintext_getatt_bucket_arn(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_codebuild_environment)
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="lambda-env-")
+)
+def test_lambda_environment_iac_reference(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_lambda_environment)
+
+
+def _execute_lambda_environment(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -6656,56 +6443,8 @@ def test_codebuild_plaintext_getatt_bucket_arn(literal, expected):
         [("BucketName", "fixture-bucket", None)],
         properties={"BucketName": "fixture-bucket"},
     )
-    desired = {
-        "EnvironmentVariables": [
-            {"Name": "BUCKET_ARN", "Type": "PLAINTEXT", "Value": literal}
-        ]
-    }
-    actual = copy.deepcopy(desired)
-    actual["EnvironmentVariables"][0]["Value"] = {"Fn::GetAtt": ["Bucket", "Arn"]}
-    settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
-    outcome = comparison.compare_setting(
-        "codebuild",
-        "002",
-        "CodeBuild.Project",
-        "Environment",
-        desired,
-        settings,
-        "producer",
-        {"Properties": {"Environment": actual}},
-        ROOT / "synthetic.yaml",
-    )
-    (record,) = outcome.records
-    TestCase().assertEqual(record["category"], expected)
-    (evidence,) = record["reference_diagnostics"]
-    TestCase().assertEqual(evidence["evidence_type"], "local_evaluation")
-    TestCase().assertEqual(evidence["local_comparison"], expected)
-    TestCase().assertFalse(evidence["current_aws_verified"])
-
-
-@pytest.mark.parametrize(
-    "literal,reference,expected",
-    [
-        ("fixture-bucket", {"Ref": "Bucket"}, "matched"),
-        ("different", {"Ref": "Bucket"}, "difference"),
-        ("arn:aws:s3:::fixture-bucket", {"Fn::GetAtt": ["Bucket", "Arn"]}, "matched"),
-        ("arn:aws:s3:::different", {"Fn::GetAtt": ["Bucket", "Arn"]}, "difference"),
-        ("fixture-bucket", {"Ref": "Missing"}, "uncompared"),
-    ],
-)
-def test_lambda_environment_iac_reference(literal, reference, expected):
-    comparison = fixture()
-    resource(
-        comparison,
-        "s3",
-        "001",
-        "S3.Bucket",
-        "Bucket",
-        [("BucketName", "fixture-bucket", None)],
-        properties={"BucketName": "fixture-bucket"},
-    )
-    desired = {"Variables": {"BUCKET": literal}}
-    actual = {"Variables": {"BUCKET": reference}}
+    desired = {"Variables": {"BUCKET": data["literal"]}}
+    actual = {"Variables": {"BUCKET": data["reference"]}}
     settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
     outcome = comparison.compare_setting(
         "lambda",
@@ -6719,48 +6458,23 @@ def test_lambda_environment_iac_reference(literal, reference, expected):
         ROOT / "synthetic.yaml",
     )
     (record,) = outcome.records
-    TestCase().assertEqual(record["category"], expected)
-    if expected != "uncompared":
+    if record["category"] != "uncompared":
         (evidence,) = record["reference_diagnostics"]
         TestCase().assertEqual(evidence["evidence_type"], "local_evaluation")
-        TestCase().assertEqual(evidence["local_comparison"], expected)
-        TestCase().assertFalse(evidence["current_aws_verified"])
+        TestCase().assertEqual(evidence["local_comparison"], record["category"])
+        TestCase().assertIs(evidence["current_aws_verified"], False)
+    return {"records": projected(outcome.records)}
 
 
 @pytest.mark.parametrize(
-    "literal,reference,expected,evidence_type",
-    [
-        ("alias/material", {"Ref": "Alias"}, "matched", "local_evaluation"),
-        ("alias/other", {"Ref": "Alias"}, "difference", "local_evaluation"),
-        (
-            "arn:aws:kms:ap-northeast-1:123456789012:alias/material",
-            {
-                "Fn::Sub": "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}"
-            },
-            "matched",
-            "local_evaluation",
-        ),
-        (
-            "arn:aws:kms:ap-northeast-1:123456789012:alias/other",
-            {
-                "Fn::Sub": "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}"
-            },
-            "difference",
-            "local_evaluation",
-        ),
-        (KEY_ID, {"Ref": "Key"}, "uncompared", "recorded_observed"),
-        (
-            "12345678-1234-1234-1234-000000000000",
-            {"Ref": "Key"},
-            "uncompared",
-            "recorded_observed",
-        ),
-        (KEY_ARN, {"Fn::GetAtt": ["Key", "Arn"]}, "uncompared", "recorded_observed"),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="codebuild-kms-form-")
 )
-def test_codebuild_material_key_id_reference_formats(
-    literal, reference, expected, evidence_type
-):
+def test_codebuild_material_key_id_reference_formats(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_codebuild_kms_form)
+
+
+def _execute_codebuild_kms_form(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -6781,11 +6495,11 @@ def test_codebuild_material_key_id_reference_formats(
     )
     desired = {
         "EnvironmentVariables": [
-            {"Name": "MATERIAL_KEY_ID", "Type": "PLAINTEXT", "Value": literal}
+            {"Name": "MATERIAL_KEY_ID", "Type": "PLAINTEXT", "Value": data["literal"]}
         ]
     }
     actual = copy.deepcopy(desired)
-    actual["EnvironmentVariables"][0]["Value"] = reference
+    actual["EnvironmentVariables"][0]["Value"] = data["reference"]
     settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
     outcome = comparison.compare_setting(
         "codebuild",
@@ -6799,12 +6513,11 @@ def test_codebuild_material_key_id_reference_formats(
         ROOT / "synthetic.yaml",
     )
     (record,) = outcome.records
-    TestCase().assertEqual(record["category"], expected)
     (evidence,) = record["reference_diagnostics"]
-    TestCase().assertEqual(evidence["local_comparison"], expected)
-    TestCase().assertEqual(evidence["evidence_type"], evidence_type)
-    TestCase().assertFalse(evidence["current_aws_verified"])
+    TestCase().assertEqual(evidence["local_comparison"], record["category"])
+    TestCase().assertIs(evidence["current_aws_verified"], False)
     TestCase().assertTrue(evidence["reason"])
+    return {"records": projected(outcome.records)}
 
 
 def test_codebuild_observed_only_and_difference_are_preserved():
@@ -7807,39 +7520,22 @@ def test_security_group_sub_value_is_independently_unresolved():
 
 
 @pytest.mark.parametrize(
-    "service,producer,attribute,kind,path",
-    [receiver for receiver in RECEIVERS if receiver[1] == "EC2.SecurityGroup"],
+    "case_id", case_ids("reference_evidence", prefix="sg-external-")
 )
-@pytest.mark.parametrize(
-    "vpc_expression",
-    [
-        {"Fn::ImportValue": "ExternalVpcId"},
-        {"Fn::ImportValue": {"Fn::Sub": "External${Stage}"}},
-        {"Fn::Sub": "vpc-${Suffix}"},
-        {"Fn::Sub": ["vpc-${Id}", {"Id": {"Ref": "Suffix"}}]},
-        {"Fn::Sub": ["vpc-${Id}", {"Id": "ZZZZ"}]},
-    ],
-)
-@pytest.mark.parametrize(
-    "target,expected",
-    [
-        ("Producer", "matched"),
-        ("OtherProducer", "difference"),
-        ("UnknownVpc", "uncompared"),
-    ],
-)
-def test_security_group_receiver_rows_with_external_vpc(
-    service, producer, attribute, kind, path, target, expected, vpc_expression
-):
+def test_security_group_receiver_rows_with_external_vpc(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_external)
+
+
+def _execute_sg_external(case):
+    data = case["data"]
+    service, producer, attribute, kind, path = data["receiver"]
     comparison = fixture()
     document, parameters, _ = comparison.stack_inputs["producer"]
     document["Parameters"] = {"Suffix": {"Type": "String"}, "Stage": {"Type": "String"}}
     parameters.update(Suffix="PENDING_DEPLOY", Stage="VpcId")
-    if vpc_expression == {"Fn::Sub": ["vpc-${Id}", {"Id": "ZZZZ"}]}:
-        expected = "uncompared"
-    for identity, logical, vpc in (
-        ("001", "Producer", vpc_expression),
-        ("002", "OtherProducer", vpc_expression),
+    for identity, logical, vpc_value in (
+        ("001", "Producer", data["expression"]),
+        ("002", "OtherProducer", data["expression"]),
         ("003", "UnknownVpc", None),
     ):
         resource(
@@ -7849,18 +7545,21 @@ def test_security_group_receiver_rows_with_external_vpc(
             producer,
             logical,
             [],
-            properties={"VpcId": vpc},
+            properties={"VpcId": vpc_value},
         )
     records = setting(
         comparison,
         kind,
         path,
         model_ref("EC2_SecurityGroup_001", "GroupId"),
-        {"Ref": target},
+        {"Ref": data["target"]},
     )
-    assert [record["category"] for record in records] == [expected], records
-    with pytest.raises(Blocked):
+    with pytest.raises(Blocked) as failure:
         comparison.evaluate("producer", {"Fn::ImportValue": "ExternalVpcId"})
+    return {
+        "records": projected(records),
+        "error": {"type": type(failure.value).__name__, "message": str(failure.value)},
+    }
 
 
 def test_security_group_vpc_comparison_retains_external_uncertainty():
@@ -7881,76 +7580,24 @@ def test_security_group_vpc_comparison_retains_external_uncertainty():
 
 
 @pytest.mark.parametrize(
-    "service,producer,attribute,kind,path",
-    [receiver for receiver in RECEIVERS if receiver[1] == "EC2.SecurityGroup"],
+    "case_id", case_ids("reference_evidence", prefix="sg-identity-")
 )
-@pytest.mark.parametrize(
-    "expression,active,expected",
-    [
-        ({"Ref": "VpcId"}, "yes", "matched"),
-        ({"Fn::Sub": "${VpcId}"}, "yes", "matched"),
-        ({"Fn::Sub": ["${Id}", {"Id": {"Ref": "VpcId"}}]}, "yes", "matched"),
-        ({"Fn::Join": ["", [{"Ref": "VpcId"}]]}, "yes", "matched"),
-        (
-            {
-                "Fn::Sub": [
-                    "vpc-${Id}",
-                    {"Id": {"Fn::If": ["Active", {"Ref": "Suffix"}, "invalid"]}},
-                ]
-            },
-            "yes",
-            "matched",
-        ),
-        (
-            {
-                "Fn::Sub": [
-                    "vpc-${Id}",
-                    {"Id": {"Fn::If": ["Active", {"Ref": "Suffix"}, "123abc"]}},
-                ]
-            },
-            "PENDING_DEPLOY",
-            "uncompared",
-        ),
-        (
-            {
-                "Fn::Sub": [
-                    "vpc-${Id}",
-                    {"Id": {"Fn::If": ["Active", "invalid", "123abc"]}},
-                ]
-            },
-            "yes",
-            "uncompared",
-        ),
-        (
-            {
-                "Fn::Sub": [
-                    "vpc-${Id}",
-                    {"Id": {"Fn::If": ["Active", {"Ref": "AWS::NoValue"}, "123abc"]}},
-                ]
-            },
-            "yes",
-            "uncompared",
-        ),
-        ({"Fn::Sub": "prefix-${VpcId}"}, "yes", "uncompared"),
-        ({"Fn::Sub": "${Missing}"}, "yes", "uncompared"),
-        ({"Fn::Join": ["", [{"Ref": "VpcId"}, "bad"]]}, "yes", "uncompared"),
-        ("not-a-vpc", "yes", "uncompared"),
-        ({"Ref": "Role"}, "yes", "uncompared"),
-        ({"Fn::ImportValue": "bad-export"}, "yes", "uncompared"),
-        (None, "yes", "uncompared"),
-    ],
-)
-@pytest.mark.parametrize("target", ["Producer", "OtherProducer"])
-def test_security_group_vpc_expression_identity_rows(
-    service, producer, attribute, kind, path, expression, active, expected, target
-):
+def test_security_group_vpc_expression_identity_rows(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_identity)
+
+
+def _execute_sg_identity(case):
+    data = case["data"]
+    service, producer, attribute, kind, path = data["receiver"]
     comparison = fixture()
     document, parameters, _ = comparison.stack_inputs["producer"]
     document["Parameters"] = {
         name: {"Type": "String"} for name in ("VpcId", "Suffix", "Mode")
     }
     document["Conditions"] = {"Active": {"Fn::Equals": [{"Ref": "Mode"}, "yes"]}}
-    parameters.update(VpcId="PENDING_DEPLOY", Suffix="PENDING_DEPLOY", Mode=active)
+    parameters.update(
+        VpcId="PENDING_DEPLOY", Suffix="PENDING_DEPLOY", Mode=data["active"]
+    )
     resource(comparison, "iam", "001", "IAM.Role", "Role", [])
     comparison.stack_inputs["consumer"][0]["Outputs"]["Bad"] = {
         "Value": "invalid",
@@ -7964,51 +7611,39 @@ def test_security_group_vpc_expression_identity_rows(
             producer,
             logical,
             [],
-            properties={"VpcId": expression},
+            properties={"VpcId": data["expression"]},
         )
-    if expected == "matched":
-        assert (
-            comparison.evaluate("producer", {"Ref": target})["$attribute"] == "GroupId"
-        )
-        if target == "OtherProducer":
-            expected = "difference"
+    try:
+        evaluated = comparison.evaluate("producer", {"Ref": data["target"]})
+    except Blocked as failure:
+        evaluation = {"error": type(failure).__name__}
     else:
-        with pytest.raises(Blocked):
-            comparison.evaluate("producer", {"Ref": target})
+        TestCase().assertEqual(evaluated["$attribute"], "GroupId")
+        evaluation = {"attribute": evaluated["$attribute"]}
     records = setting(
         comparison,
         kind,
         path,
         model_ref("EC2_SecurityGroup_001", "GroupId"),
-        {"Ref": target},
+        {"Ref": data["target"]},
     )
-    assert [record["category"] for record in records] == [expected], records
+    return {"evaluation": evaluation, "records": projected(records)}
 
 
 @pytest.mark.parametrize(
-    "service,producer,attribute,kind,path",
-    [receiver for receiver in RECEIVERS if receiver[1] == "EC2.SecurityGroup"],
+    "case_id", case_ids("reference_evidence", prefix="sg-invalid-expr-")
 )
-@pytest.mark.parametrize(
-    "expression,vpc_value",
-    [
-        ({"Ref": "VpcId"}, "UNSET"),
-        ({"Ref": "VpcId"}, "TODO"),
-        ({"Ref": "VpcId"}, "TBD"),
-        ({"Fn::Sub": "${VpcId}"}, "invalid"),
-        ({"Fn::Sub": ["${Id}", {"Id": {"Ref": "Missing"}}]}, "PENDING_DEPLOY"),
-        ({"Fn::Join": ["-", [{"Ref": "VpcId"}]]}, "PENDING_DEPLOY"),
-        ({"Fn::Join": ["", {"Ref": "VpcId"}]}, "PENDING_DEPLOY"),
-        ({"Ref": "Producer"}, "PENDING_DEPLOY"),
-    ],
-)
-def test_security_group_invalid_expression_receiver_rows(
-    service, producer, attribute, kind, path, expression, vpc_value
-):
+def test_security_group_invalid_expression_receiver_rows(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_invalid_expression)
+
+
+def _execute_sg_invalid_expression(case):
+    data = case["data"]
+    service, producer, attribute, kind, path = data["receiver"]
     comparison = fixture()
     document, parameters, _ = comparison.stack_inputs["producer"]
     document["Parameters"] = {"VpcId": {"Type": "String"}}
-    parameters["VpcId"] = vpc_value
+    parameters["VpcId"] = data["vpc_value"]
     resource(
         comparison,
         service,
@@ -8016,7 +7651,7 @@ def test_security_group_invalid_expression_receiver_rows(
         producer,
         "Producer",
         [],
-        properties={"VpcId": expression},
+        properties={"VpcId": data["expression"]},
     )
     records = setting(
         comparison,
@@ -8025,9 +7660,10 @@ def test_security_group_invalid_expression_receiver_rows(
         model_ref("EC2_SecurityGroup_001", "GroupId"),
         {"Ref": "Producer"},
     )
-    assert [record["category"] for record in records] in (["uncompared"], ["error"]), (
-        records
+    TestCase().assertIn(
+        [record["category"] for record in records], (["uncompared"], ["error"])
     )
+    return {"records": projected(records)}
 
 
 @pytest.mark.parametrize(
@@ -8716,15 +8352,18 @@ def test_new_multiple_attribute_contract_does_not_guess_legacy_link(
 
 
 @pytest.mark.parametrize(
-    "export_value,valid",
-    [({"Ref": "Vpc"}, True), ({"Ref": "Role"}, False), ("not-a-vpc", False)],
+    "case_id", case_ids("reference_evidence", prefix="sg-import-proof-")
 )
-def test_security_group_import_vpc_evidence(export_value, valid):
+def test_security_group_import_vpc_evidence(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_import_proof)
+
+
+def _execute_sg_import_proof(case):
     comparison = fixture()
     resource(comparison, "vpc", "001", "EC2.VPC", "Vpc", [], stack="consumer")
     resource(comparison, "iam", "001", "IAM.Role", "Role", [], stack="consumer")
     comparison.stack_inputs["consumer"][0]["Outputs"]["Shared"] = {
-        "Value": export_value,
+        "Value": case["data"]["export"],
         "Export": {"Name": "shared"},
     }
     resource(
@@ -8736,23 +8375,19 @@ def test_security_group_import_vpc_evidence(export_value, valid):
         [],
         properties={"VpcId": {"Fn::ImportValue": "shared"}},
     )
-    if valid:
-        assert (
-            comparison.evaluate("producer", {"Ref": "Group"})["$attribute"] == "GroupId"
-        )
-    else:
-        with pytest.raises(Blocked):
-            comparison.evaluate("producer", {"Ref": "Group"})
+    return _sg_reference_result(comparison)
 
 
 @pytest.mark.parametrize(
-    "service,producer,attribute,kind,path",
-    [receiver for receiver in RECEIVERS if receiver[1] == "EC2.SecurityGroup"],
+    "case_id", case_ids("reference_evidence", prefix="sg-invalid-evidence-")
 )
-@pytest.mark.parametrize("case", ["invalid-ref", "invalid-sub", "invalid-import"])
-def test_security_group_invalid_evidence_receiver_rows(
-    service, producer, attribute, kind, path, case
-):
+def test_security_group_invalid_evidence_receiver_rows(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_invalid_evidence)
+
+
+def _execute_sg_invalid_evidence(case):
+    data = case["data"]
+    service, producer, attribute, kind, path = data["receiver"]
     comparison = fixture()
     document, parameters, _ = comparison.stack_inputs["producer"]
     document["Parameters"] = {"VpcId": {"Type": "String"}, "Suffix": {"Type": "String"}}
@@ -8762,11 +8397,6 @@ def test_security_group_invalid_evidence_receiver_rows(
         "Value": {"Ref": "Role"},
         "Export": {"Name": "shared"},
     }
-    expression = {
-        "invalid-ref": {"Ref": "VpcId"},
-        "invalid-sub": {"Fn::Sub": "vpc-${Suffix}"},
-        "invalid-import": {"Fn::ImportValue": "shared"},
-    }[case]
     resource(
         comparison,
         service,
@@ -8774,7 +8404,7 @@ def test_security_group_invalid_evidence_receiver_rows(
         producer,
         "Producer",
         [],
-        properties={"VpcId": expression},
+        properties={"VpcId": data["expression"]},
     )
     records = setting(
         comparison,
@@ -8783,24 +8413,23 @@ def test_security_group_invalid_evidence_receiver_rows(
         model_ref("EC2_SecurityGroup_001", "GroupId"),
         {"Ref": "Producer"},
     )
-    assert [record["category"] for record in records] == ["uncompared"], records
+    TestCase().assertEqual([record["category"] for record in records], ["uncompared"])
+    return {"records": projected(records)}
 
 
-@pytest.mark.parametrize("mapping", [False, True])
 @pytest.mark.parametrize(
-    "suffix,valid",
-    [("PENDING_DEPLOY", True), ("123abc", True), ("ZZZZ", False), ("UNSET", False)],
+    "case_id", case_ids("reference_evidence", prefix="sg-sub-form-")
 )
-def test_sg_sub_equivalent_forms(mapping, suffix, valid):
+def test_sg_sub_equivalent_forms(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_sub_form)
+
+
+def _execute_sg_sub_form(case):
+    data = case["data"]
     comparison = fixture()
     document, parameters, _ = comparison.stack_inputs["producer"]
     document["Parameters"] = {"Suffix": {"Type": "String"}}
-    parameters["Suffix"] = suffix
-    expression = {
-        "Fn::Sub": ["vpc-${Id}", {"Id": {"Ref": "Suffix"}}]
-        if mapping
-        else "vpc-${Suffix}"
-    }
+    parameters["Suffix"] = data["suffix"]
     resource(
         comparison,
         "security-group",
@@ -8808,28 +8437,19 @@ def test_sg_sub_equivalent_forms(mapping, suffix, valid):
         "EC2.SecurityGroup",
         "Group",
         [],
-        properties={"VpcId": expression},
+        properties={"VpcId": data["expression"]},
     )
-    if valid:
-        assert (
-            comparison.evaluate("producer", {"Ref": "Group"})["$attribute"] == "GroupId"
-        )
-    else:
-        with pytest.raises(Blocked):
-            comparison.evaluate("producer", {"Ref": "Group"})
+    return _sg_reference_result(comparison)
 
 
 @pytest.mark.parametrize(
-    "expression",
-    [
-        {"Fn::Sub": ["vpc-${Id}", {"Id": {"Ref": "Missing"}}]},
-        {"Fn::Sub": ["vpc-${Id}", {"Id": {"Ref": "Role"}}]},
-        {"Fn::Sub": ["vpc-${Missing}", {}]},
-        {"Fn::Sub": ["vpc-123abc", {"Unused": {"Ref": "Missing"}}]},
-        {"Fn::Sub": ["vpc-${Id}", "invalid"]},
-    ],
+    "case_id", case_ids("reference_evidence", prefix="sg-sub-map-")
 )
-def test_sg_sub_invalid_map(expression):
+def test_sg_sub_invalid_map(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_sub_map)
+
+
+def _execute_sg_sub_map(case):
     comparison = fixture()
     resource(comparison, "iam", "001", "IAM.Role", "Role", [])
     resource(
@@ -8839,35 +8459,35 @@ def test_sg_sub_invalid_map(expression):
         "EC2.SecurityGroup",
         "Group",
         [],
-        properties={"VpcId": expression},
+        properties={"VpcId": case["data"]["expression"]},
     )
-    with pytest.raises((Blocked, ValueError)):
+    with pytest.raises((Blocked, ValueError)) as failure:
         comparison.evaluate("producer", {"Ref": "Group"})
+    return {
+        "error": {"type": type(failure.value).__name__, "message": str(failure.value)}
+    }
 
 
-@pytest.mark.parametrize("dynamic", [False, True])
 @pytest.mark.parametrize(
-    "export,valid",
-    [
-        (None, True),
-        ({"Ref": "Vpc"}, True),
-        ({"Ref": "Role"}, False),
-        ("invalid", False),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="sg-import-form-")
 )
-def test_sg_import_equivalent_forms(dynamic, export, valid):
+def test_sg_import_equivalent_forms(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_import_form)
+
+
+def _execute_sg_import_form(case):
+    data = case["data"]
     comparison = fixture()
     document, parameters, _ = comparison.stack_inputs["producer"]
     document["Parameters"] = {"Stage": {"Type": "String"}}
     parameters["Stage"] = "VpcId"
     resource(comparison, "vpc", "001", "EC2.VPC", "Vpc", [], stack="consumer")
     resource(comparison, "iam", "001", "IAM.Role", "Role", [], stack="consumer")
-    if export is not None:
+    if data["export"] is not None:
         comparison.stack_inputs["consumer"][0]["Outputs"]["Shared"] = {
-            "Value": export,
+            "Value": data["export"],
             "Export": {"Name": "ExternalVpcId"},
         }
-    name = {"Fn::Sub": "External${Stage}"} if dynamic else "ExternalVpcId"
     resource(
         comparison,
         "security-group",
@@ -8875,30 +8495,27 @@ def test_sg_import_equivalent_forms(dynamic, export, valid):
         "EC2.SecurityGroup",
         "Group",
         [],
-        properties={"VpcId": {"Fn::ImportValue": name}},
+        properties={"VpcId": {"Fn::ImportValue": data["name"]}},
     )
-    if valid:
-        assert (
-            comparison.evaluate("producer", {"Ref": "Group"})["$attribute"] == "GroupId"
-        )
-    else:
-        with pytest.raises(Blocked):
-            comparison.evaluate("producer", {"Ref": "Group"})
+    return _sg_reference_result(comparison)
 
 
-@pytest.mark.parametrize("fault", ["pending", "same", "duplicate", "incomplete"])
-def test_sg_import_ambiguous_is_blocked(fault):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="sg-import-ambiguous-")
+)
+def test_sg_import_ambiguous_is_blocked(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sg_import_ambiguous)
+
+
+def _execute_sg_import_ambiguous(case):
+    data = case["data"]
     comparison = fixture()
     document, parameters, _ = comparison.stack_inputs["producer"]
     document["Parameters"] = {"Stage": {"Type": "String"}}
-    parameters["Stage"] = "PENDING_DEPLOY" if fault == "pending" else "VpcId"
-    output = {"Value": "vpc-123abc", "Export": {"Name": "ExternalVpcId"}}
-    if fault in {"same", "duplicate"}:
-        document["Outputs"]["Shared"] = output
-    if fault == "duplicate":
-        comparison.stack_inputs["consumer"][0]["Outputs"]["Shared"] = output
-    if fault == "incomplete":
-        comparison.stack_inputs["consumer"][0]["Transform"] = "unknown"
+    parameters["Stage"] = data["stage"]
+    document["Outputs"].update(data["producer_outputs"])
+    comparison.stack_inputs["consumer"][0]["Outputs"].update(data["consumer_outputs"])
+    comparison.stack_inputs["consumer"][0].update(data["consumer_fields"])
     resource(
         comparison,
         "security-group",
@@ -8908,8 +8525,11 @@ def test_sg_import_ambiguous_is_blocked(fault):
         [],
         properties={"VpcId": {"Fn::ImportValue": {"Fn::Sub": "External${Stage}"}}},
     )
-    with pytest.raises(Blocked):
+    with pytest.raises(Blocked) as failure:
         comparison.evaluate("producer", {"Ref": "Group"})
+    return {
+        "error": {"type": type(failure.value).__name__, "message": str(failure.value)}
+    }
 
 
 def test_sg_sub_pending_does_not_hide_invalid_known_value():

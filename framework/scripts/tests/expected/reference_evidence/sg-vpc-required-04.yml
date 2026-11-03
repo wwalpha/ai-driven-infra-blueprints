@@ -1,0 +1,4 @@
+attribute: GroupId
+error:
+  message: 'cyclic resource reference: producer/Group'
+  type: Blocked
