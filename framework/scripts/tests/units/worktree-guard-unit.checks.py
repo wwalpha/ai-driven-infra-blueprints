@@ -2671,6 +2671,7 @@ def check_pr_update_commit_boundary(tmp_path, published, descendant, changed):
         (["pr-close", "--pr", "7"], True),
         (["pr-close"], False),
         (["pr-update", "--task-id", "example", "--create-pr"], False),
+        (["pr-status", "--task-id", "example", "--merge-method", "squash"], False),
     ],
 )
 def check_pr_lifecycle_cli(tmp_path, capsys, arguments, valid):
@@ -2905,8 +2906,11 @@ def _pr_merge_response(publication, merged, *_args):
     raise wt.Blocked("uncertain merge response")
 
 
-@pytest.mark.parametrize("method", ["merge", "squash", "rebase"])
-def check_pr_merge_methods(tmp_path, method):
+@pytest.mark.parametrize(
+    "selected,method",
+    [(None, "squash"), ("merge", "merge"), ("squash", "squash"), ("rebase", "rebase")],
+)
+def check_pr_merge_methods(tmp_path, selected, method):
     publication = dict(_pr_publication(), number=7)
     state = dict(integrationMode="pr", merged=None, prPublication=publication)
     opened = dict(state="OPEN", number=7, isDraft=False)
@@ -2922,11 +2926,16 @@ def check_pr_merge_methods(tmp_path, method):
         patch.object(pr, "existing_pr", side_effect=[opened, merged]),
         patch.object(wt, "save"),
         patch.object(pr, "gh") as gh,
-        patch.object(wt, "cleanup_state", return_value="cleaned") as cleanup,
+        patch.object(wt, "cleanup_state", return_value={"cleaned": True}) as cleanup,
+        patch.object(wt, "module", return_value=pr),
+        patch.object(
+            sys,
+            "argv",
+            ["worktree_task.py", "pr-merge", "--task-id", "example"]
+            + (["--merge-method", selected] if selected else []),
+        ),
     ):
-        TestCase().assertEqual(
-            pr.operate(tmp_path, "example", "pr-merge", method=method), "cleaned"
-        )
+        TestCase().assertEqual(wt.main(), 0)
         gh.assert_called_once_with(
             tmp_path,
             publication["host"],

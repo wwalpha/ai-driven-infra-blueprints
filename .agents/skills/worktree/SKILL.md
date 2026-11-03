@@ -265,7 +265,7 @@ reset; local base checkout/merge is not changed. Retry `pr-update` without editi
 management JSON or discarding the intent. Update never recreates the PR or cleans up
 the Worktree.
 
-Draft/Ready transitions are explicit. `pr-merge` supports `merge` (default), `squash` and
+Draft/Ready transitions are explicit. `pr-merge` supports `squash` (default), `merge` and
 `rebase`, matching the published HEAD before requesting GitHub merge. `pr-status` explicitly
 reconciles external or uncertain merges. Both clean up automatically only after GitHub
 confirms MERGED with the same repository, number/URL, base/head and published HEAD, and a

@@ -1267,7 +1267,7 @@ def check_pr_remote_base_only_sync():
         scenario = PRUpdateScenario(root, state, remote, "remote")
         with (
             patch.object(wt, "git", side_effect=remote.git),
-            patch.object(pr, "gh", side_effect=remote.gh),
+            patch.object(pr, "gh", side_effect=remote.gh) as github,
             patch.object(
                 wt.python_env,
                 "runtime",
@@ -1325,6 +1325,36 @@ def check_pr_remote_base_only_sync():
             updated = pr.update(root, "example")
             assert updated["prPublication"]["candidate"] == synced["candidate"]
             assert remote.created == 1
+            with (
+                patch.object(wt, "module", return_value=pr),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "worktree_task.py",
+                        "pr-merge",
+                        "--task-id",
+                        "example",
+                        "--repository-root",
+                        str(root),
+                    ],
+                ),
+            ):
+                TestCase().assertEqual(wt.main(), 0)
+            merge_calls = [
+                call
+                for call in github.call_args_list
+                if call.args[2:4] == ("pr", "merge")
+            ]
+            TestCase().assertEqual(len(merge_calls), 1)
+            TestCase().assertIn("--squash", merge_calls[0].args)
+            TestCase().assertEqual(
+                merge_calls[0].args[
+                    merge_calls[0].args.index("--match-head-commit") + 1
+                ],
+                synced["candidate"],
+            )
+            TestCase().assertFalse(target.exists())
 
 
 @it_case

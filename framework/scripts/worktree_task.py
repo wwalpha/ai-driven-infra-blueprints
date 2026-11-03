@@ -2323,7 +2323,7 @@ def main():
                     where,
                     args.task_id,
                     args.command,
-                    method=args.merge_method or "merge",
+                    method=args.merge_method or "squash",
                 )
         elif args.command == "deploy-start":
             state = module("deploy/worktree.py", "deploy.worktree").start(
