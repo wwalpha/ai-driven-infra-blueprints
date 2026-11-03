@@ -493,6 +493,22 @@ The accepted failures remain FAIL; recovery grants no Validation PASS or complet
 After the reviewed resolution, use the recorded approval for normal finalize/cleanup.
 Any further change beyond the reviewed resolution requires renewed Human review and approval.
 
+## Reviewed rewritten base recovery
+
+For an explicitly authorized fresh, uncommitted running governance Task whose base
+history was rewritten, first review the full old tip and current base diff and the
+Task candidate. From the checkout containing the reviewed helper run
+`worktree_task.py rewrite-base --task-id <id> --expected-commit <full-old-tip>
+--expected-base <full-current-base>`. It only accepts declared, unstaged changes to
+existing regular tracked files with no overlap with the base diff. It preserves their
+bytes in external backups, records an intent before moving the branch, restores the
+candidate, and records the new validation base. It refuses PR and Deploy Tasks,
+commits, unregistered changes, overlap and changed inputs. An interrupted intent may
+be retried with the same hashes only while the base, contract, index, candidate and
+backup still match; otherwise retain everything for review. It never grants validation
+PASS or completes the Task. Run all required checks again against the recovered base,
+then use ordinary finalize. Never hand-edit lifecycle metadata or discard a backup.
+
 ## Task Acceptance exclusions
 
 Investigate every FAIL against Goal, Required changes, Allowed paths, concrete Model

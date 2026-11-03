@@ -184,6 +184,8 @@ WORKTREE_CASES = {
         "check_pr_update_and_operations",
         "check_implement_rebases_on_latest_base",
         "check_sync_base_preserves_candidate",
+        "check_rewritten_base_preserves_candidate",
+        "check_rewritten_base_rejects_overlap",
         "check_old_workflow_registry_is_ignored",
         "check_success_and_empty",
         "check_finalize_line_endings",

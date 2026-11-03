@@ -344,6 +344,16 @@ The LLM explicitly resumes the named parent and starts an independent Deploy wit
 
 When explicitly asked to merge the latest local base before tests in a fresh governance Task, read that exact base diff and reconcile overlapping uncommitted candidates first. With an unstaged index and no Task commits, use `worktree_task.py sync-base --task-id <task-id> --expected-base <full-reviewed-base-hash>`. It preserves exact reviewed candidates/deletions in external backups, fast-forwards only the proven named base, restores candidates, and records the inherited validation base without completing/committing the Task. Existing start history is retained. Subsequent proven base advances use the same procedure; unexpected commits, scope changes or unknown dirty bytes stop. An interrupted sync retains its intent/backups for the same helper retry, never manual lifecycle reconstruction. Reconcile upstream changes in overlapping candidates before invocation; preservation alone does not prove a semantic merge.
 
+## Reviewed rewritten base recovery
+
+For an explicitly authorized fresh governance Task whose base history was rewritten,
+follow [Reviewed rewritten base recovery](../../../framework/rules/task-contract.md#reviewed-rewritten-base-recovery).
+Run `worktree_task.py rewrite-base --task-id <id> --expected-commit <full-old-tip>
+--expected-base <full-reviewed-base>` using the updated helper from a surviving root.
+Retain the candidate and external backup on any failure; do not reconstruct state,
+discard changes or bypass safety checks. After recovery rerun the required checks on
+the new base and use normal finalize and cleanup.
+
 ## Human-reviewed governance conflict recovery
 
 For an explicitly authorized retained governance repair, use

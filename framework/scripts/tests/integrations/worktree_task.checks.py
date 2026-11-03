@@ -111,6 +111,75 @@ def check_sync_base_preserves_candidate():
 
 
 @it_case
+def check_rewritten_base_preserves_candidate():
+    for interrupt in (False, True):
+        with fixture() as root:
+            initial = git(root, "rev-parse", "HEAD")
+            (root / "old.txt").write_text("old\n")
+            git(root, "add", "old.txt")
+            git(root, "commit", "-qm", "old history")
+            target, state = start(root)
+            (target / "file.txt").write_text("candidate\n")
+            git(root, "reset", "--hard", initial)
+            (root / "new.txt").write_text("new\n")
+            git(root, "add", "new.txt")
+            git(root, "commit", "-qm", "rewritten history")
+            base = git(root, "rev-parse", "HEAD")
+            if interrupt:
+                original_git = wt.git
+
+                def interrupted(where, *args, original_git=original_git, **kwargs):
+                    result = original_git(where, *args, **kwargs)
+                    if "rebase" in args:
+                        raise RuntimeError("simulated interruption")
+                    return result
+
+                with patch.object(wt, "git", side_effect=interrupted):
+                    try:
+                        wt.rewrite_base(root, "example", state["start"], base)
+                    except RuntimeError as error:
+                        assert str(error) == "simulated interruption"
+                    else:
+                        raise AssertionError("interruption did not occur")
+                assert git(target, "rev-parse", "HEAD") == base
+                assert wt.load(root, "example")[3].get("rewrittenBaseIntent")
+            saved = wt.rewrite_base(root, "example", state["start"], base)
+            assert saved["validation_base"] == saved["tip"] == base
+            assert (target / "file.txt").read_text() == "candidate\n"
+            assert (target / "new.txt").read_text() == "new\n"
+            assert not (target / "old.txt").exists()
+            assert "rewrittenBaseIntent" not in saved
+            finish_contract(target, state)
+            assert cli(root, "finalize")["cleaned"]
+            assert (root / "file.txt").read_text() == "candidate\n"
+
+
+@it_case
+def check_rewritten_base_rejects_overlap():
+    with fixture() as root:
+        initial = git(root, "rev-parse", "HEAD")
+        (root / "old.txt").write_text("old\n")
+        git(root, "add", "old.txt")
+        git(root, "commit", "-qm", "old")
+        target, state = start(root)
+        (target / "file.txt").write_text("candidate\n")
+        git(root, "reset", "--hard", initial)
+        (root / "file.txt").write_text("upstream\n")
+        git(root, "add", "file.txt")
+        git(root, "commit", "-qm", "rewritten")
+        try:
+            wt.rewrite_base(
+                root, "example", state["start"], git(root, "rev-parse", "HEAD")
+            )
+        except wt.Blocked as error:
+            assert "overlap" in str(error)
+        else:
+            raise AssertionError("overlap was accepted")
+        assert (target / "file.txt").read_text() == "candidate\n"
+        assert git(target, "rev-parse", "HEAD") == state["start"]
+
+
+@it_case
 def check_old_workflow_registry_is_ignored():
     with fixture() as primary:
         directory = wt.metadata_directory(primary) / "deploy-workflows"
@@ -1088,6 +1157,8 @@ def main():
     for check in (
         check_implement_rebases_on_latest_base,
         check_sync_base_preserves_candidate,
+        check_rewritten_base_preserves_candidate,
+        check_rewritten_base_rejects_overlap,
         check_old_workflow_registry_is_ignored,
         check_success_and_empty,
         check_finalize_line_endings,
