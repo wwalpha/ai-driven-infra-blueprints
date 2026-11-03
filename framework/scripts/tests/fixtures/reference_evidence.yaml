@@ -1,0 +1,146 @@
+version: 1
+cases:
+  terminal-leaf:
+    data:
+      stored:
+      - a/
+      - b/
+      shape: leaf
+      actual:
+      - a/
+      - b/
+      prepare: true
+  terminal-projection:
+    data:
+      stored:
+      - '["a/","b/"]'
+      shape: projection
+      actual:
+      - a/
+      - b/
+      prepare: true
+  terminal-reordered:
+    data:
+      stored:
+      - '["a/","b/"]'
+      shape: projection
+      actual:
+      - b/
+      - a/
+      prepare: false
+  terminal-invalid:
+    data:
+      stored:
+      - '[1]'
+      shape: projection
+      actual:
+      - 1
+      prepare: false
+  sibling-0-all:
+    data:
+      conflicting: false
+      selected: null
+  sibling-0-parent:
+    data:
+      conflicting: false
+      selected:
+      - VpcConfig
+  sibling-0-leaf:
+    data:
+      conflicting: false
+      selected:
+      - VpcConfig.VpcId
+  sibling-1-all:
+    data:
+      conflicting: true
+      selected: null
+  sibling-1-parent:
+    data:
+      conflicting: true
+      selected:
+      - VpcConfig
+  sibling-1-leaf:
+    data:
+      conflicting: true
+      selected:
+      - VpcConfig.VpcId
+  indexed-match:
+    data:
+      actual:
+      - ActionA
+  indexed-difference:
+    data:
+      actual:
+      - ActionB
+  parent-quicksight:
+    data:
+      service: quicksight
+      kind: QuickSight.DataSource
+      field: Permissions[].Actions
+      encoded: '[["ActionA"],["ActionB"]]'
+      actual:
+        Permissions:
+        - Actions:
+          - ActionA
+        - Actions:
+          - ActionB
+  parent-cloudtrail:
+    data:
+      service: cloudtrail
+      kind: CloudTrail.Trail
+      field: EventSelectors[].DataResources[].Values
+      encoded: '[[["arn:aws:s3"]]]'
+      actual:
+        EventSelectors:
+        - DataResources:
+          - Values:
+            - arn:aws:s3
+  json-pointers:
+    data:
+      other: vpc-0fedcba9876543210
+      body:
+        a/b~c:
+        - vpc-0123456789abcdef0
+        - vpc-0fedcba9876543210
+        unrelated: vpc-0123456789abcdef0
+  observation-missing:
+    data:
+      observed: null
+  observation-pending:
+    data:
+      observed: PENDING_DEPLOY
+  observation-conflicting:
+    data:
+      observed: vpc-0fedcba9876543210
+  negative-resource:
+    data:
+      change: resource
+  negative-attribute:
+    data:
+      change: attribute
+  negative-type:
+    data:
+      change: type
+  negative-cross-target:
+    data:
+      change: cross-target
+  negative-logical-id:
+    data:
+      change: logical-id
+  negative-duplicate:
+    data:
+      change: duplicate
+  negative-partial:
+    data:
+      change: partial
+  negative-occurrence:
+    data:
+      change: occurrence
+  unresolved-sub:
+    data:
+      expression:
+        Fn::Sub: ${Missing}
+  unresolved-future:
+    data:
+      expression:
+        Fn::Future: value

@@ -35,6 +35,8 @@ from issues.publication import save_scan
 from issues.review import review_snapshot
 from model.references import declarations
 from model.sources import ModelSnapshot, Scope
+from support.comparison_cases import outcome_data, projected
+from support.fixture_cases import load_case
 from support.issues_scan_fixtures import (
     review_for,
     snapshot_artifact,
@@ -42,6 +44,7 @@ from support.issues_scan_fixtures import (
     task,
 )
 from support.model_reference_fixtures import reference as model_ref
+from support.regression_cases import case_ids, expected_path
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
 from utils.iac_values import (
@@ -298,16 +301,30 @@ def prepared(comparison, row):
     )
 
 
-@pytest.mark.parametrize(
-    "stored,shape,actual,category",
-    [
-        (["a/", "b/"], "leaf", ["a/", "b/"], "matched"),
-        (['["a/","b/"]'], "projection", ["a/", "b/"], "matched"),
-        (['["a/","b/"]'], "projection", ["b/", "a/"], "difference"),
-        (["[1]"], "projection", [1], "error"),
-    ],
-)
-def test_terminal_string_array_comparison(stored, shape, actual, category):
+def _reference_decision_data(decision):
+    TestCase().assertIs(type(decision), ReferenceDecision)
+    if decision.equal is not None:
+        TestCase().assertIs(type(decision.equal), bool)
+    TestCase().assertIs(type(decision.diagnostics), tuple)
+    return {
+        "equal": decision.equal,
+        "equivalent": decision.equivalent,
+        "diagnostics": projected(decision.diagnostics),
+        "comparisons": projected(decision.comparisons),
+    }
+
+
+@pytest.mark.parametrize("case_id", case_ids("reference_evidence", prefix="terminal-"))
+def test_terminal_string_array_comparison(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_terminal)
+
+
+def _execute_terminal(case):
+    stored, shape, actual = (
+        case["data"]["stored"],
+        case["data"]["shape"],
+        case["data"]["actual"],
+    )
     comparison = fixture()
     kind = "GuardDuty.MalwareProtectionPlan"
     field = "ProtectedResource.S3Bucket.ObjectPrefixes[]"
@@ -325,7 +342,7 @@ def test_terminal_string_array_comparison(stored, shape, actual, category):
         comparison.models["guardduty"].authoritative[
             f"desired.row.{rid}.valueShape"
         ] = shape
-    if category == "matched":
+    if case["data"]["prepare"]:
         desired = {}
         for rid, row in rows:
             value = comparison.prepare_value("guardduty", row, kind, row_id=rid)
@@ -345,9 +362,11 @@ def test_terminal_string_array_comparison(stored, shape, actual, category):
         document,
     )
     assert batch.failure is None, batch.failure
-    assert any(item["category"] == category for item in batch.records), batch.records
-    if category == "error":
-        assert not any(item["category"] == "matched" for item in batch.records)
+    return {
+        "records": projected(batch.records),
+        "display": projected(batch.display_differences),
+        "warnings": projected(batch.warnings),
+    }
 
 
 @pytest.mark.parametrize("text", ['["a/","b/"]', "[]", '["a/",]'])
@@ -382,9 +401,13 @@ def test_terminal_string_array_is_not_service_specific():
     assert value.require_value() == ["subnet-first", "subnet-second"]
 
 
-@pytest.mark.parametrize("conflicting", [False, True])
-@pytest.mark.parametrize("selected", [None, ["VpcConfig"], ["VpcConfig.VpcId"]])
-def test_projection_sibling_comparison(conflicting, selected):
+@pytest.mark.parametrize("case_id", case_ids("reference_evidence", prefix="sibling-"))
+def test_projection_sibling_comparison(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_sibling)
+
+
+def _execute_sibling(case):
+    conflicting, selected = case["data"]["conflicting"], case["data"]["selected"]
     comparison = fixture()
     kind = "CodeBuild.Project"
     values = [
@@ -436,12 +459,22 @@ def test_projection_sibling_comparison(conflicting, selected):
         assert batch.records and all(
             item["category"] == "matched" for item in batch.records
         ), batch.records
+    return {
+        "records": projected(batch.records),
+        "display": projected(batch.display_differences),
+        "warnings": projected(batch.warnings),
+        "valid": projected(valid),
+        "unresolved": projected(unresolved),
+    }
 
 
-@pytest.mark.parametrize(
-    "actual,category", [(["ActionA"], "matched"), (["ActionB"], "difference")]
-)
-def test_indexed_projection_iac_comparison(actual, category):
+@pytest.mark.parametrize("case_id", case_ids("reference_evidence", prefix="indexed-"))
+def test_indexed_projection_iac_comparison(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_indexed)
+
+
+def _execute_indexed(case):
+    actual = case["data"]["actual"]
     comparison = fixture()
     kind = "QuickSight.DataSource"
     rows = resource(
@@ -474,32 +507,29 @@ def test_indexed_projection_iac_comparison(actual, category):
         document,
     )
     assert batch.failure is None, batch.failure
-    assert any(item["category"] == category for item in batch.records), batch.records
     assert not any(
         item["category"] in {"error", "uncompared"} for item in batch.records
     ), batch.records
+    return {
+        "records": projected(batch.records),
+        "display": projected(batch.display_differences),
+        "warnings": projected(batch.warnings),
+    }
 
 
-@pytest.mark.parametrize(
-    "service,kind,field,encoded,actual",
-    [
-        (
-            "quicksight",
-            "QuickSight.DataSource",
-            "Permissions[].Actions",
-            '[["ActionA"],["ActionB"]]',
-            {"Permissions": [{"Actions": ["ActionA"]}, {"Actions": ["ActionB"]}]},
-        ),
-        (
-            "cloudtrail",
-            "CloudTrail.Trail",
-            "EventSelectors[].DataResources[].Values",
-            '[[["arn:aws:s3"]]]',
-            {"EventSelectors": [{"DataResources": [{"Values": ["arn:aws:s3"]}]}]},
-        ),
-    ],
-)
-def test_parent_projection_comparison(service, kind, field, encoded, actual):
+@pytest.mark.parametrize("case_id", case_ids("reference_evidence", prefix="parent-"))
+def test_parent_projection_comparison(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_parent)
+
+
+def _execute_parent(case):
+    service, kind, field, encoded, actual = (
+        case["data"]["service"],
+        case["data"]["kind"],
+        case["data"]["field"],
+        case["data"]["encoded"],
+        case["data"]["actual"],
+    )
     comparison = fixture()
     rows = resource(
         comparison,
@@ -529,6 +559,48 @@ def test_parent_projection_comparison(service, kind, field, encoded, actual):
     assert batch.records and all(
         item["category"] == "matched" for item in batch.records
     ), batch.records
+    return {
+        "records": projected(batch.records),
+        "display": projected(batch.display_differences),
+        "warnings": projected(batch.warnings),
+    }
+
+
+@pytest.mark.parametrize(
+    "case_id,fault",
+    [
+        ("terminal-invalid", "promote"),
+        ("terminal-reordered", "order"),
+        ("observation-missing", "diagnostic"),
+        ("json-pointers", "sibling"),
+        ("json-pointers", "position"),
+        ("negative-type", "unblocked"),
+    ],
+)
+def test_reference_case_faults(data_regression, tmp_path, case_id, fault):
+    execute = {
+        "terminal": _execute_terminal,
+        "observation": _execute_observation,
+        "json": _execute_json_pointers,
+        "negative": _execute_negative,
+    }[case_id.split("-")[0]]
+    result = execute(load_case("reference_evidence", case_id))
+    if fault == "promote":
+        result["records"][0]["category"] = "matched"
+    elif fault == "order":
+        result["records"][0]["desired"]["S3Bucket"]["ObjectPrefixes"].reverse()
+    elif fault == "diagnostic":
+        result["declared"]["diagnostics"] = []
+    elif fault == "sibling":
+        del result["desired"]["unrelated"]
+    elif fault == "position":
+        result["desired"]["a/b~c"].reverse()
+    else:
+        result = {"decision": {"equal": True}}
+    target = tmp_path / "expected.yml"
+    target.write_bytes(expected_path("reference_evidence", case_id).read_bytes())
+    with pytest.raises(AssertionError, match="FILES DIFFER"):
+        data_regression.check(result, fullpath=target)
 
 
 @pytest.fixture(autouse=True)
@@ -691,10 +763,17 @@ def test_declared_name_checks_producer_model_and_return_attribute_mapping():
     )
 
 
-def test_json_pointer_multiple_references_preserves_siblings_and_order():
+@pytest.mark.parametrize("case_id", case_ids("reference_evidence", prefix="json-"))
+def test_json_pointer_multiple_references_preserves_siblings_and_order(
+    case_runner, case_id
+):
+    case_runner.run("reference_evidence", case_id, _execute_json_pointers)
+
+
+def _execute_json_pointers(case):
     comparison = fixture()
     vpc(comparison)
-    other = "vpc-0fedcba9876543210"
+    other = case["data"]["other"]
     vpc(comparison, "002", "OtherVpc", other)
     row = resource(
         comparison,
@@ -705,7 +784,7 @@ def test_json_pointer_multiple_references_preserves_siblings_and_order():
         [("AssumeRolePolicyDocument", "unused", None)],
         stack="consumer",
     )[0]
-    body = {"a/b~c": [VPC, other], "unrelated": VPC}
+    body = copy.deepcopy(case["data"]["body"])
     row[1]["document"] = json.dumps(body)
     comparison.models["consumer"].authoritative["desired.row.010-001.document"] = row[
         1
@@ -730,29 +809,33 @@ def test_json_pointer_multiple_references_preserves_siblings_and_order():
         "unrelated": VPC,
     }
     callback = partial(policy_reference, comparison)
-    assert (
-        compare_values(
-            desired,
-            actual,
-            "AssumeRolePolicyDocument",
-            whole=True,
-            rules=rules("IAM.Role"),
-            reference=callback,
-        ).equal
-        is True
+    before = copy.deepcopy(comparison.models["consumer"].authoritative)
+    for value in desired["a/b~c"]:
+        TestCase().assertIs(type(value), ResourceReference)
+    first = compare_values(
+        desired,
+        actual,
+        "AssumeRolePolicyDocument",
+        whole=True,
+        rules=rules("IAM.Role"),
+        reference=callback,
     )
     actual["a/b~c"].reverse()
-    assert (
-        compare_values(
-            desired,
-            actual,
-            "AssumeRolePolicyDocument",
-            whole=True,
-            rules=rules("IAM.Role"),
-            reference=callback,
-        ).equal
-        is False
+    reversed_result = compare_values(
+        desired,
+        actual,
+        "AssumeRolePolicyDocument",
+        whole=True,
+        rules=rules("IAM.Role"),
+        reference=callback,
     )
+    TestCase().assertEqual(comparison.models["consumer"].authoritative, before)
+    TestCase().assertEqual(body, case["data"]["body"])
+    return {
+        "desired": projected(desired),
+        "matched": outcome_data(first),
+        "reversed": outcome_data(reversed_result),
+    }
 
 
 @pytest.mark.parametrize(
@@ -788,40 +871,33 @@ def test_composite_arn_requires_all_literal_affixes(expression):
 
 
 @pytest.mark.parametrize(
-    "observed,reason",
-    [
-        (None, "identifier_unobserved"),
-        ("PENDING_DEPLOY", "identifier_unobserved"),
-        ("vpc-0fedcba9876543210", "recorded_identifier_mismatch"),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="observation-")
 )
-def test_missing_pending_and_conflicting_observations(observed, reason):
+def test_missing_pending_and_conflicting_observations(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_observation)
+
+
+def _execute_observation(case):
+    observed = case["data"]["observed"]
     comparison = fixture()
     vpc(comparison, observed=observed)
     actual = exported(comparison, {"Ref": "Vpc"})
     decision = comparison.reference_decision(VPC, actual, "EC2.Subnet", "VpcId")
-    assert decision.equal is None and reason in decision.diagnostics[0]["reason"]
+    first = _reference_decision_data(decision)
     row = consumer(comparison)
     declaration(comparison, "desired.row.010-001.value", VPC)
     desired = prepared(comparison, row).require_value()
     decision = comparison.reference_decision(desired, actual, "EC2.Subnet", "VpcId")
-    assert decision.equal is None and reason in decision.diagnostics[0]["reason"]
+    return {"literal": first, "declared": _reference_decision_data(decision)}
 
 
-@pytest.mark.parametrize(
-    "change",
-    [
-        "resource",
-        "attribute",
-        "type",
-        "cross-target",
-        "logical-id",
-        "duplicate",
-        "partial",
-        "occurrence",
-    ],
-)
-def test_declared_reference_negative_cases(change):
+@pytest.mark.parametrize("case_id", case_ids("reference_evidence", prefix="negative-"))
+def test_declared_reference_negative_cases(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_negative)
+
+
+def _execute_negative(case):
+    change = case["data"]["change"]
     comparison = fixture()
     vpc(comparison)
     row = consumer(comparison)
@@ -842,28 +918,20 @@ def test_declared_reference_negative_cases(change):
     selected = prepared(comparison, row)
     if change not in {"resource", "attribute", "partial"}:
         assert isinstance(selected.error, Blocked)
-        return
+        return {"error": {"type": "Blocked", "message": str(selected.error)}}
     desired = selected.require_value()
     if change == "partial":
         actual = exported(comparison, {"Ref": "Vpc"})
-        decision = comparison.reference_decision(desired, actual, "EC2.Subnet", "VpcId")
-        assert (
-            decision.equal is None
-            and "recorded_identifier_mismatch" in decision.diagnostics[0]["reason"]
-        )
     elif change == "resource":
         vpc(comparison, "002", "OtherVpc")
         actual = exported(comparison, {"Ref": "OtherVpc"})
-        assert (
-            comparison.reference_decision(desired, actual, "EC2.Subnet", "VpcId").equal
-            is False
-        )
     else:
         actual = ResourceReference({"$resource": ["vpc", "001"], "$attribute": "Arn"})
-        assert (
-            comparison.reference_decision(desired, actual, "EC2.Subnet", "VpcId").equal
-            is None
-        )
+    TestCase().assertIs(
+        type(desired), ResourceReference if change != "partial" else Expression
+    )
+    decision = comparison.reference_decision(desired, actual, "EC2.Subnet", "VpcId")
+    return {"decision": _reference_decision_data(decision)}
 
 
 def test_declared_security_group_uses_existing_ref_output_mapping():
@@ -980,18 +1048,26 @@ def test_export_resolution_failures_remain_blocked(fault):
 
 
 @pytest.mark.parametrize(
-    "expression", [{"Fn::Sub": "${Missing}"}, {"Fn::Future": "value"}]
+    "case_id", case_ids("reference_evidence", prefix="unresolved-")
 )
-def test_unresolved_intrinsics_never_match(expression):
+def test_unresolved_intrinsics_never_match(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_unresolved)
+
+
+def _execute_unresolved(case):
+    expression = case["data"]["expression"]
     comparison = fixture()
-    with pytest.raises(Blocked):
+    before = copy.deepcopy(expression)
+    with pytest.raises(Blocked) as caught:
         comparison.evaluate("consumer", expression)
-    assert (
-        comparison.reference_decision(
-            "value", Expression("Unverified", [expression]), "IAM.Role", ""
-        ).equal
-        is None
+    decision = comparison.reference_decision(
+        "value", Expression("Unverified", [expression]), "IAM.Role", ""
     )
+    TestCase().assertEqual(expression, before)
+    return {
+        "error": {"type": "Blocked", "message": str(caught.value)},
+        "decision": _reference_decision_data(decision),
+    }
 
 
 @pytest.mark.parametrize(

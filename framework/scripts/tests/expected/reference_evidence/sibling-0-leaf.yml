@@ -1,0 +1,23 @@
+display: {}
+records:
+- actual: null
+  category: matched
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.VpcConfig
+  reason: equal
+  resource: '001'
+  service: codebuild
+  stack: producer
+unresolved: {}
+valid:
+- - 001-001
+  - property: CodeBuild.Project.VpcConfig.VpcId
+    value: '`vpc-123`'
+- - 001-002
+  - property: CodeBuild.Project.VpcConfig.Subnets[]
+    value: '`["subnet-2","subnet-1"]`'
+    valueShape: projection
+warnings: []

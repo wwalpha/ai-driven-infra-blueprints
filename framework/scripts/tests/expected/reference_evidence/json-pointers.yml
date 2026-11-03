@@ -1,0 +1,147 @@
+desired:
+  a/b~c:
+  - $caseType: ResourceReference
+    value:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '001'
+  - $caseType: ResourceReference
+    value:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '002'
+  unrelated: vpc-0123456789abcdef0
+matched:
+  candidate_failures: []
+  candidate_warnings: []
+  correspondence: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: logical_reference
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '001'
+    identity: same
+    local_comparison: matched
+    model:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '001'
+    model_literal: vpc-0123456789abcdef0
+    path: IAM.Role.AssumeRolePolicyDocument.a/b~c[]
+    producers:
+    - attribute: VpcId
+      producer: vpc/001
+    reason: logical_reference
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: logical_reference
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '002'
+    identity: same
+    local_comparison: matched
+    model:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '002'
+    model_literal: vpc-0fedcba9876543210
+    path: IAM.Role.AssumeRolePolicyDocument.a/b~c[]
+    producers:
+    - attribute: VpcId
+      producer: vpc/002
+    reason: logical_reference
+  differences: []
+  equal: true
+  equivalent: true
+  reference_positions: []
+reversed:
+  candidate_failures: []
+  candidate_warnings: []
+  correspondence: []
+  diagnostics:
+  - allowed_forms: null
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '002'
+    identity: different
+    model:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '001'
+    path: IAM.Role.AssumeRolePolicyDocument.a/b~c[]
+    reason: different producer Resources
+  - allowed_forms: null
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '001'
+    identity: different
+    model:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '002'
+    path: IAM.Role.AssumeRolePolicyDocument.a/b~c[]
+    reason: different producer Resources
+  differences:
+  - iac: '002'
+    iac_pointer:
+    - a/b~c
+    - 0
+    - $resource
+    - 1
+    model: '001'
+    model_pointer:
+    - a/b~c
+    - 0
+    - $resource
+    - 1
+    path: a/b~c[0].$resource[1]
+  - iac: '001'
+    iac_pointer:
+    - a/b~c
+    - 1
+    - $resource
+    - 1
+    model: '002'
+    model_pointer:
+    - a/b~c
+    - 1
+    - $resource
+    - 1
+    path: a/b~c[1].$resource[1]
+  equal: false
+  equivalent: false
+  reference_positions: []

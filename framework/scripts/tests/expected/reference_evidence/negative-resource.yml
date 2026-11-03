@@ -1,0 +1,26 @@
+decision:
+  comparisons: []
+  diagnostics:
+  - allowed_forms:
+    - VpcId
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: allowed
+      model: allowed
+    iac:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '002'
+    identity: different
+    model:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '001'
+    path: EC2.Subnet.VpcId
+    reason: different producer Resources
+  equal: false
+  equivalent: false
