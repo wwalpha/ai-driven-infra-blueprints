@@ -1,0 +1,151 @@
+version: 1
+cases:
+  endpoint-available:
+    data:
+      context: &id001
+      - offline
+      - us-east-1
+      - '123456789012'
+      - synthetic
+      clients:
+        adapter:
+          service: ec2
+          region: us-east-1
+      steps:
+      - client: adapter
+        operation: describe_vpc_endpoints
+        params:
+          VpcEndpointIds:
+          - vpce-123
+        response:
+          VpcEndpoints:
+          - VpcEndpointId: vpce-123
+            VpcEndpointType: Interface
+            State: available
+            DnsEntries:
+            - HostedZoneId: Z
+              DnsName: producer.example
+      row:
+        status: logical_only
+        reason: ''
+        producer:
+          logicalId: EC2_VPCEndpoint_001
+          attribute: DnsEntries
+          endpointId: vpce-123
+        expression:
+          Fn::Select:
+          - 1
+          - Fn::Split:
+            - ':'
+            - Fn::Select:
+              - 0
+              - $modelRef:
+                  logicalId: EC2_VPCEndpoint_001
+                  attribute: DnsEntries
+  endpoint-missing:
+    data:
+      context: *id001
+      clients:
+        adapter:
+          service: ec2
+          region: us-east-1
+      steps:
+      - client: adapter
+        operation: describe_vpc_endpoints
+        params:
+          VpcEndpointIds:
+          - vpce-123
+        response:
+          VpcEndpoints: []
+      row:
+        status: logical_only
+        reason: ''
+        producer:
+          logicalId: EC2_VPCEndpoint_001
+          attribute: DnsEntries
+          endpointId: vpce-123
+        expression:
+          Fn::Select:
+          - 1
+          - Fn::Split:
+            - ':'
+            - Fn::Select:
+              - 0
+              - $modelRef:
+                  logicalId: EC2_VPCEndpoint_001
+                  attribute: DnsEntries
+  endpoint-pending:
+    data:
+      context: *id001
+      clients:
+        adapter:
+          service: ec2
+          region: us-east-1
+      steps:
+      - client: adapter
+        operation: describe_vpc_endpoints
+        params:
+          VpcEndpointIds:
+          - vpce-123
+        response:
+          VpcEndpoints:
+          - VpcEndpointId: vpce-123
+            VpcEndpointType: Interface
+            State: pending
+      row:
+        status: logical_only
+        reason: ''
+        producer:
+          logicalId: EC2_VPCEndpoint_001
+          attribute: DnsEntries
+          endpointId: vpce-123
+        expression:
+          Fn::Select:
+          - 1
+          - Fn::Split:
+            - ':'
+            - Fn::Select:
+              - 0
+              - $modelRef:
+                  logicalId: EC2_VPCEndpoint_001
+                  attribute: DnsEntries
+  endpoint-ambiguous:
+    data:
+      context: *id001
+      clients:
+        adapter:
+          service: ec2
+          region: us-east-1
+      steps:
+      - client: adapter
+        operation: describe_vpc_endpoints
+        params:
+          VpcEndpointIds:
+          - vpce-123
+        response:
+          VpcEndpoints:
+          - VpcEndpointId: vpce-123
+            VpcEndpointType: Interface
+            State: available
+            DnsEntries:
+            - HostedZoneId: Z
+              DnsName: one
+            - HostedZoneId: Z
+              DnsName: two
+      row:
+        status: logical_only
+        reason: ''
+        producer:
+          logicalId: EC2_VPCEndpoint_001
+          attribute: DnsEntries
+          endpointId: vpce-123
+        expression:
+          Fn::Select:
+          - 1
+          - Fn::Split:
+            - ':'
+            - Fn::Select:
+              - 0
+              - $modelRef:
+                  logicalId: EC2_VPCEndpoint_001
+                  attribute: DnsEntries

@@ -1,0 +1,7 @@
+record:
+  MalwareProtectionPlanId: plan-1
+  Tags: []
+trace:
+- api: guardduty.get_malware_protection_plan
+  inputs:
+    MalwareProtectionPlanId: plan-1

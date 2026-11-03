@@ -1,0 +1,6 @@
+record:
+  name: fixture-job
+trace:
+- api: macie2.describe_classification_job
+  inputs:
+    jobId: confirmed-id

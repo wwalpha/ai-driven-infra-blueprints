@@ -3,6 +3,7 @@ import subprocess
 import sys
 import unittest
 from copy import deepcopy
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -13,10 +14,18 @@ from unittest import TestCase
 
 import pytest
 from botocore.exceptions import ClientError
+from model.adapters import aws as adapter_aws
 from model.adapters.aws import AcquisitionError, Unresolved, sdk_error, service_module
 from model.literal_values import normalize, value_shape
+from support.aws_sdk_cases import SdkCase
 from support.check_model_aws_fixtures import m
 from support.fixture_cases import load_case
+from support.model_test_adapter_cases import (
+    guardduty_case,
+    guardduty_invalid_case,
+    macie_case,
+    verified_context,
+)
 from support.regression_cases import case_ids
 from utils.cloudformation.schema import native_type_errors
 
@@ -90,230 +99,6 @@ class SdkErrorTests(unittest.TestCase):
             self.assertNotIn("secret", str(result))
 
 
-class IamInlinePolicyTests(unittest.TestCase):
-    def test_role_inline_outcomes(self):
-        adapter = service_module("iam")
-        resource = SimpleNamespace(kind="IAM.Role", value=lambda key: "role")
-        for case in (
-            "present",
-            "missing_policy",
-            "missing_role",
-            "deleted",
-            "denied",
-            "changed",
-        ):
-            with self.subTest(case=case):
-                ctx = Mock(import_mode=False)
-                ctx.pages.return_value = {
-                    "PolicyNames": [] if case == "missing_policy" else ["policy"]
-                }
-                ctx.fresh_pages.return_value = {
-                    "PolicyNames": []
-                    if case in {"missing_policy", "changed"}
-                    else ["policy"]
-                }
-                ctx.call.return_value = {"PolicyDocument": {"Version": "2012-10-17"}}
-                if case == "missing_role":
-                    ctx.pages.side_effect = AcquisitionError(
-                        "iam.list_role_policies", "NoSuchEntity", "resource_missing"
-                    )
-                if case in {"deleted", "denied"}:
-                    ctx.call.side_effect = AcquisitionError(
-                        "iam.get_role_policy",
-                        "NoSuchEntity" if case == "deleted" else "AccessDenied",
-                        "resource_missing"
-                        if case == "deleted"
-                        else "acquisition_failed",
-                    )
-                if case in {"present", "missing_policy"}:
-                    result = adapter.fetch(ctx, resource, "inline")
-                    self.assertEqual(
-                        len(result["Policies"]), 1 if case == "present" else 0
-                    )
-                else:
-                    with self.assertRaises(AcquisitionError) as raised:
-                        adapter.fetch(ctx, resource, "inline")
-                    self.assertEqual(
-                        raised.exception.status,
-                        "resource_missing"
-                        if case == "missing_role"
-                        else "acquisition_failed",
-                    )
-                self.assertEqual(
-                    ctx.fresh_pages.call_count,
-                    0 if case == "missing_role" else 2 if case == "deleted" else 1,
-                )
-
-
-class WriteOnlyArrayValidationTests(unittest.TestCase):
-    def test_array_item_types(self):
-        m = SimpleNamespace(
-            normalize_literals=normalize,
-            value_shape=value_shape,
-            native_type_errors=native_type_errors,
-            Unresolved=Unresolved,
-        )
-        row = {"property": "example"}
-        snapshot = {
-            "schemas": {"example": {"type": "array", "items": {"type": "string"}}}
-        }
-        for value, error in [
-            (["SPARK"], None),
-            ([123], "item 0"),
-            (["SPARK", 123], "item 1"),
-            ("SPARK", "must be array"),
-        ]:
-            with self.subTest(value=value):
-                if error is None:
-                    audit.validate_design_value(m, snapshot, row, value)
-                else:
-                    with self.assertRaisesRegex(Unresolved, error):
-                        audit.validate_design_value(m, snapshot, row, value)
-
-
-class FlowLogLookupTests(unittest.TestCase):
-    def test_flow_log_selection(self):
-        adapter = service_module("vpc")
-        resource = Mock(kind="EC2.FlowLog")
-        resource.current.return_value = None
-        resource.value.return_value = "vpc-123"
-        resource.rows_for.return_value = []
-        ctx = Mock()
-        record = {"FlowLogId": "fl-123", "TrafficType": "ALL"}
-        ctx.pages.return_value = {"FlowLogs": [record]}
-        self.assertEqual(adapter.fetch(ctx, resource, "base")["TrafficType"], "ALL")
-        ctx.pages.assert_called_with(
-            "ec2",
-            "describe_flow_logs",
-            Filter=[{"Name": "resource-id", "Values": ["vpc-123"]}],
-        )
-        resource.current.return_value = "fl-123"
-        adapter.fetch(ctx, resource, "base")
-        ctx.pages.assert_called_with("ec2", "describe_flow_logs", FlowLogIds=["fl-123"])
-        resource.current.return_value = None
-        ctx.pages.return_value = {}
-        with self.assertRaises(Unresolved):
-            adapter.fetch(ctx, resource, "base")
-        ctx.pages.return_value = {"FlowLogs": []}
-        with self.assertRaises(AcquisitionError) as missing:
-            adapter.fetch(ctx, resource, "base")
-        self.assertEqual(missing.exception.status, "resource_missing")
-        ctx.pages.return_value = {
-            "FlowLogs": [record, {**record, "LogGroupName": "other"}]
-        }
-        resource.rows_for.side_effect = (
-            lambda prop: [1] if prop == "LogGroupName" else []
-        )
-        resource.value.side_effect = (
-            lambda prop, *args: "wanted" if prop == "LogGroupName" else "vpc-123"
-        )
-        ctx.pages.return_value["FlowLogs"][0]["LogGroupName"] = "wanted"
-        self.assertEqual(adapter.fetch(ctx, resource, "base")["LogGroupName"], "wanted")
-        ctx.pages.return_value = {"FlowLogs": [{**record, "LogGroupName": "other"}]}
-        with self.assertRaises(Unresolved):
-            adapter.fetch(ctx, resource, "base")
-        resource.rows_for.side_effect = None
-        resource.rows_for.return_value = []
-        resource.value.side_effect = None
-        ctx.pages.return_value = {"FlowLogs": [record, record]}
-        with self.assertRaises(Unresolved):
-            adapter.fetch(ctx, resource, "base")
-        ctx.pages.side_effect = AcquisitionError(
-            "ec2.describe_flow_logs", "AccessDenied", "acquisition_failed"
-        )
-        with self.assertRaises(AcquisitionError) as denied:
-            adapter.fetch(ctx, resource, "base")
-        self.assertEqual(denied.exception.status, "acquisition_failed")
-        ctx.pages.reset_mock(side_effect=True)
-        resource.value.side_effect = AcquisitionError(
-            "ec2.describe_vpcs", "ResourceNotFound", "resource_missing"
-        )
-        with self.assertRaises(Unresolved):
-            adapter.fetch(ctx, resource, "base")
-        ctx.pages.assert_not_called()
-        resource.value.side_effect = None
-        for invalid in (None, "UNSET", "vpc-", ["vpc-123"]):
-            resource.value.return_value = invalid
-            with self.assertRaises(Unresolved):
-                adapter.fetch(ctx, resource, "base")
-            ctx.pages.assert_not_called()
-        resource.value.side_effect = Unresolved("ResourceId unresolved")
-        with self.assertRaises(Unresolved):
-            adapter.fetch(ctx, resource, "base")
-        ctx.pages.assert_not_called()
-
-
-class MacieLookupTests(unittest.TestCase):
-    def test_job_lookup(self):
-        adapter = service_module("macie")
-        resource = Mock()
-        resource.value.return_value = "fixture-job"
-        ctx = Mock()
-        ctx.call.return_value = {"name": "fixture-job"}
-        resource.current.return_value = "confirmed-id"
-        adapter.fetch(ctx, resource, "job")
-        ctx.pages.assert_not_called()
-        ctx.call.assert_called_once_with(
-            "macie2", "describe_classification_job", jobId="confirmed-id"
-        )
-        resource.current.return_value = None
-        ctx.reset_mock()
-        ctx.pages.return_value = {
-            "items": [{"name": "fixture-job", "jobId": "found-id"}]
-        }
-        adapter.fetch(ctx, resource, "job")
-        ctx.pages.assert_called_once_with(
-            "macie2",
-            "list_classification_jobs",
-            filterCriteria={
-                "includes": [
-                    {"key": "name", "comparator": "EQ", "values": ["fixture-job"]}
-                ]
-            },
-        )
-        ctx.call.assert_called_once_with(
-            "macie2", "describe_classification_job", jobId="found-id"
-        )
-        for items, error in [
-            ([], AcquisitionError),
-            (
-                [
-                    {"name": "fixture-job", "jobId": "a"},
-                    {"name": "fixture-job", "jobId": "b"},
-                ],
-                Unresolved,
-            ),
-        ]:
-            with self.subTest(items=items):
-                ctx.reset_mock()
-                ctx.pages.return_value = {"items": items}
-                with self.assertRaises(error):
-                    adapter.fetch(ctx, resource, "job")
-                ctx.call.assert_not_called()
-
-
-class GuardDutyPlanAdapterTests(unittest.TestCase):
-    def test_tags_normalization_and_invalid_types(self):
-        adapter = service_module("guardduty")
-        resource = SimpleNamespace(current=Mock(return_value="plan-1"))
-        context = SimpleNamespace(call=Mock())
-        tags = {"Name": "example", "Environment": "dev"}
-        context.call.return_value = {"Tags": tags}
-        record = adapter.fetch(context, resource, "plan")
-        self.assertEqual(
-            record["Tags"],
-            [{"Key": key, "Value": value} for key, value in tags.items()],
-        )
-        self.assertEqual(record["MalwareProtectionPlanId"], "plan-1")
-        context.call.return_value = {}
-        self.assertEqual(adapter.fetch(context, resource, "plan")["Tags"], [])
-        for tags in ([], {"Name": None}):
-            context.call.return_value = {"Tags": tags}
-            with self.subTest(tags=tags), self.assertRaises(ValueError):
-                adapter.fetch(context, resource, "plan")
-        self.assertNotIn(("cloudcontrol", "get_resource"), adapter.APIS)
-
-
 @pytest.mark.parametrize(
     "case_id", case_ids("model_test_sdk_errors", prefix="sdk-error-")
 )
@@ -352,6 +137,205 @@ def test_sdk_error_secret_failure_before_snapshot(monkeypatch):
     with pytest.raises(pytest.fail.Exception, match="private message") as caught:
         _execute_sdk_error_case(case)
     TestCase().assertNotIn(secret, str(caught.value))
+
+
+def test_role_inline_outcomes(subtests):
+    adapter = service_module("iam")
+    resource = SimpleNamespace(kind="IAM.Role", value=lambda key: "role")
+    for case in (
+        "present",
+        "missing_policy",
+        "missing_role",
+        "deleted",
+        "denied",
+        "changed",
+    ):
+        with subtests.test(case=case):
+            ctx = Mock(import_mode=False)
+            ctx.pages.return_value = {
+                "PolicyNames": [] if case == "missing_policy" else ["policy"]
+            }
+            ctx.fresh_pages.return_value = {
+                "PolicyNames": []
+                if case in {"missing_policy", "changed"}
+                else ["policy"]
+            }
+            ctx.call.return_value = load_case("model_test_sdk_errors", "iam-input")[
+                "data"
+            ]["response"]
+            if case == "missing_role":
+                ctx.pages.side_effect = AcquisitionError(
+                    "iam.list_role_policies", "NoSuchEntity", "resource_missing"
+                )
+            if case in {"deleted", "denied"}:
+                ctx.call.side_effect = AcquisitionError(
+                    "iam.get_role_policy",
+                    "NoSuchEntity" if case == "deleted" else "AccessDenied",
+                    "resource_missing" if case == "deleted" else "acquisition_failed",
+                )
+            if case in {"present", "missing_policy"}:
+                result = adapter.fetch(ctx, resource, "inline")
+                TestCase().assertEqual(
+                    len(result["Policies"]), 1 if case == "present" else 0
+                )
+            else:
+                with TestCase().assertRaises(AcquisitionError) as raised:
+                    adapter.fetch(ctx, resource, "inline")
+                TestCase().assertEqual(
+                    raised.exception.status,
+                    "resource_missing"
+                    if case == "missing_role"
+                    else "acquisition_failed",
+                )
+            TestCase().assertEqual(
+                ctx.fresh_pages.call_count,
+                0 if case == "missing_role" else 2 if case == "deleted" else 1,
+            )
+
+
+def test_array_item_types(subtests):
+    m = SimpleNamespace(
+        normalize_literals=normalize,
+        value_shape=value_shape,
+        native_type_errors=native_type_errors,
+        Unresolved=Unresolved,
+    )
+    row = {"property": "example"}
+    snapshot = {"schemas": {"example": {"type": "array", "items": {"type": "string"}}}}
+    for value, error in [
+        (["SPARK"], None),
+        ([123], "item 0"),
+        (["SPARK", 123], "item 1"),
+        ("SPARK", "must be array"),
+    ]:
+        with subtests.test(value=value):
+            if error is None:
+                audit.validate_design_value(m, snapshot, row, value)
+            else:
+                with TestCase().assertRaisesRegex(Unresolved, error):
+                    audit.validate_design_value(m, snapshot, row, value)
+
+
+def test_flow_log_selection():
+    adapter = service_module("vpc")
+    resource = Mock(kind="EC2.FlowLog")
+    resource.current.return_value = None
+    resource.value.return_value = "vpc-123"
+    resource.rows_for.return_value = []
+    ctx = Mock()
+    record = load_case("model_test_sdk_errors", "flowlog-input")["data"]["record"]
+    ctx.pages.return_value = {"FlowLogs": [record]}
+    TestCase().assertEqual(adapter.fetch(ctx, resource, "base")["TrafficType"], "ALL")
+    ctx.pages.assert_called_with(
+        "ec2",
+        "describe_flow_logs",
+        Filter=[{"Name": "resource-id", "Values": ["vpc-123"]}],
+    )
+    resource.current.return_value = "fl-123"
+    adapter.fetch(ctx, resource, "base")
+    ctx.pages.assert_called_with("ec2", "describe_flow_logs", FlowLogIds=["fl-123"])
+    resource.current.return_value = None
+    ctx.pages.return_value = {}
+    with TestCase().assertRaises(Unresolved):
+        adapter.fetch(ctx, resource, "base")
+    ctx.pages.return_value = {"FlowLogs": []}
+    with TestCase().assertRaises(AcquisitionError) as missing:
+        adapter.fetch(ctx, resource, "base")
+    TestCase().assertEqual(missing.exception.status, "resource_missing")
+    ctx.pages.return_value = {"FlowLogs": [record, {**record, "LogGroupName": "other"}]}
+    resource.rows_for.side_effect = lambda prop: [1] if prop == "LogGroupName" else []
+    resource.value.side_effect = (
+        lambda prop, *args: "wanted" if prop == "LogGroupName" else "vpc-123"
+    )
+    ctx.pages.return_value["FlowLogs"][0]["LogGroupName"] = "wanted"
+    TestCase().assertEqual(
+        adapter.fetch(ctx, resource, "base")["LogGroupName"], "wanted"
+    )
+    ctx.pages.return_value = {"FlowLogs": [{**record, "LogGroupName": "other"}]}
+    with TestCase().assertRaises(Unresolved):
+        adapter.fetch(ctx, resource, "base")
+    resource.rows_for.side_effect = None
+    resource.rows_for.return_value = []
+    resource.value.side_effect = None
+    ctx.pages.return_value = {"FlowLogs": [record, record]}
+    with TestCase().assertRaises(Unresolved):
+        adapter.fetch(ctx, resource, "base")
+    ctx.pages.side_effect = AcquisitionError(
+        "ec2.describe_flow_logs", "AccessDenied", "acquisition_failed"
+    )
+    with TestCase().assertRaises(AcquisitionError) as denied:
+        adapter.fetch(ctx, resource, "base")
+    TestCase().assertEqual(denied.exception.status, "acquisition_failed")
+    ctx.pages.reset_mock(side_effect=True)
+    resource.value.side_effect = AcquisitionError(
+        "ec2.describe_vpcs", "ResourceNotFound", "resource_missing"
+    )
+    with TestCase().assertRaises(Unresolved):
+        adapter.fetch(ctx, resource, "base")
+    ctx.pages.assert_not_called()
+    resource.value.side_effect = None
+    for invalid in (None, "UNSET", "vpc-", ["vpc-123"]):
+        resource.value.return_value = invalid
+        with TestCase().assertRaises(Unresolved):
+            adapter.fetch(ctx, resource, "base")
+        ctx.pages.assert_not_called()
+    resource.value.side_effect = Unresolved("ResourceId unresolved")
+    with TestCase().assertRaises(Unresolved):
+        adapter.fetch(ctx, resource, "base")
+    ctx.pages.assert_not_called()
+
+
+@pytest.mark.parametrize("case_id", case_ids("model_test_sdk_errors", prefix="macie-"))
+def test_macie_job_lookup(case_runner, tmp_path, monkeypatch, case_id):
+    case_runner.run(
+        "model_test_sdk_errors", case_id, partial(macie_case, tmp_path, monkeypatch)
+    )
+
+
+@pytest.mark.parametrize(
+    "case_id",
+    case_ids("model_test_sdk_errors", prefix="guardduty-tags")
+    + case_ids("model_test_sdk_errors", prefix="guardduty-missing"),
+)
+def test_guardduty_plan_tags(case_runner, tmp_path, monkeypatch, case_id):
+    case_runner.run(
+        "model_test_sdk_errors", case_id, partial(guardduty_case, tmp_path, monkeypatch)
+    )
+
+
+@pytest.mark.parametrize(
+    "case_id",
+    case_ids("model_test_sdk_errors", prefix="guardduty-null")
+    + case_ids("model_test_sdk_errors", prefix="guardduty-list")
+    + case_ids("model_test_sdk_errors", prefix="guardduty-invalid"),
+)
+def test_guardduty_plan_invalid_tags(case_runner, case_id):
+    case_runner.run("model_test_sdk_errors", case_id, guardduty_invalid_case)
+
+
+def test_adapter_read_only_scope_precedes_sdk(tmp_path, monkeypatch):
+    data = load_case("model_test_sdk_errors", "macie-confirmed")["data"]
+    with SdkCase(data, tmp_path, monkeypatch) as stub:
+        context = verified_context(stub, tmp_path, service_module("macie").APIS)
+        with patch.object(
+            stub.clients["adapter"],
+            "_make_api_call",
+            side_effect=AssertionError("forbidden SDK dispatch"),
+        ) as dispatch:
+            with pytest.raises(ValueError, match="read-only"):
+                context.call("macie2", "create_classification_job")
+            dispatch.assert_not_called()
+        context.call("macie2", "describe_classification_job", jobId="confirmed-id")
+
+
+def test_adapter_extra_api_fails_before_result(tmp_path, monkeypatch):
+    data = load_case("model_test_sdk_errors", "macie-confirmed")["data"]
+    with SdkCase(data, tmp_path, monkeypatch) as stub:
+        context = verified_context(stub, tmp_path, service_module("macie").APIS)
+        with pytest.raises(adapter_aws.AcquisitionError) as caught:
+            context.call("macie2", "get_macie_session")
+        TestCase().assertEqual(caught.value.code, "StubResponseError")
+        context.call("macie2", "describe_classification_job", jobId="confirmed-id")
 
 
 if __name__ == "__main__":

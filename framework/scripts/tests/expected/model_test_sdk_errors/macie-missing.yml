@@ -1,0 +1,12 @@
+error: AcquisitionError
+message: ResourceNotFound
+trace:
+- api: macie2.list_classification_jobs
+  inputs:
+    filterCriteria:
+      includes:
+      - comparator: EQ
+        key: name
+        values:
+        - fixture-job
+  pagination: all

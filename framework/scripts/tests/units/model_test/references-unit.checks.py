@@ -5,12 +5,11 @@ import unittest
 from datetime import datetime, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from model.adapters.aws import AcquisitionError, Unresolved
+import pytest
 from model.audit import (
     dependencies,
     reference_rows,
@@ -18,7 +17,9 @@ from model.audit import (
 from model.reference_values import ReferenceValue
 from model.sources import load_model
 from support.model_sources import write_model
+from support.model_test_adapter_cases import endpoint_case
 from support.model_test_references import ReferenceFixture
+from support.regression_cases import case_ids
 from utils.input_cache import input_scope
 
 from model import audit_runtime as audit
@@ -672,85 +673,17 @@ class ReferenceTests(ReferenceFixture, unittest.TestCase):
                 self.assertNotIn("never-print", text)
 
 
-class Route53AliasProducerTests(unittest.TestCase):
-    def test_endpoint_observation_and_unresolved_reasons(self):
-        ref = {
-            "$modelRef": {"logicalId": "EC2_VPCEndpoint_001", "attribute": "DnsEntries"}
-        }
-        expression = {"Fn::Select": [1, {"Fn::Split": [":", {"Fn::Select": [0, ref]}]}]}
-        producer = {
-            "logicalId": "EC2_VPCEndpoint_001",
-            "attribute": "DnsEntries",
-            "endpointId": "vpce-123",
-        }
-        original = {
-            "status": "logical_only",
-            "reason": "",
-            "producer": producer,
-            "expression": expression,
-        }
-        m = SimpleNamespace(AcquisitionError=AcquisitionError, Unresolved=Unresolved)
-        for records, status, reason in [
-            (
-                [
-                    {
-                        "VpcEndpointId": "vpce-123",
-                        "VpcEndpointType": "Interface",
-                        "State": "available",
-                        "DnsEntries": [
-                            {"HostedZoneId": "Z", "DnsName": "producer.example"}
-                        ],
-                    }
-                ],
-                "resolved",
-                "",
-            ),
-            ([], "logical_only", "absent or ambiguous"),
-            (
-                [
-                    {
-                        "VpcEndpointId": "vpce-123",
-                        "VpcEndpointType": "Interface",
-                        "State": "pending",
-                    }
-                ],
-                "logical_only",
-                "not an available",
-            ),
-            (
-                [
-                    {
-                        "VpcEndpointId": "vpce-123",
-                        "VpcEndpointType": "Interface",
-                        "State": "available",
-                        "DnsEntries": [
-                            {"HostedZoneId": "Z", "DnsName": "one"},
-                            {"HostedZoneId": "Z", "DnsName": "two"},
-                        ],
-                    }
-                ],
-                "logical_only",
-                "ambiguous",
-            ),
-        ]:
-            with self.subTest(reason=reason):
-                row = dict(original)
-                ctx = Mock()
-                ctx.pages.return_value = {"VpcEndpoints": records}
-                audit.resolve_endpoint_aliases(
-                    m, ctx, {"referenceRows": {"route53": {"001": row}}}
-                )
-                self.assertEqual(row["status"], status)
-                if status == "resolved":
-                    self.assertEqual(row["value"], "producer.example")
-                else:
-                    self.assertIn(reason, audit.resolution_error(row))
-                    self.assertIn(
-                        "EC2_VPCEndpoint_001.DnsEntries", audit.resolution_error(row)
-                    )
-                ctx.pages.assert_called_once_with(
-                    "ec2", "describe_vpc_endpoints", VpcEndpointIds=["vpce-123"]
-                )
+@pytest.mark.parametrize(
+    "case_id", case_ids("model_test_references", prefix="endpoint-")
+)
+def test_endpoint_observation_and_unresolved_reasons(
+    case_runner, tmp_path, monkeypatch, case_id
+):
+    case_runner.run(
+        "model_test_references",
+        case_id,
+        _bind_framework_callback(endpoint_case, tmp_path, monkeypatch),
+    )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,26 @@
+error: 'EC2_VPCEndpoint_001.DnsEntries: Producer observation unavailable: Producer
+  is not an available interface endpoint'
+row:
+  expression:
+    Fn::Select:
+    - 1
+    - Fn::Split:
+      - ':'
+      - Fn::Select:
+        - 0
+        - $modelRef:
+            attribute: DnsEntries
+            logicalId: EC2_VPCEndpoint_001
+  producer:
+    attribute: DnsEntries
+    endpointId: vpce-123
+    logicalId: EC2_VPCEndpoint_001
+  reason: 'Producer observation unavailable: Producer is not an available interface
+    endpoint'
+  status: logical_only
+trace:
+- api: ec2.describe_vpc_endpoints
+  inputs:
+    VpcEndpointIds:
+    - vpce-123
+  pagination: all

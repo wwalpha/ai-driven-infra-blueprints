@@ -21,3 +21,138 @@ cases:
       operation: DescribeStacks
       api: cloudformation.describe_stacks
       request: []
+  macie-confirmed:
+    data:
+      context: &id001
+      - offline
+      - us-east-1
+      - '123456789012'
+      - synthetic
+      clients:
+        adapter:
+          service: macie2
+          region: us-east-1
+      steps:
+      - client: adapter
+        operation: describe_classification_job
+        params:
+          jobId: confirmed-id
+        response:
+          name: fixture-job
+      current: confirmed-id
+      selection: confirmed
+  macie-found:
+    data:
+      context: *id001
+      clients:
+        adapter:
+          service: macie2
+          region: us-east-1
+      steps:
+      - client: adapter
+        operation: list_classification_jobs
+        params: &id002
+          filterCriteria:
+            includes:
+            - key: name
+              comparator: EQ
+              values:
+              - fixture-job
+        response:
+          items:
+          - name: fixture-job
+            jobId: found-id
+      - client: adapter
+        operation: describe_classification_job
+        params:
+          jobId: found-id
+        response:
+          name: fixture-job
+      current: null
+      selection: found
+  macie-missing:
+    data:
+      context: *id001
+      clients:
+        adapter:
+          service: macie2
+          region: us-east-1
+      steps:
+      - client: adapter
+        operation: list_classification_jobs
+        params: *id002
+        response:
+          items: []
+      current: null
+      selection: missing
+  macie-ambiguous:
+    data:
+      context: *id001
+      clients:
+        adapter:
+          service: macie2
+          region: us-east-1
+      steps:
+      - client: adapter
+        operation: list_classification_jobs
+        params: *id002
+        response:
+          items:
+          - name: fixture-job
+            jobId: a
+          - name: fixture-job
+            jobId: b
+      current: null
+      selection: ambiguous
+  guardduty-tags:
+    data:
+      context: *id001
+      clients:
+        adapter:
+          service: guardduty
+          region: us-east-1
+      steps:
+      - client: adapter
+        operation: get_malware_protection_plan
+        params:
+          MalwareProtectionPlanId: plan-1
+        response:
+          Tags:
+            Name: example
+            Environment: dev
+  guardduty-missing-tags:
+    data:
+      context: *id001
+      clients:
+        adapter:
+          service: guardduty
+          region: us-east-1
+      steps:
+      - client: adapter
+        operation: get_malware_protection_plan
+        params:
+          MalwareProtectionPlanId: plan-1
+        response: {}
+  guardduty-null-tags:
+    data:
+      response:
+        Tags: null
+  guardduty-list-tags:
+    data:
+      response:
+        Tags: []
+  guardduty-invalid-tag-value:
+    data:
+      response:
+        Tags:
+          Name: null
+  flowlog-input:
+    data:
+      record:
+        FlowLogId: fl-123
+        TrafficType: ALL
+  iam-input:
+    data:
+      response:
+        PolicyDocument:
+          Version: '2012-10-17'
