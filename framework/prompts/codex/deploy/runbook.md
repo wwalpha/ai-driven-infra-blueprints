@@ -1,6 +1,29 @@
 # Deploy operation runbook
 
-Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. Normal SDK commands live only in the Skill; this runbook supplies Human-selected CLI and conditional procedures.
+Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. Normal SDK advance is in the Skill; this runbook supplies conditional SDK saves/finish, Human-selected CLI and exceptions.
+
+## SDK saves
+
+Read [Observation reads](#observation-reads) before collecting observations. Use the same Task/Target and every fixed `--stack` on all actions, even when saving one Stack. Keep configured `--profile`, or use `--aws-account-id` instead of `--alias` where applicable.
+
+```console
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --sync-stack <StackName>
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action checkpoint --sync-stack <StackName>
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action status
+```
+
+`sync --sync-stack` saves current facts for any outcome, generates available services, validates and publishes through the existing checkpoint. Repeat `--sync-stack` for an indivisible candidate; intermediate saves keep running in the same Worktree. `checkpoint` resumes an already saved candidate without fresh AWS execution/recollection; a separate checkpoint is normally unnecessary after sync. Use saved scope, including when resuming a final intent. `status` is only for independent inspection/interruption/uncertain requests through [SDK recovery](#unfinished-aws-operation-recovery), never a mechanical call before `advance`.
+
+## SDK Finish
+
+When ending the Task, use the final command below, retaining full Stack scope. Add only needed `--sync-stack` observations; omit when already saved. This privately validates completed with Model/Views and adopts only PASS. Failure retains running, saved Model and successful Views. `checkpoint` resumes the same saved final intent without another `--final` or recollection. No all-Stack SUCCESS or separate pre-final complete is required. After verified publication use finalize below; unresolved Git work selects [Git Recovery](#git-recovery).
+
+```console
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --final
+python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id>
+```
+
+Before ending read [Verify and finish](#verify-and-finish) for Validation/Acceptance and reporting. No finalization while requests are active/uncertain, approval is pending, saves/checks are incomplete or publication is pending. Worktree completion/permission guards remain authoritative.
 
 ## CLI Prepare
 
@@ -59,7 +82,7 @@ Repeat `--service` for exact affected services, or use confirmed `--scope <envir
 
 ## Verify and finish
 
-Read [Validation policy](../../../rules/loop-engineering.md#validation-policy), [Validation scope](../../../rules/loop-engineering.md#validation-scope) and [Infrastructure task completion](../../../rules/loop-engineering.md#infrastructure-task-completion). Check Task Acceptance and authorized differences. Report AWS attempt result, current Stack state, required observations/Model saves, View generation, Snapshot validation, Git commit/merge and Task status independently. A failed settled attempt can have a consistent Snapshot; Deploy FAIL remains FAIL. Unexecuted/incomplete checks never count as PASS. Active/uncertain requests or pending approval keep tracking and prevent completion. Use only [SDK finish](../../../../.agents/skills/deploy/SKILL.md#sdk-finish) or [CLI Finish](#cli-finish) for the fixed method. Do not proceed to scenarios or another task.
+Read [Validation policy](../../../rules/loop-engineering.md#validation-policy), [Validation scope](../../../rules/loop-engineering.md#validation-scope) and [Infrastructure task completion](../../../rules/loop-engineering.md#infrastructure-task-completion). Check Task Acceptance and authorized differences. Report AWS attempt result, current Stack state, required observations/Model saves, View generation, Snapshot validation, Git commit/merge and Task status independently. A failed settled attempt can have a consistent Snapshot; Deploy FAIL remains FAIL. Unexecuted/incomplete checks never count as PASS. Active/uncertain requests or pending approval keep tracking and prevent completion. Use only [SDK finish](#sdk-finish) or [CLI Finish](#cli-finish) for the fixed method. Do not proceed to scenarios or another task.
 
 ## CLI Finish
 
@@ -73,7 +96,7 @@ Read [Managed Deploy snapshot and Git publication](../../../rules/cloudformation
 python3 -B framework/scripts/worktree_task.py deploy-publish --task-id <task-id>
 ```
 
-This performs no AWS execution or recollection, including when Task completed locally. On conflict show file/base/source/impact and obtain explicit Human resolution; the existing `--publication-resolution <absolute-json-path>` option takes that approved resolution and revalidates the actual latest-base candidate. Never invent a resolution, force integration or edit lifecycle metadata. CLI instead retains its candidate and uses the ordinary same-Task recovery/finalize procedure; never switch it to deploy-publish. After verified SDK final publication use [SDK finish](../../../../.agents/skills/deploy/SKILL.md#sdk-finish).
+This performs no AWS execution or recollection, including when Task completed locally. On conflict show file/base/source/impact and obtain explicit Human resolution; the existing `--publication-resolution <absolute-json-path>` option takes that approved resolution and revalidates the actual latest-base candidate. Never invent a resolution, force integration or edit lifecycle metadata. CLI instead retains its candidate and uses the ordinary same-Task recovery/finalize procedure; never switch it to deploy-publish. After verified SDK final publication use [SDK finish](#sdk-finish).
 
 ## CLI Recovery
 
@@ -81,7 +104,7 @@ Read [Interruption and independent recovery](../../../rules/cloudformation.md#in
 
 ## Correct this Task's preparation omissions
 
-この節はSDK方式で固定済みの契約訂正専用。CLI方式の不足証拠をSDK progressで補わない。
+この節はSDK方式で固定済みの契約訂正専用。保存済みの固定契約とdigest一致が必須で、Git履歴や現在のTask文面から復元しない。CLI方式の不足証拠をSDK progressで補わない。
 
 固定後の契約訂正は[Self recovery](../../../rules/task-contract.md#self-recovery)と
 [Deploy correction conditions](../../../rules/cloudformation.md#managed-deploy-contract-correction)を読む。

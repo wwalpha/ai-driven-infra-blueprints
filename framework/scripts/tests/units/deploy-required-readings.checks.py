@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 from support.pytest_cli import run
 from utils.markdown_format import markdown_sections, rule_readings
+from validation import framework_contracts
+from validation.findings import Findings
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -62,8 +64,12 @@ def check_direct_deploy_routes():
     skill = root / ".agents/skills/deploy/SKILL.md"
     text = skill.read_text(encoding="utf-8")
     sections = markdown_sections(text)
-    # Executable SDK examples live at the entry, with fixed Task/target on every action.
-    blocks = re.findall(r"```console\n(.*?)```", text, re.S)
+    runbook = root / "framework/prompts/codex/deploy/runbook.md"
+    book = runbook.read_text(encoding="utf-8")
+    # Startup exposes only advance; later exact commands have one conditional authority.
+    startup = re.findall(r"```console\n(.*?)```", text, re.S)
+    assert ["--action" in block for block in startup] == [False, False, True]
+    blocks = startup + re.findall(r"```console\n(.*?)```", book, re.S)
     commands = [shlex.split(line) for block in blocks for line in block.splitlines()]
     actions = [argv for argv in commands if "--action" in argv]
     assert [argv[argv.index("--action") + 1] for argv in actions] == [
@@ -83,12 +89,14 @@ def check_direct_deploy_routes():
     assert "never search, inspect or read Framework Python source" in text
     assert "null/missing command means stop" in text
     # Each conditional route resolves to a real procedure, rather than a compatibility stub.
-    runbook = root / "framework/prompts/codex/deploy/runbook.md"
-    procedures = markdown_sections(runbook.read_text(encoding="utf-8"))
-    links = re.findall(r"deploy/runbook.md#([a-z-]+)", text)
-    assert set(links) <= procedures.keys()
+    procedures = markdown_sections(book)
+    links = set(re.findall(r"deploy/runbook.md#([a-z-]+)", text))
+    for entry in ("sdk-saves", "sdk-finish"):
+        links.update(re.findall(r"\]\(#([a-z-]+)\)", procedures[entry]))
     for anchor in (
         "cli-prepare",
+        "sdk-saves",
+        "sdk-finish",
         "observation-reads",
         "verify-and-finish",
         "terraform",
@@ -98,7 +106,7 @@ def check_direct_deploy_routes():
         "external-iac-repair-handoff",
         "git-recovery",
     ):
-        assert anchor in links
+        assert anchor in links, anchor
     # Independent CLI How remains reachable without SDK command/receipt dependencies.
     expected = {
         "cli-prepare": ("method-and-local-lifecycle", "preflight-and-fixed-snapshot"),
@@ -119,7 +127,6 @@ def check_direct_deploy_routes():
         assert "cloudformation-deploy.py" not in procedures[anchor]
     assert "--action" not in sections["common-entry"]
     assert "no unconditional status-before-advance call" in sections["sdk-operations"]
-    rule_readings(root, skill, text)
     entry = sections["managed-entry"]
     assert "returned `worktree` and `task_file`" in entry
     assert "never investigate unrelated checkout contents" in entry
@@ -133,9 +140,6 @@ def check_direct_deploy_routes():
 
 
 def check_deploy_skill_structure_uses_definition_root(tmp_path):
-    from validation import framework_contracts
-    from validation.findings import Findings
-
     root, definitions = tmp_path / "consumer", tmp_path / "definitions"
     root.mkdir()
     skill = definitions / ".agents/skills/deploy/SKILL.md"

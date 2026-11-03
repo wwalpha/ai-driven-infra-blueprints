@@ -439,9 +439,9 @@ Stack/Resource Execution scope, Requirements/Acceptance, AWS permissions and del
 not approve a request or infer Human consent from matching hashes. Other declaration edits
 are outside this narrow correction path.
 
-The fixed text is retained in the existing managed lifecycle at bind. Older Tasks require
-matching text already available at their recorded Git tip/start; missing or inconsistent
-original evidence stops without guessing. The candidate is outside the repository and must
+The fixed text is retained as `deployContract` in the existing managed lifecycle at bind.
+Its presence and matching Task digest are mandatory; missing/inconsistent evidence stops.
+Never restore it from Git history or substitute the current Task text. The candidate is outside the repository and must
 retain the current suspended status/reason. A live contract already containing only those
 same additions is also accepted. See [Deploy correction conditions](cloudformation.md#managed-deploy-contract-correction)
 for progress, locks and interruption handling. Success keeps the Task suspended, retains
