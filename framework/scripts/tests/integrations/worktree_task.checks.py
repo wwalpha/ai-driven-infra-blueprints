@@ -165,12 +165,117 @@ def check_latest_base_linear_repeated_and_recovery():
                 git(target, "rev-list", "--merges", latest + ".." + head), ""
             )
             check.assertEqual((target / "file.txt").read_text(), "first\nsecond\n")
+            if step == 1:
+                old_commits = git(
+                    target, "rev-list", "--reverse", state["start"] + ".." + old_head
+                ).splitlines()
+                forged_first = git(
+                    target,
+                    "commit-tree",
+                    latest + "^{tree}",
+                    "-p",
+                    latest,
+                    "-m",
+                    "forged intermediate",
+                )
+                forged_last = git(
+                    target,
+                    "commit-tree",
+                    head + "^{tree}",
+                    "-p",
+                    forged_first,
+                    "-m",
+                    "same final tree",
+                )
+                check.assertEqual(
+                    git(target, "rev-parse", forged_last + "^{tree}"), expected_tree
+                )
+                with check.assertRaisesRegex(wt.Blocked, "intended replay"):
+                    wt.verify_rebase_commits(
+                        target,
+                        old_commits,
+                        [forged_first, forged_last],
+                        state["start"],
+                        latest,
+                    )
             check.assertEqual(
                 wt.sync_latest_base(root, "example", latest)["status"], "ok"
             )
             old_head = head
         git(root, "merge", "--ff-only", state["branch"])
         check.assertEqual(git(root, "rev-parse", "HEAD"), head)
+
+    for interrupted in (False, True):
+        with fixture() as root:
+            git(root, "config", "core.logAllRefUpdates", "false")
+            target, state = start(root)
+            (target / "file.txt").write_text("candidate without reflog\n")
+            _, _, path, current = wt.load(root, "example")
+            wt._prepare_commit(root, path, current, target, None, prepare_only=True)
+            old_head = git(target, "rev-parse", "HEAD")
+            (root / "upstream.txt").write_text("base\n")
+            git(root, "add", "upstream.txt")
+            git(root, "commit", "-qm", "base")
+            latest = git(root, "rev-parse", "HEAD")
+            expected_tree = git(target, "merge-tree", "--write-tree", old_head, latest)
+            if interrupted:
+                original = wt.git
+                with patch.object(
+                    wt,
+                    "git",
+                    side_effect=_bind_framework_callback(
+                        _interrupt_after_rebase, original
+                    ),
+                ):
+                    with check.assertRaisesRegex(
+                        RuntimeError, "simulated interruption"
+                    ):
+                        wt.sync_latest_base(root, "example", latest)
+                _, _, _, pending = wt.load(root, "example")
+                check.assertIn("latestBaseSync", pending)
+                check.assertNotEqual(pending["tip"], git(target, "rev-parse", "HEAD"))
+            result = wt.sync_latest_base(root, "example", latest)
+            check.assertEqual(result["status"], "needs_validation")
+            head = git(target, "rev-parse", "HEAD")
+            check.assertEqual(git(target, "reflog", "show", "HEAD"), "")
+            check.assertEqual(git(target, "show", "-s", "--format=%P", head), latest)
+            check.assertEqual(git(target, "rev-parse", head + "^{tree}"), expected_tree)
+            check.assertEqual(
+                (target / "file.txt").read_text(), "candidate without reflog\n"
+            )
+            _, _, _, updated = wt.load(root, "example")
+            check.assertEqual(
+                (updated["tip"], updated["commit"], updated["validation_base"]),
+                (head, head, latest),
+            )
+            check.assertNotIn("latestBaseSync", updated)
+            check.assertEqual(
+                wt.sync_latest_base(root, "example", latest)["status"], "ok"
+            )
+
+    with fixture() as root:
+        lines = [f"line {number}\n" for number in range(30)]
+        (root / "file.txt").write_text("".join(lines))
+        git(root, "add", "file.txt")
+        git(root, "commit", "-qm", "shared baseline")
+        target, state = start(root)
+        task_lines = lines.copy()
+        task_lines[2] = "task line\n"
+        (target / "file.txt").write_text("".join(task_lines))
+        base_lines = lines.copy()
+        base_lines[25] = "base line\n"
+        (root / "file.txt").write_text("".join(base_lines))
+        git(root, "add", "file.txt")
+        git(root, "commit", "-qm", "nonoverlapping base edit")
+        latest = git(root, "rev-parse", "HEAD")
+        result = wt.sync_latest_base(root, "example", latest)
+        check.assertEqual(result["status"], "needs_validation")
+        check.assertEqual(
+            (target / "file.txt").read_text().splitlines()[2], "task line"
+        )
+        check.assertEqual(
+            (target / "file.txt").read_text().splitlines()[25], "base line"
+        )
 
     with fixture() as root:
         target, state = start(root)

@@ -1640,6 +1640,41 @@ def deploy_finalize(where, task_id):
     return _worktree_runtime().deploy_finalize(where, task_id)
 
 
+def verify_rebase_commits(target, old_commits, new_commits, old_parent, new_parent):
+    for old, new in zip(old_commits, new_commits, strict=True):
+        if (
+            output(target, "show", "-s", "--format=%P", old) != old_parent
+            or output(target, "show", "-s", "--format=%P", new) != new_parent
+        ):
+            raise Blocked("base rebase has unexpected commit parents")
+        # A temporary commit makes Git use the original parent as the merge base.
+        synthetic = output(
+            target,
+            "-c",
+            "user.name=Blueprint verification",
+            "-c",
+            "user.email=blueprint-verification@invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit-tree",
+            new_parent + "^{tree}",
+            "-p",
+            old_parent,
+            "-m",
+            "Rebase verification",
+        )
+        replay = git(target, "merge-tree", "--write-tree", synthetic, old, check=False)
+        if (
+            replay.returncode
+            or not replay.stdout.splitlines()
+            or replay.stdout.splitlines()[0]
+            != output(target, "rev-parse", new + "^{tree}")
+        ):
+            raise Blocked("base rebase commit differs from its intended replay")
+        old_parent, new_parent = old, new
+    return old_parent, new_parent
+
+
 def sync_latest_base(where, task_id, expected_base):
     """Replay a reviewed local task history onto the latest base without validation."""
     root, _, path, _ = load(where, task_id)
@@ -1772,26 +1807,6 @@ def sync_latest_base(where, task_id, expected_base):
         commits = output(
             target, "rev-list", "--reverse", latest + ".." + head
         ).splitlines()
-        reflog = output(
-            target,
-            "reflog",
-            "show",
-            f"-{len(commits) + 3}",
-            "--format=%H%x09%gs",
-            "HEAD",
-        ).splitlines()
-        expected_log = [
-            head + "\trebase (finish): returning to refs/heads/" + state["branch"]
-        ]
-        expected_log += [commit + "\trebase (pick): " for commit in reversed(commits)]
-        expected_log += [
-            latest + "\trebase (start): checkout " + latest,
-            intent["head"] + "\t",
-        ]
-        matching_log = len(reflog) == len(expected_log) and all(
-            actual.startswith(expected)
-            for actual, expected in zip(reflog, expected_log, strict=True)
-        )
         if (
             git(
                 target, "merge-base", "--is-ancestor", latest, head, check=False
@@ -1803,9 +1818,6 @@ def sync_latest_base(where, task_id, expected_base):
                 for old, new in zip(intent["commits"], commits, strict=True)
             )
             or output(target, "rev-list", "--merges", latest + ".." + head)
-            or not matching_log
-            or reflog[0] != expected_log[0]
-            or reflog[-2] != expected_log[-2]
             or output(base_worktree(root, state), "rev-parse", "HEAD") != latest
             or output(target, "rev-parse", head + "^{tree}") != intent["tree"]
             or changed_paths(target)
@@ -1815,6 +1827,32 @@ def sync_latest_base(where, task_id, expected_base):
             raise Blocked(
                 "base rebase differs from its recorded intent; review required"
             )
+        if (
+            intent["oldBase"] != state.get("validation_base", state["start"])
+            or intent["head"] != state["tip"]
+            or output(
+                target,
+                "rev-list",
+                "--reverse",
+                intent["oldBase"] + ".." + intent["head"],
+            ).splitlines()
+            != intent["commits"]
+        ):
+            raise Blocked("base rebase intent has unexpected Task history")
+        old_parent, new_parent = verify_rebase_commits(
+            target, intent["commits"], commits, intent["oldBase"], latest
+        )
+        if old_parent != intent["head"] or new_parent != head:
+            raise Blocked("base rebase history differs from its recorded intent")
+        idle_git(target)
+        if (
+            output(base_worktree(root, state), "rev-parse", "HEAD") != latest
+            or output(target, "rev-parse", "HEAD") != head
+            or changed_paths(target)
+            or tasks.read_task_snapshot(target, state["task_file"], live=True).text
+            != text
+        ):
+            raise Blocked("base or Task changed during rebase verification")
         state.update(tip=head, commit=head, verified=True, validation_base=latest)
         del state["latestBaseSync"]
         save(path, state)
