@@ -2489,138 +2489,54 @@ def test_inline_policy_ownership(fault):
 
 
 @pytest.mark.parametrize(
-    "fault",
-    [
-        None,
-        "account",
-        "namespace",
-        "group",
-        "region",
-        "partition",
-        "sub",
-        "join",
-        "unresolved",
-        "unset",
-        "invalid-account",
-        "link-name",
-        "missing-account",
-        "missing-namespace",
-        "missing-group",
-        "duplicate",
-        "missing-anchor",
-        "cross-target",
-        "attribute",
-        "deploy",
-        "terraform",
-        "no-partition",
-        "actions-order",
-        "actions-duplicate",
-        "actions-value",
-        "indexed",
-        "observed",
-    ],
+    "case_id", case_ids("reference_evidence", prefix="quicksight-")
 )
-def test_quicksight_api_group_principal(fault):
+def test_quicksight_api_group_principal(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_quicksight_principal)
+
+
+def _execute_quicksight_principal(case):
+    data = case["data"]
     comparison = fixture()
-    comparison.partition = "aws"
+    comparison.partition = data["partition"]
     rows = resource(
         comparison,
         "quicksight",
         "001",
         "QuickSight.Group",
         "Group",
-        [
-            ("AwsAccountId", "210987654321", None),
-            ("Namespace", "default", None),
-            ("GroupName", "analysts", None),
-        ],
+        [(item[0], item[1], None) for item in data["initial_rows"]],
     )
+    desired_rows = dict(data["rows"])
+    for rid, row in rows[:]:
+        prop = row["property"].removeprefix("QuickSight.Group.")
+        if prop not in desired_rows:
+            rows.remove((rid, row))
+        elif desired_rows[prop] != dict(data["initial_rows"])[prop]:
+            row["value"] = desired_rows[prop]
     metadata = comparison.resources["quicksight"]["001"]
     metadata.pop("cfn-logicalId")
     metadata["resourceMode"] = "IMPORT"
-    comparison.models["quicksight"].values["desired.resource.001.resourceMode"] = (
-        "IMPORT"
-    )
-    comparison.models["quicksight"].authoritative[
-        "desired.resource.001.resourceMode"
-    ] = "IMPORT"
-    comparison.models["quicksight"].authoritative.pop(
-        "desired.resource.001.cfn-logicalId"
-    )
-    comparison.models["quicksight"].values.pop("desired.resource.001.cfn-logicalId")
-    link = model_ref("QuickSight_Group_001", "Arn")
-    arn = "arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts"
-    actions = ["quicksight:DescribeDataSource", "quicksight:PassDataSource"]
-    actual = arn
-    expected = "matched"
-    replacements = {
-        "account": ("210987654321", "123456789012"),
-        "namespace": ("/default/", "/other/"),
-        "group": ("/analysts", "/other"),
-        "region": ("ap-northeast-1", "us-east-1"),
-        "partition": ("arn:aws:", "arn:aws-cn:"),
-    }
-    if fault in replacements:
-        actual, expected = arn.replace(*replacements[fault]), "difference"
-    elif fault == "sub":
-        actual = {
-            "Fn::Sub": "arn:${AWS::Partition}:quicksight:${AWS::Region}:210987654321:group/default/analysts"
-        }
-    elif fault == "join":
-        actual = {
-            "Fn::Join": [
-                "",
-                [
-                    "arn:",
-                    {"Ref": "AWS::Partition"},
-                    ":quicksight:",
-                    {"Ref": "AWS::Region"},
-                    ":210987654321:group/default/analysts",
-                ],
-            ]
-        }
-    elif fault == "unresolved":
-        actual, expected = {"Fn::Sub": "${Missing}"}, "uncompared"
-    elif fault in {"unset", "invalid-account", "link-name"}:
-        index, value = {
-            "unset": (2, "UNSET"),
-            "invalid-account": (0, "invalid"),
-            "link-name": (2, link),
-        }[fault]
-        rows[index][1]["value"] = (
-            json.dumps(value) if isinstance(value, dict) else value
-        )
-        expected = "uncompared"
-    elif fault and fault.startswith("missing-") and fault != "missing-anchor":
-        rows.pop(
-            {"missing-account": 0, "missing-namespace": 1, "missing-group": 2}[fault]
-        )
-        expected = "uncompared"
-    elif fault == "duplicate":
+    model = comparison.models["quicksight"]
+    model.values["desired.resource.001.resourceMode"] = "IMPORT"
+    model.authoritative["desired.resource.001.resourceMode"] = "IMPORT"
+    model.authoritative.pop("desired.resource.001.cfn-logicalId")
+    model.values.pop("desired.resource.001.cfn-logicalId")
+    if data["duplicate"]:
         rows.append(("001-004", dict(rows[-1][1])))
-        expected = "uncompared"
-    elif fault == "missing-anchor":
-        link = model_ref("QuickSight_Group_999", "Arn")
-        expected = "uncompared"
-    elif fault == "observed":
+    link = model_ref(data["logical_id"], "Arn")
+    if data["observed"]:
         rows.append(
             ("001-004", dict(property="QuickSight.Group.Arn", value=json.dumps(link)))
         )
-        comparison.models["quicksight"].authoritative["observed.row.001-004.value"] = (
-            "PENDING_DEPLOY"
+        model.authoritative["observed.row.001-004.value"] = "PENDING_DEPLOY"
+    if data["other_scope"]:
+        comparison.models["quicksight"] = replace(
+            model, scope=Scope(ROOT, "fixture", "other", "quicksight")
         )
-    elif fault in {"cross-target", "attribute", "deploy", "terraform", "no-partition"}:
-        if fault == "cross-target":
-            comparison.models["quicksight"] = replace(
-                comparison.models["quicksight"],
-                scope=Scope(ROOT, "fixture", "other", "quicksight"),
-            )
-        elif fault == "deploy":
-            comparison.local_comparison = False
-        elif fault == "terraform":
-            comparison.target["iacEngine"] = "terraform"
-        elif fault == "no-partition":
-            comparison.partition = None
+    comparison.local_comparison = data["local_comparison"]
+    comparison.target["iacEngine"] = data["engine"]
+    if data["blocked"]:
         with (
             patch("comparison.inputs._imports_model_identity.Resolver"),
             pytest.raises(Blocked),
@@ -2630,30 +2546,19 @@ def test_quicksight_api_group_principal(fault):
                 link,
                 "QuickSight.DataSource",
                 "Permissions[].Principal",
-                "GroupName" if fault == "attribute" else None,
+                data["attribute"],
             )
-        return
-    actual_actions = (
-        actions[::-1]
-        if fault == "actions-order"
-        else actions + actions[:1]
-        if fault == "actions-duplicate"
-        else ["quicksight:UpdateDataSource"]
-        if fault == "actions-value"
-        else actions
-    )
-    if fault in {"actions-order", "actions-duplicate", "actions-value"}:
-        expected = "difference"
-    desired = [{"Principal": link, "Actions": actions}]
+        return {"blocked": True}
+    actions = data["actions"]
     records = setting(
         comparison,
         "QuickSight.DataSource",
         "Permissions",
-        desired,
-        [{"Principal": actual, "Actions": actual_actions}],
+        [{"Principal": link, "Actions": actions}],
+        [{"Principal": data["actual"], "Actions": data["actual_actions"]}],
         service="quicksight",
     )
-    if fault == "indexed":
+    if data["indexed"]:
         current = comparison.rows["quicksight"]["090"]
         current[:] = [
             (
@@ -2672,7 +2577,7 @@ def test_quicksight_api_group_principal(fault):
             ),
         ]
         for rid, row in current:
-            comparison.models["quicksight"].authoritative.update(
+            model.authoritative.update(
                 {f"desired.row.{rid}.{key}": value for key, value in row.items()}
             )
         comparison.model_references.clear()
@@ -2687,14 +2592,50 @@ def test_quicksight_api_group_principal(fault):
             document["Resources"]["Receiver"],
             document,
         ).records
-    assert records[0]["category"] == expected, records
-    if fault is None:
+    if data["verify_baseline"]:
         symbol = comparison.desired_reference(
             "quicksight", link, "QuickSight.DataSource", "Permissions[].Principal"
         )
-        assert comparison.reference_literal(symbol) == arn
+        TestCase().assertEqual(comparison.reference_literal(symbol), data["actual"])
         with pytest.raises(Blocked, match="IMPORT"):
             comparison.reference("quicksight", link, "Arn")
+    return {"records": projected(records)}
+
+
+@pytest.mark.parametrize(
+    "case_id",
+    [
+        "account",
+        "group",
+        "sub",
+        "unresolved",
+        "actions-order",
+        "actions-duplicate",
+        "actions-value",
+    ],
+)
+def test_quicksight_case_faults(data_regression, tmp_path, case_id):
+    case_id = "quicksight-" + case_id
+    result = _execute_quicksight_principal(load_case("reference_evidence", case_id))
+    result["records"][0]["category"] = (
+        "difference" if case_id == "quicksight-sub" else "matched"
+    )
+    target = tmp_path / "expected.yml"
+    target.write_bytes(expected_path("reference_evidence", case_id).read_bytes())
+    with pytest.raises(AssertionError, match="FILES DIFFER"):
+        data_regression.check(result, fullpath=target)
+
+
+def test_quicksight_executor_cannot_skip_comparison(data_regression, tmp_path):
+    case_id = "quicksight-none"
+    compare = Mock(return_value=[])
+    with patch.dict(_execute_quicksight_principal.__globals__, {"setting": compare}):
+        result = _execute_quicksight_principal(load_case("reference_evidence", case_id))
+    compare.assert_called_once()
+    target = tmp_path / "expected.yml"
+    target.write_bytes(expected_path("reference_evidence", case_id).read_bytes())
+    with pytest.raises(AssertionError, match="FILES DIFFER"):
+        data_regression.check(result, fullpath=target)
 
 
 @pytest.mark.parametrize(

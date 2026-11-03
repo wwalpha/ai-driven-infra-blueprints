@@ -278,9 +278,9 @@ symlinkと同一ファイルの衝突を拒否する。既存ファイルへの�
 Model正規化・part生成・Markdown改行調整は行わないため、これらが必要な
 動的Fixtureでは引き続き `model_sources.write_model()` / `write_fixture_files()` を使う。
 
-未移行のinline expectedやloader互換性を検証する入力は、その既存の消費元を残す。
+既存loader互換性の入力は消費元を維持し、未移行のinline expectedは責務と移行可否を確認する。
 resource種別と行は順序付き2要素sequence（種別、property/value行）を保持する。
-Model/stack/template/Markdown生成、mock、assertion、状態変更の流れはPythonに残す。
+静的入力・Mock設定・状態初期値・期待値は可能な限りYAMLへ分離し、適用処理と独立した契約検証はPythonに置く。
 既存IT seedの生成・読取専用管理・独立workspace・receipt契約は変更しない。
 loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体比較は
 既存Framework ITの `baseline_ref` を使い、未実行のITをPASSとしない。

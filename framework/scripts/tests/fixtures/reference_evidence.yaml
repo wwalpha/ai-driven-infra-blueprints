@@ -144,3 +144,720 @@ cases:
     data:
       expression:
         Fn::Future: value
+  quicksight-none:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id001
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id001
+      indexed: false
+      verify_baseline: true
+      initial_rows: &id003
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+  quicksight-account:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id002
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:123456789012:group/default/analysts
+      actual_actions: *id002
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-namespace:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id004
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/other/analysts
+      actual_actions: *id004
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-group:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id005
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/other
+      actual_actions: *id005
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-region:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id006
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:us-east-1:210987654321:group/default/analysts
+      actual_actions: *id006
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-partition:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id007
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws-cn:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id007
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-sub:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id008
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual:
+        Fn::Sub: arn:${AWS::Partition}:quicksight:${AWS::Region}:210987654321:group/default/analysts
+      actual_actions: *id008
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-join:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id009
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual:
+        Fn::Join:
+        - ''
+        - - 'arn:'
+          - Ref: AWS::Partition
+          - ':quicksight:'
+          - Ref: AWS::Region
+          - :210987654321:group/default/analysts
+      actual_actions: *id009
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-unresolved:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id010
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual:
+        Fn::Sub: ${Missing}
+      actual_actions: *id010
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-unset:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - UNSET
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id011
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id011
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-invalid-account:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - invalid
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id012
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id012
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-link-name:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - '{"$modelRef": {"logicalId": "QuickSight_Group_001", "attribute": "Arn"}}'
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id013
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id013
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-missing-account:
+    data:
+      partition: aws
+      rows:
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id014
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id014
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-missing-namespace:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id015
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id015
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-missing-group:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id016
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id016
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-duplicate:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: true
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id017
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id017
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-missing-anchor:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_999
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id018
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id018
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-cross-target:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: true
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: true
+      actions: &id019
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id019
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-attribute:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: GroupName
+      blocked: true
+      actions: &id020
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id020
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-deploy:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: false
+      engine: cloudformation
+      attribute: null
+      blocked: true
+      actions: &id021
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id021
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-terraform:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: terraform
+      attribute: null
+      blocked: true
+      actions: &id022
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id022
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-no-partition:
+    data:
+      partition: null
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: true
+      actions: &id023
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id023
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-actions-order:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions:
+      - quicksight:PassDataSource
+      - quicksight:DescribeDataSource
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-actions-duplicate:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      - quicksight:DescribeDataSource
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-actions-value:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions:
+      - quicksight:UpdateDataSource
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-indexed:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: false
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id024
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id024
+      indexed: true
+      verify_baseline: false
+      initial_rows: *id003
+  quicksight-observed:
+    data:
+      partition: aws
+      rows:
+      - - AwsAccountId
+        - '210987654321'
+      - - Namespace
+        - default
+      - - GroupName
+        - analysts
+      duplicate: false
+      logical_id: QuickSight_Group_001
+      observed: true
+      other_scope: false
+      local_comparison: true
+      engine: cloudformation
+      attribute: null
+      blocked: false
+      actions: &id025
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      actual: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      actual_actions: *id025
+      indexed: false
+      verify_baseline: false
+      initial_rows: *id003
