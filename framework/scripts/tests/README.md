@@ -211,7 +211,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 [Framework UT](../../../.github/workflows/framework-ut.yml) をpush・PR・UT専用の手動実行に使い、 `python -B framework/scripts/tests/run_it.py --ut-only` で全UTだけを既存schedulerの最大2並列で実行する。ITのDiscovery・collect・実行、Terraform準備、IT定義差分比較はPRでは行わない。UTの失敗をそのまま非0終了にし、IT/比較用オプションとの併用は拒否する。
 
-別の [Framework IT](../../../.github/workflows/framework-it.yml) はmain/masterへのpushと、そのブランチを指定した手動実行だけで、通常の `run_it.py` により全UTと全ITを実行する。IT側にUT専用の分岐は置かず、他ブランチでのIT手動実行はjob全体をskipする。Python 3.14、既存requirements、変更ファイルによる非選別とファイル種別による非除外は維持する。ITは `integrations/**/*.checks.py` を独立プロセスで全件実行し、UT失敗後もITを続け、いずれかの失敗でCIを失敗させる。既存のpytest・直接実行・トップレベル実行方式を維持する。手動baseline計測はmain/masterのみで使う。
+別の [Framework IT](../../../.github/workflows/framework-it.yml) はmain/masterへのpushと、そのブランチを指定した手動実行だけで、`run_it.py --it-only` によりUTを実行せず全ITを実行する。通常の `run_it.py` は引き続き全UTと全ITを実行する。他ブランチでのIT手動実行はjob全体をskipする。Python 3.14、既存requirements、変更ファイルによる非選別とファイル種別による非除外は維持する。ITは `integrations/**/*.checks.py` を独立プロセスで全件実行し、ITの失敗でCIを失敗させる。既存のpytest・直接実行・トップレベル実行方式を維持する。手動baseline計測はmain/masterのみで使う。
 
 runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 

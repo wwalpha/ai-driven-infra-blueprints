@@ -261,6 +261,51 @@ def check_comparison_cli_does_not_run_suites(tmp_path, capsys, monkeypatch):
     )
 
 
+@pytest.mark.parametrize("errors,code", [([], 0), (["missing"], 0), ([], 1)])
+def check_it_only_skips_ut_and_preserves_it_failures(errors, code, monkeypatch):
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    outcome = {"reachability_errors": errors, "suites": [{"code": code}]}
+    with (
+        patch.object(sys, "argv", ["run_it.py", "--it-only"]),
+        patch.object(run_it._imports_validation_loop, "select_checks") as select,
+        patch.object(run_it._imports_validation_loop, "run_commands") as units,
+        patch.object(run_it, "run_all", return_value=outcome) as integrations,
+    ):
+        assert run_it.main() == int(bool(errors or code))
+    select.assert_not_called()
+    units.assert_not_called()
+    integrations.assert_called_once()
+
+
+def check_it_only_cannot_combine_with_ut_only():
+    with (
+        patch.object(sys, "argv", ["run_it.py", "--it-only", "--ut-only"]),
+        pytest.raises(SystemExit) as error,
+    ):
+        run_it.main()
+    assert error.value.code == 2
+
+
+def check_it_only_baseline_runs_both_it_sides(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    tests = tree(tmp_path)
+    (tests.parent / "requirements.txt").write_bytes(
+        (run_it.TESTS.parent / "requirements.txt").read_bytes()
+    )
+    outcome = {"seconds": 1, "reachability_errors": [], "suites": []}
+    with (
+        patch.object(sys, "argv", ["run_it.py", "--it-only", "--baseline-root", str(tmp_path)]),
+        patch.object(run_it._imports_validation_loop, "run_commands") as units,
+        patch.object(run_it, "run_all", return_value=outcome) as integrations,
+    ):
+        assert run_it.main() == 0
+    units.assert_not_called()
+    assert integrations.call_count == 2
+    assert integrations.call_args_list[0].args[0] == tests
+    assert integrations.call_args_list[0].kwargs == {"baseline": True}
+    assert integrations.call_args_list[1].args[0] == run_it.TESTS
+
+
 def _callback_change_collection_input(tests, suite, output):
     (tests / "integrations/example.checks.py").write_text(
         PYTEST + "# changed during collection\n", encoding="utf-8"

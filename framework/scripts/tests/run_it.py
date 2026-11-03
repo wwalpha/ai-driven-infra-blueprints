@@ -892,7 +892,11 @@ def display_unit_timing(result, summary):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-root", default="")
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
+        "--it-only", action="store_true", help="Run IT without executing UT"
+    )
+    modes.add_argument(
         "--ut-only",
         action="store_true",
         help="Run all UTs without IT discovery, collection or execution",
@@ -946,31 +950,34 @@ def main():
                 summary.write("\n```text\n" + report + "\n```\n")
         return 0
     sys.path[:0] = [str(TESTS.parent), str(TESTS)]
-    _imports_validation_loop.authorize_full_regression(TESTS.parents[2])
-    units, reason = _imports_validation_loop.select_checks(TESTS.parents[2])
-    print(f"{reason}: {len(units)} UT suites", flush=True)
-    with tempfile.TemporaryDirectory(prefix="framework-ut-") as directory:
-        commands = unit_commands(units)
-        environment = _imports_validation_loop.utf8_environment()
-        environment["BLUEPRINT_UT_TIMING_DIR"] = directory
-        started = time.monotonic()
-        unit_status = _imports_validation_loop.run_commands(
-            TESTS.parents[2], commands, environment, Path(directory), jobs=2
-        )
-        timing = unit_timing(Path(directory), commands, time.monotonic() - started)
-        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-        try:
-            with (
-                open(summary_path, "a", encoding="utf-8")
-                if summary_path
-                else nullcontext(None) as summary
-            ):
-                display_unit_timing(timing, summary)
-        except OSError as error:
-            print(f"UT timing summary open failed: {error}", file=sys.stderr)
-            display_unit_timing(timing, None)
-    if args.ut_only:
-        return int(bool(unit_status or timing["errors"]))
+    unit_failed = False
+    if not args.it_only:
+        _imports_validation_loop.authorize_full_regression(TESTS.parents[2])
+        units, reason = _imports_validation_loop.select_checks(TESTS.parents[2])
+        print(f"{reason}: {len(units)} UT suites", flush=True)
+        with tempfile.TemporaryDirectory(prefix="framework-ut-") as directory:
+            commands = unit_commands(units)
+            environment = _imports_validation_loop.utf8_environment()
+            environment["BLUEPRINT_UT_TIMING_DIR"] = directory
+            started = time.monotonic()
+            unit_status = _imports_validation_loop.run_commands(
+                TESTS.parents[2], commands, environment, Path(directory), jobs=2
+            )
+            timing = unit_timing(Path(directory), commands, time.monotonic() - started)
+            summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+            try:
+                with (
+                    open(summary_path, "a", encoding="utf-8")
+                    if summary_path
+                    else nullcontext(None) as summary
+                ):
+                    display_unit_timing(timing, summary)
+            except OSError as error:
+                print(f"UT timing summary open failed: {error}", file=sys.stderr)
+                display_unit_timing(timing, None)
+        unit_failed = bool(unit_status or timing["errors"])
+        if args.ut_only:
+            return int(unit_failed)
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     with (
         open(summary_path, "a", encoding="utf-8")
@@ -998,7 +1005,7 @@ def main():
                 "Legacy profiler-derived fixture request/generation counts are not comparable.\n"
             )
     return int(
-        bool(unit_status or timing["errors"])
+        unit_failed
         or any(
             result["reachability_errors"]
             or any(row["code"] for row in result["suites"])

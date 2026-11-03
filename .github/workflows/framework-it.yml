@@ -50,7 +50,7 @@ jobs:
           ref: ${{ inputs.baseline_ref }}
           path: .it-baseline
           persist-credentials: false
-      - name: Run all UT and IT
+      - name: Run all IT
         env:
           IT_BASELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_ref != '' && '.it-baseline' || '' }}
-        run: python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"
+        run: python -B framework/scripts/tests/run_it.py --it-only --baseline-root "$IT_BASELINE"
