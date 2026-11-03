@@ -362,7 +362,7 @@ def reference_issues(findings, comparison, services, *, scope=None, judgments=No
 
 @task_read_scope
 @input_scope
-def scan(root, environment, directory, services, *, fresh=False, jobs=4):
+def scan(root, environment, directory, services, *, fresh=False, jobs=4, progress=None):
     started = time.perf_counter()
     scope = selected_scope(environment, directory, services)
     scan_id = uuid.uuid4().hex
@@ -375,6 +375,8 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         with scan_stage(stages, "view-preflight", {(environment, directory, service)}):
             view_text(comparison, doc, phase="view-preflight")
     warnings = list(comparison.warnings)
+    if progress:
+        progress.stage("mechanical")
     begin = time.perf_counter()
     validators = []
     try:
@@ -397,6 +399,8 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         errors, diagnostics = validator.errors, ""
         warnings.extend(validator.warnings)
     mechanical_seconds = time.perf_counter() - begin
+    if progress:
+        progress.stage("diagnostics")
     ordinary, judgments = [], []
     validator = validators[0]
     with scan_stage(stages, "diagnostics.references", scope):
@@ -418,6 +422,8 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     ):
         # Keep source diagnostics when their Issue conversion is incomplete.
         diagnostics = "\n".join([diagnostics, *dict.fromkeys(errors)])
+    if progress:
+        progress.stage("naming", len(set(services)))
     naming = {"names": [], "rules": {}}
     for service in sorted(set(services)):
         with scan_stage(
@@ -432,6 +438,10 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
                 if key not in {"names", "rules"}
             )
             judgments.extend(naming_judgments)
+        if progress:
+            progress.advance()
+    if progress:
+        progress.stage("review_materials", len(services))
     for service in services:
         with scan_stage(
             stages, "materials.review-prose", {(environment, directory, service)}
@@ -446,6 +456,10 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
                         "materials": notes,
                     }
                 )
+        if progress:
+            progress.advance()
+    if progress:
+        progress.stage("iac_comparison")
     begin = time.perf_counter()
     comparison_failure = None
     try:
@@ -493,6 +507,8 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         )
     warnings.extend(w for w in comparison.warnings if w not in warnings)
     iac_seconds = time.perf_counter() - begin
+    if progress:
+        progress.stage("cfn_lint")
     run_lint = _imports_issues_cfn_lint.run_lint
     begin = time.perf_counter()
     lint = dict(
@@ -522,6 +538,8 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             if job["id"] not in covered
         )
     lint_seconds = time.perf_counter() - begin
+    if progress:
+        progress.stage("aggregation")
     ordinary.extend(lint.pop("ordinary"))
     judgments.extend(lint.pop("judgments"))
     warnings.extend(lint.pop("warnings"))
@@ -593,6 +611,8 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         redact=comparison.redacted,
     )
     aggregation_seconds = time.perf_counter() - begin
+    if progress:
+        progress.stage("finalizing")
     artifact = dict(
         version=6,
         target_services=all_services,

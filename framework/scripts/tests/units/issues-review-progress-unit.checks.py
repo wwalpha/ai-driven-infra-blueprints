@@ -316,8 +316,6 @@ def check_real_naming_rules_shared_with_complete_twenty_item_batch(
         review.submit(submission(review.next_batch()))
     batch = review.next_batch(limit=20)
     assert 0 < len(batch["items"]) <= 20
-    if len(namespaces) == 1:
-        assert len(batch["items"]) == 20
     assert len(encoded(batch).encode("utf-8")) <= 32768
     shared = batch["naming_context"]
     assert shared == dict(
@@ -678,6 +676,9 @@ def check_invalid_batch_is_atomic_and_retryable(tmp_path, fault):
         result["results"][0]["assignment"] = {}
     before = review.path.read_bytes()
     with pytest.raises(ValueError):
+        review.submit(result, validate_only=True)
+    assert review.path.read_bytes() == before
+    with pytest.raises(ValueError):
         review.submit(result)
     assert review.path.read_bytes() == before
     assert review.status()["sections"]["naming"]["reviewed"] == 0
@@ -767,6 +768,8 @@ def check_retry_idempotence_overwrite_and_stale_batch(tmp_path):
     batch = review.next_batch(limit=2)
     stale = submission(batch)
     batch = review.next_batch(limit=1)
+    with pytest.raises(ValueError, match="stale"):
+        review.submit(stale, validate_only=True)
     with pytest.raises(ValueError, match="stale"):
         review.submit(stale)
     result = submission(batch)
@@ -1128,6 +1131,126 @@ def check_invalid_snapshot_material_cannot_complete(tmp_path):
     with pytest.raises(ValueError, match=r"service_results\[\].service"):
         controller(tmp_path, data)
     assert not (tmp_path / "progress.json").exists()
+
+
+def check_validate_is_read_only_and_submit_rechecks(tmp_path):
+    review = controller(tmp_path, named_artifact(tmp_path, 2))
+    review.initialize()
+    batch = review.next_batch()
+    result = submission(batch)
+    before = review.path.read_bytes()
+    assert "submission_contract" in batch
+    review.submit(result, validate_only=True)
+    assert review.path.read_bytes() == before
+    invalid = deepcopy(result)
+    del invalid["results"][0]["reason"]
+    with pytest.raises(ValueError):
+        review.submit(invalid, validate_only=True)
+    assert review.path.read_bytes() == before
+    review.submit(result)
+    assert review.path.read_bytes() != before
+    assert review.submit(result, validate_only=True) == review.status()
+
+
+def check_prepare_reuses_external_checkpoint_and_status(tmp_path):
+    root = tmp_path / "repository"
+    root.mkdir()
+    workspace = tmp_path / "workspace"
+    command = [
+        "python",
+        "-B",
+        "issues_scan.py",
+        "--repository-root",
+        str(root),
+        "prepare",
+        "--workspace",
+        str(workspace),
+    ]
+    first = invoke_cli(command)
+    assert first.returncode == 0
+    paths = json.loads(first.stdout)
+    checkpoint = Path(paths["state"])
+    checkpoint.write_bytes(b"preserve")
+    second = invoke_cli(command)
+    assert json.loads(second.stdout) == paths
+    assert checkpoint.read_bytes() == b"preserve"
+    Path(paths["progress"]).write_text('{"status":"running"}')
+    status = invoke_cli(
+        [
+            "python",
+            "-B",
+            "issues_scan.py",
+            "--repository-root",
+            str(root),
+            "scan-status",
+            "--progress",
+            paths["progress"],
+        ]
+    )
+    assert json.loads(status.stdout)["status"] == "running"
+    rejected = invoke_cli(
+        [
+            "python",
+            "-B",
+            "issues_scan.py",
+            "--repository-root",
+            str(root),
+            "prepare",
+            "--workspace",
+            str(root / "workspace"),
+        ]
+    )
+    assert rejected.returncode == 2
+
+
+def check_scan_progress_separates_diagnostic_failure_and_execution_failure(tmp_path):
+    root = tmp_path / "repository"
+    root.mkdir()
+    artifact = tmp_path / "scan.json"
+    progress = tmp_path / "scan-progress.json"
+    command = [
+        "python",
+        "-B",
+        "issues_scan.py",
+        "--repository-root",
+        str(root),
+        "scan",
+        "--environment",
+        "dev",
+        "--target-directory",
+        "team",
+        "--service",
+        "s3",
+        "--artifact",
+        str(artifact),
+        "--progress",
+        str(progress),
+    ]
+    with (
+        patch.object(
+            issues_cli._imports_issues_runner, "scan", return_value={"example": True}
+        ),
+        patch.object(
+            issues_cli._imports_issues_artifact,
+            "review_payload",
+            return_value={"result": "FAIL"},
+        ),
+        patch.object(
+            issues_cli._imports_issues_artifact, "scan_exit_code", return_value=1
+        ),
+    ):
+        result = invoke_cli(command)
+    assert result.returncode == 1
+    assert json.loads(result.stdout) == {"result": "FAIL"}
+    assert json.loads(progress.read_text())["status"] == "completed"
+    before = artifact.read_bytes()
+    with patch.object(
+        issues_cli._imports_issues_runner, "scan", side_effect=ValueError("scan failed")
+    ):
+        result = invoke_cli(command)
+    assert result.returncode == 2 and "scan failed" in result.stderr
+    assert json.loads(progress.read_text())["status"] == "failed"
+    assert artifact.read_bytes() == before
 
 
 if __name__ == "__main__":

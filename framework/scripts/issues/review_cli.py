@@ -30,11 +30,16 @@ def parser():
     parser.add_argument("--repository-root", type=Path, default=Path.cwd().resolve())
     parser.add_argument("--task-file")
     commands = parser.add_subparsers(dest="command", required=True)
+    prepare = commands.add_parser("prepare")
+    prepare.add_argument("--workspace", type=Path)
+    status = commands.add_parser("scan-status")
+    status.add_argument("--progress", type=Path, required=True)
     scanparser = commands.add_parser("scan")
     scanparser.add_argument("--environment", required=True)
     scanparser.add_argument("--target-directory", required=True)
     scanparser.add_argument("--service", action="append", required=True)
     scanparser.add_argument("--artifact", type=Path, required=True)
+    scanparser.add_argument("--progress", type=Path)
     scanparser.add_argument("--fresh", action="store_true")
     scanparser.add_argument("--jobs", type=int, choices=(1, 2, 4), default=4)
     detail = commands.add_parser("detail")
@@ -85,6 +90,7 @@ def parser():
         "init",
         "next",
         "submit",
+        "validate",
         "status",
         "inspect",
         "revise",
@@ -96,7 +102,7 @@ def parser():
         if operation == "next":
             command.add_argument("--limit", type=int, default=20)
             command.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
-        elif operation == "submit":
+        elif operation in {"submit", "validate"}:
             command.add_argument("--submission", type=Path, required=True)
         elif operation == "inspect":
             command.add_argument("--section", choices=SECTIONS, required=True)
@@ -116,9 +122,11 @@ def run_review(args, root):
         output = controller.status()
     elif args.review_command == "next":
         output = controller.next_batch(args.limit, args.max_bytes)
-    elif args.review_command == "submit":
+    elif args.review_command in {"submit", "validate"}:
         submission = strict_json(outside(root, args.submission).read_bytes())
-        output = controller.submit(submission)
+        output = controller.submit(
+            submission, validate_only=args.review_command == "validate"
+        )
     elif args.review_command == "inspect":
         output = controller.inspect(args.section, args.id)
     elif args.review_command == "revise":

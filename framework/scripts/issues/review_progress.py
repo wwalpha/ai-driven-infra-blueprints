@@ -411,6 +411,22 @@ class ReviewController:
                     batch_id=self._batch_id(section, candidate_ids),
                     expected_ids=candidate_ids,
                     items=[*items, material],
+                    submission_contract={
+                        "top_level": ["batch_id", "section", "results"],
+                        "result_fields": [
+                            "id",
+                            "reviewed",
+                            "reason",
+                            "evidence",
+                            "issues",
+                            "unverified",
+                        ],
+                        "reviewed": "must be true",
+                        "reason_and_evidence": "non-empty text",
+                        "ids": "exactly expected_ids, once each",
+                        "assignment": "required for judgments items with message",
+                        "decision": "required for diagnostics",
+                    },
                 )
                 if section == "naming":
                     kinds = {
@@ -444,7 +460,7 @@ class ReviewController:
             self._write(state, sections)
             return deepcopy(output)
 
-    def submit(self, submission: Json) -> Json:
+    def submit(self, submission: Json, *, validate_only: bool = False) -> Json:
         exact(submission, {"batch_id", "section", "results"}, "Review submission")
         section = submission["section"]
         if section not in SECTIONS or not isinstance(submission["results"], list):
@@ -489,7 +505,8 @@ class ReviewController:
                 self._sections(candidate) if section == "judgments" else sections
             )
             self._validate_candidate(candidate, candidate_sections)
-            self._write(candidate, candidate_sections)
+            if not validate_only:
+                self._write(candidate, candidate_sections)
             return self._status(candidate, candidate_sections)
 
     def _validate_candidate(self, state: Json, sections=None) -> None:
