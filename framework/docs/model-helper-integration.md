@@ -40,11 +40,18 @@ Modified files／Allowed paths を照合し、context を発行します。
 通常編集の最後に共通 IMPORT 保持検査を行います。中間 Model-only 保存へ最終的な
 設計全体の検証を追加しません。retarget の保存前検査は維持します。
 生成候補や人間の編集を直接 write_text で正本へ保存する helper は接続し直してください。
+通常の Model 編集には、外部の完全な properties 候補と Task を指定する既存 CLI も使えます。
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py edit model/<environment>/<target-directory>/<service-id>.properties --candidate <external-candidate> --task-file tasks/<task-name>.md
+```
+
+独自 helper から同じ保護付き API を呼ぶ場合は次のようにします。
 
 ```python
 from model import load_model, prepare_edit, publish_edit
 from model.adapters.task import edit_write_context
-from task_contract import selected_task
+from task_contract_core import selected_task
 
 # root、task_file、scope、candidate は呼出側が明示的に選択したもの。
 with selected_task(root, task_file):
