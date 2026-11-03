@@ -1856,8 +1856,18 @@ def check_framework_final_candidate():
         assert (
             wt.sync_latest_base(root, "example", latest)["status"] == "needs_validation"
         )
+        synchronized = git(target, "rev-parse", "HEAD")
+        _, _, _, saved = wt.load(root, "example")
+        TestCase().assertEqual(saved.get("validation_base"), latest)
+        TestCase().assertEqual(saved.get("commit"), synchronized)
+        TestCase().assertTrue(wt.tasks.final_framework_task((target / state["task_file"]).read_text(), {relative}))
+        TestCase().assertTrue(wt.ancestor(target, latest, state["branch"]))
+        source.write_text(source.read_text() + "Later scoped correction\n")
         candidate = wt.prepare_integration(root, "example")
         TestCase().assertEqual(candidate.base_commit, latest)
+        TestCase().assertNotEqual(candidate.candidate_head, synchronized)
+        TestCase().assertEqual(git(target, "rev-parse", "HEAD^"), synchronized)
+        TestCase().assertIn("Later scoped correction", source.read_text())
         assert candidate.scope == frozenset() and candidate.changed_paths == {relative}
         assert not (target / "project.json").exists()
         assert tasks.status((target / state["task_file"]).read_text()) == "running"

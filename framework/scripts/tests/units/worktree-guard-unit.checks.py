@@ -2988,6 +2988,44 @@ def check_pr_merge_response_is_reconciled_without_repeating(tmp_path, merged):
         check.assertEqual(state["merged"], "a" * 40 if merged else None)
 
 
+@pytest.mark.parametrize(
+    "case", ["accepted", "no_base", "wrong_commit", "not_framework", "not_ancestor"]
+)
+def check_synchronized_framework_continuation_guards(tmp_path, case):
+    state = {
+        "tip": "candidate",
+        "branch": "codex/worktree/example",
+        "commit": "candidate" if case != "wrong_commit" else "other",
+        "verified": True,
+        "task_file": "tasks/example.md",
+        "validation_base": None if case == "no_base" else "base",
+    }
+    changed = {"framework/example.py"}
+    with (
+        patch.object(wt, "idle_git"),
+        patch.object(wt.tasks, "validate_contract"),
+        patch.object(wt.tasks, "paths_in", return_value=changed),
+        patch.object(wt.tasks, "matches", return_value=True),
+        patch.object(
+            wt.tasks, "final_framework_task", return_value=case != "not_framework"
+        ),
+        patch.object(wt, "output", return_value="candidate"),
+        patch.object(wt, "ancestor", return_value=case != "not_ancestor"),
+    ):
+        if case == "accepted":
+            TestCase().assertEqual(
+                wt._commit_preconditions(
+                    tmp_path, state, changed, "task", None, scope_paths=changed
+                ),
+                "candidate",
+            )
+        else:
+            with pytest.raises(wt.Blocked, match="task changed after commit"):
+                wt._commit_preconditions(
+                    tmp_path, state, changed, "task", None, scope_paths=changed
+                )
+
+
 if __name__ == "__main__":
     from support.pytest_cli import run
 

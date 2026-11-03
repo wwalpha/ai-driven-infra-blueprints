@@ -770,7 +770,15 @@ def _commit_preconditions(
     elif head != state["tip"]:
         raise Blocked("unexpected commits on task branch; review required")
     if published_head is None and state["commit"] and changed:
-        if parsed_operation is None or parsed_operation.action != "model-delete":
+        synchronized_framework = (
+            state.get("validation_base")
+            and state["commit"] == head
+            and tasks.final_framework_task(text, scope_paths)
+            and ancestor(target, state["validation_base"], state["branch"])
+        )
+        if not synchronized_framework and (
+            parsed_operation is None or parsed_operation.action != "model-delete"
+        ):
             raise Blocked(
                 "task changed after commit; rerun its workflow before integration"
             )
@@ -919,6 +927,7 @@ def _prepare_commit(
         git(target, "commit", "-m", message, *(["-m", approval] if approval else []))
         state["commit"] = output(target, "rev-parse", "HEAD")
         state["tip"] = state["commit"]
+        state["verified"] = False
         save(path, state)  # Preserve the task commit before touching the latest base.
         if (
             output(target, "rev-parse", "HEAD^") != head

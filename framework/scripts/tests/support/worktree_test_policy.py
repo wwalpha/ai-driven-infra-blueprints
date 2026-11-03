@@ -101,6 +101,7 @@ WORKTREE_CASES = {
         "check_pr_draft_and_closed_state",
         "check_registered_guard_process",
         "check_prepare_rejects_before_git_write",
+        "check_synchronized_framework_continuation_guards",
         "check_cli_failure_diagnostics",
         "check_cleanup_missing_worktree",
         "check_cleanup_stops_before_removal",
