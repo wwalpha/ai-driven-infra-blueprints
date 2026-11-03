@@ -3,6 +3,7 @@
 
 import sys
 from pathlib import Path
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -2015,12 +2016,13 @@ def table_validation(
     return validator, result
 
 
-def check_expansion_failure_preserves_raw_and_independent_resources(tmp_path, catalog):
-    good, result = table_validation(tmp_path, catalog, CODEBUILD)
-    assert not good.errors and result.status == "PASS", good.errors
-    assert not good.findings.unverified
-    body = CODEBUILD[CODEBUILD.index("<a id=") :]
-    broken = CODEBUILD.replace("`hello:world`", "[bucket](s3.md#bucket)")
+def expansion_raw_case(tmp_path, catalog, case):
+    source = case["files"]["codebuild.md"]
+    good, result = table_validation(tmp_path, catalog, source)
+    TestCase().assertTrue(not good.errors and result.status == "PASS", good.errors)
+    TestCase().assertTrue(not good.findings.unverified)
+    body = source[source.index("<a id=") :]
+    broken = source.replace("`hello:world`", "[bucket](s3.md#bucket)")
     missing_source = (
         broken + "| 11 | VpcConfig.Subnets[1] | [subnet](subnet.md#subnet) | 配置先 |\n"
     )
@@ -2049,45 +2051,92 @@ def check_expansion_failure_preserves_raw_and_independent_resources(tmp_path, ca
         validator, result = table_validation(
             tmp_path, catalog, broken + "\n" + second + "\n" + third
         )
-    assert result.status == "FAIL" and result.metadata["reason"] not in {
-        "dependency",
-        "unspecified",
-        "",
-    }
-    assert result.status != "PASS"
-    assert (
-        sum("PLAINTEXTではResource linkは禁止" in error for error in validator.errors)
+    TestCase().assertTrue(
+        result.status == "FAIL"
+        and result.metadata["reason"] not in {"dependency", "unspecified", ""}
+    )
+    TestCase().assertTrue(result.status != "PASS")
+    TestCase().assertTrue(
+        sum(("PLAINTEXTではResource linkは禁止" in error for error in validator.errors))
         == 1
     )
-    assert any("exactly one H1" in error for error in validator.errors)
-    assert any(
-        "Source / Comment must be Japanese" in error for error in validator.errors
+    TestCase().assertTrue(
+        any(("exactly one H1" in error for error in validator.errors))
     )
-    assert any(
-        "not selected by design catalog" in error and "NotSelected" in error
-        for error in validator.errors
+    TestCase().assertTrue(
+        any(
+            ("Source / Comment must be Japanese" in error for error in validator.errors)
+        )
     )
-    assert any(
-        "provider schema violation" in error and "TimeoutInMinutes" in error
-        for error in validator.errors
+    TestCase().assertTrue(
+        any(
+            (
+                "not selected by design catalog" in error and "NotSelected" in error
+                for error in validator.errors
+            )
+        )
     )
-    assert [call.args[2] for call in identifiers.call_args_list] == ["Second", "Third"]
-    assert not any("identifier output row" in error for error in validator.errors)
-    assert not any(
-        "not selected by design catalog" in error
-        and ("Variables" in error or "Subnets" in error)
-        for error in validator.errors
+    TestCase().assertTrue(
+        any(
+            (
+                "provider schema violation" in error and "TimeoutInMinutes" in error
+                for error in validator.errors
+            )
+        )
     )
-    assert not validator.findings.processing_errors
+    TestCase().assertTrue(
+        [call.args[2] for call in identifiers.call_args_list] == ["Second", "Third"]
+    )
+    TestCase().assertTrue(
+        not any(("identifier output row" in error for error in validator.errors))
+    )
+    TestCase().assertTrue(
+        not any(
+            (
+                "not selected by design catalog" in error
+                and ("Variables" in error or "Subnets" in error)
+                for error in validator.errors
+            )
+        )
+    )
+    TestCase().assertTrue(not validator.findings.processing_errors)
     blocked = validator.findings.result(
         "design.tables.semantic", {("dev", "123456789012", "codebuild")}
     )
-    assert blocked.status == "FAIL"
+    TestCase().assertTrue(blocked.status == "FAIL")
     entries = blocked.metadata["unverified"]
-    assert any(
-        entry["resource"] == "### CodeBuild.Project: BuildProject"
-        and "identifier outputs" in entry["checks"]
-        for entry in entries
+    TestCase().assertTrue(
+        any(
+            (
+                entry["resource"] == "### CodeBuild.Project: BuildProject"
+                and "identifier outputs" in entry["checks"]
+                for entry in entries
+            )
+        )
+    )
+    TestCase().assertEqual(
+        (tmp_path / "docs/designs/dev/123456789012/codebuild.md").read_text(
+            encoding="utf-8"
+        ),
+        broken + "\n" + second + "\n" + third,
+    )
+    return {
+        "raw": broken + "\n" + second + "\n" + third,
+        "errors": validator.errors,
+        "warnings": validator.warnings,
+        "unverified": entries,
+        "status": result.status,
+    }
+
+
+@pytest.mark.parametrize("case_id", ["expansion-raw"])
+def check_expansion_failure_preserves_raw_and_independent_resources(
+    tmp_path, catalog, case_runner, case_id
+):
+    case_runner.run(
+        "design_layout",
+        case_id,
+        _bind_framework_callback(expansion_raw_case, tmp_path, catalog),
     )
 
 
@@ -2148,25 +2197,58 @@ def check_grouped_projection_failure_stops_dependent_schema(tmp_path, catalog):
     )
 
 
-def check_grouped_expansion_failure_has_no_derived_errors(tmp_path, catalog):
-    text = KMS.replace("<!-- logical-id: AliasTwo -->", "").replace(
-        "| 1 | KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |\n",
+def grouped_expansion_case(tmp_path, catalog, case):
+    source = case["files"]["kms.md"]
+    text = source.replace("<!-- logical-id: AliasTwo -->", "").replace(
+        "| 1 | KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | source keyを識別するID |\n",
         "",
     )
     validator, result = table_validation(
-        tmp_path, catalog, text, "kms", ("KMS.Key", "KMS.Alias")
+        tmp_path, catalog, text, "kms", ("source.Key", "source.Alias")
     )
-    assert result.status == "FAIL"
-    assert any("requires anchor and logical ID" in error for error in validator.errors)
-    assert not any(
-        "identifier output" in error or "provider schema" in error
-        for error in validator.errors
+    TestCase().assertTrue(result.status == "FAIL")
+    TestCase().assertTrue(
+        any(("requires anchor and logical ID" in error for error in validator.errors))
     )
-    assert any(
-        "grouped child schema/identity" in item.get("checks", [])
-        for item in validator.findings.unverified
+    TestCase().assertTrue(
+        not any(
+            (
+                "identifier output" in error or "provider schema" in error
+                for error in validator.errors
+            )
+        )
     )
-    assert not validator.findings.processing_errors
+    TestCase().assertTrue(
+        any(
+            (
+                "grouped child schema/identity" in item.get("checks", [])
+                for item in validator.findings.unverified
+            )
+        )
+    )
+    TestCase().assertTrue(not validator.findings.processing_errors)
+    TestCase().assertEqual(
+        (tmp_path / "docs/designs/dev/123456789012/kms.md").read_text(encoding="utf-8"),
+        text,
+    )
+    return {
+        "raw": text,
+        "errors": validator.errors,
+        "warnings": validator.warnings,
+        "unverified": validator.findings.unverified,
+        "status": result.status,
+    }
+
+
+@pytest.mark.parametrize("case_id", ["grouped-expansion"])
+def check_grouped_expansion_failure_has_no_derived_errors(
+    tmp_path, catalog, case_runner, case_id
+):
+    case_runner.run(
+        "design_layout",
+        case_id,
+        _bind_framework_callback(grouped_expansion_case, tmp_path, catalog),
+    )
 
 
 def check_horizontal_raw_checks_survive_reference_failure(tmp_path, catalog):

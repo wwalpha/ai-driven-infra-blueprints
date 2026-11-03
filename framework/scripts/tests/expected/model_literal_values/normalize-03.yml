@@ -1,0 +1,7 @@
+arrays:
+- - EventSelectors
+  - - - - arn:aws:s3
+- - EventSelectors[].DataResources
+  - - - arn:aws:s3
+values:
+- - arn:aws:s3

@@ -2,7 +2,9 @@
 
 import json
 import sys
+from copy import deepcopy
 from pathlib import Path
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -20,6 +22,7 @@ from model.literal_values import (
     value_shape,
 )
 from support.pytest_cli import run
+from support.regression_cases import case_ids
 from utils.cloudformation.schema import CloudFormationSchemaCatalog
 from utils.comparison_rows import Unresolved, project, put_row, select
 from utils.property_path import definition_path
@@ -30,50 +33,26 @@ if not __debug__:
 ROOT = Path(__file__).resolve().parents[4]
 
 
+def normalize_case(case):
+    data = case["data"]
+    before = deepcopy(data)
+    result = normalize(data["prop"], data["value"], data["shape"])
+    TestCase().assertIs(type(result.values), tuple)
+    TestCase().assertIs(type(result.arrays), tuple)
+    for pair in result.arrays:
+        TestCase().assertIs(type(pair), tuple)
+    TestCase().assertEqual(data, before)
+    return {
+        "values": list(result.values),
+        "arrays": [[path, array] for path, array in result.arrays],
+    }
+
+
 @pytest.mark.parametrize(
-    "prop,value,shape,expected,parents",
-    [
-        ("Permissions[].Actions", ["A", "B"], "leaf", (["A", "B"],), ()),
-        (
-            "Permissions[].Actions",
-            [["A", "B"]],
-            "projection",
-            (["A", "B"],),
-            ("Permissions",),
-        ),
-        (
-            "EventSelectors[].DataResources[].Values",
-            [[["arn:aws:s3"]]],
-            "projection",
-            (["arn:aws:s3"],),
-            ("EventSelectors", "EventSelectors[].DataResources"),
-        ),
-        ("Items[]", ["A", "B"], "projection", ("A", "B"), ("Items",)),
-        ("Items[]", "A", "leaf", ("A",), ()),
-        ("Permissions[].Actions", [], "leaf", ([],), ()),
-        ("Permissions[].Actions", [], "projection", (), ("Permissions",)),
-        (
-            "Groups[].Members[].Values",
-            [[]],
-            "projection",
-            (),
-            ("Groups", "Groups[].Members"),
-        ),
-        (
-            "Permissions[].Actions",
-            [["A"], ["B"]],
-            "projection",
-            (["A"], ["B"]),
-            ("Permissions",),
-        ),
-    ],
+    "case_id", case_ids("model_literal_values", prefix="normalize-")
 )
-def test_normalize(prop, value, shape, expected, parents):
-    before = json.dumps(value)
-    result = normalize(prop, value, shape)
-    assert result.values == expected
-    assert tuple(path for path, _ in result.arrays) == parents
-    assert json.dumps(value) == before
+def test_normalize(case_runner, case_id):
+    case_runner.run("model_literal_values", case_id, normalize_case)
 
 
 @pytest.mark.parametrize(
@@ -91,31 +70,24 @@ def test_invalid_hierarchy(prop, value, shape):
         normalize(prop, value, shape)
 
 
-@pytest.mark.parametrize(
-    "value,shape,valid",
-    [
-        (["ActionA", "ActionB"], "leaf", True),
-        ([["ActionA", "ActionB"]], "projection", True),
-        ("ActionA", "leaf", False),
-        ([], "leaf", False),
-        (["ActionA"] * 31, "leaf", False),
-        (["ActionA", 1], "leaf", False),
-        ([["ActionA", 1]], "projection", False),
-        ([[["ActionA"]]], "leaf", False),
-        (["ActionA"], "projection", False),
-        ([[]], "projection", False),
-        ([], "projection", False),
-    ],
-)
-def test_actions(value, shape, valid):
+def actions_case(case):
+    data = case["data"]
+    before = deepcopy(data)
     errors = literal_errors(
         DesignSchemaCatalog(ROOT),
         "QuickSight.DataSource",
         "Permissions[].Actions",
-        json.dumps(value),
-        shape,
+        json.dumps(data["value"]),
+        data["shape"],
     )
-    assert (not errors) == valid, errors
+    TestCase().assertEqual(not errors, data["valid"])
+    TestCase().assertEqual(data, before)
+    return {"errors": errors}
+
+
+@pytest.mark.parametrize("case_id", case_ids("model_literal_values", prefix="actions-"))
+def test_actions(case_runner, case_id):
+    case_runner.run("model_literal_values", case_id, actions_case)
 
 
 def test_deep_projection_and_terminal_selection():
@@ -149,25 +121,26 @@ def test_deep_projection_and_terminal_selection():
     )
 
 
-@pytest.mark.parametrize(
-    "field,raw,valid",
-    [
-        ("EventSelectors[].IncludeManagementEvents", "[true,false]", True),
-        ("EventSelectors[].IncludeManagementEvents", '[true,"false"]', False),
-        ("EventSelectors[].ReadWriteType", '["All","ReadOnly"]', True),
-        ("EventSelectors[].ReadWriteType", '["All","bad"]', False),
-        ("EventSelectors[].DataResources[].Type", '[["AWS::S3::Object"]]', True),
-        ("EventSelectors[].DataResources[].Values", '[[["arn:aws:s3"]]]', True),
-        ("EventSelectors[].ReadWriteType", '["All"]', True),
-        ("EventSelectors[].ReadWriteType", '["bad"]', False),
-        ("EventSelectors[].ReadWriteType", '[["All"]]', False),
-    ],
-)
-def test_column_constraints(field, raw, valid):
+def column_constraints_case(case):
+    data = case["data"]
+    before = deepcopy(data)
     errors = literal_errors(
-        DesignSchemaCatalog(ROOT), "CloudTrail.Trail", field, raw, "projection"
+        DesignSchemaCatalog(ROOT),
+        "CloudTrail.Trail",
+        data["field"],
+        data["raw"],
+        "projection",
     )
-    assert (not errors) == valid, errors
+    TestCase().assertEqual(not errors, data["valid"])
+    TestCase().assertEqual(data, before)
+    return {"errors": errors}
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("model_literal_values", prefix="column-constraints-")
+)
+def test_column_constraints(case_runner, case_id):
+    case_runner.run("model_literal_values", case_id, column_constraints_case)
 
 
 def test_empty_parent_uses_its_schema():
@@ -204,31 +177,29 @@ def test_empty_parent_uses_its_schema():
         literal_errors(catalog, "Test.Array", "Parents[].Missing", "[]", "projection")
 
 
-@pytest.mark.parametrize(
-    "raw,valid",
-    [
-        ('["a/","b/"]', True),
-        ("[]", True),
-        ('  ["a/"]', True),
-        ('["a/",]', False),
-        ("[", False),
-        ("[1]", False),
-        ("[null]", False),
-        ("[true]", False),
-        ("[{}]", False),
-        ('[["a/"]]', False),
-    ],
-)
-def test_terminal_projection_constraints(raw, valid):
-    catalog = DesignSchemaCatalog(ROOT)
+def terminal_projection_constraints_case(case):
+    data = case["data"]
+    before = deepcopy(data)
     errors = literal_errors(
-        catalog,
+        DesignSchemaCatalog(ROOT),
         "GuardDuty.MalwareProtectionPlan",
         "ProtectedResource.S3Bucket.ObjectPrefixes[]",
-        raw,
+        data["raw"],
         "projection",
     )
-    assert (not errors) == valid, errors
+    TestCase().assertEqual(not errors, data["valid"])
+    TestCase().assertEqual(data, before)
+    return {"errors": errors}
+
+
+@pytest.mark.parametrize(
+    "case_id",
+    case_ids("model_literal_values", prefix="terminal-projection-constraints-"),
+)
+def test_terminal_projection_constraints(case_runner, case_id):
+    case_runner.run(
+        "model_literal_values", case_id, terminal_projection_constraints_case
+    )
 
 
 @pytest.mark.parametrize(
@@ -517,82 +488,38 @@ def test_projection_row_conflicts(first, shape, second, other_shape, conflict):
     assert set(projection_conflicts(list(reversed(rows)))) == expected
 
 
-@pytest.mark.parametrize(
-    "values,expected",
-    [
-        (
-            [
-                ("VpcConfig.VpcId", "leaf", "vpc-123"),
-                ("VpcConfig.Subnets[]", "projection", ["subnet-2", "subnet-1"]),
-            ],
-            {"VpcConfig": {"VpcId": "vpc-123", "Subnets": ["subnet-2", "subnet-1"]}},
-        ),
-        (
-            [
-                ("VpcConfig.Subnets[]", "projection", ["subnet-2", "subnet-1"]),
-                ("VpcConfig.SecurityGroupIds[]", "leaf", "sg-1"),
-            ],
-            {
-                "VpcConfig": {
-                    "Subnets": ["subnet-2", "subnet-1"],
-                    "SecurityGroupIds": ["sg-1"],
-                }
-            },
-        ),
-        (
-            [
-                ("EventSelectors[].ReadWriteType", "projection", ["All", "ReadOnly"]),
-                (
-                    "EventSelectors[].DataResources[].Type",
-                    "projection",
-                    [["AWS::S3::Object"], ["AWS::S3::Object", "AWS::Lambda::Function"]],
-                ),
-                (
-                    "EventSelectors[].DataResources[].Values",
-                    "projection",
-                    [[["bucket-2", "bucket-1"]], [["bucket-3"], ["function-1"]]],
-                ),
-            ],
-            {
-                "EventSelectors": [
-                    {
-                        "ReadWriteType": "All",
-                        "DataResources": [
-                            {
-                                "Type": "AWS::S3::Object",
-                                "Values": ["bucket-2", "bucket-1"],
-                            }
-                        ],
-                    },
-                    {
-                        "ReadWriteType": "ReadOnly",
-                        "DataResources": [
-                            {"Type": "AWS::S3::Object", "Values": ["bucket-3"]},
-                            {"Type": "AWS::Lambda::Function", "Values": ["function-1"]},
-                        ],
-                    },
-                ]
-            },
-        ),
-    ],
-)
-def test_projection_siblings_reconstruct(values, expected):
+def projection_siblings_reconstruct_case(case):
+    data = case["data"]
+    before = deepcopy(data)
+    values = data["values"]
     rows = [
         (str(index), {"property": "Test.Resource." + prop, "valueShape": shape})
         for index, (prop, shape, _) in enumerate(values)
     ]
-    assert not projection_conflicts(rows)
+    TestCase().assertEqual(projection_conflicts(rows), {})
     tree = {}
     for prop, shape, value in values:
         if shape == "projection":
             project(tree, prop, value)
         else:
             put_row(tree, prop, value)
-    assert tree == expected
     for prop, _, value in values:
-        assert select(tree, prop) == (
-            value if "[]" not in prop or isinstance(value, list) else [value]
+        TestCase().assertEqual(
+            select(tree, prop),
+            value if "[]" not in prop or isinstance(value, list) else [value],
         )
+    TestCase().assertEqual(data, before)
+    return {"tree": tree}
+
+
+@pytest.mark.parametrize(
+    "case_id",
+    case_ids("model_literal_values", prefix="projection-siblings-reconstruct-"),
+)
+def test_projection_siblings_reconstruct(case_runner, case_id):
+    case_runner.run(
+        "model_literal_values", case_id, projection_siblings_reconstruct_case
+    )
 
 
 if __name__ == "__main__":

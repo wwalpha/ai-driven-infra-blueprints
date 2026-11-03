@@ -1,0 +1,65 @@
+markdown: '### Glue.Job: resource
+
+  | No. | Property | Value | Source / Comment |
+
+  | ---: | --- | --- | --- |
+
+  | 1 | Name | `app-dev-outbound` | 処理ジョブの名前 |
+
+  | 2 | DefaultArguments["--job-language"] | `python` | <!-- glue-arguments-source:
+  ["DefaultArguments", "`{ \"--job-language\": \"python\", \"--job-bookmark-option\":
+  \"job-bookmark-disable\", \"--enable-spark-ui\": \"true\", \"--spark-event-logs-path\":
+  \"s3://data/temp/spark-ui/\", \"--SECRET_NAME\": \"snowflake-keypair\", \"--ENVIRONMENT\":
+  \"dev\", \"--TempDir\": \"s3://data/temp/\", \"--custom-logGroup-prefix\": \"/aws-glue/jobs/app\",
+  \"--custom-logStream-prefix\": \"if-outbound-001\" }`", 9] --> ジョブの既定引数 |
+
+  | 3 | DefaultArguments["--job-bookmark-option"] | `job-bookmark-disable` | ジョブの既定引数
+  |
+
+  | 4 | DefaultArguments["--enable-spark-ui"] | `true` | ジョブの既定引数 |
+
+  | 5 | DefaultArguments["--spark-event-logs-path"] | `s3://data/temp/spark-ui/` |
+  ジョブの既定引数 |
+
+  | 6 | DefaultArguments["--SECRET_NAME"] | `snowflake-keypair` | ジョブの既定引数 |
+
+  | 7 | DefaultArguments["--ENVIRONMENT"] | `dev` | ジョブの既定引数 |
+
+  | 8 | DefaultArguments["--TempDir"] | `s3://data/temp/` | ジョブの既定引数 |
+
+  | 9 | DefaultArguments["--custom-logGroup-prefix"] | `/aws-glue/jobs/app` | ジョブの既定引数
+  |
+
+  | 10 | DefaultArguments["--custom-logStream-prefix"] | `if-outbound-001` | ジョブの既定引数
+  |
+
+  | 11 | NonOverridableArguments["--LOCKED"] | `false` | <!-- glue-arguments-source:
+  ["NonOverridableArguments", "`{\"--LOCKED\":\"false\",\"--empty\":\"\",\"--\u7279\u6b8a\\u007c\u003ckey\u003e`\":\"line\\n\\u007c\u003c\u003e&`\"}`",
+  3] --> 上書きできない引数 |
+
+  | 12 | NonOverridableArguments["--empty"] | `""` | 上書きできない引数 |
+
+  | 13 | NonOverridableArguments["--特殊&#124;&lt;key&gt;&#96;"] | <code>line&#10;&#124;&lt;&gt;&amp;`</code>
+  | 上書きできない引数 |
+
+  | 14 | Tags | `{}` | ジョブのタグ |
+
+  | 15 | Role | [IAM_Role_001](iam.md#iam-net-dev-flow-role) | 処理ジョブの実行ロール |
+
+  | 16 | Command.Name | `glueetl` | 処理ジョブの種類 |'
+restored:
+- '### Glue.Job: resource'
+- '| No. | Property | Value | Source / Comment |'
+- '| ---: | --- | --- | --- |'
+- '| 1 | Glue.Job.Name | `app-dev-outbound` | 処理ジョブの名前 |'
+- '| 2 | Glue.Job.DefaultArguments | `{ "--job-language": "python", "--job-bookmark-option":
+  "job-bookmark-disable", "--enable-spark-ui": "true", "--spark-event-logs-path":
+  "s3://data/temp/spark-ui/", "--SECRET_NAME": "snowflake-keypair", "--ENVIRONMENT":
+  "dev", "--TempDir": "s3://data/temp/", "--custom-logGroup-prefix": "/aws-glue/jobs/app",
+  "--custom-logStream-prefix": "if-outbound-001" }` | ジョブの既定引数 |'
+- '| 3 | Glue.Job.NonOverridableArguments | `{"--LOCKED":"false","--empty":"","--特殊\u007c<key>`":"line\n\u007c<>&`"}`
+  | 上書きできない引数 |'
+- '| 4 | Glue.Job.Tags | `{}` | ジョブのタグ |'
+- '| 5 | Glue.Job.Role | [IAM_Role_001](iam.md#iam-net-dev-flow-role) | 処理ジョブの実行ロール
+  |'
+- '| 6 | Glue.Job.Command.Name | `glueetl` | 処理ジョブの種類 |'

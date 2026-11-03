@@ -1,0 +1,7 @@
+tree:
+  VpcConfig:
+    SecurityGroupIds:
+    - sg-1
+    Subnets:
+    - subnet-2
+    - subnet-1

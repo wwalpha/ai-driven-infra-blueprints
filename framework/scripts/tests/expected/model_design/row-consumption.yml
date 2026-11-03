@@ -1,0 +1,4 @@
+lines:
+- '| No. | Property | Value | Source / Comment |'
+- '| ---: | --- | --- | --- |'
+- '| 1 | RoleName | `AWSServiceRoleForConfig` | 記録用IAM Role |'

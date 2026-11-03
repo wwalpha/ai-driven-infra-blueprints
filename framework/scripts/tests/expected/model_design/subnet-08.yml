@@ -1,0 +1,3 @@
+error: ValueError
+message: 'SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds: Subnet
+  list must contain non-empty string elements'

@@ -1,0 +1,97 @@
+markdown: '# quicksight 詳細設計
+
+
+  - Design service ID: `quicksight`
+
+  - Owned catalog resource types: `QuickSight.DataSource`
+
+
+  ## リソース一覧
+
+
+  ### QuickSight.DataSource
+
+
+  | No. | ResourceName | Comment |
+
+  | ---: | --- | --- |
+
+  | 1 | [source](#quicksight-source) | 対象環境のデータ処理を提供するresource |
+
+
+  ## リソース詳細
+
+
+  <!-- resource-logical-id: QuickSight_DataSource_001 -->
+
+  <a id="quicksight-source"></a>
+
+
+  ### QuickSight.DataSource: source
+
+
+  | No. | Property | Value | Source / Comment |
+
+  | ---: | --- | --- | --- |
+
+  | 1 | Name | `source` | データソース名 |
+
+  | 2 | Permissions[1].Actions[1] | `quicksight:DescribeDataSource` | 権限を付与 |
+
+  | 3 | Permissions[1].Actions[2] | `quicksight:PassDataSource` | 権限を付与 |
+
+  | 4 | Permissions[1].Principal | [first](iam.md#first) | 対象ユーザー |
+
+  | 5 | Permissions[2].Actions | `[]` | 空の権限 |
+
+  | 6 | Permissions[2].Principal | [second](iam.md#second) | 次のユーザー |
+
+  '
+restored: '# quicksight 詳細設計
+
+
+  - Design service ID: `quicksight`
+
+  - Owned catalog resource types: `QuickSight.DataSource`
+
+
+  ## リソース一覧
+
+
+  ### QuickSight.DataSource
+
+
+  | No. | ResourceName | Comment |
+
+  | ---: | --- | --- |
+
+  | 1 | [source](#quicksight-source) | 対象環境のデータ処理を提供するresource |
+
+
+  ## リソース詳細
+
+
+  <!-- resource-logical-id: QuickSight_DataSource_001 -->
+
+  <a id="quicksight-source"></a>
+
+
+  ### QuickSight.DataSource: source
+
+
+  | No. | Property | Value | Source / Comment |
+
+  | ---: | --- | --- | --- |
+
+  | 1 | QuickSight.DataSource.Name | `source` | データソース名 |
+
+  | 2 | QuickSight.DataSource.Permissions[].Actions | `[ "quicksight:DescribeDataSource",
+  "quicksight:PassDataSource" ]` | 権限を付与 |
+
+  | 3 | QuickSight.DataSource.Permissions[].Principal | [first](iam.md#first) | 対象ユーザー
+  |
+
+  | 4 | QuickSight.DataSource.Permissions[].Actions | `[]` | 空の権限 |
+
+  | 5 | QuickSight.DataSource.Permissions[].Principal | [second](iam.md#second) |
+  次のユーザー |'

@@ -1,0 +1,134 @@
+create:
+- count: 1
+  markdown: '### EC2.Instance: resource
+
+    | No. | Property | Value | Source / Comment |
+
+    | ---: | --- | --- | --- |
+
+    | 1 | BlockDeviceMappings[1].DeviceName | `/dev/sda` | デバイス名 |
+
+    | 2 | BlockDeviceMappings[1].Ebs.VolumeSize | `10` | ディスク容量 |
+
+    | 3 | BlockDeviceMappings[1].Ebs.VolumeType | `gp3` | ディスク種別 |
+
+    | 4 | ImageId | `ami-0123456789abcdef0` | 起動するイメージ |
+
+    | 5 | InstanceType | `t3.micro` | インスタンス種別 |
+
+    | 6 | Tags[1].Key | `purpose` | 用途タグのキー |
+
+    | 7 | Tags[1].Value | `worker` | 用途タグの値 |
+
+    | 8 | Name | `app-dev-worker` | <!-- ec2-name-tag: ["\"Name\"", "\u540d\u524d\u30bf\u30b0\u306e\u30ad\u30fc
+    \u003c\u8b58\u5225\u003e"] --> インスタンス名 |
+
+    | 9 | Tags[3].Key | `owner` | 所有者タグのキー |
+
+    | 10 | Tags[3].Value | `team` | 所有者タグの値 |
+
+    | 11 | Tenancy | `default` | 実行するテナンシー |'
+  restored:
+  - '### EC2.Instance: resource'
+  - '| No. | Property | Value | Source / Comment |'
+  - '| ---: | --- | --- | --- |'
+  - '| 1 | EC2.Instance.BlockDeviceMappings[].DeviceName | `/dev/sda` | デバイス名 |'
+  - '| 2 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize | `10` | ディスク容量 |'
+  - '| 3 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeType | `gp3` | ディスク種別 |'
+  - '| 4 | EC2.Instance.ImageId | `ami-0123456789abcdef0` | 起動するイメージ |'
+  - '| 5 | EC2.Instance.InstanceType | `t3.micro` | インスタンス種別 |'
+  - '| 6 | EC2.Instance.Tags[].Key | `purpose` | 用途タグのキー |'
+  - '| 7 | EC2.Instance.Tags[].Value | `worker` | 用途タグの値 |'
+  - '| 8 | EC2.Instance.Tags[].Key | "Name" | 名前タグのキー <識別> |'
+  - '| 9 | EC2.Instance.Tags[].Value | `app-dev-worker` | インスタンス名 |'
+  - '| 10 | EC2.Instance.Tags[].Key | `owner` | 所有者タグのキー |'
+  - '| 11 | EC2.Instance.Tags[].Value | `team` | 所有者タグの値 |'
+  - '| 12 | EC2.Instance.Tenancy | `default` | 実行するテナンシー |'
+- count: 5
+  markdown: '### EC2.Instance: resource
+
+    | No. | Property | Value | Source / Comment |
+
+    | ---: | --- | --- | --- |
+
+    | 1 | BlockDeviceMappings[1].DeviceName | `/dev/sda` | デバイス名 |
+
+    | 2 | BlockDeviceMappings[1].Ebs.VolumeSize | `10` | ディスク容量 |
+
+    | 3 | BlockDeviceMappings[1].Ebs.VolumeType | `gp3` | ディスク種別 |
+
+    | 4 | BlockDeviceMappings[2].DeviceName | `/dev/sdb` | デバイス名 |
+
+    | 5 | BlockDeviceMappings[2].Ebs.VolumeSize | `20` | ディスク容量 |
+
+    | 6 | BlockDeviceMappings[3].DeviceName | `/dev/sdc` | デバイス名 |
+
+    | 7 | BlockDeviceMappings[3].Ebs.VolumeSize | `30` | ディスク容量 |
+
+    | 8 | BlockDeviceMappings[3].Ebs.VolumeType | `gp3` | ディスク種別 |
+
+    | 9 | BlockDeviceMappings[4].DeviceName | `/dev/sdd` | デバイス名 |
+
+    | 10 | BlockDeviceMappings[4].Ebs.VolumeSize | `40` | ディスク容量 |
+
+    | 11 | BlockDeviceMappings[5].DeviceName | `/dev/sde` | デバイス名 |
+
+    | 12 | BlockDeviceMappings[5].Ebs.VolumeSize | `50` | ディスク容量 |
+
+    | 13 | BlockDeviceMappings[5].Ebs.VolumeType | `gp3` | ディスク種別 |
+
+    | 14 | ImageId | `ami-0123456789abcdef0` | 起動するイメージ |
+
+    | 15 | InstanceType | `t3.micro` | インスタンス種別 |
+
+    | 16 | Tags[1].Key | `purpose` | 用途タグのキー |
+
+    | 17 | Tags[1].Value | `worker` | 用途タグの値 |
+
+    | 18 | Name | `app-dev-worker` | <!-- ec2-name-tag: ["\"Name\"", "\u540d\u524d\u30bf\u30b0\u306e\u30ad\u30fc
+    \u003c\u8b58\u5225\u003e"] --> インスタンス名 |
+
+    | 19 | Tags[3].Key | `owner` | 所有者タグのキー |
+
+    | 20 | Tags[3].Value | `team` | 所有者タグの値 |
+
+    | 21 | Tenancy | `default` | 実行するテナンシー |'
+  restored:
+  - '### EC2.Instance: resource'
+  - '| No. | Property | Value | Source / Comment |'
+  - '| ---: | --- | --- | --- |'
+  - '| 1 | EC2.Instance.BlockDeviceMappings[].DeviceName | `/dev/sda` | デバイス名 |'
+  - '| 2 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize | `10` | ディスク容量 |'
+  - '| 3 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeType | `gp3` | ディスク種別 |'
+  - '| 4 | EC2.Instance.BlockDeviceMappings[].DeviceName | `/dev/sdb` | デバイス名 |'
+  - '| 5 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize | `20` | ディスク容量 |'
+  - '| 6 | EC2.Instance.BlockDeviceMappings[].DeviceName | `/dev/sdc` | デバイス名 |'
+  - '| 7 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize | `30` | ディスク容量 |'
+  - '| 8 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeType | `gp3` | ディスク種別 |'
+  - '| 9 | EC2.Instance.BlockDeviceMappings[].DeviceName | `/dev/sdd` | デバイス名 |'
+  - '| 10 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize | `40` | ディスク容量 |'
+  - '| 11 | EC2.Instance.BlockDeviceMappings[].DeviceName | `/dev/sde` | デバイス名 |'
+  - '| 12 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize | `50` | ディスク容量 |'
+  - '| 13 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeType | `gp3` | ディスク種別 |'
+  - '| 14 | EC2.Instance.ImageId | `ami-0123456789abcdef0` | 起動するイメージ |'
+  - '| 15 | EC2.Instance.InstanceType | `t3.micro` | インスタンス種別 |'
+  - '| 16 | EC2.Instance.Tags[].Key | `purpose` | 用途タグのキー |'
+  - '| 17 | EC2.Instance.Tags[].Value | `worker` | 用途タグの値 |'
+  - '| 18 | EC2.Instance.Tags[].Key | "Name" | 名前タグのキー <識別> |'
+  - '| 19 | EC2.Instance.Tags[].Value | `app-dev-worker` | インスタンス名 |'
+  - '| 20 | EC2.Instance.Tags[].Key | `owner` | 所有者タグのキー |'
+  - '| 21 | EC2.Instance.Tags[].Value | `team` | 所有者タグの値 |'
+  - '| 22 | EC2.Instance.Tenancy | `default` | 実行するテナンシー |'
+import:
+  markdown: '### EC2.Instance: resource
+
+    | No. | Property | Value | Source / Comment |
+
+    | ---: | --- | --- | --- |
+
+    | 1 | ImageId | `ami-0123456789abcdef0` | 起動するイメージ |'
+  restored:
+  - '### EC2.Instance: resource'
+  - '| No. | Property | Value | Source / Comment |'
+  - '| ---: | --- | --- | --- |'
+  - '| 1 | EC2.Instance.ImageId | `ami-0123456789abcdef0` | 起動するイメージ |'

@@ -1,0 +1,157 @@
+errors:
+- 'design must contain exactly one H1 title: docs/designs/dev/123456789012/codebuild.md'
+- 'Source / Comment must be Japanese: docs/designs/dev/123456789012/codebuild.md:
+  English comment'
+- 'docs/designs/dev/123456789012/codebuild.md: Resource=CodeBuild.Project#codebuild-buildproject:
+  Name=FIRST, Type=PLAINTEXT, Property=CodeBuild.Project.Environment.EnvironmentVariables[].Value:
+  PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)'
+- 'resource table property is not selected by design catalog: docs/designs/dev/123456789012/codebuild.md:
+  CodeBuild.Project: CodeBuild.Project.NotSelected'
+- 'provider schema violation: docs/designs/dev/123456789012/codebuild.md: Third: CodeBuild.Project.TimeoutInMinutes:
+  ''invalid'' must be integer'
+raw: '# CodeBuild 詳細設計
+
+  # 重複タイトル
+
+
+  - Design service ID: `codebuild`
+
+  - Owned catalog resource types: `CodeBuild.Project`
+
+
+  ## リソース詳細
+
+
+  <a id="codebuild-buildproject"></a>
+
+
+  ### CodeBuild.Project: BuildProject
+
+
+  | No. | Property | Value | Source / Comment |
+
+  | ---: | --- | --- | --- |
+
+  | 1 | Name | `build-project` | English comment |
+
+  | 2 | Id | `PENDING_DEPLOY` | projectのID |
+
+  | 3 | Artifacts.Type | `NO_ARTIFACTS` | artifactの種類 |
+
+  | 4 | Environment.ComputeType | `BUILD_GENERAL1_SMALL` | 実行環境の容量 |
+
+  | 5 | Environment.Variables.FIRST | [bucket](s3.md#bucket) | 環境変数の値 |
+
+  | 6 | Environment.Variables.SECOND | `cde` | 環境変数の値 |
+
+  | 7 | Environment.Image | `aws/codebuild/standard:7.0` | 実行環境のimage |
+
+  | 8 | Environment.Type | `LINUX_CONTAINER` | 実行環境の種類 |
+
+  | 9 | ServiceRole | `role-name` | 使用するrole |
+
+  | 10 | Source.Type | `NO_SOURCE` | sourceの種類 |
+
+
+  <a id="codebuild-second"></a>
+
+
+  ### CodeBuild.Project: Second
+
+
+  | No. | Property | Value | Source / Comment |
+
+  | ---: | --- | --- | --- |
+
+  | 1 | Name | `second` | projectの名前 |
+
+  | 2 | Id | `PENDING_DEPLOY` | projectのID |
+
+  | 3 | Artifacts.Type | `NO_ARTIFACTS` | artifactの種類 |
+
+  | 4 | Environment.ComputeType | `BUILD_GENERAL1_SMALL` | 実行環境の容量 |
+
+  | 5 | Environment.Variables.FIRST | `hello:world` | 環境変数の値 |
+
+  | 6 | Environment.Variables.SECOND | `cde` | 環境変数の値 |
+
+  | 7 | Environment.Image | `aws/codebuild/standard:7.0` | 実行環境のimage |
+
+  | 8 | Environment.Type | `LINUX_CONTAINER` | 実行環境の種類 |
+
+  | 9 | ServiceRole | `role-name` | 使用するrole |
+
+  | 10 | Source.Type | `NO_SOURCE` | sourceの種類 |
+
+
+  <a id="codebuild-third"></a>
+
+
+  ### CodeBuild.Project: Third
+
+
+  | No. | Property | Value | Source / Comment |
+
+  | ---: | --- | --- | --- |
+
+  | 1 | Name | `third` | projectの名前 |
+
+  | 2 | Id | `PENDING_DEPLOY` | projectのID |
+
+  | 3 | Artifacts.Type | `NO_ARTIFACTS` | artifactの種類 |
+
+  | 4 | Environment.ComputeType | `BUILD_GENERAL1_SMALL` | 実行環境の容量 |
+
+  | 5 | Environment.Variables.FIRST | `hello:world` | 環境変数の値 |
+
+  | 6 | Environment.Variables.SECOND | `cde` | 環境変数の値 |
+
+  | 7 | Environment.Image | `aws/codebuild/standard:7.0` | 実行環境のimage |
+
+  | 8 | Environment.Type | `LINUX_CONTAINER` | 実行環境の種類 |
+
+  | 9 | ServiceRole | `role-name` | 使用するrole |
+
+  | 10 | Source.Type | `NO_SOURCE` | sourceの種類 |
+
+  | 11 | NotSelected | `invalid` | 不正な属性 |
+
+  | 12 | TimeoutInMinutes | `invalid` | 不正な型 |
+
+  '
+status: FAIL
+unverified:
+- checks:
+  - catalog membership
+  - service ownership
+  - provider schema
+  - required properties
+  - identifier outputs
+  - catalog order
+  - grouped child schema/identity
+  code: design.tables.dependency
+  complete: false
+  diagnostic_id: 84620e6ebacbbf470980
+  message: 'Resource=CodeBuild.Project#codebuild-buildproject: Name=FIRST, Type=PLAINTEXT,
+    Property=CodeBuild.Project.Environment.EnvironmentVariables[].Value: PLAINTEXTではResource
+    linkは禁止 (Resource links are forbidden for PLAINTEXT)'
+  path: docs/designs/dev/123456789012/codebuild.md
+  phase: invalid grouped design
+  reason: expansion
+  resource: '### CodeBuild.Project: BuildProject'
+  scope:
+  - dev/123456789012/codebuild
+  status: FAIL
+- checks:
+  - cross-resource grouped identity
+  code: design.tables.dependency
+  complete: false
+  message: resource expansion unavailable
+  path: docs/designs/dev/123456789012/codebuild.md
+  phase: grouped identity dependencies
+  reason: expansion
+  resource: document
+  scope:
+  - dev/123456789012/codebuild
+  status: FAIL
+warnings: []

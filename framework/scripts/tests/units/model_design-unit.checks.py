@@ -3,6 +3,8 @@
 
 import inspect
 import sys
+from copy import deepcopy
+from functools import partial
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -12,6 +14,7 @@ import sys
 import tempfile
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import Mock
 
 import model.projection as model_projection
 import model.render as model_design
@@ -45,6 +48,7 @@ from model.sources import scope_for
 from model.validations.identity import validate_resource_identities
 from model.validations.policies import validate_kms_policy_accounts
 from model.validations.schema import validate_required_properties
+from support.fixture_cases import materialize_files
 from support.model_design_fixtures import (
     ALIGNMENT,
     CODEBUILD_VPC_PROPERTIES,
@@ -76,6 +80,7 @@ from support.model_design_fixtures import (
 from support.model_design_fixtures import pytestmark as pytestmark
 from support.model_reference_fixtures import reference as model_reference
 from support.model_sources import write_model
+from support.regression_cases import case_ids
 from support.rotation_schedule_fixtures import fixture as rotation_fixture
 from utils.iac_values import cfn_resource_identity
 from utils.json_format import policy_json, validate_aws_document
@@ -91,56 +96,40 @@ if not __debug__:
 text = _exports_support_model_design_fixtures.text
 
 
-def check_array_model_projection(tmp_path):
-    (tmp_path / "project.json").write_text(
-        json.dumps(
-            {
-                "targets": [
-                    {
-                        "environment": "dev",
-                        "alias": "team",
-                        "awsAccountId": "123456789012",
-                        "awsRegion": "ap-northeast-1",
-                        "iacEngine": "cloudformation",
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    kind = "QuickSight.DataSource"
-    raw = '`[ "quicksight:DescribeDataSource", "quicksight:PassDataSource" ]`'
-    values = model(
-        "quicksight",
-        kind,
-        "source",
-        [
-            ("Name", "`source`", "データソース名"),
-            ("Permissions[].Actions", raw, "権限を付与"),
-            ("Permissions[].Principal", "[first](iam.md#first)", "対象ユーザー"),
-            ("Permissions[].Actions", "`[]`", "空の権限"),
-            ("Permissions[].Principal", "[second](iam.md#second)", "次のユーザー"),
-        ],
-    )
+def array_model_case(tmp_path, case):
+    data = case["data"]
+    materialize_files(tmp_path, case["files"])
+    raw = data["raw"]
+    values = deepcopy(data["values"])
     before = dict(values)
     path = tmp_path / "docs/designs/dev/team/quicksight.md"
     markdown = model_design.generate_markdown(path, values, ROOT)
-    assert "<!-- array-source:" not in markdown
-    assert "Permissions[1].Actions[2]" in markdown
-    assert "Permissions[2].Actions | `[]` | 空の権限" in markdown
+    TestCase().assertTrue("<!-- array-source:" not in markdown)
+    TestCase().assertTrue("Permissions[1].Actions[2]" in markdown)
+    TestCase().assertTrue("Permissions[2].Actions | `[]` | 空の権限" in markdown)
     document = DesignIndex(ROOT).get(path, text=markdown, values=values)
     semantic = "\n".join(document.raw.display_lines)
-    assert (
+    TestCase().assertTrue(
         "QuickSight.DataSource.Permissions[].Actions | " + raw + " | 権限を付与"
         in semantic
     )
-    assert values == before
-    assert model_design.generate_markdown(path, values, ROOT) == markdown
+    TestCase().assertTrue(values == before)
+    TestCase().assertTrue(
+        model_design.generate_markdown(path, values, ROOT) == markdown
+    )
     first = next(
-        line for line in markdown.splitlines() if "Permissions[1].Actions[1] |" in line
+        (
+            line
+            for line in markdown.splitlines()
+            if "Permissions[1].Actions[1] |" in line
+        )
     )
     second = next(
-        line for line in markdown.splitlines() if "Permissions[1].Actions[2] |" in line
+        (
+            line
+            for line in markdown.splitlines()
+            if "Permissions[1].Actions[2] |" in line
+        )
     )
     changes = [
         markdown.replace("Permissions[1]", "Permissions" + token, 1)
@@ -158,7 +147,7 @@ def check_array_model_projection(tmp_path):
         markdown.replace("### QuickSight.DataSource:", "### QuickSight.Analysis:"),
     ]
     for changed in changes:
-        assert changed != markdown
+        TestCase().assertTrue(changed != markdown)
         with pytest.raises(ValueError):
             _ = (
                 DesignIndex(ROOT)
@@ -171,7 +160,13 @@ def check_array_model_projection(tmp_path):
             .get(tmp_path / "standalone.md", text=markdown)
             .raw.display_lines
         )
-    assert values == before
+    TestCase().assertTrue(values == before)
+    return {"markdown": markdown, "restored": semantic}
+
+
+@pytest.mark.parametrize("case_id", ["array-model"])
+def check_array_model_projection(tmp_path, case_runner, case_id):
+    case_runner.run("model_design", case_id, partial(array_model_case, tmp_path))
 
 
 def check_indexed_compact_variable_diagnostics():
@@ -217,29 +212,25 @@ def check_design_naming_rules():
     ]
 
 
+def subnet_list_case(case):
+    data = case["data"]
+    if data["valid"]:
+        return {"items": subnet_list_items(data["property"], data["value"])}
+    with pytest.raises(ValueError) as caught:
+        subnet_list_items(data["property"], data["value"])
+    TestCase().assertEqual(
+        str(caught.value),
+        data["property"] + ": Subnet list must contain non-empty string elements",
+    )
+    return {"error": type(caught.value).__name__, "message": str(caught.value)}
+
+
+@pytest.mark.parametrize("case_id", case_ids("model_design", prefix="subnet-"))
+def check_subnet_list_literals(case_runner, case_id):
+    case_runner.run("model_design", case_id, subnet_list_case)
+
+
 def check_subnet_list_display():
-    prop = "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds"
-    for value in ("subnet-a, subnet-b", "` subnet-a ,  subnet-b `"):
-        assert subnet_list_items(prop, value) == ["`subnet-a`", "`subnet-b`"]
-    assert subnet_list_items(prop, "` [a](vpc.md#a), [b](vpc.md#b) `") == [
-        "[a](vpc.md#a)",
-        "[b](vpc.md#b)",
-    ]
-    for value in (
-        "",
-        ",",
-        "subnet-a,",
-        "subnet-a,,subnet-b",
-        "subnet-a|b",
-        "subnet-a\nsubnet-b",
-        "subnet-`a",
-    ):
-        with pytest.raises(ValueError) as error:
-            subnet_list_items(prop, value)
-        assert (
-            str(error.value)
-            == prop + ": Subnet list must contain non-empty string elements"
-        )
     # Catalog coverage is explicit: single IDs and arrays of objects keep their format.
     catalog = {
         line.partition("=")[0]
@@ -483,7 +474,9 @@ def check_temporary_roots(tmp_path, monkeypatch):
     cleanup = []
     configs = [
         SimpleNamespace(
-            option=SimpleNamespace(basetemp=None), add_cleanup=cleanup.append
+            option=SimpleNamespace(basetemp=None),
+            add_cleanup=cleanup.append,
+            getoption=Mock(return_value=False),
         )
         for _ in range(2)
     ]
@@ -497,6 +490,7 @@ def check_temporary_roots(tmp_path, monkeypatch):
             callback()
     explicit = SimpleNamespace(
         option=SimpleNamespace(basetemp=tmp_path),
+        getoption=Mock(return_value=False),
         add_cleanup=lambda _: pytest.fail("explicit temporary root replaced"),
     )
     configure(explicit)
@@ -629,21 +623,14 @@ def _check_selected_model_row_consumption_duplicated(*args, **kwargs):
     return [["001-001", "RoleName", "`AWSServiceRoleForConfig`", "記録用IAM Role"]]
 
 
-def check_selected_model_row_consumption(monkeypatch):
-    resource = {
-        "resourceType": "Config.ConfigurationRecorder",
-        "resourceMode": "IMPORT",
-    }
-    rows = [
-        [
-            "001-001",
-            "Config.ConfigurationRecorder.RoleARN",
-            "`AWSServiceRoleForConfig`",
-            "記録用IAM Role",
-        ]
-    ]
+def row_consumption_case(monkeypatch, case):
+    data = case["data"]
+    resource = deepcopy(data["resource"])
+    rows = deepcopy(data["rows"])
     output = model_design.resource_table_lines(resource, "default", rows, [], ROOT)
-    assert any("| RoleName | `AWSServiceRoleForConfig` |" in line for line in output)
+    TestCase().assertTrue(
+        any(("| RoleName | `AWSServiceRoleForConfig` |" in line for line in output))
+    )
     with pytest.raises(ValueError, match="duplicate selected"):
         model_design.resource_table_lines(resource, "default", rows * 2, [], ROOT)
     monkeypatch.setattr(model_design, "display_rows", lambda *args, **kwargs: [])
@@ -653,31 +640,18 @@ def check_selected_model_row_consumption(monkeypatch):
     monkeypatch.setattr(model_design, "display_rows", duplicated)
     with pytest.raises(ValueError, match="omitted or consumed more than once"):
         model_design.resource_table_lines(resource, "default", rows, [], ROOT)
+    return {"lines": output}
 
 
-def check_glue_argument_display():
-    arguments = '{ "--job-language": "python", "--job-bookmark-option": "job-bookmark-disable", "--enable-spark-ui": "true", "--spark-event-logs-path": "s3://data/temp/spark-ui/", "--SECRET_NAME": "snowflake-keypair", "--ENVIRONMENT": "dev", "--TempDir": "s3://data/temp/", "--custom-logGroup-prefix": "/aws-glue/jobs/app", "--custom-logStream-prefix": "if-outbound-001" }'
-    values = model(
-        "glue",
-        "Glue.Job",
-        "app-dev-outbound",
-        [
-            ("Name", "`app-dev-outbound`", "処理ジョブの名前"),
-            ("DefaultArguments", f"`{arguments}`", "ジョブの既定引数"),
-            (
-                "NonOverridableArguments",
-                '`{"--LOCKED":"false","--empty":"","--特殊\\u007c<key>`":"line\\n\\u007c<>&`"}`',
-                "上書きできない引数",
-            ),
-            ("Tags", "`{}`", "ジョブのタグ"),
-            (
-                "Role",
-                "[IAM_Role_001](iam.md#iam-net-dev-flow-role)",
-                "処理ジョブの実行ロール",
-            ),
-            ("Command.Name", "`glueetl`", "処理ジョブの種類"),
-        ],
-    )
+@pytest.mark.parametrize("case_id", ["row-consumption"])
+def check_selected_model_row_consumption(monkeypatch, case_runner, case_id):
+    case_runner.run("model_design", case_id, partial(row_consumption_case, monkeypatch))
+
+
+def glue_arguments_case(case):
+    data = case["data"]
+    arguments = data["arguments"]
+    values = deepcopy(data["values"])
     output = "\n".join(
         [
             "### Glue.Job: resource",
@@ -690,12 +664,16 @@ def check_glue_argument_display():
             ),
         ]
     )
+    restored = expanded_display_rows(output.splitlines())
+    TestCase().assertEqual(values, data["values"])
     for key, item in json.loads(arguments).items():
-        assert f'DefaultArguments["{key}"] | `{item}` |' in output
-    assert 'NonOverridableArguments["--LOCKED"] | `false` |' in output
-    assert 'NonOverridableArguments["--empty"] | `""` |' in output
-    assert "&#124;" in output and "<code>line&#10;&#124;&lt;&gt;&amp;`</code>" in output
-    assert (
+        TestCase().assertTrue(f'DefaultArguments["{key}"] | `{item}` |' in output)
+    TestCase().assertTrue('NonOverridableArguments["--LOCKED"] | `false` |' in output)
+    TestCase().assertTrue('NonOverridableArguments["--empty"] | `""` |' in output)
+    TestCase().assertTrue(
+        "&#124;" in output and "<code>line&#10;&#124;&lt;&gt;&amp;`</code>" in output
+    )
+    TestCase().assertTrue(
         output.index('--job-language"]')
         < output.index('--job-bookmark-option"]')
         < output.index('--custom-logStream-prefix"]')
@@ -713,14 +691,16 @@ def check_glue_argument_display():
         output.replace("glue-arguments-source:", "missing-source:"),
         output.replace(", 9] -->", ", 8] -->"),
         "\n".join(
-            line
-            for line in output.splitlines()
-            if 'DefaultArguments["--ENVIRONMENT"]' not in line
+            (
+                line
+                for line in output.splitlines()
+                if 'DefaultArguments["--ENVIRONMENT"]' not in line
+            )
         ),
         output.replace("### Glue.Job:", "### Glue.Connection:"),
     ]
     for bad in invalid:
-        assert bad != output
+        TestCase().assertTrue(bad != output)
         with pytest.raises(ValueError):
             expanded_display_rows(bad.splitlines())
     for value in ("`{}`", '`{"--one":"one"}`'):
@@ -733,47 +713,36 @@ def check_glue_argument_display():
     print(
         "Glue Job arguments: PASS (key rows, exact JSON round trip, invalid displays)"
     )
+    return {"markdown": output, "restored": restored}
 
 
-def check_ec2_compact_display():
-    name = "app-dev-worker"
-    for count in (1, 5):
-        devices = []
-        for number in range(1, count + 1):
-            devices += [
-                (
-                    "BlockDeviceMappings[].DeviceName",
-                    f"`/dev/sd{chr(96 + number)}`",
-                    "デバイス名",
-                ),
-                (
-                    "BlockDeviceMappings[].Ebs.VolumeSize",
-                    f"`{number * 10}`",
-                    "ディスク容量",
-                ),
-            ]
-            if number % 2:
-                devices.append(
-                    ("BlockDeviceMappings[].Ebs.VolumeType", "`gp3`", "ディスク種別")
-                )
-        values = model(
-            "ec2",
-            "EC2.Instance",
-            name,
-            [
-                *devices,
-                ("ImageId", "`ami-0123456789abcdef0`", "起動するイメージ"),
-                ("InstanceType", "`t3.micro`", "インスタンス種別"),
-                ("Tags[].Key", "`purpose`", "用途タグのキー"),
-                ("Tags[].Value", "`worker`", "用途タグの値"),
-                ("Tags[].Key", '"Name"', "名前タグのキー <識別>"),
-                ("Tags[].Value", f"`{name}`", "インスタンス名"),
-                ("Tags[].Key", "`owner`", "所有者タグのキー"),
-                ("Tags[].Value", "`team`", "所有者タグの値"),
-                ("Tenancy", "`default`", "実行するテナンシー"),
-            ],
-            "Worker",
-        )
+@pytest.mark.parametrize("case_id", ["glue-arguments"])
+def check_glue_argument_display(case_runner, case_id):
+    case_runner.run("model_design", case_id, glue_arguments_case)
+
+
+def compact_ec2_restored(values, rows, expected, actual):
+    table = ReferenceTable(
+        "",
+        (),
+        tuple(expected.splitlines()[1:]),
+        tuple(row_table(resource_rows(values, "001", "EC2.Instance", ROOT))),
+        tuple(row_table(rows)),
+    )
+    return expanded_display_rows(
+        actual.splitlines(),
+        reference_tables=(table,),
+        modes={"": values.get("desired.resource.001.resourceMode", "CREATE")},
+    )
+
+
+def ec2_compact_case(case):
+    data = case["data"]
+    name = data["name"]
+    displays = []
+    for sample in data["models"]:
+        count = sample["count"]
+        values = deepcopy(sample["values"])
         rows = display_rows(
             "EC2.Instance",
             resource_rows(values, "001", "EC2.Instance", ROOT),
@@ -785,19 +754,22 @@ def check_ec2_compact_display():
                 *row_table(indexed_rows(rows, "EC2.Instance")),
             ]
         )
-        assert "BlockDeviceMappings[]" not in output
+        TestCase().assertTrue("BlockDeviceMappings[]" not in output)
         for number in range(1, count + 1):
-            assert f"BlockDeviceMappings[{number}].DeviceName |" in output
-            assert (
+            TestCase().assertTrue(
+                f"BlockDeviceMappings[{number}].DeviceName |" in output
+            )
+            TestCase().assertTrue(
                 f"BlockDeviceMappings[{number}].Ebs.VolumeSize | `{number * 10}`"
                 in output
             )
-            assert (
-                f"BlockDeviceMappings[{number}].Ebs.VolumeType |" in output
-            ) == bool(number % 2)
-        assert f"| Name | `{name}` |" in output
-        assert '| Tags[].Key | "Name" |' not in output
-        assert (
+            TestCase().assertTrue(
+                (f"BlockDeviceMappings[{number}].Ebs.VolumeType |" in output)
+                == bool(number % 2)
+            )
+        TestCase().assertTrue(f"| Name | `{name}` |" in output)
+        TestCase().assertTrue('| Tags[].Key | "Name" |' not in output)
+        TestCase().assertTrue(
             "| Tags[1].Key | `purpose` |" in output
             and "| Tags[3].Key | `owner` |" in output
         )
@@ -818,18 +790,20 @@ def check_ec2_compact_display():
                 output.replace("BlockDeviceMappings[2]", "BlockDeviceMappings[3]")
             )
         for bad in invalid:
-            assert bad != output
+            TestCase().assertTrue(bad != output)
             with pytest.raises(ValueError):
-                expanded_display_rows(bad.splitlines())
-    # IMPORT without a Name tag keeps its existing absence.
-    values = model(
-        "ec2",
-        "EC2.Instance",
-        "EC2.Instance",
-        [("ImageId", "`ami-0123456789abcdef0`", "起動するイメージ")],
-    )
-    values["desired.resource.001.resourceMode"] = "IMPORT"
-    values.pop("desired.resource.001.cfn-logicalId", None)
+                compact_ec2_restored(values, rows, output, bad)
+        with pytest.raises(ValueError, match="requires Model source rows"):
+            expanded_display_rows(output.splitlines())
+        TestCase().assertEqual(values, sample["values"])
+        displays.append(
+            {
+                "count": count,
+                "markdown": output,
+                "restored": compact_ec2_restored(values, rows, output, output),
+            }
+        )
+    values = deepcopy(data["importModel"])
     rows = display_rows(
         "EC2.Instance",
         resource_rows(values, "001", "EC2.Instance", ROOT),
@@ -838,10 +812,22 @@ def check_ec2_compact_display():
     output = "\n".join(
         ["### EC2.Instance: resource", *row_table(indexed_rows(rows, "EC2.Instance"))]
     )
-    assert "| Name |" not in output and "ec2-name-tag:" not in output
+    TestCase().assertTrue("| Name |" not in output and "ec2-name-tag:" not in output)
     print(
         "EC2 block device indexes and compact Name tag: PASS (lossless round trip and invalid displays)"
     )
+    return {
+        "create": displays,
+        "import": {
+            "markdown": output,
+            "restored": compact_ec2_restored(values, rows, output, output),
+        },
+    }
+
+
+@pytest.mark.parametrize("case_id", ["ec2-compact"])
+def check_ec2_compact_display(case_runner, case_id):
+    case_runner.run("model_design", case_id, ec2_compact_case)
 
 
 def check_vpc_endpoint_name_display():
@@ -949,52 +935,30 @@ def check_athena_configuration_display():
         assert restored == original[1]
 
 
-def check_catalog_display_order():
-    values = model(
-        "vpc",
-        "EC2.VPC",
-        "vpc-app-dev",
-        [
-            ("EnableDnsSupport", "`true`", "DNS解決"),
-            ("Name", "`vpc-app-dev`", "ネットワーク名"),
-            ("Tags[].Key", '"purpose"', "タグ名"),
-            ("Tags[].Value", '"first"', "最初の用途"),
-            ("Tags[].Key", '"owner"', "タグ名"),
-            ("Tags[].Value", '"second"', "次の用途"),
-            ("CidrBlock", "`10.0.0.0/16`", "アドレス範囲"),
-            (
-                "VpcId",
-                '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`',
-                "ネットワークID",
-            ),
-            ("EnableDnsHostnames", "`true`", "DNS名"),
-        ],
-        logical_id="Vpc",
-    )
-    values.update(
-        {
-            "observed.row.001-008.property": "EC2.VPC.VpcId",
-            "observed.row.001-008.value": "`vpc-123`",
-            "observed.row.001-008.comment": "ネットワークID",
-        }
-    )
+def catalog_order_case(case):
+    data = case["data"]
+    values = deepcopy(data["values"])
     original = dict(values)
     shown = catalog_display_rows(
         resource_rows(values, "001", "EC2.VPC", ROOT), "EC2.VPC", ROOT
     )
-    assert [row[0] for row in shown] == [
-        "001-002",
-        "001-008",
-        "001-007",
-        "001-009",
-        "001-001",
-        "001-003",
-        "001-004",
-        "001-005",
-        "001-006",
-    ]
-    assert not catalog_order_errors("EC2.VPC", shown, ROOT)
-    assert values == original
+    TestCase().assertTrue(
+        [row[0] for row in shown]
+        == [
+            "001-002",
+            "001-008",
+            "001-007",
+            "001-009",
+            "001-001",
+            "001-003",
+            "001-004",
+            "001-005",
+            "001-006",
+        ]
+    )
+    TestCase().assertTrue(not catalog_order_errors("EC2.VPC", shown, ROOT))
+    TestCase().assertTrue(values == original)
+    displays = [{"kind": "EC2.VPC", "rows": shown}]
     for kind, fields in (
         (
             "QuickSight.DataSource",
@@ -1024,33 +988,48 @@ def check_catalog_display_order():
         catalog_order = catalog_property_order(ROOT, kind)
         original_order = dict(catalog_order)
         shown = catalog_display_rows(rows, kind, ROOT)
-        assert not catalog_order_errors(kind, shown, ROOT)
-        assert catalog_order == original_order
-        assert sorted(row[0] for row in shown) == sorted(row[0] for row in rows)
+        displays.append({"kind": kind, "rows": shown})
+        TestCase().assertTrue(not catalog_order_errors(kind, shown, ROOT))
+        TestCase().assertTrue(catalog_order == original_order)
+        TestCase().assertTrue(
+            sorted((row[0] for row in shown)) == sorted((row[0] for row in rows))
+        )
         if kind == "S3.Bucket":
-            assert [row[1] for row in shown[:2]] == [
-                kind + ".BucketName",
-                kind + ".Region",
-            ]
+            TestCase().assertTrue(
+                [row[1] for row in shown[:2]]
+                == [kind + ".BucketName", kind + ".Region"]
+            )
         if kind == "CodeBuild.Project":
-            assert [row[1] for row in shown] == [
-                kind + "." + field
-                for field in (
-                    "Name",
-                    "VpcConfig.Subnets",
-                    "VpcConfig.SecurityGroupIds",
-                    "VpcConfig.VpcId",
-                )
-            ]
-            assert catalog_order_errors(kind, rows, ROOT) == [
-                "resource rows must follow catalog file order: CodeBuild.Project: CodeBuild.Project.VpcConfig.SecurityGroupIds"
-            ]
-            assert catalog_order == original_order
+            TestCase().assertTrue(
+                [row[1] for row in shown]
+                == [
+                    kind + "." + field
+                    for field in (
+                        "Name",
+                        "VpcConfig.Subnets",
+                        "VpcConfig.SecurityGroupIds",
+                        "VpcConfig.VpcId",
+                    )
+                ]
+            )
+            TestCase().assertTrue(
+                catalog_order_errors(kind, rows, ROOT)
+                == [
+                    "resource rows must follow catalog file order: CodeBuild.Project: CodeBuild.Project.VpcConfig.SecurityGroupIds"
+                ]
+            )
+            TestCase().assertTrue(catalog_order == original_order)
     sg = [["1", "EC2.SecurityGroup.GroupDescription", "値", "説明"]]
-    assert catalog_display_rows(sg, "EC2.SecurityGroup", ROOT) is sg
+    TestCase().assertTrue(catalog_display_rows(sg, "EC2.SecurityGroup", ROOT) is sg)
     print(
         "Catalog display order: PASS (original row IDs, arrays and special positions)"
     )
+    return {"displays": displays}
+
+
+@pytest.mark.parametrize("case_id", ["catalog-order"])
+def check_catalog_display_order(case_runner, case_id):
+    case_runner.run("model_design", case_id, catalog_order_case)
 
 
 def check_optional_naming_suffix():

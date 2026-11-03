@@ -1,0 +1,16 @@
+tree:
+  EventSelectors:
+  - DataResources:
+    - Type: AWS::S3::Object
+      Values:
+      - bucket-2
+      - bucket-1
+    ReadWriteType: All
+  - DataResources:
+    - Type: AWS::S3::Object
+      Values:
+      - bucket-3
+    - Type: AWS::Lambda::Function
+      Values:
+      - function-1
+    ReadWriteType: ReadOnly

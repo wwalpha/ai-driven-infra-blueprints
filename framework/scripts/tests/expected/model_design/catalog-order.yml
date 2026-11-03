@@ -1,0 +1,97 @@
+displays:
+- kind: EC2.VPC
+  rows:
+  - - 001-002
+    - EC2.VPC.Name
+    - '`vpc-app-dev`'
+    - ネットワーク名
+  - - 001-008
+    - EC2.VPC.VpcId
+    - '`vpc-123`'
+    - ネットワークID
+  - - 001-007
+    - EC2.VPC.CidrBlock
+    - '`10.0.0.0/16`'
+    - アドレス範囲
+  - - 001-009
+    - EC2.VPC.EnableDnsHostnames
+    - '`true`'
+    - DNS名
+  - - 001-001
+    - EC2.VPC.EnableDnsSupport
+    - '`true`'
+    - DNS解決
+  - - 001-003
+    - EC2.VPC.Tags[].Key
+    - '"purpose"'
+    - タグ名
+  - - 001-004
+    - EC2.VPC.Tags[].Value
+    - '"first"'
+    - 最初の用途
+  - - 001-005
+    - EC2.VPC.Tags[].Key
+    - '"owner"'
+    - タグ名
+  - - 001-006
+    - EC2.VPC.Tags[].Value
+    - '"second"'
+    - 次の用途
+- kind: QuickSight.DataSource
+  rows:
+  - - '1'
+    - QuickSight.DataSource.Name
+    - 値
+    - 説明
+  - - '0'
+    - QuickSight.DataSource.Type
+    - 値
+    - 説明
+  - - '3'
+    - QuickSight.DataSource.AwsAccountId
+    - 値
+    - 説明
+  - - '4'
+    - QuickSight.DataSource.DataSourceId
+    - 値
+    - 説明
+  - - '2'
+    - QuickSight.DataSource.DataSourceParameters.AthenaParameters.WorkGroup
+    - 値
+    - 説明
+- kind: S3.Bucket
+  rows:
+  - - '3'
+    - S3.Bucket.BucketName
+    - 値
+    - 説明
+  - - '2'
+    - S3.Bucket.Region
+    - 値
+    - 説明
+  - - '0'
+    - S3.Bucket.Tags[].Key
+    - 値
+    - 説明
+  - - '1'
+    - S3.Bucket.Tags[].Value
+    - 値
+    - 説明
+- kind: CodeBuild.Project
+  rows:
+  - - '3'
+    - CodeBuild.Project.Name
+    - 値
+    - 説明
+  - - '2'
+    - CodeBuild.Project.VpcConfig.Subnets
+    - 値
+    - 説明
+  - - '1'
+    - CodeBuild.Project.VpcConfig.SecurityGroupIds
+    - 値
+    - 説明
+  - - '0'
+    - CodeBuild.Project.VpcConfig.VpcId
+    - 値
+    - 説明

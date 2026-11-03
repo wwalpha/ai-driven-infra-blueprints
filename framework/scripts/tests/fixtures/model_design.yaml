@@ -1,0 +1,315 @@
+version: 1
+cases:
+  array-model:
+    data:
+      values:
+        desired.service.quicksight.serviceId: quicksight
+        desired.service.quicksight.ownedCatalogResourceTypes: QuickSight.DataSource
+        display.service.title: '# quicksight 詳細設計'
+        desired.resource.001.resourceType: QuickSight.DataSource
+        desired.resource.001.anchor: quicksight-source
+        desired.resource.001.logicalId: QuickSight_DataSource_001
+        desired.service.identity.lastAllocated: '{"QuickSight.DataSource": 1}'
+        desired.resource.001.cfn-logicalId: fixture-Resource
+        display.resource.001.comment: 対象環境のデータ処理を提供するresource
+        desired.row.001-001.property: QuickSight.DataSource.Name
+        desired.row.001-001.value: '`source`'
+        desired.row.001-001.comment: データソース名
+        desired.row.001-002.property: QuickSight.DataSource.Permissions[].Actions
+        desired.row.001-002.value: '`[ "quicksight:DescribeDataSource", "quicksight:PassDataSource" ]`'
+        desired.row.001-002.comment: 権限を付与
+        desired.row.001-003.property: QuickSight.DataSource.Permissions[].Principal
+        desired.row.001-003.value: '[first](iam.md#first)'
+        desired.row.001-003.comment: 対象ユーザー
+        desired.row.001-004.property: QuickSight.DataSource.Permissions[].Actions
+        desired.row.001-004.value: '`[]`'
+        desired.row.001-004.comment: 空の権限
+        desired.row.001-005.property: QuickSight.DataSource.Permissions[].Principal
+        desired.row.001-005.value: '[second](iam.md#second)'
+        desired.row.001-005.comment: 次のユーザー
+      raw: '`[ "quicksight:DescribeDataSource", "quicksight:PassDataSource" ]`'
+    files:
+      project.json: '{"targets": [{"environment": "dev", "alias": "team", "awsAccountId": "123456789012", "awsRegion":
+        "ap-northeast-1", "iacEngine": "cloudformation"}]}'
+  glue-arguments:
+    data:
+      values:
+        desired.service.glue.serviceId: glue
+        desired.service.glue.ownedCatalogResourceTypes: Glue.Job
+        display.service.title: '# glue 詳細設計'
+        desired.resource.001.resourceType: Glue.Job
+        desired.resource.001.anchor: glue-app-dev-outbound
+        desired.resource.001.logicalId: Glue_Job_001
+        desired.service.identity.lastAllocated: '{"Glue.Job": 1}'
+        desired.resource.001.cfn-logicalId: fixture-Resource
+        display.resource.001.comment: 対象環境のデータ処理を提供するresource
+        desired.row.001-001.property: Glue.Job.Name
+        desired.row.001-001.value: '`app-dev-outbound`'
+        desired.row.001-001.comment: 処理ジョブの名前
+        desired.row.001-002.property: Glue.Job.DefaultArguments
+        desired.row.001-002.value: '`{ "--job-language": "python", "--job-bookmark-option": "job-bookmark-disable",
+          "--enable-spark-ui": "true", "--spark-event-logs-path": "s3://data/temp/spark-ui/", "--SECRET_NAME": "snowflake-keypair",
+          "--ENVIRONMENT": "dev", "--TempDir": "s3://data/temp/", "--custom-logGroup-prefix": "/aws-glue/jobs/app",
+          "--custom-logStream-prefix": "if-outbound-001" }`'
+        desired.row.001-002.comment: ジョブの既定引数
+        desired.row.001-003.property: Glue.Job.NonOverridableArguments
+        desired.row.001-003.value: '`{"--LOCKED":"false","--empty":"","--特殊\u007c<key>`":"line\n\u007c<>&`"}`'
+        desired.row.001-003.comment: 上書きできない引数
+        desired.row.001-004.property: Glue.Job.Tags
+        desired.row.001-004.value: '`{}`'
+        desired.row.001-004.comment: ジョブのタグ
+        desired.row.001-005.property: Glue.Job.Role
+        desired.row.001-005.value: '[IAM_Role_001](iam.md#iam-net-dev-flow-role)'
+        desired.row.001-005.comment: 処理ジョブの実行ロール
+        desired.row.001-006.property: Glue.Job.Command.Name
+        desired.row.001-006.value: '`glueetl`'
+        desired.row.001-006.comment: 処理ジョブの種類
+      arguments: '{ "--job-language": "python", "--job-bookmark-option": "job-bookmark-disable", "--enable-spark-ui":
+        "true", "--spark-event-logs-path": "s3://data/temp/spark-ui/", "--SECRET_NAME": "snowflake-keypair", "--ENVIRONMENT":
+        "dev", "--TempDir": "s3://data/temp/", "--custom-logGroup-prefix": "/aws-glue/jobs/app", "--custom-logStream-prefix":
+        "if-outbound-001" }'
+  catalog-order:
+    data:
+      values:
+        desired.service.vpc.serviceId: vpc
+        desired.service.vpc.ownedCatalogResourceTypes: EC2.VPC
+        display.service.title: '# vpc 詳細設計'
+        desired.resource.001.resourceType: EC2.VPC
+        desired.resource.001.anchor: vpc-vpc-app-dev
+        desired.resource.001.logicalId: EC2_VPC_001
+        desired.service.identity.lastAllocated: '{"EC2.VPC": 1}'
+        desired.resource.001.cfn-logicalId: fixture-Vpc
+        display.resource.001.comment: 対象環境のデータ処理を提供するresource
+        desired.row.001-001.property: EC2.VPC.EnableDnsSupport
+        desired.row.001-001.value: '`true`'
+        desired.row.001-001.comment: DNS解決
+        desired.row.001-002.property: EC2.VPC.Name
+        desired.row.001-002.value: '`vpc-app-dev`'
+        desired.row.001-002.comment: ネットワーク名
+        desired.row.001-003.property: EC2.VPC.Tags[].Key
+        desired.row.001-003.value: '"purpose"'
+        desired.row.001-003.comment: タグ名
+        desired.row.001-004.property: EC2.VPC.Tags[].Value
+        desired.row.001-004.value: '"first"'
+        desired.row.001-004.comment: 最初の用途
+        desired.row.001-005.property: EC2.VPC.Tags[].Key
+        desired.row.001-005.value: '"owner"'
+        desired.row.001-005.comment: タグ名
+        desired.row.001-006.property: EC2.VPC.Tags[].Value
+        desired.row.001-006.value: '"second"'
+        desired.row.001-006.comment: 次の用途
+        desired.row.001-007.property: EC2.VPC.CidrBlock
+        desired.row.001-007.value: '`10.0.0.0/16`'
+        desired.row.001-007.comment: アドレス範囲
+        desired.row.001-008.property: EC2.VPC.VpcId
+        desired.row.001-008.value: '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}`'
+        desired.row.001-008.comment: ネットワークID
+        desired.row.001-009.property: EC2.VPC.EnableDnsHostnames
+        desired.row.001-009.value: '`true`'
+        desired.row.001-009.comment: DNS名
+        observed.row.001-008.property: EC2.VPC.VpcId
+        observed.row.001-008.value: '`vpc-123`'
+        observed.row.001-008.comment: ネットワークID
+  row-consumption:
+    data:
+      resource:
+        resourceType: Config.ConfigurationRecorder
+        resourceMode: IMPORT
+      rows:
+      - - 001-001
+        - Config.ConfigurationRecorder.RoleARN
+        - '`AWSServiceRoleForConfig`'
+        - 記録用IAM Role
+  ec2-compact:
+    data:
+      name: app-dev-worker
+      models:
+      - count: 1
+        values:
+          desired.service.ec2.serviceId: ec2
+          desired.service.ec2.ownedCatalogResourceTypes: EC2.Instance
+          display.service.title: '# ec2 詳細設計'
+          desired.resource.001.resourceType: EC2.Instance
+          desired.resource.001.anchor: ec2-app-dev-worker
+          desired.resource.001.logicalId: EC2_Instance_001
+          desired.service.identity.lastAllocated: '{"EC2.Instance": 1}'
+          desired.resource.001.cfn-logicalId: fixture-Worker
+          display.resource.001.comment: 対象環境のデータ処理を提供するresource
+          desired.row.001-001.property: EC2.Instance.BlockDeviceMappings[].DeviceName
+          desired.row.001-001.value: '`/dev/sda`'
+          desired.row.001-001.comment: デバイス名
+          desired.row.001-002.property: EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize
+          desired.row.001-002.value: '`10`'
+          desired.row.001-002.comment: ディスク容量
+          desired.row.001-003.property: EC2.Instance.BlockDeviceMappings[].Ebs.VolumeType
+          desired.row.001-003.value: '`gp3`'
+          desired.row.001-003.comment: ディスク種別
+          desired.row.001-004.property: EC2.Instance.ImageId
+          desired.row.001-004.value: '`ami-0123456789abcdef0`'
+          desired.row.001-004.comment: 起動するイメージ
+          desired.row.001-005.property: EC2.Instance.InstanceType
+          desired.row.001-005.value: '`t3.micro`'
+          desired.row.001-005.comment: インスタンス種別
+          desired.row.001-006.property: EC2.Instance.Tags[].Key
+          desired.row.001-006.value: '`purpose`'
+          desired.row.001-006.comment: 用途タグのキー
+          desired.row.001-007.property: EC2.Instance.Tags[].Value
+          desired.row.001-007.value: '`worker`'
+          desired.row.001-007.comment: 用途タグの値
+          desired.row.001-008.property: EC2.Instance.Tags[].Key
+          desired.row.001-008.value: '"Name"'
+          desired.row.001-008.comment: 名前タグのキー <識別>
+          desired.row.001-009.property: EC2.Instance.Tags[].Value
+          desired.row.001-009.value: '`app-dev-worker`'
+          desired.row.001-009.comment: インスタンス名
+          desired.row.001-010.property: EC2.Instance.Tags[].Key
+          desired.row.001-010.value: '`owner`'
+          desired.row.001-010.comment: 所有者タグのキー
+          desired.row.001-011.property: EC2.Instance.Tags[].Value
+          desired.row.001-011.value: '`team`'
+          desired.row.001-011.comment: 所有者タグの値
+          desired.row.001-012.property: EC2.Instance.Tenancy
+          desired.row.001-012.value: '`default`'
+          desired.row.001-012.comment: 実行するテナンシー
+      - count: 5
+        values:
+          desired.service.ec2.serviceId: ec2
+          desired.service.ec2.ownedCatalogResourceTypes: EC2.Instance
+          display.service.title: '# ec2 詳細設計'
+          desired.resource.001.resourceType: EC2.Instance
+          desired.resource.001.anchor: ec2-app-dev-worker
+          desired.resource.001.logicalId: EC2_Instance_001
+          desired.service.identity.lastAllocated: '{"EC2.Instance": 1}'
+          desired.resource.001.cfn-logicalId: fixture-Worker
+          display.resource.001.comment: 対象環境のデータ処理を提供するresource
+          desired.row.001-001.property: EC2.Instance.BlockDeviceMappings[].DeviceName
+          desired.row.001-001.value: '`/dev/sda`'
+          desired.row.001-001.comment: デバイス名
+          desired.row.001-002.property: EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize
+          desired.row.001-002.value: '`10`'
+          desired.row.001-002.comment: ディスク容量
+          desired.row.001-003.property: EC2.Instance.BlockDeviceMappings[].Ebs.VolumeType
+          desired.row.001-003.value: '`gp3`'
+          desired.row.001-003.comment: ディスク種別
+          desired.row.001-004.property: EC2.Instance.BlockDeviceMappings[].DeviceName
+          desired.row.001-004.value: '`/dev/sdb`'
+          desired.row.001-004.comment: デバイス名
+          desired.row.001-005.property: EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize
+          desired.row.001-005.value: '`20`'
+          desired.row.001-005.comment: ディスク容量
+          desired.row.001-006.property: EC2.Instance.BlockDeviceMappings[].DeviceName
+          desired.row.001-006.value: '`/dev/sdc`'
+          desired.row.001-006.comment: デバイス名
+          desired.row.001-007.property: EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize
+          desired.row.001-007.value: '`30`'
+          desired.row.001-007.comment: ディスク容量
+          desired.row.001-008.property: EC2.Instance.BlockDeviceMappings[].Ebs.VolumeType
+          desired.row.001-008.value: '`gp3`'
+          desired.row.001-008.comment: ディスク種別
+          desired.row.001-009.property: EC2.Instance.BlockDeviceMappings[].DeviceName
+          desired.row.001-009.value: '`/dev/sdd`'
+          desired.row.001-009.comment: デバイス名
+          desired.row.001-010.property: EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize
+          desired.row.001-010.value: '`40`'
+          desired.row.001-010.comment: ディスク容量
+          desired.row.001-011.property: EC2.Instance.BlockDeviceMappings[].DeviceName
+          desired.row.001-011.value: '`/dev/sde`'
+          desired.row.001-011.comment: デバイス名
+          desired.row.001-012.property: EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize
+          desired.row.001-012.value: '`50`'
+          desired.row.001-012.comment: ディスク容量
+          desired.row.001-013.property: EC2.Instance.BlockDeviceMappings[].Ebs.VolumeType
+          desired.row.001-013.value: '`gp3`'
+          desired.row.001-013.comment: ディスク種別
+          desired.row.001-014.property: EC2.Instance.ImageId
+          desired.row.001-014.value: '`ami-0123456789abcdef0`'
+          desired.row.001-014.comment: 起動するイメージ
+          desired.row.001-015.property: EC2.Instance.InstanceType
+          desired.row.001-015.value: '`t3.micro`'
+          desired.row.001-015.comment: インスタンス種別
+          desired.row.001-016.property: EC2.Instance.Tags[].Key
+          desired.row.001-016.value: '`purpose`'
+          desired.row.001-016.comment: 用途タグのキー
+          desired.row.001-017.property: EC2.Instance.Tags[].Value
+          desired.row.001-017.value: '`worker`'
+          desired.row.001-017.comment: 用途タグの値
+          desired.row.001-018.property: EC2.Instance.Tags[].Key
+          desired.row.001-018.value: '"Name"'
+          desired.row.001-018.comment: 名前タグのキー <識別>
+          desired.row.001-019.property: EC2.Instance.Tags[].Value
+          desired.row.001-019.value: '`app-dev-worker`'
+          desired.row.001-019.comment: インスタンス名
+          desired.row.001-020.property: EC2.Instance.Tags[].Key
+          desired.row.001-020.value: '`owner`'
+          desired.row.001-020.comment: 所有者タグのキー
+          desired.row.001-021.property: EC2.Instance.Tags[].Value
+          desired.row.001-021.value: '`team`'
+          desired.row.001-021.comment: 所有者タグの値
+          desired.row.001-022.property: EC2.Instance.Tenancy
+          desired.row.001-022.value: '`default`'
+          desired.row.001-022.comment: 実行するテナンシー
+      importModel:
+        desired.service.ec2.serviceId: ec2
+        desired.service.ec2.ownedCatalogResourceTypes: EC2.Instance
+        display.service.title: '# ec2 詳細設計'
+        desired.resource.001.resourceType: EC2.Instance
+        desired.resource.001.anchor: ec2-ec2.instance
+        desired.resource.001.logicalId: EC2_Instance_001
+        desired.service.identity.lastAllocated: '{"EC2.Instance": 1}'
+        display.resource.001.comment: 対象環境のデータ処理を提供するresource
+        desired.row.001-001.property: EC2.Instance.ImageId
+        desired.row.001-001.value: '`ami-0123456789abcdef0`'
+        desired.row.001-001.comment: 起動するイメージ
+        desired.resource.001.resourceMode: IMPORT
+  subnet-01:
+    data:
+      property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
+      value: subnet-a, subnet-b
+      valid: true
+  subnet-02:
+    data:
+      property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
+      value: '` subnet-a ,  subnet-b `'
+      valid: true
+  subnet-03:
+    data:
+      property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
+      value: '` [a](vpc.md#a), [b](vpc.md#b) `'
+      valid: true
+  subnet-04:
+    data:
+      property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
+      value: ''
+      valid: false
+  subnet-05:
+    data:
+      property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
+      value: ','
+      valid: false
+  subnet-06:
+    data:
+      property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
+      value: subnet-a,
+      valid: false
+  subnet-07:
+    data:
+      property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
+      value: subnet-a,,subnet-b
+      valid: false
+  subnet-08:
+    data:
+      property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
+      value: subnet-a|b
+      valid: false
+  subnet-09:
+    data:
+      property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
+      value: 'subnet-a
+
+        subnet-b'
+      valid: false
+  subnet-10:
+    data:
+      property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
+      value: subnet-`a
+      valid: false

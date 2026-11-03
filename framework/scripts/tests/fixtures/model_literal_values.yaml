@@ -1,0 +1,277 @@
+version: 1
+cases:
+  normalize-01:
+    data:
+      prop: Permissions[].Actions
+      value:
+      - A
+      - B
+      shape: leaf
+  normalize-02:
+    data:
+      prop: Permissions[].Actions
+      value:
+      - - A
+        - B
+      shape: projection
+  normalize-03:
+    data:
+      prop: EventSelectors[].DataResources[].Values
+      value:
+      - - - arn:aws:s3
+      shape: projection
+  normalize-04:
+    data:
+      prop: Items[]
+      value:
+      - A
+      - B
+      shape: projection
+  normalize-05:
+    data:
+      prop: Items[]
+      value: A
+      shape: leaf
+  normalize-06:
+    data:
+      prop: Permissions[].Actions
+      value: []
+      shape: leaf
+  normalize-07:
+    data:
+      prop: Permissions[].Actions
+      value: []
+      shape: projection
+  normalize-08:
+    data:
+      prop: Groups[].Members[].Values
+      value:
+      - []
+      shape: projection
+  normalize-09:
+    data:
+      prop: Permissions[].Actions
+      value:
+      - - A
+      - - B
+      shape: projection
+  actions-01:
+    data:
+      value:
+      - ActionA
+      - ActionB
+      shape: leaf
+      valid: true
+  actions-02:
+    data:
+      value:
+      - - ActionA
+        - ActionB
+      shape: projection
+      valid: true
+  actions-03:
+    data:
+      value: ActionA
+      shape: leaf
+      valid: false
+  actions-04:
+    data:
+      value: []
+      shape: leaf
+      valid: false
+  actions-05:
+    data:
+      value:
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      - ActionA
+      shape: leaf
+      valid: false
+  actions-06:
+    data:
+      value:
+      - ActionA
+      - 1
+      shape: leaf
+      valid: false
+  actions-07:
+    data:
+      value:
+      - - ActionA
+        - 1
+      shape: projection
+      valid: false
+  actions-08:
+    data:
+      value:
+      - - - ActionA
+      shape: leaf
+      valid: false
+  actions-09:
+    data:
+      value:
+      - ActionA
+      shape: projection
+      valid: false
+  actions-10:
+    data:
+      value:
+      - []
+      shape: projection
+      valid: false
+  actions-11:
+    data:
+      value: []
+      shape: projection
+      valid: false
+  column-constraints-01:
+    data:
+      field: EventSelectors[].IncludeManagementEvents
+      raw: '[true,false]'
+      valid: true
+  column-constraints-02:
+    data:
+      field: EventSelectors[].IncludeManagementEvents
+      raw: '[true,"false"]'
+      valid: false
+  column-constraints-03:
+    data:
+      field: EventSelectors[].ReadWriteType
+      raw: '["All","ReadOnly"]'
+      valid: true
+  column-constraints-04:
+    data:
+      field: EventSelectors[].ReadWriteType
+      raw: '["All","bad"]'
+      valid: false
+  column-constraints-05:
+    data:
+      field: EventSelectors[].DataResources[].Type
+      raw: '[["AWS::S3::Object"]]'
+      valid: true
+  column-constraints-06:
+    data:
+      field: EventSelectors[].DataResources[].Values
+      raw: '[[["arn:aws:s3"]]]'
+      valid: true
+  column-constraints-07:
+    data:
+      field: EventSelectors[].ReadWriteType
+      raw: '["All"]'
+      valid: true
+  column-constraints-08:
+    data:
+      field: EventSelectors[].ReadWriteType
+      raw: '["bad"]'
+      valid: false
+  column-constraints-09:
+    data:
+      field: EventSelectors[].ReadWriteType
+      raw: '[["All"]]'
+      valid: false
+  terminal-projection-constraints-01:
+    data:
+      raw: '["a/","b/"]'
+      valid: true
+  terminal-projection-constraints-02:
+    data:
+      raw: '[]'
+      valid: true
+  terminal-projection-constraints-03:
+    data:
+      raw: '  ["a/"]'
+      valid: true
+  terminal-projection-constraints-04:
+    data:
+      raw: '["a/",]'
+      valid: false
+  terminal-projection-constraints-05:
+    data:
+      raw: '['
+      valid: false
+  terminal-projection-constraints-06:
+    data:
+      raw: '[1]'
+      valid: false
+  terminal-projection-constraints-07:
+    data:
+      raw: '[null]'
+      valid: false
+  terminal-projection-constraints-08:
+    data:
+      raw: '[true]'
+      valid: false
+  terminal-projection-constraints-09:
+    data:
+      raw: '[{}]'
+      valid: false
+  terminal-projection-constraints-10:
+    data:
+      raw: '[["a/"]]'
+      valid: false
+  projection-siblings-reconstruct-01:
+    data:
+      values:
+      - - VpcConfig.VpcId
+        - leaf
+        - vpc-123
+      - - VpcConfig.Subnets[]
+        - projection
+        - - subnet-2
+          - subnet-1
+  projection-siblings-reconstruct-02:
+    data:
+      values:
+      - - VpcConfig.Subnets[]
+        - projection
+        - - subnet-2
+          - subnet-1
+      - - VpcConfig.SecurityGroupIds[]
+        - leaf
+        - sg-1
+  projection-siblings-reconstruct-03:
+    data:
+      values:
+      - - EventSelectors[].ReadWriteType
+        - projection
+        - - All
+          - ReadOnly
+      - - EventSelectors[].DataResources[].Type
+        - projection
+        - - - AWS::S3::Object
+          - - AWS::S3::Object
+            - AWS::Lambda::Function
+      - - EventSelectors[].DataResources[].Values
+        - projection
+        - - - - bucket-2
+              - bucket-1
+          - - - bucket-3
+            - - function-1
