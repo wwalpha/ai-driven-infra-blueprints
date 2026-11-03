@@ -2,10 +2,6 @@ import-difference-00:
   $shared-ref: sha256-bdbe6b840394d62f2cef9268f65471c9cbd94ae1b5961f3911b39b6ebb64fe82
 import-difference-01:
   $shared-ref: sha256-53c6e10f37d22be91c30a262358a690e615f14cd132560a805f6bc06b29b0ebd
-import-difference-02:
-  $shared-ref: sha256-bdbe6b840394d62f2cef9268f65471c9cbd94ae1b5961f3911b39b6ebb64fe82
-import-difference-03:
-  $shared-ref: sha256-53c6e10f37d22be91c30a262358a690e615f14cd132560a805f6bc06b29b0ebd
 import-difference-04:
   display:
     349fe677097c6e8f5878:

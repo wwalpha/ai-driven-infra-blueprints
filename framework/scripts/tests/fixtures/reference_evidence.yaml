@@ -4100,62 +4100,6 @@ cases:
       expression: *service125_002
       active: 'yes'
       target: OtherProducer
-  sg-identity-032:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_003
-      active: 'yes'
-      target: Producer
-  sg-identity-033:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_003
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-034:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_004
-      active: 'yes'
-      target: Producer
-  sg-identity-035:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_004
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-036:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_005
-      active: 'yes'
-      target: Producer
-  sg-identity-037:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_005
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-038:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_006
-      active: 'yes'
-      target: Producer
-  sg-identity-039:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_006
-      active: 'yes'
-      target: OtherProducer
   sg-identity-040:
     expected_group: sg-identity
     data:
@@ -4198,20 +4142,6 @@ cases:
       expression: *service125_009
       active: 'yes'
       target: OtherProducer
-  sg-identity-046:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_010
-      active: 'yes'
-      target: Producer
-  sg-identity-047:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_010
-      active: 'yes'
-      target: OtherProducer
   sg-identity-048:
     expected_group: sg-identity
     data:
@@ -4224,76 +4154,6 @@ cases:
     data:
       receiver: *service125_015
       expression: *service125_011
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-050:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_012
-      active: 'yes'
-      target: Producer
-  sg-identity-051:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_012
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-052:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: not-a-vpc
-      active: 'yes'
-      target: Producer
-  sg-identity-053:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: not-a-vpc
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-054:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_013
-      active: 'yes'
-      target: Producer
-  sg-identity-055:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_013
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-056:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_014
-      active: 'yes'
-      target: Producer
-  sg-identity-057:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: *service125_014
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-058:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: null
-      active: 'yes'
-      target: Producer
-  sg-identity-059:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_015
-      expression: null
       active: 'yes'
       target: OtherProducer
   sg-identity-060:
@@ -4313,62 +4173,6 @@ cases:
     data:
       receiver: *service125_016
       expression: *service125_002
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-062:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_003
-      active: 'yes'
-      target: Producer
-  sg-identity-063:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_003
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-064:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_004
-      active: 'yes'
-      target: Producer
-  sg-identity-065:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_004
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-066:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_005
-      active: 'yes'
-      target: Producer
-  sg-identity-067:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_005
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-068:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_006
-      active: 'yes'
-      target: Producer
-  sg-identity-069:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_006
       active: 'yes'
       target: OtherProducer
   sg-identity-070:
@@ -4413,20 +4217,6 @@ cases:
       expression: *service125_009
       active: 'yes'
       target: OtherProducer
-  sg-identity-076:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_010
-      active: 'yes'
-      target: Producer
-  sg-identity-077:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_010
-      active: 'yes'
-      target: OtherProducer
   sg-identity-078:
     expected_group: sg-identity
     data:
@@ -4439,76 +4229,6 @@ cases:
     data:
       receiver: *service125_016
       expression: *service125_011
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-080:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_012
-      active: 'yes'
-      target: Producer
-  sg-identity-081:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_012
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-082:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: not-a-vpc
-      active: 'yes'
-      target: Producer
-  sg-identity-083:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: not-a-vpc
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-084:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_013
-      active: 'yes'
-      target: Producer
-  sg-identity-085:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_013
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-086:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_014
-      active: 'yes'
-      target: Producer
-  sg-identity-087:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: *service125_014
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-088:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: null
-      active: 'yes'
-      target: Producer
-  sg-identity-089:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_016
-      expression: null
       active: 'yes'
       target: OtherProducer
   sg-identity-090:
@@ -4528,62 +4248,6 @@ cases:
     data:
       receiver: *service125_017
       expression: *service125_002
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-092:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_003
-      active: 'yes'
-      target: Producer
-  sg-identity-093:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_003
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-094:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_004
-      active: 'yes'
-      target: Producer
-  sg-identity-095:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_004
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-096:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_005
-      active: 'yes'
-      target: Producer
-  sg-identity-097:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_005
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-098:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_006
-      active: 'yes'
-      target: Producer
-  sg-identity-099:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_006
       active: 'yes'
       target: OtherProducer
   sg-identity-100:
@@ -4628,20 +4292,6 @@ cases:
       expression: *service125_009
       active: 'yes'
       target: OtherProducer
-  sg-identity-106:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_010
-      active: 'yes'
-      target: Producer
-  sg-identity-107:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_010
-      active: 'yes'
-      target: OtherProducer
   sg-identity-108:
     expected_group: sg-identity
     data:
@@ -4654,76 +4304,6 @@ cases:
     data:
       receiver: *service125_017
       expression: *service125_011
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-110:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_012
-      active: 'yes'
-      target: Producer
-  sg-identity-111:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_012
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-112:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: not-a-vpc
-      active: 'yes'
-      target: Producer
-  sg-identity-113:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: not-a-vpc
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-114:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_013
-      active: 'yes'
-      target: Producer
-  sg-identity-115:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_013
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-116:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_014
-      active: 'yes'
-      target: Producer
-  sg-identity-117:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: *service125_014
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-118:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: null
-      active: 'yes'
-      target: Producer
-  sg-identity-119:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_017
-      expression: null
       active: 'yes'
       target: OtherProducer
   sg-identity-120:
@@ -4743,62 +4323,6 @@ cases:
     data:
       receiver: *service125_018
       expression: *service125_002
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-122:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_003
-      active: 'yes'
-      target: Producer
-  sg-identity-123:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_003
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-124:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_004
-      active: 'yes'
-      target: Producer
-  sg-identity-125:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_004
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-126:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_005
-      active: 'yes'
-      target: Producer
-  sg-identity-127:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_005
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-128:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_006
-      active: 'yes'
-      target: Producer
-  sg-identity-129:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_006
       active: 'yes'
       target: OtherProducer
   sg-identity-130:
@@ -4843,20 +4367,6 @@ cases:
       expression: *service125_009
       active: 'yes'
       target: OtherProducer
-  sg-identity-136:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_010
-      active: 'yes'
-      target: Producer
-  sg-identity-137:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_010
-      active: 'yes'
-      target: OtherProducer
   sg-identity-138:
     expected_group: sg-identity
     data:
@@ -4869,76 +4379,6 @@ cases:
     data:
       receiver: *service125_018
       expression: *service125_011
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-140:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_012
-      active: 'yes'
-      target: Producer
-  sg-identity-141:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_012
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-142:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: not-a-vpc
-      active: 'yes'
-      target: Producer
-  sg-identity-143:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: not-a-vpc
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-144:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_013
-      active: 'yes'
-      target: Producer
-  sg-identity-145:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_013
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-146:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_014
-      active: 'yes'
-      target: Producer
-  sg-identity-147:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: *service125_014
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-148:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: null
-      active: 'yes'
-      target: Producer
-  sg-identity-149:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_018
-      expression: null
       active: 'yes'
       target: OtherProducer
   sg-identity-150:
@@ -4958,62 +4398,6 @@ cases:
     data:
       receiver: *service125_019
       expression: *service125_002
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-152:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_003
-      active: 'yes'
-      target: Producer
-  sg-identity-153:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_003
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-154:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_004
-      active: 'yes'
-      target: Producer
-  sg-identity-155:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_004
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-156:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_005
-      active: 'yes'
-      target: Producer
-  sg-identity-157:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_005
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-158:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_006
-      active: 'yes'
-      target: Producer
-  sg-identity-159:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_006
       active: 'yes'
       target: OtherProducer
   sg-identity-160:
@@ -5058,20 +4442,6 @@ cases:
       expression: *service125_009
       active: 'yes'
       target: OtherProducer
-  sg-identity-166:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_010
-      active: 'yes'
-      target: Producer
-  sg-identity-167:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_010
-      active: 'yes'
-      target: OtherProducer
   sg-identity-168:
     expected_group: sg-identity
     data:
@@ -5084,76 +4454,6 @@ cases:
     data:
       receiver: *service125_019
       expression: *service125_011
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-170:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_012
-      active: 'yes'
-      target: Producer
-  sg-identity-171:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_012
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-172:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: not-a-vpc
-      active: 'yes'
-      target: Producer
-  sg-identity-173:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: not-a-vpc
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-174:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_013
-      active: 'yes'
-      target: Producer
-  sg-identity-175:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_013
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-176:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_014
-      active: 'yes'
-      target: Producer
-  sg-identity-177:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: *service125_014
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-178:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: null
-      active: 'yes'
-      target: Producer
-  sg-identity-179:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_019
-      expression: null
       active: 'yes'
       target: OtherProducer
   sg-identity-180:
@@ -5173,62 +4473,6 @@ cases:
     data:
       receiver: *service125_020
       expression: *service125_002
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-182:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_003
-      active: 'yes'
-      target: Producer
-  sg-identity-183:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_003
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-184:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_004
-      active: 'yes'
-      target: Producer
-  sg-identity-185:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_004
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-186:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_005
-      active: 'yes'
-      target: Producer
-  sg-identity-187:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_005
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-188:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_006
-      active: 'yes'
-      target: Producer
-  sg-identity-189:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_006
       active: 'yes'
       target: OtherProducer
   sg-identity-190:
@@ -5273,20 +4517,6 @@ cases:
       expression: *service125_009
       active: 'yes'
       target: OtherProducer
-  sg-identity-196:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_010
-      active: 'yes'
-      target: Producer
-  sg-identity-197:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_010
-      active: 'yes'
-      target: OtherProducer
   sg-identity-198:
     expected_group: sg-identity
     data:
@@ -5299,76 +4529,6 @@ cases:
     data:
       receiver: *service125_020
       expression: *service125_011
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-200:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_012
-      active: 'yes'
-      target: Producer
-  sg-identity-201:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_012
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-202:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: not-a-vpc
-      active: 'yes'
-      target: Producer
-  sg-identity-203:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: not-a-vpc
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-204:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_013
-      active: 'yes'
-      target: Producer
-  sg-identity-205:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_013
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-206:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_014
-      active: 'yes'
-      target: Producer
-  sg-identity-207:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: *service125_014
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-208:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: null
-      active: 'yes'
-      target: Producer
-  sg-identity-209:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_020
-      expression: null
       active: 'yes'
       target: OtherProducer
   sg-identity-210:
@@ -5388,62 +4548,6 @@ cases:
     data:
       receiver: *service125_021
       expression: *service125_002
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-212:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_003
-      active: 'yes'
-      target: Producer
-  sg-identity-213:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_003
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-214:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_004
-      active: 'yes'
-      target: Producer
-  sg-identity-215:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_004
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-216:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_005
-      active: 'yes'
-      target: Producer
-  sg-identity-217:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_005
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-218:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_006
-      active: 'yes'
-      target: Producer
-  sg-identity-219:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_006
       active: 'yes'
       target: OtherProducer
   sg-identity-220:
@@ -5488,20 +4592,6 @@ cases:
       expression: *service125_009
       active: 'yes'
       target: OtherProducer
-  sg-identity-226:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_010
-      active: 'yes'
-      target: Producer
-  sg-identity-227:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_010
-      active: 'yes'
-      target: OtherProducer
   sg-identity-228:
     expected_group: sg-identity
     data:
@@ -5514,76 +4604,6 @@ cases:
     data:
       receiver: *service125_021
       expression: *service125_011
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-230:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_012
-      active: 'yes'
-      target: Producer
-  sg-identity-231:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_012
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-232:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: not-a-vpc
-      active: 'yes'
-      target: Producer
-  sg-identity-233:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: not-a-vpc
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-234:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_013
-      active: 'yes'
-      target: Producer
-  sg-identity-235:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_013
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-236:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_014
-      active: 'yes'
-      target: Producer
-  sg-identity-237:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: *service125_014
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-238:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: null
-      active: 'yes'
-      target: Producer
-  sg-identity-239:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_021
-      expression: null
       active: 'yes'
       target: OtherProducer
   sg-identity-240:
@@ -5603,62 +4623,6 @@ cases:
     data:
       receiver: *service125_022
       expression: *service125_002
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-242:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_003
-      active: 'yes'
-      target: Producer
-  sg-identity-243:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_003
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-244:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_004
-      active: 'yes'
-      target: Producer
-  sg-identity-245:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_004
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-246:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_005
-      active: 'yes'
-      target: Producer
-  sg-identity-247:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_005
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-248:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_006
-      active: 'yes'
-      target: Producer
-  sg-identity-249:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_006
       active: 'yes'
       target: OtherProducer
   sg-identity-250:
@@ -5703,20 +4667,6 @@ cases:
       expression: *service125_009
       active: 'yes'
       target: OtherProducer
-  sg-identity-256:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_010
-      active: 'yes'
-      target: Producer
-  sg-identity-257:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_010
-      active: 'yes'
-      target: OtherProducer
   sg-identity-258:
     expected_group: sg-identity
     data:
@@ -5729,76 +4679,6 @@ cases:
     data:
       receiver: *service125_022
       expression: *service125_011
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-260:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_012
-      active: 'yes'
-      target: Producer
-  sg-identity-261:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_012
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-262:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: not-a-vpc
-      active: 'yes'
-      target: Producer
-  sg-identity-263:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: not-a-vpc
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-264:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_013
-      active: 'yes'
-      target: Producer
-  sg-identity-265:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_013
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-266:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_014
-      active: 'yes'
-      target: Producer
-  sg-identity-267:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: *service125_014
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-268:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: null
-      active: 'yes'
-      target: Producer
-  sg-identity-269:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_022
-      expression: null
       active: 'yes'
       target: OtherProducer
   sg-identity-270:
@@ -5818,62 +4698,6 @@ cases:
     data:
       receiver: *service125_023
       expression: *service125_002
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-272:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_003
-      active: 'yes'
-      target: Producer
-  sg-identity-273:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_003
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-274:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_004
-      active: 'yes'
-      target: Producer
-  sg-identity-275:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_004
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-276:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_005
-      active: 'yes'
-      target: Producer
-  sg-identity-277:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_005
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-278:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_006
-      active: 'yes'
-      target: Producer
-  sg-identity-279:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_006
       active: 'yes'
       target: OtherProducer
   sg-identity-280:
@@ -5918,20 +4742,6 @@ cases:
       expression: *service125_009
       active: 'yes'
       target: OtherProducer
-  sg-identity-286:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_010
-      active: 'yes'
-      target: Producer
-  sg-identity-287:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_010
-      active: 'yes'
-      target: OtherProducer
   sg-identity-288:
     expected_group: sg-identity
     data:
@@ -5944,76 +4754,6 @@ cases:
     data:
       receiver: *service125_023
       expression: *service125_011
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-290:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_012
-      active: 'yes'
-      target: Producer
-  sg-identity-291:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_012
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-292:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: not-a-vpc
-      active: 'yes'
-      target: Producer
-  sg-identity-293:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: not-a-vpc
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-294:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_013
-      active: 'yes'
-      target: Producer
-  sg-identity-295:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_013
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-296:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_014
-      active: 'yes'
-      target: Producer
-  sg-identity-297:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: *service125_014
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-298:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: null
-      active: 'yes'
-      target: Producer
-  sg-identity-299:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_023
-      expression: null
       active: 'yes'
       target: OtherProducer
   sg-identity-300:
@@ -6033,62 +4773,6 @@ cases:
     data:
       receiver: *service125_024
       expression: *service125_002
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-302:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_003
-      active: 'yes'
-      target: Producer
-  sg-identity-303:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_003
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-304:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_004
-      active: 'yes'
-      target: Producer
-  sg-identity-305:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_004
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-306:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_005
-      active: 'yes'
-      target: Producer
-  sg-identity-307:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_005
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-308:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_006
-      active: 'yes'
-      target: Producer
-  sg-identity-309:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_006
       active: 'yes'
       target: OtherProducer
   sg-identity-310:
@@ -6133,20 +4817,6 @@ cases:
       expression: *service125_009
       active: 'yes'
       target: OtherProducer
-  sg-identity-316:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_010
-      active: 'yes'
-      target: Producer
-  sg-identity-317:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_010
-      active: 'yes'
-      target: OtherProducer
   sg-identity-318:
     expected_group: sg-identity
     data:
@@ -6159,76 +4829,6 @@ cases:
     data:
       receiver: *service125_024
       expression: *service125_011
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-320:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_012
-      active: 'yes'
-      target: Producer
-  sg-identity-321:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_012
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-322:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: not-a-vpc
-      active: 'yes'
-      target: Producer
-  sg-identity-323:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: not-a-vpc
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-324:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_013
-      active: 'yes'
-      target: Producer
-  sg-identity-325:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_013
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-326:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_014
-      active: 'yes'
-      target: Producer
-  sg-identity-327:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: *service125_014
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-328:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: null
-      active: 'yes'
-      target: Producer
-  sg-identity-329:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_024
-      expression: null
       active: 'yes'
       target: OtherProducer
   sg-identity-330:
@@ -6248,62 +4848,6 @@ cases:
     data:
       receiver: *service125_025
       expression: *service125_002
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-332:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_003
-      active: 'yes'
-      target: Producer
-  sg-identity-333:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_003
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-334:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_004
-      active: 'yes'
-      target: Producer
-  sg-identity-335:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_004
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-336:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_005
-      active: 'yes'
-      target: Producer
-  sg-identity-337:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_005
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-338:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_006
-      active: 'yes'
-      target: Producer
-  sg-identity-339:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_006
       active: 'yes'
       target: OtherProducer
   sg-identity-340:
@@ -6348,20 +4892,6 @@ cases:
       expression: *service125_009
       active: 'yes'
       target: OtherProducer
-  sg-identity-346:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_010
-      active: 'yes'
-      target: Producer
-  sg-identity-347:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_010
-      active: 'yes'
-      target: OtherProducer
   sg-identity-348:
     expected_group: sg-identity
     data:
@@ -6374,76 +4904,6 @@ cases:
     data:
       receiver: *service125_025
       expression: *service125_011
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-350:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_012
-      active: 'yes'
-      target: Producer
-  sg-identity-351:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_012
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-352:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: not-a-vpc
-      active: 'yes'
-      target: Producer
-  sg-identity-353:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: not-a-vpc
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-354:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_013
-      active: 'yes'
-      target: Producer
-  sg-identity-355:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_013
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-356:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_014
-      active: 'yes'
-      target: Producer
-  sg-identity-357:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: *service125_014
-      active: 'yes'
-      target: OtherProducer
-  sg-identity-358:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: null
-      active: 'yes'
-      target: Producer
-  sg-identity-359:
-    expected_group: sg-identity
-    data:
-      receiver: *service125_025
-      expression: null
       active: 'yes'
       target: OtherProducer
   sg-external-000:
@@ -6565,60 +5025,6 @@ cases:
       receiver: *service125_015
       expression: *service125_026
       target: UnknownVpc
-  sg-external-018:
-    expected_group: sg-external
-    data:
-      receiver: *service125_015
-      expression: *service125_027
-      target: Producer
-  sg-external-019:
-    expected_group: sg-external
-    data:
-      receiver: *service125_015
-      expression: *service125_027
-      target: OtherProducer
-  sg-external-020:
-    expected_group: sg-external
-    data:
-      receiver: *service125_015
-      expression: *service125_027
-      target: UnknownVpc
-  sg-external-021:
-    expected_group: sg-external
-    data:
-      receiver: *service125_015
-      expression: *service125_028
-      target: Producer
-  sg-external-022:
-    expected_group: sg-external
-    data:
-      receiver: *service125_015
-      expression: *service125_028
-      target: OtherProducer
-  sg-external-023:
-    expected_group: sg-external
-    data:
-      receiver: *service125_015
-      expression: *service125_028
-      target: UnknownVpc
-  sg-external-024:
-    expected_group: sg-external
-    data:
-      receiver: *service125_015
-      expression: *service125_029
-      target: Producer
-  sg-external-025:
-    expected_group: sg-external
-    data:
-      receiver: *service125_015
-      expression: *service125_029
-      target: OtherProducer
-  sg-external-026:
-    expected_group: sg-external
-    data:
-      receiver: *service125_015
-      expression: *service125_029
-      target: UnknownVpc
   sg-external-027:
     expected_group: sg-external
     data:
@@ -6631,12 +5037,6 @@ cases:
       receiver: *service125_015
       expression: *service125_030
       target: OtherProducer
-  sg-external-029:
-    expected_group: sg-external
-    data:
-      receiver: *service125_015
-      expression: *service125_030
-      target: UnknownVpc
   sg-external-030:
     expected_group: sg-external
     data:
@@ -6655,60 +5055,6 @@ cases:
       receiver: *service125_016
       expression: *service125_026
       target: UnknownVpc
-  sg-external-033:
-    expected_group: sg-external
-    data:
-      receiver: *service125_016
-      expression: *service125_027
-      target: Producer
-  sg-external-034:
-    expected_group: sg-external
-    data:
-      receiver: *service125_016
-      expression: *service125_027
-      target: OtherProducer
-  sg-external-035:
-    expected_group: sg-external
-    data:
-      receiver: *service125_016
-      expression: *service125_027
-      target: UnknownVpc
-  sg-external-036:
-    expected_group: sg-external
-    data:
-      receiver: *service125_016
-      expression: *service125_028
-      target: Producer
-  sg-external-037:
-    expected_group: sg-external
-    data:
-      receiver: *service125_016
-      expression: *service125_028
-      target: OtherProducer
-  sg-external-038:
-    expected_group: sg-external
-    data:
-      receiver: *service125_016
-      expression: *service125_028
-      target: UnknownVpc
-  sg-external-039:
-    expected_group: sg-external
-    data:
-      receiver: *service125_016
-      expression: *service125_029
-      target: Producer
-  sg-external-040:
-    expected_group: sg-external
-    data:
-      receiver: *service125_016
-      expression: *service125_029
-      target: OtherProducer
-  sg-external-041:
-    expected_group: sg-external
-    data:
-      receiver: *service125_016
-      expression: *service125_029
-      target: UnknownVpc
   sg-external-042:
     expected_group: sg-external
     data:
@@ -6721,12 +5067,6 @@ cases:
       receiver: *service125_016
       expression: *service125_030
       target: OtherProducer
-  sg-external-044:
-    expected_group: sg-external
-    data:
-      receiver: *service125_016
-      expression: *service125_030
-      target: UnknownVpc
   sg-external-045:
     expected_group: sg-external
     data:
@@ -6745,60 +5085,6 @@ cases:
       receiver: *service125_017
       expression: *service125_026
       target: UnknownVpc
-  sg-external-048:
-    expected_group: sg-external
-    data:
-      receiver: *service125_017
-      expression: *service125_027
-      target: Producer
-  sg-external-049:
-    expected_group: sg-external
-    data:
-      receiver: *service125_017
-      expression: *service125_027
-      target: OtherProducer
-  sg-external-050:
-    expected_group: sg-external
-    data:
-      receiver: *service125_017
-      expression: *service125_027
-      target: UnknownVpc
-  sg-external-051:
-    expected_group: sg-external
-    data:
-      receiver: *service125_017
-      expression: *service125_028
-      target: Producer
-  sg-external-052:
-    expected_group: sg-external
-    data:
-      receiver: *service125_017
-      expression: *service125_028
-      target: OtherProducer
-  sg-external-053:
-    expected_group: sg-external
-    data:
-      receiver: *service125_017
-      expression: *service125_028
-      target: UnknownVpc
-  sg-external-054:
-    expected_group: sg-external
-    data:
-      receiver: *service125_017
-      expression: *service125_029
-      target: Producer
-  sg-external-055:
-    expected_group: sg-external
-    data:
-      receiver: *service125_017
-      expression: *service125_029
-      target: OtherProducer
-  sg-external-056:
-    expected_group: sg-external
-    data:
-      receiver: *service125_017
-      expression: *service125_029
-      target: UnknownVpc
   sg-external-057:
     expected_group: sg-external
     data:
@@ -6811,12 +5097,6 @@ cases:
       receiver: *service125_017
       expression: *service125_030
       target: OtherProducer
-  sg-external-059:
-    expected_group: sg-external
-    data:
-      receiver: *service125_017
-      expression: *service125_030
-      target: UnknownVpc
   sg-external-060:
     expected_group: sg-external
     data:
@@ -6835,60 +5115,6 @@ cases:
       receiver: *service125_018
       expression: *service125_026
       target: UnknownVpc
-  sg-external-063:
-    expected_group: sg-external
-    data:
-      receiver: *service125_018
-      expression: *service125_027
-      target: Producer
-  sg-external-064:
-    expected_group: sg-external
-    data:
-      receiver: *service125_018
-      expression: *service125_027
-      target: OtherProducer
-  sg-external-065:
-    expected_group: sg-external
-    data:
-      receiver: *service125_018
-      expression: *service125_027
-      target: UnknownVpc
-  sg-external-066:
-    expected_group: sg-external
-    data:
-      receiver: *service125_018
-      expression: *service125_028
-      target: Producer
-  sg-external-067:
-    expected_group: sg-external
-    data:
-      receiver: *service125_018
-      expression: *service125_028
-      target: OtherProducer
-  sg-external-068:
-    expected_group: sg-external
-    data:
-      receiver: *service125_018
-      expression: *service125_028
-      target: UnknownVpc
-  sg-external-069:
-    expected_group: sg-external
-    data:
-      receiver: *service125_018
-      expression: *service125_029
-      target: Producer
-  sg-external-070:
-    expected_group: sg-external
-    data:
-      receiver: *service125_018
-      expression: *service125_029
-      target: OtherProducer
-  sg-external-071:
-    expected_group: sg-external
-    data:
-      receiver: *service125_018
-      expression: *service125_029
-      target: UnknownVpc
   sg-external-072:
     expected_group: sg-external
     data:
@@ -6901,12 +5127,6 @@ cases:
       receiver: *service125_018
       expression: *service125_030
       target: OtherProducer
-  sg-external-074:
-    expected_group: sg-external
-    data:
-      receiver: *service125_018
-      expression: *service125_030
-      target: UnknownVpc
   sg-external-075:
     expected_group: sg-external
     data:
@@ -6925,60 +5145,6 @@ cases:
       receiver: *service125_019
       expression: *service125_026
       target: UnknownVpc
-  sg-external-078:
-    expected_group: sg-external
-    data:
-      receiver: *service125_019
-      expression: *service125_027
-      target: Producer
-  sg-external-079:
-    expected_group: sg-external
-    data:
-      receiver: *service125_019
-      expression: *service125_027
-      target: OtherProducer
-  sg-external-080:
-    expected_group: sg-external
-    data:
-      receiver: *service125_019
-      expression: *service125_027
-      target: UnknownVpc
-  sg-external-081:
-    expected_group: sg-external
-    data:
-      receiver: *service125_019
-      expression: *service125_028
-      target: Producer
-  sg-external-082:
-    expected_group: sg-external
-    data:
-      receiver: *service125_019
-      expression: *service125_028
-      target: OtherProducer
-  sg-external-083:
-    expected_group: sg-external
-    data:
-      receiver: *service125_019
-      expression: *service125_028
-      target: UnknownVpc
-  sg-external-084:
-    expected_group: sg-external
-    data:
-      receiver: *service125_019
-      expression: *service125_029
-      target: Producer
-  sg-external-085:
-    expected_group: sg-external
-    data:
-      receiver: *service125_019
-      expression: *service125_029
-      target: OtherProducer
-  sg-external-086:
-    expected_group: sg-external
-    data:
-      receiver: *service125_019
-      expression: *service125_029
-      target: UnknownVpc
   sg-external-087:
     expected_group: sg-external
     data:
@@ -6991,12 +5157,6 @@ cases:
       receiver: *service125_019
       expression: *service125_030
       target: OtherProducer
-  sg-external-089:
-    expected_group: sg-external
-    data:
-      receiver: *service125_019
-      expression: *service125_030
-      target: UnknownVpc
   sg-external-090:
     expected_group: sg-external
     data:
@@ -7015,60 +5175,6 @@ cases:
       receiver: *service125_020
       expression: *service125_026
       target: UnknownVpc
-  sg-external-093:
-    expected_group: sg-external
-    data:
-      receiver: *service125_020
-      expression: *service125_027
-      target: Producer
-  sg-external-094:
-    expected_group: sg-external
-    data:
-      receiver: *service125_020
-      expression: *service125_027
-      target: OtherProducer
-  sg-external-095:
-    expected_group: sg-external
-    data:
-      receiver: *service125_020
-      expression: *service125_027
-      target: UnknownVpc
-  sg-external-096:
-    expected_group: sg-external
-    data:
-      receiver: *service125_020
-      expression: *service125_028
-      target: Producer
-  sg-external-097:
-    expected_group: sg-external
-    data:
-      receiver: *service125_020
-      expression: *service125_028
-      target: OtherProducer
-  sg-external-098:
-    expected_group: sg-external
-    data:
-      receiver: *service125_020
-      expression: *service125_028
-      target: UnknownVpc
-  sg-external-099:
-    expected_group: sg-external
-    data:
-      receiver: *service125_020
-      expression: *service125_029
-      target: Producer
-  sg-external-100:
-    expected_group: sg-external
-    data:
-      receiver: *service125_020
-      expression: *service125_029
-      target: OtherProducer
-  sg-external-101:
-    expected_group: sg-external
-    data:
-      receiver: *service125_020
-      expression: *service125_029
-      target: UnknownVpc
   sg-external-102:
     expected_group: sg-external
     data:
@@ -7081,12 +5187,6 @@ cases:
       receiver: *service125_020
       expression: *service125_030
       target: OtherProducer
-  sg-external-104:
-    expected_group: sg-external
-    data:
-      receiver: *service125_020
-      expression: *service125_030
-      target: UnknownVpc
   sg-external-105:
     expected_group: sg-external
     data:
@@ -7105,60 +5205,6 @@ cases:
       receiver: *service125_021
       expression: *service125_026
       target: UnknownVpc
-  sg-external-108:
-    expected_group: sg-external
-    data:
-      receiver: *service125_021
-      expression: *service125_027
-      target: Producer
-  sg-external-109:
-    expected_group: sg-external
-    data:
-      receiver: *service125_021
-      expression: *service125_027
-      target: OtherProducer
-  sg-external-110:
-    expected_group: sg-external
-    data:
-      receiver: *service125_021
-      expression: *service125_027
-      target: UnknownVpc
-  sg-external-111:
-    expected_group: sg-external
-    data:
-      receiver: *service125_021
-      expression: *service125_028
-      target: Producer
-  sg-external-112:
-    expected_group: sg-external
-    data:
-      receiver: *service125_021
-      expression: *service125_028
-      target: OtherProducer
-  sg-external-113:
-    expected_group: sg-external
-    data:
-      receiver: *service125_021
-      expression: *service125_028
-      target: UnknownVpc
-  sg-external-114:
-    expected_group: sg-external
-    data:
-      receiver: *service125_021
-      expression: *service125_029
-      target: Producer
-  sg-external-115:
-    expected_group: sg-external
-    data:
-      receiver: *service125_021
-      expression: *service125_029
-      target: OtherProducer
-  sg-external-116:
-    expected_group: sg-external
-    data:
-      receiver: *service125_021
-      expression: *service125_029
-      target: UnknownVpc
   sg-external-117:
     expected_group: sg-external
     data:
@@ -7171,12 +5217,6 @@ cases:
       receiver: *service125_021
       expression: *service125_030
       target: OtherProducer
-  sg-external-119:
-    expected_group: sg-external
-    data:
-      receiver: *service125_021
-      expression: *service125_030
-      target: UnknownVpc
   sg-external-120:
     expected_group: sg-external
     data:
@@ -7195,60 +5235,6 @@ cases:
       receiver: *service125_022
       expression: *service125_026
       target: UnknownVpc
-  sg-external-123:
-    expected_group: sg-external
-    data:
-      receiver: *service125_022
-      expression: *service125_027
-      target: Producer
-  sg-external-124:
-    expected_group: sg-external
-    data:
-      receiver: *service125_022
-      expression: *service125_027
-      target: OtherProducer
-  sg-external-125:
-    expected_group: sg-external
-    data:
-      receiver: *service125_022
-      expression: *service125_027
-      target: UnknownVpc
-  sg-external-126:
-    expected_group: sg-external
-    data:
-      receiver: *service125_022
-      expression: *service125_028
-      target: Producer
-  sg-external-127:
-    expected_group: sg-external
-    data:
-      receiver: *service125_022
-      expression: *service125_028
-      target: OtherProducer
-  sg-external-128:
-    expected_group: sg-external
-    data:
-      receiver: *service125_022
-      expression: *service125_028
-      target: UnknownVpc
-  sg-external-129:
-    expected_group: sg-external
-    data:
-      receiver: *service125_022
-      expression: *service125_029
-      target: Producer
-  sg-external-130:
-    expected_group: sg-external
-    data:
-      receiver: *service125_022
-      expression: *service125_029
-      target: OtherProducer
-  sg-external-131:
-    expected_group: sg-external
-    data:
-      receiver: *service125_022
-      expression: *service125_029
-      target: UnknownVpc
   sg-external-132:
     expected_group: sg-external
     data:
@@ -7261,12 +5247,6 @@ cases:
       receiver: *service125_022
       expression: *service125_030
       target: OtherProducer
-  sg-external-134:
-    expected_group: sg-external
-    data:
-      receiver: *service125_022
-      expression: *service125_030
-      target: UnknownVpc
   sg-external-135:
     expected_group: sg-external
     data:
@@ -7285,60 +5265,6 @@ cases:
       receiver: *service125_023
       expression: *service125_026
       target: UnknownVpc
-  sg-external-138:
-    expected_group: sg-external
-    data:
-      receiver: *service125_023
-      expression: *service125_027
-      target: Producer
-  sg-external-139:
-    expected_group: sg-external
-    data:
-      receiver: *service125_023
-      expression: *service125_027
-      target: OtherProducer
-  sg-external-140:
-    expected_group: sg-external
-    data:
-      receiver: *service125_023
-      expression: *service125_027
-      target: UnknownVpc
-  sg-external-141:
-    expected_group: sg-external
-    data:
-      receiver: *service125_023
-      expression: *service125_028
-      target: Producer
-  sg-external-142:
-    expected_group: sg-external
-    data:
-      receiver: *service125_023
-      expression: *service125_028
-      target: OtherProducer
-  sg-external-143:
-    expected_group: sg-external
-    data:
-      receiver: *service125_023
-      expression: *service125_028
-      target: UnknownVpc
-  sg-external-144:
-    expected_group: sg-external
-    data:
-      receiver: *service125_023
-      expression: *service125_029
-      target: Producer
-  sg-external-145:
-    expected_group: sg-external
-    data:
-      receiver: *service125_023
-      expression: *service125_029
-      target: OtherProducer
-  sg-external-146:
-    expected_group: sg-external
-    data:
-      receiver: *service125_023
-      expression: *service125_029
-      target: UnknownVpc
   sg-external-147:
     expected_group: sg-external
     data:
@@ -7351,12 +5277,6 @@ cases:
       receiver: *service125_023
       expression: *service125_030
       target: OtherProducer
-  sg-external-149:
-    expected_group: sg-external
-    data:
-      receiver: *service125_023
-      expression: *service125_030
-      target: UnknownVpc
   sg-external-150:
     expected_group: sg-external
     data:
@@ -7375,60 +5295,6 @@ cases:
       receiver: *service125_024
       expression: *service125_026
       target: UnknownVpc
-  sg-external-153:
-    expected_group: sg-external
-    data:
-      receiver: *service125_024
-      expression: *service125_027
-      target: Producer
-  sg-external-154:
-    expected_group: sg-external
-    data:
-      receiver: *service125_024
-      expression: *service125_027
-      target: OtherProducer
-  sg-external-155:
-    expected_group: sg-external
-    data:
-      receiver: *service125_024
-      expression: *service125_027
-      target: UnknownVpc
-  sg-external-156:
-    expected_group: sg-external
-    data:
-      receiver: *service125_024
-      expression: *service125_028
-      target: Producer
-  sg-external-157:
-    expected_group: sg-external
-    data:
-      receiver: *service125_024
-      expression: *service125_028
-      target: OtherProducer
-  sg-external-158:
-    expected_group: sg-external
-    data:
-      receiver: *service125_024
-      expression: *service125_028
-      target: UnknownVpc
-  sg-external-159:
-    expected_group: sg-external
-    data:
-      receiver: *service125_024
-      expression: *service125_029
-      target: Producer
-  sg-external-160:
-    expected_group: sg-external
-    data:
-      receiver: *service125_024
-      expression: *service125_029
-      target: OtherProducer
-  sg-external-161:
-    expected_group: sg-external
-    data:
-      receiver: *service125_024
-      expression: *service125_029
-      target: UnknownVpc
   sg-external-162:
     expected_group: sg-external
     data:
@@ -7441,12 +5307,6 @@ cases:
       receiver: *service125_024
       expression: *service125_030
       target: OtherProducer
-  sg-external-164:
-    expected_group: sg-external
-    data:
-      receiver: *service125_024
-      expression: *service125_030
-      target: UnknownVpc
   sg-external-165:
     expected_group: sg-external
     data:
@@ -7465,60 +5325,6 @@ cases:
       receiver: *service125_025
       expression: *service125_026
       target: UnknownVpc
-  sg-external-168:
-    expected_group: sg-external
-    data:
-      receiver: *service125_025
-      expression: *service125_027
-      target: Producer
-  sg-external-169:
-    expected_group: sg-external
-    data:
-      receiver: *service125_025
-      expression: *service125_027
-      target: OtherProducer
-  sg-external-170:
-    expected_group: sg-external
-    data:
-      receiver: *service125_025
-      expression: *service125_027
-      target: UnknownVpc
-  sg-external-171:
-    expected_group: sg-external
-    data:
-      receiver: *service125_025
-      expression: *service125_028
-      target: Producer
-  sg-external-172:
-    expected_group: sg-external
-    data:
-      receiver: *service125_025
-      expression: *service125_028
-      target: OtherProducer
-  sg-external-173:
-    expected_group: sg-external
-    data:
-      receiver: *service125_025
-      expression: *service125_028
-      target: UnknownVpc
-  sg-external-174:
-    expected_group: sg-external
-    data:
-      receiver: *service125_025
-      expression: *service125_029
-      target: Producer
-  sg-external-175:
-    expected_group: sg-external
-    data:
-      receiver: *service125_025
-      expression: *service125_029
-      target: OtherProducer
-  sg-external-176:
-    expected_group: sg-external
-    data:
-      receiver: *service125_025
-      expression: *service125_029
-      target: UnknownVpc
   sg-external-177:
     expected_group: sg-external
     data:
@@ -7531,12 +5337,6 @@ cases:
       receiver: *service125_025
       expression: *service125_030
       target: OtherProducer
-  sg-external-179:
-    expected_group: sg-external
-    data:
-      receiver: *service125_025
-      expression: *service125_030
-      target: UnknownVpc
   sg-invalid-expr-000:
     expected_group: sg-invalid-expr
     data:
@@ -7602,35 +5402,11 @@ cases:
       receiver: *service125_015
       expression: *service125_002
       vpc_value: UNSET
-  sg-invalid-expr-009:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_015
-      expression: *service125_002
-      vpc_value: TODO
-  sg-invalid-expr-010:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_015
-      expression: *service125_002
-      vpc_value: TBD
-  sg-invalid-expr-011:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_015
-      expression: *service125_003
-      vpc_value: invalid
   sg-invalid-expr-012:
     expected_group: sg-invalid-expr
     data:
       receiver: *service125_015
       expression: *service125_031
-      vpc_value: PENDING_DEPLOY
-  sg-invalid-expr-013:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_015
-      expression: *service125_032
       vpc_value: PENDING_DEPLOY
   sg-invalid-expr-014:
     expected_group: sg-invalid-expr
@@ -7650,35 +5426,11 @@ cases:
       receiver: *service125_016
       expression: *service125_002
       vpc_value: UNSET
-  sg-invalid-expr-017:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_016
-      expression: *service125_002
-      vpc_value: TODO
-  sg-invalid-expr-018:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_016
-      expression: *service125_002
-      vpc_value: TBD
-  sg-invalid-expr-019:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_016
-      expression: *service125_003
-      vpc_value: invalid
   sg-invalid-expr-020:
     expected_group: sg-invalid-expr
     data:
       receiver: *service125_016
       expression: *service125_031
-      vpc_value: PENDING_DEPLOY
-  sg-invalid-expr-021:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_016
-      expression: *service125_032
       vpc_value: PENDING_DEPLOY
   sg-invalid-expr-022:
     expected_group: sg-invalid-expr
@@ -7698,35 +5450,11 @@ cases:
       receiver: *service125_017
       expression: *service125_002
       vpc_value: UNSET
-  sg-invalid-expr-025:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_017
-      expression: *service125_002
-      vpc_value: TODO
-  sg-invalid-expr-026:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_017
-      expression: *service125_002
-      vpc_value: TBD
-  sg-invalid-expr-027:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_017
-      expression: *service125_003
-      vpc_value: invalid
   sg-invalid-expr-028:
     expected_group: sg-invalid-expr
     data:
       receiver: *service125_017
       expression: *service125_031
-      vpc_value: PENDING_DEPLOY
-  sg-invalid-expr-029:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_017
-      expression: *service125_032
       vpc_value: PENDING_DEPLOY
   sg-invalid-expr-030:
     expected_group: sg-invalid-expr
@@ -7746,35 +5474,11 @@ cases:
       receiver: *service125_018
       expression: *service125_002
       vpc_value: UNSET
-  sg-invalid-expr-033:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_018
-      expression: *service125_002
-      vpc_value: TODO
-  sg-invalid-expr-034:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_018
-      expression: *service125_002
-      vpc_value: TBD
-  sg-invalid-expr-035:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_018
-      expression: *service125_003
-      vpc_value: invalid
   sg-invalid-expr-036:
     expected_group: sg-invalid-expr
     data:
       receiver: *service125_018
       expression: *service125_031
-      vpc_value: PENDING_DEPLOY
-  sg-invalid-expr-037:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_018
-      expression: *service125_032
       vpc_value: PENDING_DEPLOY
   sg-invalid-expr-038:
     expected_group: sg-invalid-expr
@@ -7794,35 +5498,11 @@ cases:
       receiver: *service125_019
       expression: *service125_002
       vpc_value: UNSET
-  sg-invalid-expr-041:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_019
-      expression: *service125_002
-      vpc_value: TODO
-  sg-invalid-expr-042:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_019
-      expression: *service125_002
-      vpc_value: TBD
-  sg-invalid-expr-043:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_019
-      expression: *service125_003
-      vpc_value: invalid
   sg-invalid-expr-044:
     expected_group: sg-invalid-expr
     data:
       receiver: *service125_019
       expression: *service125_031
-      vpc_value: PENDING_DEPLOY
-  sg-invalid-expr-045:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_019
-      expression: *service125_032
       vpc_value: PENDING_DEPLOY
   sg-invalid-expr-046:
     expected_group: sg-invalid-expr
@@ -7842,35 +5522,11 @@ cases:
       receiver: *service125_020
       expression: *service125_002
       vpc_value: UNSET
-  sg-invalid-expr-049:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_020
-      expression: *service125_002
-      vpc_value: TODO
-  sg-invalid-expr-050:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_020
-      expression: *service125_002
-      vpc_value: TBD
-  sg-invalid-expr-051:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_020
-      expression: *service125_003
-      vpc_value: invalid
   sg-invalid-expr-052:
     expected_group: sg-invalid-expr
     data:
       receiver: *service125_020
       expression: *service125_031
-      vpc_value: PENDING_DEPLOY
-  sg-invalid-expr-053:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_020
-      expression: *service125_032
       vpc_value: PENDING_DEPLOY
   sg-invalid-expr-054:
     expected_group: sg-invalid-expr
@@ -7890,35 +5546,11 @@ cases:
       receiver: *service125_021
       expression: *service125_002
       vpc_value: UNSET
-  sg-invalid-expr-057:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_021
-      expression: *service125_002
-      vpc_value: TODO
-  sg-invalid-expr-058:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_021
-      expression: *service125_002
-      vpc_value: TBD
-  sg-invalid-expr-059:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_021
-      expression: *service125_003
-      vpc_value: invalid
   sg-invalid-expr-060:
     expected_group: sg-invalid-expr
     data:
       receiver: *service125_021
       expression: *service125_031
-      vpc_value: PENDING_DEPLOY
-  sg-invalid-expr-061:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_021
-      expression: *service125_032
       vpc_value: PENDING_DEPLOY
   sg-invalid-expr-062:
     expected_group: sg-invalid-expr
@@ -7938,35 +5570,11 @@ cases:
       receiver: *service125_022
       expression: *service125_002
       vpc_value: UNSET
-  sg-invalid-expr-065:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_022
-      expression: *service125_002
-      vpc_value: TODO
-  sg-invalid-expr-066:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_022
-      expression: *service125_002
-      vpc_value: TBD
-  sg-invalid-expr-067:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_022
-      expression: *service125_003
-      vpc_value: invalid
   sg-invalid-expr-068:
     expected_group: sg-invalid-expr
     data:
       receiver: *service125_022
       expression: *service125_031
-      vpc_value: PENDING_DEPLOY
-  sg-invalid-expr-069:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_022
-      expression: *service125_032
       vpc_value: PENDING_DEPLOY
   sg-invalid-expr-070:
     expected_group: sg-invalid-expr
@@ -7986,35 +5594,11 @@ cases:
       receiver: *service125_023
       expression: *service125_002
       vpc_value: UNSET
-  sg-invalid-expr-073:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_023
-      expression: *service125_002
-      vpc_value: TODO
-  sg-invalid-expr-074:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_023
-      expression: *service125_002
-      vpc_value: TBD
-  sg-invalid-expr-075:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_023
-      expression: *service125_003
-      vpc_value: invalid
   sg-invalid-expr-076:
     expected_group: sg-invalid-expr
     data:
       receiver: *service125_023
       expression: *service125_031
-      vpc_value: PENDING_DEPLOY
-  sg-invalid-expr-077:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_023
-      expression: *service125_032
       vpc_value: PENDING_DEPLOY
   sg-invalid-expr-078:
     expected_group: sg-invalid-expr
@@ -8034,35 +5618,11 @@ cases:
       receiver: *service125_024
       expression: *service125_002
       vpc_value: UNSET
-  sg-invalid-expr-081:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_024
-      expression: *service125_002
-      vpc_value: TODO
-  sg-invalid-expr-082:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_024
-      expression: *service125_002
-      vpc_value: TBD
-  sg-invalid-expr-083:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_024
-      expression: *service125_003
-      vpc_value: invalid
   sg-invalid-expr-084:
     expected_group: sg-invalid-expr
     data:
       receiver: *service125_024
       expression: *service125_031
-      vpc_value: PENDING_DEPLOY
-  sg-invalid-expr-085:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_024
-      expression: *service125_032
       vpc_value: PENDING_DEPLOY
   sg-invalid-expr-086:
     expected_group: sg-invalid-expr
@@ -8082,35 +5642,11 @@ cases:
       receiver: *service125_025
       expression: *service125_002
       vpc_value: UNSET
-  sg-invalid-expr-089:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_025
-      expression: *service125_002
-      vpc_value: TODO
-  sg-invalid-expr-090:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_025
-      expression: *service125_002
-      vpc_value: TBD
-  sg-invalid-expr-091:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_025
-      expression: *service125_003
-      vpc_value: invalid
   sg-invalid-expr-092:
     expected_group: sg-invalid-expr
     data:
       receiver: *service125_025
       expression: *service125_031
-      vpc_value: PENDING_DEPLOY
-  sg-invalid-expr-093:
-    expected_group: sg-invalid-expr
-    data:
-      receiver: *service125_025
-      expression: *service125_032
       vpc_value: PENDING_DEPLOY
   sg-invalid-expr-094:
     expected_group: sg-invalid-expr
@@ -12283,31 +9819,7 @@ cases:
         VpcId: vpc-external
         Subnets:
         - subnet-fixed
-  import-wait-02:
-    expected_group: import-wait
-    data:
-      observed: null
-      kind: CodeBuild.Project
-      prop: VpcConfig
-      desired: '{"VpcId": {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}},
-        "Subnets": ["subnet-fixed"]}'
-      actual:
-        VpcId: vpc-external
-        Subnets:
-        - subnet-fixed
   import-wait-03:
-    expected_group: import-wait
-    data:
-      observed: null
-      kind: CodeBuild.Project
-      prop: VpcConfig
-      desired: '{"VpcId": {"Fn::Join": ["", [{"$modelRef": {"logicalId": "EC2_VPC_001",
-        "attribute": "VpcId"}}]]}, "Subnets": ["subnet-fixed"]}'
-      actual:
-        VpcId: vpc-external
-        Subnets:
-        - subnet-fixed
-  import-wait-04:
     expected_group: import-wait
     data:
       observed: null
@@ -12342,31 +9854,7 @@ cases:
         VpcId: vpc-external
         Subnets:
         - subnet-fixed
-  import-wait-07:
-    expected_group: import-wait
-    data:
-      observed: PENDING_DEPLOY
-      kind: CodeBuild.Project
-      prop: VpcConfig
-      desired: '{"VpcId": {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}},
-        "Subnets": ["subnet-fixed"]}'
-      actual:
-        VpcId: vpc-external
-        Subnets:
-        - subnet-fixed
   import-wait-08:
-    expected_group: import-wait
-    data:
-      observed: PENDING_DEPLOY
-      kind: CodeBuild.Project
-      prop: VpcConfig
-      desired: '{"VpcId": {"Fn::Join": ["", [{"$modelRef": {"logicalId": "EC2_VPC_001",
-        "attribute": "VpcId"}}]]}, "Subnets": ["subnet-fixed"]}'
-      actual:
-        VpcId: vpc-external
-        Subnets:
-        - subnet-fixed
-  import-wait-09:
     expected_group: import-wait
     data:
       observed: PENDING_DEPLOY
@@ -12401,31 +9889,7 @@ cases:
         VpcId: vpc-external
         Subnets:
         - subnet-fixed
-  import-wait-12:
-    expected_group: import-wait
-    data:
-      observed: vpc-0123456789abcdef0
-      kind: CodeBuild.Project
-      prop: VpcConfig
-      desired: '{"VpcId": {"$modelRef": {"logicalId": "EC2_VPC_001", "attribute": "VpcId"}},
-        "Subnets": ["subnet-fixed"]}'
-      actual:
-        VpcId: vpc-external
-        Subnets:
-        - subnet-fixed
   import-wait-13:
-    expected_group: import-wait
-    data:
-      observed: vpc-0123456789abcdef0
-      kind: CodeBuild.Project
-      prop: VpcConfig
-      desired: '{"VpcId": {"Fn::Join": ["", [{"$modelRef": {"logicalId": "EC2_VPC_001",
-        "attribute": "VpcId"}}]]}, "Subnets": ["subnet-fixed"]}'
-      actual:
-        VpcId: vpc-external
-        Subnets:
-        - subnet-fixed
-  import-wait-14:
     expected_group: import-wait
     data:
       observed: vpc-0123456789abcdef0
@@ -12632,38 +10096,6 @@ cases:
         - subnet-second
       subnet: false
   import-difference-01:
-    expected_group: import-difference
-    data:
-      observed: PENDING_DEPLOY
-      desired:
-        VpcId:
-          $modelRef:
-            logicalId: EC2_VPC_001
-            attribute: VpcId
-        Subnets:
-        - subnet-first
-      actual:
-        VpcId: vpc-unknown
-        Subnets:
-        - subnet-second
-      subnet: false
-  import-difference-02:
-    expected_group: import-difference
-    data:
-      observed: null
-      desired:
-        VpcId:
-          $modelRef:
-            logicalId: EC2_VPC_001
-            attribute: VpcId
-        Subnets:
-        - subnet-first
-      actual:
-        VpcId: vpc-unknown
-        Subnets:
-        - subnet-second
-      subnet: false
-  import-difference-03:
     expected_group: import-difference
     data:
       observed: PENDING_DEPLOY
