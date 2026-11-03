@@ -1,6 +1,6 @@
 ---
 name: worktree
-description: Run a repository change task in an isolated linked Git worktree, then rebase and fast-forward merge its completed result into the latest local base by default. Publish a PR only when the Human explicitly requests one for that Task. Read-only investigation, analysis and review usually need no worktree.
+description: Run a repository change task in an isolated linked Git worktree, then fast-forward merge its validated result into the latest local base by default. Publish a PR only when the Human explicitly requests one for that Task. Read-only investigation, analysis and review usually need no worktree.
 ---
 
 # Isolated task execution
@@ -19,7 +19,7 @@ When performing validation/integration, read [Validation scope](../../../framewo
 
 ## Sandbox permission approval and continuation
 
-Apply this procedure to **create, deploy-start, setup (when needed), normal Deploy checkpoint, finalize, PR operations, orphan branch deletion and cleanup**, regardless of the Codex model. The agent requests permissions through its execution tool; the Python helper cannot open the platform's approval UI. Do not end the task merely because a sandboxed helper invocation returns `status: blocked` with a write denial.
+Apply this procedure to **create, deploy-start, setup (when needed), normal Deploy checkpoint, base synchronization, finalize, PR operations, orphan branch deletion and cleanup**, regardless of the Codex model. The agent requests permissions through its execution tool; the Python helper cannot open the platform's approval UI. Do not end the task merely because a sandboxed helper invocation returns `status: blocked` with a write denial.
 
 Before **each operation**, inspect the relevant Git/Task/lock state and the execution environment's effective Sandbox restrictions using read-only information. Determine the actual write destinations for that operation, including the Git common directory, linked worktree administration/index, lifecycle metadata and, for create/setup when needed, the shared Python environment. Compare resolved paths with the effective policy, including protected exceptions and symlinks. Do not probe by writing or infer a denial from ordinary filesystem permissions alone. If the policy confirms a required destination is protected, request native permission on the **first invocation**, including for a new Task; a prior denial is not required. If normal access is allowed, run normally without an unnecessary approval. If restrictions or destinations are unknown, do not assume either access or denial: use the ordinary invocation and identify any failure below. Keep knowledge only in the current execution context; add no persistent permission-state file. Permission approval does not relax the Python helper's guards.
 
@@ -120,14 +120,14 @@ For a normal Model-only /update task (including standalone `import-retarget`) or
 Framework-only governance/catalog-maintenance/migration task with explicit
 `framework` Validation scope, finalize is the final validation composition:
 keep the Task running after its changes and required related checks, and invoke finalize directly. It prepares
-the private commit/rebase, validates the actual latest-base candidate once in registered
+the private commit, validates the actual latest-base candidate once in registered
 Python, completes from that result and merges that exact HEAD. Completed Model-only/Framework tasks
-also undergo that post-rebase check. The ordinary launcher cleans up after the child exits.
+also undergo that final-candidate check. The ordinary launcher cleans up after the child exits.
 No separate pre-finalize complete or duplicate final loop is required in this branch.
 Framework tasks use the existing Framework scoped validator, without Consumer
 environment/target/service inputs or Model loading. Run dependency-selected UTs,
 necessary IT cases and applicable static checks through existing entrypoints under
-Validation policy; reassess changed dependencies after rebase before integration.
+Validation policy; reassess changed dependencies after base synchronization before integration.
 The scoped final loop does not replace those tests or automatically select regression.
 Failure retains the candidate; never amend or discard it. For model-delete, explicit
 same-parent repair/resume may create a corrected candidate and rerun final validation;
@@ -149,16 +149,16 @@ If validation/local loop fails, first assess and, when applicable, perform exist
 python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id> --human-approved-validation-failure "<human approval identifying the accepted failures>"
 ```
 
-Use this option only after actual human approval of this task's failures; a general request to run the task or this skill is not approval. The helper records the approval in lifecycle metadata and the commit message; Git integration success remains separate from validation FAIL. The approval permits only commit/rebase/merge/cleanup, without resuming the task or authorizing AWS operations. Missing inputs, unfinished work, and Git safety blocks still stop integration. A retained committed task may retry with its recorded approval; changed work needs renewed review and approval.
+Use this option only after actual human approval of this task's failures; a general request to run the task or this skill is not approval. The helper records the approval in lifecycle metadata and the commit message; Git integration success remains separate from validation FAIL. The approval permits only commit/merge/cleanup, without resuming the task or authorizing AWS operations. Missing inputs, unfinished work, and Git safety blocks still stop integration. A retained committed task may retry with its recorded approval; changed work needs renewed review and approval.
 
 Outside the Model-only/Framework final-candidate branch, `finalize` reads the existing completed status (or the explicitly approved suspended status), rejects unresolved Git operations and unexpected branch commits, and stages only exact non-ignored task paths (including newly added files). It never force-adds `tasks/**`. Normal commit messages use `task(<task-id>): completed task`; approved failures use `task(<task-id>): human-approved validation failure`; zero changes create no empty commit.
 
 Task differences combine all committed changes from the shared Git merge-base of the
 current local base and Task HEAD with all staged/unstaged/untracked changes. Lifecycle
-start/validation-base ancestry remains mandatory. After rebase, inherited base changes
-are excluded; undeclared Task changes are never filtered through Modified files.
+start/validation-base ancestry remains mandatory. Inherited base changes are excluded
+after synchronization; undeclared Task changes are never filtered through Modified files.
 
-Ordinary integration runs the shared candidate Model guard before commit and after rebase
+Ordinary integration runs the shared candidate Model guard before commit and after synchronization
 in the target worktree’s registered Python,
 with its Task explicitly selected. The launcher retains Git, lifecycle lock and cleanup ownership.
 Framework-only changes do not load Models. Ordinary Model changes compare only changed-service
@@ -169,7 +169,20 @@ the guard; changed Task, files or index stop before staging. No runtime fallback
 setup/retry occurs. Successful guard diagnostics use stderr so stdout remains CLI JSON; failures
 retain the child return code, stdout and stderr separately in `diagnostics`.
 
-It then checks a clean worktree holding the local base, rebases the task onto its latest local commit, rechecks the base, merges with `--ff-only`, verifies the expected task tip is included, and removes the clean owned worktree and its verified local branch. Branch deletion uses `-D` only after ownership and automatic-cleanup checks. Have the local base checked out in an available worktree before finalize; the helper does not switch anyone's branch. Helpers serialize Git integration through the shared `<primary>/.worktrees/.blueprint/lifecycle.lock/` mutex; AWS locks remain separate. Default finalize creates no remote push or PR. Only an explicit Human PR request selects the PR exit below.
+It checks a clean worktree holding the local base and the candidate/base identity, merges with `--ff-only`, verifies the expected task tip is included, and removes the clean owned worktree and its verified local branch. If the base advanced, follow [Base synchronization and revalidation](#base-synchronization-and-revalidation) first. Branch deletion uses `-D` only after ownership and automatic-cleanup checks. Have the local base checked out in an available worktree before finalize; the helper does not switch anyone's branch. Helpers serialize Git integration through the shared `<primary>/.worktrees/.blueprint/lifecycle.lock/` mutex; AWS locks remain separate. Default finalize creates no remote push or PR. Only an explicit Human PR request selects the PR exit below.
+
+## Base synchronization and revalidation
+
+An ordinary local finalize or PR update may return exit 0 with `status: needs_sync` and the newer base SHA in `base`. This is a continuation request, not Validation PASS or Task suspension. Inspect the exact Task, candidate, base history, relevant diff and Sandbox permissions before the appropriate operation:
+
+```console
+python3 -B framework/scripts/worktree_task.py sync-latest-base --task-id <task-id> --expected-base <reviewed-local-base-sha>
+python3 -B framework/scripts/worktree_task.py pr-sync-base --task-id <task-id> --expected-base <reviewed-remote-base-sha>
+```
+
+The local operation is for ordinary running/completed Tasks; the PR operation is for the same published PR and Worktree. Both retain history with a Git merge and return `needs_validation` after a new candidate is prepared. The PR operation checks GitHub and Git refs, published HEAD and intent; it fetches the target base without changing local master or pushing. Reconcile an uncertain push through `pr-update` before synchronization when required. A conflict, rewritten history, unexpected HEAD or inconsistent state stops for review; do not resolve, reset, force push or edit lifecycle metadata automatically.
+
+After synchronization, the LLM reviews the inherited changes and selects and runs the relevant UT/IT and other checks under Validation policy. Confirm their results, then resume the same `finalize` or `pr-update`; the existing final-candidate guard and Validation remain separate mandatory checks. The Python helper does not select or run UT/IT or record their PASS. If the base advances again, repeat synchronization and reassess the tests; stop and report persistent churn or an actual failure instead of an unlimited automatic retry. Do not switch to a new PR or alter Deploy checkpoint/repair lifecycles.
 
 ## Explicit PR publication
 
@@ -181,7 +194,7 @@ retains FF Merge → Cleanup. Append `--draft` to create a Draft PR; without it 
 `--create-pr` is finalize-only and is rejected for Deploy or
 Deploy Repair Child before their publication/parent integration begins.
 
-Initial PR publication shares existing commit, rebase, guards and completion checks. Model/Framework
+Initial PR publication shares existing commit, base checks, guards and completion checks. Model/Framework
 final-candidate validation still runs once. It never merges, commits, checks out or resets
 the local base, never sets `merged`, and never runs cleanup. Zero diff is refused.
 Validation-failure approval remains independently explicit: where the existing exception
@@ -265,9 +278,9 @@ Worktree Cleanup are separate; either may run first. No PR operation deletes rem
 
 ## Failures and cleanup
 
-Exit 0 and JSON `status: ok` indicate success; exit 1 and `status: blocked` give the reason and retained branch/worktree/commit/merge state when available (invalid CLI arguments exit 2). Apply [Sandbox permission approval and continuation](#sandbox-permission-approval-and-continuation) before stopping for a sandbox write denial. Do not parse long Git stdout or construct ad hoc recovery shells.
+Exit 0 and JSON `status: ok` indicate success; `needs_sync` and `needs_validation` require the continuation above. Exit 1 and `status: blocked` give the reason and retained branch/worktree/commit/merge state when available (invalid CLI arguments exit 2). Apply [Sandbox permission approval and continuation](#sandbox-permission-approval-and-continuation) before stopping for a sandbox write denial. Do not parse long Git stdout or construct ad hoc recovery shells.
 
-For failed validation/loop, assess Self recovery first; if unresolved, stop before finalize/commit unless the human explicitly approves the exception above. Other suspended tasks, missing input, approval waits or conflicts still stop before finalize/commit. Keep worktree and branch; use the child's existing suspension/resume rules. Ordinary finalize never completes or resumes a task; the Model-only/Framework final-candidate path completes only after validation passes. A dirty base is never stashed/reset/overwritten. Rebase failure runs `rebase --abort`, preserves the task commit and worktree, and requires human review; do not guess conflict resolutions. A base change during integration stops safely; rerun finalize only after reviewing the reported state.
+For failed validation/loop, assess Self recovery first; if unresolved, stop before finalize/commit unless the human explicitly approves the exception above. Other suspended tasks, missing input, approval waits or conflicts still stop before finalize/commit. Keep worktree and branch; use the child's existing suspension/resume rules. Ordinary finalize never completes or resumes a task; the Model-only/Framework final-candidate path completes only after validation passes. A dirty base is never stashed/reset/overwritten. Reviewed recovery rebase failure runs `rebase --abort`, preserves the task commit and worktree, and requires human review; do not guess conflict resolutions. A normal base advance follows [Base synchronization and revalidation](#base-synchronization-and-revalidation).
 
 Automatic cleanup follows a verified local FF merge or a GitHub merge confirmed by
 `pr-merge`/`pr-status`. It retains the existing completion/cleanliness checks and Import,
