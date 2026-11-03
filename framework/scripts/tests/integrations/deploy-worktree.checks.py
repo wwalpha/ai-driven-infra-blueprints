@@ -319,6 +319,13 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
         for s in saved["states"].values()
     )
     assert saved["gitPublication"]["status"] == "SUCCESS"
+    primary = Path(ws.load(root, "deploy")[0])
+    published_head = git(primary, "rev-parse", "HEAD")
+    source_head = git(root, "rev-parse", "HEAD")
+    check = TestCase()
+    check.assertEqual(invoke(root, report, aws, ["--action", "checkpoint"]), 0)
+    check.assertEqual(git(primary, "rev-parse", "HEAD"), published_head)
+    check.assertEqual(git(root, "rev-parse", "HEAD"), source_head)
     assert (
         read_task_snapshot(root, "tasks/deploy.md", live=True).task_digest
         == state["deployIdentity"]["taskDigest"]
