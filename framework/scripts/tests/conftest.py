@@ -20,10 +20,11 @@ import utils.aws_mappings as _imports_utils_aws_mappings
 from support.publication_fixtures import publication_repository
 from support.regression_cases import CaseRunner, check_update_options
 from support.worktree_test_policy import (
+    SessionClassifier,
     audit,
     ordinary_suite,
+    verified_receipt,
     violations,
-    worktree_suite,
 )
 
 
@@ -127,11 +128,16 @@ def process_state(request):
                 )
 
 
+@pytest.fixture(scope="session")
+def worktree_classifier():
+    return SessionClassifier()
+
+
 @pytest.fixture(autouse=True)
-def ordinary_publication(request):
+def ordinary_publication(request, worktree_classifier):
     tests = Path(__file__).resolve().parent
-    with ordinary_suite(request.path, tests):
-        if worktree_suite(request.path, tests):
+    with ordinary_suite(request.path, tests, worktree_classifier):
+        if worktree_classifier(request.path, tests):
             yield
         else:
             with publication_repository():
@@ -139,7 +145,11 @@ def ordinary_publication(request):
 
 
 def pytest_sessionstart(session):
-    errors = violations(Path(__file__).resolve().parent)
+    tests = Path(__file__).resolve().parent
+    if verified_receipt(tests):
+        print("Worktree test policy: runner receipt accepted", file=sys.stderr)
+        return
+    errors = violations(tests)
     if errors:
         raise pytest.UsageError("Worktree test policy: " + "; ".join(errors))
 

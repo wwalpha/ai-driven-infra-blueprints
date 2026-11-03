@@ -948,6 +948,10 @@ def check_run_it_dispatch(tmp_path, monkeypatch):
         outcome = {"reachability_errors": [], "suites": [{"code": it_status}]}
         with (
             patch.object(sys, "argv", ["run_it.py"]),
+            patch.object(run_it, "violations", return_value=[]) as policy_check,
+            patch.object(
+                run_it, "source_snapshot", return_value="unchanged"
+            ) as snapshot,
             patch.object(MODULE, "authorize_full_regression") as authorize,
             patch.object(
                 MODULE, "select_checks", return_value=([SCRIPT], "all requested")
@@ -970,6 +974,8 @@ def check_run_it_dispatch(tmp_path, monkeypatch):
         ):
             assert run_it.main() == int(bool(unit_status or timing_errors or it_status))
         authorize.assert_called_once_with(run_it.TESTS.parents[2])
+        policy_check.assert_called_once_with(run_it.TESTS)
+        assert snapshot.call_count == 3
         assert discover.call_args.args == (run_it.TESTS.parents[2],)
         assert unit_dispatch.call_args.args[1] == [[sys.executable, str(SCRIPT)]]
         assert unit_dispatch.call_args.kwargs["jobs"] == 2
@@ -992,6 +998,46 @@ def check_run_it_dispatch(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "failure", ["policy", "inspection_change", "execution_change", "child"]
+)
+def check_ut_policy_preflight_failure(failure):
+    snapshots = [
+        "before",
+        "after" if failure == "inspection_change" else "before",
+        "after" if failure == "execution_change" else "before",
+    ]
+    errors = ["forbidden"] if failure == "policy" else []
+    with (
+        patch.object(sys, "argv", ["run_it.py", "--ut-only"]),
+        patch.object(MODULE, "authorize_full_regression"),
+        patch.object(MODULE, "select_checks", return_value=([SCRIPT], "all")),
+        patch.object(run_it, "source_snapshot", side_effect=snapshots),
+        patch.object(run_it, "violations", return_value=errors),
+        patch.object(
+            MODULE, "run_commands", return_value=int(failure == "child")
+        ) as dispatch,
+        patch.object(
+            run_it,
+            "unit_timing",
+            return_value={
+                "wall": 0,
+                "files": [],
+                "cases": [],
+                "errors": [],
+                "groups": [],
+            },
+        ),
+        patch.object(run_it, "display_unit_timing"),
+    ):
+        if failure == "child":
+            assert run_it.main() == 1
+        else:
+            with pytest.raises(ValueError, match="Worktree test policy"):
+                run_it.main()
+    assert dispatch.call_count == int(failure in ("execution_change", "child"))
+
+
+@pytest.mark.parametrize(
     "unit_status,timing_errors", [(0, []), (1, []), (0, ["missing"])]
 )
 def check_ut_only_never_reaches_it(
@@ -1000,6 +1046,8 @@ def check_ut_only_never_reaches_it(
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
     with (
         patch.object(sys, "argv", ["run_it.py", "--ut-only"]),
+        patch.object(run_it, "violations", return_value=[]) as policy_check,
+        patch.object(run_it, "source_snapshot", return_value="unchanged") as snapshot,
         patch.object(MODULE, "authorize_full_regression") as authorize,
         patch.object(MODULE, "select_checks", return_value=([SCRIPT], "all requested")),
         patch.object(MODULE, "run_commands", return_value=unit_status) as units,
@@ -1020,6 +1068,8 @@ def check_ut_only_never_reaches_it(
     ):
         assert run_it.main() == int(bool(unit_status or timing_errors))
     authorize.assert_called_once_with(run_it.TESTS.parents[2])
+    policy_check.assert_called_once_with(run_it.TESTS)
+    assert snapshot.call_count == 3
     assert units.call_args.args[1] == [[sys.executable, str(SCRIPT)]]
     assert units.call_args.kwargs["jobs"] == 2
     integrations.assert_not_called()
