@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison.rules.kms import compare_forms
+from support.fixture_cases import load_case
 from support.model_reference_fixtures import reference as model_ref
 from support.regression_cases import case_ids
 from utils.cloudformation.inputs import Blocked
@@ -143,12 +144,30 @@ def test_export_resolution_failures_remain_blocked(case_runner, case_id):
     case_runner.run("reference_evidence", case_id, _execute_export_blocked)
 
 
-def _execute_export_blocked(case):
+@pytest.mark.parametrize(
+    ("case_id", "message"),
+    [
+        (
+            "export-blocked-01",
+            "ImportValue handoff matches=2 or same-stack export: shared",
+        ),
+        ("export-blocked-02", "cyclic ImportValue: other"),
+    ],
+)
+def test_export_duplicate_and_cycle_with_confirmed_scope(case_id, message):
+    result = _execute_export_blocked(
+        load_case("reference_evidence", case_id), confirmed_scope=True
+    )
+    TestCase().assertEqual(result, {"error": {"type": "Blocked", "message": message}})
+
+
+def _execute_export_blocked(case, *, confirmed_scope=False):
     data = case["data"]
     comparison = fixture()
     vpc(comparison)
     if data["other"] is not None:
-        comparison.stack_inputs["other"] = (data["other"], {}, {})
+        pseudo = dict(comparison.stack_inputs["producer"][2]) if confirmed_scope else {}
+        comparison.stack_inputs["other"] = (data["other"], {}, pseudo)
     comparison.stack_inputs["producer"][0]["Outputs"].update(data["producer_outputs"])
     with pytest.raises(Blocked) as failure:
         comparison.evaluate("consumer", {"Fn::ImportValue": "shared"})
