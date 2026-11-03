@@ -1309,10 +1309,6 @@ def test_same_producer_different_attributes_cannot_be_proven_by_equal_template_f
     assert inputs.reference_same(b, a, "Glue.Job", "DefaultArguments") is not True
 
 
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-q"]))
-
-
 def endpoint_export(inputs):
     expression = {
         "Fn::Select": [
@@ -1606,3 +1602,7 @@ def test_unproven_selection_container_cannot_pass_without_contract(models):
 
 def unselected_reference(inputs, left, right, path):
     return inputs.reference_decision(left, right, "Route53.RecordSet", path)
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-q"]))

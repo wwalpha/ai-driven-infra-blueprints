@@ -4429,10 +4429,6 @@ def test_shared_recorded_arn_proof(kind, attribute, identifier, properties, arn,
                 )
 
 
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-q"]))
-
-
 @pytest.mark.parametrize("function", ["select", "if", "join"])
 @pytest.mark.parametrize("known_difference", [False, True])
 @pytest.mark.parametrize("model_unresolved", [False, True])
@@ -9125,3 +9121,7 @@ def test_unresolved_condition_and_unselected_branch(condition):
     assert [record["category"] for record in records] == (
         ["matched"] if condition == "active" else ["uncompared"]
     ), records
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-q"]))

@@ -419,10 +419,6 @@ def test_selector_is_preserved_in_symbolic_meaning(models):
     assert before["desired.row.001-002.value"] != after["desired.row.001-002.value"]
 
 
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-q"]))
-
-
 def test_direct_same_stack_selection(models):
     root, _, values = models
     endpoint = load_model(root / "model/qa/team/endpoint.properties").authoritative
@@ -654,3 +650,7 @@ def test_direct_missing_evidence_and_scope_are_unproven(models):
         ).equal
         is None
     )
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-q"]))

@@ -1070,10 +1070,6 @@ def test_scheduler_group_selection():
     ]
 
 
-if __name__ == "__main__":
-    raise SystemExit(run(__file__))
-
-
 class ReplicationResource:
     kind = "S3.Bucket"
 
@@ -1277,3 +1273,7 @@ def test_replication_malformed_tag_is_acquisition_failure():
             caught.value.code == "InvalidResponse"
             and caught.value.status == "acquisition_failed"
         )
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(__file__))

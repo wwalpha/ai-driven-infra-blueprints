@@ -55,9 +55,10 @@ Presentationの追加サービスも同じ初期化に含める。通常の `sav
 
 Runnerの同じcleanup故障をRepair/Checkpointの両スイートで繰り返した直積は、2子を扱う共通UTへ統合する。
 スイート別dispatch・期限と、4つの合成ケースでも同時起動が2つを超えない判定は別UTに残す。
-Reference/ARN/Projectionの直積は、[Issue #92](https://github.com/wwalpha/ai-driven-infra-blueprints/issues/92) の前提である#80〜#91の同等移行が未完了のため削らない。
-例えばreference-evidenceのSecurity Groupは、受信サービスの配線、式の型/欠落/順序、異なるProducerの同一性を区別する。
-同じExpected値やcoverageだけでは、同じ故障を検出する証拠にしない。Case Runnerの導入は#80の範囲に限定し、後続移行や重複削減は別段階とする。
+Reference/ARN/Projectionの直積は、受信サービスの配線、式の型/欠落/順序、異なるProducerの同一性を区別する。
+同じExpected値やcoverageだけでは、同じ故障を検出する証拠にしない。
+削減は[Issue #92](https://github.com/wwalpha/ai-driven-infra-blueprints/issues/92)の手順で、入力の意味・本番分岐・独立契約を照合し、限定した故障に対する旧群/残存群の検出を比較する。
+相互作用を説明できない組合せは維持する。Case Runnerは入力管理と結果照合だけを担当し、手続きや実行登録を解釈しない。
 
 実装修正では関連UT、必要な収集/到達性、静的チェックと変更した代表ITを確認する。全量UT/IT、CIの起動、性能比較・達成判定は別Taskで行う。
 以下の旧移管記録にあるケース数・異常系IT・計測手順は当時の記録であり、現行の責務と実行上限は本節を優先する。
@@ -204,7 +205,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/vali
 python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test_issues_iac.py
 ```
 
-`pytest.ini`は既存のpytest型ファイル、`*-unit.checks.py`、deploy SDK/client/controllerの明示したpytest型suiteを対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`cloudformation-inputs-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は既存unittestメソッドをpytestでも収集する。
+`pytest.ini`は既存のpytest型ファイル、`*-unit.checks.py`、deploy SDK/client/controllerの明示したpytest型suiteを対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`cloudformation-inputs-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は通常のpytest関数を収集し、直接起動も既存の `support.pytest_cli.run` を通す。
 
 `blueprint-loop.py` の `task` / `local` はProjectのValidation scopeに従って検証し、Framework回帰UT／ITを自動実行しない。通常TaskではFrameworkを不変として扱い、FrameworkファイルのGit差分から回帰テストを選択しない。`full` / `--all` は `units/**/*.checks.py` と `units/**/test_*.py` の全UTを既存のPython直接実行入口で起動する。`full` は既存のProject Validation scopeを維持し、`--all` はProject全体を検証する。Scope `all` だけではFramework UTを実行しない。`blueprint-loop.py` からFramework ITは実行しない。
 
@@ -277,7 +278,7 @@ symlinkと同一ファイルの衝突を拒否する。既存ファイルへの�
 Model正規化・part生成・Markdown改行調整は行わないため、これらが必要な
 動的Fixtureでは引き続き `model_sources.write_model()` / `write_fixture_files()` を使う。
 
-初回移行はissues_scanのnaming-target-scopeとmalformed-reportだけ。
+未移行のinline expectedやloader互換性を検証する入力は、その既存の消費元を残す。
 resource種別と行は順序付き2要素sequence（種別、property/value行）を保持する。
 Model/stack/template/Markdown生成、mock、assertion、状態変更の流れはPythonに残す。
 既存IT seedの生成・読取専用管理・独立workspace・receipt契約は変更しない。
@@ -309,6 +310,23 @@ GitHub Actionsの `GITHUB_ACTIONS` または `CI` が非空の環境では更新
 Worktreeガードは、明示更新のplugin呼出中だけ検証済みExpectedファイルと
 その2階層のディレクトリ作成を許可する。他ファイル・Lifecycle・削除/移動の禁止と、
 既存cleanup、直接起動、公式IT/Receiptの責務は維持する。
+
+ケースを追加するときは、対応する既存モジュールのYAMLへ安定したIDと静的 `data` / `files` を追加し、
+そのモジュールのparametrize選択（既存のprefixを含む）から到達させる。
+Pythonには本体呼出しと独立した型・例外・呼出順/回数・入力不変・保存境界の検証を置き、
+新しい汎用dispatch、import/eval、手順DSLやケース登録台帳は作らない。
+
+追加後は対象モジュールの `--collect-only -q` でnode IDを確認し、上記の完全IDだけでExpectedを作成する。
+既存Expectedに加え、Markdownの改行・行順・Anchor、復元値、診断の意味をレビューしてから通常実行する。
+通常の不一致ではExpectedと得られた結果のdiffから、入力・本体・期待値のどこが変わったかを確認する。
+収集されない場合はモジュール/関数/prefixと末尾の直接起動入口を確認し、Expectedの再生成で解消しない。
+短い構造検査と、署名・承認・cache・競合・保存/rollbackが責務の手続きテストは維持する。
+
+Auditの表示・識別子・除外分類は `units/model_test/reports-unit.checks.py`、
+`identifiers-unit.checks.py`、`classification-unit.checks.py` の通常pytest関数が担当する。
+対応するモジュールをpytestで収集・実行でき、各ファイルの直接起動も既存入口を使う。
+既存の再現手順・UT/IT・Receiptの切り分けは本READMEの実行契約を参照し、
+未収集・skip・未完走や別commitのCI成功を今回の合格として数えない。
 
 ## Issues Artifact v5 / Immutable Snapshot / cfn-lint
 

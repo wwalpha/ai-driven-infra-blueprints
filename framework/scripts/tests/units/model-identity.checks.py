@@ -173,11 +173,6 @@ def check_snapshots():
         print("baseline preservation and 500 indexed resolutions: PASS")
 
 
-if __name__ == "__main__":
-    main()
-    check_snapshots()
-
-
 def check_cfn_and_outputs():
     reference_display = _imports_model_projection.reference_display
     framework = Path(__file__).resolve().parents[4]
@@ -318,4 +313,6 @@ def check_cfn_and_outputs():
 
 
 if __name__ == "__main__":
+    main()
+    check_snapshots()
     check_cfn_and_outputs()

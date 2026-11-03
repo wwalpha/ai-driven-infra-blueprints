@@ -754,10 +754,6 @@ def test_missing_sensitive_sdk_getter_is_not_an_approval_exception(monkeypatch):
     assert "DO-NOT-EXPOSE" not in str(normalized) + str(ctx.trace)
 
 
-if __name__ == "__main__":
-    raise SystemExit(run(__file__))
-
-
 def test_route53_scoped_records_and_pagination():
     first = {"HostedZoneId": "Z1"}
     second = {
@@ -940,3 +936,7 @@ def test_route53_ttl_projection_and_simple_alias():
     ctx.call.return_value["ResourceRecordSets"].append(dict(item))
     with pytest.raises(cli.comparator().Unresolved, match="ambiguous"):
         adapter.fetch(ctx, resource, "record")
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(__file__))

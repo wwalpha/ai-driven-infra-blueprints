@@ -817,12 +817,6 @@ def check_analysis_generation_keeps_independent_checks(
         plan.close()
 
 
-if __name__ == "__main__":
-    from support.pytest_cli import run
-
-    raise SystemExit(run(__file__))
-
-
 def _callback_check_shared_snapshot_parses_each_producer_once_and_rechecks_permission_counted(
     parsed, read, /, scope, inputs
 ):
@@ -1191,3 +1185,9 @@ def check_diagnose_display_name_uses_real_projection(tmp_path):
     assert not snapshot.warnings
     assert projected["desired.note.001.text"] == "[fixture-001](#logs-existing)"
     assert snapshot.authoritative == values
+
+
+if __name__ == "__main__":
+    from support.pytest_cli import run
+
+    raise SystemExit(run(__file__))

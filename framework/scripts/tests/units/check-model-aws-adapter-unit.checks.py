@@ -181,10 +181,6 @@ def check_service_adapters(tmp_path):
     )
 
 
-if __name__ == "__main__":
-    raise SystemExit(run(__file__))
-
-
 @pytest.mark.parametrize("case", ["found", "missing", "ambiguous", "denied", "known"])
 def test_datazone_domain_selector(tmp_path, case):
     module = m.service_module("datazone")
@@ -323,3 +319,7 @@ def test_datazone_id_mapping_uses_get_domain(tmp_path):
         == "dzd-found"
     )
     assert ("cloudcontrol", "get_resource") not in ctx.allowed
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(__file__))

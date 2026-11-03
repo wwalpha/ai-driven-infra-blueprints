@@ -1395,10 +1395,6 @@ def check_sdk_later_page_failure_never_returns_partial_results(tmp_path):
     )
 
 
-if __name__ == "__main__":
-    raise SystemExit(run(__file__))
-
-
 @pytest.mark.parametrize("getter", ["base", "permissions"])
 @pytest.mark.parametrize(
     "accounts,execution,verified,identifier,works",
@@ -1918,3 +1914,7 @@ def test_glue_catalog_base_mapping_and_selectors(tmp_path):
     context.pages.assert_called_once_with(
         "glue", "get_catalogs", ParentCatalogId="execution"
     )
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(__file__))

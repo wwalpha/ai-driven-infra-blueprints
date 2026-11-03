@@ -1008,10 +1008,6 @@ def check_suspended_report_scope_exception(tmp_path):
     assert (tmp_path / "other.txt").read_text() == "other task"
 
 
-if __name__ == "__main__":
-    raise SystemExit(run(__file__))
-
-
 @pytest.fixture(scope="module")
 def approval_repository_seed():
     with repository_fixture() as root:
@@ -1644,3 +1640,7 @@ def check_registration_preserves_legacy_diagnosis(tmp_path, state):
             with pytest.raises(ValueError, match="no Acceptance check"):
                 task_runtime.resume(root, name)
             assert path.read_text(encoding="utf-8") == text
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(__file__))

@@ -1368,10 +1368,6 @@ def check_artifact_alias_and_outside_symlink(tmp_path):
     assert not findings.processing_errors
 
 
-if __name__ == "__main__":
-    raise SystemExit(run(__file__))
-
-
 def check_fail_reasons_and_returned_results(tmp_path):
     scope = {("dev", "team", "one")}
     findings = Findings(tmp_path)
@@ -1422,3 +1418,7 @@ def check_fail_reasons_and_returned_results(tmp_path):
         and record["status"] == "FAIL"
         for record in records
     )
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(__file__))

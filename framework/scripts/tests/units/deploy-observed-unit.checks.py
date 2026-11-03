@@ -371,12 +371,6 @@ def check_other_target_declared_reference_is_retained_read_only(tmp_path, monkey
     assert consumer.read_bytes() == original
 
 
-if __name__ == "__main__":
-    from support.pytest_cli import run
-
-    raise SystemExit(run(__file__))
-
-
 def check_ingress_rule_confirmation():
     document = {
         "Resources": {
@@ -468,3 +462,9 @@ def check_ingress_cidr_and_recreation():
         )
     with pytest.raises(Unresolved):
         module.rule_candidates([rule], "sg-parent", False, {"IpProtocol": "tcp"})
+
+
+if __name__ == "__main__":
+    from support.pytest_cli import run
+
+    raise SystemExit(run(__file__))

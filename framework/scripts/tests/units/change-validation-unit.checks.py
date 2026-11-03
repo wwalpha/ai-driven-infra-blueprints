@@ -938,10 +938,6 @@ def check_generation_does_not_validate_unchanged_policy_quality(project_workspac
     )
 
 
-if __name__ == "__main__":
-    raise SystemExit(run(__file__))
-
-
 def check_invalid_before_identity_can_be_corrected(project_workspace):
     root = project_workspace
     setup(root, ["logs"], ["Logs.LogGroup"])
@@ -2654,3 +2650,7 @@ def check_pipeline_structure_change_rebuilds_context(project_workspace, operatio
         pytest.fail(f"reordered configurations not selected: {selected.rows}")
     if operation.startswith("add") and not selected.reference_keys:
         pytest.fail(f"added configuration not selected: {selected.reference_keys}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(__file__))

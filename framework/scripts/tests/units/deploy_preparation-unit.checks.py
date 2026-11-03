@@ -446,12 +446,6 @@ def test_generated_execution_conflict_and_symlink(tmp_path):
     TestCase().assertIn("task path must not use symlinks", output.getvalue())
 
 
-if __name__ == "__main__":
-    from support.pytest_cli import run
-
-    raise SystemExit(run(__file__))
-
-
 @pytest.mark.parametrize(
     ("lower", "upper", "expected"),
     [
@@ -834,3 +828,9 @@ def test_reference_metadata_follows_selected_stack(number):
     else:
         with pytest.raises(ValueError, match="invalid reference fields"):
             inputs.selected_stack_values(values, ["One"])
+
+
+if __name__ == "__main__":
+    from support.pytest_cli import run
+
+    raise SystemExit(run(__file__))

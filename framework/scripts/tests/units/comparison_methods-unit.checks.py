@@ -965,10 +965,6 @@ def test_migrated_comparison_faults(data_regression, tmp_path, case_id, fault):
         data_regression.check(result, fullpath=path)
 
 
-if __name__ == "__main__":
-    raise SystemExit(run(__file__))
-
-
 @pytest.mark.parametrize("size", [10, 40, 100])
 def test_unordered_length_mismatch_does_not_compare_pairs(size):
     callback = Mock(return_value=ReferenceDecision(NotImplemented))
@@ -1960,3 +1956,7 @@ def test_codebuild_valid_expression_keeps_evidence(selector, kind, attribute):
     )
     TestCase().assertIs(result.equal, True)
     evidence.assert_called_once()
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(__file__))

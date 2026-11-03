@@ -3281,10 +3281,6 @@ def check_issues_quicksight_name_difference(tmp_path, heading, row):
     ) == (heading != "QuickSight" or row != "QuickSight")
 
 
-if __name__ == "__main__":
-    raise SystemExit(run(__file__))
-
-
 def test_issue_detail_reason_once():
     record = dict(
         category="uncompared",
@@ -3435,3 +3431,7 @@ def nested_report_reference(left, right, path, *, decision):
             ),
         )
     return decision(NotImplemented)
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(__file__))
