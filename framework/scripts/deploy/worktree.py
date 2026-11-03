@@ -1,10 +1,11 @@
 """Deploy selection and fixed managed-worktree authority, independent of local base."""
 
 import copy
+import re
+import subprocess
 from pathlib import Path
 
 import task_contract_core as tasks
-import worktree_python
 import worktree_state as ws
 import worktree_task as wt
 from contracts.deploy import DEPLOY_SUCCESS
@@ -23,26 +24,140 @@ def is_deploy(text):
 
 
 def start(where, task_id):
-    """Use the official lifecycle; never copy a dirty checkout or invent a new Task."""
+    """Create a new Deploy Task; existing Tasks continue through their own commands."""
     _, _, primary = ws.repository(where)
     path = ws.state_path(primary, task_id)
-    if not path.exists():
-        if (primary / f"tasks/{task_id}.md").exists():
-            raise ws.Blocked(
-                "existing Deploy contract has no managed worktree; review its ownership"
-            )
-        return wt.create(where, task_id)
-    _, _, _, state = ws.load(where, task_id)
-    target = ws.task_worktree(primary, state)
-    ws.deploy_start_commit(target, state["task_file"], required=True)
-    if (target / state["task_file"]).exists():
-        task = tasks.read_task_snapshot(target, state["task_file"], live=True)
-        if not is_deploy(task.text) or task.status == "completed":
-            raise ws.Blocked("existing worktree is not an unfinished Deploy Task")
-    if state.get("python_setup", {}).get("status") != "ready":
-        return wt.setup(where, task_id)
-    worktree_python.runtime(target)
+    target = primary / ".worktrees" / task_id
+    contract = primary / f"tasks/{task_id}.md"
+    if (
+        path.exists()
+        or path.is_symlink()
+        or contract.exists()
+        or contract.is_symlink()
+        or wt.branch_exists(primary, f"codex/worktree/{task_id}")
+        or target.exists()
+        or target.is_symlink()
+        or any(
+            Path(entry["worktree"]).resolve() == target
+            for entry in ws.worktrees(primary)
+        )
+    ):
+        raise ws.Blocked("TASK_ID_ALREADY_USED: choose a new Deploy Task ID")
+    base, head, freshness, upstream = fresh_base(primary)
+    state = wt.create(
+        where, task_id, expected_base=(base, head), expected_upstream=upstream
+    )
+    state["baseFreshness"] = freshness
     return state
+
+
+def fresh_base(primary):
+    base = wt.base_branch(primary)
+    initial = wt.output(primary, "rev-parse", f"refs/heads/{base}")
+    values = wt.base_upstream_config(primary, base)
+    if values == [[], []]:
+        return base, initial, "LOCAL_ONLY", values
+    if any(len(value) != 1 for value in values):
+        raise ws.Blocked(
+            "Deploy base upstream configuration is incomplete or ambiguous"
+        )
+    remote, ref = values[0][0], values[1][0]
+    if (
+        not remote
+        or remote == "."
+        or remote.startswith("-")
+        or not ref.startswith("refs/heads/")
+        or wt.git(primary, "check-ref-format", ref, check=False).returncode
+    ):
+        raise ws.Blocked("Deploy base upstream must be a remote branch")
+    try:
+        before = wt.git(
+            primary,
+            "ls-remote",
+            "--exit-code",
+            "--heads",
+            remote,
+            ref,
+            check=False,
+            timeout=60,
+        )
+        fetched = (
+            wt.git(
+                primary,
+                "fetch",
+                "--no-tags",
+                "--no-write-fetch-head",
+                remote,
+                ref,
+                check=False,
+                timeout=60,
+            )
+            if before.returncode == 0
+            else None
+        )
+        after = (
+            wt.git(
+                primary,
+                "ls-remote",
+                "--exit-code",
+                "--heads",
+                remote,
+                ref,
+                check=False,
+                timeout=60,
+            )
+            if fetched and fetched.returncode == 0
+            else None
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise ws.Blocked(
+            "Deploy base upstream check failed; no Task was created"
+        ) from None
+    match = (
+        re.fullmatch(r"([0-9a-f]{40,64})\s+" + re.escape(ref), before.stdout.strip())
+        if before.returncode == 0
+        else None
+    )
+    if (
+        not match
+        or not fetched
+        or fetched.returncode
+        or not after
+        or after.returncode
+        or after.stdout != before.stdout
+    ):
+        raise ws.Blocked(
+            "Deploy base upstream unavailable or changed; no Task was created"
+        )
+    remote_head = match.group(1)
+    with wt.lifecycle_lock(primary):
+        if (
+            wt.base_branch(primary) != base
+            or wt.output(primary, "rev-parse", f"refs/heads/{base}") != initial
+            or wt.base_upstream_config(primary, base) != values
+        ):
+            raise ws.Blocked("Deploy base changed during upstream verification")
+        if initial != remote_head:
+            if wt.git(
+                primary,
+                "merge-base",
+                "--is-ancestor",
+                initial,
+                remote_head,
+                check=False,
+            ).returncode:
+                raise ws.Blocked(
+                    "Deploy base is ahead of or diverged from its upstream"
+                )
+            if wt.output(primary, "branch", "--show-current") != base or wt.output(
+                primary, "status", "--porcelain", "--untracked-files=all"
+            ):
+                raise ws.Blocked(
+                    "Deploy base checkout must be clean and checked out in primary for fast-forward"
+                )
+            wt.idle_git(primary)
+            wt.git(primary, "merge", "--ff-only", remote_head)
+    return base, remote_head, "UPSTREAM_VERIFIED", values
 
 
 def require(root, snapshot=None):

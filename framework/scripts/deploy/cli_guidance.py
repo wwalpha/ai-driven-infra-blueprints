@@ -289,7 +289,32 @@ def safe_error(error):
     if diagnostics:
         result["diagnostics"] = diagnostics
     if isinstance(error, DeployStepBlocked):
-        result.update(code="DEPLOY_STEP_BLOCKED", reason=str(error))
+        reason = str(error)
+        safe_reasons = {
+            "base advanced; review retained commit",
+            "local Deploy save belongs to different fixed inputs",
+            "fixed execution inputs changed without verified implement authority",
+            "local publication Task/target authority changed",
+            "local publication belongs to different fixed inputs",
+            "sync needs distinct --sync-stack names within Deployment scope",
+            "--final requires managed CloudFormation Deploy sync",
+            "sync requires clean inputs or its own retained publication",
+            "resume the saved checkpoint without changing its final intent or Stack scope",
+            "synchronized candidate changed before next sync",
+            "finish the saved Observed Stack scope before another sync",
+            "generationError has no recoverable generation candidate",
+            "locally completed candidate still needs --action checkpoint; advance is unavailable",
+            "completed Deploy cannot advance; use deploy-publish for saved Git work or finalize after publication",
+            "--final requires managed CloudFormation Deploy --action sync",
+            "step operations require CloudFormation",
+            "resume the saved checkpoint before advance",
+        }
+        result.update(
+            code="DEPLOY_STEP_BLOCKED",
+            reason=reason
+            if reason in safe_reasons
+            else "Deploy step blocked; inspect its safe diagnostic evidence.",
+        )
     elif isinstance(error, PreparationError):
         if error.code in {
             "PREPARATION_INPUT_CHANGED",

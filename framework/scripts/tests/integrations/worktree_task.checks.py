@@ -16,6 +16,7 @@ from contextlib import redirect_stderr
 from unittest import TestCase
 
 import import_guard as _imports_import_guard
+import pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
 import task_contract_runtime
 import validation.loop as _imports_validation_loop
@@ -232,12 +233,16 @@ def check_latest_base_linear_repeated_and_recovery():
             first_base = git(root, "rev-parse", "HEAD")
             original = wt.git
             with patch.object(
-                wt, "git", side_effect=_bind_framework_callback(
+                wt,
+                "git",
+                side_effect=_bind_framework_callback(
                     _advance_base_after_rebase, original, root, interrupted
-                )
+                ),
             ):
                 if interrupted:
-                    with check.assertRaisesRegex(RuntimeError, "simulated interruption"):
+                    with check.assertRaisesRegex(
+                        RuntimeError, "simulated interruption"
+                    ):
                         wt.sync_latest_base(root, "example", first_base)
                 else:
                     result = wt.sync_latest_base(root, "example", first_base)
@@ -247,12 +252,18 @@ def check_latest_base_linear_repeated_and_recovery():
             check.assertEqual(result, {"status": "needs_sync", "base": latest})
             _, _, _, saved = wt.load(root, "example")
             candidate = git(target, "rev-parse", "HEAD")
-            check.assertEqual((saved["tip"], saved["validation_base"]), (candidate, first_base))
+            check.assertEqual(
+                (saved["tip"], saved["validation_base"]), (candidate, first_base)
+            )
             check.assertNotIn("latestBaseSync", saved)
             result = wt.sync_latest_base(root, "example", latest)
             check.assertEqual(result["status"], "needs_validation")
-            check.assertEqual(git(target, "rev-list", "--count", latest + "..HEAD"), "1")
-            check.assertEqual(wt.sync_latest_base(root, "example", latest)["status"], "ok")
+            check.assertEqual(
+                git(target, "rev-list", "--count", latest + "..HEAD"), "1"
+            )
+            check.assertEqual(
+                wt.sync_latest_base(root, "example", latest)["status"], "ok"
+            )
             check.assertEqual(git(target, "rev-parse", "HEAD"), result["candidate"])
 
     for tampering in ("task", "head"):
@@ -264,9 +275,11 @@ def check_latest_base_linear_repeated_and_recovery():
             git(root, "commit", "-qm", "base 1")
             first_base = git(root, "rev-parse", "HEAD")
             with patch.object(
-                wt, "git", side_effect=_bind_framework_callback(
+                wt,
+                "git",
+                side_effect=_bind_framework_callback(
                     _advance_base_after_rebase, wt.git, root, True
-                )
+                ),
             ):
                 with check.assertRaisesRegex(RuntimeError, "simulated interruption"):
                     wt.sync_latest_base(root, "example", first_base)
@@ -291,7 +304,9 @@ def check_latest_base_linear_repeated_and_recovery():
         git(root, "add", "upstream.txt")
         git(root, "commit", "-qm", "base")
         latest = git(root, "rev-parse", "HEAD")
-        with patch.object(wt, "git", side_effect=_bind_framework_callback(_fail_rebase, wt.git)):
+        with patch.object(
+            wt, "git", side_effect=_bind_framework_callback(_fail_rebase, wt.git)
+        ):
             with check.assertRaisesRegex(wt.Blocked, "base rebase failed"):
                 wt.sync_latest_base(root, "example", latest)
         head = git(target, "rev-parse", "HEAD")
@@ -492,6 +507,73 @@ def check_sync_base_preserves_candidate():
         assert tasks.status((target / state["task_file"]).read_text()) == "running"
         finish_contract(target, state)
         assert cli(root, "finalize")["cleaned"]
+
+
+@it_case
+def check_unpublished_pr_intent_base_sync_preserves_candidate():
+    with fixture() as root:
+        target, state = start(root, files=("file.txt",))
+        old = state["start"]
+        (target / "file.txt").write_text("candidate\n")
+        (root / "upstream.txt").write_text("reviewed upstream\n")
+        git(root, "add", "upstream.txt")
+        git(root, "commit", "-qm", "reviewed upstream")
+        latest = git(root, "rev-parse", "HEAD")
+        with patch.object(
+            wt, "_finalize", return_value={"status": "needs_sync", "base": latest}
+        ):
+            assert pr.finalize(root, "example", None)["status"] == "needs_sync"
+        _, _, path, before = wt.load(root, "example")
+        assert before["integrationMode"] == "pr" and "prPublication" not in before
+        with pr.publication_lock(path), pytest.raises(wt.Blocked, match="busy"):
+            wt.sync_base(root, "example", latest)
+        saved = wt.sync_base(root, "example", latest)
+        assert saved["integrationMode"] == "pr" and "prPublication" not in saved
+        assert (
+            saved["start"] == old and saved["tip"] == saved["validation_base"] == latest
+        )
+        assert saved["commit"] is None and not saved["verified"]
+        assert (target / "file.txt").read_text() == "candidate\n"
+        assert (target / "upstream.txt").read_text() == "reviewed upstream\n"
+        assert tasks.status((target / state["task_file"]).read_text()) == "running"
+
+    for key in (
+        "prPublication",
+        "prUpdate",
+        "githubMerged",
+        "verified",
+        "validation_failure_approval",
+        "deployIdentity",
+        "deployRepair",
+        "recovery",
+        "latestBaseSync",
+        "rewrittenBaseIntent",
+        "setup-lock",
+        "python_setup",
+    ):
+        with fixture() as root:
+            target, _ = start(root, files=("file.txt",))
+            (target / "file.txt").write_text("candidate\n")
+            _, _, path, state = wt.load(root, "example")
+            state["integrationMode"] = "pr"
+            if key == "setup-lock":
+                path.with_suffix(".setup-lock").mkdir()
+            else:
+                state[key] = (
+                    {}
+                    if key in {"prPublication", "prUpdate", "githubMerged"}
+                    else {"status": "failed"}
+                    if key == "python_setup"
+                    else True
+                )
+            wt.save(path, state)
+            before = path.read_bytes()
+            with pytest.raises(wt.Blocked, match="PR Task intent is immutable"):
+                wt.sync_base(root, "example", git(root, "rev-parse", "HEAD"))
+            assert (
+                path.read_bytes() == before
+                and (target / "file.txt").read_text() == "candidate\n"
+            )
 
 
 def _interrupt_rebase(original_git, /, where, *args, **kwargs):
@@ -1860,7 +1942,11 @@ def check_framework_final_candidate():
         _, _, _, saved = wt.load(root, "example")
         TestCase().assertEqual(saved.get("validation_base"), latest)
         TestCase().assertEqual(saved.get("commit"), synchronized)
-        TestCase().assertTrue(wt.tasks.final_framework_task((target / state["task_file"]).read_text(), {relative}))
+        TestCase().assertTrue(
+            wt.tasks.final_framework_task(
+                (target / state["task_file"]).read_text(), {relative}
+            )
+        )
         TestCase().assertTrue(wt.ancestor(target, latest, state["branch"]))
         source.write_text(source.read_text() + "Later scoped correction\n")
         candidate = wt.prepare_integration(root, "example")

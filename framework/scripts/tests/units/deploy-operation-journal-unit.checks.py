@@ -191,6 +191,39 @@ def test_existing_readable_lock_is_reused_without_unlink(tmp_path):
     assert lock.stat().st_ino == inode
 
 
+def test_approval_diagnostics_clear_after_same_changeset_is_approved():
+    state = {"status": "CHANGESET_CREATING", "changeSetId": CHANGE, "stackId": STACK}
+    change = {
+        "Status": "CREATE_COMPLETE",
+        "ExecutionStatus": "AVAILABLE",
+        "ChangeSetId": CHANGE,
+        "StackId": STACK,
+        "Changes": [
+            {
+                "ResourceChange": {
+                    "LogicalResourceId": "Key",
+                    "ResourceType": "AWS::KMS::Key",
+                    "Action": "Remove",
+                }
+            }
+        ],
+    }
+    unit = {"name": "Kms"}
+    assert (
+        change_sets.review_prepared(unit, state, set(), Mock(), Mock(), change)
+        == "BLOCKED"
+    )
+    assert (
+        state["failure"]["requiredAction"]
+        and state["changes"][0]["LogicalResourceId"] == "Key"
+    )
+    assert (
+        change_sets.review_prepared(unit, state, {CHANGE}, Mock(), Mock(), change)
+        == "READY"
+    )
+    assert "failure" not in state and "failureClassification" not in state
+
+
 def test_no_change_still_checks_all_four_kms_exports(tmp_path):
     backend, _, unit, _ = backend_for(tmp_path)
     document = {

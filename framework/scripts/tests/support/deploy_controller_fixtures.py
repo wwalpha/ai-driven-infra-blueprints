@@ -591,6 +591,15 @@ def _callback_clients_request(
                     and knobs.pop("defer_peer", False)
                 ):
                     events[0]["ResourceStatus"] = "UPDATE_IN_PROGRESS"
+                if change and change.get("executed"):
+                    events.extend(
+                        {
+                            "StackId": stack_id,
+                            "ClientRequestToken": change["token"],
+                            **event,
+                        }
+                        for event in knobs.get("resource_events", {}).get(name, [])
+                    )
                 result = {"StackEvents": events}
             elif operation == "list_stack_resources":
                 document = state["changes"].get(name, {}).get("document", {})

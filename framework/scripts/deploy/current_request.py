@@ -16,7 +16,7 @@ from utils.cloudformation.inputs import Blocked
 from utils.file_operations import atomic_replace_file
 from utils.json_format import fingerprint
 
-from deploy import current_state
+from deploy import current_state, failures
 from deploy import operation_journal as journal
 
 TOKENS = {
@@ -348,10 +348,10 @@ def reconcile(backend, unit, state=None):
                 state["createUnconfirmed"] = True
                 state.pop("requestError", None)
                 return record
-            state["requestError"] = str(error)
+            state["requestError"] = failures.exception_message(error)
             return {"uncertain": True}
         except (OSError, ValueError, KeyError, TypeError, Blocked) as error:
-            state["requestError"] = str(error)
+            state["requestError"] = failures.exception_message(error)
             return {"uncertain": True}
 
 

@@ -826,9 +826,16 @@ def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool
         return False
     except Exception as error:
         state["failureClassification"] = "HUMAN_REQUIRED"
-        state["reason"] = str(error)
+        state["reason"] = _imports_deploy_failures.exception_message(error)
         runtime.save()
         return False
+
+
+def _event_page(aws, operation, **arguments):
+    response = aws(operation, **arguments)
+    if not isinstance(response, dict) or "StackEvents" not in response:
+        raise Blocked("incomplete Stack event page")
+    return response
 
 
 def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
@@ -852,10 +859,17 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     if state.get("clientToken"):
         try:
             events = current_state.pages(
-                runtime.aws,
+                partial(_event_page, runtime.aws),
                 "describe_stack_events",
                 "StackEvents",
                 StackName=execution_stack or unit["name"],
+            )
+            state["progress"] = current_state.event_progress(
+                current,
+                events,
+                state["clientToken"],
+                execution_stack or current.get("StackId"),
+                unit["name"],
             )
             matched = [
                 event
@@ -867,9 +881,15 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
                     event, runtime.templates.get(unit["name"], ({}, {}))[0]
                 )
                 for event in matched
-                if event.get("ResourceStatus", "").endswith("_FAILED")
-                or event.get("ResourceStatus") == "DELETE_SKIPPED"
+                if (execution_stack or current.get("StackId"))
+                and event.get("StackId") == (execution_stack or current.get("StackId"))
+                and isinstance(event.get("ResourceStatus"), str)
+                and (
+                    event.get("ResourceStatus", "").endswith("_FAILED")
+                    or event.get("ResourceStatus") == "DELETE_SKIPPED"
+                )
             ]
+            state["eventReadStatus"] = "COMPLETE"
             stack_events = current_request.root_events(
                 matched, state["clientToken"], execution_stack
             )
@@ -885,7 +905,19 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
                 if attempt_status in current_state.FAILED:
                     state["failureDetected"] = True
         except (OSError, Blocked):
-            pass  # Diagnostics cannot veto an otherwise confirmed current observation.
+            # Diagnostics cannot veto an otherwise confirmed current observation.
+            state["eventReadStatus"] = "EVENT_READ_FAILED"
+            state["progress"] = {
+                "available": False,
+                "partial": True,
+                "eventAsOf": current.get("observedAt"),
+            }
+    else:
+        state["progress"] = {
+            "available": False,
+            "partial": True,
+            "eventAsOf": current.get("observedAt"),
+        }
     request = current_request.reconcile(runtime, unit, state)
     if request and state.get("requestError"):
         raise Blocked(state["requestError"])

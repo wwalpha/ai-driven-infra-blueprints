@@ -27,6 +27,12 @@ states:
     failure: null
     generation: COMPLETE
     observed: COMPLETE
+    progress:
+      asOf: null
+      available: false
+      partial: true
+      phase: UNKNOWN
+      stackStatus: null
     requestError: null
     requestPending: false
     runtime: null
