@@ -198,4 +198,4 @@ def test_glue_standalone_redacts_console_and_log(
 
 
 if __name__ == "__main__":
-    run(__file__)
+    raise SystemExit(run(__file__))
