@@ -1,0 +1,89 @@
+version: 1
+base:
+  files:
+    tasks/my-task.md: '# Task
+
+      ## Task contract
+
+      - Task type: `governance`
+
+      - Task status: `running`
+
+      - Target: test
+
+      - Goal: test
+
+      ## Validation scope
+
+      - `framework`
+
+      ## Required changes
+
+      - [R1] Test
+
+      ## Acceptance checks
+
+      - [R1] `changed:file.txt`
+
+      ## Modified files
+
+      - `tasks/my-task.md`
+
+      - `file.txt`
+
+      ## Allowed paths
+
+      - `tasks/my-task.md`
+
+      - `file.txt`
+
+      '
+cases:
+  unsafe-selector-01:
+    data:
+      selector: tasks\..\my-task.md
+  unsafe-selector-02:
+    data:
+      selector: tasks/../my-task.md
+  unsafe-selector-03:
+    data:
+      selector: ..\tasks\my-task.md
+  unsafe-selector-04:
+    data:
+      selector: /tasks/my-task.md
+  unsafe-selector-05:
+    data:
+      selector: \tasks\my-task.md
+  unsafe-selector-06:
+    data:
+      selector: C:\tasks\my-task.md
+  unsafe-selector-07:
+    data:
+      selector: C:/tasks/my-task.md
+  unsafe-selector-08:
+    data:
+      selector: C:tasks\my-task.md
+  unsafe-selector-09:
+    data:
+      selector: \\server\share\tasks\my-task.md
+  unsafe-selector-10:
+    data:
+      selector: //server/share/tasks/my-task.md
+  unsafe-selector-11:
+    data:
+      selector: tasks\My-task.md
+  unsafe-selector-12:
+    data:
+      selector: tasks\my_task.md
+  unsafe-selector-13:
+    data:
+      selector: tasks\my--task.md
+  unsafe-selector-14:
+    data:
+      selector: tasks\\my-task.md
+  unsafe-selector-15:
+    data:
+      selector: tasks\.\my-task.md
+  unsafe-selector-16:
+    data:
+      selector: "tasks/my-task.md\0"

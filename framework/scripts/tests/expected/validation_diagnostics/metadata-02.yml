@@ -1,0 +1,9 @@
+checks: 0
+errors: []
+metadata:
+  complete: false
+  reason: 'test: required validation did not complete'
+  status: FAIL
+  unavailable_services: {}
+  unverified: []
+status: FAIL

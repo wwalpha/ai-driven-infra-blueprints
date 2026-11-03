@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import os
 import subprocess
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 import model.sources as _imports_model_sources
@@ -28,6 +29,7 @@ from support.import_model_fixtures import dependency_contract, operation_contrac
 from support.issues_scan_fixtures import review_for, snapshot_artifact
 from support.model_v2_fixtures import logs_fixture
 from support.pytest_cli import run
+from support.regression_cases import case_ids
 from support.repository_fixtures import contract, git, transition_contract
 from support.repository_fixtures import fixture as repository_fixture
 from sync_runtime import publish_generation
@@ -94,41 +96,39 @@ def check_selector_normalization(tmp_path, monkeypatch, selector):
     assert set(tasks.contracts(tmp_path)) == {name, "tasks/other.md"}
 
 
-@pytest.mark.parametrize(
-    "selector",
-    [
-        r"tasks\..\my-task.md",
-        "tasks/../my-task.md",
-        r"..\tasks\my-task.md",
-        "/tasks/my-task.md",
-        r"\tasks\my-task.md",
-        r"C:\tasks\my-task.md",
-        "C:/tasks/my-task.md",
-        r"C:tasks\my-task.md",
-        r"\\server\share\tasks\my-task.md",
-        "//server/share/tasks/my-task.md",
-        r"tasks\My-task.md",
-        r"tasks\my_task.md",
-        r"tasks\my--task.md",
-        r"tasks\\my-task.md",
-        r"tasks\.\my-task.md",
-        "tasks/my-task.md\x00",
-    ],
-)
-def check_unsafe_selectors(tmp_path, selector):
-    text = transition_contract("tasks/my-task.md", ["file.txt"])
-    with pytest.raises(ValueError, match="invalid task selector"):
+def unsafe_selector_case(tmp_path, case):
+    selector = case["data"]["selector"]
+    text = case["files"]["tasks/my-task.md"]
+    messages = []
+    with pytest.raises(ValueError, match="invalid task selector") as caught:
         tasks.start(tmp_path, selector, text)
-    with pytest.raises(ValueError, match="invalid task selector"):
+    messages.append(str(caught.value))
+    with pytest.raises(ValueError, match="invalid task selector") as caught:
         tasks.read_task_snapshot(tmp_path, selector)
-    with pytest.raises(ValueError, match="invalid task selector"):
+    messages.append(str(caught.value))
+    with pytest.raises(ValueError, match="invalid task selector") as caught:
         tasks.suspend(tmp_path, selector, "synthetic stop")
+    messages.append(str(caught.value))
     with (
         patch.object(os, "environ", {tasks.SELECTOR: selector}),
-        pytest.raises(ValueError, match="invalid task selector"),
+        pytest.raises(ValueError, match="invalid task selector") as caught,
     ):
         tasks.task_path(tmp_path)
-    assert not (tmp_path / "tasks").exists()
+    messages.append(str(caught.value))
+    TestCase().assertFalse((tmp_path / "tasks").exists())
+    TestCase().assertEqual(list(tmp_path.iterdir()), [])
+    return {"errors": messages}
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("task_contract", prefix="unsafe-selector-")
+)
+def check_unsafe_selectors(tmp_path, case_runner, case_id):
+    case_runner.run(
+        "task_contract",
+        case_id,
+        _bind_framework_callback(unsafe_selector_case, tmp_path),
+    )
 
 
 @pytest.mark.parametrize("linked", ["directory", "file"])

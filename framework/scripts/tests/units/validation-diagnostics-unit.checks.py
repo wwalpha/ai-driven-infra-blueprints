@@ -3,10 +3,12 @@
 
 import sys
 from contextlib import ExitStack
+from copy import deepcopy
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -18,6 +20,7 @@ import sync_runtime
 from issues.runner import validation_issues
 from model.core import ReferenceResolutionError
 from support.pytest_cli import run
+from support.regression_cases import case_ids
 from validation import design_tables
 from validation import runner as validator_runner
 from validation.design_links import check_design_artifacts as validate_artifacts
@@ -461,31 +464,40 @@ def check_expansion_failure_does_not_claim_unreferenced(tmp_path, stage):
     assert validator.findings.unverified
 
 
-@pytest.mark.parametrize(
-    "metadata,expected",
-    [
-        ({}, "PASS"),
-        ({"complete": False}, "FAIL"),
-        ({"status": "FAIL"}, "FAIL"),
-        ({"status": "FAIL"}, "FAIL"),
-        ({"unavailable_services": {"dev/team/iam": {}}}, "FAIL"),
-        ({"unverified": [{"code": "not-executed"}]}, "FAIL"),
-    ],
-)
-def check_metadata_completion(tmp_path, metadata, expected):
+def metadata_completion_case(tmp_path, case):
+    data = case["data"]
+    before_input = deepcopy(data)
     findings = Findings(tmp_path)
-    result = findings.evaluate("test", set(), Mock(return_value=metadata))
-    assert result.status == expected and findings.status == expected
+    handler = Mock(return_value=data["metadata"])
+    result = findings.evaluate("test", set(), handler)
+    TestCase().assertEqual(result.status, data["status"])
+    TestCase().assertEqual(findings.status, data["status"])
     before = dict(findings.results)
-    assert findings.get_result("test", frozenset()) is result
-    assert findings.results == before and findings.status == expected
-    assert isinstance(result.metadata["unverified"], list)
-    assert isinstance(result.metadata["unavailable_services"], dict)
-    if expected == "FAIL":
-        assert (
-            result.metadata["reason"].strip()
-            and result.metadata["reason"] != "unspecified"
-        )
+    TestCase().assertIs(findings.get_result("test", frozenset()), result)
+    TestCase().assertEqual(findings.results, before)
+    TestCase().assertEqual(findings.status, data["status"])
+    TestCase().assertIsInstance(result.metadata["unverified"], list)
+    TestCase().assertIsInstance(result.metadata["unavailable_services"], dict)
+    if data["status"] == "FAIL":
+        TestCase().assertTrue(result.metadata["reason"].strip())
+        TestCase().assertNotEqual(result.metadata["reason"], "unspecified")
+    handler.assert_called_once_with()
+    TestCase().assertEqual(data, before_input)
+    return {
+        "status": result.status,
+        "metadata": result.metadata,
+        "errors": list(result.errors),
+        "checks": result.checks,
+    }
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("validation_diagnostics", prefix="metadata-")
+)
+def check_metadata_completion(tmp_path, case_runner, case_id):
+    case_runner.run(
+        "validation_diagnostics", case_id, partial(metadata_completion_case, tmp_path)
+    )
 
 
 def check_registered_handlers_execute_once(tmp_path):
@@ -510,20 +522,43 @@ def check_registered_handlers_execute_once(tmp_path):
     assert policy.call_count == 1
 
 
-@pytest.mark.parametrize("started", [False, True])
-@pytest.mark.parametrize("complete", [None, False, True])
-def check_completion_requires_evidence(tmp_path, started, complete):
+def completion_evidence_case(tmp_path, case):
+    data = case["data"]
     findings = Findings(tmp_path)
     result = findings.result("required", None)
-    result.status, result.started, result.checks = "PASS", started, 10
-    if complete is not None:
-        result.metadata["complete"] = complete
-    assert finish_result(result).status == ("PASS" if complete is True else "FAIL")
-    if complete is not True:
+    result.status, result.started, result.checks = "PASS", data["started"], 10
+    if data["complete"] is not None:
+        result.metadata["complete"] = data["complete"]
+    TestCase().assertEqual(
+        finish_result(result).status, "PASS" if data["complete"] is True else "FAIL"
+    )
+    report = {
+        "status": result.status,
+        "started": result.started,
+        "checks": result.checks,
+        "metadata": deepcopy(result.metadata),
+    }
+    if data["complete"] is not True:
         calls = []
         checked = findings.evaluate("required", None, lambda: calls.append(1))
-        assert calls == [1] and checked.metadata["complete"]
-        assert checked.status == "PASS"
+        TestCase().assertEqual(calls, [1])
+        TestCase().assertTrue(checked.metadata["complete"])
+        TestCase().assertEqual(checked.status, "PASS")
+        report["retry"] = {
+            "status": checked.status,
+            "metadata": checked.metadata,
+            "calls": len(calls),
+        }
+    return report
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("validation_diagnostics", prefix="completion-")
+)
+def check_completion_requires_evidence(tmp_path, case_runner, case_id):
+    case_runner.run(
+        "validation_diagnostics", case_id, partial(completion_evidence_case, tmp_path)
+    )
 
 
 def _parent_handler(tmp_path, findings, scope, child_id, mode, status):

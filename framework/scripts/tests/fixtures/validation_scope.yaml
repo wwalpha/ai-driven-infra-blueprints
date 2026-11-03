@@ -1,0 +1,141 @@
+version: 1
+cases:
+  scope-missing:
+    files:
+      tasks/example.md: '## Task contract
+
+        - Task type: `migration`
+
+        - Task status: `running`
+
+        ## Modified files
+
+        - `tasks/example.md`
+
+        ## Allowed paths
+
+        - `tasks/example.md`
+
+        '
+    data:
+      valid: false
+      all: false
+      scope: null
+  scope-target-only:
+    files:
+      tasks/example.md: '## Task contract
+
+        - Task type: `migration`
+
+        - Task status: `running`
+
+        ## Modified files
+
+        - `tasks/example.md`
+
+        ## Allowed paths
+
+        - `tasks/example.md`
+
+        ## Validation scope
+
+        - `dev/cde`
+
+        '
+    data:
+      valid: false
+      all: false
+      scope: null
+  scope-service-only:
+    files:
+      tasks/example.md: '## Task contract
+
+        - Task type: `migration`
+
+        - Task status: `running`
+
+        ## Modified files
+
+        - `tasks/example.md`
+
+        ## Allowed paths
+
+        - `tasks/example.md`
+
+        ## Validation scope
+
+        - `ec2`
+
+        '
+    data:
+      valid: false
+      all: false
+      scope: null
+  scope-all:
+    files:
+      tasks/example.md: '## Task contract
+
+        - Task type: `migration`
+
+        - Task status: `running`
+
+        ## Modified files
+
+        - `tasks/example.md`
+
+        ## Allowed paths
+
+        - `tasks/example.md`
+
+        ## Validation scope
+
+        - `all`
+
+        '
+    data:
+      valid: true
+      all: true
+      scope: null
+  scope-explicit:
+    files:
+      tasks/example.md: '## Task contract
+
+        - Task type: `migration`
+
+        - Task status: `running`
+
+        ## Modified files
+
+        - `tasks/example.md`
+
+        ## Allowed paths
+
+        - `tasks/example.md`
+
+        ## Validation scope
+
+        - `dev/cde/ec2`
+
+        - `dev/non-cde/ec2`
+
+        - `stg/cde/ec2`
+
+        - `stg/non-cde/ec2`
+
+        '
+    data:
+      valid: true
+      all: false
+      scope:
+      - - dev
+        - cde
+        - ec2
+      - - dev
+        - non-cde
+        - ec2
+      - - stg
+        - cde
+        - ec2
+      - - stg
+        - non-cde
+        - ec2

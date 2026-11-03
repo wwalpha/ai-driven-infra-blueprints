@@ -1,0 +1,13 @@
+scope:
+- - dev
+  - cde
+  - ec2
+- - dev
+  - non-cde
+  - ec2
+- - stg
+  - cde
+  - ec2
+- - stg
+  - non-cde
+  - ec2

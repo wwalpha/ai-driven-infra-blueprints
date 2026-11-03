@@ -7,10 +7,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from functools import partial
 from types import SimpleNamespace
+from unittest import TestCase
 
 import pytest
 import sync_runtime
+from support.fixture_cases import materialize_files
+from support.regression_cases import case_ids
 from support.validation_scope_fixtures import (
     VALIDATOR,
     Path,
@@ -72,34 +76,37 @@ def check_internal_generation_dispatch(tmp_path, scope, workers):
         assert not empty.errors
 
 
-def check_active_scope(tmp_path):
-    root = tmp_path
-    (root / "tasks").mkdir()
-    active = root / "tasks/example.md"
-    header = "## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n"
-    for text in (
-        "",
-        "## Validation scope\n- `dev/cde`\n",
-        "## Validation scope\n- `ec2`\n",
-    ):
-        active.write_text(header + text)
-        try:
-            active_scope(root)
-        except ValueError:
-            pass
+def active_scope_case(tmp_path, case):
+    data = case["data"]
+    materialize_files(tmp_path, case["files"])
+    path = tmp_path / "tasks/example.md"
+    before = path.read_bytes()
+    if data["valid"]:
+        scope = active_scope(tmp_path)
+        if data["all"]:
+            TestCase().assertIsNone(scope)
         else:
-            raise AssertionError("missing/incomplete scope accepted")
-    assert active_scope(root, True) is None
-    active.write_text(header + "## Validation scope\n- `all`\n")
-    assert active_scope(root) is None
-    scope = {
-        (env, target, "ec2") for env in ("dev", "stg") for target in ("cde", "non-cde")
-    }
-    contract = "## Validation scope\n" + "".join(
-        f"- `{'/'.join(item)}`\n" for item in sorted(scope)
-    )
-    active.write_text(header + contract)
-    assert active_scope(root) == scope
+            TestCase().assertIs(type(scope), set)
+            for item in scope:
+                TestCase().assertIs(type(item), tuple)
+            TestCase().assertEqual(scope, {tuple(item) for item in data["scope"]})
+        report = {
+            "scope": [list(item) for item in sorted(scope)]
+            if scope is not None
+            else None
+        }
+    else:
+        with pytest.raises(ValueError) as caught:
+            active_scope(tmp_path)
+        report = {"error": type(caught.value).__name__, "message": str(caught.value)}
+    TestCase().assertIsNone(active_scope(tmp_path, True))
+    TestCase().assertEqual(path.read_bytes(), before)
+    return report
+
+
+@pytest.mark.parametrize("case_id", case_ids("validation_scope"))
+def check_active_scope(tmp_path, case_runner, case_id):
+    case_runner.run("validation_scope", case_id, partial(active_scope_case, tmp_path))
 
 
 @pytest.mark.parametrize(

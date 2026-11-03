@@ -1,0 +1,57 @@
+version: 1
+cases:
+  metadata-01:
+    data:
+      metadata: {}
+      status: PASS
+  metadata-02:
+    data:
+      metadata:
+        complete: false
+      status: FAIL
+  metadata-03:
+    data:
+      metadata:
+        status: FAIL
+      status: FAIL
+  metadata-04:
+    data:
+      metadata:
+        status: FAIL
+      status: FAIL
+  metadata-05:
+    data:
+      metadata:
+        unavailable_services:
+          dev/team/iam: {}
+      status: FAIL
+  metadata-06:
+    data:
+      metadata:
+        unverified:
+        - code: not-executed
+      status: FAIL
+  completion-01:
+    data:
+      started: false
+      complete: null
+  completion-02:
+    data:
+      started: true
+      complete: null
+  completion-03:
+    data:
+      started: false
+      complete: false
+  completion-04:
+    data:
+      started: true
+      complete: false
+  completion-05:
+    data:
+      started: false
+      complete: true
+  completion-06:
+    data:
+      started: true
+      complete: true
