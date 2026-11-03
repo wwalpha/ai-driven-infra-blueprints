@@ -1,0 +1,24 @@
+grouped-parent-00:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: KMS.Alias.AliasName
+    reason: equal
+    resource: '002'
+    service: kms
+    stack: producer
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: KMS.Alias.TargetKeyId
+    reason: equal
+    resource: '002'
+    service: kms
+    stack: producer

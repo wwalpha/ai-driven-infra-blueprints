@@ -1,0 +1,12 @@
+naming-missing-00:
+  ordinary:
+  - applied_rule: framework/rules/aws-resource-naming.md
+    evidence: No registered target
+    id: 3ad6d23be129388efa7c
+    message: Missing naming rule
+    naming_item_id: bdbdbb152ec29ead7b1d
+    property: CachePolicyConfig.Name
+    resource: '001'
+    rule: review.naming
+    service: cdn
+    violation: rule_missing

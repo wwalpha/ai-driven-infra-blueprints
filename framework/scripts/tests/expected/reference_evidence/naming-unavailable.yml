@@ -1,0 +1,6 @@
+naming-unavailable-00:
+  unverified:
+  - check: naming
+    failure_kind: input_unavailable
+    reason: Model unavailable
+    service: vpc

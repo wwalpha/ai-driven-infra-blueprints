@@ -1,0 +1,45 @@
+fragment-undeclared-00:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: kms/001
+        property: KMS.Key.KeyId
+      evidence_type: logical_reference
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: unproven
+      local_comparison: matched
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - $attribute: KeyId
+            $resource:
+            - kms
+            - '001'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: KeyId
+        producer: kms/001
+      - attribute: Arn
+        current_aws_verified: false
+        derived_format: KeyArn
+        evidence_type: recorded_observed
+        producer: kms/001
+        source_property: KMS.Key.KeyId
+      reason: logical_reference
+    equal: true
+    equivalent: true

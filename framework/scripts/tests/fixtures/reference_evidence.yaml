@@ -3552,6 +3552,7 @@ cases:
       observed: '`vpc-other`'
       check_format: false
   nested-evidence-00:
+    expected_group: nested-evidence
     data:
       expression:
         Fn::Join:
@@ -3650,16 +3651,20 @@ cases:
       cyclic: true
       search_incomplete: false
   kms-link-00:
+    expected_group: kms-link
     data:
       key_id: 12345678-1234-1234-1234-123456789012
       arn: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
   kms-observation-only-00:
+    expected_group: kms-observation-only
     data:
       key_id: 12345678-1234-1234-1234-123456789012
   kms-unresolved-00:
+    expected_group: kms-unresolved
     data:
       expression: ${Unknown}
   export-chain-00:
+    expected_group: export-chain
     data:
       relay:
         Resources: {}
@@ -3670,9 +3675,11 @@ cases:
             Export:
               Name: shared
   runner-evidence-00:
+    expected_group: runner-evidence
     data:
       vpc: vpc-0123456789abcdef0
   alias-handoff-00:
+    expected_group: alias-handoff
     data:
       alias: alias/fixture
       suffix: Fixture
@@ -11837,6 +11844,7 @@ cases:
       metadata: {}
       target: {}
   partial-diagnostic-00:
+    expected_group: partial-diagnostic
     data:
       rows:
       - - VpcConfig.VpcId
@@ -14408,80 +14416,101 @@ cases:
       issue_expected: null
       issue_actual: null
   naming-provider-00:
+    expected_group: naming-provider
     data:
       value: invalid alias
   naming-missing-00:
+    expected_group: naming-missing
     data:
       value: test-name
   naming-unavailable-00:
+    expected_group: naming-unavailable
     data:
       reason: unresolved reference
   ambiguous-unordered-00:
+    expected_group: ambiguous-unordered
     data:
       desired:
       - one
       - two
   unordered-expression-00:
+    expected_group: unordered-expression
     data:
       desired:
       - matched
       - pending
   duplicate-evidence-00:
+    expected_group: duplicate-evidence
     data:
       desired:
       - first
       - second
   duplicate-status-00:
+    expected_group: duplicate-status
     data:
       desired:
       - same
       - same
   sensitive-correspondence-00:
+    expected_group: sensitive-correspondence
     data:
       secret: model-secret
   many-unordered-00:
+    expected_group: many-unordered
     data:
       stop: 31
   expression-redaction-00:
+    expected_group: expression-redaction
     data:
       desired: pending
   typed-mixed-00:
+    expected_group: typed-mixed
     data:
       desired:
       - same
       - same
   different-identifier-00:
+    expected_group: different-identifier
     data:
       value: fixture-name
   grouped-parent-00:
+    expected_group: grouped-parent
     data:
       value: alias/fixture
   duplicate-missing-00:
+    expected_group: duplicate-missing
     data:
       desired:
       - same
       - same
   wrong-consumer-00:
+    expected_group: wrong-consumer
     data:
       vpc: vpc-0123456789abcdef0
   declared-cache-00:
+    expected_group: declared-cache
     data:
       vpc: vpc-0123456789abcdef0
   declared-name-00:
+    expected_group: declared-name
     data:
       name: fixture-name
   naming-targets-00:
+    expected_group: naming-targets
     data:
       value: bad_pattern_value
   fragment-nested-00:
+    expected_group: fragment-nested
     data:
       suffix: One
   fragment-pointers-00:
+    expected_group: fragment-pointers
     data:
       body:
         a/b~c:
         - Resource: arn:aws:s3:::fixture-bucket/*|arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
         sibling: 12345678-1234-1234-1234-123456789012
   fragment-undeclared-00:
+    expected_group: fragment-undeclared
     data:
       description: changed-next-deploy

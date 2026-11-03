@@ -1,0 +1,6 @@
+wrong-consumer-00:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: null
+    equivalent: false
