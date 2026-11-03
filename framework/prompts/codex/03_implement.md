@@ -1,15 +1,6 @@
 # Infrastructure Implementation Prompt
 
-[Service Model sources](../../rules/model-templates.md) define environment-specific
-properties as authority. Read with `model.sources.load_model`; use
-`model/cli.py trace <service.properties> <key>` to locate exact source bytes.
-Design edits change desired/display/reference keys; authorized observation saves
-change only selected `observed.row.<id>.value` keys in the same Model. Record the
-entry, actual parts, required incoming consumers and generated paths in the Task.
-Read dependencies grant no write paths. Read with the shared Model loader before
-matching IaC/issues/diff. Generation across environments grants no Deployment scope
-or AWS permission.
-
+[Service Model sources](../../rules/model-templates.md) define environment-specific properties as authority. Read with the shared Model loader and use `model/cli.py trace <service.properties> <key>` for source locations. Implement must not save or change Model or Observed values; read dependencies grant no write authority.
 
 Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
@@ -63,10 +54,10 @@ If Implementation scope specifies detailed design `.md` files, treat them as sco
 For resource-limited scope, partially read authority with the following existing command. Selectors require exact matches for resource number (fixed entry, such as `001`) or immutable typed logicalId; stop on unmatched/ambiguous selections.
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service>.properties <resource-selector>
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service>.properties <resource-selector> <another-resource-selector>
 ```
 
-Retrieve only target resources and parents, children, and siblings in the same group required by existing specifications, and service metadata/notes; do not add custom extraction. Use the same command for single files and split entry indexes; do not load unrelated resources or all parts into context. Service-wide scope may use entire service properties; “対象accountの承認済み設計すべて” may use target service model sets. Split models follow existing `model/cli.py` entry indexes and part structure; read only required parts.
+Retrieve only target resources and parents, children, and siblings in the same group required by existing specifications, and service metadata/notes; do not add custom extraction. Specify one or more selectors in the same command for each Model. Use the same command for single files and split entry indexes; do not load unrelated resources or all parts into context. Service-wide scope may use entire service properties; “対象accountの承認済み設計すべて” may use target service model sets. Split models follow existing `model/cli.py` entry indexes and part structure; read only required parts.
 
 Limit reads to implementation scope resources/properties and producer properties needed for reference resolution. Use producer `model/cli.py resource` for additional retrieval too, without expanding change scope. Reading all target Markdown as fallback is prohibited. Do not reread material already confirmed in the same task unless content changes, validation fails, or unresolved dependencies exist.
 
@@ -95,19 +86,13 @@ For stacks with existing CloudFormation templates, run common local read-only va
 python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py observed --environment <environment> --target-directory <target-directory> --stack <StackName> --stack <another-StackName>
 ```
 
-4. Aggregate diagnostics for all verifiable targets/dependencies and present the deficiency list `対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由` together in one response. State reasons for unreadable targets and continue other checks; do not end the report at the first deficiency. For 0 deficiencies, report that result and implementation target diffs, then follow Compare existing IaC before creating the contract without requiring additional approval. If deficiencies exist, do not implement; identify that a separate design task is required and unconfirmed matters, then stop. Do not repair designs/models/IaC here or automatically create/execute another task.
+4. Aggregate diagnostics for all verifiable targets/dependencies and present the deficiency list `対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由` together in one response. State reasons for unreadable targets and continue other checks; do not end the report at the first deficiency. For 0 deficiencies, report that result and implementation target diffs without requiring additional approval. Matching portions need no changes. If all portions match before registering a new Task, perform target IaC static validation once, report no changes needed and finish without creating a Task. If an Implement Task already exists, a no-diff confirmation alone does not complete it; follow its Required changes, Acceptance checks, and Task completion contract. If an ordinary issue needs Model changes, report a separate Model-only repair scope and stop. If deficiencies exist, do not implement; identify that a separate design task is required and unconfirmed matters, then stop. Do not repair designs/models/IaC here or automatically create/execute another task.
 
 ## Receiving a deploy repair request
 
 For an explicitly authorized CloudFormation request, use the Worktree handoff in [deploy](deploy/runbook.md#external-iac-repair-handoff). Start only from the pinned suspended parent with `worktree_task.py create --task-id <repair-task-id> --repair-request <request.json>`. Register a distinct infrastructure/implement contract with the request's exact IaC write paths, target and Validation scope, `Deploy repair request: <absolute request.json>`, and AWS API execution/AWS mutation/Deploy/apply forbidden. The approved Model remains input. Preflight may identify the requested IaC defects as the repair work when Model design is complete; missing design, ownership, placement or confirmed reference values still stop for Human/design work. No AWS retrieval, provider plan or deployment is permitted.
 
 Correct only the requested causes using the existing typed `comparison.Comparison`/schema/reference semantics when needed. Run `worktree_task.py repair-validate --task-id <repair-task-id> --repair-request <request.json>` for the real scoped static loop and sealed dependency receipt, then the existing complete and finalize helpers. Reuse this one-shot child/request for at most 3 static correction cycles; do not create another Task to evade FAIL or a limit. Static PASS is only a retry candidate. finalize integrates into the exact parent through its recorded intent and issues result.json outside Git; it does not complete or resume the parent. Clean up the child and discard its temporary request/result evidence, then let the supervising LLM explicitly resume the original Task and start an independent Deploy using current IaC and AWS state. No persistent Session, repair history or old approval is inherited. This authorization permits no unrelated Task/phase and grants no parent IaC write paths.
-
-## Compare existing IaC before creating the contract
-
-Reuse the read-only preflight's implementation support, resolved units and comparison before file changes; match confirmed target property design values against existing templates/modules and parameters. Matching portions are confirmation targets requiring no changes; only differences are implementation targets. If existing IaC is correct, do not create same-value rewrites or naming-only changes.
-
-If all portions match, perform target IaC static validation once, report no changes needed and results, then finish. Read-only confirmation without repository changes does not create a new active contract or count as completion of an implement task requiring IaC changes. If ordinary issue repair requires Model changes, report the separate Model-only repair scope; do not change Models or start another Task here.
 
 ## Create active task contract
 
@@ -123,7 +108,7 @@ As the first repository change, newly register `tasks/<task-name>.md` authorizin
 
 ## Check implementation support
 
-Separately check resources listed in authoritative properties and resources implementable by the selected engine. For CloudFormation, run `python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type>` for each type in implementation scope and use only successful formal types. `Macie.ClassificationJob` is unsupported by CFn; do not convert it to templates, Outputs, or `!Ref`.
+Separately check resources listed in authoritative properties and resources implementable by the selected engine. For CloudFormation, run `python framework/scripts/design_catalog.py --cloudformation-type <catalog-resource-type> <another-catalog-resource-type>` once for the types in implementation scope (one type is also accepted); use only successful formal types and stop on any failure. `Macie.ClassificationJob` is unsupported by CFn; do not convert it to templates, Outputs, or `!Ref`.
 
 If Jobs are in requested scope, explicitly state them as unimplemented; implementing only supported resources is not completion of the whole request. Tasks already limited to CFn-supported scope may finish within that scope. Do not add Custom Resources, other engines, or API mutation because of unsupported resources.
 

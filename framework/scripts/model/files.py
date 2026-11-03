@@ -118,9 +118,19 @@ def resource_keys(text: str, selector: str, *, scope=None) -> set[str]:
 @input_scope
 def read_resource(model_path: Path, selector: str) -> dict[str, tuple[Path, int, str]]:
     """Return selected group keys with source locations/values; expansion errors propagate."""
+    return read_resources(model_path, [selector])
+
+
+@input_scope
+def read_resources(
+    model_path: Path, selectors: list[str]
+) -> dict[str, tuple[Path, int, str]]:
+    """Return the union of selected resource groups with original source locations."""
     owner = _imports_model_format.owner
     loaded = load_model(model_path.absolute())
-    keys = resource_keys(loaded.text, selector, scope=loaded.scope)
+    keys = set()
+    for selector in selectors:
+        keys.update(resource_keys(loaded.text, selector, scope=loaded.scope))
     selected = {
         owner(key, loaded.authoritative) for key in keys if key in loaded.authoritative
     }

@@ -325,6 +325,21 @@ def check_resource_reading_inputs(tmp_path):
             "desired.resource.006." not in result.stdout
             and "desired.resource.001." not in result.stdout
         )
+        expected_union = {
+            **model_files.read_resource(source, "001"),
+            **model_files.read_resource(source, "060"),
+        }
+        with patch.object(
+            model_files, "load_model", wraps=model_files.load_model
+        ) as load:
+            result = cli("resource", "001", "060", "KMS_Key_001")
+            assert load.call_count == 1
+        assert result.returncode == 0 and not result.stderr
+        assert json.loads(result.stdout) == {
+            key: [str(origin[0]), *origin[1:]] for key, origin in expected_union.items()
+        }
+        result = cli("resource", "001", "999")
+        assert result.returncode == 1 and not result.stdout and "999" in result.stderr
         for selector in ("", "Resource", "kms-resource-001", "999", "KMS_Key_061"):
             result = cli("resource", selector)
             assert result.returncode == 1 and not result.stdout

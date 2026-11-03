@@ -51,22 +51,15 @@ def check_implementation_preflight_prompt() -> None:
         "template/parameter mappings",
         "dependency cycle",
         "対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由",
-        "together in one response",
-        "do not end the report at the first deficiency",
         "If deficiencies exist, do not implement",
-        "without requiring additional approval",
         "Do not automatically expand change scope or all-service validation",
-        "Japanese display Comments",
-        "do not automatically translate/replace invalid values",
         "Do not repair designs/models/IaC here or automatically create/execute another task",
     ):
         assert required in preflight, required
     reading = text.split("## Read before changing files\n", 1)[1].split("\n## ", 1)[0]
     for required in (
         "Implement design inputs are only authoritative model properties",
-        "Do not require the Agent to compare properties and generated Markdown twice in advance",
         "Do not read generated `docs/designs/<environment>/<target-directory>/*.md` bodies (including `cloudformation-stacks.md`) at Implement start, IaC generation, or reference resolution",
-        "Retain Markdown/JSON generation/saving and local loop consistency validation as before",
         "treat them as scope selectors",
         "Without reading bodies",
         "path/file stem",
@@ -162,13 +155,20 @@ def check_implementation_preflight_prompt() -> None:
     assert "For the selected engine only" in numbered
     assert "before this preflight" in preflight and "inside that Worktree" in preflight
     assert "first repository change only after" in preflight
-    comparison = text.split(
-        "## Compare existing IaC before creating the contract\n", 1
-    )[1].split("\n## ", 1)[0]
     assert (
-        "If all portions match" in comparison
-        and "does not create a new active contract" in comparison
+        "If all portions match" in preflight
+        and "static validation once" in preflight
+        and "finish without creating a Task" in preflight
+        and "a no-diff confirmation alone does not complete it" in preflight
+        and "Required changes, Acceptance checks, and Task completion contract"
+        in preflight
     )
+    assert "must not save or change Model or Observed" in text
+    assert (
+        "--cloudformation-type <catalog-resource-type> <another-catalog-resource-type>"
+        in text
+    )
+    assert "<resource-selector> <another-resource-selector>" in reading
     assert "create it first under Create active task contract" not in reading
 
     root = SCRIPT.parents[2]
