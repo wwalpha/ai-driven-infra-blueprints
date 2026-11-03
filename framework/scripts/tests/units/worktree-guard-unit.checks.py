@@ -1972,6 +1972,156 @@ def _recovery_output(trace, base, where, *args, **kwargs):
 
 
 @pytest.mark.parametrize(
+    "violation",
+    [
+        None,
+        "hash",
+        "recorded",
+        "dirty",
+        "unverified",
+        "head",
+        "type",
+        "pr",
+        "scope",
+        "ancestor",
+        "merge",
+        "descendant",
+        "approval",
+        "deploy",
+        "intent",
+    ],
+)
+def check_rewritten_governance_recovery_guards(tmp_path, violation):
+    old, latest, head = "1" * 40, "2" * 40, "3" * 40
+    (tmp_path / "tasks").mkdir()
+    name = "tasks/example.md"
+    text = contract("example", ["file.txt"]).replace("`running`", "`suspend`")
+    if violation == "type":
+        text = text.replace("`governance`", "`migration`")
+    text += "\n## Suspension reason\nfixture\n"
+    task = tmp_path / name
+    task.write_text(text, encoding="utf-8")
+    state = dict(
+        task_file=name,
+        task_id="example",
+        start="0" * 40,
+        base="main",
+        validation_base=old,
+        tip=head,
+        commit=head,
+        merged=None,
+        verified=violation != "unverified",
+    )
+    if violation == "pr":
+        state["integrationMode"] = "pr"
+    if violation == "approval":
+        state["validation_failure_approval"] = "previous failure approval"
+    if violation == "deploy":
+        state["deployIdentity"] = True
+    if violation == "intent":
+        state["baseSyncIntent"] = {}
+        state["baseSyncIntent"]["head"] = head
+    before = copy.deepcopy(state)
+    primary = tmp_path / "primary"
+
+    def output(where, *args):
+        if args == ("rev-parse", "HEAD"):
+            return (
+                latest
+                if where == primary
+                else "4" * 40
+                if violation == "head"
+                else head
+            )
+        if args[:2] == ("rev-list", "--merges"):
+            return "merge" if violation == "merge" else ""
+        if args[:2] == ("rev-list", "--count"):
+            assert args[-1] == old + ".." + head
+            return "2"
+        raise AssertionError(args)
+
+    def git(where, *args, **kwargs):
+        assert args[:2] == ("merge-base", "--is-ancestor")
+        result = (
+            int(violation != "descendant")
+            if args[-2:] == (old, latest)
+            else int(violation == "ancestor")
+            if args[-2:] == (old, head)
+            else 0
+        )
+        return subprocess.CompletedProcess([], result, "", "")
+
+    with (
+        patch.object(
+            wt, "load", return_value=(primary, None, tmp_path / "state.json", state)
+        ),
+        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(wt, "task_worktree", return_value=tmp_path),
+        patch.object(wt, "base_worktree", return_value=primary),
+        patch.object(wt, "idle_git"),
+        patch.object(wt, "output", side_effect=output),
+        patch.object(wt, "git", side_effect=git),
+        patch.object(
+            wt,
+            "changed_paths",
+            return_value={"file.txt"} if violation == "dirty" else set(),
+        ),
+        patch.object(
+            wt,
+            "paths",
+            return_value={"outside.txt"} if violation == "scope" else {"file.txt"},
+        ),
+        patch.object(wt, "_prepare_commit") as prepare,
+        patch.object(wt, "save") as save,
+    ):
+        pinned = (
+            "bad"
+            if violation == "hash"
+            else "4" * 40
+            if violation == "recorded"
+            else old
+        )
+        if violation:
+            with pytest.raises(wt.Blocked):
+                wt.recover(primary, "example", head, latest, expected_task_base=pinned)
+            prepare.assert_not_called()
+            save.assert_not_called()
+            assert state == before
+            assert task.read_text(encoding="utf-8") == text
+        else:
+            wt.recover(primary, "example", head, latest, expected_task_base=pinned)
+            assert state["recovery"] == dict(
+                commit=head,
+                base=latest,
+                count="2",
+                count_excludes_merges=True,
+                task_base=old,
+            )
+            assert wt.tasks.status(task.read_text(encoding="utf-8")) == "running"
+            assert state["validation_base"] == old
+            prepare.assert_called_once()
+
+
+@pytest.mark.parametrize("command", ["finalize", "create", "recover"])
+def check_expected_task_base_cli_is_initial_recover_only(command):
+    argv = [
+        "worktree_task.py",
+        command,
+        "--task-id",
+        "example",
+        "--expected-task-base",
+        "1" * 40,
+    ]
+    if command == "recover":
+        argv.append("--finish-recovery")
+    with patch.object(sys, "argv", argv), patch.object(wt, "load") as load:
+        with pytest.raises(SystemExit) as error:
+            wt.main()
+        assert error.value.code == 2
+        load.assert_not_called()
+
+
+@pytest.mark.parametrize(
     "approval", [None, "Human accepts the fixture validation failure"]
 )
 @pytest.mark.parametrize("repin", [False, True])

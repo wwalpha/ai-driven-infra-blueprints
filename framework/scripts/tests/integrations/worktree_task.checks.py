@@ -261,6 +261,84 @@ def check_rewritten_base_rejects_overlap():
 
 
 @it_case
+def check_committed_recovery_across_rewritten_base():
+    for conflict in (False, True):
+        with fixture() as root:
+            target, state = start(root)
+            initial = state["start"]
+            (root / "old.txt").write_text("old base\n", encoding="utf-8")
+            git(root, "add", "old.txt")
+            git(root, "commit", "-qm", "old base")
+            old_base = git(root, "rev-parse", "HEAD")
+            wt.sync_base(root, "example", old_base)
+            (target / "file.txt").write_text("candidate\n", encoding="utf-8")
+            _, _, path, state = wt.load(root, "example")
+            wt._prepare_commit(root, path, state, target, None, prepare_only=True)
+            old_tip = state["tip"]
+            tasks.suspend(target, state["task_file"], "synthetic failed validation")
+            git(root, "reset", "--hard", initial)
+            (root / "new.txt").write_text("new base\n", encoding="utf-8")
+            if conflict:
+                (root / "file.txt").write_text("new upstream\n", encoding="utf-8")
+            git(root, "add", ".")
+            git(root, "commit", "-qm", "rewritten base")
+            latest = git(root, "rev-parse", "HEAD")
+            with TestCase().assertRaisesRegex(wt.Blocked, "rewritten"):
+                task_contract_runtime.resume(target, state["task_file"])
+            args = [
+                sys.executable,
+                "-B",
+                str(SCRIPT),
+                "recover",
+                "--repository-root",
+                str(root),
+                "--task-id",
+                "example",
+                "--expected-commit",
+                old_tip,
+                "--expected-base",
+                latest,
+                "--expected-task-base",
+                old_base,
+            ]
+            result = subprocess.run(args, capture_output=True, text=True)
+            response = json.loads(result.stdout)
+            assert result.returncode == int(conflict), result.stdout + result.stderr
+            if conflict:
+                assert "rebase failed and was aborted" in response["error"]
+                assert git(target, "rev-parse", "HEAD") == old_tip
+                assert (target / "file.txt").read_text(
+                    encoding="utf-8"
+                ) == "candidate\n"
+                assert response["recovery"]["task_base"] == old_base
+                rebase = wt.git(
+                    target, "rebase", "--onto", latest, old_base, check=False
+                )
+                assert rebase.returncode
+                (target / "file.txt").write_text(
+                    "candidate and upstream\n", encoding="utf-8"
+                )
+                git(target, "add", "file.txt")
+                git(target, "-c", "core.editor=true", "rebase", "--continue")
+            else:
+                assert response["status"] == "ok"
+            saved = wt.recover(root, "example", old_tip, latest, finish=True)
+            assert "recovery" not in saved
+            assert saved["validation_base"] == latest
+            assert saved["start"] == initial
+            assert saved["merged"] is None
+            assert (
+                tasks.status((target / state["task_file"]).read_text(encoding="utf-8"))
+                == "running"
+            )
+            assert git(root, "rev-parse", "HEAD") == latest
+            assert not (target / "old.txt").exists()
+            assert (target / "new.txt").read_text(encoding="utf-8") == "new base\n"
+            assert git(target, "rev-list", "--count", latest + "..HEAD") == "1"
+            assert git(target, "diff", "--name-only", latest, "HEAD") == "file.txt"
+
+
+@it_case
 def check_old_workflow_registry_is_ignored():
     with fixture() as primary:
         directory = wt.metadata_directory(primary) / "deploy-workflows"
@@ -1379,6 +1457,7 @@ def main():
         check_sync_base_preserves_candidate,
         check_rewritten_base_preserves_candidate,
         check_rewritten_base_rejects_overlap,
+        check_committed_recovery_across_rewritten_base,
         check_old_workflow_registry_is_ignored,
         check_success_and_empty,
         check_finalize_line_endings,

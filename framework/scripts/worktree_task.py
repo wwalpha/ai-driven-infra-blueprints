@@ -794,9 +794,13 @@ def _prepare_commit(
 ):
     changed = changed_paths(target)
     task_id = state["task_id"]
+    task_base = state.get("recovery", {}).get("task_base") if recovery else None
     sync_base = state.get("prUpdate", {}).get("syncBase") if pr_update else None
     model_changes = (
         changed
+        | paths(target, "diff", "--no-renames", "--name-only", "-z", task_base, "HEAD")
+        if task_base
+        else changed
         | paths(target, "diff", "--no-renames", "--name-only", "-z", sync_base, "HEAD")
         if sync_base
         else integration_changed_paths(target, state["task_file"])
@@ -829,6 +833,7 @@ def _prepare_commit(
     if (
         not pr_update
         and not implement
+        and not task_base
         and not ancestor(
             root, state.get("validation_base", state["start"]), state["base"]
         )
@@ -937,18 +942,24 @@ def _prepare_commit(
     base = base_worktree(root, state)
     latest = output(root, "rev-parse", f"refs/heads/{state['base']}")
     # Do not replay unexpected history if the base was rewritten after creation.
-    if not implement and not ancestor(
-        root, state.get("validation_base", state["start"]), state["base"]
+    if (
+        not implement
+        and not task_base
+        and not ancestor(
+            root, state.get("validation_base", state["start"]), state["base"]
+        )
     ):
         raise Blocked("base history was rewritten; task retained for review")
     if recovery:
+        if task_base and latest != state["recovery"]["base"]:
+            raise Blocked("recovery base changed before rebase")
         result = git(
             target,
             "-c",
             "rebase.updateRefs=false",
             "rebase",
             "--no-autostash",
-            latest,
+            *(["--onto", latest, task_base] if task_base else [latest]),
             check=False,
         )
         if result.returncode:
@@ -1037,10 +1048,20 @@ def _recovery_candidate(target, state, text, recovery):
     return head
 
 
-def recover(where, task_id, expected_commit, expected_base, finish=False, repin=False):
+def recover(
+    where,
+    task_id,
+    expected_commit,
+    expected_base,
+    finish=False,
+    repin=False,
+    expected_task_base=None,
+):
     """Explicit reviewed recovery; pin old task/base and never merge or validate."""
     if finish and repin:
         raise Blocked("finish and re-pin recovery are mutually exclusive")
+    if expected_task_base is not None and (finish or repin):
+        raise Blocked("expected task base is only valid when starting recovery")
     root, _, path, state = load(where, task_id)
     with lifecycle_lock(root):
         root, _, path, state = load(root, task_id)
@@ -1119,7 +1140,11 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
         if approval and (not isinstance(approval, str) or not approval.strip()):
             raise Blocked("invalid recorded validation failure approval")
         if tasks.status(text) not in (
-            {"suspend"} if approval else {"completed", "running"}
+            {"suspend"}
+            if approval
+            else {"completed", "running", "suspend"}
+            if expected_task_base is not None
+            else {"completed", "running"}
         ):
             raise Blocked("resume suspended tasks before recovery")
         if git(
@@ -1131,13 +1156,75 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
             check=False,
         ).returncode:
             raise Blocked("recovery base history was rewritten")
+        task_base = expected_base
+        if expected_task_base is not None:
+            idle_git(target)
+            if (
+                not re.fullmatch(r"[0-9a-f]{40}", expected_task_base)
+                or expected_task_base != state.get("validation_base", state["start"])
+                or approval
+                or state.get("deployRepair")
+                or state.get("deployIdentity")
+                or state.get("baseSyncIntent")
+                or state.get("rewrittenBaseIntent")
+                or changed_paths(target)
+            ):
+                raise Blocked(
+                    "rewritten recovery requires the recorded task base and a clean governance candidate"
+                )
+            if git(
+                target,
+                "merge-base",
+                "--is-ancestor",
+                expected_task_base,
+                expected_commit,
+                check=False,
+            ).returncode or output(
+                target,
+                "rev-list",
+                "--merges",
+                expected_task_base + ".." + expected_commit,
+            ):
+                raise Blocked("recorded task base must have a linear candidate history")
+            if not git(
+                root,
+                "merge-base",
+                "--is-ancestor",
+                expected_task_base,
+                expected_base,
+                check=False,
+            ).returncode:
+                raise Blocked("task base was not rewritten; use ordinary recovery")
+            task_changes = paths(
+                target,
+                "diff",
+                "--no-renames",
+                "--name-only",
+                "-z",
+                expected_task_base,
+                expected_commit,
+            )
+            declared = tasks.paths_in(text, "## Modified files")
+            allowed = tasks.paths_in(text, "## Allowed paths")
+            if (
+                not task_changes
+                or task_changes - declared
+                or any(
+                    not any(tasks.matches(p, pattern) for pattern in allowed)
+                    for p in task_changes
+                )
+            ):
+                raise Blocked(
+                    "rewritten recovery changes are outside the exact task contract"
+                )
+            task_base = expected_task_base
         count = int(
             output(
                 target,
                 "rev-list",
                 "--count",
                 "--no-merges",
-                expected_base + ".." + expected_commit,
+                task_base + ".." + expected_commit,
             )
         )
         changed = bool(changed_paths(target))
@@ -1148,6 +1235,7 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
             base=expected_base,
             count=str(count + changed),
             count_excludes_merges=True,
+            **({"task_base": task_base} if expected_task_base is not None else {}),
         )
         if approval:
             state["recovery"].update(
@@ -2084,6 +2172,10 @@ def main():
     parser.add_argument("--expected-commit")
     parser.add_argument("--expected-base")
     parser.add_argument(
+        "--expected-task-base",
+        help="Reviewed recorded validation base for clean governance recovery across rewritten history",
+    )
+    parser.add_argument(
         "--publication-resolution",
         type=Path,
         help="External JSON with explicit Human approval, current base/source and resolved conflict files; Git only",
@@ -2121,6 +2213,10 @@ def main():
         parser.error("--create-pr is only valid with finalize")
     if args.publication_resolution and args.command != "deploy-publish":
         parser.error("--publication-resolution requires deploy-publish")
+    if args.expected_task_base is not None and (
+        args.command != "recover" or args.finish_recovery or args.repin_recovery
+    ):
+        parser.error("--expected-task-base requires initial recover")
     if (
         args.human_approved_validation_failure is not None
         and args.command != "finalize"
@@ -2204,6 +2300,7 @@ def main():
                     args.expected_base,
                     args.finish_recovery,
                     args.repin_recovery,
+                    expected_task_base=args.expected_task_base,
                 )
                 if args.command == "recover"
                 else finalize(

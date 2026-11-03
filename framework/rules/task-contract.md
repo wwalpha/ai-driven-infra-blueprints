@@ -493,6 +493,21 @@ The accepted failures remain FAIL; recovery grants no Validation PASS or complet
 After the reviewed resolution, use the recorded approval for normal finalize/cleanup.
 Any further change beyond the reviewed resolution requires renewed Human review and approval.
 
+If the recorded validation base was rewritten, an explicitly reviewed clean, verified,
+unmerged governance candidate may start `recover` with the additional
+`--expected-task-base <full-recorded-validation-base>` pin. This also accepts a suspended
+Task, avoiding ordinary resume's rewritten-history rejection. Review the old Task-only
+diff and the new base first. The old base must match lifecycle state and have a linear
+candidate history; the Task-only changed paths must match the current contract.
+PR, Deploy/repair, dirty candidates, pending base intents and recorded validation-failure
+approvals are rejected. The original Task start must remain an ancestor of the new base.
+The helper retains a recovery receipt, reopens only this Task and rebases with
+`--onto <new-base> <old-task-base>`, excluding obsolete inherited commits. On conflict,
+retain the aborted candidate and receipt; an authorized manual rebase uses those same
+pins. Finish with the existing `--finish-recovery` without `--expected-task-base`, then
+rerun IT and Full before completion and normal finalize. Ordinary resume/finalize guards
+remain unchanged; never edit lifecycle metadata to bypass them.
+
 ## Reviewed rewritten base recovery
 
 For an explicitly authorized fresh, uncommitted running governance Task whose base
