@@ -272,20 +272,21 @@ def test_cloudtrail_pending_reference_is_not_invalid_model(models):
     write(scope, values)
     before = copy.deepcopy(values)
     producer_before = target.path.read_bytes()
-    resolver = reference_resolver(values, scope, models)
-    result = reference_value(resolver, scope, parse(ref))
-    assert result.status == "resolved", result
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    assert "[confirmed-label](lambda.md#saved-001)" in markdown
-    assert "$modelRef" not in markdown
-    assert "CloudTrail.Trail.EventSelectors[].DataResources[].Values" in restore(
-        path, markdown, values
-    )
-    assert values == before and target.path.read_bytes() == producer_before
-    with pytest.raises(ValueError, match="Model expected display"):
-        restore(
-            path, markdown.replace("lambda.md#saved-001", "lambda.md#wrong"), values
+    with input_context(read_only=True):
+        resolver = reference_resolver(values, scope, models)
+        result = reference_value(resolver, scope, parse(ref))
+        assert result.status == "resolved", result
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        assert "[confirmed-label](lambda.md#saved-001)" in markdown
+        assert "$modelRef" not in markdown
+        assert "CloudTrail.Trail.EventSelectors[].DataResources[].Values" in restore(
+            path, markdown, values
         )
+        assert values == before and target.path.read_bytes() == producer_before
+        with pytest.raises(ValueError, match="Model expected display"):
+            restore(
+                path, markdown.replace("lambda.md#saved-001", "lambda.md#wrong"), values
+            )
 
 
 def test_cloudtrail_unconfirmed_name_does_not_emit_raw_reference(models):
@@ -601,9 +602,10 @@ def test_same_file_and_existing_link(models):
         "DefaultArguments",
         {"--self": reference("Glue_Job_001", "Name")},
     )
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    assert "| `consumer` | <!-- glue-arguments-source:" in markdown
-    assert "$modelRef" in restore(path, markdown, values)
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        assert "| `consumer` | <!-- glue-arguments-source:" in markdown
+        assert "$modelRef" in restore(path, markdown, values)
 
 
 @pytest.mark.parametrize(
@@ -709,11 +711,12 @@ def test_codebuild_empty_linked_array_uses_model(models):
     scope, values, path = consumer(models, "codebuild", "CodeBuild.Project")
     add(values, "CodeBuild.Project", "VpcConfig.Subnets", [])
     before = copy.deepcopy(values)
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    assert "| VpcConfig.Subnets | `[]` |" in markdown
-    assert "subnet-list-source" not in markdown
-    assert values["desired.row.001-002.value"] in restore(path, markdown, values)
-    assert values == before
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        assert "| VpcConfig.Subnets | `[]` |" in markdown
+        assert "subnet-list-source" not in markdown
+        assert values["desired.row.001-002.value"] in restore(path, markdown, values)
+        assert values == before
 
 
 @pytest.mark.parametrize("observed", [None, "PENDING_DEPLOY", "vpc-12345678"])
@@ -951,15 +954,16 @@ def test_codebuild_vpc_connection(models, field, producer_kind, attribute):
         "VpcConfig." + field,
         node if field == "VpcId" else [node],
     )
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    line = next(
-        line for line in markdown.splitlines() if f"| VpcConfig.{field}" in line
-    )
-    TestCase().assertIn(
-        f"[{'vpc-11111111' if field == 'VpcId' else 'subnet-11111111' if field == 'Subnets' else 'sg-11111111'}](network.md#saved-001)",
-        line,
-    )
-    assert "$modelRef" in restore(path, markdown, values)
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        line = next(
+            line for line in markdown.splitlines() if f"| VpcConfig.{field}" in line
+        )
+        TestCase().assertIn(
+            f"[{'vpc-11111111' if field == 'VpcId' else 'subnet-11111111' if field == 'Subnets' else 'sg-11111111'}](network.md#saved-001)",
+            line,
+        )
+        assert "$modelRef" in restore(path, markdown, values)
 
 
 @pytest.mark.parametrize(
@@ -1148,10 +1152,11 @@ def test_normal_resource_reference_labels(
         values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
         before = copy.deepcopy(values)
         write(scope, values)
-        markdown = generate_markdown(path, values, FRAMEWORK)
-        assert link in markdown
-        assert "$modelRef" in restore(path, markdown, values)
-        assert generate_markdown(path, values, FRAMEWORK) == markdown
+        with input_context(read_only=True):
+            markdown = generate_markdown(path, values, FRAMEWORK)
+            assert link in markdown
+            assert "$modelRef" in restore(path, markdown, values)
+            assert generate_markdown(path, values, FRAMEWORK) == markdown
     assert values == before
 
 
@@ -1767,23 +1772,26 @@ def test_security_group_logical_link_and_confirmed_label(models, observed):
     add(values, "Lambda.Function", "VpcConfig.SecurityGroupIds", [node])
     before = copy.deepcopy(values)
     original = producer.path.read_bytes()
-    markdown = generate_markdown(path, values, FRAMEWORK)
-    label = observed if observed is not None else "VULNERABILITYSCANSECURITYGROUP01"
-    TestCase().assertIn(f"[{label}](security-group.md#security-group-saved)", markdown)
-    TestCase().assertNotIn("$modelRef", markdown)
-    result = reference_value(
-        reference_resolver(values, scope, models), scope, parse(node)
-    )
-    TestCase().assertEqual(
-        result.status,
-        "resolved"
-        if observed not in (None, "PENDING_DEPLOY")
-        else "pending_deploy"
-        if observed
-        else "unresolved",
-    )
-    TestCase().assertEqual(values, before)
-    TestCase().assertEqual(producer.path.read_bytes(), original)
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        label = observed if observed is not None else "VULNERABILITYSCANSECURITYGROUP01"
+        TestCase().assertIn(
+            f"[{label}](security-group.md#security-group-saved)", markdown
+        )
+        TestCase().assertNotIn("$modelRef", markdown)
+        result = reference_value(
+            reference_resolver(values, scope, models), scope, parse(node)
+        )
+        TestCase().assertEqual(
+            result.status,
+            "resolved"
+            if observed not in (None, "PENDING_DEPLOY")
+            else "pending_deploy"
+            if observed
+            else "unresolved",
+        )
+        TestCase().assertEqual(values, before)
+        TestCase().assertEqual(producer.path.read_bytes(), original)
 
 
 @pytest.mark.parametrize(
