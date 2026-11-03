@@ -130,6 +130,7 @@ WORKTREE_CASES = {
         "check_create_refusals_before_mutation",
         "check_base_worktree_refusals",
         "check_shared_records_reject_other_repository",
+        "check_candidate_primary_identity_is_reused",
         "check_candidate_rejects_redirect_before_task_read",
         "check_late_task_worktree_refusals",
         "check_pr_record_update_cleanup_is_atomic",

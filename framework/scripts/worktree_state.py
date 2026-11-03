@@ -107,8 +107,12 @@ def load(where, task_id):
 
 
 def load_candidate(where, state):
-    _, common = _repository_identity(where)
-    primary, primary_common = _repository_identity(Path(state["primary"]))
+    root, common = _repository_identity(where)
+    primary, primary_common = (
+        (root, common)
+        if Path(where) == Path(state["primary"])
+        else _repository_identity(Path(state["primary"]))
+    )
     if primary_common != common or primary != Path(state["primary"]):
         raise Blocked("task worktree belongs to another repository")
     return _load(primary, common, state["task_id"])

@@ -1567,12 +1567,27 @@ def check_shared_records_reject_other_repository(tmp_path):
             "_repository_identity",
             side_effect=[
                 (tmp_path, tmp_path / "expected.git"),
-                (tmp_path, tmp_path / "other.git"),
+                (tmp_path / "other", tmp_path / "other.git"),
             ],
         ),
         pytest.raises(wt.Blocked, match="another repository"),
     ):
-        worktree_state.load_candidate(tmp_path, {"primary": str(tmp_path)})
+        worktree_state.load_candidate(tmp_path, {"primary": str(tmp_path / "other")})
+
+
+def check_candidate_primary_identity_is_reused(tmp_path):
+    state = {"primary": str(tmp_path), "task_id": "example"}
+    expected = (tmp_path, tmp_path / "git", tmp_path / "state", state)
+    with (
+        patch.object(
+            worktree_state,
+            "_repository_identity",
+            return_value=(tmp_path, tmp_path / "git"),
+        ) as identity,
+        patch.object(worktree_state, "_load", return_value=expected),
+    ):
+        TestCase().assertEqual(worktree_state.load_candidate(tmp_path, state), expected)
+        identity.assert_called_once_with(tmp_path)
 
 
 def check_candidate_rejects_redirect_before_task_read(tmp_path):
