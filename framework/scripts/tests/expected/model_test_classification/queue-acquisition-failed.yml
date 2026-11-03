@@ -1,0 +1,4 @@
+result:
+  propertiesKey: SQS.QueuePolicy.Id
+  reason: no independent ID
+  status: acquisition_failed

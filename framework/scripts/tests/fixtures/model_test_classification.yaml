@@ -1,0 +1,88 @@
+version: 1
+cases:
+  queue-sdk-unavailable:
+    data:
+      item:
+        propertiesKey: SQS.QueuePolicy.Id
+        status: sdk_unavailable
+        reason: no independent ID
+  queue-acquisition-failed:
+    data:
+      item:
+        propertiesKey: SQS.QueuePolicy.Id
+        status: acquisition_failed
+        reason: no independent ID
+  queue-resource-missing:
+    data:
+      item:
+        propertiesKey: SQS.QueuePolicy.Id
+        status: resource_missing
+        reason: no independent ID
+  queue-difference:
+    data:
+      item:
+        propertiesKey: SQS.QueuePolicy.Id
+        status: difference
+        reason: no independent ID
+  queue-design-unresolved:
+    data:
+      item:
+        propertiesKey: SQS.QueuePolicy.Id
+        status: design_unresolved
+        reason: no independent ID
+  sensitive-normal:
+    data:
+      item:
+        propertiesKey: credential
+        status: local_metadata
+      candidate: true
+      parse_error: false
+      secret: secret
+  sensitive-no-candidate:
+    data:
+      item:
+        propertiesKey: credential
+        status: local_metadata
+      candidate: false
+      parse_error: false
+      secret: secret
+  sensitive-failure-0:
+    data:
+      item:
+        propertiesKey: credential
+        status: acquisition_failed
+      candidate: true
+      parse_error: false
+      secret: secret
+  sensitive-failure-1:
+    data:
+      item:
+        propertiesKey: credential
+        status: resource_missing
+      candidate: true
+      parse_error: false
+      secret: secret
+  sensitive-failure-2:
+    data:
+      item:
+        propertiesKey: credential
+        status: design_unresolved
+      candidate: true
+      parse_error: false
+      secret: secret
+  sensitive-failure-3:
+    data:
+      item:
+        propertiesKey: credential
+        status: difference
+      candidate: true
+      parse_error: false
+      secret: secret
+  sensitive-unresolved:
+    data:
+      item:
+        propertiesKey: credential
+        status: local_metadata
+      candidate: true
+      parse_error: true
+      secret: secret

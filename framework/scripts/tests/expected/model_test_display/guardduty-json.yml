@@ -1,0 +1,4 @@
+masked_secret: '{"nested": ["[REDACTED]"], "password": "[REDACTED]"}'
+paths:
+- $[0]
+value: '["build-artifact/"]'

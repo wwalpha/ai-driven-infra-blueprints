@@ -1,0 +1,6 @@
+result:
+  awsValue: vpc-456
+  designValue: vpc-123
+  propertiesKey: EC2.VPC.VpcId
+  reason: value differs
+  status: difference

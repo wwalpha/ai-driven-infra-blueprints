@@ -754,4 +754,6 @@ class Route53AliasProducerTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    from support.pytest_cli import run
+
+    raise SystemExit(run(__file__))

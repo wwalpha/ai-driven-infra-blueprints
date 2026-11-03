@@ -1,0 +1,6 @@
+result:
+  awsValue: '[REDACTED]'
+  designValue: '[REDACTED]'
+  propertiesKey: EC2.VPC.VpcId
+  reason: ''
+  status: match

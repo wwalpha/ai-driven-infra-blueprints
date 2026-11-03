@@ -1,0 +1,6 @@
+result:
+  awsValue: vpc-123
+  designValue: null
+  propertiesKey: EC2.VPC.VpcId
+  reason: observed identifier is ambiguous
+  status: design_unresolved

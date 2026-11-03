@@ -1,0 +1,237 @@
+version: 1
+cases:
+  duplicate-confirmed:
+    data:
+      names:
+        Internal_1: duplicate
+        Internal_2: duplicate
+        Internal_3: unique
+        Internal_4: duplicate
+      kinds:
+        Internal_1: EC2.VPC
+        Internal_2: EC2.VPC
+        Internal_3: EC2.VPC
+        Internal_4: EC2.VPC
+      identities:
+        Internal_1:
+          EC2.VPC.VpcId: vpc-a
+        Internal_2:
+          EC2.VPC.VpcId: vpc-b
+        Internal_3:
+          EC2.VPC.VpcId: vpc-c
+        Internal_4: {}
+      primary:
+        EC2.VPC:
+        - EC2.VPC.VpcId
+  partial-0:
+    data:
+      names:
+        Internal_0: duplicate
+        Internal_1: duplicate
+      kinds:
+        Internal_0: EC2.VPC
+        Internal_1: EC2.VPC
+      identities:
+        Internal_0:
+          EC2.VPC.VpcId: vpc-a
+        Internal_1: {}
+      primary:
+        EC2.VPC:
+        - EC2.VPC.VpcId
+  partial-1:
+    data:
+      names:
+        Internal_0: duplicate
+        Internal_1: duplicate
+        Internal_2: duplicate
+      kinds:
+        Internal_0: EC2.VPC
+        Internal_1: EC2.VPC
+        Internal_2: EC2.VPC
+      identities:
+        Internal_0:
+          EC2.VPC.VpcId: vpc-a
+        Internal_1:
+          EC2.VPC.VpcId: vpc-a
+        Internal_2: {}
+      primary:
+        EC2.VPC:
+        - EC2.VPC.VpcId
+  partial-2:
+    data:
+      names:
+        Internal_0: duplicate
+        Internal_1: duplicate
+      kinds:
+        Internal_0: EC2.VPC
+        Internal_1: EC2.VPC
+      identities:
+        Internal_0:
+          EC2.VPC.VpcId: null
+        Internal_1: {}
+      primary:
+        EC2.VPC:
+        - EC2.VPC.VpcId
+  partial-3:
+    data:
+      names:
+        Internal_0: duplicate
+        Internal_1: duplicate
+        Internal_2: duplicate
+      kinds:
+        Internal_0: EC2.EIP
+        Internal_1: EC2.EIP
+        Internal_2: EC2.EIP
+      identities:
+        Internal_0:
+          EC2.EIP.AllocationId: alloc-a
+        Internal_1:
+          EC2.EIP.PublicIp: ip-b
+        Internal_2: {}
+      primary:
+        EC2.EIP:
+        - EC2.EIP.AllocationId
+        - EC2.EIP.PublicIp
+  partial-4:
+    data:
+      names:
+        Internal_0: duplicate
+        Internal_1: duplicate
+        Internal_2: duplicate
+      kinds:
+        Internal_0: EC2.EIP
+        Internal_1: EC2.EIP
+        Internal_2: EC2.EIP
+      identities:
+        Internal_0:
+          EC2.EIP.AllocationId: same
+        Internal_1:
+          EC2.EIP.PublicIp: same
+        Internal_2: {}
+      primary:
+        EC2.EIP:
+        - EC2.EIP.AllocationId
+        - EC2.EIP.PublicIp
+  partial-5:
+    data:
+      names:
+        Internal_0: duplicate
+        Internal_1: duplicate
+        Internal_2: duplicate
+      kinds:
+        Internal_0: EC2.EIP
+        Internal_1: EC2.EIP
+        Internal_2: EC2.EIP
+      identities:
+        Internal_0:
+          EC2.EIP.AllocationId: same
+          EC2.EIP.PublicIp: ip-a
+        Internal_1:
+          EC2.EIP.PublicIp: same
+        Internal_2: {}
+      primary:
+        EC2.EIP:
+        - EC2.EIP.AllocationId
+        - EC2.EIP.PublicIp
+  partial-6:
+    data:
+      names:
+        Internal_0: duplicate
+        Internal_1: duplicate
+        Internal_2: duplicate
+      kinds:
+        Internal_0: EC2.EIP
+        Internal_1: EC2.EIP
+        Internal_2: EC2.EIP
+      identities:
+        Internal_0:
+          EC2.EIP.AllocationId: alloc-a
+          EC2.EIP.PublicIp: ip-a
+        Internal_1:
+          EC2.EIP.AllocationId: alloc-b
+          EC2.EIP.PublicIp: ip-b
+        Internal_2: {}
+      primary:
+        EC2.EIP:
+        - EC2.EIP.AllocationId
+        - EC2.EIP.PublicIp
+  partial-7:
+    data:
+      names:
+        Internal_0: duplicate
+        Internal_1: duplicate
+        Internal_2: duplicate
+        Internal_3: duplicate
+      kinds:
+        Internal_0: EC2.EIP
+        Internal_1: EC2.EIP
+        Internal_2: EC2.EIP
+        Internal_3: EC2.EIP
+      identities:
+        Internal_0:
+          EC2.EIP.AllocationId: alloc-a
+          EC2.EIP.PublicIp: ip-a
+        Internal_1:
+          EC2.EIP.AllocationId: alloc-a
+          EC2.EIP.PublicIp: ip-b
+        Internal_2:
+          EC2.EIP.AllocationId: alloc-b
+          EC2.EIP.PublicIp: ip-a
+        Internal_3: {}
+      primary:
+        EC2.EIP:
+        - EC2.EIP.AllocationId
+        - EC2.EIP.PublicIp
+  composite-first:
+    data:
+      names:
+        '0': duplicate
+        '1': duplicate
+        '2': unique
+      kinds:
+        '0': EC2.EIP
+        '1': EC2.EIP
+        '2': EC2.EIP
+      identities:
+        '0':
+          EC2.EIP.AllocationId: alloc-a
+          EC2.EIP.PublicIp: ip-a
+        '1':
+          EC2.EIP.AllocationId: alloc-b
+          EC2.EIP.PublicIp: ip-b
+        '2':
+          EC2.EIP.AllocationId: alloc-c
+          EC2.EIP.PublicIp: ip-c
+      primary:
+        EC2.EIP:
+        - EC2.EIP.AllocationId
+        - EC2.EIP.PublicIp
+  composite-second:
+    data:
+      names:
+        '0': duplicate
+        '1': duplicate
+        '2': duplicate
+      kinds:
+        '0': EC2.EIP
+        '1': EC2.EIP
+        '2': EC2.EIP
+      identities:
+        '0':
+          EC2.EIP.AllocationId: alloc-a
+          EC2.EIP.PublicIp: ip-a
+        '1':
+          EC2.EIP.AllocationId: alloc-a
+          EC2.EIP.PublicIp: ip-b
+        '2':
+          EC2.EIP.AllocationId: alloc-c
+          EC2.EIP.PublicIp: ip-a
+      primary:
+        EC2.EIP:
+        - EC2.EIP.AllocationId
+        - EC2.EIP.PublicIp
+  guardduty-json:
+    data:
+      value: '["build-artifact/"]'
+      secret: '{"password":"hidden","nested":[{"Key":"token","Value":"hidden"}]}'
+      secret_value: hidden

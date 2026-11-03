@@ -1,0 +1,5 @@
+result:
+  designValue: '[REDACTED]'
+  propertiesKey: credential
+  reason: write-only
+  status: excluded

@@ -1,0 +1,5 @@
+names:
+- duplicate (vpc-a)
+- duplicate (vpc-b)
+- unique
+- duplicate

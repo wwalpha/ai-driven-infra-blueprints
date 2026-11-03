@@ -180,54 +180,6 @@ class WriteOnlyArrayValidationTests(unittest.TestCase):
                         audit.validate_design_value(m, snapshot, row, value)
 
 
-class ExclusionClassificationTests(unittest.TestCase):
-    def test_queue_policy_id_is_unverifiable_only_when_sdk_unavailable(self):
-        item = {
-            "propertiesKey": "SQS.QueuePolicy.Id",
-            "status": "sdk_unavailable",
-            "reason": "no independent ID",
-        }
-        self.assertEqual(
-            audit.classify_exclusion(None, {}, None, item),
-            {**item, "status": "excluded"},
-        )
-        for status in (
-            "acquisition_failed",
-            "resource_missing",
-            "difference",
-            "design_unresolved",
-        ):
-            failure = {**item, "status": status}
-            self.assertEqual(audit.classify_exclusion(None, {}, None, failure), failure)
-
-    def test_exclusion_requires_candidate_and_valid_input(self):
-        m = SimpleNamespace(Unresolved=Unresolved, redacted=lambda value: value)
-        resource = Mock()
-        resource.module.sensitive.return_value = True
-        resource.rows_for.return_value = [("001", {"value": "secret"})]
-        resource.parse.return_value = "secret"
-        item = {"propertiesKey": "credential", "status": "local_metadata"}
-        snapshot = {"exclusions": {"credential": "write-only"}}
-        result = audit.classify_exclusion(m, snapshot, resource, item)
-        self.assertEqual(result["status"], "excluded")
-        self.assertEqual(result["designValue"], "[REDACTED]")
-        self.assertEqual(audit.classify_exclusion(m, {}, resource, item), item)
-        for status in (
-            "acquisition_failed",
-            "resource_missing",
-            "design_unresolved",
-            "difference",
-        ):
-            failure = {**item, "status": status}
-            self.assertEqual(
-                audit.classify_exclusion(m, snapshot, resource, failure), failure
-            )
-        resource.parse.side_effect = Unresolved("secret")
-        result = audit.classify_exclusion(m, snapshot, resource, item)
-        self.assertEqual(result["status"], "design_unresolved")
-        self.assertNotIn("secret", str(result))
-
-
 class FlowLogLookupTests(unittest.TestCase):
     def test_flow_log_selection(self):
         adapter = service_module("vpc")
@@ -372,4 +324,6 @@ class GuardDutyPlanAdapterTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    from support.pytest_cli import run
+
+    raise SystemExit(run(__file__))

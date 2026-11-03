@@ -1,0 +1,4 @@
+result:
+  propertiesKey: credential
+  reason: invalid sensitive design value
+  status: design_unresolved

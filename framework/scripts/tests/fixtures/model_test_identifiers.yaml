@@ -1,0 +1,62 @@
+version: 1
+base:
+  data:
+    item:
+      status: identifier
+      propertiesKey: EC2.VPC.VpcId
+      awsValue: vpc-123
+      designValue:
+      - '[VPC](#vpc)'
+    observed: '`vpc-123`'
+    aws: vpc-123
+    duplicate: false
+    sensitive: false
+    norm: typed
+cases:
+  identifier-match: {}
+  identifier-difference:
+    data:
+      aws: vpc-456
+  identifier-invalid-0:
+    data:
+      observed: null
+  identifier-invalid-1:
+    data:
+      observed: '`PENDING_DEPLOY`'
+  identifier-invalid-2:
+    data:
+      observed: '`UNSET`'
+  identifier-invalid-3:
+    data:
+      observed: '`PENDING`'
+  identifier-invalid-4:
+    data:
+      observed: '`TODO`'
+  identifier-invalid-5:
+    data:
+      observed: '`N/A`'
+  identifier-invalid-6:
+    data:
+      observed: '`UNUSED`'
+  identifier-invalid-7:
+    data:
+      observed: '`unresolved`'
+  identifier-invalid-8:
+    data:
+      observed: '`${Thing}`'
+  identifier-invalid-9:
+    data:
+      observed: '[VPC](#vpc)'
+  identifier-invalid-10:
+    data:
+      observed: '`["vpc-1","vpc-2"]`'
+  identifier-ambiguous:
+    data:
+      observed: '`["vpc-1","vpc-2"]`'
+      duplicate: true
+  identifier-sensitive:
+    data:
+      observed: '`42`'
+      aws: 42
+      sensitive: true
+      norm: number
