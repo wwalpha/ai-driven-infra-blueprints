@@ -1178,8 +1178,8 @@ class PRGitHub:
     def validate_update_snapshot(
         self, interpreter, environment, snapshot, task_file, base, head
     ):
-        assert git(snapshot, "rev-parse", head + "^1") == base
-        self.validations.append(git(snapshot, "rev-parse", head + "^2"))
+        assert git(snapshot, "merge-base", "--is-ancestor", base, head) == ""
+        self.validations.append(head)
         return subprocess.CompletedProcess([], 0, "", "")
 
     def validate(self, root, options, *, final_candidate):
@@ -1252,8 +1252,69 @@ class PRGitHub:
         return self.pr["url"] + "\n"
 
 
+def _push_with_base_advance(advance, scenario, original_push, target, publication):
+    if advance == "during":
+        scenario.advance("base.txt", "during publication\n")
+    original_push(target, publication)
+
+
+def _check_pr_creation_with_advancing_base():
+    for advance in ("local", "remote", "during", "conflict"):
+        with fixture() as root:
+            relative = "framework/scripts/candidate.txt"
+            target, state = start(root, files=(relative,))
+            source = target / relative
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("candidate\n", encoding="utf-8")
+            remote = PRGitHub(root, state)
+            scenario = PRUpdateScenario(root, state, remote, "creation")
+            if advance == "local":
+                (root / "base.txt").write_text("local\n", encoding="utf-8")
+                git(root, "add", "base.txt")
+                git(root, "commit", "-qm", "local advance")
+            elif advance in {"remote", "conflict"}:
+                scenario.advance(
+                    relative if advance == "conflict" else "base.txt", "base\n"
+                )
+            with (
+                patch.object(wt, "git", side_effect=remote.git),
+                patch.object(pr, "gh", side_effect=remote.gh),
+                patch.object(
+                    wt.python_env,
+                    "runtime",
+                    return_value=(
+                        Path(sys.executable),
+                        wt.python_env.environment(Path(sys.prefix)),
+                    ),
+                ),
+                patch.object(subprocess, "run", side_effect=remote.child),
+                patch.object(loop, "run_loop", side_effect=remote.validate),
+                patch.object(
+                    pr,
+                    "push_candidate",
+                    side_effect=_bind_framework_callback(
+                        _push_with_base_advance, advance, scenario, pr.push_candidate
+                    ),
+                ),
+            ):
+                result = wt.finalize(root, "example", create_pr=True)
+                assert result["prPublication"]["number"] == 7
+                assert (
+                    git(target, "merge-base", state["start"], result["tip"])
+                    == state["start"]
+                )
+                assert (
+                    wt.finalize(root, "example", create_pr=True)["prPublication"][
+                        "number"
+                    ]
+                    == 7
+                )
+                assert remote.created == 1
+
+
 @it_case
 def check_pr_publication_recovery():
+    _check_pr_creation_with_advancing_base()
     for framework in (False, True):
         with fixture(branch="release") as root:
             git(root, "config", "blueprint.baseBranch", "release")
@@ -1572,10 +1633,6 @@ class PRUpdateScenario:
             git(snapshot, "diff", "--name-only", base, head)
             == "framework/scripts/candidate.txt"
         )
-        if self.mode == "remote":
-            assert (snapshot / "base.txt").read_text(
-                encoding="utf-8"
-            ) == "remote-only content\n"
         if self.mode in {"repair", "retry"} and not self.failures:
             self.failures.append(True)
             return subprocess.CompletedProcess([], 1, "", "validation failed")
@@ -1833,21 +1890,6 @@ def _check_pr_update_scenario(mode):
                     "refs/heads/" + state["branch"],
                     foreign,
                 )
-            if mode in {"remote", "conflict", "rewrite"}:
-                with TestCase().assertRaises(wt.NeedsSync):
-                    pr.update(root, "example")
-                base = git(remote.remote, "rev-parse", "refs/heads/" + state["base"])
-                if mode != "remote":
-                    with TestCase().assertRaises(wt.Blocked):
-                        pr.sync_base(root, "example", base)
-                    assert (
-                        git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
-                        == old
-                    )
-                    return
-                assert (
-                    pr.sync_base(root, "example", base)["status"] == "needs_validation"
-                )
             if mode in {"push-old", "push-foreign"}:
                 with patch.object(
                     pr, "push_candidate", side_effect=scenario.failed_push
@@ -1896,12 +1938,9 @@ def _check_pr_update_scenario(mode):
             elif mode in {
                 "repair",
                 "retry",
-                "stale",
                 "foreign",
             }:
-                with TestCase().assertRaises(
-                    wt.NeedsSync if mode == "stale" else wt.Blocked
-                ):
+                with TestCase().assertRaises(wt.Blocked):
                     pr.update(root, "example")
                 if mode != "foreign":
                     assert (
@@ -1921,16 +1960,6 @@ def _check_pr_update_scenario(mode):
                             == "PREPARED"
                         )
                     return
-                if mode == "stale":
-                    with TestCase().assertRaises(wt.NeedsSync):
-                        pr.update(root, "example")
-                    base = git(
-                        remote.remote, "rev-parse", "refs/heads/" + state["base"]
-                    )
-                    assert (
-                        pr.sync_base(root, "example", base)["status"]
-                        == "needs_validation"
-                    )
             updated = pr.update(root, "example")
             assert updated["prPublication"]["number"] == 7 and remote.created == 1
             assert "prUpdate" not in updated
@@ -1940,10 +1969,6 @@ def _check_pr_update_scenario(mode):
             )
             assert git(target, "merge-base", old, updated["tip"]) == old
             assert target.exists() and updated["merged"] is None
-            if mode == "remote":
-                assert updated["prPublication"]["baseCommit"] == git(
-                    remote.remote, "rev-parse", "refs/heads/" + state["base"]
-                )
             if mode == "retry":
                 assert remote.validations[-1] == remote.validations[-2]
             if mode == "repair":
