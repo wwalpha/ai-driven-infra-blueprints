@@ -35,6 +35,7 @@ if not __debug__:
 from support.reference_evidence_shared import (
     KEY_ID,
     ROOT,
+    codebuild_batch,
     fixture,
     resource,
     vpc,
@@ -90,16 +91,7 @@ def _execute_actual_wait(case):
     TestCase().assertIs(projection.failures[0][2], error)
     TestCase().assertFalse(projection.warnings)
     document = comparison.stack_inputs["producer"][0]
-    batch = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    batch = codebuild_batch(comparison, document)
     return {
         "failure_pointer": projection.failures[0][1],
         "records": projected(batch.records),
@@ -172,16 +164,7 @@ def _execute_deferred_operand(case):
         properties={"VpcConfig": {"VpcId": "external"}},
     )
     document = comparison.stack_inputs["producer"][0]
-    batch = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    batch = codebuild_batch(comparison, document)
     TestCase().assertTrue(
         any(item["category"] in {"uncompared", "error"} for item in batch.records)
     )

@@ -34,8 +34,8 @@ if not __debug__:
 
 from support.reference_evidence_shared import (
     ATHENA_KMS,
-    ROOT,
     _portable_synthetic_root,
+    codebuild_batch,
     fixture,
     policy_reference,
     reference_for,
@@ -183,16 +183,7 @@ def _execute_incomplete_codebuild(case):
         properties=case["data"]["properties"],
     )
     document = comparison.stack_inputs["producer"][0]
-    result = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    result = codebuild_batch(comparison, document)
     check = TestCase()
     check.assertIsNone(result.failure)
     differences = [item for item in result.records if item["category"] == "difference"]
@@ -298,16 +289,7 @@ def _execute_incomplete_setting(case):
         properties={"Environment": data["environment"]},
     )
     document = comparison.stack_inputs["producer"][0]
-    batch = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    batch = codebuild_batch(comparison, document)
     check = TestCase()
     check.assertIsNone(batch.failure)
     check.assertFalse(
@@ -413,16 +395,7 @@ def _execute_incomplete_json(case):
     with pytest.raises(Blocked, match="PLAINTEXTではResource linkは禁止"):
         prepared_value.require_value()
     document = comparison.stack_inputs["producer"][0]
-    batch = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    batch = codebuild_batch(comparison, document)
     TestCase().assertIsNone(batch.failure)
     unresolved = next(
         item for item in batch.records if item["category"] == "uncompared"
@@ -475,16 +448,7 @@ def _execute_preparation_error(case):
         fail_image_preparation, error, comparison.prepare_value
     )
     document = comparison.stack_inputs["producer"][0]
-    batch = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    batch = codebuild_batch(comparison, document)
     check = TestCase()
     check.assertIsNone(batch.failure)
     check.assertEqual(

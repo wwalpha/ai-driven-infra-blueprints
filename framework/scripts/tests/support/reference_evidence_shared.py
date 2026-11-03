@@ -366,6 +366,19 @@ def setting(comparison, kind, prop, desired, actual, *, service="consumer"):
     return result.records
 
 
+def codebuild_batch(comparison, document):
+    return comparison.compare_rows(
+        "codebuild",
+        "001",
+        comparison.resources["codebuild"]["001"],
+        "producer",
+        "Build",
+        ROOT / "synthetic.yaml",
+        document["Resources"]["Build"],
+        document,
+    )
+
+
 def _sg_reference_result(comparison):
     try:
         result = comparison.evaluate("producer", {"Ref": "Group"})

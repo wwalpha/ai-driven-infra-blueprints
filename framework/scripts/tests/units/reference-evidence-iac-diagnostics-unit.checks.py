@@ -27,12 +27,12 @@ if not __debug__:
 
 from support.reference_evidence_shared import (
     QUEUE_ARN,
-    ROOT,
     RULE_ARN,
     VPC,
     _execute_sqs_context,
     _portable_synthetic_root,
     _reference_decision_data,
+    codebuild_batch,
     exported,
     fixture,
     reference_for,
@@ -153,16 +153,7 @@ def _execute_partial_errors(case):
     )
     comparison.template_locations[id(actual["EnvironmentVariables"][0])] = {"Value": 23}
     document = comparison.stack_inputs["producer"][0]
-    batch = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    batch = codebuild_batch(comparison, document)
     categories = [item["category"] for item in batch.records]
     check = TestCase()
     check.assertEqual(categories.count("difference"), int(data["known_difference"]))
@@ -218,16 +209,7 @@ def _execute_partial_extra(case):
         properties={"Environment": data["actual"]},
     )
     document = comparison.stack_inputs["producer"][0]
-    batch = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    batch = codebuild_batch(comparison, document)
     differences = [item for item in batch.records if item["category"] == "difference"]
     TestCase().assertEqual(len(differences), int(data["different"]))
     TestCase().assertFalse(any(item["category"] == "error" for item in batch.records))
@@ -269,16 +251,7 @@ def _execute_partial_presence(case):
         properties=data["properties"],
     )
     document = comparison.stack_inputs["producer"][0]
-    batch = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    batch = codebuild_batch(comparison, document)
     TestCase().assertIsNone(batch.failure)
     TestCase().assertEqual(
         sum(item["category"] == "difference" for item in batch.records), 1
@@ -317,16 +290,7 @@ def _execute_partial_keyed(case):
         properties={"Tags": data["actual"]},
     )
     document = comparison.stack_inputs["producer"][0]
-    batch = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    batch = codebuild_batch(comparison, document)
     TestCase().assertIsNone(batch.failure)
     return {
         "records": projected(batch.records),
@@ -379,16 +343,7 @@ def _execute_partial_diagnostic(case):
         properties=case["data"]["properties"],
     )
     document = comparison.stack_inputs["producer"][0]
-    batch = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    batch = codebuild_batch(comparison, document)
     TestCase().assertIsNone(batch.failure)
     TestCase().assertEqual(
         sorted(item["category"] for item in batch.records), ["error", "uncompared"]

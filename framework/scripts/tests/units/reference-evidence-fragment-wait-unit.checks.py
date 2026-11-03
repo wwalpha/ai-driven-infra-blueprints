@@ -30,6 +30,7 @@ from support.reference_evidence_shared import (
     KEY_ID,
     ROOT,
     _reference_decision_data,
+    codebuild_batch,
     declaration,
     exported,
     fixture,
@@ -423,16 +424,7 @@ def _execute_import_wait_difference(case):
         properties={"VpcConfig": data["actual"]},
     )
     document = comparison.stack_inputs["producer"][0]
-    batch = comparison.compare_rows(
-        "codebuild",
-        "001",
-        comparison.resources["codebuild"]["001"],
-        "producer",
-        "Build",
-        ROOT / "synthetic.yaml",
-        document["Resources"]["Build"],
-        document,
-    )
+    batch = codebuild_batch(comparison, document)
     category = "excluded" if data["observed"] == "PENDING_DEPLOY" else "deferred"
     TestCase().assertEqual(
         sorted(item["category"] for item in batch.records),
