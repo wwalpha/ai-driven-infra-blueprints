@@ -180,6 +180,8 @@ WORKTREE_CASES = {
     "integrations/worktree_task.checks.py": (
         "check_explicit_disposal_and_orphans",
         "check_pr_update_and_operations",
+        "check_pr_remote_base_only_sync",
+        "check_pr_remote_base_rejects_unexpected_commit",
         "check_implement_rebases_on_latest_base",
         "check_latest_base_sync_retains_conflict",
         "check_base_advance_after_validation",

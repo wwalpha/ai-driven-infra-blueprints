@@ -13,6 +13,14 @@ class Blocked(ValueError):
     pass
 
 
+class NeedsSync(Exception):
+    """The base advanced; the caller must synchronize and reassess validation."""
+
+    def __init__(self, base):
+        self.base = base
+        super().__init__("base advanced; synchronize and reassess validation")
+
+
 def git(root, *args, check=True, timeout=None):
     # Never route commands through an inherited worktree/private index or prompt.
     environment = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}

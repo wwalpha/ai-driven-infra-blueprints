@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Focused checks; test sources define the current verification responsibilities."""
 
+import runpy
 import shutil
 import sys
 from functools import partial as _bind_framework_callback
@@ -1073,6 +1074,115 @@ class PRUpdateScenario:
             task.write("\nLocal task edit\n")
 
 
+@it_case
+def check_pr_remote_base_only_sync():
+    assert runpy.run_path(str(SCRIPT))["NeedsSync"] is wt.NeedsSync
+    with fixture() as root:
+        target, state = start(root, files=("framework/scripts/candidate.txt",))
+        source = target / "framework/scripts/candidate.txt"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("published\n", encoding="utf-8")
+        remote = PRGitHub(root, state)
+        scenario = PRUpdateScenario(root, state, remote, "remote")
+        with (
+            patch.object(wt, "git", side_effect=remote.git),
+            patch.object(pr, "gh", side_effect=remote.gh),
+            patch.object(
+                wt.python_env,
+                "runtime",
+                return_value=(
+                    Path(sys.executable),
+                    wt.python_env.environment(Path(sys.prefix)),
+                ),
+            ),
+            patch.object(subprocess, "run", side_effect=remote.child),
+            patch.object(loop, "run_loop", side_effect=remote.validate),
+            patch.object(pr, "validate_snapshot", side_effect=scenario.validate),
+        ):
+            published = wt.finalize(root, "example", create_pr=True)
+            old = published["tip"]
+            local_before = git(root, "rev-parse", "HEAD")
+            upstream = root.parent / "upstream"
+            git(root, "clone", "-q", str(remote.remote), str(upstream))
+            git(upstream, "config", "user.name", "Fixture")
+            git(upstream, "config", "user.email", "fixture@example.invalid")
+            (upstream / "base.txt").write_text("remote-only content\n")
+            git(upstream, "add", "base.txt")
+            git(upstream, "commit", "-qm", "remote-only base")
+            git(upstream, "push", "-q", "origin", "HEAD:refs/heads/" + state["base"])
+            base = git(upstream, "rev-parse", "HEAD")
+
+            def interrupt_merge(where, *args, **kwargs):
+                result = remote.git(where, *args, **kwargs)
+                if args[0] == "merge" and "--no-ff" in args:
+                    raise wt.Blocked("simulated interruption after merge")
+                return result
+
+            with patch.object(wt, "git", side_effect=interrupt_merge):
+                with TestCase().assertRaises(wt.Blocked):
+                    pr.sync_base(root, "example", base)
+            first_merge = git(target, "rev-parse", "HEAD")
+            assert git(target, "show", "-s", "--format=%P", "HEAD").split() == [
+                old,
+                base,
+            ]
+            (upstream / "next.txt").write_text("later\n")
+            git(upstream, "add", "next.txt")
+            git(upstream, "commit", "-qm", "remote base advanced again")
+            git(upstream, "push", "-q", "origin", "HEAD:refs/heads/" + state["base"])
+            later_base = git(upstream, "rev-parse", "HEAD")
+            with TestCase().assertRaises(wt.NeedsSync):
+                pr.sync_base(root, "example", later_base)
+            assert git(target, "rev-parse", "HEAD") == first_merge
+            synced = pr.sync_base(root, "example", later_base)
+            assert synced["status"] == "needs_validation"
+            assert git(target, "show", "-s", "--format=%P", "HEAD").split() == [
+                first_merge,
+                later_base,
+            ]
+            assert git(root, "rev-parse", "HEAD") == local_before
+            updated = pr.update(root, "example")
+            assert updated["prPublication"]["candidate"] == synced["candidate"]
+            assert remote.created == 1
+
+
+@it_case
+def check_pr_remote_base_rejects_unexpected_commit():
+    with fixture() as root:
+        target, state = start(root, files=("framework/scripts/candidate.txt",))
+        source = target / "framework/scripts/candidate.txt"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("published\n", encoding="utf-8")
+        remote = PRGitHub(root, state)
+        scenario = PRUpdateScenario(root, state, remote, "remote")
+        with (
+            patch.object(wt, "git", side_effect=remote.git),
+            patch.object(pr, "gh", side_effect=remote.gh),
+            patch.object(
+                wt.python_env,
+                "runtime",
+                return_value=(
+                    Path(sys.executable),
+                    wt.python_env.environment(Path(sys.prefix)),
+                ),
+            ),
+            patch.object(subprocess, "run", side_effect=remote.child),
+            patch.object(loop, "run_loop", side_effect=remote.validate),
+        ):
+            published = wt.finalize(root, "example", create_pr=True)
+            old = published["tip"]
+            source.write_text("unexpected\n", encoding="utf-8")
+            git(target, "add", "framework/scripts/candidate.txt")
+            git(target, "commit", "-qm", "unexpected commit")
+            scenario.advance("base.txt", "remote-only content\n")
+            base = git(root, "rev-parse", "HEAD")
+            with TestCase().assertRaises(wt.Blocked):
+                pr.sync_base(root, "example", base)
+            assert (
+                git(remote.remote, "rev-parse", "refs/heads/" + state["branch"]) == old
+            )
+
+
 def _check_pr_update_scenario(mode):
     with fixture() as root:
         target, state = start(root, files=("framework/scripts/candidate.txt",))
@@ -1144,6 +1254,21 @@ def _check_pr_update_scenario(mode):
                     "refs/heads/" + state["branch"],
                     foreign,
                 )
+            if mode in {"remote", "conflict", "rewrite"}:
+                with TestCase().assertRaises(wt.NeedsSync):
+                    pr.update(root, "example")
+                base = git(remote.remote, "rev-parse", "refs/heads/" + state["base"])
+                if mode != "remote":
+                    with TestCase().assertRaises(wt.Blocked):
+                        pr.sync_base(root, "example", base)
+                    assert (
+                        git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
+                        == old
+                    )
+                    return
+                assert (
+                    pr.sync_base(root, "example", base)["status"] == "needs_validation"
+                )
             if mode in {"push-old", "push-foreign"}:
                 with patch.object(
                     pr, "push_candidate", side_effect=scenario.failed_push
@@ -1192,12 +1317,12 @@ def _check_pr_update_scenario(mode):
             elif mode in {
                 "repair",
                 "retry",
-                "conflict",
                 "stale",
-                "rewrite",
                 "foreign",
             }:
-                with TestCase().assertRaises(wt.Blocked):
+                with TestCase().assertRaises(
+                    wt.NeedsSync if mode == "stale" else wt.Blocked
+                ):
                     pr.update(root, "example")
                 if mode != "foreign":
                     assert (
@@ -1218,8 +1343,15 @@ def _check_pr_update_scenario(mode):
                         )
                     return
                 if mode == "stale":
-                    with TestCase().assertRaises(wt.Blocked):
+                    with TestCase().assertRaises(wt.NeedsSync):
                         pr.update(root, "example")
+                    base = git(
+                        remote.remote, "rev-parse", "refs/heads/" + state["base"]
+                    )
+                    assert (
+                        pr.sync_base(root, "example", base)["status"]
+                        == "needs_validation"
+                    )
             updated = pr.update(root, "example")
             assert updated["prPublication"]["number"] == 7 and remote.created == 1
             assert "prUpdate" not in updated
@@ -1260,6 +1392,8 @@ def main():
         check_pr_publication_recovery,
         check_explicit_disposal_and_orphans,
         check_pr_update_and_operations,
+        check_pr_remote_base_only_sync,
+        check_pr_remote_base_rejects_unexpected_commit,
     ):
         check()
     print("worktree-task: PASS (normal Git/CLI/candidate/PR integration)")

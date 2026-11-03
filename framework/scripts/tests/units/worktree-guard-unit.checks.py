@@ -2623,7 +2623,9 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
         ) as child,
         patch.object(pr, "push_candidate") as push,
     ):
-        with pytest.raises(wt.Blocked) as error:
+        with pytest.raises(
+            wt.NeedsSync if failure == "stale-base" else wt.Blocked
+        ) as error:
             pr.update(tmp_path, "example")
         push.assert_not_called()
         if failure in {"validation", "validation-detail"}:

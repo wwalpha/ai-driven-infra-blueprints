@@ -730,6 +730,209 @@ def validate_update(where, task_id):
         wt.save(path, state)
 
 
+def sync_base(where, task_id, expected_base):
+    """Merge the current remote base into a published candidate without pushing it."""
+    root, _, path, state = wt.load(where, task_id)
+    with publication_lock(path):
+        root, _, path, state = wt.load(root, task_id)
+        publication = state.get("prPublication", {})
+        if (
+            state.get("integrationMode") != "pr"
+            or not publication.get("number")
+            or state["merged"]
+        ):
+            raise wt.Blocked("remote base sync requires this Task's published open PR")
+        if any(publication.get(k) != v for k, v in remote_identity(root).items()):
+            raise wt.Blocked("recorded PR repository/remote changed")
+        base, remote_head = update_refs(root, publication)
+        if base != expected_base:
+            raise wt.Blocked("review the exact remote base before sync")
+        current_remote_base = base
+        intent = state.get("prUpdate")
+        previous = intent["previousCandidate"] if intent else publication["candidate"]
+        if remote_head != previous or publication["candidate"] != previous:
+            raise wt.Blocked(
+                "remote HEAD differs from the published HEAD; reconcile first"
+            )
+        existing_pr(root, publication, heads={previous})
+        target = wt.task_worktree(root, state)
+        wt.git(
+            target,
+            "-c",
+            "core.sshCommand=ssh -o BatchMode=yes",
+            "fetch",
+            "--no-tags",
+            "--no-write-fetch-head",
+            "--",
+            publication["remoteUrl"],
+            "refs/heads/" + publication["base"],
+            timeout=60,
+        )
+        current_base, current_head = update_refs(target, publication)
+        if current_head != previous:
+            raise wt.Blocked("remote HEAD changed; reconcile before base sync")
+        if current_base != base:
+            raise wt.NeedsSync(current_base)
+        baseline = (intent or {}).get("baselineBase", publication["baseCommit"])
+        if wt.git(
+            target, "merge-base", "--is-ancestor", baseline, base, check=False
+        ).returncode:
+            raise wt.Blocked("remote base history was rewritten; review required")
+        with wt.lifecycle_lock(root):
+            if wt.load(root, task_id)[3] != state:
+                raise wt.Blocked("PR lifecycle changed before base sync")
+            target = wt.task_worktree(root, state)
+            text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
+            if tasks.status(text) not in {"running", "completed"}:
+                raise wt.Blocked("remote base sync requires a running/completed Task")
+            if path.with_suffix(".setup-lock").exists() or state.get(
+                "validation_failure_approval"
+            ):
+                raise wt.Blocked(
+                    "remote base sync requires ready setup and successful validation"
+                )
+            if intent and intent.get("pushConfirmed"):
+                raise wt.Blocked(
+                    "confirmed push requires reconciliation before base sync"
+                )
+            new_intent = not intent
+            if not intent:
+                intent = state["prUpdate"] = {
+                    "previousCandidate": previous,
+                    "status": "PREPARING",
+                }
+                wt.save(path, state)
+            sync = state.get("prBaseSync")
+            if sync and sync["base"] != base:
+                if wt.git(
+                    target,
+                    "merge-base",
+                    "--is-ancestor",
+                    sync["base"],
+                    base,
+                    check=False,
+                ).returncode:
+                    raise wt.Blocked("remote base history changed during sync")
+                base = sync["base"]
+            if sync is None:
+                if wt.output(target, "rev-parse", "HEAD") != state["tip"]:
+                    raise wt.Blocked("unexpected PR candidate commits; review required")
+                wt._prepare_commit(root, path, state, target, None, pr_update=True)
+            head = wt.output(target, "rev-parse", "HEAD")
+            if (
+                (head != state["tip"] and (not sync or sync["head"] != state["tip"]))
+                or (state["commit"] and not state["verified"])
+                or not wt.ancestor(target, previous, state["branch"])
+            ):
+                raise wt.Blocked("PR candidate changed or lacks verified ancestry")
+            if sync is None:
+                if not wt.git(
+                    target, "merge-base", "--is-ancestor", base, head, check=False
+                ).returncode:
+                    if head == previous:
+                        if new_intent:
+                            del state["prUpdate"]
+                            wt.save(path, state)
+                        return state
+                    intent.update(
+                        status="PREPARED",
+                        candidate=head,
+                        validation="PENDING",
+                        taskHash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                        baselineBase=baseline,
+                        syncBase=base,
+                    )
+                    for key in ("baseCommit", "integrationTree", "pushIntent"):
+                        intent.pop(key, None)
+                    wt.save(path, state)
+                    return {
+                        **state,
+                        "status": "needs_validation",
+                        "candidate": head,
+                        "remote_base": base,
+                    }
+                result = wt.git(
+                    target, "merge-tree", "--write-tree", head, base, check=False
+                )
+                if result.returncode:
+                    raise wt.Blocked("remote base and PR candidate conflict; no push")
+                tree = result.stdout.splitlines()[0]
+                if not re.fullmatch(r"[0-9a-f]{40,64}", tree):
+                    raise wt.Blocked("cannot determine remote base merge tree")
+                changed = wt.paths(
+                    target, "diff", "--no-renames", "--name-only", "-z", base, tree
+                )
+                declared, allowed = (
+                    tasks.paths_in(text, "## Modified files"),
+                    tasks.paths_in(text, "## Allowed paths"),
+                )
+                if changed - declared or any(
+                    not any(tasks.matches(p, pattern) for pattern in allowed)
+                    for p in changed
+                ):
+                    raise wt.Blocked(
+                        "remote base merge is outside the exact Task contract"
+                    )
+                sync = state["prBaseSync"] = {
+                    "head": head,
+                    "base": base,
+                    "tree": tree,
+                    "taskHash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                }
+                wt.save(path, state)
+            if (
+                sync["base"] != base
+                or sync["taskHash"] != hashlib.sha256(text.encode("utf-8")).hexdigest()
+                or wt.changed_paths(target)
+            ):
+                raise wt.Blocked("remote base sync intent changed; review required")
+            if head == sync["head"]:
+                result = wt.git(
+                    target,
+                    "merge",
+                    "--no-ff",
+                    "--no-edit",
+                    "--no-autostash",
+                    base,
+                    check=False,
+                )
+                if result.returncode:
+                    raise wt.Blocked(
+                        "remote base merge failed; retain candidate for review"
+                    )
+                head = wt.output(target, "rev-parse", "HEAD")
+            if (
+                wt.output(target, "show", "-s", "--format=%P", head).split()
+                != [sync["head"], base]
+                or wt.output(target, "rev-parse", head + "^{tree}") != sync["tree"]
+                or wt.changed_paths(target)
+                or tasks.read_task_snapshot(target, state["task_file"], live=True).text
+                != text
+            ):
+                raise wt.Blocked("remote base merge differs from recorded intent")
+            state.update(tip=head, commit=head, verified=True)
+            intent.update(
+                status="PREPARED",
+                candidate=head,
+                validation="PENDING",
+                taskHash=sync["taskHash"],
+                baselineBase=baseline,
+                syncBase=base,
+            )
+            for key in ("baseCommit", "integrationTree", "pushIntent"):
+                intent.pop(key, None)
+            del state["prBaseSync"]
+            wt.save(path, state)
+            if current_remote_base != base:
+                raise wt.NeedsSync(current_remote_base)
+            return {
+                **state,
+                "status": "needs_validation",
+                "candidate": head,
+                "remote_base": base,
+            }
+
+
 def update(where, task_id):
     root, _, path, state = wt.load(where, task_id)
     with publication_lock(path):
@@ -800,6 +1003,23 @@ def update(where, task_id):
             if intent.get("pushConfirmed"):
                 raise wt.Blocked("confirmed published HEAD changed; retain intent")
             base, head = update_refs(root, publication)
+        if intent and intent.get("syncBase") and base != intent["syncBase"]:
+            if head != intent["previousCandidate"]:
+                raise wt.Blocked("remote HEAD changed unexpectedly; reconcile first")
+            raise wt.NeedsSync(base)
+        if not intent or intent.get("status") in {"PREPARING", "PREPARED"}:
+            expected_base = (intent or {}).get(
+                "syncBase",
+                (intent or {}).get("baselineBase", publication["baseCommit"]),
+            )
+            if base != expected_base:
+                if head != (
+                    intent["previousCandidate"] if intent else publication["candidate"]
+                ):
+                    raise wt.Blocked(
+                        "remote HEAD changed unexpectedly; reconcile first"
+                    )
+                raise wt.NeedsSync(base)
         if not intent:
             existing_pr(root, publication, heads={publication["candidate"]})
             if head != publication["candidate"]:
@@ -832,9 +1052,7 @@ def update(where, task_id):
                 prior = copy.deepcopy(state)
                 intent.update(status="PREPARED", validation="STALE")
                 save_update(root, path, state, prior)
-                raise wt.Blocked(
-                    "remote base advanced after validation; retry to revalidate"
-                )
+                raise wt.NeedsSync(base)
         if intent["status"] in {"PREPARING", "PREPARED"}:
             with wt.lifecycle_lock(root):
                 if wt.load(root, task_id)[3] != state:
@@ -928,8 +1146,10 @@ def update(where, task_id):
                     != intent["taskHash"]
                 ):
                     raise wt.Blocked("PR Task changed before push")
-            if base != intent["baseCommit"] or head != intent["previousCandidate"]:
-                raise wt.Blocked("PR base or head changed before push")
+            if head != intent["previousCandidate"]:
+                raise wt.Blocked("PR head changed before push")
+            if base != intent["baseCommit"]:
+                raise wt.NeedsSync(base)
             push_candidate(
                 target,
                 dict(

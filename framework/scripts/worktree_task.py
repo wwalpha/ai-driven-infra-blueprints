@@ -28,6 +28,7 @@ from utils.sealed_evidence import evidence_store
 from worktree_state import (
     Blocked as Blocked,
 )
+from worktree_state import NeedsSync as NeedsSync
 from worktree_state import changed_paths as changed_paths
 from worktree_state import committed_task_paths as committed_task_paths
 from worktree_state import (
@@ -51,14 +52,6 @@ from worktree_state import task_worktree as task_worktree
 from worktree_state import (
     worktrees as worktrees,
 )
-
-
-class NeedsSync(Exception):
-    """The base advanced; the caller must synchronize and reassess validation."""
-
-    def __init__(self, base):
-        self.base = base
-        super().__init__("base advanced; synchronize and reassess validation")
 
 
 def needs_sync(base):
@@ -801,7 +794,13 @@ def _prepare_commit(
 ):
     changed = changed_paths(target)
     task_id = state["task_id"]
-    model_changes = integration_changed_paths(target, state["task_file"])
+    sync_base = state.get("prUpdate", {}).get("syncBase") if pr_update else None
+    model_changes = (
+        changed
+        | paths(target, "diff", "--no-renames", "--name-only", "-z", sync_base, "HEAD")
+        if sync_base
+        else integration_changed_paths(target, state["task_file"])
+    )
     contract = tasks.read_task_snapshot(target, state["task_file"], live=True).text
     operation = tasks.final_model_task(contract, model_changes)
     parsed_operation = tasks.model_operation(contract)
@@ -2015,6 +2014,7 @@ def main():
             "branches",
             "branch-delete",
             "pr-update",
+            "pr-sync-base",
             "pr-merge",
             "pr-status",
             "pr-close",
@@ -2106,6 +2106,7 @@ def main():
         "recover",
         "sync-base",
         "sync-latest-base",
+        "pr-sync-base",
         "rewrite-base",
     } and (
         args.expected_commit
@@ -2133,6 +2134,8 @@ def main():
                 state = publication.close_existing(where, args.pr)
             elif args.command == "pr-update":
                 state = publication.update(where, args.task_id)
+            elif args.command == "pr-sync-base":
+                state = publication.sync_base(where, args.task_id, args.expected_base)
             else:
                 state = publication.operate(
                     where,
