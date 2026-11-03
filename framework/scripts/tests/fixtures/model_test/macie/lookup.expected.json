@@ -7,7 +7,7 @@
       },
       {
         "propertiesKey": "Macie.ClassificationJob.jobId",
-        "status": "design_unresolved"
+        "status": "pending_identifier"
       },
       {
         "propertiesKey": "Macie.ClassificationJob.name",
@@ -44,11 +44,11 @@
         }
       ]
     ],
-    "code": 2,
+    "code": 1,
     "report": {
       "contains": [
         "[OK] Macie.ClassificationJob | fixture-job | description",
-        "[ERROR] Macie.ClassificationJob | fixture-job | jobId",
+        "[NG] Macie.ClassificationJob | fixture-job | jobId",
         "REFERENCE_PENDING_DEPLOY"
       ]
     }

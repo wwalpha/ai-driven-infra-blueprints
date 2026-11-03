@@ -39,7 +39,7 @@ other environments/services automatically. Complete classified local validation.
 
 Report the generated path, Model hash, and unsupported Mapping classifications/reasons.
 Permissions Boundary uses a generation-only, SDK-shape-validated projection of the existing IAM get-role/get-user response; the existing AWS comparator is unchanged.
-Confirmed identifier outputs are compared with AWS; missing, ambiguous, unresolved or unavailable identifiers remain explicit ERROR checks. Identifier equality does not prove configuration equality. Missing/ambiguous references and
+Confirmed identifier outputs are compared with AWS; when AWS returns an identifier and observed is PENDING_DEPLOY, the check is NG. Missing, ambiguous, otherwise unresolved or unavailable identifiers remain explicit ERROR checks. Identifier equality does not prove configuration equality. Missing/ambiguous references and
 unsupported expressions also produce ERROR, never guessed values or silent skips.
 `GetAtt`/`Sub` resource attribute references support only the confirmed `Arn` identity projection; other attributes are explicit ERROR checks.
 The standalone file uses only Python stdlib and AWS CLI; no repository imports are

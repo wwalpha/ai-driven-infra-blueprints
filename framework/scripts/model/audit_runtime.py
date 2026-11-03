@@ -296,6 +296,8 @@ def reference_result(m, snapshot, resource, item):
             **item,
             "status": item["status"]
             if item["status"] in {"resource_missing", "acquisition_failed"}
+            or item["status"] == "pending_identifier"
+            and all(r and r["status"] == "pending_deploy" for r in resolutions)
             else "design_unresolved",
             "designValue": None,
             "reason": reason,
@@ -459,6 +461,18 @@ def identifier_result(m, ctx, resource, item):
         }
     value = observed_identifier(raw, m.literal, m.confirmed_display_name, m.confirmed)
     if value is None:
+        if (
+            item["status"] == "identifier"
+            and m.literal(raw).strip() == "PENDING_DEPLOY"
+            and isinstance(item.get("awsValue"), str)
+            and item["awsValue"].strip()
+        ):
+            return {
+                **item,
+                "status": "pending_identifier",
+                "designValue": None,
+                "reason": "observed identifier is PENDING_DEPLOY",
+            }
         return {
             **item,
             "status": "design_unresolved"
@@ -861,6 +875,7 @@ def report(snapshot, profile, account, records, timestamp):
         state = {
             "match": "OK",
             "difference": "NG",
+            "pending_identifier": "NG",
             "resource_missing": "NG",
             "excluded": "INFO",
         }.get(item["status"], "ERROR")

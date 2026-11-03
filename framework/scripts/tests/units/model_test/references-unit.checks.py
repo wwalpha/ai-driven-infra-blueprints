@@ -94,7 +94,7 @@ class ReferenceTests(ReferenceFixture, unittest.TestCase):
         )
         for observed, records, status in (
             ("PENDING_DEPLOY", [], "resource_missing"),
-            ("PENDING_DEPLOY", [{"FlowLogId": "fl-new"}], "design_unresolved"),
+            ("PENDING_DEPLOY", [{"FlowLogId": "fl-new"}], "pending_identifier"),
             ("fl-old", [], "resource_missing"),
             ("fl-old", [{"FlowLogId": "fl-old"}], "match"),
             ("fl-old", [{"FlowLogId": "fl-new"}], "difference"),

@@ -1036,8 +1036,21 @@ class IngressRuleTests(unittest.TestCase):
                 "awsValue": "sgr-new",
             },
         )
-        self.assertEqual(result["status"], "design_unresolved")
+        self.assertEqual(result["status"], "pending_identifier")
         self.assertIsNone(result["designValue"])
+        for aws_value in (None, "", []):
+            with self.subTest(aws_value=aws_value):
+                unresolved = audit.identifier_result(
+                    engine,
+                    None,
+                    resource,
+                    {
+                        "propertiesKey": resource.kind + ".Id",
+                        "status": "identifier",
+                        "awsValue": aws_value,
+                    },
+                )
+                self.assertEqual(unresolved["status"], "design_unresolved")
 
 
 def test_quicksight_namespace_fixture():
