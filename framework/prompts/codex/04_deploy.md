@@ -8,7 +8,7 @@ For CloudFormation fix SDK or CLI before preparation; honor Human choice or repo
 
 ## Read before changing files
 
-Before registration read [Task transition](../../rules/task-contract.md#task-transition) (including its required common and conditional reads), [Task boundary](../../rules/task-contract.md#task-boundary) and [Acceptance contract](../../rules/task-contract.md#acceptance-contract); [Prepare](deploy/runbook.md#prepare) supplies the remaining common authority/context reads. At completion [Validation policy](../../rules/loop-engineering.md#validation-policy) and the [finish procedure](deploy/runbook.md#verify-and-finish) determine required checks. Do not read later phases now merely because they are linked here.
+Before registration read [Task transition](../../rules/task-contract.md#task-transition) (including its required common and conditional reads), [Task boundary](../../rules/task-contract.md#task-boundary), [Acceptance contract](../../rules/task-contract.md#acceptance-contract), [Topology](../../rules/project-configuration.md#topology) and [Credentials and account](../../rules/project-configuration.md#credentials-and-account); [Prepare](deploy/runbook.md#prepare) supplies the remaining common authority/context reads. At completion [Validation policy](../../rules/loop-engineering.md#validation-policy) and the [finish procedure](deploy/runbook.md#verify-and-finish) determine required checks. Do not read later phases now merely because they are linked here.
 
 | When | Required next read |
 | --- | --- |
