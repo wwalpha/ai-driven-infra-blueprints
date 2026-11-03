@@ -464,6 +464,7 @@ def identifier_result(m, ctx, resource, item):
         if (
             item["status"] == "identifier"
             and item["propertiesKey"] != "QuickSight.Group.PrincipalId"
+            and resource.kind not in {"DataZone.Domain", "DataZone.Project"}
             and m.literal(raw).strip() == "PENDING_DEPLOY"
             and isinstance(item.get("awsValue"), str)
             and item["awsValue"].strip()
