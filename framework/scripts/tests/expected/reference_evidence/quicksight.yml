@@ -191,25 +191,13 @@ quicksight-actions-value:
     service: quicksight
     stack: producer
 quicksight-attribute:
-  blocked: true
+  $shared-ref: sha256-4f9359aacb1feffdad56a4045c16ae68ea5bb58387bff88077f685085ac0f8e9
 quicksight-cross-target:
-  blocked: true
+  $shared-ref: sha256-4f9359aacb1feffdad56a4045c16ae68ea5bb58387bff88077f685085ac0f8e9
 quicksight-deploy:
-  blocked: true
+  $shared-ref: sha256-4f9359aacb1feffdad56a4045c16ae68ea5bb58387bff88077f685085ac0f8e9
 quicksight-duplicate:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-89e87dce99e4426c2a4e084673274aa53766e24f23d3e1d78b9393ebe9e9549e
 quicksight-group:
   records:
   - actual:
@@ -259,157 +247,21 @@ quicksight-group:
     service: quicksight
     stack: producer
 quicksight-indexed:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference expression equivalent
-    reference_diagnostics:
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - quicksight
-        - '001'
-      path: QuickSight.DataSource.Permissions[].Principal
-      producers:
-      - attribute: Arn
-        producer: quicksight/001
-      reason: iac_concrete
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-443ccb04f97024349dc73488c88e877d2dba6a18642e726fb94f2519644809fb
 quicksight-invalid-account:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-89e87dce99e4426c2a4e084673274aa53766e24f23d3e1d78b9393ebe9e9549e
 quicksight-join:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference expression equivalent
-    reference_diagnostics:
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - quicksight
-        - '001'
-      path: QuickSight.DataSource.Permissions[].Principal
-      producers:
-      - attribute: Arn
-        producer: quicksight/001
-      reason: iac_concrete
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-443ccb04f97024349dc73488c88e877d2dba6a18642e726fb94f2519644809fb
 quicksight-link-name:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-89e87dce99e4426c2a4e084673274aa53766e24f23d3e1d78b9393ebe9e9549e
 quicksight-missing-account:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-89e87dce99e4426c2a4e084673274aa53766e24f23d3e1d78b9393ebe9e9549e
 quicksight-missing-anchor:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-89e87dce99e4426c2a4e084673274aa53766e24f23d3e1d78b9393ebe9e9549e
 quicksight-missing-group:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-89e87dce99e4426c2a4e084673274aa53766e24f23d3e1d78b9393ebe9e9549e
 quicksight-missing-namespace:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-89e87dce99e4426c2a4e084673274aa53766e24f23d3e1d78b9393ebe9e9549e
 quicksight-namespace:
   records:
   - actual:
@@ -459,75 +311,11 @@ quicksight-namespace:
     service: quicksight
     stack: producer
 quicksight-no-partition:
-  blocked: true
+  $shared-ref: sha256-4f9359aacb1feffdad56a4045c16ae68ea5bb58387bff88077f685085ac0f8e9
 quicksight-none:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference expression equivalent
-    reference_diagnostics:
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - quicksight
-        - '001'
-      path: QuickSight.DataSource.Permissions[].Principal
-      producers:
-      - attribute: Arn
-        producer: quicksight/001
-      reason: iac_concrete
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-443ccb04f97024349dc73488c88e877d2dba6a18642e726fb94f2519644809fb
 quicksight-observed:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference expression equivalent
-    reference_diagnostics:
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - quicksight
-        - '001'
-      path: QuickSight.DataSource.Permissions[].Principal
-      producers:
-      - attribute: Arn
-        producer: quicksight/001
-      reason: iac_concrete
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-443ccb04f97024349dc73488c88e877d2dba6a18642e726fb94f2519644809fb
 quicksight-partition:
   records:
   - actual:
@@ -625,41 +413,9 @@ quicksight-region:
     service: quicksight
     stack: producer
 quicksight-sub:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference expression equivalent
-    reference_diagnostics:
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - quicksight
-        - '001'
-      path: QuickSight.DataSource.Permissions[].Principal
-      producers:
-      - attribute: Arn
-        producer: quicksight/001
-      reason: iac_concrete
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-443ccb04f97024349dc73488c88e877d2dba6a18642e726fb94f2519644809fb
 quicksight-terraform:
-  blocked: true
+  $shared-ref: sha256-4f9359aacb1feffdad56a4045c16ae68ea5bb58387bff88077f685085ac0f8e9
 quicksight-unresolved:
   records:
   - actual: null
@@ -675,16 +431,55 @@ quicksight-unresolved:
     service: quicksight
     stack: null
 quicksight-unset:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.DataSource.Permissions
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: quicksight
-    stack: producer
+  $shared-ref: sha256-89e87dce99e4426c2a4e084673274aa53766e24f23d3e1d78b9393ebe9e9549e
+$shared:
+  sha256-443ccb04f97024349dc73488c88e877d2dba6a18642e726fb94f2519644809fb:
+    records:
+    - actual: null
+      category: matched
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: QuickSight.DataSource.Permissions
+      reason: reference expression equivalent
+      reference_diagnostics:
+      - allowed_forms:
+        - Arn
+        current_aws_verified: false
+        evidence_type: local_evaluation
+        format:
+          iac: unproven
+          model: allowed
+        iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+        identity: unproven
+        local_comparison: matched
+        model:
+          $attribute: Arn
+          $resource:
+          - quicksight
+          - '001'
+        path: QuickSight.DataSource.Permissions[].Principal
+        producers:
+        - attribute: Arn
+          producer: quicksight/001
+        reason: iac_concrete
+      resource: 090
+      service: quicksight
+      stack: producer
+  sha256-4f9359aacb1feffdad56a4045c16ae68ea5bb58387bff88077f685085ac0f8e9:
+    blocked: true
+  sha256-89e87dce99e4426c2a4e084673274aa53766e24f23d3e1d78b9393ebe9e9549e:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: QuickSight.DataSource.Permissions
+      reason: reference identity or property format is unproven
+      reference_diagnostics: []
+      resource: 090
+      service: quicksight
+      stack: producer

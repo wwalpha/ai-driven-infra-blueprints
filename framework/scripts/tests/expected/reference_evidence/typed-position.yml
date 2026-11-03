@@ -1,9 +1,10 @@
 typed-position-00:
-  equal: null
-  positions: []
+  $shared-ref: sha256-f09c870e7762d657f6884b1a576b220e4447cd6c46b5405680bcefc70cfb5ec6
 typed-position-01:
-  equal: null
-  positions: []
+  $shared-ref: sha256-f09c870e7762d657f6884b1a576b220e4447cd6c46b5405680bcefc70cfb5ec6
 typed-position-02:
-  equal: null
-  positions: []
+  $shared-ref: sha256-f09c870e7762d657f6884b1a576b220e4447cd6c46b5405680bcefc70cfb5ec6
+$shared:
+  sha256-f09c870e7762d657f6884b1a576b220e4447cd6c46b5405680bcefc70cfb5ec6:
+    equal: null
+    positions: []

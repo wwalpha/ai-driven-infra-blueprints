@@ -1,168 +1,53 @@
 other-unresolved-00:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.Subnet.VpcId
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-05f0d32ae15d08c9782939a8649367ff2d0bdb4918bf37a5a35906346cd66ad6
 other-unresolved-01:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.Subnet.VpcId
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-05f0d32ae15d08c9782939a8649367ff2d0bdb4918bf37a5a35906346cd66ad6
 other-unresolved-02:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.Subnet.VpcId
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-05f0d32ae15d08c9782939a8649367ff2d0bdb4918bf37a5a35906346cd66ad6
 other-unresolved-03:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.Subnet.VpcId
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-05f0d32ae15d08c9782939a8649367ff2d0bdb4918bf37a5a35906346cd66ad6
 other-unresolved-04:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.Subnet.VpcId
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-05f0d32ae15d08c9782939a8649367ff2d0bdb4918bf37a5a35906346cd66ad6
 other-unresolved-05:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.Subnet.VpcId
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-05f0d32ae15d08c9782939a8649367ff2d0bdb4918bf37a5a35906346cd66ad6
 other-unresolved-06:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Lambda.Function.Code
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-70580b06e5c1e4b9d228617a5aa4a064121909f95805fe7b27adc4b283a206ca
 other-unresolved-07:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Lambda.Function.Code
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-70580b06e5c1e4b9d228617a5aa4a064121909f95805fe7b27adc4b283a206ca
 other-unresolved-08:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Lambda.Function.Code
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-70580b06e5c1e4b9d228617a5aa4a064121909f95805fe7b27adc4b283a206ca
 other-unresolved-09:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Lambda.Function.Code
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-70580b06e5c1e4b9d228617a5aa4a064121909f95805fe7b27adc4b283a206ca
 other-unresolved-10:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Lambda.Function.Code
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-70580b06e5c1e4b9d228617a5aa4a064121909f95805fe7b27adc4b283a206ca
 other-unresolved-11:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Lambda.Function.Code
-    reason: comparison input is unresolved
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-70580b06e5c1e4b9d228617a5aa4a064121909f95805fe7b27adc4b283a206ca
+$shared:
+  sha256-05f0d32ae15d08c9782939a8649367ff2d0bdb4918bf37a5a35906346cd66ad6:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: EC2.Subnet.VpcId
+      reason: comparison input is unresolved
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-70580b06e5c1e4b9d228617a5aa4a064121909f95805fe7b27adc4b283a206ca:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: Lambda.Function.Code
+      reason: comparison input is unresolved
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null

@@ -292,7 +292,10 @@ loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体
 `expected/<suite>/<case-id>.yml` に保存する。関連ケースは入力ケースの
 `expected_group: actual-wait` のような静的な指定で
 `expected/<suite>/actual-wait.yml` へまとめられる。グループファイルの最上位キーは
-既存のcase ID、その値はケースごとの完全なExpected辞書とする。
+既存のcase ID、その値はケースごとの完全なExpected辞書とする。重複する辞書は
+同じファイルの `$shared` に一度だけ定義し、`{$shared-ref: sha256-...}` で参照できる。
+識別子は辞書の正規YAMLのSHA-256であり、共有定義だけを変更すると検証が失敗する。
+参照は1段階で、未知・循環参照と識別子不一致は拒否する。
 ケース数・pytest node ID・個別実行は変えない。単独ファイルも引き続き使える。
 移行済み入力のinline `expected` は禁止し、未移行loaderの互換性は維持する。
 所有関係はファイルとcase IDの組で管理し、別テストによる同じ区画の共有や
@@ -317,6 +320,7 @@ python3 -B framework/scripts/run-python.py -m pytest -q 'framework/scripts/tests
 
 不一致のdiffは対象case IDとそのExpectedだけを表示する。更新は対象区画だけを差し替え、
 他ケースの本文・コメントをそのまま保持する。実行中にExpectedが変更された場合は更新を拒否する。
+共有参照の更新はそのケースを独立した辞書に置き換え、不要になった共有定義を整理する。
 同じグループの更新は並列実行しない。排他的な `.yml.tmp` を作成してから置き換え、
 書込失敗では元ファイルを維持する。残存する一時ファイルは別の更新として扱い、自動削除しない。
 

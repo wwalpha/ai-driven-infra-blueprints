@@ -5,14 +5,13 @@ import-failure-cause-00:
     path: missing.yaml
     relationship: export-search-incomplete
 import-failure-cause-01:
-  cause:
-    consumer_stack: consumer
-    export: missing
-    kind: import-unresolved
-    relationship: import
+  $shared-ref: sha256-7c65c4e29b0a51f7c999dadc0f3c7c6b71759ca2b2183f0bd205de7175a608e5
 import-failure-cause-02:
-  cause:
-    consumer_stack: consumer
-    export: missing
-    kind: import-unresolved
-    relationship: import
+  $shared-ref: sha256-7c65c4e29b0a51f7c999dadc0f3c7c6b71759ca2b2183f0bd205de7175a608e5
+$shared:
+  sha256-7c65c4e29b0a51f7c999dadc0f3c7c6b71759ca2b2183f0bd205de7175a608e5:
+    cause:
+      consumer_stack: consumer
+      export: missing
+      kind: import-unresolved
+      relationship: import

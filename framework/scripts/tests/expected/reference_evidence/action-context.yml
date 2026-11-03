@@ -1,30 +1,21 @@
 action-context-00:
   attribute: Name
 action-context-01:
-  errors:
-  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
-    type: Blocked
-  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
-    type: Blocked
+  $shared-ref: sha256-6d81f3cd4efbd32990edc4e1c5285e69f83740bfc5a7e5fe3b955ca2ca8364ee
 action-context-02:
-  errors:
-  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
-    type: Blocked
-  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
-    type: Blocked
+  $shared-ref: sha256-6d81f3cd4efbd32990edc4e1c5285e69f83740bfc5a7e5fe3b955ca2ca8364ee
 action-context-03:
-  errors:
-  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
-    type: Blocked
-  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
-    type: Blocked
+  $shared-ref: sha256-6d81f3cd4efbd32990edc4e1c5285e69f83740bfc5a7e5fe3b955ca2ca8364ee
 action-context-04:
-  errors:
-  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
-    type: Blocked
-  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
-    type: Blocked
+  $shared-ref: sha256-6d81f3cd4efbd32990edc4e1c5285e69f83740bfc5a7e5fe3b955ca2ca8364ee
 action-context-05:
   errors:
   - message: 'reference target must be CodeCommit.Repository: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
     type: Blocked
+$shared:
+  sha256-6d81f3cd4efbd32990edc4e1c5285e69f83740bfc5a7e5fe3b955ca2ca8364ee:
+    errors:
+    - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+      type: Blocked
+    - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+      type: Blocked

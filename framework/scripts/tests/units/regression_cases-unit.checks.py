@@ -99,7 +99,11 @@ def check_case_selection_does_not_copy_or_expose_fixtures(runner_environment):
         assert regression_cases.case_ids("example", prefix="f") == ["first"]
         assert regression_cases.case_ids("example") == ["first", "second"]
     assert fixture_cases.load_case("example", "first")["data"]["result"] == [
-        True, False, 0, "1", None
+        True,
+        False,
+        0,
+        "1",
+        None,
     ]
 
 
@@ -277,6 +281,62 @@ def check_grouped_individual_execution_and_ownership(grouped_runner):
     TestCase().assertEqual(
         regression_cases.expected_text("example", "second"), "result:\n- other\n"
     )
+
+
+def check_shared_expected_update_detaches_and_prunes(grouped_runner, monkeypatch):
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    runner = grouped_runner
+    path = grouped_expected()
+    value = {"result": [True, False, 0, "1", None]}
+    name = regression_cases._shared_id(value)
+    content = regression_cases._dump(
+        {
+            "$shared": {name: value},
+            "first": {"$shared-ref": name},
+            "second": {"$shared-ref": name},
+        }
+    ).replace("first:\n", "# Preserve sibling comment.\nfirst:\n")
+    path.write_text(content, encoding="utf-8")
+    select_group_update(runner, "first")
+    with pytest.raises(pytest.fail.Exception, match="regenerating"):
+        runner.run("example", "first", Mock(return_value={"result": "updated"}))
+    TestCase().assertEqual(
+        yaml.safe_load(regression_cases.expected_text("example", "second")), value
+    )
+    select_group_update(runner, "second")
+    with pytest.raises(pytest.fail.Exception, match="regenerating"):
+        runner.run("example", "second", Mock(return_value={"result": "other"}))
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    TestCase().assertNotIn("$shared", data)
+    TestCase().assertIn(
+        "# Preserve sibling comment.\nfirst:", path.read_text(encoding="utf-8")
+    )
+    TestCase().assertEqual(data["first"], {"result": "updated"})
+    TestCase().assertEqual(data["second"], {"result": "other"})
+
+
+@pytest.mark.parametrize("failure", ["unknown", "modified", "chain", "cycle", "extra"])
+def check_shared_expected_invalid_refused(grouped_runner, failure):
+    path = grouped_expected()
+    value = {"result": ["original"]}
+    name = regression_cases._shared_id(value)
+    data = {"$shared": {name: value}, "first": {"$shared-ref": name}}
+    if failure == "unknown":
+        data["first"]["$shared-ref"] = "unknown"
+    elif failure == "modified":
+        value["result"].append("changed")
+    elif failure == "chain":
+        data["$shared"][name] = {"$shared-ref": "unknown"}
+    elif failure == "cycle":
+        data["$shared"][name] = {"$shared-ref": name}
+    else:
+        data["first"]["extra"] = True
+    path.write_text(regression_cases._dump(data), encoding="utf-8")
+    executor = Mock()
+    with pytest.raises(ValueError):
+        grouped_runner.run("example", "first", executor)
+    executor.assert_not_called()
 
 
 @pytest.mark.parametrize(

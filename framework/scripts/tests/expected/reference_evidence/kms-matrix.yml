@@ -148,15 +148,7 @@ kms-matrix-04:
     equal: false
     message: 'KMS format outside allowed forms: model=KeyArn, iac=KeyId'
 kms-matrix-05:
-  decision:
-    comparisons: []
-    diagnostics: []
-    equal: true
-    equivalent: false
-  outcome:
-    code: null
-    equal: true
-    message: null
+  $shared-ref: sha256-4b925bd597513b3d82bb5e9db1e784610d693117d5ad93a1ad973f622b884af8
 kms-matrix-06:
   decision:
     comparisons: []
@@ -598,15 +590,7 @@ kms-matrix-20:
     equal: false
     message: 'KMS format outside allowed forms: model=KeyArn, iac=KeyId'
 kms-matrix-21:
-  decision:
-    comparisons: []
-    diagnostics: []
-    equal: true
-    equivalent: false
-  outcome:
-    code: null
-    equal: true
-    message: null
+  $shared-ref: sha256-4b925bd597513b3d82bb5e9db1e784610d693117d5ad93a1ad973f622b884af8
 kms-matrix-22:
   decision:
     comparisons: []
@@ -896,15 +880,7 @@ kms-matrix-30:
     equal: false
     message: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'
 kms-matrix-31:
-  decision:
-    comparisons: []
-    diagnostics: []
-    equal: true
-    equivalent: false
-  outcome:
-    code: null
-    equal: true
-    message: null
+  $shared-ref: sha256-4b925bd597513b3d82bb5e9db1e784610d693117d5ad93a1ad973f622b884af8
 kms-matrix-32:
   decision:
     comparisons: []
@@ -1335,15 +1311,7 @@ kms-matrix-46:
     equal: false
     message: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'
 kms-matrix-47:
-  decision:
-    comparisons: []
-    diagnostics: []
-    equal: true
-    equivalent: false
-  outcome:
-    code: null
-    equal: true
-    message: null
+  $shared-ref: sha256-4b925bd597513b3d82bb5e9db1e784610d693117d5ad93a1ad973f622b884af8
 kms-matrix-48:
   decision:
     comparisons: []
@@ -1774,12 +1742,15 @@ kms-matrix-62:
     equal: false
     message: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'
 kms-matrix-63:
-  decision:
-    comparisons: []
-    diagnostics: []
-    equal: true
-    equivalent: false
-  outcome:
-    code: null
-    equal: true
-    message: null
+  $shared-ref: sha256-4b925bd597513b3d82bb5e9db1e784610d693117d5ad93a1ad973f622b884af8
+$shared:
+  sha256-4b925bd597513b3d82bb5e9db1e784610d693117d5ad93a1ad973f622b884af8:
+    decision:
+      comparisons: []
+      diagnostics: []
+      equal: true
+      equivalent: false
+    outcome:
+      code: null
+      equal: true
+      message: null

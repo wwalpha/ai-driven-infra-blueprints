@@ -2,8 +2,10 @@
 
 import os
 from contextvars import ContextVar
+from copy import deepcopy
 from difflib import unified_diff
 from functools import lru_cache
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -58,6 +60,10 @@ def _dump(data):
     return yaml.dump(data, Dumper=GroupedDumper, allow_unicode=True, indent=2)
 
 
+def _shared_id(value):
+    return "sha256-" + sha256(_dump(value).encode("utf-8")).hexdigest()
+
+
 @lru_cache(maxsize=16)
 def _group(path, suite, group, text):
     if any(
@@ -68,11 +74,30 @@ def _group(path, suite, group, text):
     values = yaml_read(text)
     if not isinstance(values, dict) or yaml.compose(text).flow_style:
         raise ValueError("grouped Expected must be a block mapping")
+    shared = values.pop("$shared", {})
+    if type(shared) is not dict:
+        raise ValueError("invalid shared Expected definitions")
+    for name, value in shared.items():
+        if (
+            type(value) is not dict
+            or "$shared-ref" in value
+            or name != _shared_id(value)
+        ):
+            raise ValueError("invalid shared Expected definition or digest")
     for case_id, value in values.items():
         if not _identifier(case_id) or type(value) is not dict:
             raise ValueError("invalid grouped Expected case")
         if load_case(suite, case_id).get("expected_group") != group:
             raise ValueError("Expected case belongs to another group")
+        if "$shared-ref" in value:
+            name = value["$shared-ref"]
+            if (
+                set(value) != {"$shared-ref"}
+                or not isinstance(name, str)
+                or name not in shared
+            ):
+                raise ValueError("unknown or invalid shared Expected reference")
+            values[case_id] = deepcopy(shared[name])
     return values
 
 
@@ -113,6 +138,41 @@ def _replace_case(text, case_id, actual):
     return text + ("" if text.endswith("\n") else "\n") + replacement
 
 
+def _prune_shared(text):
+    values = yaml_read(text)
+    shared = values.get("$shared")
+    if not shared:
+        return text
+    used = {
+        value["$shared-ref"]
+        for key, value in values.items()
+        if key != "$shared" and isinstance(value, dict) and "$shared-ref" in value
+    }
+    remaining = {key: value for key, value in shared.items() if key in used}
+    if len(remaining) == len(shared):
+        return text
+    lines = text.splitlines(keepends=True)
+    node = yaml.compose(text)
+    for index, (key, _) in enumerate(node.value):
+        if key.value == "$shared":
+            end = (
+                node.value[index + 1][0].start_mark.line
+                if index + 1 < len(node.value)
+                else len(lines)
+            )
+            while end > key.start_mark.line + 1 and (
+                not lines[end - 1].strip() or lines[end - 1].startswith("#")
+            ):
+                end -= 1
+            replacement = _dump({"$shared": remaining}) if remaining else ""
+            return (
+                "".join(lines[: key.start_mark.line])
+                + replacement
+                + "".join(lines[end:])
+            )
+    return text
+
+
 def _write_group(suite, case_id, group, path, before, content):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -136,7 +196,7 @@ def _check_group(suite, case_id, group, path, before, actual, updating):
     if case_id in values and _dump(values[case_id]) == _dump(actual):
         return
     if updating:
-        content = _replace_case(before or "", case_id, actual)
+        content = _prune_shared(_replace_case(before or "", case_id, actual))
         _write_group(suite, case_id, group, path, before, content)
         pytest.fail(
             "regenerating grouped Expected: " + str(path) + " [" + case_id + "]",

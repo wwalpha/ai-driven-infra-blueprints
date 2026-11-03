@@ -1,24 +1,25 @@
 evidence-error-00:
-  error:
-    message: synthetic catalog read failure
-    type: OSError
+  $shared-ref: sha256-07a8bd0999350705a761c15166a4ad57bf199a6ed31697d422d4c4ab54823823
 evidence-error-01:
-  error:
-    message: synthetic catalog read failure
-    type: OSError
+  $shared-ref: sha256-07a8bd0999350705a761c15166a4ad57bf199a6ed31697d422d4c4ab54823823
 evidence-error-02:
-  error:
-    message: synthetic catalog read failure
-    type: ValueError
+  $shared-ref: sha256-f2c0fddef4964860d145d355531d91fe9bb5b125e3675fd692f38358fd956100
 evidence-error-03:
-  error:
-    message: synthetic catalog read failure
-    type: ValueError
+  $shared-ref: sha256-f2c0fddef4964860d145d355531d91fe9bb5b125e3675fd692f38358fd956100
 evidence-error-04:
-  error:
-    message: synthetic catalog read failure
-    type: TypeError
+  $shared-ref: sha256-2afa71519437a9a201b36f2beec8064857c433f1ccb5f4d82ef258f8ef5c8a48
 evidence-error-05:
-  error:
-    message: synthetic catalog read failure
-    type: TypeError
+  $shared-ref: sha256-2afa71519437a9a201b36f2beec8064857c433f1ccb5f4d82ef258f8ef5c8a48
+$shared:
+  sha256-07a8bd0999350705a761c15166a4ad57bf199a6ed31697d422d4c4ab54823823:
+    error:
+      message: synthetic catalog read failure
+      type: OSError
+  sha256-2afa71519437a9a201b36f2beec8064857c433f1ccb5f4d82ef258f8ef5c8a48:
+    error:
+      message: synthetic catalog read failure
+      type: TypeError
+  sha256-f2c0fddef4964860d145d355531d91fe9bb5b125e3675fd692f38358fd956100:
+    error:
+      message: synthetic catalog read failure
+      type: ValueError

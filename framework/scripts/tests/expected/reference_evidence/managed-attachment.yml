@@ -7,10 +7,13 @@ managed-attachment-00:
       - iam
       - '002'
 managed-attachment-01:
-  result: []
+  $shared-ref: sha256-82cbfef3073a802efe72f0e4886069cda6690f9407737faea34cadbce1210240
 managed-attachment-02:
-  result: []
+  $shared-ref: sha256-82cbfef3073a802efe72f0e4886069cda6690f9407737faea34cadbce1210240
 managed-attachment-03:
   error:
     message: 'local resource reference missing/inactive: producer/Missing'
     type: Blocked
+$shared:
+  sha256-82cbfef3073a802efe72f0e4886069cda6690f9407737faea34cadbce1210240:
+    result: []

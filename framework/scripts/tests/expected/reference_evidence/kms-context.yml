@@ -1,159 +1,15 @@
 kms-context-00:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
-      producers:
-      - attribute: Arn
-        producer: kms/001
-      reason: reference requires a confirmed Partition
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-f2c4317d3813bb5c32c181ee6461d0ff28e14f6818c91093f5c62f0544da9693
 kms-context-01:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
-      producers:
-      - attribute: Arn
-        producer: kms/001
-      reason: reference requires a confirmed Region
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-82ebc80d62453025acab447196ea7dc886c3ea5f0ccfe8342100bc184025d17c
 kms-context-02:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
-      producers:
-      - attribute: Arn
-        producer: kms/001
-      reason: reference requires a confirmed AccountId
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-f0d5aa63d95495173d44502f3d745aa0a11877246f1bfab039f1fd94029cb951
 kms-context-03:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
-      producers:
-      - attribute: Arn
-        producer: kms/001
-      reason: reference requires a confirmed Partition
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-f2c4317d3813bb5c32c181ee6461d0ff28e14f6818c91093f5c62f0544da9693
 kms-context-04:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
-      producers:
-      - attribute: Arn
-        producer: kms/001
-      reason: reference requires a confirmed Region
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-82ebc80d62453025acab447196ea7dc886c3ea5f0ccfe8342100bc184025d17c
 kms-context-05:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
-      producers:
-      - attribute: Arn
-        producer: kms/001
-      reason: reference requires a confirmed AccountId
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-f0d5aa63d95495173d44502f3d745aa0a11877246f1bfab039f1fd94029cb951
 kms-context-06:
   decision:
     comparisons: []
@@ -334,3 +190,82 @@ kms-context-08:
       reason: recorded_observed cannot prove current or next-deploy physical identity
     equal: null
     equivalent: false
+$shared:
+  sha256-82ebc80d62453025acab447196ea7dc886c3ea5f0ccfe8342100bc184025d17c:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms:
+        - KeyArn
+        current_aws_verified: false
+        evidence_type: recorded_observed
+        format:
+          iac: allowed
+          model: allowed
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+        path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+        producers:
+        - attribute: Arn
+          producer: kms/001
+        reason: reference requires a confirmed Region
+      equal: null
+      equivalent: false
+  sha256-f0d5aa63d95495173d44502f3d745aa0a11877246f1bfab039f1fd94029cb951:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms:
+        - KeyArn
+        current_aws_verified: false
+        evidence_type: recorded_observed
+        format:
+          iac: allowed
+          model: allowed
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+        path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+        producers:
+        - attribute: Arn
+          producer: kms/001
+        reason: reference requires a confirmed AccountId
+      equal: null
+      equivalent: false
+  sha256-f2c4317d3813bb5c32c181ee6461d0ff28e14f6818c91093f5c62f0544da9693:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms:
+        - KeyArn
+        current_aws_verified: false
+        evidence_type: recorded_observed
+        format:
+          iac: allowed
+          model: allowed
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+        path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+        producers:
+        - attribute: Arn
+          producer: kms/001
+        reason: reference requires a confirmed Partition
+      equal: null
+      equivalent: false

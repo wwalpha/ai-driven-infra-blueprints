@@ -14,35 +14,9 @@ terminal-invalid:
     stack: producer
   warnings: []
 terminal-leaf:
-  display: {}
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: GuardDuty.MalwareProtectionPlan.ProtectedResource
-    reason: equal
-    resource: '001'
-    service: guardduty
-    stack: producer
-  warnings: []
+  $shared-ref: sha256-d3ffe654d7e6d981a9e9045dd5170c09c67a185bd03d82e8216020e4ce305d7a
 terminal-projection:
-  display: {}
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: GuardDuty.MalwareProtectionPlan.ProtectedResource
-    reason: equal
-    resource: '001'
-    service: guardduty
-    stack: producer
-  warnings: []
+  $shared-ref: sha256-d3ffe654d7e6d981a9e9045dd5170c09c67a185bd03d82e8216020e4ce305d7a
 terminal-reordered:
   display:
     90e8d31197d7ae58a75c:
@@ -75,3 +49,19 @@ terminal-reordered:
     service: guardduty
     stack: producer
   warnings: []
+$shared:
+  sha256-d3ffe654d7e6d981a9e9045dd5170c09c67a185bd03d82e8216020e4ce305d7a:
+    display: {}
+    records:
+    - actual: null
+      category: matched
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: GuardDuty.MalwareProtectionPlan.ProtectedResource
+      reason: equal
+      resource: '001'
+      service: guardduty
+      stack: producer
+    warnings: []

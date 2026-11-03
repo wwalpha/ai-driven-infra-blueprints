@@ -2,23 +2,23 @@ inline-owner-00:
   failure: null
   selected: true
 inline-owner-01:
-  failure:
-  - difference
-  - inline CREATE child missing
-  selected: false
+  $shared-ref: sha256-d2583b8c3e65e448881e83132059115f9f91b9f6f36ada01e899aa63759b332c
 inline-owner-02:
   failure:
   - uncompared
   - 'inline child correspondence matches=2; '
   selected: false
 inline-owner-03:
-  failure:
-  - difference
-  - inline CREATE child missing
-  selected: false
+  $shared-ref: sha256-d2583b8c3e65e448881e83132059115f9f91b9f6f36ada01e899aa63759b332c
 inline-owner-04:
   failure:
   - uncompared
   - inline child correspondence matches=0; inline child parent requires an unambiguous
     local Ref
   selected: false
+$shared:
+  sha256-d2583b8c3e65e448881e83132059115f9f91b9f6f36ada01e899aa63759b332c:
+    failure:
+    - difference
+    - inline CREATE child missing
+    selected: false

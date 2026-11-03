@@ -1,392 +1,115 @@
 event-bus-valid-00:
-  arn: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-  decisions:
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
+  $shared-ref: sha256-e34c820416d4bd13ca291c209d17d5810af418e86d51e7e03b508833b641ef0d
 event-bus-valid-01:
-  arn: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-  decisions:
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
+  $shared-ref: sha256-e34c820416d4bd13ca291c209d17d5810af418e86d51e7e03b508833b641ef0d
 event-bus-valid-02:
-  arn: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-  decisions:
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
+  $shared-ref: sha256-7dee8f3bca855103dcb57c2aebf0d8d09aabb813003f1971728875381832f2e1
 event-bus-valid-03:
-  arn: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-  decisions:
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
+  $shared-ref: sha256-e34c820416d4bd13ca291c209d17d5810af418e86d51e7e03b508833b641ef0d
 event-bus-valid-04:
-  arn: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-  decisions:
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
+  $shared-ref: sha256-7dee8f3bca855103dcb57c2aebf0d8d09aabb813003f1971728875381832f2e1
 event-bus-valid-05:
-  arn: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-  decisions:
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
+  $shared-ref: sha256-7dee8f3bca855103dcb57c2aebf0d8d09aabb813003f1971728875381832f2e1
 event-bus-valid-06:
-  arn: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-  decisions:
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
+  $shared-ref: sha256-7dee8f3bca855103dcb57c2aebf0d8d09aabb813003f1971728875381832f2e1
 event-bus-valid-07:
-  arn: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-  decisions:
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
-  - comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Arn
-        $resource:
-        - events
-        - '002'
-      path: IAM.Role.Policies
-      producers:
-      - attribute: Arn
-        producer: events/002
-      reason: iac_concrete
-    equal: true
-    equivalent: true
+  $shared-ref: sha256-7dee8f3bca855103dcb57c2aebf0d8d09aabb813003f1971728875381832f2e1
+$shared:
+  sha256-7dee8f3bca855103dcb57c2aebf0d8d09aabb813003f1971728875381832f2e1:
+    arn: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+    decisions:
+    - comparisons: []
+      diagnostics:
+      - allowed_forms: null
+        current_aws_verified: false
+        evidence_type: local_evaluation
+        format:
+          iac: unproven
+          model: unproven
+        iac:
+          $attribute: Arn
+          $resource:
+          - events
+          - '002'
+        identity: unproven
+        local_comparison: matched
+        model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+        path: IAM.Role.Policies
+        producers:
+        - attribute: Arn
+          producer: events/002
+        reason: iac_concrete
+      equal: true
+      equivalent: true
+    - comparisons: []
+      diagnostics:
+      - allowed_forms: null
+        current_aws_verified: false
+        evidence_type: local_evaluation
+        format:
+          iac: unproven
+          model: unproven
+        iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+        identity: unproven
+        local_comparison: matched
+        model:
+          $attribute: Arn
+          $resource:
+          - events
+          - '002'
+        path: IAM.Role.Policies
+        producers:
+        - attribute: Arn
+          producer: events/002
+        reason: iac_concrete
+      equal: true
+      equivalent: true
+  sha256-e34c820416d4bd13ca291c209d17d5810af418e86d51e7e03b508833b641ef0d:
+    arn: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+    decisions:
+    - comparisons: []
+      diagnostics:
+      - allowed_forms: null
+        current_aws_verified: false
+        evidence_type: local_evaluation
+        format:
+          iac: unproven
+          model: unproven
+        iac:
+          $attribute: Arn
+          $resource:
+          - events
+          - '002'
+        identity: unproven
+        local_comparison: matched
+        model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+        path: IAM.Role.Policies
+        producers:
+        - attribute: Arn
+          producer: events/002
+        reason: iac_concrete
+      equal: true
+      equivalent: true
+    - comparisons: []
+      diagnostics:
+      - allowed_forms: null
+        current_aws_verified: false
+        evidence_type: local_evaluation
+        format:
+          iac: unproven
+          model: unproven
+        iac: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+        identity: unproven
+        local_comparison: matched
+        model:
+          $attribute: Arn
+          $resource:
+          - events
+          - '002'
+        path: IAM.Role.Policies
+        producers:
+        - attribute: Arn
+          producer: events/002
+        reason: iac_concrete
+      equal: true
+      equivalent: true

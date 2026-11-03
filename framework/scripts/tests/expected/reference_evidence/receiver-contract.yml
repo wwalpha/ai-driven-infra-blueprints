@@ -1,248 +1,73 @@
 receiver-contract-00:
-  attribute: BucketName
-  different: false
-  resource:
-  - s3
-  - '001'
-  same: true
+  $shared-ref: sha256-6799cf2a216cea8d5edc8f3fd194d5a224517295fae7e3a4f0a8266c928b1d22
 receiver-contract-01:
-  attribute: BucketName
-  different: false
-  resource:
-  - s3
-  - '001'
-  same: true
+  $shared-ref: sha256-6799cf2a216cea8d5edc8f3fd194d5a224517295fae7e3a4f0a8266c928b1d22
 receiver-contract-02:
-  attribute: BucketName
-  different: false
-  resource:
-  - s3
-  - '001'
-  same: true
+  $shared-ref: sha256-6799cf2a216cea8d5edc8f3fd194d5a224517295fae7e3a4f0a8266c928b1d22
 receiver-contract-03:
-  attribute: LogGroupName
-  different: false
-  resource:
-  - cloudwatch-logs
-  - '001'
-  same: true
+  $shared-ref: sha256-525a3c9b83d169a9d896eddf3793084b1cd1afed320cda5495aae349f4021af0
 receiver-contract-04:
-  attribute: LogGroupName
-  different: false
-  resource:
-  - cloudwatch-logs
-  - '001'
-  same: true
+  $shared-ref: sha256-525a3c9b83d169a9d896eddf3793084b1cd1afed320cda5495aae349f4021af0
 receiver-contract-05:
-  attribute: LogGroupName
-  different: false
-  resource:
-  - cloudwatch-logs
-  - '001'
-  same: true
+  $shared-ref: sha256-525a3c9b83d169a9d896eddf3793084b1cd1afed320cda5495aae349f4021af0
 receiver-contract-06:
-  attribute: VpcId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c01065571fae29eef0f2aaa6d2656eff315fb91a79338b144cb7a4c2ff676f0f
 receiver-contract-07:
-  attribute: VpcId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c01065571fae29eef0f2aaa6d2656eff315fb91a79338b144cb7a4c2ff676f0f
 receiver-contract-08:
-  attribute: VpcId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c01065571fae29eef0f2aaa6d2656eff315fb91a79338b144cb7a4c2ff676f0f
 receiver-contract-09:
-  attribute: VpcId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c01065571fae29eef0f2aaa6d2656eff315fb91a79338b144cb7a4c2ff676f0f
 receiver-contract-10:
-  attribute: VpcId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c01065571fae29eef0f2aaa6d2656eff315fb91a79338b144cb7a4c2ff676f0f
 receiver-contract-11:
-  attribute: VpcId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c01065571fae29eef0f2aaa6d2656eff315fb91a79338b144cb7a4c2ff676f0f
 receiver-contract-12:
-  attribute: SubnetId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c0243845eb6731427bbd125050eec1d8bd8a67d62eee20bf72611023a20b6fdc
 receiver-contract-13:
-  attribute: SubnetId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c0243845eb6731427bbd125050eec1d8bd8a67d62eee20bf72611023a20b6fdc
 receiver-contract-14:
-  attribute: SubnetId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c0243845eb6731427bbd125050eec1d8bd8a67d62eee20bf72611023a20b6fdc
 receiver-contract-15:
-  attribute: SubnetId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c0243845eb6731427bbd125050eec1d8bd8a67d62eee20bf72611023a20b6fdc
 receiver-contract-16:
-  attribute: SubnetId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c0243845eb6731427bbd125050eec1d8bd8a67d62eee20bf72611023a20b6fdc
 receiver-contract-17:
-  attribute: SubnetId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c0243845eb6731427bbd125050eec1d8bd8a67d62eee20bf72611023a20b6fdc
 receiver-contract-18:
-  attribute: SubnetId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-c0243845eb6731427bbd125050eec1d8bd8a67d62eee20bf72611023a20b6fdc
 receiver-contract-19:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-20:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-21:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-22:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-23:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-24:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-25:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-26:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-27:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-28:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-29:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-30:
-  attribute: GroupId
-  different: false
-  resource:
-  - security-group
-  - '001'
-  same: true
+  $shared-ref: sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a
 receiver-contract-31:
-  attribute: RouteTableId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-25a6a2d626a919b304537e4a4d28311b83a7bc339a8928023ed5388a31a176f4
 receiver-contract-32:
-  attribute: RouteTableId
-  different: false
-  resource:
-  - vpc
-  - '001'
-  same: true
+  $shared-ref: sha256-25a6a2d626a919b304537e4a4d28311b83a7bc339a8928023ed5388a31a176f4
 receiver-contract-33:
-  attribute: RoleName
-  different: false
-  resource:
-  - iam
-  - '001'
-  same: true
+  $shared-ref: sha256-b82584c7325712742b931e4fb27a73a212cb4bc8a76f8558560da525c61aba6c
 receiver-contract-34:
-  attribute: RoleName
-  different: false
-  resource:
-  - iam
-  - '001'
-  same: true
+  $shared-ref: sha256-b82584c7325712742b931e4fb27a73a212cb4bc8a76f8558560da525c61aba6c
 receiver-contract-35:
   attribute: InstanceProfileName
   different: false
@@ -286,33 +111,13 @@ receiver-contract-40:
   - '001'
   same: true
 receiver-contract-41:
-  attribute: AliasName
-  different: false
-  resource:
-  - kms
-  - '001'
-  same: true
+  $shared-ref: sha256-b079ec9d5e6ad1102b9d22d0da1a33d25bb9f5b402f564b09ca84745cff3f1ed
 receiver-contract-42:
-  attribute: AliasName
-  different: false
-  resource:
-  - kms
-  - '001'
-  same: true
+  $shared-ref: sha256-b079ec9d5e6ad1102b9d22d0da1a33d25bb9f5b402f564b09ca84745cff3f1ed
 receiver-contract-43:
-  attribute: AliasName
-  different: false
-  resource:
-  - kms
-  - '001'
-  same: true
+  $shared-ref: sha256-b079ec9d5e6ad1102b9d22d0da1a33d25bb9f5b402f564b09ca84745cff3f1ed
 receiver-contract-44:
-  attribute: AliasName
-  different: false
-  resource:
-  - kms
-  - '001'
-  same: true
+  $shared-ref: sha256-b079ec9d5e6ad1102b9d22d0da1a33d25bb9f5b402f564b09ca84745cff3f1ed
 receiver-contract-45:
   attribute: KeyId
   different: false
@@ -320,3 +125,60 @@ receiver-contract-45:
   - kms
   - '001'
   same: true
+$shared:
+  sha256-25a6a2d626a919b304537e4a4d28311b83a7bc339a8928023ed5388a31a176f4:
+    attribute: RouteTableId
+    different: false
+    resource:
+    - vpc
+    - '001'
+    same: true
+  sha256-525a3c9b83d169a9d896eddf3793084b1cd1afed320cda5495aae349f4021af0:
+    attribute: LogGroupName
+    different: false
+    resource:
+    - cloudwatch-logs
+    - '001'
+    same: true
+  sha256-6799cf2a216cea8d5edc8f3fd194d5a224517295fae7e3a4f0a8266c928b1d22:
+    attribute: BucketName
+    different: false
+    resource:
+    - s3
+    - '001'
+    same: true
+  sha256-762baf79552108f2cb060696f3c216ab1f05e75cb4deb292f33d569689929f7a:
+    attribute: GroupId
+    different: false
+    resource:
+    - security-group
+    - '001'
+    same: true
+  sha256-b079ec9d5e6ad1102b9d22d0da1a33d25bb9f5b402f564b09ca84745cff3f1ed:
+    attribute: AliasName
+    different: false
+    resource:
+    - kms
+    - '001'
+    same: true
+  sha256-b82584c7325712742b931e4fb27a73a212cb4bc8a76f8558560da525c61aba6c:
+    attribute: RoleName
+    different: false
+    resource:
+    - iam
+    - '001'
+    same: true
+  sha256-c01065571fae29eef0f2aaa6d2656eff315fb91a79338b144cb7a4c2ff676f0f:
+    attribute: VpcId
+    different: false
+    resource:
+    - vpc
+    - '001'
+    same: true
+  sha256-c0243845eb6731427bbd125050eec1d8bd8a67d62eee20bf72611023a20b6fdc:
+    attribute: SubnetId
+    different: false
+    resource:
+    - vpc
+    - '001'
+    same: true

@@ -1,262 +1,17 @@
 fragment-observed-00:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      declarations:
-      - producer: kms/001
-        property: KMS.Key.KeyId
-      evidence_type: local_evaluation
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model:
-        $expression: Join
-        $operands:
-        - ''
-        - - arn:aws:kms:ap-northeast-1:123456789012:key/
-          - $attribute: KeyId
-            $resource:
-            - kms
-            - '001'
-      path: IAM.Role.Policies
-      producers: []
-      reason: identifier_unobserved
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-337943dec9e43d2ccba70f857ded1ed1f41845062c45f0772b7b93a5298e3c67
 fragment-observed-01:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      declarations:
-      - producer: kms/001
-        property: KMS.Key.KeyId
-      evidence_type: local_evaluation
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model:
-        $expression: Join
-        $operands:
-        - ''
-        - - arn:aws:kms:ap-northeast-1:123456789012:key/
-          - $attribute: KeyId
-            $resource:
-            - kms
-            - '001'
-      path: IAM.Role.Policies
-      producers: []
-      reason: identifier_unobserved
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-337943dec9e43d2ccba70f857ded1ed1f41845062c45f0772b7b93a5298e3c67
 fragment-observed-02:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      declarations:
-      - producer: kms/001
-        property: KMS.Key.KeyId
-      evidence_type: local_evaluation
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model:
-        $expression: Join
-        $operands:
-        - ''
-        - - arn:aws:kms:ap-northeast-1:123456789012:key/
-          - $attribute: KeyId
-            $resource:
-            - kms
-            - '001'
-      path: IAM.Role.Policies
-      producers: []
-      reason: identifier_unobserved
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-337943dec9e43d2ccba70f857ded1ed1f41845062c45f0772b7b93a5298e3c67
 fragment-observed-03:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      declarations:
-      - producer: kms/001
-        property: KMS.Key.KeyId
-      evidence_type: local_evaluation
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model:
-        $expression: Join
-        $operands:
-        - ''
-        - - arn:aws:kms:ap-northeast-1:123456789012:key/
-          - $attribute: KeyId
-            $resource:
-            - kms
-            - '001'
-      path: IAM.Role.Policies
-      producers: []
-      reason: identifier_unobserved
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-337943dec9e43d2ccba70f857ded1ed1f41845062c45f0772b7b93a5298e3c67
 fragment-observed-04:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      declarations:
-      - producer: kms/001
-        property: KMS.Key.KeyId
-      evidence_type: local_evaluation
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model:
-        $expression: Join
-        $operands:
-        - ''
-        - - arn:aws:kms:ap-northeast-1:123456789012:key/
-          - $attribute: KeyId
-            $resource:
-            - kms
-            - '001'
-      path: IAM.Role.Policies
-      producers: []
-      reason: identifier_unobserved
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-337943dec9e43d2ccba70f857ded1ed1f41845062c45f0772b7b93a5298e3c67
 fragment-observed-05:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      declarations:
-      - producer: kms/001
-        property: KMS.Key.KeyId
-      evidence_type: local_evaluation
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model:
-        $expression: Join
-        $operands:
-        - ''
-        - - arn:aws:kms:ap-northeast-1:123456789012:key/
-          - $attribute: KeyId
-            $resource:
-            - kms
-            - '001'
-      path: IAM.Role.Policies
-      producers: []
-      reason: identifier_unobserved
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-337943dec9e43d2ccba70f857ded1ed1f41845062c45f0772b7b93a5298e3c67
 fragment-observed-06:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      declarations:
-      - producer: kms/001
-        property: KMS.Key.KeyId
-      evidence_type: local_evaluation
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model:
-        $expression: Join
-        $operands:
-        - ''
-        - - arn:aws:kms:ap-northeast-1:123456789012:key/
-          - $attribute: KeyId
-            $resource:
-            - kms
-            - '001'
-      path: IAM.Role.Policies
-      producers: []
-      reason: identifier_unobserved
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-337943dec9e43d2ccba70f857ded1ed1f41845062c45f0772b7b93a5298e3c67
 fragment-observed-07:
   decision:
     comparisons: []
@@ -294,3 +49,41 @@ fragment-observed-07:
       reason: 'recorded_identifier_mismatch: declaration and Producer Property differ'
     equal: null
     equivalent: false
+$shared:
+  sha256-337943dec9e43d2ccba70f857ded1ed1f41845062c45f0772b7b93a5298e3c67:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms: null
+        current_aws_verified: false
+        declarations:
+        - producer: kms/001
+          property: KMS.Key.KeyId
+        evidence_type: local_evaluation
+        exports:
+        - export_name: shared
+          export_stack: producer
+        format:
+          iac: unproven
+          model: unproven
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model:
+          $expression: Join
+          $operands:
+          - ''
+          - - arn:aws:kms:ap-northeast-1:123456789012:key/
+            - $attribute: KeyId
+              $resource:
+              - kms
+              - '001'
+        path: IAM.Role.Policies
+        producers: []
+        reason: identifier_unobserved
+      equal: null
+      equivalent: false

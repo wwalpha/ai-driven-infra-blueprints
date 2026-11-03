@@ -1,63 +1,11 @@
 sg-invalid-expr-000:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: CodeBuild.Project.VpcConfig
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-ff74e34d9c9509c91b6d413f10af52d723100a1dceceb89ba582dd47eca0b2ba
 sg-invalid-expr-001:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: CodeBuild.Project.VpcConfig
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-ff74e34d9c9509c91b6d413f10af52d723100a1dceceb89ba582dd47eca0b2ba
 sg-invalid-expr-002:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: CodeBuild.Project.VpcConfig
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-ff74e34d9c9509c91b6d413f10af52d723100a1dceceb89ba582dd47eca0b2ba
 sg-invalid-expr-003:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: CodeBuild.Project.VpcConfig
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-ff74e34d9c9509c91b6d413f10af52d723100a1dceceb89ba582dd47eca0b2ba
 sg-invalid-expr-004:
   records:
   - actual: null
@@ -73,20 +21,7 @@ sg-invalid-expr-004:
     service: consumer
     stack: null
 sg-invalid-expr-005:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: CodeBuild.Project.VpcConfig
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-ff74e34d9c9509c91b6d413f10af52d723100a1dceceb89ba582dd47eca0b2ba
 sg-invalid-expr-006:
   records:
   - actual: null
@@ -116,65 +51,13 @@ sg-invalid-expr-007:
     service: consumer
     stack: null
 sg-invalid-expr-008:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.Instance.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-1b2252aa2fd25a7e22f44f7a791c7c61f92fa7ec64f689f7b122f14e532d592f
 sg-invalid-expr-009:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.Instance.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-1b2252aa2fd25a7e22f44f7a791c7c61f92fa7ec64f689f7b122f14e532d592f
 sg-invalid-expr-010:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.Instance.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-1b2252aa2fd25a7e22f44f7a791c7c61f92fa7ec64f689f7b122f14e532d592f
 sg-invalid-expr-011:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.Instance.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-1b2252aa2fd25a7e22f44f7a791c7c61f92fa7ec64f689f7b122f14e532d592f
 sg-invalid-expr-012:
   records:
   - actual: null
@@ -190,20 +73,7 @@ sg-invalid-expr-012:
     service: consumer
     stack: null
 sg-invalid-expr-013:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.Instance.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-1b2252aa2fd25a7e22f44f7a791c7c61f92fa7ec64f689f7b122f14e532d592f
 sg-invalid-expr-014:
   records:
   - actual: null
@@ -233,65 +103,13 @@ sg-invalid-expr-015:
     service: consumer
     stack: null
 sg-invalid-expr-016:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupIngress.GroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-a4f3c001046bc86a10775fe855a647f6da52ce3fd72c8984da7c4ade6a303c3e
 sg-invalid-expr-017:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupIngress.GroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-a4f3c001046bc86a10775fe855a647f6da52ce3fd72c8984da7c4ade6a303c3e
 sg-invalid-expr-018:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupIngress.GroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-a4f3c001046bc86a10775fe855a647f6da52ce3fd72c8984da7c4ade6a303c3e
 sg-invalid-expr-019:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupIngress.GroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-a4f3c001046bc86a10775fe855a647f6da52ce3fd72c8984da7c4ade6a303c3e
 sg-invalid-expr-020:
   records:
   - actual: null
@@ -307,20 +125,7 @@ sg-invalid-expr-020:
     service: consumer
     stack: null
 sg-invalid-expr-021:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupIngress.GroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-a4f3c001046bc86a10775fe855a647f6da52ce3fd72c8984da7c4ade6a303c3e
 sg-invalid-expr-022:
   records:
   - actual: null
@@ -350,65 +155,13 @@ sg-invalid-expr-023:
     service: consumer
     stack: null
 sg-invalid-expr-024:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-2669ec02da88527aa548da25499fda1a0fb78f759938403f72f8adaa797eea33
 sg-invalid-expr-025:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-2669ec02da88527aa548da25499fda1a0fb78f759938403f72f8adaa797eea33
 sg-invalid-expr-026:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-2669ec02da88527aa548da25499fda1a0fb78f759938403f72f8adaa797eea33
 sg-invalid-expr-027:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-2669ec02da88527aa548da25499fda1a0fb78f759938403f72f8adaa797eea33
 sg-invalid-expr-028:
   records:
   - actual: null
@@ -424,20 +177,7 @@ sg-invalid-expr-028:
     service: consumer
     stack: null
 sg-invalid-expr-029:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-2669ec02da88527aa548da25499fda1a0fb78f759938403f72f8adaa797eea33
 sg-invalid-expr-030:
   records:
   - actual: null
@@ -467,65 +207,13 @@ sg-invalid-expr-031:
     service: consumer
     stack: null
 sg-invalid-expr-032:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupEgress.GroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-aed477ea0ff2fe0a3a8ec7212a8660aecc8f464adf29fc70e908928299da18e1
 sg-invalid-expr-033:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupEgress.GroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-aed477ea0ff2fe0a3a8ec7212a8660aecc8f464adf29fc70e908928299da18e1
 sg-invalid-expr-034:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupEgress.GroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-aed477ea0ff2fe0a3a8ec7212a8660aecc8f464adf29fc70e908928299da18e1
 sg-invalid-expr-035:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupEgress.GroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-aed477ea0ff2fe0a3a8ec7212a8660aecc8f464adf29fc70e908928299da18e1
 sg-invalid-expr-036:
   records:
   - actual: null
@@ -541,20 +229,7 @@ sg-invalid-expr-036:
     service: consumer
     stack: null
 sg-invalid-expr-037:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupEgress.GroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-aed477ea0ff2fe0a3a8ec7212a8660aecc8f464adf29fc70e908928299da18e1
 sg-invalid-expr-038:
   records:
   - actual: null
@@ -584,65 +259,13 @@ sg-invalid-expr-039:
     service: consumer
     stack: null
 sg-invalid-expr-040:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-947182a38abb7a912735ec2100b2ee2bc4326fd83d31cdd97771245ed5dc0d48
 sg-invalid-expr-041:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-947182a38abb7a912735ec2100b2ee2bc4326fd83d31cdd97771245ed5dc0d48
 sg-invalid-expr-042:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-947182a38abb7a912735ec2100b2ee2bc4326fd83d31cdd97771245ed5dc0d48
 sg-invalid-expr-043:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-947182a38abb7a912735ec2100b2ee2bc4326fd83d31cdd97771245ed5dc0d48
 sg-invalid-expr-044:
   records:
   - actual: null
@@ -658,20 +281,7 @@ sg-invalid-expr-044:
     service: consumer
     stack: null
 sg-invalid-expr-045:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-947182a38abb7a912735ec2100b2ee2bc4326fd83d31cdd97771245ed5dc0d48
 sg-invalid-expr-046:
   records:
   - actual: null
@@ -701,65 +311,13 @@ sg-invalid-expr-047:
     service: consumer
     stack: null
 sg-invalid-expr-048:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroup.SecurityGroupEgress
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-c481a8f68af3972a4b596b9f136543e48e3c570c78b4f1ec31fc307088de4c35
 sg-invalid-expr-049:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroup.SecurityGroupEgress
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-c481a8f68af3972a4b596b9f136543e48e3c570c78b4f1ec31fc307088de4c35
 sg-invalid-expr-050:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroup.SecurityGroupEgress
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-c481a8f68af3972a4b596b9f136543e48e3c570c78b4f1ec31fc307088de4c35
 sg-invalid-expr-051:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroup.SecurityGroupEgress
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-c481a8f68af3972a4b596b9f136543e48e3c570c78b4f1ec31fc307088de4c35
 sg-invalid-expr-052:
   records:
   - actual: null
@@ -775,20 +333,7 @@ sg-invalid-expr-052:
     service: consumer
     stack: null
 sg-invalid-expr-053:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.SecurityGroup.SecurityGroupEgress
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-c481a8f68af3972a4b596b9f136543e48e3c570c78b4f1ec31fc307088de4c35
 sg-invalid-expr-054:
   records:
   - actual: null
@@ -818,65 +363,13 @@ sg-invalid-expr-055:
     service: consumer
     stack: null
 sg-invalid-expr-056:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.VPCEndpoint.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-d75064d21acc63e06e22e29b7f6b54cc8bbc1d2d86d4d84b53869fa16830b82f
 sg-invalid-expr-057:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.VPCEndpoint.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-d75064d21acc63e06e22e29b7f6b54cc8bbc1d2d86d4d84b53869fa16830b82f
 sg-invalid-expr-058:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.VPCEndpoint.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-d75064d21acc63e06e22e29b7f6b54cc8bbc1d2d86d4d84b53869fa16830b82f
 sg-invalid-expr-059:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.VPCEndpoint.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-d75064d21acc63e06e22e29b7f6b54cc8bbc1d2d86d4d84b53869fa16830b82f
 sg-invalid-expr-060:
   records:
   - actual: null
@@ -892,20 +385,7 @@ sg-invalid-expr-060:
     service: consumer
     stack: null
 sg-invalid-expr-061:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: EC2.VPCEndpoint.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-d75064d21acc63e06e22e29b7f6b54cc8bbc1d2d86d4d84b53869fa16830b82f
 sg-invalid-expr-062:
   records:
   - actual: null
@@ -935,65 +415,13 @@ sg-invalid-expr-063:
     service: consumer
     stack: null
 sg-invalid-expr-064:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Connection.ConnectionInput
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-db945e3451284b24c9ea05b5e19d4ca30aba3f81cb3ecdfb67b211f5d1a493b8
 sg-invalid-expr-065:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Connection.ConnectionInput
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-db945e3451284b24c9ea05b5e19d4ca30aba3f81cb3ecdfb67b211f5d1a493b8
 sg-invalid-expr-066:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Connection.ConnectionInput
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-db945e3451284b24c9ea05b5e19d4ca30aba3f81cb3ecdfb67b211f5d1a493b8
 sg-invalid-expr-067:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Connection.ConnectionInput
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-db945e3451284b24c9ea05b5e19d4ca30aba3f81cb3ecdfb67b211f5d1a493b8
 sg-invalid-expr-068:
   records:
   - actual: null
@@ -1009,20 +437,7 @@ sg-invalid-expr-068:
     service: consumer
     stack: null
 sg-invalid-expr-069:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Connection.ConnectionInput
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-db945e3451284b24c9ea05b5e19d4ca30aba3f81cb3ecdfb67b211f5d1a493b8
 sg-invalid-expr-070:
   records:
   - actual: null
@@ -1052,65 +467,13 @@ sg-invalid-expr-071:
     service: consumer
     stack: null
 sg-invalid-expr-072:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Lambda.Function.VpcConfig
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-60be67d8b8e6aebdd0d7f38085ec664d9484ca685b8235f0c8723bff9c46c9a4
 sg-invalid-expr-073:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Lambda.Function.VpcConfig
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-60be67d8b8e6aebdd0d7f38085ec664d9484ca685b8235f0c8723bff9c46c9a4
 sg-invalid-expr-074:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Lambda.Function.VpcConfig
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-60be67d8b8e6aebdd0d7f38085ec664d9484ca685b8235f0c8723bff9c46c9a4
 sg-invalid-expr-075:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Lambda.Function.VpcConfig
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-60be67d8b8e6aebdd0d7f38085ec664d9484ca685b8235f0c8723bff9c46c9a4
 sg-invalid-expr-076:
   records:
   - actual: null
@@ -1126,20 +489,7 @@ sg-invalid-expr-076:
     service: consumer
     stack: null
 sg-invalid-expr-077:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Lambda.Function.VpcConfig
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-60be67d8b8e6aebdd0d7f38085ec664d9484ca685b8235f0c8723bff9c46c9a4
 sg-invalid-expr-078:
   records:
   - actual: null
@@ -1169,65 +519,13 @@ sg-invalid-expr-079:
     service: consumer
     stack: null
 sg-invalid-expr-080:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: MWAA.Environment.NetworkConfiguration
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-5eb1841c5e5cfaf87c6ab387375caaca455921778b75907ab9b5f410e10bf9da
 sg-invalid-expr-081:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: MWAA.Environment.NetworkConfiguration
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-5eb1841c5e5cfaf87c6ab387375caaca455921778b75907ab9b5f410e10bf9da
 sg-invalid-expr-082:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: MWAA.Environment.NetworkConfiguration
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-5eb1841c5e5cfaf87c6ab387375caaca455921778b75907ab9b5f410e10bf9da
 sg-invalid-expr-083:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: MWAA.Environment.NetworkConfiguration
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-5eb1841c5e5cfaf87c6ab387375caaca455921778b75907ab9b5f410e10bf9da
 sg-invalid-expr-084:
   records:
   - actual: null
@@ -1243,20 +541,7 @@ sg-invalid-expr-084:
     service: consumer
     stack: null
 sg-invalid-expr-085:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: MWAA.Environment.NetworkConfiguration
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-5eb1841c5e5cfaf87c6ab387375caaca455921778b75907ab9b5f410e10bf9da
 sg-invalid-expr-086:
   records:
   - actual: null
@@ -1286,65 +571,13 @@ sg-invalid-expr-087:
     service: consumer
     stack: null
 sg-invalid-expr-088:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.VPCConnection.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-cb4cf3f0c8f4ea0bda390bfdaf41a9c5a566dfa8ee5574c4e582eb84292e7e6d
 sg-invalid-expr-089:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.VPCConnection.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-cb4cf3f0c8f4ea0bda390bfdaf41a9c5a566dfa8ee5574c4e582eb84292e7e6d
 sg-invalid-expr-090:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.VPCConnection.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-cb4cf3f0c8f4ea0bda390bfdaf41a9c5a566dfa8ee5574c4e582eb84292e7e6d
 sg-invalid-expr-091:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.VPCConnection.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-cb4cf3f0c8f4ea0bda390bfdaf41a9c5a566dfa8ee5574c4e582eb84292e7e6d
 sg-invalid-expr-092:
   records:
   - actual: null
@@ -1360,20 +593,7 @@ sg-invalid-expr-092:
     service: consumer
     stack: null
 sg-invalid-expr-093:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: QuickSight.VPCConnection.SecurityGroupIds
-    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: null
+  $shared-ref: sha256-cb4cf3f0c8f4ea0bda390bfdaf41a9c5a566dfa8ee5574c4e582eb84292e7e6d
 sg-invalid-expr-094:
   records:
   - actual: null
@@ -1402,3 +622,184 @@ sg-invalid-expr-095:
     resource: 090
     service: consumer
     stack: null
+$shared:
+  sha256-1b2252aa2fd25a7e22f44f7a791c7c61f92fa7ec64f689f7b122f14e532d592f:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: EC2.Instance.SecurityGroupIds
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-2669ec02da88527aa548da25499fda1a0fb78f759938403f72f8adaa797eea33:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-5eb1841c5e5cfaf87c6ab387375caaca455921778b75907ab9b5f410e10bf9da:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: MWAA.Environment.NetworkConfiguration
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-60be67d8b8e6aebdd0d7f38085ec664d9484ca685b8235f0c8723bff9c46c9a4:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: Lambda.Function.VpcConfig
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-947182a38abb7a912735ec2100b2ee2bc4326fd83d31cdd97771245ed5dc0d48:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-a4f3c001046bc86a10775fe855a647f6da52ce3fd72c8984da7c4ade6a303c3e:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: EC2.SecurityGroupIngress.GroupId
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-aed477ea0ff2fe0a3a8ec7212a8660aecc8f464adf29fc70e908928299da18e1:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: EC2.SecurityGroupEgress.GroupId
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-c481a8f68af3972a4b596b9f136543e48e3c570c78b4f1ec31fc307088de4c35:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: EC2.SecurityGroup.SecurityGroupEgress
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-cb4cf3f0c8f4ea0bda390bfdaf41a9c5a566dfa8ee5574c4e582eb84292e7e6d:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: QuickSight.VPCConnection.SecurityGroupIds
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-d75064d21acc63e06e22e29b7f6b54cc8bbc1d2d86d4d84b53869fa16830b82f:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: EC2.VPCEndpoint.SecurityGroupIds
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-db945e3451284b24c9ea05b5e19d4ca30aba3f81cb3ecdfb67b211f5d1a493b8:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: Glue.Connection.ConnectionInput
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null
+  sha256-ff74e34d9c9509c91b6d413f10af52d723100a1dceceb89ba582dd47eca0b2ba:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: CodeBuild.Project.VpcConfig
+      reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: null

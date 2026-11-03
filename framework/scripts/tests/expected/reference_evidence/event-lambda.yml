@@ -1,26 +1,31 @@
 event-lambda-00:
-  result: false
+  $shared-ref: sha256-47e3758b8f17c3d40063c31e5d6ec07902df0344ac7365f843e00309222496d7
 event-lambda-01:
-  result: false
+  $shared-ref: sha256-47e3758b8f17c3d40063c31e5d6ec07902df0344ac7365f843e00309222496d7
 event-lambda-02:
-  result: false
+  $shared-ref: sha256-47e3758b8f17c3d40063c31e5d6ec07902df0344ac7365f843e00309222496d7
 event-lambda-03:
-  result: false
+  $shared-ref: sha256-47e3758b8f17c3d40063c31e5d6ec07902df0344ac7365f843e00309222496d7
 event-lambda-04:
-  result: false
+  $shared-ref: sha256-47e3758b8f17c3d40063c31e5d6ec07902df0344ac7365f843e00309222496d7
 event-lambda-05:
-  result: false
+  $shared-ref: sha256-47e3758b8f17c3d40063c31e5d6ec07902df0344ac7365f843e00309222496d7
 event-lambda-06:
-  result: false
+  $shared-ref: sha256-47e3758b8f17c3d40063c31e5d6ec07902df0344ac7365f843e00309222496d7
 event-lambda-07:
-  result: false
+  $shared-ref: sha256-47e3758b8f17c3d40063c31e5d6ec07902df0344ac7365f843e00309222496d7
 event-lambda-08:
-  result: false
+  $shared-ref: sha256-47e3758b8f17c3d40063c31e5d6ec07902df0344ac7365f843e00309222496d7
 event-lambda-09:
-  result: null
+  $shared-ref: sha256-0e6a3f421c7374c5f3c50dc930afe20fcd33a096c5def643dccf59730022493b
 event-lambda-10:
-  result: null
+  $shared-ref: sha256-0e6a3f421c7374c5f3c50dc930afe20fcd33a096c5def643dccf59730022493b
 event-lambda-11:
-  result: null
+  $shared-ref: sha256-0e6a3f421c7374c5f3c50dc930afe20fcd33a096c5def643dccf59730022493b
 event-lambda-12:
-  result: null
+  $shared-ref: sha256-0e6a3f421c7374c5f3c50dc930afe20fcd33a096c5def643dccf59730022493b
+$shared:
+  sha256-0e6a3f421c7374c5f3c50dc930afe20fcd33a096c5def643dccf59730022493b:
+    result: null
+  sha256-47e3758b8f17c3d40063c31e5d6ec07902df0344ac7365f843e00309222496d7:
+    result: false

@@ -1,35 +1,11 @@
 naming-review-00:
-  ordinary: []
-  unverified: []
+  $shared-ref: sha256-73b8aedef0a271e5b28668fae279890a3d2c5f927580462e97d9253a49608df0
 naming-review-01:
-  ordinary: []
-  unverified: []
+  $shared-ref: sha256-73b8aedef0a271e5b28668fae279890a3d2c5f927580462e97d9253a49608df0
 naming-review-02:
-  ordinary:
-  - applied_rule: vpc-{{application}}-{{environment}}
-    evidence: Reviewed the recorded name and rule
-    id: 7aa84a4420656a66a9e9
-    message: Naming finding
-    naming_item_id: f8d8ac8d76eb6ad28b92
-    property: Name
-    resource: '001'
-    rule: review.naming
-    service: vpc
-    violation: format
-  unverified: []
+  $shared-ref: sha256-15370b96a33eb3addc870b0399231ac3adc1adfe05126cab6b870547fd14d038
 naming-review-03:
-  ordinary:
-  - applied_rule: vpc-{{application}}-{{environment}}
-    evidence: Reviewed the recorded name and rule
-    id: 7aa84a4420656a66a9e9
-    message: Naming finding
-    naming_item_id: f8d8ac8d76eb6ad28b92
-    property: Name
-    resource: '001'
-    rule: review.naming
-    service: vpc
-    violation: format
-  unverified: []
+  $shared-ref: sha256-15370b96a33eb3addc870b0399231ac3adc1adfe05126cab6b870547fd14d038
 naming-review-04:
   ordinary:
   - actual: stg
@@ -58,3 +34,20 @@ naming-review-05:
     service: vpc
     violation: required_missing
   unverified: []
+$shared:
+  sha256-15370b96a33eb3addc870b0399231ac3adc1adfe05126cab6b870547fd14d038:
+    ordinary:
+    - applied_rule: vpc-{{application}}-{{environment}}
+      evidence: Reviewed the recorded name and rule
+      id: 7aa84a4420656a66a9e9
+      message: Naming finding
+      naming_item_id: f8d8ac8d76eb6ad28b92
+      property: Name
+      resource: '001'
+      rule: review.naming
+      service: vpc
+      violation: format
+    unverified: []
+  sha256-73b8aedef0a271e5b28668fae279890a3d2c5f927580462e97d9253a49608df0:
+    ordinary: []
+    unverified: []

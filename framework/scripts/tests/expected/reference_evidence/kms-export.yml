@@ -1,69 +1,7 @@
 kms-export-00:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-87201f0643c9aa7103156af113194bddb2cc589774ff40394862a7fdfb67a433
 kms-export-01:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-87201f0643c9aa7103156af113194bddb2cc589774ff40394862a7fdfb67a433
 kms-export-02:
   decision:
     comparisons: []
@@ -170,71 +108,9 @@ kms-export-04:
     equal: null
     equivalent: false
 kms-export-05:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-6593d04c003f8ed01198b378018a479fed30848adcfbab2cc1070de204ad88c5
 kms-export-06:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-6593d04c003f8ed01198b378018a479fed30848adcfbab2cc1070de204ad88c5
 kms-export-07:
   decision:
     comparisons: []
@@ -341,71 +217,9 @@ kms-export-09:
     equal: null
     equivalent: false
 kms-export-10:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Lambda.Function.KmsKeyArn
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-93f09869ece70a3823b5487a9d250972b4e7ff1d2b0858752744b82287c986fc
 kms-export-11:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Lambda.Function.KmsKeyArn
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-93f09869ece70a3823b5487a9d250972b4e7ff1d2b0858752744b82287c986fc
 kms-export-12:
   decision:
     comparisons: []
@@ -512,71 +326,9 @@ kms-export-14:
     equal: null
     equivalent: false
 kms-export-15:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      path: Lambda.Function.KmsKeyArn
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-386f50b35e42d44b927228bbf7b3c6901ba37fded70254df6b027484889c7e1c
 kms-export-16:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      path: Lambda.Function.KmsKeyArn
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-386f50b35e42d44b927228bbf7b3c6901ba37fded70254df6b027484889c7e1c
 kms-export-17:
   decision:
     comparisons: []
@@ -683,73 +435,9 @@ kms-export-19:
     equal: null
     equivalent: false
 kms-export-20:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - AliasArn
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Logs.LogGroup.KmsKeyId
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-311919235c6a5c6677001d2942ec549d932dbc3939b73cac19a70ccd90d2f583
 kms-export-21:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - AliasArn
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: Logs.LogGroup.KmsKeyId
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-311919235c6a5c6677001d2942ec549d932dbc3939b73cac19a70ccd90d2f583
 kms-export-22:
   decision:
     comparisons: []
@@ -859,73 +547,9 @@ kms-export-24:
     equal: null
     equivalent: false
 kms-export-25:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - AliasArn
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      path: Logs.LogGroup.KmsKeyId
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-8c0a8595f3194dd8b79ff583146b9ec8df646504d3fad314e7b75fb402b3eee3
 kms-export-26:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - AliasArn
-      - KeyArn
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: allowed
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      path: Logs.LogGroup.KmsKeyId
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-8c0a8595f3194dd8b79ff583146b9ec8df646504d3fad314e7b75fb402b3eee3
 kms-export-27:
   decision:
     comparisons: []
@@ -1035,75 +659,9 @@ kms-export-29:
     equal: null
     equivalent: false
 kms-export-30:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - AliasName
-      - Arn
-      - KeyId
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-1609613e215421798d9d48f5756def4341798efd8318d983ca066b4bf40c93cd
 kms-export-31:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - AliasName
-      - Arn
-      - KeyId
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
-      path: S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-1609613e215421798d9d48f5756def4341798efd8318d983ca066b4bf40c93cd
 kms-export-32:
   decision:
     comparisons: []
@@ -1216,75 +774,9 @@ kms-export-34:
     equal: null
     equivalent: false
 kms-export-35:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - AliasName
-      - Arn
-      - KeyId
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      path: S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-823bfbbe915143592cf4e24ea0aba547864ad016d87bc1ad681bf0190302e794
 kms-export-36:
-  decision:
-    comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - AliasName
-      - Arn
-      - KeyId
-      current_aws_verified: false
-      evidence_type: recorded_observed
-      exports:
-      - export_name: shared
-        export_stack: producer
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - kms
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      path: S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
-      producers:
-      - attribute: Arn
-        current_aws_verified: false
-        derived_format: KeyArn
-        evidence_type: recorded_observed
-        producer: kms/001
-        source_property: KMS.Key.KeyId
-      reason: recorded_observed cannot prove current or next-deploy physical identity
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-823bfbbe915143592cf4e24ea0aba547864ad016d87bc1ad681bf0190302e794
 kms-export-37:
   decision:
     comparisons: []
@@ -1396,3 +888,274 @@ kms-export-39:
       reason: recorded_observed cannot prove current or next-deploy physical identity
     equal: null
     equivalent: false
+$shared:
+  sha256-1609613e215421798d9d48f5756def4341798efd8318d983ca066b4bf40c93cd:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms:
+        - AliasName
+        - Arn
+        - KeyId
+        current_aws_verified: false
+        evidence_type: recorded_observed
+        exports:
+        - export_name: shared
+          export_stack: producer
+        format:
+          iac: allowed
+          model: unproven
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+        path: S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+        producers:
+        - attribute: Arn
+          current_aws_verified: false
+          derived_format: KeyArn
+          evidence_type: recorded_observed
+          producer: kms/001
+          source_property: KMS.Key.KeyId
+        reason: recorded_observed cannot prove current or next-deploy physical identity
+      equal: null
+      equivalent: false
+  sha256-311919235c6a5c6677001d2942ec549d932dbc3939b73cac19a70ccd90d2f583:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms:
+        - AliasArn
+        - KeyArn
+        current_aws_verified: false
+        evidence_type: recorded_observed
+        exports:
+        - export_name: shared
+          export_stack: producer
+        format:
+          iac: allowed
+          model: allowed
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+        path: Logs.LogGroup.KmsKeyId
+        producers:
+        - attribute: Arn
+          current_aws_verified: false
+          derived_format: KeyArn
+          evidence_type: recorded_observed
+          producer: kms/001
+          source_property: KMS.Key.KeyId
+        reason: recorded_observed cannot prove current or next-deploy physical identity
+      equal: null
+      equivalent: false
+  sha256-386f50b35e42d44b927228bbf7b3c6901ba37fded70254df6b027484889c7e1c:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms:
+        - Arn
+        current_aws_verified: false
+        evidence_type: recorded_observed
+        exports:
+        - export_name: shared
+          export_stack: producer
+        format:
+          iac: allowed
+          model: unproven
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        path: Lambda.Function.KmsKeyArn
+        producers:
+        - attribute: Arn
+          current_aws_verified: false
+          derived_format: KeyArn
+          evidence_type: recorded_observed
+          producer: kms/001
+          source_property: KMS.Key.KeyId
+        reason: recorded_observed cannot prove current or next-deploy physical identity
+      equal: null
+      equivalent: false
+  sha256-6593d04c003f8ed01198b378018a479fed30848adcfbab2cc1070de204ad88c5:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms:
+        - KeyArn
+        current_aws_verified: false
+        evidence_type: recorded_observed
+        exports:
+        - export_name: shared
+          export_stack: producer
+        format:
+          iac: allowed
+          model: allowed
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+        producers:
+        - attribute: Arn
+          current_aws_verified: false
+          derived_format: KeyArn
+          evidence_type: recorded_observed
+          producer: kms/001
+          source_property: KMS.Key.KeyId
+        reason: recorded_observed cannot prove current or next-deploy physical identity
+      equal: null
+      equivalent: false
+  sha256-823bfbbe915143592cf4e24ea0aba547864ad016d87bc1ad681bf0190302e794:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms:
+        - AliasName
+        - Arn
+        - KeyId
+        current_aws_verified: false
+        evidence_type: recorded_observed
+        exports:
+        - export_name: shared
+          export_stack: producer
+        format:
+          iac: allowed
+          model: unproven
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        path: S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+        producers:
+        - attribute: Arn
+          current_aws_verified: false
+          derived_format: KeyArn
+          evidence_type: recorded_observed
+          producer: kms/001
+          source_property: KMS.Key.KeyId
+        reason: recorded_observed cannot prove current or next-deploy physical identity
+      equal: null
+      equivalent: false
+  sha256-87201f0643c9aa7103156af113194bddb2cc589774ff40394862a7fdfb67a433:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms:
+        - KeyArn
+        current_aws_verified: false
+        evidence_type: recorded_observed
+        exports:
+        - export_name: shared
+          export_stack: producer
+        format:
+          iac: allowed
+          model: allowed
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+        path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+        producers:
+        - attribute: Arn
+          current_aws_verified: false
+          derived_format: KeyArn
+          evidence_type: recorded_observed
+          producer: kms/001
+          source_property: KMS.Key.KeyId
+        reason: recorded_observed cannot prove current or next-deploy physical identity
+      equal: null
+      equivalent: false
+  sha256-8c0a8595f3194dd8b79ff583146b9ec8df646504d3fad314e7b75fb402b3eee3:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms:
+        - AliasArn
+        - KeyArn
+        current_aws_verified: false
+        evidence_type: recorded_observed
+        exports:
+        - export_name: shared
+          export_stack: producer
+        format:
+          iac: allowed
+          model: allowed
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        path: Logs.LogGroup.KmsKeyId
+        producers:
+        - attribute: Arn
+          current_aws_verified: false
+          derived_format: KeyArn
+          evidence_type: recorded_observed
+          producer: kms/001
+          source_property: KMS.Key.KeyId
+        reason: recorded_observed cannot prove current or next-deploy physical identity
+      equal: null
+      equivalent: false
+  sha256-93f09869ece70a3823b5487a9d250972b4e7ff1d2b0858752744b82287c986fc:
+    decision:
+      comparisons: []
+      diagnostics:
+      - allowed_forms:
+        - Arn
+        current_aws_verified: false
+        evidence_type: recorded_observed
+        exports:
+        - export_name: shared
+          export_stack: producer
+        format:
+          iac: allowed
+          model: unproven
+        iac:
+          $attribute: Arn
+          $resource:
+          - kms
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+        path: Lambda.Function.KmsKeyArn
+        producers:
+        - attribute: Arn
+          current_aws_verified: false
+          derived_format: KeyArn
+          evidence_type: recorded_observed
+          producer: kms/001
+          source_property: KMS.Key.KeyId
+        reason: recorded_observed cannot prove current or next-deploy physical identity
+      equal: null
+      equivalent: false

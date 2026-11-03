@@ -1,10 +1,13 @@
 flowlog-context-00:
   attribute: VpcId
 flowlog-context-01:
-  attribute: null
+  $shared-ref: sha256-8a76a79d6aaf8c4fad690e76fa7157ce4056319e5ef3418b952c6dc25c68cb63
 flowlog-context-02:
-  attribute: null
+  $shared-ref: sha256-8a76a79d6aaf8c4fad690e76fa7157ce4056319e5ef3418b952c6dc25c68cb63
 flowlog-context-03:
-  attribute: null
+  $shared-ref: sha256-8a76a79d6aaf8c4fad690e76fa7157ce4056319e5ef3418b952c6dc25c68cb63
 flowlog-context-04:
-  attribute: null
+  $shared-ref: sha256-8a76a79d6aaf8c4fad690e76fa7157ce4056319e5ef3418b952c6dc25c68cb63
+$shared:
+  sha256-8a76a79d6aaf8c4fad690e76fa7157ce4056319e5ef3418b952c6dc25c68cb63:
+    attribute: null

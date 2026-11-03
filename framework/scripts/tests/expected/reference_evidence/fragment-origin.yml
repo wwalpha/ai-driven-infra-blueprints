@@ -1,15 +1,11 @@
 fragment-origin-00:
-  error:
-    message: 'ImportValue handoff matches=0 or same-stack export: shared'
-    type: Blocked
+  $shared-ref: sha256-97973942130a100dd507c6f0a74609b7aff8ec5f28c2a425940508369341838a
 fragment-origin-01:
   error:
     message: 'ImportValue handoff matches=2 or same-stack export: shared'
     type: Blocked
 fragment-origin-02:
-  error:
-    message: 'ImportValue handoff matches=0 or same-stack export: shared'
-    type: Blocked
+  $shared-ref: sha256-97973942130a100dd507c6f0a74609b7aff8ec5f28c2a425940508369341838a
 fragment-origin-03:
   decision:
     comparisons: []
@@ -43,3 +39,8 @@ fragment-origin-03:
         cannot prove physical identity
     equal: null
     equivalent: false
+$shared:
+  sha256-97973942130a100dd507c6f0a74609b7aff8ec5f28c2a425940508369341838a:
+    error:
+      message: 'ImportValue handoff matches=0 or same-stack export: shared'
+      type: Blocked

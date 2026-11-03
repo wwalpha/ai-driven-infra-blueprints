@@ -1,11 +1,7 @@
 fragment-invalid-00:
-  error:
-    message: 'producer_ambiguous: overlapping reference declarations'
-    type: Blocked
+  $shared-ref: sha256-74fa5a4bdfbb1c2ea92be1f60c73757d2378931c84588bc3559277cc0ec933ac
 fragment-invalid-01:
-  error:
-    message: 'producer_ambiguous: overlapping reference declarations'
-    type: Blocked
+  $shared-ref: sha256-74fa5a4bdfbb1c2ea92be1f60c73757d2378931c84588bc3559277cc0ec933ac
 fragment-invalid-02:
   error:
     message: 'reference occurrence does not identify saved text: ref'
@@ -34,3 +30,8 @@ fragment-invalid-07:
   error:
     message: 'attribute_format_unproven: producer Property differs'
     type: Blocked
+$shared:
+  sha256-74fa5a4bdfbb1c2ea92be1f60c73757d2378931c84588bc3559277cc0ec933ac:
+    error:
+      message: 'producer_ambiguous: overlapping reference declarations'
+      type: Blocked

@@ -1,112 +1,63 @@
 new-receiver-00:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-01:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-02:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-03:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-04:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-05:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-06:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-07:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-08:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-09:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-10:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-11:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-12:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-13:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-14:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-15:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-16:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-17:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-18:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-19:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-20:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-21:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-22:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-23:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-24:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-25:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
 new-receiver-26:
   invalid: null
   valid: null
   wrong: null
 new-receiver-27:
-  invalid: null
-  valid: true
-  wrong: null
+  $shared-ref: sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178
+$shared:
+  sha256-6f9269994dbb643ce0f7db29be300d6e27c3d5286093d63017cb736a7b81f178:
+    invalid: null
+    valid: true
+    wrong: null

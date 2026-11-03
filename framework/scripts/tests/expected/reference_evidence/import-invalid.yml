@@ -1,94 +1,73 @@
 import-invalid-00:
-  error:
-    message: 'producer logicalId is absent; [{"category": "MODEL_NEEDS_FIX", "code":
-      "MODEL_REF_TARGET_MISSING", "message": "producer logicalId is absent", "status":
-      "FAIL", "action": "Correct the Model reference or the invalid producer field.",
-      "targetLogicalId": "EC2_VPC_999", "fixModels": ["synthetic-project/model/fixture/team/consumer.properties"]}]'
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-cca2dd8589d048f365f401d698c288efcb34ee0bc32b8091c1733b72b6706b5a
 import-invalid-01:
-  error:
-    message: 'producer logicalId is absent; [{"category": "MODEL_NEEDS_FIX", "code":
-      "MODEL_REF_TARGET_MISSING", "message": "producer logicalId is absent", "status":
-      "FAIL", "action": "Correct the Model reference or the invalid producer field.",
-      "targetLogicalId": "EC2_VPC_999", "fixModels": ["synthetic-project/model/fixture/team/consumer.properties"]}]'
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-cca2dd8589d048f365f401d698c288efcb34ee0bc32b8091c1733b72b6706b5a
 import-invalid-02:
-  error:
-    message: 'producer logicalId is ambiguous; [{"category": "MODEL_NEEDS_FIX", "code":
-      "MODEL_REF_TARGET_AMBIGUOUS", "message": "producer logicalId is ambiguous",
-      "status": "FAIL", "action": "Correct the Model reference or the invalid producer
-      field.", "targetLogicalId": "EC2_VPC_001", "fixModels": ["synthetic-project/model/fixture/team/duplicate.properties",
-      "synthetic-project/model/fixture/team/vpc.properties"]}]'
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-733b4ae6907abc08fe37d71d69dee329da248a40ca8d6ae8b92db03f31bd69b6
 import-invalid-03:
-  error:
-    message: 'producer logicalId is ambiguous; [{"category": "MODEL_NEEDS_FIX", "code":
-      "MODEL_REF_TARGET_AMBIGUOUS", "message": "producer logicalId is ambiguous",
-      "status": "FAIL", "action": "Correct the Model reference or the invalid producer
-      field.", "targetLogicalId": "EC2_VPC_001", "fixModels": ["synthetic-project/model/fixture/team/duplicate.properties",
-      "synthetic-project/model/fixture/team/vpc.properties"]}]'
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-733b4ae6907abc08fe37d71d69dee329da248a40ca8d6ae8b92db03f31bd69b6
 import-invalid-04:
-  error:
-    message: 'reference attribute VpcId is outside property contract: EC2.Instance.SubnetId'
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-bea2bf304a49a1461ac174448358a2a0c5e53424367c8ff2df960c2003042652
 import-invalid-05:
-  error:
-    message: 'reference attribute VpcId is outside property contract: EC2.Instance.SubnetId'
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-bea2bf304a49a1461ac174448358a2a0c5e53424367c8ff2df960c2003042652
 import-invalid-06:
-  error:
-    message: 'reference attribute Arn is outside property contract: EC2.Subnet.VpcId'
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-7a0ad489f33a030644e460bfc9bebef7602913341a4b0061d9dab82bcc6fef54
 import-invalid-07:
-  error:
-    message: 'reference attribute Arn is outside property contract: EC2.Subnet.VpcId'
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-7a0ad489f33a030644e460bfc9bebef7602913341a4b0061d9dab82bcc6fef54
 import-invalid-08:
-  error:
-    message: 'reference property contract unproven: CodeBuild.Project.Name'
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-6b19956427c86e685d1fb82d6f0378b79e7c33889aa717981fa462968345a0a6
 import-invalid-09:
-  error:
-    message: 'reference property contract unproven: CodeBuild.Project.Name'
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-6b19956427c86e685d1fb82d6f0378b79e7c33889aa717981fa462968345a0a6
 import-invalid-10:
-  error:
-    message: identifier_unobserved
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-4111c921fe7e1a895e6cb09a47614b4f3cd0b4319556ff21c791832fd2d320a1
 import-invalid-11:
-  error:
-    message: identifier_unobserved
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-4111c921fe7e1a895e6cb09a47614b4f3cd0b4319556ff21c791832fd2d320a1
 import-invalid-12:
-  error:
-    message: identifier_unobserved
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-4111c921fe7e1a895e6cb09a47614b4f3cd0b4319556ff21c791832fd2d320a1
 import-invalid-13:
-  error:
-    message: identifier_unobserved
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-4111c921fe7e1a895e6cb09a47614b4f3cd0b4319556ff21c791832fd2d320a1
 import-invalid-14:
   error:
     message: 'attribute_format_unproven: recorded identifier format'
     type: Blocked
   issue_count: 1
 import-invalid-15:
-  error:
-    message: identifier_unobserved
-    type: Blocked
-  issue_count: 1
+  $shared-ref: sha256-4111c921fe7e1a895e6cb09a47614b4f3cd0b4319556ff21c791832fd2d320a1
+$shared:
+  sha256-4111c921fe7e1a895e6cb09a47614b4f3cd0b4319556ff21c791832fd2d320a1:
+    error:
+      message: identifier_unobserved
+      type: Blocked
+    issue_count: 1
+  sha256-6b19956427c86e685d1fb82d6f0378b79e7c33889aa717981fa462968345a0a6:
+    error:
+      message: 'reference property contract unproven: CodeBuild.Project.Name'
+      type: Blocked
+    issue_count: 1
+  sha256-733b4ae6907abc08fe37d71d69dee329da248a40ca8d6ae8b92db03f31bd69b6:
+    error:
+      message: 'producer logicalId is ambiguous; [{"category": "MODEL_NEEDS_FIX",
+        "code": "MODEL_REF_TARGET_AMBIGUOUS", "message": "producer logicalId is ambiguous",
+        "status": "FAIL", "action": "Correct the Model reference or the invalid producer
+        field.", "targetLogicalId": "EC2_VPC_001", "fixModels": ["synthetic-project/model/fixture/team/duplicate.properties",
+        "synthetic-project/model/fixture/team/vpc.properties"]}]'
+      type: Blocked
+    issue_count: 1
+  sha256-7a0ad489f33a030644e460bfc9bebef7602913341a4b0061d9dab82bcc6fef54:
+    error:
+      message: 'reference attribute Arn is outside property contract: EC2.Subnet.VpcId'
+      type: Blocked
+    issue_count: 1
+  sha256-bea2bf304a49a1461ac174448358a2a0c5e53424367c8ff2df960c2003042652:
+    error:
+      message: 'reference attribute VpcId is outside property contract: EC2.Instance.SubnetId'
+      type: Blocked
+    issue_count: 1
+  sha256-cca2dd8589d048f365f401d698c288efcb34ee0bc32b8091c1733b72b6706b5a:
+    error:
+      message: 'producer logicalId is absent; [{"category": "MODEL_NEEDS_FIX", "code":
+        "MODEL_REF_TARGET_MISSING", "message": "producer logicalId is absent", "status":
+        "FAIL", "action": "Correct the Model reference or the invalid producer field.",
+        "targetLogicalId": "EC2_VPC_999", "fixModels": ["synthetic-project/model/fixture/team/consumer.properties"]}]'
+      type: Blocked
+    issue_count: 1

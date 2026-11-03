@@ -1,371 +1,13 @@
 route53-pending-00:
-  overview:
-    categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    comparison_incomplete: false
-    direct_resources: 0
-    group_count: 0
-    groups: []
-    issue_count: 0
-    omitted_categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    omitted_groups: 0
-    omitted_issues: 0
-    omitted_record_categories:
-      difference: 0
-      error: 0
-      uncompared: 0
-    omitted_records: 0
-    pending_deploy_excluded: 1
-    proven_causes: 0
-    record_count: 1
-    records:
-      deferred: 0
-      difference: 0
-      error: 0
-      excluded: 1
-      matched: 0
-      uncompared: 0
-  records:
-  - actual: null
-    category: excluded
-    cause:
-      consumer_property: Route53.RecordSet.AliasTarget.DNSName
-      kind: desired-value-excluded
-      phase: pending_deploy
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Route53.RecordSet.AliasTarget.DNSName
-    reason: 'desired value comparison excluded: pending_deploy'
-    resource: '003'
-    service: route53
-    stack: producer
+  $shared-ref: sha256-30983ba78e322f48d9d643fb4559c97ad63f255bccd0418d70420605aa37f52d
 route53-pending-01:
-  overview:
-    categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 1
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    comparison_incomplete: false
-    direct_resources: 0
-    group_count: 1
-    groups:
-    - cascading: 0
-      category: 比較未完了
-      cause: desired value is unresolved
-      direct_resources: 0
-      errors: 0
-      examples:
-      - issue_id: ISSUE-7c89fb97f1bc4aacf967
-        property: Route53.RecordSet.AliasTarget.DNSName
-        reason: desired value is unresolved
-        record_id: 72d1906d248afceb86bf
-        resource: '003'
-        service: route53
-      id: ISSUE-7c89fb97f1bc4aacf967
-      issues: 1
-      omitted_examples: 0
-      omitted_stacks: 0
-      problem: route53 / 003 / Route53.RecordSet.AliasTarget.DNSName の確認が必要
-      records: 1
-      remedy: 記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。
-      repair_direction: 未確定
-      services:
-      - route53
-      stacks:
-      - producer
-      target: null
-      uncompared: 1
-    issue_count: 1
-    omitted_categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    omitted_groups: 0
-    omitted_issues: 0
-    omitted_record_categories:
-      difference: 0
-      error: 0
-      uncompared: 0
-    omitted_records: 0
-    pending_deploy_excluded: 0
-    proven_causes: 0
-    record_count: 1
-    records:
-      deferred: 0
-      difference: 0
-      error: 0
-      excluded: 0
-      matched: 0
-      uncompared: 1
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Route53.RecordSet.AliasTarget.DNSName
-    reason: desired value is unresolved
-    resource: '003'
-    service: route53
-    stack: producer
+  $shared-ref: sha256-7cb72f7f3046c297bc3f7c67cbf4cdbd0b1c6524ba52bfbea8f07c13345651a5
 route53-pending-02:
-  overview:
-    categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 1
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    comparison_incomplete: false
-    direct_resources: 0
-    group_count: 1
-    groups:
-    - cascading: 0
-      category: 比較未完了
-      cause: desired value is unresolved
-      direct_resources: 0
-      errors: 0
-      examples:
-      - issue_id: ISSUE-7c89fb97f1bc4aacf967
-        property: Route53.RecordSet.AliasTarget.DNSName
-        reason: desired value is unresolved
-        record_id: 72d1906d248afceb86bf
-        resource: '003'
-        service: route53
-      id: ISSUE-7c89fb97f1bc4aacf967
-      issues: 1
-      omitted_examples: 0
-      omitted_stacks: 0
-      problem: route53 / 003 / Route53.RecordSet.AliasTarget.DNSName の確認が必要
-      records: 1
-      remedy: 記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。
-      repair_direction: 未確定
-      services:
-      - route53
-      stacks:
-      - producer
-      target: null
-      uncompared: 1
-    issue_count: 1
-    omitted_categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    omitted_groups: 0
-    omitted_issues: 0
-    omitted_record_categories:
-      difference: 0
-      error: 0
-      uncompared: 0
-    omitted_records: 0
-    pending_deploy_excluded: 0
-    proven_causes: 0
-    record_count: 1
-    records:
-      deferred: 0
-      difference: 0
-      error: 0
-      excluded: 0
-      matched: 0
-      uncompared: 1
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Route53.RecordSet.AliasTarget.DNSName
-    reason: desired value is unresolved
-    resource: '003'
-    service: route53
-    stack: producer
+  $shared-ref: sha256-7cb72f7f3046c297bc3f7c67cbf4cdbd0b1c6524ba52bfbea8f07c13345651a5
 route53-pending-03:
-  overview:
-    categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 1
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    comparison_incomplete: false
-    direct_resources: 0
-    group_count: 1
-    groups:
-    - cascading: 0
-      category: 比較未完了
-      cause: desired value is unresolved
-      direct_resources: 0
-      errors: 0
-      examples:
-      - issue_id: ISSUE-7c89fb97f1bc4aacf967
-        property: Route53.RecordSet.AliasTarget.DNSName
-        reason: desired value is unresolved
-        record_id: 72d1906d248afceb86bf
-        resource: '003'
-        service: route53
-      id: ISSUE-7c89fb97f1bc4aacf967
-      issues: 1
-      omitted_examples: 0
-      omitted_stacks: 0
-      problem: route53 / 003 / Route53.RecordSet.AliasTarget.DNSName の確認が必要
-      records: 1
-      remedy: 記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。
-      repair_direction: 未確定
-      services:
-      - route53
-      stacks:
-      - producer
-      target: null
-      uncompared: 1
-    issue_count: 1
-    omitted_categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    omitted_groups: 0
-    omitted_issues: 0
-    omitted_record_categories:
-      difference: 0
-      error: 0
-      uncompared: 0
-    omitted_records: 0
-    pending_deploy_excluded: 0
-    proven_causes: 0
-    record_count: 1
-    records:
-      deferred: 0
-      difference: 0
-      error: 0
-      excluded: 0
-      matched: 0
-      uncompared: 1
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Route53.RecordSet.AliasTarget.DNSName
-    reason: desired value is unresolved
-    resource: '003'
-    service: route53
-    stack: producer
+  $shared-ref: sha256-7cb72f7f3046c297bc3f7c67cbf4cdbd0b1c6524ba52bfbea8f07c13345651a5
 route53-pending-04:
-  overview:
-    categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 1
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    comparison_incomplete: false
-    direct_resources: 0
-    group_count: 1
-    groups:
-    - cascading: 0
-      category: 比較未完了
-      cause: desired value is unresolved
-      direct_resources: 0
-      errors: 0
-      examples:
-      - issue_id: ISSUE-7c89fb97f1bc4aacf967
-        property: Route53.RecordSet.AliasTarget.DNSName
-        reason: desired value is unresolved
-        record_id: 72d1906d248afceb86bf
-        resource: '003'
-        service: route53
-      id: ISSUE-7c89fb97f1bc4aacf967
-      issues: 1
-      omitted_examples: 0
-      omitted_stacks: 0
-      problem: route53 / 003 / Route53.RecordSet.AliasTarget.DNSName の確認が必要
-      records: 1
-      remedy: 記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。
-      repair_direction: 未確定
-      services:
-      - route53
-      stacks:
-      - producer
-      target: null
-      uncompared: 1
-    issue_count: 1
-    omitted_categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    omitted_groups: 0
-    omitted_issues: 0
-    omitted_record_categories:
-      difference: 0
-      error: 0
-      uncompared: 0
-    omitted_records: 0
-    pending_deploy_excluded: 0
-    proven_causes: 0
-    record_count: 1
-    records:
-      deferred: 0
-      difference: 0
-      error: 0
-      excluded: 0
-      matched: 0
-      uncompared: 1
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Route53.RecordSet.AliasTarget.DNSName
-    reason: desired value is unresolved
-    resource: '003'
-    service: route53
-    stack: producer
+  $shared-ref: sha256-7cb72f7f3046c297bc3f7c67cbf4cdbd0b1c6524ba52bfbea8f07c13345651a5
 route53-pending-05:
   overview:
     categories:
@@ -452,373 +94,15 @@ route53-pending-05:
     service: route53
     stack: producer
 route53-pending-06:
-  overview:
-    categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    comparison_incomplete: false
-    direct_resources: 0
-    group_count: 0
-    groups: []
-    issue_count: 0
-    omitted_categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    omitted_groups: 0
-    omitted_issues: 0
-    omitted_record_categories:
-      difference: 0
-      error: 0
-      uncompared: 0
-    omitted_records: 0
-    pending_deploy_excluded: 1
-    proven_causes: 0
-    record_count: 1
-    records:
-      deferred: 0
-      difference: 0
-      error: 0
-      excluded: 1
-      matched: 0
-      uncompared: 0
-  records:
-  - actual: null
-    category: excluded
-    cause:
-      consumer_property: Route53.RecordSet.AliasTarget.DNSName
-      kind: desired-value-excluded
-      phase: pending_deploy
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Route53.RecordSet.AliasTarget.DNSName
-    reason: 'desired value comparison excluded: pending_deploy'
-    resource: '003'
-    service: route53
-    stack: producer
+  $shared-ref: sha256-30983ba78e322f48d9d643fb4559c97ad63f255bccd0418d70420605aa37f52d
 route53-pending-07:
-  overview:
-    categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 1
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    comparison_incomplete: false
-    direct_resources: 0
-    group_count: 1
-    groups:
-    - cascading: 0
-      category: 比較未完了
-      cause: desired value is unresolved
-      direct_resources: 0
-      errors: 0
-      examples:
-      - issue_id: ISSUE-f8af569d8637d0ccac2b
-        property: Route53.RecordSet.AliasTarget.DNSName
-        reason: desired value is unresolved
-        record_id: 72d1906d248afceb86bf
-        resource: '003'
-        service: route53
-      id: ISSUE-f8af569d8637d0ccac2b
-      issues: 1
-      omitted_examples: 0
-      omitted_stacks: 0
-      problem: route53 / 003 / Route53.RecordSet.AliasTarget.DNSName の確認が必要
-      records: 1
-      remedy: 記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。
-      repair_direction: 未確定
-      services:
-      - route53
-      stacks:
-      - producer
-      target: null
-      uncompared: 1
-    issue_count: 1
-    omitted_categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    omitted_groups: 0
-    omitted_issues: 0
-    omitted_record_categories:
-      difference: 0
-      error: 0
-      uncompared: 0
-    omitted_records: 0
-    pending_deploy_excluded: 0
-    proven_causes: 0
-    record_count: 1
-    records:
-      deferred: 0
-      difference: 0
-      error: 0
-      excluded: 0
-      matched: 0
-      uncompared: 1
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Route53.RecordSet.AliasTarget.DNSName
-    reason: desired value is unresolved
-    resource: '003'
-    service: route53
-    stack: producer
+  $shared-ref: sha256-0f10281cda1bf4a8aa4d1b6efe1bfe58e5975fa803bec3fc71f7792d7ea9715c
 route53-pending-08:
-  overview:
-    categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 1
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    comparison_incomplete: false
-    direct_resources: 0
-    group_count: 1
-    groups:
-    - cascading: 0
-      category: 比較未完了
-      cause: desired value is unresolved
-      direct_resources: 0
-      errors: 0
-      examples:
-      - issue_id: ISSUE-f8af569d8637d0ccac2b
-        property: Route53.RecordSet.AliasTarget.DNSName
-        reason: desired value is unresolved
-        record_id: 72d1906d248afceb86bf
-        resource: '003'
-        service: route53
-      id: ISSUE-f8af569d8637d0ccac2b
-      issues: 1
-      omitted_examples: 0
-      omitted_stacks: 0
-      problem: route53 / 003 / Route53.RecordSet.AliasTarget.DNSName の確認が必要
-      records: 1
-      remedy: 記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。
-      repair_direction: 未確定
-      services:
-      - route53
-      stacks:
-      - producer
-      target: null
-      uncompared: 1
-    issue_count: 1
-    omitted_categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    omitted_groups: 0
-    omitted_issues: 0
-    omitted_record_categories:
-      difference: 0
-      error: 0
-      uncompared: 0
-    omitted_records: 0
-    pending_deploy_excluded: 0
-    proven_causes: 0
-    record_count: 1
-    records:
-      deferred: 0
-      difference: 0
-      error: 0
-      excluded: 0
-      matched: 0
-      uncompared: 1
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Route53.RecordSet.AliasTarget.DNSName
-    reason: desired value is unresolved
-    resource: '003'
-    service: route53
-    stack: producer
+  $shared-ref: sha256-0f10281cda1bf4a8aa4d1b6efe1bfe58e5975fa803bec3fc71f7792d7ea9715c
 route53-pending-09:
-  overview:
-    categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 1
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    comparison_incomplete: false
-    direct_resources: 0
-    group_count: 1
-    groups:
-    - cascading: 0
-      category: 比較未完了
-      cause: desired value is unresolved
-      direct_resources: 0
-      errors: 0
-      examples:
-      - issue_id: ISSUE-f8af569d8637d0ccac2b
-        property: Route53.RecordSet.AliasTarget.DNSName
-        reason: desired value is unresolved
-        record_id: 72d1906d248afceb86bf
-        resource: '003'
-        service: route53
-      id: ISSUE-f8af569d8637d0ccac2b
-      issues: 1
-      omitted_examples: 0
-      omitted_stacks: 0
-      problem: route53 / 003 / Route53.RecordSet.AliasTarget.DNSName の確認が必要
-      records: 1
-      remedy: 記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。
-      repair_direction: 未確定
-      services:
-      - route53
-      stacks:
-      - producer
-      target: null
-      uncompared: 1
-    issue_count: 1
-    omitted_categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    omitted_groups: 0
-    omitted_issues: 0
-    omitted_record_categories:
-      difference: 0
-      error: 0
-      uncompared: 0
-    omitted_records: 0
-    pending_deploy_excluded: 0
-    proven_causes: 0
-    record_count: 1
-    records:
-      deferred: 0
-      difference: 0
-      error: 0
-      excluded: 0
-      matched: 0
-      uncompared: 1
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Route53.RecordSet.AliasTarget.DNSName
-    reason: desired value is unresolved
-    resource: '003'
-    service: route53
-    stack: producer
+  $shared-ref: sha256-0f10281cda1bf4a8aa4d1b6efe1bfe58e5975fa803bec3fc71f7792d7ea9715c
 route53-pending-10:
-  overview:
-    categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 1
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    comparison_incomplete: false
-    direct_resources: 0
-    group_count: 1
-    groups:
-    - cascading: 0
-      category: 比較未完了
-      cause: desired value is unresolved
-      direct_resources: 0
-      errors: 0
-      examples:
-      - issue_id: ISSUE-f8af569d8637d0ccac2b
-        property: Route53.RecordSet.AliasTarget.DNSName
-        reason: desired value is unresolved
-        record_id: 72d1906d248afceb86bf
-        resource: '003'
-        service: route53
-      id: ISSUE-f8af569d8637d0ccac2b
-      issues: 1
-      omitted_examples: 0
-      omitted_stacks: 0
-      problem: route53 / 003 / Route53.RecordSet.AliasTarget.DNSName の確認が必要
-      records: 1
-      remedy: 記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。
-      repair_direction: 未確定
-      services:
-      - route53
-      stacks:
-      - producer
-      target: null
-      uncompared: 1
-    issue_count: 1
-    omitted_categories:
-      CFn非対応・比較対象外: 0
-      処理エラー: 0
-      原因未確定: 0
-      比較未完了: 0
-      要修正: 0
-      要判断: 0
-      要対応: 0
-    omitted_groups: 0
-    omitted_issues: 0
-    omitted_record_categories:
-      difference: 0
-      error: 0
-      uncompared: 0
-    omitted_records: 0
-    pending_deploy_excluded: 0
-    proven_causes: 0
-    record_count: 1
-    records:
-      deferred: 0
-      difference: 0
-      error: 0
-      excluded: 0
-      matched: 0
-      uncompared: 1
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Route53.RecordSet.AliasTarget.DNSName
-    reason: desired value is unresolved
-    resource: '003'
-    service: route53
-    stack: producer
+  $shared-ref: sha256-0f10281cda1bf4a8aa4d1b6efe1bfe58e5975fa803bec3fc71f7792d7ea9715c
 route53-pending-11:
   overview:
     categories:
@@ -904,3 +188,216 @@ route53-pending-11:
     resource: '003'
     service: route53
     stack: producer
+$shared:
+  sha256-0f10281cda1bf4a8aa4d1b6efe1bfe58e5975fa803bec3fc71f7792d7ea9715c:
+    overview:
+      categories:
+        CFn非対応・比較対象外: 0
+        処理エラー: 0
+        原因未確定: 0
+        比較未完了: 1
+        要修正: 0
+        要判断: 0
+        要対応: 0
+      comparison_incomplete: false
+      direct_resources: 0
+      group_count: 1
+      groups:
+      - cascading: 0
+        category: 比較未完了
+        cause: desired value is unresolved
+        direct_resources: 0
+        errors: 0
+        examples:
+        - issue_id: ISSUE-f8af569d8637d0ccac2b
+          property: Route53.RecordSet.AliasTarget.DNSName
+          reason: desired value is unresolved
+          record_id: 72d1906d248afceb86bf
+          resource: '003'
+          service: route53
+        id: ISSUE-f8af569d8637d0ccac2b
+        issues: 1
+        omitted_examples: 0
+        omitted_stacks: 0
+        problem: route53 / 003 / Route53.RecordSet.AliasTarget.DNSName の確認が必要
+        records: 1
+        remedy: 記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。
+        repair_direction: 未確定
+        services:
+        - route53
+        stacks:
+        - producer
+        target: null
+        uncompared: 1
+      issue_count: 1
+      omitted_categories:
+        CFn非対応・比較対象外: 0
+        処理エラー: 0
+        原因未確定: 0
+        比較未完了: 0
+        要修正: 0
+        要判断: 0
+        要対応: 0
+      omitted_groups: 0
+      omitted_issues: 0
+      omitted_record_categories:
+        difference: 0
+        error: 0
+        uncompared: 0
+      omitted_records: 0
+      pending_deploy_excluded: 0
+      proven_causes: 0
+      record_count: 1
+      records:
+        deferred: 0
+        difference: 0
+        error: 0
+        excluded: 0
+        matched: 0
+        uncompared: 1
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: Route53.RecordSet.AliasTarget.DNSName
+      reason: desired value is unresolved
+      resource: '003'
+      service: route53
+      stack: producer
+  sha256-30983ba78e322f48d9d643fb4559c97ad63f255bccd0418d70420605aa37f52d:
+    overview:
+      categories:
+        CFn非対応・比較対象外: 0
+        処理エラー: 0
+        原因未確定: 0
+        比較未完了: 0
+        要修正: 0
+        要判断: 0
+        要対応: 0
+      comparison_incomplete: false
+      direct_resources: 0
+      group_count: 0
+      groups: []
+      issue_count: 0
+      omitted_categories:
+        CFn非対応・比較対象外: 0
+        処理エラー: 0
+        原因未確定: 0
+        比較未完了: 0
+        要修正: 0
+        要判断: 0
+        要対応: 0
+      omitted_groups: 0
+      omitted_issues: 0
+      omitted_record_categories:
+        difference: 0
+        error: 0
+        uncompared: 0
+      omitted_records: 0
+      pending_deploy_excluded: 1
+      proven_causes: 0
+      record_count: 1
+      records:
+        deferred: 0
+        difference: 0
+        error: 0
+        excluded: 1
+        matched: 0
+        uncompared: 0
+    records:
+    - actual: null
+      category: excluded
+      cause:
+        consumer_property: Route53.RecordSet.AliasTarget.DNSName
+        kind: desired-value-excluded
+        phase: pending_deploy
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: Route53.RecordSet.AliasTarget.DNSName
+      reason: 'desired value comparison excluded: pending_deploy'
+      resource: '003'
+      service: route53
+      stack: producer
+  sha256-7cb72f7f3046c297bc3f7c67cbf4cdbd0b1c6524ba52bfbea8f07c13345651a5:
+    overview:
+      categories:
+        CFn非対応・比較対象外: 0
+        処理エラー: 0
+        原因未確定: 0
+        比較未完了: 1
+        要修正: 0
+        要判断: 0
+        要対応: 0
+      comparison_incomplete: false
+      direct_resources: 0
+      group_count: 1
+      groups:
+      - cascading: 0
+        category: 比較未完了
+        cause: desired value is unresolved
+        direct_resources: 0
+        errors: 0
+        examples:
+        - issue_id: ISSUE-7c89fb97f1bc4aacf967
+          property: Route53.RecordSet.AliasTarget.DNSName
+          reason: desired value is unresolved
+          record_id: 72d1906d248afceb86bf
+          resource: '003'
+          service: route53
+        id: ISSUE-7c89fb97f1bc4aacf967
+        issues: 1
+        omitted_examples: 0
+        omitted_stacks: 0
+        problem: route53 / 003 / Route53.RecordSet.AliasTarget.DNSName の確認が必要
+        records: 1
+        remedy: 記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。
+        repair_direction: 未確定
+        services:
+        - route53
+        stacks:
+        - producer
+        target: null
+        uncompared: 1
+      issue_count: 1
+      omitted_categories:
+        CFn非対応・比較対象外: 0
+        処理エラー: 0
+        原因未確定: 0
+        比較未完了: 0
+        要修正: 0
+        要判断: 0
+        要対応: 0
+      omitted_groups: 0
+      omitted_issues: 0
+      omitted_record_categories:
+        difference: 0
+        error: 0
+        uncompared: 0
+      omitted_records: 0
+      pending_deploy_excluded: 0
+      proven_causes: 0
+      record_count: 1
+      records:
+        deferred: 0
+        difference: 0
+        error: 0
+        excluded: 0
+        matched: 0
+        uncompared: 1
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: Route53.RecordSet.AliasTarget.DNSName
+      reason: desired value is unresolved
+      resource: '003'
+      service: route53
+      stack: producer

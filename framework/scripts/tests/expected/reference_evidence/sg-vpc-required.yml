@@ -1,33 +1,27 @@
 sg-vpc-required-00:
-  attribute: GroupId
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-ca1c7adc1140a468c3954df5a6c57181f6cdc1c42f89229f66186a564e7e8223
 sg-vpc-required-01:
-  attribute: GroupId
-  error:
-    message: 'unresolved pseudo parameter: AWS::NoValue'
-    type: Blocked
+  $shared-ref: sha256-4e06afa947271e0a4d66fc7f45cd225d7b3db5f3a69b65a0f8570179916436c9
 sg-vpc-required-02:
-  attribute: GroupId
-  error:
-    message: 'unresolved pseudo parameter: AWS::NoValue'
-    type: Blocked
+  $shared-ref: sha256-4e06afa947271e0a4d66fc7f45cd225d7b3db5f3a69b65a0f8570179916436c9
 sg-vpc-required-03:
-  attribute: GroupId
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-ca1c7adc1140a468c3954df5a6c57181f6cdc1c42f89229f66186a564e7e8223
 sg-vpc-required-04:
   attribute: GroupId
   error:
     message: 'cyclic resource reference: producer/Group'
     type: Blocked
 sg-vpc-required-05:
-  attribute: GroupId
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-ca1c7adc1140a468c3954df5a6c57181f6cdc1c42f89229f66186a564e7e8223
+$shared:
+  sha256-4e06afa947271e0a4d66fc7f45cd225d7b3db5f3a69b65a0f8570179916436c9:
+    attribute: GroupId
+    error:
+      message: 'unresolved pseudo parameter: AWS::NoValue'
+      type: Blocked
+  sha256-ca1c7adc1140a468c3954df5a6c57181f6cdc1c42f89229f66186a564e7e8223:
+    attribute: GroupId
+    error:
+      message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      type: Blocked

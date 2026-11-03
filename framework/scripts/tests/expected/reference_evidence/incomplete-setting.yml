@@ -1,18 +1,5 @@
 incomplete-setting-00:
-  display: {}
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model:
-      pointer: ''
-    property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
-    reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
-    resource: '001'
-    service: codebuild
-    stack: producer
+  $shared-ref: sha256-f7a409dff022fd7af9502c9347823f4f0d5692708f7eec136572ba07bf032d1d
 incomplete-setting-01:
   display:
     fe9ecee4fa1ae9d85ba4:
@@ -284,56 +271,7 @@ incomplete-setting-05:
     service: codebuild
     stack: producer
 incomplete-setting-06:
-  display:
-    fc0bb486a1f002afdb2b:
-    - iac: 欠落
-      model: '{"EnvironmentVariables":[{"Name":"RELEASE_BUCKET_KMS_KEY_ID","Type":"PLAINTEXT","Value":"<unresolved>"}]}'
-      path: CodeBuild.Project.Environment
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model:
-      pointer: ''
-    property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
-    reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
-    resource: '001'
-    service: codebuild
-    stack: producer
-  - actual: null
-    category: difference
-    deferred_children:
-    - actual: null
-      category: uncompared
-      desired: null
-      iac:
-        path: synthetic.yaml
-      model:
-        pointer: ''
-      property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
-      reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
-      resource: '001'
-      service: codebuild
-      stack: producer
-    desired:
-      EnvironmentVariables:
-      - Name: RELEASE_BUCKET_KMS_KEY_ID
-        Type: PLAINTEXT
-        Value: <unresolved>
-    iac:
-      path: synthetic.yaml
-    model: null
-    model_sources:
-    - null
-    - null
-    - null
-    property: CodeBuild.Project.Environment
-    reason: property omitted by AWS::NoValue
-    resource: '001'
-    service: codebuild
-    stack: producer
+  $shared-ref: sha256-1bb03c36eb8dcd7f9d73bafbc55fc38428b27a0dac5a49a40a476f32dba6b368
 incomplete-setting-07:
   display: {}
   records:
@@ -362,42 +300,25 @@ incomplete-setting-07:
     service: codebuild
     stack: null
 incomplete-setting-08:
-  display: {}
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model:
-      pointer: ''
-    property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
-    reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
-    resource: '001'
-    service: codebuild
-    stack: producer
+  $shared-ref: sha256-f7a409dff022fd7af9502c9347823f4f0d5692708f7eec136572ba07bf032d1d
 incomplete-setting-09:
-  display:
-    fc0bb486a1f002afdb2b:
-    - iac: 欠落
-      model: '{"EnvironmentVariables":[{"Name":"RELEASE_BUCKET_KMS_KEY_ID","Type":"PLAINTEXT","Value":"<unresolved>"}]}'
-      path: CodeBuild.Project.Environment
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model:
-      pointer: ''
-    property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
-    reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
-    resource: '001'
-    service: codebuild
-    stack: producer
-  - actual: null
-    category: difference
-    deferred_children:
+  $shared-ref: sha256-1bb03c36eb8dcd7f9d73bafbc55fc38428b27a0dac5a49a40a476f32dba6b368
+incomplete-setting-10:
+  $shared-ref: sha256-f7a409dff022fd7af9502c9347823f4f0d5692708f7eec136572ba07bf032d1d
+incomplete-setting-11:
+  $shared-ref: sha256-f7a409dff022fd7af9502c9347823f4f0d5692708f7eec136572ba07bf032d1d
+incomplete-setting-12:
+  $shared-ref: sha256-f7a409dff022fd7af9502c9347823f4f0d5692708f7eec136572ba07bf032d1d
+incomplete-setting-13:
+  $shared-ref: sha256-f7a409dff022fd7af9502c9347823f4f0d5692708f7eec136572ba07bf032d1d
+$shared:
+  sha256-1bb03c36eb8dcd7f9d73bafbc55fc38428b27a0dac5a49a40a476f32dba6b368:
+    display:
+      fc0bb486a1f002afdb2b:
+      - iac: 欠落
+        model: '{"EnvironmentVariables":[{"Name":"RELEASE_BUCKET_KMS_KEY_ID","Type":"PLAINTEXT","Value":"<unresolved>"}]}'
+        path: CodeBuild.Project.Environment
+    records:
     - actual: null
       category: uncompared
       desired: null
@@ -410,80 +331,50 @@ incomplete-setting-09:
       resource: '001'
       service: codebuild
       stack: producer
-    desired:
-      EnvironmentVariables:
-      - Name: RELEASE_BUCKET_KMS_KEY_ID
-        Type: PLAINTEXT
-        Value: <unresolved>
-    iac:
-      path: synthetic.yaml
-    model: null
-    model_sources:
-    - null
-    - null
-    - null
-    property: CodeBuild.Project.Environment
-    reason: property omitted by AWS::NoValue
-    resource: '001'
-    service: codebuild
-    stack: producer
-incomplete-setting-10:
-  display: {}
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model:
-      pointer: ''
-    property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
-    reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
-    resource: '001'
-    service: codebuild
-    stack: producer
-incomplete-setting-11:
-  display: {}
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model:
-      pointer: ''
-    property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
-    reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
-    resource: '001'
-    service: codebuild
-    stack: producer
-incomplete-setting-12:
-  display: {}
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model:
-      pointer: ''
-    property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
-    reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
-    resource: '001'
-    service: codebuild
-    stack: producer
-incomplete-setting-13:
-  display: {}
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model:
-      pointer: ''
-    property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
-    reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
-    resource: '001'
-    service: codebuild
-    stack: producer
+    - actual: null
+      category: difference
+      deferred_children:
+      - actual: null
+        category: uncompared
+        desired: null
+        iac:
+          path: synthetic.yaml
+        model:
+          pointer: ''
+        property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
+        reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
+        resource: '001'
+        service: codebuild
+        stack: producer
+      desired:
+        EnvironmentVariables:
+        - Name: RELEASE_BUCKET_KMS_KEY_ID
+          Type: PLAINTEXT
+          Value: <unresolved>
+      iac:
+        path: synthetic.yaml
+      model: null
+      model_sources:
+      - null
+      - null
+      - null
+      property: CodeBuild.Project.Environment
+      reason: property omitted by AWS::NoValue
+      resource: '001'
+      service: codebuild
+      stack: producer
+  sha256-f7a409dff022fd7af9502c9347823f4f0d5692708f7eec136572ba07bf032d1d:
+    display: {}
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model:
+        pointer: ''
+      property: CodeBuild.Project.Environment.EnvironmentVariables[1].Value
+      reason: PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)
+      resource: '001'
+      service: codebuild
+      stack: producer

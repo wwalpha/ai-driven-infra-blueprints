@@ -1,28 +1,24 @@
 sg-sub-form-00:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-sub-form-01:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-sub-form-02:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-sub-form-03:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-sub-form-04:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-sub-form-05:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-sub-form-06:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-sub-form-07:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
+$shared:
+  sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b:
+    attribute: GroupId
+  sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3:
+    error:
+      message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      type: Blocked

@@ -1,12 +1,12 @@
 sg-import-proof-00:
   attribute: GroupId
 sg-import-proof-01:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-import-proof-02:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
+$shared:
+  sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3:
+    error:
+      message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      type: Blocked

@@ -1,18 +1,13 @@
 unknown-context-00:
-  decision:
-    comparisons: []
-    diagnostics: []
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-f7fa35b2e01b58997c4868b558e969f497bad4b47db955b2abf08bb5de060609
 unknown-context-01:
-  decision:
-    comparisons: []
-    diagnostics: []
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-f7fa35b2e01b58997c4868b558e969f497bad4b47db955b2abf08bb5de060609
 unknown-context-02:
-  decision:
-    comparisons: []
-    diagnostics: []
-    equal: null
-    equivalent: false
+  $shared-ref: sha256-f7fa35b2e01b58997c4868b558e969f497bad4b47db955b2abf08bb5de060609
+$shared:
+  sha256-f7fa35b2e01b58997c4868b558e969f497bad4b47db955b2abf08bb5de060609:
+    decision:
+      comparisons: []
+      diagnostics: []
+      equal: null
+      equivalent: false

@@ -1,24 +1,29 @@
 partial-cardinality-00:
-  equal: null
+  $shared-ref: sha256-363830aa06c4dc33b0a6d9a73c089a74f49f5dce2f89752602cc6df89f252e8d
 partial-cardinality-01:
-  equal: null
+  $shared-ref: sha256-363830aa06c4dc33b0a6d9a73c089a74f49f5dce2f89752602cc6df89f252e8d
 partial-cardinality-02:
-  equal: null
+  $shared-ref: sha256-363830aa06c4dc33b0a6d9a73c089a74f49f5dce2f89752602cc6df89f252e8d
 partial-cardinality-03:
-  equal: null
+  $shared-ref: sha256-363830aa06c4dc33b0a6d9a73c089a74f49f5dce2f89752602cc6df89f252e8d
 partial-cardinality-04:
-  equal: false
+  $shared-ref: sha256-6f63e2dd9720abd281f961f102112b7127f3d4b26dd5c270e9efaba629026cc1
 partial-cardinality-05:
-  equal: false
+  $shared-ref: sha256-6f63e2dd9720abd281f961f102112b7127f3d4b26dd5c270e9efaba629026cc1
 partial-cardinality-06:
-  equal: false
+  $shared-ref: sha256-6f63e2dd9720abd281f961f102112b7127f3d4b26dd5c270e9efaba629026cc1
 partial-cardinality-07:
-  equal: false
+  $shared-ref: sha256-6f63e2dd9720abd281f961f102112b7127f3d4b26dd5c270e9efaba629026cc1
 partial-cardinality-08:
-  equal: false
+  $shared-ref: sha256-6f63e2dd9720abd281f961f102112b7127f3d4b26dd5c270e9efaba629026cc1
 partial-cardinality-09:
-  equal: false
+  $shared-ref: sha256-6f63e2dd9720abd281f961f102112b7127f3d4b26dd5c270e9efaba629026cc1
 partial-cardinality-10:
-  equal: null
+  $shared-ref: sha256-363830aa06c4dc33b0a6d9a73c089a74f49f5dce2f89752602cc6df89f252e8d
 partial-cardinality-11:
-  equal: null
+  $shared-ref: sha256-363830aa06c4dc33b0a6d9a73c089a74f49f5dce2f89752602cc6df89f252e8d
+$shared:
+  sha256-363830aa06c4dc33b0a6d9a73c089a74f49f5dce2f89752602cc6df89f252e8d:
+    equal: null
+  sha256-6f63e2dd9720abd281f961f102112b7127f3d4b26dd5c270e9efaba629026cc1:
+    equal: false

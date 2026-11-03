@@ -1,110 +1,11 @@
 sibling-0-all:
-  display: {}
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: CodeBuild.Project.VpcConfig
-    reason: equal
-    resource: '001'
-    service: codebuild
-    stack: producer
-  unresolved: {}
-  valid:
-  - - 001-001
-    - property: CodeBuild.Project.VpcConfig.VpcId
-      value: '`vpc-123`'
-  - - 001-002
-    - property: CodeBuild.Project.VpcConfig.Subnets[]
-      value: '`["subnet-2","subnet-1"]`'
-      valueShape: projection
-  warnings: []
+  $shared-ref: sha256-8032248e0eb5ba4dd4fc581c5191168cc5a206253a345a96d475d47142d5443a
 sibling-0-leaf:
-  display: {}
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: CodeBuild.Project.VpcConfig
-    reason: equal
-    resource: '001'
-    service: codebuild
-    stack: producer
-  unresolved: {}
-  valid:
-  - - 001-001
-    - property: CodeBuild.Project.VpcConfig.VpcId
-      value: '`vpc-123`'
-  - - 001-002
-    - property: CodeBuild.Project.VpcConfig.Subnets[]
-      value: '`["subnet-2","subnet-1"]`'
-      valueShape: projection
-  warnings: []
+  $shared-ref: sha256-8032248e0eb5ba4dd4fc581c5191168cc5a206253a345a96d475d47142d5443a
 sibling-0-parent:
-  display: {}
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: CodeBuild.Project.VpcConfig
-    reason: equal
-    resource: '001'
-    service: codebuild
-    stack: producer
-  unresolved: {}
-  valid:
-  - - 001-001
-    - property: CodeBuild.Project.VpcConfig.VpcId
-      value: '`vpc-123`'
-  - - 001-002
-    - property: CodeBuild.Project.VpcConfig.Subnets[]
-      value: '`["subnet-2","subnet-1"]`'
-      valueShape: projection
-  warnings: []
+  $shared-ref: sha256-8032248e0eb5ba4dd4fc581c5191168cc5a206253a345a96d475d47142d5443a
 sibling-1-all:
-  display: {}
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac: null
-    model: null
-    property: CodeBuild.Project.VpcConfig.Subnets[]
-    reason: 'ambiguous leaf/projection array membership: CodeBuild.Project.VpcConfig.Subnets[],
-      CodeBuild.Project.VpcConfig.Subnets[]'
-    resource: '001'
-    service: codebuild
-    stack: producer
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: CodeBuild.Project.VpcConfig
-    reason: equal
-    resource: '001'
-    service: codebuild
-    stack: producer
-  unresolved:
-    VpcConfig.Subnets[]:
-    - 001-002
-    - 'ambiguous leaf/projection array membership: CodeBuild.Project.VpcConfig.Subnets[],
-      CodeBuild.Project.VpcConfig.Subnets[]'
-  valid:
-  - - 001-001
-    - property: CodeBuild.Project.VpcConfig.VpcId
-      value: '`vpc-123`'
-  warnings: []
+  $shared-ref: sha256-b3116be7bccc49347681726b756d48bb56e1604cc565387476e0488a5132c525
 sibling-1-leaf:
   display: {}
   records:
@@ -130,37 +31,64 @@ sibling-1-leaf:
       value: '`vpc-123`'
   warnings: []
 sibling-1-parent:
-  display: {}
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac: null
-    model: null
-    property: CodeBuild.Project.VpcConfig.Subnets[]
-    reason: 'ambiguous leaf/projection array membership: CodeBuild.Project.VpcConfig.Subnets[],
-      CodeBuild.Project.VpcConfig.Subnets[]'
-    resource: '001'
-    service: codebuild
-    stack: producer
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: CodeBuild.Project.VpcConfig
-    reason: equal
-    resource: '001'
-    service: codebuild
-    stack: producer
-  unresolved:
-    VpcConfig.Subnets[]:
-    - 001-002
-    - 'ambiguous leaf/projection array membership: CodeBuild.Project.VpcConfig.Subnets[],
-      CodeBuild.Project.VpcConfig.Subnets[]'
-  valid:
-  - - 001-001
-    - property: CodeBuild.Project.VpcConfig.VpcId
-      value: '`vpc-123`'
-  warnings: []
+  $shared-ref: sha256-b3116be7bccc49347681726b756d48bb56e1604cc565387476e0488a5132c525
+$shared:
+  sha256-8032248e0eb5ba4dd4fc581c5191168cc5a206253a345a96d475d47142d5443a:
+    display: {}
+    records:
+    - actual: null
+      category: matched
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: CodeBuild.Project.VpcConfig
+      reason: equal
+      resource: '001'
+      service: codebuild
+      stack: producer
+    unresolved: {}
+    valid:
+    - - 001-001
+      - property: CodeBuild.Project.VpcConfig.VpcId
+        value: '`vpc-123`'
+    - - 001-002
+      - property: CodeBuild.Project.VpcConfig.Subnets[]
+        value: '`["subnet-2","subnet-1"]`'
+        valueShape: projection
+    warnings: []
+  sha256-b3116be7bccc49347681726b756d48bb56e1604cc565387476e0488a5132c525:
+    display: {}
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac: null
+      model: null
+      property: CodeBuild.Project.VpcConfig.Subnets[]
+      reason: 'ambiguous leaf/projection array membership: CodeBuild.Project.VpcConfig.Subnets[],
+        CodeBuild.Project.VpcConfig.Subnets[]'
+      resource: '001'
+      service: codebuild
+      stack: producer
+    - actual: null
+      category: matched
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: CodeBuild.Project.VpcConfig
+      reason: equal
+      resource: '001'
+      service: codebuild
+      stack: producer
+    unresolved:
+      VpcConfig.Subnets[]:
+      - 001-002
+      - 'ambiguous leaf/projection array membership: CodeBuild.Project.VpcConfig.Subnets[],
+        CodeBuild.Project.VpcConfig.Subnets[]'
+    valid:
+    - - 001-001
+      - property: CodeBuild.Project.VpcConfig.VpcId
+        value: '`vpc-123`'
+    warnings: []

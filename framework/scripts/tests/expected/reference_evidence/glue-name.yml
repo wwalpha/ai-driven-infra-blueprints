@@ -1,293 +1,19 @@
 glue-name-00:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Job.Connections
-    reason: reference expression equivalent
-    reference_diagnostics:
-    - allowed_forms:
-      - Name
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: fixture
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Name
-        $resource:
-        - glue
-        - '001'
-      path: Glue.Job.Connections.Connections[]
-      producers:
-      - attribute: Name
-        producer: glue/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-9dfbd6c97ea57d8e6fd4402f4f2fe351bd3b665449d30ac5678ec53b637dde40
 glue-name-01:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Job.Connections
-    reason: reference expression equivalent
-    reference_diagnostics:
-    - allowed_forms:
-      - Name
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: fixture
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Name
-        $resource:
-        - glue
-        - '001'
-      path: Glue.Job.Connections.Connections[]
-      producers:
-      - attribute: Name
-        producer: glue/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-9dfbd6c97ea57d8e6fd4402f4f2fe351bd3b665449d30ac5678ec53b637dde40
 glue-name-02:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Job.Connections
-    reason: reference expression equivalent
-    reference_diagnostics:
-    - allowed_forms:
-      - Name
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: fixture
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Name
-        $resource:
-        - glue
-        - '001'
-      path: Glue.Job.Connections.Connections[]
-      producers:
-      - attribute: Name
-        producer: glue/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-9dfbd6c97ea57d8e6fd4402f4f2fe351bd3b665449d30ac5678ec53b637dde40
 glue-name-03:
-  records:
-  - actual:
-      Connections:
-      - fixture
-    category: difference
-    desired:
-      Connections:
-      - $attribute: Name
-        $resource:
-        - glue
-        - '001'
-    iac:
-      path: synthetic.yaml
-    model: null
-    model_sources:
-    - null
-    property: Glue.Job.Connections
-    reason: value mismatch
-    reference_diagnostics:
-    - allowed_forms:
-      - Name
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: fixture
-      identity: unproven
-      local_comparison: difference
-      model:
-        $attribute: Name
-        $resource:
-        - glue
-        - '001'
-      path: Glue.Job.Connections.Connections[]
-      producers:
-      - attribute: Name
-        producer: glue/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-3f82a039004280fe227d1923a56e3582b7ccd5123d7d592903b5269d45ed7541
 glue-name-04:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Job.Connections
-    reason: reference expression equivalent
-    reference_diagnostics:
-    - allowed_forms:
-      - Name
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: fixture
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Name
-        $resource:
-        - glue
-        - '001'
-      path: Glue.Job.Connections.Connections[]
-      producers:
-      - attribute: Name
-        producer: glue/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-9dfbd6c97ea57d8e6fd4402f4f2fe351bd3b665449d30ac5678ec53b637dde40
 glue-name-05:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Job.Connections
-    reason: reference expression equivalent
-    reference_diagnostics:
-    - allowed_forms:
-      - Name
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: fixture
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Name
-        $resource:
-        - glue
-        - '001'
-      path: Glue.Job.Connections.Connections[]
-      producers:
-      - attribute: Name
-        producer: glue/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-9dfbd6c97ea57d8e6fd4402f4f2fe351bd3b665449d30ac5678ec53b637dde40
 glue-name-06:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Job.Connections
-    reason: reference expression equivalent
-    reference_diagnostics:
-    - allowed_forms:
-      - Name
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: fixture
-      identity: unproven
-      local_comparison: matched
-      model:
-        $attribute: Name
-        $resource:
-        - glue
-        - '001'
-      path: Glue.Job.Connections.Connections[]
-      producers:
-      - attribute: Name
-        producer: glue/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-9dfbd6c97ea57d8e6fd4402f4f2fe351bd3b665449d30ac5678ec53b637dde40
 glue-name-07:
-  records:
-  - actual:
-      Connections:
-      - fixture
-    category: difference
-    desired:
-      Connections:
-      - $attribute: Name
-        $resource:
-        - glue
-        - '001'
-    iac:
-      path: synthetic.yaml
-    model: null
-    model_sources:
-    - null
-    property: Glue.Job.Connections
-    reason: value mismatch
-    reference_diagnostics:
-    - allowed_forms:
-      - Name
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: fixture
-      identity: unproven
-      local_comparison: difference
-      model:
-        $attribute: Name
-        $resource:
-        - glue
-        - '001'
-      path: Glue.Job.Connections.Connections[]
-      producers:
-      - attribute: Name
-        producer: glue/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-3f82a039004280fe227d1923a56e3582b7ccd5123d7d592903b5269d45ed7541
 glue-name-08:
   records:
   - actual: null
@@ -323,107 +49,11 @@ glue-name-08:
     service: consumer
     stack: producer
 glue-name-09:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Job.Connections
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms:
-      - Name
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: fixture
-      identity: unproven
-      local_comparison: uncompared
-      model:
-        $attribute: Name
-        $resource:
-        - glue
-        - '001'
-      path: Glue.Job.Connections.Connections[]
-      producers:
-      - attribute: Name
-        producer: glue/001
-      reason: 'cyclic resource substitution: producer/Connection.Name'
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-f73464607cb7bebe843e583267e9e7f4f520c17fcf4ba3015e63c203d8160bbd
 glue-name-10:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Job.Connections
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms:
-      - Name
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: fixture
-      identity: unproven
-      local_comparison: uncompared
-      model:
-        $attribute: Name
-        $resource:
-        - glue
-        - '001'
-      path: Glue.Job.Connections.Connections[]
-      producers:
-      - attribute: Name
-        producer: glue/001
-      reason: 'cyclic resource substitution: producer/Connection.Name'
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-f73464607cb7bebe843e583267e9e7f4f520c17fcf4ba3015e63c203d8160bbd
 glue-name-11:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Glue.Job.Connections
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms:
-      - Name
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: allowed
-      iac: fixture
-      identity: unproven
-      local_comparison: uncompared
-      model:
-        $attribute: Name
-        $resource:
-        - glue
-        - '001'
-      path: Glue.Job.Connections.Connections[]
-      producers:
-      - attribute: Name
-        producer: glue/001
-      reason: 'cyclic resource substitution: producer/Connection.Name'
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-f73464607cb7bebe843e583267e9e7f4f520c17fcf4ba3015e63c203d8160bbd
 glue-name-12:
   records:
   - actual: null
@@ -492,3 +122,115 @@ glue-name-13:
     resource: 090
     service: consumer
     stack: producer
+$shared:
+  sha256-3f82a039004280fe227d1923a56e3582b7ccd5123d7d592903b5269d45ed7541:
+    records:
+    - actual:
+        Connections:
+        - fixture
+      category: difference
+      desired:
+        Connections:
+        - $attribute: Name
+          $resource:
+          - glue
+          - '001'
+      iac:
+        path: synthetic.yaml
+      model: null
+      model_sources:
+      - null
+      property: Glue.Job.Connections
+      reason: value mismatch
+      reference_diagnostics:
+      - allowed_forms:
+        - Name
+        current_aws_verified: false
+        evidence_type: local_evaluation
+        format:
+          iac: unproven
+          model: allowed
+        iac: fixture
+        identity: unproven
+        local_comparison: difference
+        model:
+          $attribute: Name
+          $resource:
+          - glue
+          - '001'
+        path: Glue.Job.Connections.Connections[]
+        producers:
+        - attribute: Name
+          producer: glue/001
+        reason: iac_concrete
+      resource: 090
+      service: consumer
+      stack: producer
+  sha256-9dfbd6c97ea57d8e6fd4402f4f2fe351bd3b665449d30ac5678ec53b637dde40:
+    records:
+    - actual: null
+      category: matched
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: Glue.Job.Connections
+      reason: reference expression equivalent
+      reference_diagnostics:
+      - allowed_forms:
+        - Name
+        current_aws_verified: false
+        evidence_type: local_evaluation
+        format:
+          iac: unproven
+          model: allowed
+        iac: fixture
+        identity: unproven
+        local_comparison: matched
+        model:
+          $attribute: Name
+          $resource:
+          - glue
+          - '001'
+        path: Glue.Job.Connections.Connections[]
+        producers:
+        - attribute: Name
+          producer: glue/001
+        reason: iac_concrete
+      resource: 090
+      service: consumer
+      stack: producer
+  sha256-f73464607cb7bebe843e583267e9e7f4f520c17fcf4ba3015e63c203d8160bbd:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: Glue.Job.Connections
+      reason: reference identity or property format is unproven
+      reference_diagnostics:
+      - allowed_forms:
+        - Name
+        current_aws_verified: false
+        evidence_type: local_evaluation
+        format:
+          iac: unproven
+          model: allowed
+        iac: fixture
+        identity: unproven
+        local_comparison: uncompared
+        model:
+          $attribute: Name
+          $resource:
+          - glue
+          - '001'
+        path: Glue.Job.Connections.Connections[]
+        producers:
+        - attribute: Name
+          producer: glue/001
+        reason: 'cyclic resource substitution: producer/Connection.Name'
+      resource: 090
+      service: consumer
+      stack: producer

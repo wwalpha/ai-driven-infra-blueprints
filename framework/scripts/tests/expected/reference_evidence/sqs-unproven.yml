@@ -1,533 +1,23 @@
 sqs-unproven-00:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: SQS.QueuePolicy.PolicyDocument
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - sqs
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Resource
-      producers:
-      - attribute: Arn
-        producer: sqs/001
-      reason: ARN requires a valid explicit resource QueueName
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - eventbridge
-        - '001'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
-      producers:
-      - attribute: Arn
-        producer: eventbridge/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-87e9ebcd03091b15790f8918b8c4815420a4452ec5b001fe53d14823f520ed86
 sqs-unproven-01:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: SQS.QueuePolicy.PolicyDocument
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - sqs
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Resource
-      producers:
-      - attribute: Arn
-        producer: sqs/001
-      reason: ARN requires a valid explicit resource QueueName
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - eventbridge
-        - '001'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
-      producers:
-      - attribute: Arn
-        producer: eventbridge/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-87e9ebcd03091b15790f8918b8c4815420a4452ec5b001fe53d14823f520ed86
 sqs-unproven-02:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: SQS.QueuePolicy.PolicyDocument
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - sqs
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Resource
-      producers:
-      - attribute: Arn
-        producer: sqs/001
-      reason: ARN requires a valid explicit resource QueueName
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - eventbridge
-        - '001'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
-      producers:
-      - attribute: Arn
-        producer: eventbridge/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-87e9ebcd03091b15790f8918b8c4815420a4452ec5b001fe53d14823f520ed86
 sqs-unproven-03:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: SQS.QueuePolicy.PolicyDocument
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - sqs
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Resource
-      producers:
-      - attribute: Arn
-        producer: sqs/001
-      reason: ARN requires a valid explicit resource QueueName
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - eventbridge
-        - '001'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
-      producers:
-      - attribute: Arn
-        producer: eventbridge/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-87e9ebcd03091b15790f8918b8c4815420a4452ec5b001fe53d14823f520ed86
 sqs-unproven-04:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: SQS.QueuePolicy.PolicyDocument
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - sqs
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Resource
-      producers:
-      - attribute: Arn
-        producer: sqs/001
-      reason: ARN requires a valid explicit resource QueueName
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - eventbridge
-        - '001'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
-      producers:
-      - attribute: Arn
-        producer: eventbridge/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-87e9ebcd03091b15790f8918b8c4815420a4452ec5b001fe53d14823f520ed86
 sqs-unproven-05:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: SQS.QueuePolicy.PolicyDocument
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - sqs
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Resource
-      producers:
-      - attribute: Arn
-        producer: sqs/001
-      reason: ARN requires a valid explicit resource QueueName
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - eventbridge
-        - '001'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
-      producers:
-      - attribute: Arn
-        producer: eventbridge/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-87e9ebcd03091b15790f8918b8c4815420a4452ec5b001fe53d14823f520ed86
 sqs-unproven-06:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: SQS.QueuePolicy.PolicyDocument
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - sqs
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Resource
-      producers:
-      - attribute: Arn
-        producer: sqs/001
-      reason: ARN requires a valid explicit resource QueueName
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - eventbridge
-        - '001'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
-      producers:
-      - attribute: Arn
-        producer: eventbridge/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-87e9ebcd03091b15790f8918b8c4815420a4452ec5b001fe53d14823f520ed86
 sqs-unproven-07:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: SQS.QueuePolicy.PolicyDocument
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - sqs
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Resource
-      producers:
-      - attribute: Arn
-        producer: sqs/001
-      reason: ARN requires a valid explicit resource QueueName
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - eventbridge
-        - '001'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
-      producers:
-      - attribute: Arn
-        producer: eventbridge/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-87e9ebcd03091b15790f8918b8c4815420a4452ec5b001fe53d14823f520ed86
 sqs-unproven-08:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: SQS.QueuePolicy.PolicyDocument
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - sqs
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Resource
-      producers:
-      - attribute: Arn
-        producer: sqs/001
-      reason: ARN requires a valid explicit resource QueueName
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - eventbridge
-        - '001'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
-      producers:
-      - attribute: Arn
-        producer: eventbridge/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-87e9ebcd03091b15790f8918b8c4815420a4452ec5b001fe53d14823f520ed86
 sqs-unproven-09:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: SQS.QueuePolicy.PolicyDocument
-    reason: reference identity or property format is unproven
-    reference_diagnostics:
-    - allowed_forms: null
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: unproven
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - sqs
-        - '001'
-      identity: unproven
-      local_comparison: uncompared
-      model: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Resource
-      producers:
-      - attribute: Arn
-        producer: sqs/001
-      reason: ARN requires a valid explicit resource QueueName
-    - allowed_forms:
-      - Arn
-      current_aws_verified: false
-      evidence_type: local_evaluation
-      format:
-        iac: allowed
-        model: unproven
-      iac:
-        $attribute: Arn
-        $resource:
-        - eventbridge
-        - '001'
-      identity: unproven
-      local_comparison: matched
-      model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
-      path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
-      producers:
-      - attribute: Arn
-        producer: eventbridge/001
-      reason: iac_concrete
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-87e9ebcd03091b15790f8918b8c4815420a4452ec5b001fe53d14823f520ed86
 sqs-unproven-10:
   records:
   - actual: null
@@ -634,3 +124,57 @@ sqs-unproven-11:
     resource: 090
     service: consumer
     stack: producer
+$shared:
+  sha256-87e9ebcd03091b15790f8918b8c4815420a4452ec5b001fe53d14823f520ed86:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: SQS.QueuePolicy.PolicyDocument
+      reason: reference identity or property format is unproven
+      reference_diagnostics:
+      - allowed_forms: null
+        current_aws_verified: false
+        evidence_type: local_evaluation
+        format:
+          iac: unproven
+          model: unproven
+        iac:
+          $attribute: Arn
+          $resource:
+          - sqs
+          - '001'
+        identity: unproven
+        local_comparison: uncompared
+        model: arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq
+        path: SQS.QueuePolicy.PolicyDocument.Statement[].Resource
+        producers:
+        - attribute: Arn
+          producer: sqs/001
+        reason: ARN requires a valid explicit resource QueueName
+      - allowed_forms:
+        - Arn
+        current_aws_verified: false
+        evidence_type: local_evaluation
+        format:
+          iac: allowed
+          model: unproven
+        iac:
+          $attribute: Arn
+          $resource:
+          - eventbridge
+          - '001'
+        identity: unproven
+        local_comparison: matched
+        model: arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule
+        path: SQS.QueuePolicy.PolicyDocument.Statement[].Condition.ArnEquals.aws:SourceArn
+        producers:
+        - attribute: Arn
+          producer: eventbridge/001
+        reason: iac_concrete
+      resource: 090
+      service: consumer
+      stack: producer

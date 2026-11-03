@@ -1,63 +1,41 @@
 sg-vpc-evidence-00:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-vpc-evidence-01:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-vpc-evidence-02:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-vpc-evidence-03:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-vpc-evidence-04:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-vpc-evidence-05:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-vpc-evidence-06:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-vpc-evidence-07:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-vpc-evidence-08:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-vpc-evidence-09:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-vpc-evidence-10:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-vpc-evidence-11:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-vpc-evidence-12:
-  error:
-    message: 'local resource reference missing/inactive: producer/Missing'
-    type: Blocked
+  $shared-ref: sha256-dc0f72cf6a9f764edf8200e079404e52b560c96e1a7a99b702dd8da3f6cd9f3f
 sg-vpc-evidence-13:
   error:
     message: ImportValue name is unresolved
     type: Blocked
 sg-vpc-evidence-14:
-  error:
-    message: 'local resource reference missing/inactive: producer/Missing'
-    type: Blocked
+  $shared-ref: sha256-dc0f72cf6a9f764edf8200e079404e52b560c96e1a7a99b702dd8da3f6cd9f3f
 sg-vpc-evidence-15:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-vpc-evidence-16:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-vpc-evidence-17:
-  attribute: GroupId
+  $shared-ref: sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b
 sg-vpc-evidence-18:
   error:
     message: 'unresolved pseudo parameter: AWS::NoValue'
@@ -75,22 +53,22 @@ sg-vpc-evidence-21:
     message: 'local resource reference missing/inactive: producer/Undeclared'
     type: Blocked
 sg-vpc-evidence-22:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-vpc-evidence-23:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-vpc-evidence-24:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
 sg-vpc-evidence-25:
-  error:
-    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
-      a group ID
-    type: Blocked
+  $shared-ref: sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3
+$shared:
+  sha256-06d916929c13ce6d8ccdf44104086a24dc8dd348019e4a8e3dcecb904544355b:
+    attribute: GroupId
+  sha256-c7569be4c65b1489b97be336015081b45167b1d2a3093244ca9b4c53189f73b3:
+    error:
+      message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+        a group ID
+      type: Blocked
+  sha256-dc0f72cf6a9f764edf8200e079404e52b560c96e1a7a99b702dd8da3f6cd9f3f:
+    error:
+      message: 'local resource reference missing/inactive: producer/Missing'
+      type: Blocked

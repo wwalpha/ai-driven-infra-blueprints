@@ -1,16 +1,5 @@
 model-policy-00:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: IAM.ManagedPolicy.PolicyDocument
-    reason: equal
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-efc2afd6d9424095dc7bcd7be1406b043565c236332d19c30484608a6c15ec63
 model-policy-01:
   records:
   - actual: null
@@ -111,15 +100,18 @@ model-policy-03:
     resource: null
     severity: WARNING
 model-policy-04:
-  records:
-  - actual: null
-    category: matched
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: IAM.ManagedPolicy.PolicyDocument
-    reason: equal
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-efc2afd6d9424095dc7bcd7be1406b043565c236332d19c30484608a6c15ec63
+$shared:
+  sha256-efc2afd6d9424095dc7bcd7be1406b043565c236332d19c30484608a6c15ec63:
+    records:
+    - actual: null
+      category: matched
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: IAM.ManagedPolicy.PolicyDocument
+      reason: equal
+      resource: 090
+      service: consumer
+      stack: producer

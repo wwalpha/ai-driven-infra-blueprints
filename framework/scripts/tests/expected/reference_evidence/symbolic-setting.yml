@@ -1,17 +1,5 @@
 symbolic-setting-00:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Logs.LogGroup.LogGroupName
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-ab870aad7a420217e1b9c604aeda33af11684ebca2a4561ec6e7555b8bbb4eee
 symbolic-setting-01:
   records:
   - actual: null
@@ -27,33 +15,9 @@ symbolic-setting-01:
     service: consumer
     stack: null
 symbolic-setting-02:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Logs.LogGroup.LogGroupName
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-ab870aad7a420217e1b9c604aeda33af11684ebca2a4561ec6e7555b8bbb4eee
 symbolic-setting-03:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Logs.LogGroup.LogGroupName
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-ab870aad7a420217e1b9c604aeda33af11684ebca2a4561ec6e7555b8bbb4eee
 symbolic-setting-04:
   records:
   - actual: null
@@ -151,16 +115,19 @@ symbolic-setting-07:
     service: consumer
     stack: producer
 symbolic-setting-08:
-  records:
-  - actual: null
-    category: uncompared
-    desired: null
-    iac:
-      path: synthetic.yaml
-    model: null
-    property: Logs.LogGroup.LogGroupName
-    reason: reference identity or property format is unproven
-    reference_diagnostics: []
-    resource: 090
-    service: consumer
-    stack: producer
+  $shared-ref: sha256-ab870aad7a420217e1b9c604aeda33af11684ebca2a4561ec6e7555b8bbb4eee
+$shared:
+  sha256-ab870aad7a420217e1b9c604aeda33af11684ebca2a4561ec6e7555b8bbb4eee:
+    records:
+    - actual: null
+      category: uncompared
+      desired: null
+      iac:
+        path: synthetic.yaml
+      model: null
+      property: Logs.LogGroup.LogGroupName
+      reason: reference identity or property format is unproven
+      reference_diagnostics: []
+      resource: 090
+      service: consumer
+      stack: producer
