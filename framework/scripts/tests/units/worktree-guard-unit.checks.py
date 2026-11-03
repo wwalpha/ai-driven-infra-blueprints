@@ -1237,7 +1237,21 @@ def _check_pr_integration_guard(tmp_path, failure):
 
 
 @pytest.mark.parametrize(
-    "change", ["none", "head", "commit", "base", "dirty", "task", "mode", "state"]
+    "change",
+    [
+        "none",
+        "head",
+        "commit",
+        "base",
+        "dirty",
+        "task",
+        "mode",
+        "state",
+        "worktree",
+        "operation",
+        "repository",
+        "redirect",
+    ],
 )
 def check_pr_candidate_identity(tmp_path, change):
     text = contract("example", ["file.txt"]).replace("`running`", "`completed`")
@@ -1245,6 +1259,8 @@ def check_pr_candidate_identity(tmp_path, change):
     publication["taskHash"] = pr.hashlib.sha256(text.encode("utf-8")).hexdigest()
     state = dict(
         task_id="example",
+        primary=str(tmp_path),
+        worktree=str(tmp_path),
         task_file="tasks/example.md",
         integrationMode="pr",
         branch=publication["head"],
@@ -1262,11 +1278,31 @@ def check_pr_candidate_identity(tmp_path, change):
     path = tmp_path / "state.json"
     with (
         patch.object(
-            wt,
-            "load",
+            wt.worktree_state,
+            "load_candidate",
             return_value=(tmp_path, None, path, {} if change == "state" else state),
         ),
-        patch.object(wt, "task_worktree", return_value=tmp_path),
+        patch.object(
+            wt.worktree_state,
+            "_repository",
+            return_value=(tmp_path, None, tmp_path, []),
+        ),
+        patch.object(
+            wt.worktree_state,
+            "_repository_identity",
+            return_value=(
+                tmp_path / "other" if change == "redirect" else tmp_path,
+                tmp_path if change == "repository" else None,
+            ),
+        ),
+        patch.object(
+            wt,
+            "task_worktree",
+            side_effect=wt.Blocked("worktree changed")
+            if change in {"worktree", "operation"}
+            else None,
+            return_value=tmp_path,
+        ),
         patch.object(wt, "base_worktree", return_value=tmp_path / "base"),
         patch.object(
             wt.tasks,
@@ -1274,7 +1310,7 @@ def check_pr_candidate_identity(tmp_path, change):
             return_value=SimpleNamespace(
                 text=text + ("edit" if change == "task" else "")
             ),
-        ),
+        ) as snapshot,
         patch.object(
             wt,
             "output",
@@ -1294,8 +1330,10 @@ def check_pr_candidate_identity(tmp_path, change):
             assert pr.check_candidate(tmp_path, path, state) == (tmp_path, text)
             integration.assert_called_once()
         else:
-            with pytest.raises(wt.Blocked, match="changed"):
+            with pytest.raises(wt.Blocked, match="changed|another repository"):
                 pr.check_candidate(tmp_path, path, state)
+            if change in {"state", "repository", "redirect"}:
+                snapshot.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -1520,6 +1558,197 @@ def check_base_worktree_refusals(tmp_path, failure):
         with pytest.raises(wt.Blocked, match="available worktree|dirty|operation"):
             wt.base_worktree(tmp_path, {"base": "main"})
     TestCase().assertEqual(entries, original)
+
+
+def check_shared_records_reject_other_repository(tmp_path):
+    with (
+        patch.object(
+            worktree_state,
+            "_repository_identity",
+            side_effect=[
+                (tmp_path, tmp_path / "expected.git"),
+                (tmp_path / "other", tmp_path / "other.git"),
+            ],
+        ),
+        pytest.raises(wt.Blocked, match="another repository"),
+    ):
+        worktree_state.load_candidate(tmp_path, {"primary": str(tmp_path / "other")})
+
+
+def check_candidate_primary_identity_is_reused(tmp_path):
+    state = {"primary": str(tmp_path), "task_id": "example"}
+    expected = (tmp_path, tmp_path / "git", tmp_path / "state", state)
+    with (
+        patch.object(
+            worktree_state,
+            "_repository_identity",
+            return_value=(tmp_path, tmp_path / "git"),
+        ) as identity,
+        patch.object(worktree_state, "_load", return_value=expected),
+    ):
+        TestCase().assertEqual(worktree_state.load_candidate(tmp_path, state), expected)
+        identity.assert_called_once_with(tmp_path)
+
+
+def check_candidate_rejects_redirect_before_task_read(tmp_path):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(
+        ["git", "init", "-q", str(repository)], check=True, capture_output=True
+    )
+    target = tmp_path / "redirected"
+    target.symlink_to(repository, target_is_directory=True)
+    _, common = worktree_state._repository_identity(repository)
+    path = tmp_path / "state.json"
+    state = {"worktree": str(target), "prPublication": {}}
+    with (
+        patch.object(
+            worktree_state,
+            "load_candidate",
+            return_value=(tmp_path, common, path, state),
+        ),
+        patch.object(wt.tasks, "read_task_snapshot") as snapshot,
+        pytest.raises(wt.Blocked, match="another repository"),
+    ):
+        pr.check_candidate(tmp_path, path, state)
+    snapshot.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "change", ["branch", "detached", "locked", "prunable", "operation"]
+)
+def check_late_task_worktree_refusals(tmp_path, change):
+    state = {"worktree": str(tmp_path), "branch": "codex/worktree/example"}
+    original = {
+        "worktree": str(tmp_path),
+        "branch": "refs/heads/codex/worktree/example",
+    }
+    later = dict(original)
+    if change == "branch":
+        later["branch"] = "refs/heads/other"
+    elif change == "detached":
+        later.pop("branch")
+    elif change in {"locked", "prunable"}:
+        later[change] = "retained"
+    with (
+        patch.object(worktree_state, "worktrees", return_value=[later]),
+        patch.object(
+            worktree_state,
+            "idle_git",
+            side_effect=[None, wt.Blocked("operation in progress")]
+            if change == "operation"
+            else None,
+        ),
+    ):
+        TestCase().assertEqual(
+            worktree_state.task_worktree(tmp_path, state, records=[original]), tmp_path
+        )
+        with pytest.raises(wt.Blocked, match="worktree missing|operation in progress"):
+            worktree_state.task_worktree(tmp_path, state)
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def check_pr_record_update_cleanup_is_atomic(tmp_path, changed):
+    state = {
+        "prPublication": {"previousCandidate": "old"},
+        "prUpdate": {"status": "VALIDATED"},
+    }
+    before = copy.deepcopy(state)
+    with (
+        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(
+            pr,
+            "check_candidate",
+            side_effect=wt.Blocked("changed") if changed else None,
+        ),
+        patch.object(wt, "save") as save,
+    ):
+        if changed:
+            with pytest.raises(wt.Blocked, match="changed"):
+                pr.record(
+                    tmp_path,
+                    tmp_path / "state",
+                    state,
+                    finish_update=True,
+                    status="OPEN",
+                )
+            TestCase().assertEqual(state, before)
+            save.assert_not_called()
+        else:
+            pr.record(
+                tmp_path, tmp_path / "state", state, finish_update=True, status="OPEN"
+            )
+            TestCase().assertEqual(state, {"prPublication": {"status": "OPEN"}})
+            save.assert_called_once_with(tmp_path / "state", state)
+
+
+@pytest.mark.parametrize("change", ["none", "state", "path"])
+def check_pr_progress_requires_matching_state(tmp_path, change):
+    state = {
+        "task_id": "example",
+        "prPublication": {"status": "PREPARED", "pushIntent": True},
+    }
+    before = copy.deepcopy(state)
+    path = tmp_path / "state.json"
+    current = copy.deepcopy(state)
+    if change == "state":
+        current["prPublication"]["status"] = "OTHER"
+    with (
+        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(
+            wt,
+            "load",
+            return_value=(
+                tmp_path,
+                None,
+                tmp_path / "other" if change == "path" else path,
+                current,
+            ),
+        ),
+        patch.object(wt, "save") as save,
+    ):
+        if change != "none":
+            with pytest.raises(wt.Blocked, match="lifecycle changed"):
+                pr.record(tmp_path, path, state, progress_only=True, status="PUSHED")
+            TestCase().assertEqual(state, before)
+            save.assert_not_called()
+        else:
+            pr.record(tmp_path, path, state, progress_only=True, status="PUSHED")
+            TestCase().assertEqual(state["prPublication"]["status"], "PUSHED")
+            save.assert_called_once_with(path, state)
+
+
+@pytest.mark.parametrize("failure", ["none", "head", "base"])
+def check_candidate_history_without_merge_base(tmp_path, failure):
+    task = "tasks/example.md"
+    task_path = tmp_path / task
+    task_path.parent.mkdir()
+    task_path.write_text("completed", encoding="utf-8")
+    state = {
+        "worktree": str(tmp_path),
+        "task_file": task,
+        "start": "old",
+        "validation_base": "start",
+        "base": "main",
+    }
+    results = [
+        subprocess.CompletedProcess([], int(failure == "head")),
+        subprocess.CompletedProcess([], int(failure == "base")),
+    ]
+    with (
+        patch.object(worktree_state, "output", side_effect=["start", "base"]) as output,
+        patch.object(worktree_state, "git", side_effect=results) as git,
+    ):
+        if failure == "none":
+            TestCase().assertEqual(
+                worktree_state._task_history(tmp_path, task, state, merge_base=False),
+                "start",
+            )
+            TestCase().assertEqual(output.call_count, 2)
+            TestCase().assertEqual(git.call_count, 2)
+        else:
+            with pytest.raises(wt.Blocked, match="ancestor|rewritten"):
+                worktree_state._task_history(tmp_path, task, state, merge_base=False)
 
 
 def _commit_git(trace, where, *args, **kwargs):
@@ -1869,6 +2098,10 @@ def _pr_resume_save(trace, path, state):
     trace.saved.append(copy.deepcopy(state))
 
 
+def _pr_resume_load(trace, root, task_id):
+    return root, None, root / "state.json", copy.deepcopy(trace.saved[-1])
+
+
 @pytest.mark.parametrize("failure", ["push", "create", "save"])
 def check_pr_intent_reconciles_without_duplicate_publication(tmp_path, failure):
     check = TestCase()
@@ -1886,6 +2119,9 @@ def check_pr_intent_reconciles_without_duplicate_publication(tmp_path, failure):
     identity = {key: publication[key] for key in ("remoteUrl", "repository", "host")}
     with (
         patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(
+            wt, "load", side_effect=_bind_framework_callback(_pr_resume_load, trace)
+        ),
         patch.object(pr, "check_candidate", return_value=(tmp_path, "Task")),
         patch.object(pr, "remote_identity", return_value=identity),
         patch.object(
@@ -2474,6 +2710,44 @@ def _pr_merge_response(publication, merged, *_args):
     if merged:
         publication.update(state="MERGED", mergeCommit=dict(oid="a" * 40))
     raise wt.Blocked("uncertain merge response")
+
+
+@pytest.mark.parametrize("method", ["merge", "squash", "rebase"])
+def check_pr_merge_methods(tmp_path, method):
+    publication = dict(_pr_publication(), number=7)
+    state = dict(integrationMode="pr", merged=None, prPublication=publication)
+    opened = dict(state="OPEN", number=7, isDraft=False)
+    merged = dict(
+        state="MERGED", number=7, isDraft=False, mergeCommit={"oid": "a" * 40}
+    )
+    path = tmp_path / "state.json"
+    with (
+        patch.object(wt, "load", return_value=(tmp_path, None, path, state)),
+        patch.object(pr, "publication_lock", return_value=nullcontext()),
+        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(pr, "remote_identity", return_value={}),
+        patch.object(pr, "existing_pr", side_effect=[opened, merged]),
+        patch.object(wt, "save"),
+        patch.object(pr, "gh") as gh,
+        patch.object(wt, "cleanup_state", return_value="cleaned") as cleanup,
+    ):
+        TestCase().assertEqual(
+            pr.operate(tmp_path, "example", "pr-merge", method=method), "cleaned"
+        )
+        gh.assert_called_once_with(
+            tmp_path,
+            publication["host"],
+            "pr",
+            "merge",
+            "7",
+            "--repo",
+            publication["host"] + "/" + publication["repository"],
+            "--" + method,
+            "--match-head-commit",
+            publication["candidate"],
+        )
+        cleanup.assert_called_once_with(tmp_path, path, state)
+        TestCase().assertEqual(state["merged"], "a" * 40)
 
 
 @pytest.mark.parametrize("merged", [False, True])

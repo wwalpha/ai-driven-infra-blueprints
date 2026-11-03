@@ -51,7 +51,7 @@ def worktrees(root):
     return records
 
 
-def _repository(where: Path) -> tuple[Path, Path, Path, list[dict[str, str]]]:
+def _repository_identity(where: Path) -> tuple[Path, Path]:
     values = output(
         where,
         "rev-parse",
@@ -71,7 +71,11 @@ def _repository(where: Path) -> tuple[Path, Path, Path, list[dict[str, str]]]:
     root = Path(root).resolve()
     if bare != "false":
         raise Blocked("a non-bare Git repository is required")
-    common = Path(common)
+    return root, Path(common)
+
+
+def _repository(where: Path) -> tuple[Path, Path, Path, list[dict[str, str]]]:
+    root, common = _repository_identity(where)
     records = worktrees(root)
     primary = Path(records[0]["worktree"]).resolve()
     if not primary.is_dir() or "prunable" in records[0]:
@@ -100,6 +104,18 @@ def state_path(primary, task_id):
 def load(where, task_id):
     root, common, primary = repository(where)
     return _load(primary, common, task_id)
+
+
+def load_candidate(where, state):
+    root, common = _repository_identity(where)
+    primary, primary_common = (
+        (root, common)
+        if Path(where) == Path(state["primary"])
+        else _repository_identity(Path(state["primary"]))
+    )
+    if primary_common != common or primary != Path(state["primary"]):
+        raise Blocked("task worktree belongs to another repository")
+    return _load(primary, common, state["task_id"])
 
 
 def _load(primary: Path, common: Path, task_id: str) -> tuple[Path, Path, Path, dict]:
@@ -141,6 +157,10 @@ def task_start_commit(root, task_file):
     if state["task_file"] != task_file:
         raise Blocked("selected task does not match managed task_file")
     task_worktree(root, state)
+    return _task_history(root, task_file, state, merge_base=True)
+
+
+def _task_history(root, task_file, state, *, merge_base):
     start = output(
         root,
         "rev-parse",
@@ -157,7 +177,7 @@ def task_start_commit(root, task_file):
     )
     if git(root, "merge-base", "--is-ancestor", start, base, check=False).returncode:
         raise Blocked("base history was rewritten; task retained for review")
-    return output(root, "merge-base", base, "HEAD")
+    return output(root, "merge-base", base, "HEAD") if merge_base else start
 
 
 def committed_task_paths(root, task_file):

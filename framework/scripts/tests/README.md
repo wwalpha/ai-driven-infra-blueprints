@@ -40,7 +40,7 @@ ITは正常なCLI・Git・保存・再読込・コンポーネント接続を所
 | 共通assetコピーの部分失敗rollback・symlink・必須引数 | sync-existing-files-unit（既存故障ケースを移動） | sync-existing-filesの実CLIコピー→dry-run→更新 |
 | PDFリンク不正・native依存エラー時の出力保持 | export-design-pdf-unit | export-design-pdfの複数文書bundle |
 
-最新baseのPR update/merge応答・失敗Validationはworktree-guard-unitのFakeで保証し、ITはDraft/Ready・更新・各正常終了と明示cleanupを保持する。Deploy owner補正/参照同期の故障は既存contract-correction/observed/generation-resume UTが所有し、ITには正常な範囲指定と承認済み参照同期を残す。
+最新baseのPR update/merge応答・失敗Validationはworktree-guard-unitのFakeで保証する。merge/squash/rebaseの引数・応答と後処理は同UTで各方式を確認する。Worktree ITはcloseの代表経路でDraft/Ready・更新・実Gitの祖先関係を確認し、cleanup-first・外部Merge・mergeは独立した公開済みPRで各終了方法と実Gitの状態を確認する。更新の中断・再開は別の復旧シナリオに残す。Deploy owner補正/参照同期の故障は既存contract-correction/observed/generation-resume UTが所有し、ITには正常な範囲指定と承認済み参照同期を残す。
 
 Importの未使用な故障注入Fixture/Mockは削除し、共有 `import_publication_case()` はAPI/CLIの正常公開だけを扱う。
 修復ITの入口は診断済みの既存Task資料であり、新しいController故障や中断を注入しない。
