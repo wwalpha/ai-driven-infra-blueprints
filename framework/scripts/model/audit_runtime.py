@@ -797,6 +797,21 @@ def audit(snapshot, profile=None, cli_runner=None):
                     )
                 )
             )
+            for item in items:
+                if item["status"] == "design_unresolved":
+                    reason = item.get("reason", "")
+                    item["pendingDeploy"] = (
+                        reason.startswith("Design reference unresolved: ")
+                        and "REFERENCE_PENDING_DEPLOY" in reason
+                        and "REFERENCE_UNRESOLVED" not in reason
+                    ) or (
+                        reason == "design value is unresolved"
+                        and any(
+                            m.literal(row.get("document", row["value"]))
+                            == "PENDING_DEPLOY"
+                            for _, row in resource.rows_for(item["propertiesKey"])
+                        )
+                    )
             items = [
                 reference_result(
                     m, snapshot, resource, identifier_result(m, ctx, resource, item)
@@ -885,6 +900,12 @@ def report(snapshot, profile, account, records, timestamp):
             "resource_missing": "NG",
             "excluded": "INFO",
         }.get(item["status"], "ERROR")
+        if (
+            item["status"] == "design_unresolved"
+            and item.get("pendingDeploy")
+            and "REFERENCE_UNRESOLVED" not in item.get("reason", "")
+        ):
+            state = "NG"
         if (
             item["status"] == "resource_missing"
             and item.get("resourceType") == "LakeFormation.Resource"

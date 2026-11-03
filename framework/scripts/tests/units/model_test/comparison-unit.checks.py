@@ -1053,6 +1053,45 @@ class IngressRuleTests(unittest.TestCase):
                 self.assertEqual(unresolved["status"], "design_unresolved")
 
 
+def test_pending_source_does_not_select_ingress_rule():
+    module = service_module("security-group")
+    resource = Mock()
+    resource.kind = "EC2.SecurityGroupIngress"
+    resource.parent.return_value.identity.return_value = "sg-parent"
+    resource.current.return_value = None
+    resource.rows = [
+        (name, {"property": resource.kind + "." + name, "value": value})
+        for name, value in {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "SourceSecurityGroupId": "PENDING_DEPLOY",
+        }.items()
+    ]
+
+    def parse(row, norm):
+        if row["value"] == "PENDING_DEPLOY":
+            raise Unresolved("Design reference unresolved: REFERENCE_PENDING_DEPLOY")
+        return row["value"]
+
+    resource.parse.side_effect = parse
+    ctx = Mock()
+    ctx.pages.return_value = {
+        "SecurityGroupRules": [
+            {
+                "GroupId": "sg-parent",
+                "IsEgress": False,
+                "IpProtocol": "tcp",
+                "FromPort": 443,
+                "ToPort": 443,
+                "ReferencedGroupInfo": {"GroupId": "sg-peer"},
+            }
+        ]
+    }
+    with unittest.TestCase().assertRaisesRegex(Unresolved, "REFERENCE_PENDING_DEPLOY"):
+        module.fetch(ctx, resource, "rule")
+
+
 def test_quicksight_namespace_fixture():
     fixture = load_fixture("quicksight/namespace")
     actual = execute(fixture, snapshot_only=True)

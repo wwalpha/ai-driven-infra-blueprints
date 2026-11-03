@@ -298,7 +298,10 @@ def test_datazone_audit_project_unresolved_selector(tmp_path, selector, pending)
     text, code = namespace["report"](
         snap, None, account, records, datetime.now(timezone.utc)
     )
-    assert code == 2 and text.count("[ERROR]") == 4
+    if pending == "PENDING_DEPLOY":
+        assert code == 1 and text.count("[NG]") == 4
+    else:
+        assert code == 2 and text.count("[ERROR]") == 4
 
 
 def test_datazone_audit_project_pending_output_is_not_confirmed_by_sdk(tmp_path):

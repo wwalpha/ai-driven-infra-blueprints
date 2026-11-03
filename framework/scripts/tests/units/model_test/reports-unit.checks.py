@@ -1,4 +1,5 @@
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import TestCase
 
@@ -110,6 +111,41 @@ def test_guardduty_secret_failure_before_snapshot():
     ):
         guardduty_report_case(case)
     TestCase().assertNotIn("hidden", str(caught.value))
+
+
+def test_pending_deploy_report_classification():
+    snapshot = {
+        "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
+        "service": "security-group",
+        "modelHash": "hash",
+        "names": {},
+    }
+    for status, pending, reason, expected in (
+        ("design_unresolved", True, "REFERENCE_PENDING_DEPLOY", "NG"),
+        (
+            "design_unresolved",
+            True,
+            "REFERENCE_PENDING_DEPLOY; REFERENCE_UNRESOLVED",
+            "ERROR",
+        ),
+        ("acquisition_failed", True, "AccessDenied", "ERROR"),
+        ("design_unresolved", False, "ambiguous", "ERROR"),
+        ("pending_identifier", False, "PENDING_DEPLOY", "NG"),
+    ):
+        item = {
+            "resource": "sg",
+            "propertiesKey": "EC2.SecurityGroup.Id",
+            "status": status,
+            "pendingDeploy": pending,
+            "reason": reason,
+            "designValue": None,
+            "awsValue": None,
+        }
+        text, code = audit.report(
+            snapshot, None, "account", [item], datetime.now(timezone.utc)
+        )
+        assert f"[{expected}]" in text
+        assert code == (1 if expected == "NG" else 2)
 
 
 if __name__ == "__main__":
