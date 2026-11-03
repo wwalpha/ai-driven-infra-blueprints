@@ -186,6 +186,8 @@ WORKTREE_CASES = {
         "check_pr_remote_base_rejects_unexpected_commit",
         "check_implement_rebases_on_latest_base",
         "check_latest_base_sync_retains_conflict",
+        "check_latest_base_linear_repeated_and_recovery",
+        "check_latest_base_rejects_old_merge_history",
         "check_base_advance_after_validation",
         "check_sync_base_preserves_candidate",
         "check_rewritten_base_preserves_candidate",

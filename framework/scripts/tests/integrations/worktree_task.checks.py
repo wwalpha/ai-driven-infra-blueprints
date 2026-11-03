@@ -111,9 +111,112 @@ def check_implement_rebases_on_latest_base():
         git(root, "merge", "--ff-only", state["branch"])
         check.assertEqual((root / "file.txt").read_text(), "task change\n")
         check.assertEqual((root / "upstream.txt").read_text(), "latest base\n")
-        check.assertEqual(
-            len(git(root, "show", "-s", "--format=%P", "HEAD").split()), 2
-        )
+        check.assertEqual(git(root, "show", "-s", "--format=%P", "HEAD"), latest)
+
+
+def _interrupt_after_rebase(original, target, *args, **kwargs):
+    result = original(target, *args, **kwargs)
+    if "rebase" in args and result.returncode == 0:
+        raise RuntimeError("simulated interruption after rebase")
+    return result
+
+
+@it_case
+def check_latest_base_linear_repeated_and_recovery():
+    check = TestCase()
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("first\n")
+        _, _, path, state = wt.load(root, "example")
+        wt._prepare_commit(root, path, state, target, None, prepare_only=True)
+        (target / "file.txt").write_text("first\nsecond\n")
+        git(target, "add", "file.txt")
+        git(target, "commit", "-qm", "second task commit")
+        old_head = git(target, "rev-parse", "HEAD")
+        state.update(tip=old_head, commit=old_head, verified=True)
+        wt.save(path, state)
+        for step in (1, 2):
+            (root / f"upstream{step}.txt").write_text(f"base {step}\n")
+            git(root, "add", f"upstream{step}.txt")
+            git(root, "commit", "-qm", f"base {step}")
+            latest = git(root, "rev-parse", "HEAD")
+            expected_tree = git(target, "merge-tree", "--write-tree", old_head, latest)
+            if step == 1:
+                original = wt.git
+                with patch.object(
+                    wt,
+                    "git",
+                    side_effect=_bind_framework_callback(
+                        _interrupt_after_rebase, original
+                    ),
+                ):
+                    with check.assertRaisesRegex(
+                        RuntimeError, "simulated interruption"
+                    ):
+                        wt.sync_latest_base(root, "example", latest)
+            result = wt.sync_latest_base(root, "example", latest)
+            check.assertEqual(result["status"], "needs_validation")
+            head = result["candidate"]
+            check.assertEqual(git(target, "rev-parse", head + "^{tree}"), expected_tree)
+            check.assertEqual(
+                git(target, "rev-list", "--count", latest + ".." + head), "2"
+            )
+            check.assertEqual(
+                git(target, "rev-list", "--merges", latest + ".." + head), ""
+            )
+            check.assertEqual((target / "file.txt").read_text(), "first\nsecond\n")
+            check.assertEqual(
+                wt.sync_latest_base(root, "example", latest)["status"], "ok"
+            )
+            old_head = head
+        git(root, "merge", "--ff-only", state["branch"])
+        check.assertEqual(git(root, "rev-parse", "HEAD"), head)
+
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("candidate\n")
+        (root / "upstream.txt").write_text("base\n")
+        git(root, "add", "upstream.txt")
+        git(root, "commit", "-qm", "base")
+        latest = git(root, "rev-parse", "HEAD")
+        original = wt.git
+        with patch.object(
+            wt,
+            "git",
+            side_effect=_bind_framework_callback(_interrupt_after_rebase, original),
+        ):
+            with check.assertRaisesRegex(RuntimeError, "simulated interruption"):
+                wt.sync_latest_base(root, "example", latest)
+        (target / "file.txt").write_text("third party\n")
+        git(target, "add", "file.txt")
+        git(target, "commit", "-qm", "unexpected change")
+        head = git(target, "rev-parse", "HEAD")
+        with check.assertRaises(wt.Blocked):
+            wt.sync_latest_base(root, "example", latest)
+        check.assertEqual(git(target, "rev-parse", "HEAD"), head)
+
+
+@it_case
+def check_latest_base_rejects_old_merge_history():
+    check = TestCase()
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("task\n")
+        _, _, path, state = wt.load(root, "example")
+        wt._prepare_commit(root, path, state, target, None, prepare_only=True)
+        (root / "upstream.txt").write_text("base\n")
+        git(root, "add", "upstream.txt")
+        git(root, "commit", "-qm", "first base")
+        git(target, "merge", "--no-ff", "--no-edit", git(root, "rev-parse", "HEAD"))
+        head = git(target, "rev-parse", "HEAD")
+        state.update(tip=head, commit=head, verified=True)
+        wt.save(path, state)
+        (root / "upstream2.txt").write_text("base 2\n")
+        git(root, "add", "upstream2.txt")
+        git(root, "commit", "-qm", "second base")
+        with check.assertRaisesRegex(wt.Blocked, "not linear"):
+            wt.sync_latest_base(root, "example", git(root, "rev-parse", "HEAD"))
+        check.assertEqual(git(target, "rev-parse", "HEAD"), head)
 
 
 @it_case
@@ -1453,6 +1556,8 @@ def main():
     for check in (
         check_implement_rebases_on_latest_base,
         check_latest_base_sync_retains_conflict,
+        check_latest_base_linear_repeated_and_recovery,
+        check_latest_base_rejects_old_merge_history,
         check_base_advance_after_validation,
         check_sync_base_preserves_candidate,
         check_rewritten_base_preserves_candidate,
