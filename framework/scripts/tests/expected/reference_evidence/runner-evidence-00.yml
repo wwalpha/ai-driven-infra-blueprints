@@ -1,0 +1,41 @@
+records:
+- actual: null
+  category: matched
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: EC2.Subnet.VpcId
+  reason: reference expression equivalent
+  reference_diagnostics:
+  - allowed_forms:
+    - VpcId
+    current_aws_verified: false
+    evidence_type: logical_reference
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: allowed
+      model: allowed
+    iac:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '001'
+    identity: same
+    local_comparison: matched
+    model:
+      $attribute: VpcId
+      $resource:
+      - vpc
+      - '001'
+    model_literal: vpc-0123456789abcdef0
+    path: EC2.Subnet.VpcId
+    producers:
+    - attribute: VpcId
+      producer: vpc/001
+    reason: logical_reference
+  resource: '010'
+  service: consumer
+  stack: consumer

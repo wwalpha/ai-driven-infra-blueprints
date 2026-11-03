@@ -1,0 +1,27 @@
+decision:
+  comparisons: []
+  diagnostics:
+  - allowed_forms:
+    - AliasArn
+    format:
+      iac: outside allowed forms
+      model: outside allowed forms
+    iac:
+      $attribute: AliasName
+      $resource:
+      - kms
+      - '002'
+    identity: different
+    model:
+      $attribute: Arn
+      $resource:
+      - kms
+      - '001'
+    path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+    reason: resource_type_mismatch
+  equal: false
+  equivalent: false
+outcome:
+  code: kms.format_outside_allowed
+  equal: false
+  message: 'KMS format outside allowed forms: model=KeyArn, iac=AliasName'

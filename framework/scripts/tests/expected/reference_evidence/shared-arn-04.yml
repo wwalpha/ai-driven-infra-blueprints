@@ -1,0 +1,59 @@
+decisions:
+- comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: recorded_observed
+    format:
+      iac: unproven
+      model: unproven
+    iac: arn:aws:ec2:ap-northeast-1:123456789012:elastic-ip/eipalloc-0123456789abcdef0
+    identity: unproven
+    local_comparison: uncompared
+    model:
+      $attribute: Arn
+      $resource:
+      - producer
+      - '001'
+    path: IAM.Role.Policies[].PolicyDocument.Statement[].Resource
+    producers:
+    - attribute: Arn
+      current_aws_verified: false
+      derived_format: Arn
+      evidence_type: recorded_observed
+      producer: producer/001
+      source_property: EC2.EIP.AllocationId
+    reason: recorded_observed cannot prove current or next-deploy physical identity
+  equal: null
+  equivalent: false
+- comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: recorded_observed
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: Arn
+      $resource:
+      - producer
+      - '001'
+    identity: unproven
+    local_comparison: uncompared
+    model: arn:aws:ec2:ap-northeast-1:123456789012:elastic-ip/eipalloc-0123456789abcdef0
+    path: IAM.Role.Policies[].PolicyDocument.Statement[].Resource
+    producers:
+    - attribute: Arn
+      current_aws_verified: false
+      derived_format: Arn
+      evidence_type: recorded_observed
+      producer: producer/001
+      source_property: EC2.EIP.AllocationId
+    reason: recorded_observed cannot prove current or next-deploy physical identity
+  equal: null
+  equivalent: false
+different_results:
+- null
+- null
+- null

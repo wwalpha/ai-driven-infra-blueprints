@@ -1,0 +1,30 @@
+decision:
+  comparisons: []
+  diagnostics:
+  - allowed_forms:
+    - AliasArn
+    code: kms.format_outside_allowed
+    current_aws_verified: false
+    evidence_type: logical_reference
+    format:
+      iac: outside allowed forms
+      model: allowed
+    iac:
+      $attribute: AliasName
+      $resource:
+      - kms
+      - '002'
+    identity: same
+    model:
+      $attribute: AliasArn
+      $resource:
+      - kms
+      - '002'
+    path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+    reason: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'
+  equal: false
+  equivalent: false
+outcome:
+  code: kms.format_outside_allowed
+  equal: false
+  message: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'

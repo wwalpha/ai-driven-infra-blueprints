@@ -1,0 +1,31 @@
+decision:
+  comparisons: []
+  diagnostics:
+  - allowed_forms:
+    - AliasArn
+    - KeyArn
+    code: kms.format_outside_allowed
+    current_aws_verified: false
+    evidence_type: logical_reference
+    format:
+      iac: allowed
+      model: outside allowed forms
+    iac:
+      $attribute: Arn
+      $resource:
+      - kms
+      - '001'
+    identity: same
+    model:
+      $attribute: KeyId
+      $resource:
+      - kms
+      - '001'
+    path: Logs.LogGroup.KmsKeyId
+    reason: 'KMS format outside allowed forms: model=KeyId, iac=KeyArn'
+  equal: false
+  equivalent: false
+outcome:
+  code: kms.format_outside_allowed
+  equal: false
+  message: 'KMS format outside allowed forms: model=KeyId, iac=KeyArn'

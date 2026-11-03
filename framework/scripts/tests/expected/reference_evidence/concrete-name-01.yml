@@ -1,0 +1,61 @@
+actual:
+  $caseType: ResourceReference
+  value:
+    $attribute: Arn
+    $resource:
+    - s3
+    - '001'
+decision:
+  comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: local_evaluation
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: Arn
+      $resource:
+      - s3
+      - '001'
+    identity: unproven
+    local_comparison: matched
+    model: arn:aws:s3:::fixture-bucket
+    path: IAM.Role.Policies[].PolicyDocument.Statement[].Resource
+    producers:
+    - attribute: Arn
+      producer: s3/001
+    reason: iac_concrete
+  equal: true
+  equivalent: true
+different:
+  comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: local_evaluation
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: Arn
+      $resource:
+      - s3
+      - '001'
+    identity: unproven
+    local_comparison: difference
+    model: arn:aws:s3:::fixture-bucket-different
+    path: IAM.Role.
+    producers:
+    - attribute: Arn
+      producer: s3/001
+    reason: iac_concrete
+  equal: false
+  equivalent: false

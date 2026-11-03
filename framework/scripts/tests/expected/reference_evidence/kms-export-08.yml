@@ -1,0 +1,35 @@
+decision:
+  comparisons: []
+  diagnostics:
+  - allowed_forms:
+    - KeyArn
+    current_aws_verified: false
+    evidence_type: recorded_observed
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: allowed
+      model: allowed
+    iac:
+      $expression: Sub
+      $operands:
+      - arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${Key}
+      - AWS::AccountId: '123456789012'
+        AWS::Partition: aws
+        AWS::Region: ap-northeast-1
+        Key:
+          $attribute: KeyId
+          $resource:
+          - kms
+          - '001'
+    identity: unproven
+    local_comparison: uncompared
+    model: arn:aws:kms:ap-northeast-1:123456789012:key/mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+    producers:
+    - attribute: KeyId
+      producer: kms/001
+    reason: recorded_observed cannot prove current or next-deploy physical identity
+  equal: null
+  equivalent: false

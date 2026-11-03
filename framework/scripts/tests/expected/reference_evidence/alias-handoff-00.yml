@@ -1,0 +1,44 @@
+records:
+- actual: null
+  category: matched
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: Logs.LogGroup.KmsKeyId
+  reason: equal
+  reference_diagnostics:
+  - allowed_forms:
+    - AliasArn
+    - KeyArn
+    current_aws_verified: false
+    evidence_type: logical_reference
+    exports:
+    - export_name: KmsLogKeyAliasNameFixture
+      export_stack: producer
+    format:
+      iac: allowed
+      model: allowed
+    iac:
+      $expression: Sub
+      $operands:
+      - arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${KmsAliasName}
+      - AWS::AccountId: '123456789012'
+        AWS::Partition: aws
+        AWS::Region: ap-northeast-1
+        KmsAliasName:
+          $attribute: AliasName
+          $resource:
+          - kms
+          - '002'
+    identity: unproven
+    model:
+      $attribute: AliasArn
+      $resource:
+      - kms
+      - '002'
+    path: Logs.LogGroup.KmsKeyId
+    reason: same KMS ARN Producer and owning scope
+  resource: '010'
+  service: logs
+  stack: consumer

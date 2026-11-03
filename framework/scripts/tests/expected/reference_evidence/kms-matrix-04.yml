@@ -1,0 +1,30 @@
+decision:
+  comparisons: []
+  diagnostics:
+  - allowed_forms:
+    - KeyArn
+    code: kms.format_outside_allowed
+    current_aws_verified: false
+    evidence_type: logical_reference
+    format:
+      iac: outside allowed forms
+      model: allowed
+    iac:
+      $attribute: KeyId
+      $resource:
+      - kms
+      - '001'
+    identity: same
+    model:
+      $attribute: Arn
+      $resource:
+      - kms
+      - '001'
+    path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+    reason: 'KMS format outside allowed forms: model=KeyArn, iac=KeyId'
+  equal: false
+  equivalent: false
+outcome:
+  code: kms.format_outside_allowed
+  equal: false
+  message: 'KMS format outside allowed forms: model=KeyArn, iac=KeyId'

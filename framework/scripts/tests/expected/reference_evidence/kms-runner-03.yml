@@ -1,0 +1,42 @@
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: S3.Bucket.BucketEncryption
+  reason: reference identity or property format is unproven
+  reference_diagnostics:
+  - allowed_forms:
+    - AliasName
+    - Arn
+    - KeyId
+    current_aws_verified: false
+    evidence_type: recorded_observed
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: allowed
+      model: unproven
+    iac:
+      $attribute: Arn
+      $resource:
+      - kms
+      - '001'
+    identity: unproven
+    local_comparison: uncompared
+    model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+    path: S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+    producers:
+    - attribute: Arn
+      current_aws_verified: false
+      derived_format: KeyArn
+      evidence_type: recorded_observed
+      producer: kms/001
+      source_property: KMS.Key.KeyId
+    reason: recorded_observed cannot prove current or next-deploy physical identity
+  resource: '010'
+  service: consumer
+  stack: consumer

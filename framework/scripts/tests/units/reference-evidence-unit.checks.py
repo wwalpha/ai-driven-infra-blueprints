@@ -616,62 +616,56 @@ def offline():
 
 
 @pytest.mark.parametrize(
-    "kind,output,attribute,fixed,receiving,path,properties",
-    [
-        ("EC2.VPC", "VpcId", "VpcId", VPC, "EC2.Subnet", "VpcId", {}),
-        (
-            "EC2.Subnet",
-            "SubnetId",
-            "SubnetId",
-            "subnet-0123456789abcdef0",
-            "EC2.Instance",
-            "SubnetId",
-            {},
-        ),
-        (
-            "EC2.SecurityGroup",
-            "Id",
-            "GroupId",
-            "sg-0123456789abcdef0",
-            "EC2.Instance",
-            "SecurityGroupIds[]",
-            {"VpcId": VPC},
-        ),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="recorded-ref-")
 )
-def test_recorded_ref_export_import(
-    kind, output, attribute, fixed, receiving, path, properties
-):
+def test_recorded_ref_export_import(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_recorded_ref)
+
+
+def _execute_recorded_ref(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
         "network",
         "001",
-        kind,
+        data["kind"],
         "Network",
-        [(output, "PENDING_DEPLOY", fixed)],
-        properties=properties,
+        [(data["output"], "PENDING_DEPLOY", data["fixed"])],
+        properties=data["properties"],
     )
     actual = exported(comparison, {"Ref": "Network"})
     before = copy.deepcopy(comparison.models["network"].authoritative)
-    decision = comparison.reference_decision(fixed, actual, receiving, path)
-    assert actual["$attribute"] == attribute
-    assert decision.equal is None and not decision.equivalent
-    detail = decision.diagnostics[0]
-    assert (
-        detail["evidence_type"] == "recorded_observed"
-        and detail["current_aws_verified"] is False
+    decision = comparison.reference_decision(
+        data["fixed"], actual, data["receiving"], data["path"]
     )
-    assert detail["exports"] == [{"export_name": "shared", "export_stack": "producer"}]
-    assert detail["producers"] == [{"producer": "network/001", "attribute": attribute}]
-    assert comparison.models["network"].authoritative == before
+    check = TestCase()
+    check.assertEqual(actual["$attribute"], data["attribute"])
+    check.assertIsNone(decision.equal)
+    check.assertFalse(decision.equivalent)
+    detail = decision.diagnostics[0]
+    check.assertEqual(detail["evidence_type"], "recorded_observed")
+    check.assertIs(detail["current_aws_verified"], False)
+    check.assertEqual(
+        detail["exports"], [{"export_name": "shared", "export_stack": "producer"}]
+    )
+    check.assertEqual(
+        detail["producers"],
+        [{"producer": "network/001", "attribute": data["attribute"]}],
+    )
+    check.assertEqual(comparison.models["network"].authoritative, before)
+    return {"actual": projected(actual), "decision": _reference_decision_data(decision)}
 
 
 @pytest.mark.parametrize(
-    "attribute,fixed",
-    [("BucketName", "fixture-bucket"), ("Arn", "arn:aws:s3:::fixture-bucket")],
+    "case_id", case_ids("reference_evidence", prefix="concrete-name-")
 )
-def test_concrete_name_and_getatt_arn(attribute, fixed):
+def test_concrete_name_and_getatt_arn(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_concrete_name)
+
+
+def _execute_concrete_name(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -682,25 +676,25 @@ def test_concrete_name_and_getatt_arn(attribute, fixed):
         [("BucketName", "fixture-bucket", None)],
         properties={"BucketName": "fixture-bucket"},
     )
-    expression = (
-        {"Ref": "Bucket"}
-        if attribute == "BucketName"
-        else {"Fn::GetAtt": ["Bucket", attribute]}
-    )
-    actual = exported(comparison, expression)
+    actual = exported(comparison, data["expression"])
     decision = comparison.reference_decision(
-        fixed, actual, "IAM.Role", "Policies[].PolicyDocument.Statement[].Resource"
+        data["fixed"],
+        actual,
+        "IAM.Role",
+        "Policies[].PolicyDocument.Statement[].Resource",
     )
-    assert (
-        decision.equal is True
-        and decision.diagnostics[0]["evidence_type"] == "local_evaluation"
+    check = TestCase()
+    check.assertIs(decision.equal, True)
+    check.assertEqual(decision.diagnostics[0]["evidence_type"], "local_evaluation")
+    different = comparison.reference_decision(
+        data["fixed"] + "-different", actual, "IAM.Role", ""
     )
-    assert (
-        comparison.reference_decision(
-            fixed + "-different", actual, "IAM.Role", ""
-        ).equal
-        is False
-    )
+    check.assertIs(different.equal, False)
+    return {
+        "actual": projected(actual),
+        "decision": _reference_decision_data(decision),
+        "different": _reference_decision_data(different),
+    }
 
 
 def test_declared_scalar_and_no_reparsing_or_snapshot_reload():
@@ -838,36 +832,31 @@ def _execute_json_pointers(case):
     }
 
 
-@pytest.mark.parametrize(
-    "expression",
-    [
-        {
-            "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${Vpc}"
-        },
-        {
-            "Fn::Join": [
-                "",
-                ["arn:aws:ec2:ap-northeast-1:123456789012:vpc/", {"Ref": "Vpc"}],
-            ]
-        },
-    ],
-)
-def test_composite_arn_requires_all_literal_affixes(expression):
+@pytest.mark.parametrize("case_id", case_ids("reference_evidence", prefix="arn-affix-"))
+def test_composite_arn_requires_all_literal_affixes(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_arn_affix)
+
+
+def _execute_arn_affix(case):
     comparison = fixture()
     vpc(comparison)
-    actual = exported(comparison, expression)
-    fixed = "arn:aws:ec2:ap-northeast-1:123456789012:vpc/" + VPC
-    assert comparison.reference_decision(fixed, actual, "IAM.Role", "").equal is None
-    assert (
-        comparison.reference_decision(
-            fixed.replace("123456789012", "999999999999"), actual, "IAM.Role", ""
-        ).equal
-        is None
+    actual = exported(comparison, case["data"]["expression"])
+    fixed = case["data"]["fixed"]
+    first = comparison.reference_decision(fixed, actual, "IAM.Role", "")
+    wrong = comparison.reference_decision(
+        fixed.replace("123456789012", "999999999999"), actual, "IAM.Role", ""
     )
     comparison.models["vpc"].authoritative["observed.row.001-001.value"] = (
         "`PENDING_DEPLOY`"
     )
-    assert comparison.reference_decision(fixed, actual, "IAM.Role", "").equal is None
+    pending = comparison.reference_decision(fixed, actual, "IAM.Role", "")
+    for decision in (first, wrong, pending):
+        TestCase().assertIsNone(decision.equal)
+    return {
+        "first": _reference_decision_data(first),
+        "wrong": _reference_decision_data(wrong),
+        "pending": _reference_decision_data(pending),
+    }
 
 
 @pytest.mark.parametrize(
@@ -1006,45 +995,25 @@ def test_pointer_mismatch_is_not_silently_applied():
     assert isinstance(prepared(comparison, row).error, Blocked)
 
 
-@pytest.mark.parametrize("fault", ["missing", "duplicate", "cycle"])
-def test_export_resolution_failures_remain_blocked(fault):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="export-blocked-")
+)
+def test_export_resolution_failures_remain_blocked(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_export_blocked)
+
+
+def _execute_export_blocked(case):
+    data = case["data"]
     comparison = fixture()
     vpc(comparison)
-    if fault == "duplicate":
-        comparison.stack_inputs["other"] = (
-            {
-                "Resources": {},
-                "Outputs": {
-                    "Duplicate": {"Value": "value", "Export": {"Name": "shared"}}
-                },
-            },
-            {},
-            {},
-        )
-        comparison.stack_inputs["producer"][0]["Outputs"]["Value"] = {
-            "Value": {"Ref": "Vpc"},
-            "Export": {"Name": "shared"},
-        }
-    elif fault == "cycle":
-        comparison.stack_inputs["other"] = (
-            {
-                "Resources": {},
-                "Outputs": {
-                    "Other": {
-                        "Value": {"Fn::ImportValue": "shared"},
-                        "Export": {"Name": "other"},
-                    }
-                },
-            },
-            {},
-            {},
-        )
-        comparison.stack_inputs["producer"][0]["Outputs"]["Value"] = {
-            "Value": {"Fn::ImportValue": "other"},
-            "Export": {"Name": "shared"},
-        }
-    with pytest.raises(Blocked):
+    if data["other"] is not None:
+        comparison.stack_inputs["other"] = (data["other"], {}, {})
+    comparison.stack_inputs["producer"][0]["Outputs"].update(data["producer_outputs"])
+    with pytest.raises(Blocked) as failure:
         comparison.evaluate("consumer", {"Fn::ImportValue": "shared"})
+    return {
+        "error": {"type": type(failure.value).__name__, "message": str(failure.value)}
+    }
 
 
 @pytest.mark.parametrize(
@@ -1071,33 +1040,38 @@ def _execute_unresolved(case):
 
 
 @pytest.mark.parametrize(
-    "fault", ["condition", "transform", "duplicate-producer", "type"]
+    "case_id", case_ids("reference_evidence", prefix="correspondence-")
 )
-def test_recorded_value_cannot_bypass_current_correspondence(fault):
+def test_recorded_value_cannot_bypass_current_correspondence(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_correspondence)
+
+
+def _execute_correspondence(case):
+    data = case["data"]
     comparison = fixture()
     vpc(comparison)
     actual = exported(comparison, {"Ref": "Vpc"})
     document = comparison.stack_inputs["producer"][0]
-    if fault == "condition":
-        document["Conditions"] = {"No": {"Fn::Equals": ["yes", "no"]}}
-        document["Resources"]["Vpc"]["Condition"] = "No"
-    elif fault == "transform":
-        document["Transform"] = "Unresolved"
-    elif fault == "duplicate-producer":
+    document.update(data["document_fields"])
+    document["Resources"]["Vpc"].update(data["resource_fields"])
+    if data["duplicate"]:
         vpc(comparison, "002", "OtherVpc")
         comparison.models["vpc"].values["desired.resource.002.cfn-logicalId"] = (
             "producer-Vpc"
         )
         comparison._index = None
-    else:
-        document["Resources"]["Vpc"]["Type"] = "AWS::EC2::Subnet"
     comparison.symbols.clear()
-    assert (
-        comparison.reference_decision(VPC, actual, "EC2.Subnet", "VpcId").equal is None
-    )
+    decision = comparison.reference_decision(VPC, actual, "EC2.Subnet", "VpcId")
+    TestCase().assertIsNone(decision.equal)
+    return {"decision": _reference_decision_data(decision)}
 
 
-def test_kms_link_contract_and_id_arn_separation():
+@pytest.mark.parametrize("case_id", case_ids("reference_evidence", prefix="kms-link-"))
+def test_kms_link_contract_and_id_arn_separation(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_link)
+
+
+def _execute_kms_link(case):
     comparison = fixture()
     resource(
         comparison,
@@ -1105,56 +1079,33 @@ def test_kms_link_contract_and_id_arn_separation():
         "001",
         "KMS.Key",
         "Key",
-        [("KeyId", "PENDING_DEPLOY", "12345678-1234-1234-1234-123456789012")],
+        [("KeyId", "PENDING_DEPLOY", case["data"]["key_id"])],
     )
     key = comparison.evaluate("producer", {"Ref": "Key"})
     arn = exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]})
     desired = comparison.desired_reference(
-        "kms",
-        model_ref("KMS_Key_001", "Arn"),
-        "Athena.WorkGroup",
-        "WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey",
+        "kms", model_ref("KMS_Key_001", "Arn"), "Athena.WorkGroup", ATHENA_KMS
     )
-    field = "WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey"
-    assert (
-        comparison.reference_decision(desired, arn, "Athena.WorkGroup", field).equal
-        is True
-    )
-    assert (
-        comparison.reference_decision(key, arn, "Athena.WorkGroup", field).equal
-        is False
-    )
-    assert (
+    results = [
+        comparison.reference_decision(desired, arn, "Athena.WorkGroup", ATHENA_KMS),
+        comparison.reference_decision(key, arn, "Athena.WorkGroup", ATHENA_KMS),
         comparison.reference_decision(
-            "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
-            key,
-            "Athena.WorkGroup",
-            field,
-        ).equal
-        is False
-    )
+            case["data"]["arn"], key, "Athena.WorkGroup", ATHENA_KMS
+        ),
+    ]
+    TestCase().assertEqual([d.equal for d in results], [True, False, False])
+    return {"decisions": [_reference_decision_data(d) for d in results]}
 
 
-@pytest.mark.parametrize("kind,path", KMS_RECEIVERS)
-@pytest.mark.parametrize("key_id", [KEY_ID, "mrk-" + "a" * 32])
 @pytest.mark.parametrize(
-    "expression",
-    [
-        {"Fn::GetAtt": ["Key", "Arn"]},
-        {"Fn::Sub": "${Key.Arn}"},
-        {"Fn::Join": ["", [{"Fn::GetAtt": ["Key", "Arn"]}]]},
-        {
-            "Fn::Sub": "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${Key}"
-        },
-        {
-            "Fn::Join": [
-                "",
-                ["arn:aws:kms:ap-northeast-1:123456789012:key/", {"Ref": "Key"}],
-            ]
-        },
-    ],
+    "case_id", case_ids("reference_evidence", prefix="kms-export-")
 )
-def test_kms_recorded_arn_export_import(kind, path, key_id, expression):
+def test_kms_recorded_arn_export_import(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_export)
+
+
+def _execute_kms_export(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -1162,65 +1113,48 @@ def test_kms_recorded_arn_export_import(kind, path, key_id, expression):
         "001",
         "KMS.Key",
         "Key",
-        [("KeyId", "PENDING_DEPLOY", key_id)],
+        [("KeyId", "PENDING_DEPLOY", data["key_id"])],
     )
     before = copy.deepcopy(comparison.models["kms"].authoritative)
-    actual = exported(comparison, expression)
+    actual = exported(comparison, data["expression"])
     decision = comparison.reference_decision(
-        KEY_ARN.replace(KEY_ID, key_id), actual, kind, path
+        KEY_ARN.replace(KEY_ID, data["key_id"]), actual, data["kind"], data["path"]
     )
-    assert decision.equal is None and not decision.equivalent, decision
+    check = TestCase()
+    check.assertIsNone(decision.equal)
+    check.assertFalse(decision.equivalent)
     detail = decision.diagnostics[0]
-    assert (
-        detail["evidence_type"] == "recorded_observed"
-        and detail["current_aws_verified"] is False
+    check.assertEqual(detail["evidence_type"], "recorded_observed")
+    check.assertIs(detail["current_aws_verified"], False)
+    check.assertEqual(
+        detail["exports"], [{"export_name": "shared", "export_stack": "producer"}]
     )
-    assert detail["exports"] == [{"export_name": "shared", "export_stack": "producer"}]
-    if expression == {"Fn::GetAtt": ["Key", "Arn"]}:
-        assert detail["producers"] == [
-            dict(
-                producer="kms/001",
-                attribute="Arn",
-                source_property="KMS.Key.KeyId",
-                evidence_type="recorded_observed",
-                derived_format="KeyArn",
-                current_aws_verified=False,
-            )
-        ]
-    assert comparison.models["kms"].authoritative == before
+    if data["expression"] == {"Fn::GetAtt": ["Key", "Arn"]}:
+        check.assertEqual(
+            detail["producers"],
+            [
+                dict(
+                    producer="kms/001",
+                    attribute="Arn",
+                    source_property="KMS.Key.KeyId",
+                    evidence_type="recorded_observed",
+                    derived_format="KeyArn",
+                    current_aws_verified=False,
+                )
+            ],
+        )
+    check.assertEqual(comparison.models["kms"].authoritative, before)
+    return {"decision": _reference_decision_data(decision)}
 
 
 @pytest.mark.parametrize(
-    "observed",
-    [
-        None,
-        "",
-        "PENDING_DEPLOY",
-        "UNSET",
-        "TODO",
-        "TBD",
-        "未確定",
-        "invalid",
-        KEY_ID + "-extra",
-        KEY_ARN,
-        "${KeyId}",
-    ],
+    "case_id", case_ids("reference_evidence", prefix="kms-observed-")
 )
-def test_kms_arn_requires_recorded_key_id(observed):
-    comparison = fixture()
-    resource(comparison, "kms", "001", "KMS.Key", "Key", [("KeyId", KEY_ARN, observed)])
-    actual = exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]})
-    decision = comparison.reference_decision(
-        KEY_ARN, actual, "Athena.WorkGroup", ATHENA_KMS
-    )
-    assert decision.equal is None, decision
-    assert any(
-        word in decision.diagnostics[0]["reason"]
-        for word in ("unobserved", "format_unproven")
-    )
+def test_kms_arn_requires_recorded_key_id(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_observation)
 
 
-def test_kms_arn_identifier_evidence_comes_from_observation_only():
+def _execute_kms_observation(case):
     comparison = fixture()
     resource(
         comparison,
@@ -1228,34 +1162,60 @@ def test_kms_arn_identifier_evidence_comes_from_observation_only():
         "001",
         "KMS.Key",
         "Key",
-        [("KeyId", KEY_ID, None)],
-        properties={"KeyId": KEY_ID},
+        [("KeyId", KEY_ARN, case["data"]["observed"])],
     )
     actual = exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]})
     decision = comparison.reference_decision(
         KEY_ARN, actual, "Athena.WorkGroup", ATHENA_KMS
     )
-    assert (
-        decision.equal is None
-        and "identifier_unobserved" in decision.diagnostics[0]["reason"]
+    TestCase().assertIsNone(decision.equal)
+    TestCase().assertTrue(
+        any(
+            word in decision.diagnostics[0]["reason"]
+            for word in ("unobserved", "format_unproven")
+        )
     )
+    return {"decision": _reference_decision_data(decision)}
 
 
 @pytest.mark.parametrize(
-    "field,value",
-    [
-        ("AWS::Partition", None),
-        ("AWS::Region", None),
-        ("AWS::AccountId", None),
-        ("AWS::Partition", "UNSET"),
-        ("AWS::Region", "${Region}"),
-        ("AWS::AccountId", "123"),
-        ("AWS::Partition", "aws-cn"),
-        ("AWS::Region", "us-east-1"),
-        ("AWS::AccountId", "999999999999"),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="kms-observation-only-")
 )
-def test_kms_arn_uses_only_producer_context(field, value):
+def test_kms_arn_identifier_evidence_comes_from_observation_only(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_observation_only)
+
+
+def _execute_kms_observation_only(case):
+    comparison = fixture()
+    key_id = case["data"]["key_id"]
+    resource(
+        comparison,
+        "kms",
+        "001",
+        "KMS.Key",
+        "Key",
+        [("KeyId", key_id, None)],
+        properties={"KeyId": key_id},
+    )
+    actual = exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]})
+    decision = comparison.reference_decision(
+        KEY_ARN, actual, "Athena.WorkGroup", ATHENA_KMS
+    )
+    TestCase().assertIsNone(decision.equal)
+    TestCase().assertIn("identifier_unobserved", decision.diagnostics[0]["reason"])
+    return {"decision": _reference_decision_data(decision)}
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="kms-context-")
+)
+def test_kms_arn_uses_only_producer_context(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_context)
+
+
+def _execute_kms_context(case):
+    data = case["data"]
+    field, value = data["field"], data["value"]
     comparison = fixture()
     resource(
         comparison,
@@ -1275,29 +1235,23 @@ def test_kms_arn_uses_only_producer_context(field, value):
     decision = comparison.reference_decision(
         KEY_ARN, actual, "Athena.WorkGroup", ATHENA_KMS
     )
-    assert decision.equal is None, decision
-    assert decision.diagnostics[0]["current_aws_verified"] is False
-    if value in {"aws-cn", "us-east-1", "999999999999"}:
-        assert decision.diagnostics[0]["reason"].startswith(
-            "recorded_identifier_mismatch"
+    check = TestCase()
+    check.assertIsNone(decision.equal)
+    check.assertIs(decision.diagnostics[0]["current_aws_verified"], False)
+    result = {"decision": _reference_decision_data(decision)}
+    if data["mismatched_context"]:
+        check.assertTrue(
+            decision.diagnostics[0]["reason"].startswith("recorded_identifier_mismatch")
         )
-        assert (
-            comparison.reference_decision(
-                KEY_ARN.replace(
-                    {
-                        "AWS::Partition": "aws",
-                        "AWS::Region": "ap-northeast-1",
-                        "AWS::AccountId": "123456789012",
-                    }[field],
-                    value,
-                    1,
-                ),
-                actual,
-                "Athena.WorkGroup",
-                ATHENA_KMS,
-            ).equal
-            is None
+        other = comparison.reference_decision(
+            KEY_ARN.replace(data["original"], value, 1),
+            actual,
+            "Athena.WorkGroup",
+            ATHENA_KMS,
         )
+        check.assertIsNone(other.equal)
+        result["same_context"] = _reference_decision_data(other)
+    return result
 
 
 def test_kms_conflicting_recorded_identifier_is_uncompared():
@@ -1323,20 +1277,14 @@ def test_kms_conflicting_recorded_identifier_is_uncompared():
 
 
 @pytest.mark.parametrize(
-    "fault",
-    [
-        "missing",
-        "duplicate",
-        "type",
-        "condition",
-        "transform",
-        "import",
-        "duplicate-row",
-        "missing-stack",
-        "replacement",
-    ],
+    "case_id", case_ids("reference_evidence", prefix="kms-handoff-")
 )
-def test_kms_recorded_arn_preserves_correspondence_and_handoff(fault):
+def test_kms_recorded_arn_preserves_correspondence_and_handoff(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_handoff)
+
+
+def _execute_kms_handoff(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -1348,9 +1296,13 @@ def test_kms_recorded_arn_preserves_correspondence_and_handoff(fault):
     )
     actual = exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]})
     document = comparison.stack_inputs["producer"][0]
-    if fault == "missing":
+    if data["resource"] is None:
         del document["Resources"]["Key"]
-    elif fault == "duplicate":
+    else:
+        document["Resources"]["Key"] = data["resource"]
+    document.update(data["document_fields"])
+    comparison.resources["kms"]["001"].update(data["metadata"])
+    if data["duplicate_resource"]:
         resource(
             comparison,
             "kms",
@@ -1362,43 +1314,27 @@ def test_kms_recorded_arn_preserves_correspondence_and_handoff(fault):
         comparison.models["kms"].values["desired.resource.002.cfn-logicalId"] = (
             "producer-Key"
         )
-    elif fault == "type":
-        document["Resources"]["Key"]["Type"] = "AWS::KMS::Alias"
-    elif fault == "condition":
-        document["Conditions"] = {"No": {"Fn::Equals": ["yes", "no"]}}
-        document["Resources"]["Key"]["Condition"] = "No"
-    elif fault == "transform":
-        document["Transform"] = "Unresolved"
-    elif fault == "import":
-        comparison.resources["kms"]["001"]["resourceMode"] = "IMPORT"
-    elif fault == "duplicate-row":
+    if data["duplicate_row"]:
         comparison.rows["kms"]["001"].append(
             ("001-002", dict(comparison.rows["kms"]["001"][0][1]))
         )
-    elif fault == "missing-stack":
-        comparison.templates = lambda: []
-    else:
-        comparison.resources["kms"]["001"]["cfn-logicalId"] = "producer-Replacement"
+    if not data["templates_available"]:
+        comparison.templates = Mock(return_value=[])
     comparison.symbols.clear()
     comparison._index = None
     decision = comparison.reference_decision(
         KEY_ARN, actual, "Athena.WorkGroup", ATHENA_KMS
     )
-    assert decision.equal is None, decision
+    TestCase().assertIsNone(decision.equal)
+    return {"decision": _reference_decision_data(decision)}
 
 
-@pytest.mark.parametrize(
-    "actual",
-    [
-        {"Ref": "Key"},
-        {"Fn::Sub": "${Key}"},
-        {
-            "Fn::Sub": "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/fixture"
-        },
-        {"Fn::Join": ["", ["arn:aws:kms:ap-northeast-1:123456789012:alias/fixture"]]},
-    ],
-)
-def test_kms_expression_cannot_bypass_allowed_forms(actual):
+@pytest.mark.parametrize("case_id", case_ids("reference_evidence", prefix="kms-forms-"))
+def test_kms_expression_cannot_bypass_allowed_forms(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_forms)
+
+
+def _execute_kms_forms(case):
     comparison = fixture()
     resource(
         comparison,
@@ -1409,14 +1345,27 @@ def test_kms_expression_cannot_bypass_allowed_forms(actual):
         [("KeyId", "PENDING_DEPLOY", KEY_ID)],
     )
     decision = comparison.reference_decision(
-        KEY_ARN, exported(comparison, actual), "Athena.WorkGroup", ATHENA_KMS
+        KEY_ARN,
+        exported(comparison, case["data"]["actual"]),
+        "Athena.WorkGroup",
+        ATHENA_KMS,
     )
-    assert decision.equal is False, decision
-    assert decision.diagnostics[0]["code"] == "kms.format_outside_allowed"
+    TestCase().assertIs(decision.equal, False)
+    TestCase().assertEqual(
+        decision.diagnostics[0]["code"], "kms.format_outside_allowed"
+    )
+    return {"decision": _reference_decision_data(decision)}
 
 
-@pytest.mark.parametrize("actual", ["literal", "ref", "expression"])
-def test_kms_declared_literal_cannot_bypass_allowed_forms(actual):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="kms-literal-")
+)
+def test_kms_declared_literal_cannot_bypass_allowed_forms(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_literal)
+
+
+def _execute_kms_literal(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -1438,29 +1387,25 @@ def test_kms_declared_literal_cannot_bypass_allowed_forms(actual):
     )
     desired = prepared(comparison, row).require_value()
     value = (
-        KEY_ID
-        if actual == "literal"
-        else exported(
-            comparison, {"Ref": "Key"} if actual == "ref" else {"Fn::Sub": "${Key}"}
-        )
+        data["literal"]
+        if data["expression"] is None
+        else exported(comparison, data["expression"])
     )
     decision = comparison.reference_decision(
         desired, value, "Athena.WorkGroup", ATHENA_KMS
     )
-    assert decision.equal is False, decision
+    TestCase().assertIs(decision.equal, False)
+    return {"decision": _reference_decision_data(decision)}
 
 
 @pytest.mark.parametrize(
-    "kind,path",
-    [
-        (
-            "Glue.SecurityConfiguration",
-            "EncryptionConfiguration.S3Encryptions[].KmsKeyArn",
-        ),
-        ("CodePipeline.Pipeline", "ArtifactStore.EncryptionKey.Id"),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="kms-alias-only-")
 )
-def test_key_arn_does_not_override_alias_only_service_contract(kind, path):
+def test_key_arn_does_not_override_alias_only_service_contract(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_alias_only)
+
+
+def _execute_kms_alias_only(case):
     comparison = fixture()
     resource(
         comparison,
@@ -1471,29 +1416,28 @@ def test_key_arn_does_not_override_alias_only_service_contract(kind, path):
         [("KeyId", "PENDING_DEPLOY", KEY_ID)],
     )
     decision = comparison.reference_decision(
-        KEY_ARN, exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]}), kind, path
+        KEY_ARN,
+        exported(comparison, {"Fn::GetAtt": ["Key", "Arn"]}),
+        case["data"]["kind"],
+        case["data"]["path"],
     )
-    assert decision.equal is False and decision.diagnostics[0]["allowed_forms"] == [
-        "AliasArn"
-    ]
+    TestCase().assertIs(decision.equal, False)
+    TestCase().assertEqual(decision.diagnostics[0]["allowed_forms"], ["AliasArn"])
+    return {"decision": _reference_decision_data(decision)}
 
 
 @pytest.mark.parametrize(
-    "kind,path,allowed",
-    [
-        ("Athena.WorkGroup", ATHENA_KMS, {"KeyArn"}),
-        ("Logs.LogGroup", "KmsKeyId", {"KeyArn", "AliasArn"}),
-        (
-            "Glue.SecurityConfiguration",
-            "EncryptionConfiguration.S3Encryptions[].KmsKeyArn",
-            {"AliasArn"},
-        ),
-        ("CodePipeline.Pipeline", "ArtifactStore.EncryptionKey.Id", {"AliasArn"}),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="kms-matrix-")
 )
-@pytest.mark.parametrize("model_form", ["KeyId", "KeyArn", "AliasName", "AliasArn"])
-@pytest.mark.parametrize("iac_form", ["KeyId", "KeyArn", "AliasName", "AliasArn"])
-def test_kms_existing_service_form_matrix(kind, path, allowed, model_form, iac_form):
+def test_kms_existing_service_form_matrix(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_matrix)
+
+
+def _execute_kms_matrix(case):
+    data = case["data"]
+    kind, path = data["kind"], data["path"]
+    allowed = set(data["allowed"])
+    model_form, iac_form = data["model_form"], data["iac_form"]
     comparison = fixture()
     resource(
         comparison,
@@ -1516,19 +1460,13 @@ def test_kms_existing_service_form_matrix(kind, path, allowed, model_form, iac_f
         form: ResourceReference(
             {"$resource": ["kms", identity], "$attribute": attribute}
         )
-        for form, identity, attribute in [
-            ("KeyId", "001", "KeyId"),
-            ("KeyArn", "001", "Arn"),
-            ("AliasName", "002", "AliasName"),
-            ("AliasArn", "002", "AliasArn"),
-        ]
+        for form, identity, attribute in data["forms"]
     }
     decision = comparison.reference_decision(
         forms[model_form], forms[iac_form], kind, path
     )
-    assert decision.equal is (model_form == iac_form and model_form in allowed), (
-        decision
-    )
+    check = TestCase()
+    check.assertIs(decision.equal, model_form == iac_form and model_form in allowed)
     outcome = compare_forms(
         forms[model_form],
         forms[iac_form],
@@ -1537,20 +1475,35 @@ def test_kms_existing_service_form_matrix(kind, path, allowed, model_form, iac_f
         format_of=comparison.kms_format,
     )
     if model_form not in allowed or iac_form not in allowed:
-        assert outcome.equal is False and outcome.code == "kms.format_outside_allowed"
+        check.assertIs(outcome.equal, False)
+        check.assertEqual(outcome.code, "kms.format_outside_allowed")
     elif model_form != iac_form:
-        assert outcome.equal is False and outcome.code == "kms.format_mismatch"
+        check.assertIs(outcome.equal, False)
+        check.assertEqual(outcome.code, "kms.format_mismatch")
+    return {
+        "decision": _reference_decision_data(decision),
+        "outcome": {
+            "equal": outcome.equal,
+            "code": outcome.code,
+            "message": outcome.message,
+        },
+    }
 
 
-def test_kms_unresolved_expressions_do_not_gain_symbolic_equality():
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="kms-unresolved-")
+)
+def test_kms_unresolved_expressions_do_not_gain_symbolic_equality(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_unresolved)
+
+
+def _execute_kms_unresolved(case):
     comparison = fixture()
-    expression = Expression("Sub", ["${Unknown}", {}])
-    assert (
-        comparison.reference_decision(
-            expression, expression, "Athena.WorkGroup", ATHENA_KMS
-        ).equal
-        is None
+    expression = Expression("Sub", [case["data"]["expression"], {}])
+    same_decision = comparison.reference_decision(
+        expression, expression, "Athena.WorkGroup", ATHENA_KMS
     )
+    TestCase().assertIsNone(same_decision.equal)
     outcome = compare_forms(
         expression,
         expression,
@@ -1558,14 +1511,21 @@ def test_kms_unresolved_expressions_do_not_gain_symbolic_equality():
         resolve_literal=str,
         format_of=partial(kms_format, resources={}),
     )
-    assert outcome.equal is None and outcome.code == "kms.format_unproven"
-
-    assert (
-        comparison.reference_decision(
-            KEY_ARN, Expression("Future", []), "Athena.WorkGroup", ATHENA_KMS
-        ).equal
-        is None
+    TestCase().assertIsNone(outcome.equal)
+    TestCase().assertEqual(outcome.code, "kms.format_unproven")
+    future = comparison.reference_decision(
+        KEY_ARN, Expression("Future", []), "Athena.WorkGroup", ATHENA_KMS
     )
+    TestCase().assertIsNone(future.equal)
+    return {
+        "same": _reference_decision_data(same_decision),
+        "outcome": {
+            "equal": outcome.equal,
+            "code": outcome.code,
+            "message": outcome.message,
+        },
+        "future": _reference_decision_data(future),
+    }
 
 
 def test_kms_derived_producer_diagnostics_are_unique():
@@ -1584,8 +1544,15 @@ def test_kms_derived_producer_diagnostics_are_unique():
     assert len(proof.producers) == 1
 
 
-@pytest.mark.parametrize("kind,path", KMS_RECEIVERS)
-def test_kms_runner_reports_uncompared_with_recorded_proof(kind, path):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="kms-runner-")
+)
+def test_kms_runner_reports_uncompared_with_recorded_proof(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_kms_runner)
+
+
+def _execute_kms_runner(case):
+    kind, path = case["data"]["kind"], case["data"]["path"]
     comparison = fixture()
     resource(
         comparison,
@@ -1620,13 +1587,24 @@ def test_kms_runner_reports_uncompared_with_recorded_proof(kind, path):
         document["Resources"]["Consumer"],
         document,
     ).records
-    assert [item["category"] for item in results] == ["uncompared"], results
-    assert (
-        results[0]["reference_diagnostics"][0]["evidence_type"] == "recorded_observed"
+    TestCase().assertEqual([item["category"] for item in results], ["uncompared"])
+    TestCase().assertEqual(
+        results[0]["reference_diagnostics"][0]["evidence_type"], "recorded_observed"
     )
+    return {"records": projected(results)}
 
 
-def test_alias_arn_sub_import_ref_pipeline_preserves_export_evidence():
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="alias-handoff-")
+)
+def test_alias_arn_sub_import_ref_pipeline_preserves_export_evidence(
+    case_runner, case_id
+):
+    case_runner.run("reference_evidence", case_id, _execute_alias_handoff)
+
+
+def _execute_alias_handoff(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -1634,25 +1612,12 @@ def test_alias_arn_sub_import_ref_pipeline_preserves_export_evidence():
         "002",
         "KMS.Alias",
         "Alias",
-        [("AliasName", "alias/fixture", None)],
-        properties={"AliasName": "alias/fixture"},
+        [("AliasName", data["alias"], None)],
+        properties={"AliasName": data["alias"]},
     )
-    comparison.stack_inputs["producer"][0]["Outputs"]["AliasName"] = {
-        "Value": {"Ref": "Alias"},
-        "Export": {"Name": {"Fn::Sub": "KmsLogKeyAliasName${Suffix}"}},
-    }
-    comparison.stack_inputs["producer"][1]["Suffix"] = "Fixture"
-    comparison.stack_inputs["consumer"][1]["Suffix"] = "Fixture"
-    expression = {
-        "Fn::Sub": [
-            "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${KmsAliasName}",
-            {
-                "KmsAliasName": {
-                    "Fn::ImportValue": {"Fn::Sub": "KmsLogKeyAliasName${Suffix}"}
-                }
-            },
-        ]
-    }
+    comparison.stack_inputs["producer"][0]["Outputs"].update(data["outputs"])
+    comparison.stack_inputs["producer"][1]["Suffix"] = data["suffix"]
+    comparison.stack_inputs["consumer"][1]["Suffix"] = data["suffix"]
     resource(
         comparison,
         "logs",
@@ -1660,7 +1625,7 @@ def test_alias_arn_sub_import_ref_pipeline_preserves_export_evidence():
         "Logs.LogGroup",
         "Log",
         [("KmsKeyId", model_ref("KMS_Alias_002", "Arn"), None)],
-        properties={"KmsKeyId": expression},
+        properties={"KmsKeyId": data["expression"]},
         stack="consumer",
     )
     before = copy.deepcopy(comparison.models["kms"].authoritative)
@@ -1675,51 +1640,64 @@ def test_alias_arn_sub_import_ref_pipeline_preserves_export_evidence():
         document["Resources"]["Log"],
         document,
     )
-    assert batch.failure is None
-    assert [item["category"] for item in batch.records] == ["matched"], batch.records
+    TestCase().assertIsNone(batch.failure)
+    TestCase().assertEqual([item["category"] for item in batch.records], ["matched"])
     detail = batch.records[0]["reference_diagnostics"][0]
-    assert detail["exports"] == [
-        {"export_name": "KmsLogKeyAliasNameFixture", "export_stack": "producer"}
-    ]
-    assert (
-        detail["evidence_type"] == "logical_reference"
-        and detail["current_aws_verified"] is False
+    TestCase().assertEqual(
+        detail["exports"],
+        [{"export_name": "KmsLogKeyAliasNameFixture", "export_stack": "producer"}],
     )
-    assert comparison.models["kms"].authoritative == before
+    TestCase().assertEqual(detail["evidence_type"], "logical_reference")
+    TestCase().assertIs(detail["current_aws_verified"], False)
+    TestCase().assertEqual(comparison.models["kms"].authoritative, before)
+    return {"records": projected(batch.records)}
 
 
-def test_export_chain_retains_each_handoff():
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="export-chain-")
+)
+def test_export_chain_retains_each_handoff(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_export_chain)
+
+
+def _execute_export_chain(case):
     comparison = fixture()
     vpc(comparison)
     exported(comparison, {"Ref": "Vpc"}, name="base")
     comparison.stack_inputs["relay"] = (
-        {
-            "Resources": {},
-            "Outputs": {
-                "Relay": {
-                    "Value": {"Fn::ImportValue": "base"},
-                    "Export": {"Name": "shared"},
-                }
-            },
-        },
+        case["data"]["relay"],
         {},
         dict(comparison.stack_inputs["producer"][2]),
     )
     comparison.exports = None
     actual = comparison.evaluate("consumer", {"Fn::ImportValue": "shared"})
     decision = comparison.reference_decision(VPC, actual, "EC2.Subnet", "VpcId")
-    assert decision.equal is None and not decision.equivalent
-    assert decision.diagnostics[0]["exports"] == [
-        {"export_name": "shared", "export_stack": "relay"},
-        {"export_name": "base", "export_stack": "producer"},
-    ]
+    TestCase().assertIsNone(decision.equal)
+    TestCase().assertFalse(decision.equivalent)
+    TestCase().assertEqual(
+        decision.diagnostics[0]["exports"],
+        [
+            {"export_name": "shared", "export_stack": "relay"},
+            {"export_name": "base", "export_stack": "producer"},
+        ],
+    )
+    return {"decision": _reference_decision_data(decision)}
 
 
-def test_runner_keeps_recorded_evidence_and_does_not_write_authority():
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="runner-evidence-")
+)
+def test_runner_keeps_recorded_evidence_and_does_not_write_authority(
+    case_runner, case_id
+):
+    case_runner.run("reference_evidence", case_id, _execute_runner_evidence)
+
+
+def _execute_runner_evidence(case):
     comparison = fixture()
     vpc(comparison)
     consumer(comparison)
-    declaration(comparison, "desired.row.010-001.value", VPC)
+    declaration(comparison, "desired.row.010-001.value", case["data"]["vpc"])
     exported(comparison, {"Ref": "Vpc"})
     comparison.services = ["consumer"]
     before = {
@@ -1737,13 +1715,15 @@ def test_runner_keeps_recorded_evidence_and_does_not_write_authority():
         document["Resources"]["Consumer"],
         document,
     ).records
-    assert [item["category"] for item in results] == ["matched"], results
-    assert (
-        results[0]["reference_diagnostics"][0]["evidence_type"] == "logical_reference"
+    TestCase().assertEqual([item["category"] for item in results], ["matched"])
+    TestCase().assertEqual(
+        results[0]["reference_diagnostics"][0]["evidence_type"], "logical_reference"
     )
-    assert {
-        service: model.authoritative for service, model in comparison.models.items()
-    } == before
+    TestCase().assertEqual(
+        {service: model.authoritative for service, model in comparison.models.items()},
+        before,
+    )
+    return {"records": projected(results)}
 
 
 RECEIVERS = [
@@ -2886,17 +2866,14 @@ def test_cloudtrail_membership_comparison(fault):
 
 
 @pytest.mark.parametrize(
-    "fault",
-    [
-        "missing",
-        "output",
-        "conditional-output",
-        "export-name",
-        "sub-cycle",
-        "ref-cycle",
-    ],
+    "case_id", case_ids("reference_evidence", prefix="export-isolation-")
 )
-def test_export_isolation_and_substitution_failures(fault):
+def test_export_isolation_and_substitution_failures(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_export_isolation)
+
+
+def _execute_export_isolation(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -2905,69 +2882,58 @@ def test_export_isolation_and_substitution_failures(fault):
         "S3.Bucket",
         "Bucket",
         [],
-        properties={"BucketName": "fixture"},
+        properties=data["properties"],
     )
     document = comparison.stack_inputs["producer"][0]
-    if fault == "missing":
-        comparison.templates = lambda: [
-            ("missing", {"name": "missing"}),
-            ("producer", {"name": "producer"}),
-        ]
+    document["Outputs"].update(data["outputs"])
+    document.update(data["document_fields"])
+    if data["unreadable_stack"]:
+        comparison.templates = Mock(
+            return_value=[
+                ("missing", {"name": "missing"}),
+                ("producer", {"name": "producer"}),
+            ]
+        )
         comparison.stack = Mock(
             side_effect=[
                 Blocked("missing"),
                 (ROOT / "synthetic.yaml", comparison.stack_inputs["producer"]),
             ]
         )
-    elif fault == "output":
-        document["Outputs"]["Broken"] = {
-            "Value": "x",
-            "Export": {"Name": {"Ref": "Bucket"}},
-        }
-    elif fault == "conditional-output":
-        document["Conditions"] = {"Off": {"Fn::Equals": [1, 2]}}
-        document["Outputs"]["Hidden"] = {
-            "Value": "value",
-            "Condition": "Off",
-            "Export": {"Name": "hidden"},
-        }
-    elif fault == "export-name":
-        document["Outputs"]["Broken"] = {
-            "Value": "x",
-            "Export": {"Name": {"Fn::Sub": "${Bucket}"}},
-        }
-    else:
-        document["Resources"]["Bucket"]["Properties"]["BucketName"] = (
-            {"Fn::Sub": "${Bucket}"} if fault == "sub-cycle" else {"Ref": "Bucket"}
-        )
-        with pytest.raises(Blocked, match="cyclic"):
+    if data["cyclic"]:
+        with pytest.raises(Blocked, match="cyclic") as failure:
             comparison.evaluate("producer", {"Fn::Sub": "${Bucket}"})
-        return
-    if fault != "conditional-output":
-        # An unreadable stack or Export name cannot prove uniqueness, even with a candidate.
-        with pytest.raises(Blocked, match="search incomplete"):
+        return {
+            "error": {
+                "type": type(failure.value).__name__,
+                "message": str(failure.value),
+            }
+        }
+    if data["search_incomplete"]:
+        with pytest.raises(Blocked, match="search incomplete") as first:
             exported(comparison, {"Fn::GetAtt": ["Bucket", "Arn"]})
         with patch.object(
             comparison,
             "templates",
             side_effect=AssertionError("repeated export search"),
         ):
-            with pytest.raises(Blocked, match="search incomplete"):
+            with pytest.raises(Blocked, match="search incomplete") as second:
                 comparison.evaluate("consumer", {"Fn::ImportValue": "shared"})
-        return
-    assert exported(comparison, {"Fn::GetAtt": ["Bucket", "Arn"]})["$resource"] == [
-        "s3",
-        "001",
-    ]
+        return {"errors": [str(first.value), str(second.value)]}
+    result = exported(comparison, {"Fn::GetAtt": ["Bucket", "Arn"]})
+    TestCase().assertEqual(result["$resource"], ["s3", "001"])
     with patch.object(
         comparison, "templates", side_effect=AssertionError("repeated export search")
     ):
-        assert (
-            comparison.evaluate("consumer", {"Fn::ImportValue": "shared"})["$attribute"]
-            == "Arn"
-        )
-        with pytest.raises(Blocked):
+        shared = comparison.evaluate("consumer", {"Fn::ImportValue": "shared"})
+        TestCase().assertEqual(shared["$attribute"], "Arn")
+        with pytest.raises(Blocked) as hidden:
             comparison.evaluate("consumer", {"Fn::ImportValue": "hidden"})
+    return {
+        "result": projected(result),
+        "shared": projected(shared),
+        "hidden": str(hidden.value),
+    }
 
 
 @pytest.mark.parametrize(
@@ -4145,7 +4111,17 @@ def test_import_failure_cause_requires_unique_path(second, kind):
     )
 
 
-def test_recorded_evidence_survives_nested_expression_and_reversal():
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="nested-evidence-")
+)
+def test_recorded_evidence_survives_nested_expression_and_reversal(
+    case_runner, case_id
+):
+    case_runner.run("reference_evidence", case_id, _execute_nested_evidence)
+
+
+def _execute_nested_evidence(case):
+    data = case["data"]
     comparison = fixture()
     resource(
         comparison,
@@ -4155,65 +4131,48 @@ def test_recorded_evidence_survives_nested_expression_and_reversal():
         "Key",
         [("KeyId", "PENDING_DEPLOY", KEY_ID)],
     )
-    expression = {
-        "Fn::Join": [
-            "",
-            [
-                {
-                    "Fn::Select": [
-                        0,
-                        {
-                            "Fn::Split": [
-                                "|",
-                                {
-                                    "Fn::Sub": [
-                                        "${Arn}|unused",
-                                        {"Arn": {"Fn::GetAtt": ["Key", "Arn"]}},
-                                    ]
-                                },
-                            ]
-                        },
-                    ]
-                },
-                "/suffix",
-            ],
-        ]
-    }
-    actual = exported(comparison, expression)
+    actual = exported(comparison, data["expression"])
+    results = []
     for left, right in [(KEY_ARN + "/suffix", actual), (actual, KEY_ARN + "/suffix")]:
         decision = comparison.reference_decision(left, right, "IAM.Role", "Policies")
-        assert decision.equal is None and not decision.equivalent, decision
+        TestCase().assertIsNone(decision.equal)
+        TestCase().assertFalse(decision.equivalent)
         detail = decision.diagnostics[0]
-        assert (
-            detail["current_aws_verified"] is False
-            and detail["evidence_type"] == "recorded_observed"
-        )
-        assert detail["producers"][0]["producer"] == "kms/001"
-    assert (
-        comparison.reference_decision(
-            KEY_ARN + "/other", actual, "IAM.Role", "Policies"
-        ).equal
-        is None
+        TestCase().assertIs(detail["current_aws_verified"], False)
+        TestCase().assertEqual(detail["evidence_type"], "recorded_observed")
+        TestCase().assertEqual(detail["producers"][0]["producer"], "kms/001")
+        results.append(_reference_decision_data(decision))
+    other = comparison.reference_decision(
+        KEY_ARN + "/other", actual, "IAM.Role", "Policies"
     )
+    TestCase().assertIsNone(other.equal)
+    return {"decisions": results, "other": _reference_decision_data(other)}
 
 
-@pytest.mark.parametrize("fault", [None, "missing", "stale"])
-def test_saved_literal_evidence_is_checked_in_both_directions(fault):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="saved-evidence-")
+)
+def test_saved_literal_evidence_is_checked_in_both_directions(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_saved_evidence)
+
+
+def _execute_saved_evidence(case):
+    data = case["data"]
     comparison = fixture()
     vpc(comparison)
     row = consumer(comparison)
     declaration(comparison, "desired.row.010-001.value", VPC)
     desired = prepared(comparison, row).require_value()
     actual = exported(comparison, {"Ref": "Vpc"})
-    if fault == "missing":
-        comparison.models["vpc"].authoritative.pop("observed.row.001-001.value")
-    elif fault == "stale":
-        comparison.models["vpc"].authoritative["observed.row.001-001.value"] = (
-            "`vpc-other`"
-        )
+    authority = comparison.models["vpc"].authoritative
+    if not data["observed_present"]:
+        authority.pop("observed.row.001-001.value")
+    elif data["observed"] is not None:
+        authority["observed.row.001-001.value"] = data["observed"]
     compound = Expression("Join", ["", ["pre/", desired]])
     evaluated = Expression("Sub", ["pre/${R}", {"R": actual}])
-    if fault is None:
+    format_result = None
+    if data["check_format"]:
         rule = replace(
             rules("Athena.WorkGroup")[ATHENA_KMS],
             form_compare=Mock(
@@ -4228,9 +4187,11 @@ def test_saved_literal_evidence_is_checked_in_both_directions(fault):
             decision = compare_expression(
                 comparison, compound, evaluated, "Athena.WorkGroup", ATHENA_KMS
             )
-        assert decision.equal is False
-        assert decision.diagnostics[0]["code"] == "kms.format_mismatch"
-        assert decision.diagnostics[0]["reason"] == "形式が一致しません"
+        TestCase().assertIs(decision.equal, False)
+        TestCase().assertEqual(decision.diagnostics[0]["code"], "kms.format_mismatch")
+        TestCase().assertEqual(decision.diagnostics[0]["reason"], "形式が一致しません")
+        format_result = _reference_decision_data(decision)
+    results = []
     for left, right in [
         (desired, actual),
         (actual, desired),
@@ -4239,97 +4200,57 @@ def test_saved_literal_evidence_is_checked_in_both_directions(fault):
         (compound, evaluated),
         (evaluated, compound),
     ]:
-        assert comparison.reference_decision(
-            left, right, "EC2.Subnet", "VpcId"
-        ).equal is (
+        decision = comparison.reference_decision(left, right, "EC2.Subnet", "VpcId")
+        expected = (
             True
-            if fault is None
+            if data["check_format"]
             and not isinstance(left, str)
             and not isinstance(right, str)
             else None
         )
+        TestCase().assertIs(decision.equal, expected)
+        results.append(_reference_decision_data(decision))
+    return {"format": format_result, "decisions": results}
 
 
 @pytest.mark.parametrize(
-    "field,replacement",
-    [
-        ("AWS::Partition", "aws-cn"),
-        ("AWS::AccountId", "999999999999"),
-        ("AWS::Region", "us-east-1"),
-        ("AWS::Partition", None),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="export-scope-")
 )
-def test_cached_exports_are_bound_to_the_consumer_scope(field, replacement):
+def test_cached_exports_are_bound_to_the_consumer_scope(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_export_scope)
+
+
+def _execute_export_scope(case):
+    data = case["data"]
     comparison = fixture()
     vpc(comparison)
     original = exported(comparison, {"Ref": "Vpc"})
-    assert comparison.reference_same(VPC, original, "EC2.Subnet", "VpcId") is None
+    TestCase().assertIsNone(
+        comparison.reference_same(VPC, original, "EC2.Subnet", "VpcId")
+    )
     document, parameters, pseudo = comparison.stack_inputs["consumer"]
     comparison.stack_inputs["consumer"] = (
         document,
         parameters,
-        dict(pseudo, **{field: replacement}),
+        dict(pseudo, **{data["field"]: data["replacement"]}),
     )
-    with pytest.raises(Blocked, match="handoff matches=0|confirmed"):
+    with pytest.raises(Blocked, match="handoff matches=0|confirmed") as failure:
         comparison.evaluate("consumer", {"Fn::ImportValue": "shared"})
+    return {
+        "error": {"type": type(failure.value).__name__, "message": str(failure.value)}
+    }
 
 
 @pytest.mark.parametrize(
-    "kind,attribute,identifier,properties,arn",
-    [
-        (
-            "EC2.VPC",
-            "VpcId",
-            VPC,
-            {},
-            "arn:aws:ec2:ap-northeast-1:123456789012:vpc/" + VPC,
-        ),
-        (
-            "EC2.EIP",
-            "AllocationId",
-            "eipalloc-0123456789abcdef0",
-            {},
-            "arn:aws:ec2:ap-northeast-1:123456789012:elastic-ip/eipalloc-0123456789abcdef0",
-        ),
-        (
-            "CloudFront.Distribution",
-            "Id",
-            "E123ABC",
-            {},
-            "arn:aws:cloudfront::123456789012:distribution/E123ABC",
-        ),
-        (
-            "SSM.MaintenanceWindow",
-            "WindowId",
-            "mw-0123456789abcdef0",
-            {},
-            "arn:aws:ssm:ap-northeast-1:123456789012:maintenancewindow/mw-0123456789abcdef0",
-        ),
-        (
-            "SSM.MaintenanceWindowTarget",
-            "WindowTargetId",
-            KEY_ID,
-            {},
-            "arn:aws:ssm:ap-northeast-1:123456789012:windowtarget/" + KEY_ID,
-        ),
-        (
-            "ApiGateway.Authorizer",
-            "AuthorizerId",
-            "abc123",
-            {"RestApiId": "def456"},
-            "arn:aws:apigateway:ap-northeast-1::/restapis/def456/authorizers/abc123",
-        ),
-        (
-            "Route53.HostedZone",
-            "Id",
-            "Z123XYZ",
-            {},
-            "arn:aws:route53:::hostedzone/Z123XYZ",
-        ),
-    ],
+    "case_id", case_ids("reference_evidence", prefix="shared-arn-")
 )
-@pytest.mark.parametrize("fault", [None, "missing", "import", "inactive"])
-def test_shared_recorded_arn_proof(kind, attribute, identifier, properties, arn, fault):
+def test_shared_recorded_arn_proof(case_runner, case_id):
+    case_runner.run("reference_evidence", case_id, _execute_shared_recorded_arn)
+
+
+def _execute_shared_recorded_arn(case):
+    data = case["data"]
+    kind, attribute, arn = data["kind"], data["attribute"], data["arn"]
     comparison = fixture()
     resource(
         comparison,
@@ -4337,37 +4258,43 @@ def test_shared_recorded_arn_proof(kind, attribute, identifier, properties, arn,
         "001",
         kind,
         "Resource",
-        [(attribute, "PENDING_DEPLOY", identifier)],
-        properties=dict(properties, **{attribute: "forged-template-id"}),
+        [(attribute, "PENDING_DEPLOY", data["identifier"])],
+        properties=dict(data["properties"], **{attribute: "forged-template-id"}),
     )
     symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
-    if fault == "missing":
+    if not data["observed_present"]:
         comparison.models["producer"].authoritative.pop("observed.row.001-001.value")
-    elif fault == "import":
-        comparison.resources["producer"]["001"]["resourceMode"] = "IMPORT"
-    elif fault == "inactive":
+    comparison.resources["producer"]["001"]["resourceMode"] = data["resource_mode"]
+    if data["inactive"]:
         comparison.stack_inputs["producer"][0]["Conditions"] = {"Off": False}
         comparison.stack_inputs["producer"][0]["Resources"]["Resource"]["Condition"] = (
             "Off"
         )
+    decisions = []
     for left, right in [(symbol, arn), (arn, symbol)]:
         decision = comparison.reference_decision(
             left, right, "IAM.Role", "Policies[].PolicyDocument.Statement[].Resource"
         )
-        assert decision.equal is None and not decision.equivalent, decision
-        if fault is None:
-            assert decision.diagnostics[0]["evidence_type"] == "recorded_observed"
-            assert decision.diagnostics[0]["current_aws_verified"] is False
-    if fault is None:
+        TestCase().assertIsNone(decision.equal)
+        TestCase().assertFalse(decision.equivalent)
+        if data["check_evidence"]:
+            TestCase().assertEqual(
+                decision.diagnostics[0]["evidence_type"], "recorded_observed"
+            )
+            TestCase().assertIs(decision.diagnostics[0]["current_aws_verified"], False)
+        decisions.append(_reference_decision_data(decision))
+    different_results = []
+    if data["check_evidence"]:
         for different in (
             arn + "-other",
             arn.replace("arn:aws:", "arn:aws-cn:"),
             arn.replace("123456789012", "999999999999"),
         ):
             if different != arn:
-                assert (
-                    comparison.reference_same(symbol, different, "IAM.Role", "") is None
-                )
+                result = comparison.reference_same(symbol, different, "IAM.Role", "")
+                TestCase().assertIsNone(result)
+                different_results.append(result)
+    return {"decisions": decisions, "different_results": different_results}
 
 
 @pytest.mark.parametrize("function", ["select", "if", "join"])
@@ -5070,13 +4997,24 @@ def test_sqs_reference_processing_errors_propagate(error):
         assert isinstance(batch.failure, error) and not batch.records
 
 
-@pytest.mark.parametrize("declared", [False, True])
-@pytest.mark.parametrize("error", [OSError, ValueError, TypeError])
-def test_recorded_reference_processing_errors_are_not_missing_proof(declared, error):
+@pytest.mark.parametrize(
+    "case_id", case_ids("reference_evidence", prefix="evidence-error-")
+)
+def test_recorded_reference_processing_errors_are_not_missing_proof(
+    case_runner, case_id
+):
+    case_runner.run("reference_evidence", case_id, _execute_evidence_error)
+
+
+def _execute_evidence_error(case):
+    data = case["data"]
+    error = {"OSError": OSError, "ValueError": ValueError, "TypeError": TypeError}[
+        data["error_type"]
+    ]
     comparison = fixture()
     vpc(comparison)
     row = consumer(comparison)
-    if declared:
+    if data["declared"]:
         declaration(comparison, "desired.row.010-001.value", VPC)
         desired = prepared(comparison, row).require_value()
         actual = VPC
@@ -5087,8 +5025,11 @@ def test_recorded_reference_processing_errors_are_not_missing_proof(declared, er
         "comparison.reference_evidence.catalog_outputs",
         side_effect=error("synthetic catalog read failure"),
     ):
-        with pytest.raises(error, match="synthetic catalog read failure"):
+        with pytest.raises(error, match="synthetic catalog read failure") as failure:
             comparison.reference_decision(desired, actual, "EC2.Subnet", "VpcId")
+    return {
+        "error": {"type": type(failure.value).__name__, "message": str(failure.value)}
+    }
 
 
 @pytest.mark.parametrize("operation", ["Arn", "Sub", "Join", "SplitSelect"])

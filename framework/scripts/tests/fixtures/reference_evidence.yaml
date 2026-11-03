@@ -861,3 +861,2570 @@ cases:
       indexed: false
       verify_baseline: false
       initial_rows: *id003
+  kms-observed-00:
+    data:
+      observed: null
+  kms-observed-01:
+    data:
+      observed: ''
+  kms-observed-02:
+    data:
+      observed: PENDING_DEPLOY
+  kms-observed-03:
+    data:
+      observed: UNSET
+  kms-observed-04:
+    data:
+      observed: TODO
+  kms-observed-05:
+    data:
+      observed: TBD
+  kms-observed-06:
+    data:
+      observed: 未確定
+  kms-observed-07:
+    data:
+      observed: invalid
+  kms-observed-08:
+    data:
+      observed: 12345678-1234-1234-1234-123456789012-extra
+  kms-observed-09:
+    data:
+      observed: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+  kms-observed-10:
+    data:
+      observed: ${KeyId}
+  kms-export-00:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::GetAtt:
+        - Key
+        - Arn
+  kms-export-01:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Sub: ${Key.Arn}
+  kms-export-02:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Join:
+        - ''
+        - - Fn::GetAtt:
+            - Key
+            - Arn
+  kms-export-03:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${Key}
+  kms-export-04:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Join:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - Ref: Key
+  kms-export-05:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::GetAtt:
+        - Key
+        - Arn
+  kms-export-06:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Sub: ${Key.Arn}
+  kms-export-07:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Join:
+        - ''
+        - - Fn::GetAtt:
+            - Key
+            - Arn
+  kms-export-08:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${Key}
+  kms-export-09:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Join:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - Ref: Key
+  kms-export-10:
+    data:
+      kind: Lambda.Function
+      path: KmsKeyArn
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::GetAtt:
+        - Key
+        - Arn
+  kms-export-11:
+    data:
+      kind: Lambda.Function
+      path: KmsKeyArn
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Sub: ${Key.Arn}
+  kms-export-12:
+    data:
+      kind: Lambda.Function
+      path: KmsKeyArn
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Join:
+        - ''
+        - - Fn::GetAtt:
+            - Key
+            - Arn
+  kms-export-13:
+    data:
+      kind: Lambda.Function
+      path: KmsKeyArn
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${Key}
+  kms-export-14:
+    data:
+      kind: Lambda.Function
+      path: KmsKeyArn
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Join:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - Ref: Key
+  kms-export-15:
+    data:
+      kind: Lambda.Function
+      path: KmsKeyArn
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::GetAtt:
+        - Key
+        - Arn
+  kms-export-16:
+    data:
+      kind: Lambda.Function
+      path: KmsKeyArn
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Sub: ${Key.Arn}
+  kms-export-17:
+    data:
+      kind: Lambda.Function
+      path: KmsKeyArn
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Join:
+        - ''
+        - - Fn::GetAtt:
+            - Key
+            - Arn
+  kms-export-18:
+    data:
+      kind: Lambda.Function
+      path: KmsKeyArn
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${Key}
+  kms-export-19:
+    data:
+      kind: Lambda.Function
+      path: KmsKeyArn
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Join:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - Ref: Key
+  kms-export-20:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::GetAtt:
+        - Key
+        - Arn
+  kms-export-21:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Sub: ${Key.Arn}
+  kms-export-22:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Join:
+        - ''
+        - - Fn::GetAtt:
+            - Key
+            - Arn
+  kms-export-23:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${Key}
+  kms-export-24:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Join:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - Ref: Key
+  kms-export-25:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::GetAtt:
+        - Key
+        - Arn
+  kms-export-26:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Sub: ${Key.Arn}
+  kms-export-27:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Join:
+        - ''
+        - - Fn::GetAtt:
+            - Key
+            - Arn
+  kms-export-28:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${Key}
+  kms-export-29:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Join:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - Ref: Key
+  kms-export-30:
+    data:
+      kind: S3.Bucket
+      path: BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::GetAtt:
+        - Key
+        - Arn
+  kms-export-31:
+    data:
+      kind: S3.Bucket
+      path: BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Sub: ${Key.Arn}
+  kms-export-32:
+    data:
+      kind: S3.Bucket
+      path: BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Join:
+        - ''
+        - - Fn::GetAtt:
+            - Key
+            - Arn
+  kms-export-33:
+    data:
+      kind: S3.Bucket
+      path: BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${Key}
+  kms-export-34:
+    data:
+      kind: S3.Bucket
+      path: BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+      key_id: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Join:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - Ref: Key
+  kms-export-35:
+    data:
+      kind: S3.Bucket
+      path: BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::GetAtt:
+        - Key
+        - Arn
+  kms-export-36:
+    data:
+      kind: S3.Bucket
+      path: BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Sub: ${Key.Arn}
+  kms-export-37:
+    data:
+      kind: S3.Bucket
+      path: BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Join:
+        - ''
+        - - Fn::GetAtt:
+            - Key
+            - Arn
+  kms-export-38:
+    data:
+      kind: S3.Bucket
+      path: BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${Key}
+  kms-export-39:
+    data:
+      kind: S3.Bucket
+      path: BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+      key_id: mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      expression:
+        Fn::Join:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - Ref: Key
+  recorded-ref-00:
+    data:
+      kind: EC2.VPC
+      output: VpcId
+      attribute: VpcId
+      fixed: vpc-0123456789abcdef0
+      receiving: EC2.Subnet
+      path: VpcId
+      properties: {}
+  recorded-ref-01:
+    data:
+      kind: EC2.Subnet
+      output: SubnetId
+      attribute: SubnetId
+      fixed: subnet-0123456789abcdef0
+      receiving: EC2.Instance
+      path: SubnetId
+      properties: {}
+  recorded-ref-02:
+    data:
+      kind: EC2.SecurityGroup
+      output: Id
+      attribute: GroupId
+      fixed: sg-0123456789abcdef0
+      receiving: EC2.Instance
+      path: SecurityGroupIds[]
+      properties:
+        VpcId: vpc-0123456789abcdef0
+  kms-context-00:
+    data:
+      field: AWS::Partition
+      value: null
+      mismatched_context: false
+      original: aws
+  kms-context-01:
+    data:
+      field: AWS::Region
+      value: null
+      mismatched_context: false
+      original: ap-northeast-1
+  kms-context-02:
+    data:
+      field: AWS::AccountId
+      value: null
+      mismatched_context: false
+      original: '123456789012'
+  kms-context-03:
+    data:
+      field: AWS::Partition
+      value: UNSET
+      mismatched_context: false
+      original: aws
+  kms-context-04:
+    data:
+      field: AWS::Region
+      value: ${Region}
+      mismatched_context: false
+      original: ap-northeast-1
+  kms-context-05:
+    data:
+      field: AWS::AccountId
+      value: '123'
+      mismatched_context: false
+      original: '123456789012'
+  kms-context-06:
+    data:
+      field: AWS::Partition
+      value: aws-cn
+      mismatched_context: true
+      original: aws
+  kms-context-07:
+    data:
+      field: AWS::Region
+      value: us-east-1
+      mismatched_context: true
+      original: ap-northeast-1
+  kms-context-08:
+    data:
+      field: AWS::AccountId
+      value: '999999999999'
+      mismatched_context: true
+      original: '123456789012'
+  kms-forms-00:
+    data:
+      actual:
+        Ref: Key
+  kms-forms-01:
+    data:
+      actual:
+        Fn::Sub: ${Key}
+  kms-forms-02:
+    data:
+      actual:
+        Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/fixture
+  kms-forms-03:
+    data:
+      actual:
+        Fn::Join:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:alias/fixture
+  kms-literal-00:
+    data:
+      literal: 12345678-1234-1234-1234-123456789012
+      expression: null
+  kms-literal-01:
+    data:
+      literal: 12345678-1234-1234-1234-123456789012
+      expression:
+        Ref: Key
+  kms-literal-02:
+    data:
+      literal: 12345678-1234-1234-1234-123456789012
+      expression:
+        Fn::Sub: ${Key}
+  concrete-name-00:
+    data:
+      fixed: fixture-bucket
+      expression:
+        Ref: Bucket
+  concrete-name-01:
+    data:
+      fixed: arn:aws:s3:::fixture-bucket
+      expression:
+        Fn::GetAtt:
+        - Bucket
+        - Arn
+  export-blocked-00:
+    data:
+      other: null
+      producer_outputs: {}
+  export-blocked-01:
+    data:
+      other:
+        Resources: {}
+        Outputs:
+          Duplicate:
+            Value: value
+            Export:
+              Name: shared
+      producer_outputs:
+        Value:
+          Value:
+            Ref: Vpc
+          Export:
+            Name: shared
+  export-blocked-02:
+    data:
+      other:
+        Resources: {}
+        Outputs:
+          Other:
+            Value:
+              Fn::ImportValue: shared
+            Export:
+              Name: other
+      producer_outputs:
+        Value:
+          Value:
+            Fn::ImportValue: other
+          Export:
+            Name: shared
+  export-scope-00:
+    data:
+      field: AWS::Partition
+      replacement: aws-cn
+  export-scope-01:
+    data:
+      field: AWS::AccountId
+      replacement: '999999999999'
+  export-scope-02:
+    data:
+      field: AWS::Region
+      replacement: us-east-1
+  export-scope-03:
+    data:
+      field: AWS::Partition
+      replacement: null
+  kms-matrix-00:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: KeyId
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-01:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: KeyId
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-02:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: KeyId
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-03:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: KeyId
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-04:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: KeyArn
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-05:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: KeyArn
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-06:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: KeyArn
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-07:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: KeyArn
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-08:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: AliasName
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-09:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: AliasName
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-10:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: AliasName
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-11:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: AliasName
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-12:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: AliasArn
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-13:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: AliasArn
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-14:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: AliasArn
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-15:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      allowed:
+      - KeyArn
+      model_form: AliasArn
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-16:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: KeyId
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-17:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: KeyId
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-18:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: KeyId
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-19:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: KeyId
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-20:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: KeyArn
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-21:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: KeyArn
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-22:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: KeyArn
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-23:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: KeyArn
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-24:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: AliasName
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-25:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: AliasName
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-26:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: AliasName
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-27:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: AliasName
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-28:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: AliasArn
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-29:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: AliasArn
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-30:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: AliasArn
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-31:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+      allowed:
+      - AliasArn
+      - KeyArn
+      model_form: AliasArn
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-32:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: KeyId
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-33:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: KeyId
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-34:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: KeyId
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-35:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: KeyId
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-36:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: KeyArn
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-37:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: KeyArn
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-38:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: KeyArn
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-39:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: KeyArn
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-40:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: AliasName
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-41:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: AliasName
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-42:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: AliasName
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-43:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: AliasName
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-44:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: AliasArn
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-45:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: AliasArn
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-46:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: AliasArn
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-47:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      allowed:
+      - AliasArn
+      model_form: AliasArn
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-48:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: KeyId
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-49:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: KeyId
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-50:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: KeyId
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-51:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: KeyId
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-52:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: KeyArn
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-53:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: KeyArn
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-54:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: KeyArn
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-55:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: KeyArn
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-56:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: AliasName
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-57:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: AliasName
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-58:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: AliasName
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-59:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: AliasName
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-60:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: AliasArn
+      iac_form: KeyId
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-61:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: AliasArn
+      iac_form: KeyArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-62:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: AliasArn
+      iac_form: AliasName
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  kms-matrix-63:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+      allowed:
+      - AliasArn
+      model_form: AliasArn
+      iac_form: AliasArn
+      forms:
+      - - KeyId
+        - '001'
+        - KeyId
+      - - KeyArn
+        - '001'
+        - Arn
+      - - AliasName
+        - '002'
+        - AliasName
+      - - AliasArn
+        - '002'
+        - AliasArn
+  arn-affix-00:
+    data:
+      expression:
+        Fn::Sub: arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${Vpc}
+      fixed: arn:aws:ec2:ap-northeast-1:123456789012:vpc/vpc-0123456789abcdef0
+  arn-affix-01:
+    data:
+      expression:
+        Fn::Join:
+        - ''
+        - - arn:aws:ec2:ap-northeast-1:123456789012:vpc/
+          - Ref: Vpc
+      fixed: arn:aws:ec2:ap-northeast-1:123456789012:vpc/vpc-0123456789abcdef0
+  kms-alias-only-00:
+    data:
+      kind: Glue.SecurityConfiguration
+      path: EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+  kms-alias-only-01:
+    data:
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.EncryptionKey.Id
+  kms-runner-00:
+    data:
+      kind: Athena.WorkGroup
+      path: WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+  kms-runner-01:
+    data:
+      kind: Lambda.Function
+      path: KmsKeyArn
+  kms-runner-02:
+    data:
+      kind: Logs.LogGroup
+      path: KmsKeyId
+  kms-runner-03:
+    data:
+      kind: S3.Bucket
+      path: BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID
+  evidence-error-00:
+    data:
+      error_type: OSError
+      declared: false
+  evidence-error-01:
+    data:
+      error_type: OSError
+      declared: true
+  evidence-error-02:
+    data:
+      error_type: ValueError
+      declared: false
+  evidence-error-03:
+    data:
+      error_type: ValueError
+      declared: true
+  evidence-error-04:
+    data:
+      error_type: TypeError
+      declared: false
+  evidence-error-05:
+    data:
+      error_type: TypeError
+      declared: true
+  kms-handoff-00:
+    data:
+      resource: null
+      document_fields: {}
+      metadata: {}
+      duplicate_resource: false
+      duplicate_row: false
+      templates_available: true
+  kms-handoff-01:
+    data:
+      resource:
+        Type: AWS::KMS::Key
+        Properties: {}
+      document_fields: {}
+      metadata: {}
+      duplicate_resource: true
+      duplicate_row: false
+      templates_available: true
+  kms-handoff-02:
+    data:
+      resource:
+        Type: AWS::KMS::Alias
+        Properties: {}
+      document_fields: {}
+      metadata: {}
+      duplicate_resource: false
+      duplicate_row: false
+      templates_available: true
+  kms-handoff-03:
+    data:
+      resource:
+        Type: AWS::KMS::Key
+        Properties: {}
+        Condition: 'No'
+      document_fields:
+        Conditions:
+          'No':
+            Fn::Equals:
+            - 'yes'
+            - 'no'
+      metadata: {}
+      duplicate_resource: false
+      duplicate_row: false
+      templates_available: true
+  kms-handoff-04:
+    data:
+      resource:
+        Type: AWS::KMS::Key
+        Properties: {}
+      document_fields:
+        Transform: Unresolved
+      metadata: {}
+      duplicate_resource: false
+      duplicate_row: false
+      templates_available: true
+  kms-handoff-05:
+    data:
+      resource:
+        Type: AWS::KMS::Key
+        Properties: {}
+      document_fields: {}
+      metadata:
+        resourceMode: IMPORT
+      duplicate_resource: false
+      duplicate_row: false
+      templates_available: true
+  kms-handoff-06:
+    data:
+      resource:
+        Type: AWS::KMS::Key
+        Properties: {}
+      document_fields: {}
+      metadata: {}
+      duplicate_resource: false
+      duplicate_row: true
+      templates_available: true
+  kms-handoff-07:
+    data:
+      resource:
+        Type: AWS::KMS::Key
+        Properties: {}
+      document_fields: {}
+      metadata: {}
+      duplicate_resource: false
+      duplicate_row: false
+      templates_available: false
+  kms-handoff-08:
+    data:
+      resource:
+        Type: AWS::KMS::Key
+        Properties: {}
+      document_fields: {}
+      metadata:
+        cfn-logicalId: producer-Replacement
+      duplicate_resource: false
+      duplicate_row: false
+      templates_available: true
+  shared-arn-00:
+    data:
+      kind: EC2.VPC
+      attribute: VpcId
+      identifier: vpc-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ec2:ap-northeast-1:123456789012:vpc/vpc-0123456789abcdef0
+      observed_present: true
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: true
+  shared-arn-01:
+    data:
+      kind: EC2.VPC
+      attribute: VpcId
+      identifier: vpc-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ec2:ap-northeast-1:123456789012:vpc/vpc-0123456789abcdef0
+      observed_present: false
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: false
+  shared-arn-02:
+    data:
+      kind: EC2.VPC
+      attribute: VpcId
+      identifier: vpc-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ec2:ap-northeast-1:123456789012:vpc/vpc-0123456789abcdef0
+      observed_present: true
+      resource_mode: IMPORT
+      inactive: false
+      check_evidence: false
+  shared-arn-03:
+    data:
+      kind: EC2.VPC
+      attribute: VpcId
+      identifier: vpc-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ec2:ap-northeast-1:123456789012:vpc/vpc-0123456789abcdef0
+      observed_present: true
+      resource_mode: CREATE
+      inactive: true
+      check_evidence: false
+  shared-arn-04:
+    data:
+      kind: EC2.EIP
+      attribute: AllocationId
+      identifier: eipalloc-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ec2:ap-northeast-1:123456789012:elastic-ip/eipalloc-0123456789abcdef0
+      observed_present: true
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: true
+  shared-arn-05:
+    data:
+      kind: EC2.EIP
+      attribute: AllocationId
+      identifier: eipalloc-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ec2:ap-northeast-1:123456789012:elastic-ip/eipalloc-0123456789abcdef0
+      observed_present: false
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: false
+  shared-arn-06:
+    data:
+      kind: EC2.EIP
+      attribute: AllocationId
+      identifier: eipalloc-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ec2:ap-northeast-1:123456789012:elastic-ip/eipalloc-0123456789abcdef0
+      observed_present: true
+      resource_mode: IMPORT
+      inactive: false
+      check_evidence: false
+  shared-arn-07:
+    data:
+      kind: EC2.EIP
+      attribute: AllocationId
+      identifier: eipalloc-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ec2:ap-northeast-1:123456789012:elastic-ip/eipalloc-0123456789abcdef0
+      observed_present: true
+      resource_mode: CREATE
+      inactive: true
+      check_evidence: false
+  shared-arn-08:
+    data:
+      kind: CloudFront.Distribution
+      attribute: Id
+      identifier: E123ABC
+      properties: {}
+      arn: arn:aws:cloudfront::123456789012:distribution/E123ABC
+      observed_present: true
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: true
+  shared-arn-09:
+    data:
+      kind: CloudFront.Distribution
+      attribute: Id
+      identifier: E123ABC
+      properties: {}
+      arn: arn:aws:cloudfront::123456789012:distribution/E123ABC
+      observed_present: false
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: false
+  shared-arn-10:
+    data:
+      kind: CloudFront.Distribution
+      attribute: Id
+      identifier: E123ABC
+      properties: {}
+      arn: arn:aws:cloudfront::123456789012:distribution/E123ABC
+      observed_present: true
+      resource_mode: IMPORT
+      inactive: false
+      check_evidence: false
+  shared-arn-11:
+    data:
+      kind: CloudFront.Distribution
+      attribute: Id
+      identifier: E123ABC
+      properties: {}
+      arn: arn:aws:cloudfront::123456789012:distribution/E123ABC
+      observed_present: true
+      resource_mode: CREATE
+      inactive: true
+      check_evidence: false
+  shared-arn-12:
+    data:
+      kind: SSM.MaintenanceWindow
+      attribute: WindowId
+      identifier: mw-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ssm:ap-northeast-1:123456789012:maintenancewindow/mw-0123456789abcdef0
+      observed_present: true
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: true
+  shared-arn-13:
+    data:
+      kind: SSM.MaintenanceWindow
+      attribute: WindowId
+      identifier: mw-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ssm:ap-northeast-1:123456789012:maintenancewindow/mw-0123456789abcdef0
+      observed_present: false
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: false
+  shared-arn-14:
+    data:
+      kind: SSM.MaintenanceWindow
+      attribute: WindowId
+      identifier: mw-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ssm:ap-northeast-1:123456789012:maintenancewindow/mw-0123456789abcdef0
+      observed_present: true
+      resource_mode: IMPORT
+      inactive: false
+      check_evidence: false
+  shared-arn-15:
+    data:
+      kind: SSM.MaintenanceWindow
+      attribute: WindowId
+      identifier: mw-0123456789abcdef0
+      properties: {}
+      arn: arn:aws:ssm:ap-northeast-1:123456789012:maintenancewindow/mw-0123456789abcdef0
+      observed_present: true
+      resource_mode: CREATE
+      inactive: true
+      check_evidence: false
+  shared-arn-16:
+    data:
+      kind: SSM.MaintenanceWindowTarget
+      attribute: WindowTargetId
+      identifier: 12345678-1234-1234-1234-123456789012
+      properties: {}
+      arn: arn:aws:ssm:ap-northeast-1:123456789012:windowtarget/12345678-1234-1234-1234-123456789012
+      observed_present: true
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: true
+  shared-arn-17:
+    data:
+      kind: SSM.MaintenanceWindowTarget
+      attribute: WindowTargetId
+      identifier: 12345678-1234-1234-1234-123456789012
+      properties: {}
+      arn: arn:aws:ssm:ap-northeast-1:123456789012:windowtarget/12345678-1234-1234-1234-123456789012
+      observed_present: false
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: false
+  shared-arn-18:
+    data:
+      kind: SSM.MaintenanceWindowTarget
+      attribute: WindowTargetId
+      identifier: 12345678-1234-1234-1234-123456789012
+      properties: {}
+      arn: arn:aws:ssm:ap-northeast-1:123456789012:windowtarget/12345678-1234-1234-1234-123456789012
+      observed_present: true
+      resource_mode: IMPORT
+      inactive: false
+      check_evidence: false
+  shared-arn-19:
+    data:
+      kind: SSM.MaintenanceWindowTarget
+      attribute: WindowTargetId
+      identifier: 12345678-1234-1234-1234-123456789012
+      properties: {}
+      arn: arn:aws:ssm:ap-northeast-1:123456789012:windowtarget/12345678-1234-1234-1234-123456789012
+      observed_present: true
+      resource_mode: CREATE
+      inactive: true
+      check_evidence: false
+  shared-arn-20:
+    data:
+      kind: ApiGateway.Authorizer
+      attribute: AuthorizerId
+      identifier: abc123
+      properties:
+        RestApiId: def456
+      arn: arn:aws:apigateway:ap-northeast-1::/restapis/def456/authorizers/abc123
+      observed_present: true
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: true
+  shared-arn-21:
+    data:
+      kind: ApiGateway.Authorizer
+      attribute: AuthorizerId
+      identifier: abc123
+      properties:
+        RestApiId: def456
+      arn: arn:aws:apigateway:ap-northeast-1::/restapis/def456/authorizers/abc123
+      observed_present: false
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: false
+  shared-arn-22:
+    data:
+      kind: ApiGateway.Authorizer
+      attribute: AuthorizerId
+      identifier: abc123
+      properties:
+        RestApiId: def456
+      arn: arn:aws:apigateway:ap-northeast-1::/restapis/def456/authorizers/abc123
+      observed_present: true
+      resource_mode: IMPORT
+      inactive: false
+      check_evidence: false
+  shared-arn-23:
+    data:
+      kind: ApiGateway.Authorizer
+      attribute: AuthorizerId
+      identifier: abc123
+      properties:
+        RestApiId: def456
+      arn: arn:aws:apigateway:ap-northeast-1::/restapis/def456/authorizers/abc123
+      observed_present: true
+      resource_mode: CREATE
+      inactive: true
+      check_evidence: false
+  shared-arn-24:
+    data:
+      kind: Route53.HostedZone
+      attribute: Id
+      identifier: Z123XYZ
+      properties: {}
+      arn: arn:aws:route53:::hostedzone/Z123XYZ
+      observed_present: true
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: true
+  shared-arn-25:
+    data:
+      kind: Route53.HostedZone
+      attribute: Id
+      identifier: Z123XYZ
+      properties: {}
+      arn: arn:aws:route53:::hostedzone/Z123XYZ
+      observed_present: false
+      resource_mode: CREATE
+      inactive: false
+      check_evidence: false
+  shared-arn-26:
+    data:
+      kind: Route53.HostedZone
+      attribute: Id
+      identifier: Z123XYZ
+      properties: {}
+      arn: arn:aws:route53:::hostedzone/Z123XYZ
+      observed_present: true
+      resource_mode: IMPORT
+      inactive: false
+      check_evidence: false
+  shared-arn-27:
+    data:
+      kind: Route53.HostedZone
+      attribute: Id
+      identifier: Z123XYZ
+      properties: {}
+      arn: arn:aws:route53:::hostedzone/Z123XYZ
+      observed_present: true
+      resource_mode: CREATE
+      inactive: true
+      check_evidence: false
+  correspondence-00:
+    data:
+      document_fields:
+        Conditions:
+          'No':
+            Fn::Equals:
+            - 'yes'
+            - 'no'
+      resource_fields:
+        Condition: 'No'
+      duplicate: false
+  correspondence-01:
+    data:
+      document_fields:
+        Transform: Unresolved
+      resource_fields: {}
+      duplicate: false
+  correspondence-02:
+    data:
+      document_fields: {}
+      resource_fields: {}
+      duplicate: true
+  correspondence-03:
+    data:
+      document_fields: {}
+      resource_fields:
+        Type: AWS::EC2::Subnet
+      duplicate: false
+  saved-evidence-00:
+    data:
+      observed_present: true
+      observed: null
+      check_format: true
+  saved-evidence-01:
+    data:
+      observed_present: false
+      observed: null
+      check_format: false
+  saved-evidence-02:
+    data:
+      observed_present: true
+      observed: '`vpc-other`'
+      check_format: false
+  nested-evidence-00:
+    data:
+      expression:
+        Fn::Join:
+        - ''
+        - - Fn::Select:
+            - 0
+            - Fn::Split:
+              - '|'
+              - Fn::Sub:
+                - ${Arn}|unused
+                - Arn:
+                    Fn::GetAtt:
+                    - Key
+                    - Arn
+          - /suffix
+  export-isolation-00:
+    data:
+      properties:
+        BucketName: fixture
+      outputs: {}
+      document_fields: {}
+      unreadable_stack: true
+      cyclic: false
+      search_incomplete: true
+  export-isolation-01:
+    data:
+      properties:
+        BucketName: fixture
+      outputs:
+        Broken:
+          Value: x
+          Export:
+            Name:
+              Ref: Bucket
+      document_fields: {}
+      unreadable_stack: false
+      cyclic: false
+      search_incomplete: true
+  export-isolation-02:
+    data:
+      properties:
+        BucketName: fixture
+      outputs:
+        Hidden:
+          Value: value
+          Condition: 'Off'
+          Export:
+            Name: hidden
+      document_fields:
+        Conditions:
+          'Off':
+            Fn::Equals:
+            - 1
+            - 2
+      unreadable_stack: false
+      cyclic: false
+      search_incomplete: false
+  export-isolation-03:
+    data:
+      properties:
+        BucketName: fixture
+      outputs:
+        Broken:
+          Value: x
+          Export:
+            Name:
+              Fn::Sub: ${Bucket}
+      document_fields: {}
+      unreadable_stack: false
+      cyclic: false
+      search_incomplete: true
+  export-isolation-04:
+    data:
+      properties:
+        BucketName:
+          Fn::Sub: ${Bucket}
+      outputs: {}
+      document_fields: {}
+      unreadable_stack: false
+      cyclic: true
+      search_incomplete: false
+  export-isolation-05:
+    data:
+      properties:
+        BucketName:
+          Ref: Bucket
+      outputs: {}
+      document_fields: {}
+      unreadable_stack: false
+      cyclic: true
+      search_incomplete: false
+  kms-link-00:
+    data:
+      key_id: 12345678-1234-1234-1234-123456789012
+      arn: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+  kms-observation-only-00:
+    data:
+      key_id: 12345678-1234-1234-1234-123456789012
+  kms-unresolved-00:
+    data:
+      expression: ${Unknown}
+  export-chain-00:
+    data:
+      relay:
+        Resources: {}
+        Outputs:
+          Relay:
+            Value:
+              Fn::ImportValue: base
+            Export:
+              Name: shared
+  runner-evidence-00:
+    data:
+      vpc: vpc-0123456789abcdef0
+  alias-handoff-00:
+    data:
+      alias: alias/fixture
+      suffix: Fixture
+      outputs:
+        AliasName:
+          Value:
+            Ref: Alias
+          Export:
+            Name:
+              Fn::Sub: KmsLogKeyAliasName${Suffix}
+      expression:
+        Fn::Sub:
+        - arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${KmsAliasName}
+        - KmsAliasName:
+            Fn::ImportValue:
+              Fn::Sub: KmsLogKeyAliasName${Suffix}

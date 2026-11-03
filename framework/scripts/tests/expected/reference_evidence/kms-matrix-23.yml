@@ -1,0 +1,31 @@
+decision:
+  comparisons: []
+  diagnostics:
+  - allowed_forms:
+    - AliasArn
+    - KeyArn
+    code: kms.format_mismatch
+    current_aws_verified: false
+    evidence_type: logical_reference
+    format:
+      iac: allowed
+      model: allowed
+    iac:
+      $attribute: AliasArn
+      $resource:
+      - kms
+      - '002'
+    identity: different
+    model:
+      $attribute: Arn
+      $resource:
+      - kms
+      - '001'
+    path: Logs.LogGroup.KmsKeyId
+    reason: 'KMS format mismatch: model=KeyArn, iac=AliasArn'
+  equal: false
+  equivalent: false
+outcome:
+  code: kms.format_mismatch
+  equal: false
+  message: 'KMS format mismatch: model=KeyArn, iac=AliasArn'

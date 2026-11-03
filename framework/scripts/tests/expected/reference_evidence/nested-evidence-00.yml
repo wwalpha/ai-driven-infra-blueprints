@@ -1,0 +1,134 @@
+decisions:
+- comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: recorded_observed
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $expression: Join
+      $operands:
+      - ''
+      - - $expression: Select
+          $operands:
+          - 0
+          - $expression: Split
+            $operands:
+            - '|'
+            - $expression: Sub
+              $operands:
+              - ${Arn}|unused
+              - Arn:
+                  $attribute: Arn
+                  $resource:
+                  - kms
+                  - '001'
+        - /suffix
+    identity: unproven
+    local_comparison: uncompared
+    model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012/suffix
+    path: IAM.Role.Policies
+    producers:
+    - attribute: Arn
+      current_aws_verified: false
+      derived_format: KeyArn
+      evidence_type: recorded_observed
+      producer: kms/001
+      source_property: KMS.Key.KeyId
+    reason: recorded_observed cannot prove current or next-deploy physical identity
+  equal: null
+  equivalent: false
+- comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: recorded_observed
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: unproven
+      model: unproven
+    iac: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012/suffix
+    identity: unproven
+    local_comparison: uncompared
+    model:
+      $expression: Join
+      $operands:
+      - ''
+      - - $expression: Select
+          $operands:
+          - 0
+          - $expression: Split
+            $operands:
+            - '|'
+            - $expression: Sub
+              $operands:
+              - ${Arn}|unused
+              - Arn:
+                  $attribute: Arn
+                  $resource:
+                  - kms
+                  - '001'
+        - /suffix
+    path: IAM.Role.Policies
+    producers:
+    - attribute: Arn
+      current_aws_verified: false
+      derived_format: KeyArn
+      evidence_type: recorded_observed
+      producer: kms/001
+      source_property: KMS.Key.KeyId
+    reason: recorded_observed cannot prove current or next-deploy physical identity
+  equal: null
+  equivalent: false
+other:
+  comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: recorded_observed
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $expression: Join
+      $operands:
+      - ''
+      - - $expression: Select
+          $operands:
+          - 0
+          - $expression: Split
+            $operands:
+            - '|'
+            - $expression: Sub
+              $operands:
+              - ${Arn}|unused
+              - Arn:
+                  $attribute: Arn
+                  $resource:
+                  - kms
+                  - '001'
+        - /suffix
+    identity: unproven
+    local_comparison: uncompared
+    model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012/other
+    path: IAM.Role.Policies
+    producers:
+    - attribute: Arn
+      current_aws_verified: false
+      derived_format: KeyArn
+      evidence_type: recorded_observed
+      producer: kms/001
+      source_property: KMS.Key.KeyId
+    reason: 'recorded_identifier_mismatch: historical value cannot prove an IaC difference'
+  equal: null
+  equivalent: false
