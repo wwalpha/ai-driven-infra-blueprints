@@ -1,0 +1,25 @@
+result:
+  candidate_failures: []
+  candidate_warnings: []
+  correspondence: []
+  diagnostics: []
+  differences:
+  - iac:
+      $caseType: MISSING
+    iac_pointer: []
+    model:
+      Key: Name
+      Value: one
+    model_pointer:
+    - 0
+    path:
+    - Setting
+    - Key
+    - Name
+  equal: false
+  equivalent: false
+  fields:
+  - iac: 欠落
+    model: '{"Key":"Name","Value":"one"}'
+    path: Setting[Key=Name]
+  reference_positions: []

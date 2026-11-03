@@ -1,0 +1,12 @@
+result:
+  diagnostics:
+  - path: Setting.a/b~c[]
+  equal: false
+  equivalent: true
+  fields:
+  - iac: '"<masked>"'
+    model: '"<masked>"'
+    path: Password
+  - iac: two
+    model: one
+    path: a/b~c[0]

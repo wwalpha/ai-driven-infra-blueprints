@@ -1,0 +1,10 @@
+result:
+  candidate_failures: []
+  candidate_warnings: []
+  correspondence: []
+  diagnostics: []
+  differences: []
+  equal: true
+  equivalent: false
+  fields: []
+  reference_positions: []

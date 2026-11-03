@@ -3,6 +3,7 @@
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
+from functools import partial
 from pathlib import Path
 from threading import Barrier, Event
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from generation_inputs import GenerationInputs
 from model.core import SnapshotValues
 from model.format import serialize
 from model.importing import scope as permissions
+from support.fixture_cases import load_case
 from support.model_sources import write_model
 from support.pytest_cli import run
 from utils import source_reads
@@ -30,24 +32,10 @@ if not __debug__:
 
 
 def model_input(root):
-    (root / "project.json").write_text(
-        '{"projectName":"fixture","targets":[{"environment":"dev",'
-        '"alias":"team","awsAccountId":"123456789012",'
-        '"awsRegion":"ap-northeast-1","iacEngine":"cloudformation"}]}\n',
-        encoding="utf-8",
-    )
+    data = load_case("comparison_reuse", "model-input")["data"]
+    (root / "project.json").write_text(data["project"], encoding="utf-8")
     path = root / "model/dev/team/logs.properties"
-    values = {
-        "desired.service.logs.serviceId": "logs",
-        "desired.service.logs.ownedCatalogResourceTypes": "Logs.LogGroup",
-        "desired.service.identity.lastAllocated": '{"Logs.LogGroup":1}',
-        "desired.resource.001.logicalId": "Logs_LogGroup_001",
-        "desired.resource.001.anchor": "logs-group",
-        "desired.resource.001.resourceType": "Logs.LogGroup",
-        "desired.row.001-001.property": "Logs.LogGroup.LogGroupName",
-        "desired.row.001-001.value": "`fixture-logs`",
-        "desired.row.001-001.comment": "合成",
-    }
+    values = data["values"]
     write_model(path, values)
     return path, values
 
@@ -605,29 +593,39 @@ def check_stage_and_original_snapshots_remain_separate(tmp_path):
         assert sources.raw_model(path).authoritative == values
 
 
-def check_comparison_keeps_saved_bytes_and_still_reports_difference(tmp_path):
+@pytest.mark.parametrize("case_id", ["saved-bytes-difference"])
+def check_comparison_keeps_saved_bytes_and_still_reports_difference(
+    tmp_path, case_runner, case_id
+):
     path, _ = model_input(tmp_path)
     view = tmp_path / "docs/designs/dev/team/logs.md"
     view.parent.mkdir(parents=True)
-    view.write_text("saved\n", encoding="utf-8")
+    data = load_case("comparison_reuse", case_id)["data"]
+    view.write_text(data["saved_view"], encoding="utf-8")
     with ExitStack() as lifetime:
         snapshot = GenerationInputs(tmp_path, read_only=True)
         lifetime.callback(snapshot.close)
         snapshot.read(path)
         snapshot.read(view)
-        view.write_text("expected\n", encoding="utf-8")
-        path.write_text("external change\n", encoding="utf-8")
+        view.write_text(data["expected_view"], encoding="utf-8")
+        path.write_text(data["external_model"], encoding="utf-8")
         plan = SimpleNamespace(
             root=tmp_path,
             snapshot=snapshot,
-            expected_outputs={view: {view: "expected\n"}},
+            expected_outputs={view: {view: data["expected_view"]}},
             failure_records=[],
             saved={},
         )
         sync_runtime._compare_generation(plan)
-        assert [d.code for d in plan.failure_records] == ["generation.mismatch"]
+        case_runner.run(
+            "comparison_reuse", case_id, partial(_saved_difference_result, plan)
+        )
         with pytest.raises(ValueError, match="inputs changed before publication"):
             snapshot.verify()
+
+
+def _saved_difference_result(plan, case):
+    return {"failure_codes": [item.code for item in plan.failure_records]}
 
 
 def check_policy_batch_evaluates_documents_once(tmp_path):
@@ -636,11 +634,7 @@ def check_policy_batch_evaluates_documents_once(tmp_path):
     view.parent.mkdir(parents=True)
     view.write_text("# fixture\n", encoding="utf-8")
     values = SnapshotValues(
-        {
-            "desired.row.001-001.property": "Logs.ResourcePolicy.PolicyDocument",
-            "desired.row.001-001.value": "[Policy](logs/policy.json)",
-            "desired.row.001-001.document": '{"Statement":[]}',
-        }
+        load_case("comparison_reuse", "policy-batch")["data"]["values"]
     )
     with (
         patch.object(

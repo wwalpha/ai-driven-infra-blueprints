@@ -1,0 +1,20 @@
+result:
+  candidate_failures: []
+  candidate_warnings: []
+  correspondence: []
+  diagnostics: []
+  differences:
+  - iac: BucketName
+    iac_pointer:
+    - $attribute
+    model: Arn
+    model_pointer:
+    - $attribute
+    path: $attribute
+  equal: false
+  equivalent: false
+  fields:
+  - iac: BucketName
+    model: Arn
+    path: $attribute
+  reference_positions: []

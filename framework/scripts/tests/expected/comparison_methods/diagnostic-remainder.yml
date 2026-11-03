@@ -1,0 +1,26 @@
+result:
+  candidate_failures: []
+  candidate_warnings: []
+  correspondence: []
+  diagnostics:
+  - path: Setting[].Value
+    reason: a/a
+  - path: Setting[].Value
+    reason: b/x
+  differences:
+  - iac: x
+    iac_pointer:
+    - 1
+    - Value
+    model: b
+    model_pointer:
+    - 1
+    - Value
+    path: Setting[1].Value
+  equal: false
+  equivalent: false
+  fields:
+  - iac: x
+    model: b
+    path: Setting[1].Value
+  reference_positions: []

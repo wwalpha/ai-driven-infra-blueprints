@@ -1,0 +1,19 @@
+result:
+  candidate_failures: []
+  candidate_warnings: []
+  correspondence: []
+  diagnostics: []
+  differences:
+  - iac:
+      $caseType: MISSING
+    iac_pointer: []
+    model: null
+    model_pointer: []
+    path: ''
+  equal: false
+  equivalent: false
+  fields:
+  - iac: 欠落
+    model: 'null'
+    path: Setting
+  reference_positions: []

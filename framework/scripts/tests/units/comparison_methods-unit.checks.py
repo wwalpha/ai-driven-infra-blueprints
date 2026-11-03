@@ -1,8 +1,10 @@
 """One algorithm suite and static rule coverage; only synthetic comparison values."""
 
+import json
 import random
 import sys
 from collections import Counter
+from copy import deepcopy
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -32,7 +34,10 @@ from comparison.methods import (
 from comparison.references import ReferenceDecision, reference_same
 from comparison.result import setting_result, value_differences
 from design.catalog import DesignSchemaCatalog, property_paths_with_parents
+from support.comparison_cases import declared_rules, operand, outcome_data, projected
+from support.fixture_cases import load_case
 from support.pytest_cli import run
+from support.regression_cases import case_ids, expected_path
 from utils.aws_catalogs import catalogs_for
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import (
@@ -142,43 +147,6 @@ def candidate_reference(reference, left, right, path):
     )
 
 
-@pytest.mark.parametrize(
-    "mode,expected",
-    [
-        ("reordered", True),
-        ("extra", True),
-        ("missing", False),
-        ("duplicate", False),
-        ("model-duplicate", False),
-        ("wrong", False),
-        ("unknown", None),
-        ("unknown-key", None),
-        ("known-wrong", False),
-    ],
-)
-def test_keyed(mode, expected):
-    left = [{"Key": "Name", "Value": "one"}]
-    right = [{"Key": "Other", "Value": "extra"}, *left]
-    unknown = Expression("Unverified", [])
-    if mode == "extra":
-        right[-1] = dict(left[0], Extra=True)
-    elif mode == "missing":
-        right = []
-    elif mode == "duplicate":
-        right = left * 2
-    elif mode == "model-duplicate":
-        left = left * 2
-    elif mode == "wrong":
-        right = [{"Key": "Name", "Value": "two"}]
-    elif mode == "unknown":
-        right = [unknown]
-    elif mode == "unknown-key":
-        right = [{"Key": unknown, "Value": "one"}]
-    elif mode == "known-wrong":
-        right = [{"Key": "Name", "Value": "two"}, unknown]
-    assert compare(left, right, keyed("Key")).equal is expected
-
-
 def uncertain(left, right, path):
     return ReferenceDecision(
         None
@@ -193,23 +161,6 @@ def test_unknown_presence(rule):
     left = [{"Key": "one"}, {"Key": "two"}]
     assert compare(left, [unknown], rule, reference=uncertain).equal is False
     assert compare(left[:1], [unknown], rule, reference=uncertain).equal is None
-
-
-def test_reference_diagnostics_once_and_render_masking():
-    left = {"Password": "first", "a/b~c": ["one"]}
-    right = {"Password": "second", "a/b~c": ["two"]}
-    callback = Mock(side_effect=traced_reference)
-    outcome = compare(left, right, reference=callback)
-    calls = callback.call_count
-    assert calls == 4
-    assert outcome.equal is False and outcome.equivalent is True
-    assert outcome.diagnostics == ({"path": "Setting.a/b~c[]"},)
-    fields = value_differences(outcome, left, right, "Setting")
-    assert callback.call_count == calls
-    assert fields == [
-        {"path": "Password", "model": '"<masked>"', "iac": '"<masked>"'},
-        {"path": "a/b~c[0]", "model": "one", "iac": "two"},
-    ]
 
 
 def traced_reference(left, right, path):
@@ -831,35 +782,187 @@ def test_codebuild_dynamic_literal_is_unresolved():
     )
 
 
-def test_reference_atomic_difference_path_and_missing():
-    left = ResourceReference({"$resource": ["s3", "001"], "$attribute": "Arn"})
-    right = ResourceReference(dict(left, **{"$attribute": "BucketName"}))
+def _execute_comparison_case(case, *, reference=None):
+    data = case["data"]
+    left, right = operand(data["left"]), operand(data["right"])
+    before = projected([left, right])
+    outcome = compare_values(
+        left,
+        right,
+        data["path"],
+        rules=declared_rules(data["rules"]),
+        missing=data["missing"],
+        reference=reference,
+    )
+    result = outcome_data(outcome)
+    result["fields"] = value_differences(outcome, left, right, data["path"])
+    if json.dumps(projected([left, right])) != json.dumps(before):
+        pytest.fail("comparison mutated its input", pytrace=False)
+    return {"result": result}
+
+
+@pytest.mark.parametrize("case_id", case_ids("comparison_methods", prefix="keyed-"))
+def test_keyed(case_runner, case_id):
+    case_runner.run("comparison_methods", case_id, _execute_comparison_case)
+
+
+@pytest.mark.parametrize("case_id", ["traced-masking"])
+def test_reference_diagnostics_once_and_render_masking(case_runner, case_id):
+    case_runner.run("comparison_methods", case_id, _execute_traced_case)
+
+
+def _execute_traced_case(case):
+    data = case["data"]
+    left, right = deepcopy(data["left"]), deepcopy(data["right"])
+    callback = Mock(side_effect=traced_reference)
+    outcome = compare(left, right, reference=callback)
+    TestCase().assertEqual(callback.call_count, 4)
+    result = {
+        "equal": outcome.equal,
+        "equivalent": outcome.equivalent,
+        "diagnostics": projected(outcome.diagnostics),
+        "fields": value_differences(outcome, left, right, "Setting"),
+    }
+    TestCase().assertEqual(callback.call_count, 4)
+    TestCase().assertEqual([left, right], [data["left"], data["right"]])
+    if any(secret in json.dumps(result) for secret in data["secret_values"]):
+        pytest.fail("comparison exposed a secret before snapshot", pytrace=False)
+    return {"result": result}
+
+
+@pytest.mark.parametrize(
+    "case_id", case_ids("comparison_methods", prefix="diagnostic-")
+)
+def test_unordered_diagnostic_cases(case_runner, case_id):
+    case_runner.run(
+        "comparison_methods",
+        case_id,
+        partial(_execute_comparison_case, reference=diagnostic_candidate),
+    )
+
+
+@pytest.mark.parametrize("case_id", case_ids("comparison_methods", prefix="uncertain-"))
+def test_unordered_uncertain_cases(case_runner, case_id):
+    case_runner.run(
+        "comparison_methods",
+        case_id,
+        partial(_execute_comparison_case, reference=uncertain_candidate),
+    )
+
+
+@pytest.mark.parametrize("case_id", case_ids("comparison_methods", prefix="atomic-"))
+def test_reference_atomic_difference_path_and_missing(case_runner, case_id):
+    case_runner.run("comparison_methods", case_id, _execute_atomic_case)
+
+
+def _execute_atomic_case(case):
     callback = Mock(return_value=ReferenceDecision(False))
-    outcome = compare(left, right, REFERENCE, reference=callback)
-    assert callback.call_count == 1
-    assert value_differences(outcome, left, right, "Setting") == [
-        {"path": "$attribute", "model": "Arn", "iac": "BucketName"}
-    ]
-    assert callback.call_count == 1
+    result = _execute_comparison_case(case, reference=callback)
+    TestCase().assertEqual(callback.call_count, int(not case["data"]["missing"]))
+    return result
+
+
+@pytest.mark.parametrize("case_id", case_ids("comparison_methods", prefix="nested-"))
+def test_nested_array_rule_and_unknown_prefix(case_runner, case_id):
+    case_runner.run(
+        "comparison_methods",
+        case_id,
+        partial(_execute_comparison_case, reference=uncertain),
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"$caseType": "import", "value": "os"},
+        {"$caseType": "Expression", "operation": "Unknown", "operands": []},
+        {"$caseType": "ResourceReference", "value": {}},
+        {
+            "$caseType": "Expression",
+            "operation": "Unverified",
+            "operands": [],
+            "extra": True,
+        },
+    ],
+)
+def test_comparison_case_operand_rejects_unknown(value):
+    with pytest.raises(ValueError, match="unknown comparison fixture operand"):
+        operand(value)
+
+
+def test_comparison_case_type_and_sentinel_contracts():
+    symbol = ResourceReference({"$resource": ["s3", "001"], "$attribute": "Arn"})
+    TestCase().assertIs(
+        type(operand({"$caseType": "ResourceReference", "value": dict(symbol)})),
+        ResourceReference,
+    )
+    TestCase().assertIs(
+        type(
+            operand(
+                {"$caseType": "Expression", "operation": "Unverified", "operands": []}
+            )
+        ),
+        Expression,
+    )
     missing = compare_values(
         None, None, "Setting", rules={"Setting": SCALAR}, missing=True
     )
-    assert value_differences(missing, None, None, "Setting") == [
-        {"path": "Setting", "model": "null", "iac": "欠落"}
-    ]
+    TestCase().assertIs(missing.differences[0].iac, MISSING)
+    TestCase().assertIsNot(MISSING, None)
+    with pytest.raises(TypeError, match="equality must be bool or None"):
+        outcome_data(CompareOutcome(1))
+    TestCase().assertIs(traced_reference(None, None, "Setting").equal, NotImplemented)
+    TestCase().assertEqual(projected(MISSING), {"$caseType": "MISSING"})
+    TestCase().assertEqual(projected(NotImplemented), {"$caseType": "NotImplemented"})
+    TestCase().assertNotEqual(projected(symbol), projected(dict(symbol)))
+    TestCase().assertNotEqual(projected(Expression("Unverified", [])), None)
+    with pytest.raises(TypeError, match="unsupported comparison result type"):
+        projected(object())
+    with pytest.raises(TypeError, match="unsupported comparison fixture operand"):
+        operand(object())
+    with pytest.raises(ValueError, match="unknown comparison fixture rule"):
+        declared_rules({"Setting": "import"})
 
 
-def test_nested_array_rule_and_unknown_prefix():
-    declared = {"Setting": OBJECT, "Setting.Items[].Values": UNORDERED}
-    left = {"Items": [{"Values": [1, 2]}]}
-    right = {"Items": [{"Values": [2, 1]}]}
-    assert compare_values(left, right, "Setting", rules=declared).equal is True
-    unknown = Expression("Unverified", [])
-    outcome = compare([1, 2], [3, unknown], ORDERED, reference=uncertain)
-    assert outcome.equal is False
-    assert value_differences(outcome, [1, 2], [3, unknown], "Setting") == [
-        {"path": "Setting[0]", "model": "1", "iac": "3"}
-    ]
+def test_traced_case_rejects_secret_before_snapshot():
+    case = load_case("comparison_methods", "traced-masking")
+    with (
+        pytest.MonkeyPatch.context() as changes,
+        pytest.raises(pytest.fail.Exception, match="exposed a secret") as caught,
+    ):
+        changes.setitem(
+            _execute_traced_case.__globals__,
+            "value_differences",
+            Mock(return_value=[{"model": "first", "iac": "second"}]),
+        )
+        _execute_traced_case(case)
+    TestCase().assertNotIn("first", str(caught.value))
+    TestCase().assertNotIn("second", str(caught.value))
+
+
+@pytest.mark.parametrize(
+    "case_id, fault",
+    [
+        ("keyed-wrong", "equal"),
+        ("keyed-wrong", "differences"),
+        ("keyed-unknown", "equal"),
+        ("diagnostic-singleton", "diagnostics"),
+    ],
+)
+def test_migrated_comparison_faults(data_regression, tmp_path, case_id, fault):
+    case = load_case("comparison_methods", case_id)
+    result = _execute_comparison_case(
+        case,
+        reference=diagnostic_candidate if case_id.startswith("diagnostic-") else None,
+    )
+    if fault == "equal":
+        result["result"]["equal"] = True
+    else:
+        result["result"][fault] = []
+    path = tmp_path / "expected.yml"
+    path.write_bytes(expected_path("comparison_methods", case_id).read_bytes())
+    with pytest.raises(AssertionError, match="FILES DIFFER"):
+        data_regression.check(result, fullpath=path)
 
 
 if __name__ == "__main__":
@@ -1519,17 +1622,6 @@ def diagnostic_candidate(left, right, path):
     return ReferenceDecision(NotImplemented)
 
 
-def test_unordered_rejected_candidate_diagnostics():
-    outcome = compare(
-        [{"Value": "a"}, {"Value": "b"}],
-        [{"Value": "b"}, {"Value": "a"}],
-        UNORDERED,
-        reference=diagnostic_candidate,
-    )
-    assert outcome.equal is True
-    assert {d["reason"] for d in outcome.diagnostics} == {"a/a", "b/b"}
-
-
 def uncertain_candidate(left, right, path):
     if path.endswith(".Value"):
         if left == right:
@@ -1538,65 +1630,6 @@ def uncertain_candidate(left, right, path):
             None, ({"path": path, "reason": str(left) + "/" + str(right)},)
         )
     return ReferenceDecision(NotImplemented)
-
-
-def test_unordered_ambiguous_correspondence_is_not_selected():
-    outcome = compare(
-        [{"Value": "a"}, {"Value": "b"}],
-        [{"Value": "x"}, {"Value": "y"}],
-        UNORDERED,
-        reference=uncertain_candidate,
-    )
-    assert outcome.equal is None
-    assert {d["reason"] for d in outcome.diagnostics} == {"a/x", "a/y", "b/x", "b/y"}
-    assert all(d["correspondence"] == "unproven" for d in outcome.diagnostics)
-
-
-def test_unordered_singleton_difference_keeps_diagnostic():
-    outcome = compare(
-        [{"Value": "a"}], [{"Value": "b"}], UNORDERED, reference=diagnostic_candidate
-    )
-    assert outcome.equal is False
-    assert [d["reason"] for d in outcome.diagnostics] == ["a/b"]
-    keyed = compare(
-        [{"Sid": "a", "Value": "a"}],
-        [{"Sid": "b", "Value": "b"}],
-        replace(UNORDERED, key="Sid"),
-        reference=diagnostic_candidate,
-    )
-    assert keyed.equal is False and not keyed.diagnostics
-
-
-def test_unordered_nested_rejected_diagnostics():
-    rules = {"Setting": UNORDERED, "Setting[].Items": UNORDERED}
-    left = [{"Items": [{"Value": "a"}, {"Value": "b"}]}]
-    right = [{"Items": [{"Value": "b"}, {"Value": "a"}]}]
-    outcome = compare_values(
-        left, right, "Setting", rules=rules, reference=diagnostic_candidate
-    )
-    assert outcome.equal is True
-    assert {d["reason"] for d in outcome.diagnostics} == {"a/a", "b/b"}
-
-
-def test_unordered_unique_key_difference_keeps_evidence():
-    rule = replace(UNORDERED, key="Sid")
-    left = [{"Sid": "A", "Value": "a"}, {"Sid": "B", "Value": "b"}]
-    right = [{"Sid": "B", "Value": "b"}, {"Sid": "A", "Value": "x"}]
-    outcome = compare(left, right, rule, reference=diagnostic_candidate)
-    assert outcome.equal is False and outcome.differences
-    assert any(
-        d.get("correspondence", {}).get("value") == "A" and d["reason"] == "a/x"
-        for d in outcome.diagnostics
-    )
-    assert all(d["reason"] not in {"a/b", "b/x"} for d in outcome.diagnostics)
-
-
-def test_unordered_unequal_length_unknown_direction():
-    left = [{"Value": "a"}, {"Value": "b"}]
-    right = [{"Value": "a"}, Expression("Unverified", []), Expression("Unverified", [])]
-    outcome = compare(left, right, UNORDERED, reference=uncertain_candidate)
-    assert outcome.equal is None
-    assert all(d.get("correspondence") == "unproven" for d in outcome.diagnostics)
 
 
 def test_unordered_possible_edges_match_rematching_oracle():
@@ -1648,17 +1681,6 @@ def test_unordered_possible_edges_match_rematching_oracle():
                             ):
                                 expected.add((i, j))
                 assert selected == expected
-
-
-def test_unordered_remainder_preserves_diagnostic_and_pointers():
-    left = [{"Value": "a"}, {"Value": "b"}]
-    right = [{"Value": "a"}, {"Value": "x"}]
-    outcome = compare(left, right, UNORDERED, reference=diagnostic_candidate)
-    assert outcome.equal is False
-    assert {d["reason"] for d in outcome.diagnostics} == {"a/a", "b/x"}
-    assert [(d.model_pointer, d.iac_pointer) for d in outcome.differences] == [
-        ((1, "Value"), (1, "Value"))
-    ]
 
 
 def kms_candidate(left, right, path):

@@ -1,0 +1,34 @@
+version: 1
+cases:
+  model-input:
+    data:
+      project: '{"projectName":"fixture","targets":[{"environment":"dev","alias":"team","awsAccountId":"123456789012","awsRegion":"ap-northeast-1","iacEngine":"cloudformation"}]}
+
+        '
+      values:
+        desired.service.logs.serviceId: logs
+        desired.service.logs.ownedCatalogResourceTypes: Logs.LogGroup
+        desired.service.identity.lastAllocated: '{"Logs.LogGroup":1}'
+        desired.resource.001.logicalId: Logs_LogGroup_001
+        desired.resource.001.anchor: logs-group
+        desired.resource.001.resourceType: Logs.LogGroup
+        desired.row.001-001.property: Logs.LogGroup.LogGroupName
+        desired.row.001-001.value: '`fixture-logs`'
+        desired.row.001-001.comment: 合成
+  saved-bytes-difference:
+    data:
+      saved_view: 'saved
+
+        '
+      expected_view: 'expected
+
+        '
+      external_model: 'external change
+
+        '
+  policy-batch:
+    data:
+      values:
+        desired.row.001-001.property: Logs.ResourcePolicy.PolicyDocument
+        desired.row.001-001.value: '[Policy](logs/policy.json)'
+        desired.row.001-001.document: '{"Statement":[]}'

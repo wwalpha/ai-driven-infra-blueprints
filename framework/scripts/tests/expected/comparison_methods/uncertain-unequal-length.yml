@@ -1,0 +1,13 @@
+result:
+  candidate_failures: []
+  candidate_warnings: []
+  correspondence: []
+  diagnostics:
+  - correspondence: unproven
+    path: Setting[].Value
+    reason: a/b
+  differences: []
+  equal: null
+  equivalent: false
+  fields: []
+  reference_positions: []

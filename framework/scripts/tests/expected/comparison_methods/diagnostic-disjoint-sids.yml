@@ -1,0 +1,34 @@
+result:
+  candidate_failures: []
+  candidate_warnings: []
+  correspondence: []
+  diagnostics: []
+  differences:
+  - iac:
+      $caseType: MISSING
+    iac_pointer: null
+    model:
+      Sid: a
+      Value: a
+    model_pointer:
+    - 0
+    path: Setting[0]
+  - iac:
+      Sid: b
+      Value: b
+    iac_pointer:
+    - 0
+    model:
+      $caseType: MISSING
+    model_pointer: null
+    path: Setting[IaC:0]
+  equal: false
+  equivalent: false
+  fields:
+  - iac: 欠落
+    model: '{"Sid":"a","Value":"a"}'
+    path: Setting[0]
+  - iac: '{"Sid":"b","Value":"b"}'
+    model: 欠落
+    path: Setting[IaC:0]
+  reference_positions: []

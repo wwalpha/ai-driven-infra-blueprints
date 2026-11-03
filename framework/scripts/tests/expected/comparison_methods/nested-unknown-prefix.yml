@@ -1,0 +1,20 @@
+result:
+  candidate_failures: []
+  candidate_warnings: []
+  correspondence: []
+  diagnostics: []
+  differences:
+  - iac: 3
+    iac_pointer:
+    - 0
+    model: 1
+    model_pointer:
+    - 0
+    path: Setting[0]
+  equal: false
+  equivalent: false
+  fields:
+  - iac: '3'
+    model: '1'
+    path: Setting[0]
+  reference_positions: []

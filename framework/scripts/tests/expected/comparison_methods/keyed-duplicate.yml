@@ -1,0 +1,22 @@
+result:
+  candidate_failures: []
+  candidate_warnings: []
+  correspondence: []
+  diagnostics: []
+  differences:
+  - iac: 2
+    iac_pointer: null
+    model: 1
+    model_pointer: null
+    path:
+    - - Setting
+      - Key
+      - Name
+    - .要素数（キー重複）
+  equal: false
+  equivalent: false
+  fields:
+  - iac: '2'
+    model: '1'
+    path: Setting[Key=Name].要素数（キー重複）
+  reference_positions: []

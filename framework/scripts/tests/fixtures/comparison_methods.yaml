@@ -1,0 +1,318 @@
+version: 1
+cases:
+  keyed-reordered:
+    data:
+      left:
+      - Key: Name
+        Value: one
+      right:
+      - Key: Other
+        Value: extra
+      - Key: Name
+        Value: one
+      path: Setting
+      rules:
+        Setting:
+          keyed: Key
+      missing: false
+  keyed-extra:
+    data:
+      left:
+      - Key: Name
+        Value: one
+      right:
+      - Key: Other
+        Value: extra
+      - Key: Name
+        Value: one
+        Extra: true
+      path: Setting
+      rules:
+        Setting:
+          keyed: Key
+      missing: false
+  keyed-missing:
+    data:
+      left:
+      - Key: Name
+        Value: one
+      right: []
+      path: Setting
+      rules:
+        Setting:
+          keyed: Key
+      missing: false
+  keyed-duplicate:
+    data:
+      left:
+      - Key: Name
+        Value: one
+      right:
+      - &id001
+        Key: Name
+        Value: one
+      - *id001
+      path: Setting
+      rules:
+        Setting:
+          keyed: Key
+      missing: false
+  keyed-wrong:
+    data:
+      left:
+      - Key: Name
+        Value: one
+      right:
+      - Key: Name
+        Value: two
+      path: Setting
+      rules:
+        Setting:
+          keyed: Key
+      missing: false
+  keyed-unknown:
+    data:
+      left:
+      - Key: Name
+        Value: one
+      right:
+      - $caseType: Expression
+        operation: Unverified
+        operands: []
+      path: Setting
+      rules:
+        Setting:
+          keyed: Key
+      missing: false
+  keyed-unknown-key:
+    data:
+      left:
+      - Key: Name
+        Value: one
+      right:
+      - Key:
+          $caseType: Expression
+          operation: Unverified
+          operands: []
+        Value: one
+      path: Setting
+      rules:
+        Setting:
+          keyed: Key
+      missing: false
+  keyed-known-wrong:
+    data:
+      left:
+      - Key: Name
+        Value: one
+      right:
+      - Key: Name
+        Value: two
+      - $caseType: Expression
+        operation: Unverified
+        operands: []
+      path: Setting
+      rules:
+        Setting:
+          keyed: Key
+      missing: false
+  keyed-model-duplicate:
+    data:
+      left:
+      - &id002
+        Key: Name
+        Value: one
+      - *id002
+      right:
+      - Key: Other
+        Value: extra
+      - Key: Name
+        Value: one
+      path: Setting
+      rules:
+        Setting:
+          keyed: Key
+      missing: false
+  traced-masking:
+    data:
+      left:
+        Password: first
+        a/b~c:
+        - one
+      right:
+        Password: second
+        a/b~c:
+        - two
+      path: Setting
+      rules:
+        Setting: OBJECT
+      missing: false
+      secret_values:
+      - first
+      - second
+  diagnostic-rejected:
+    data:
+      left:
+      - Value: a
+      - Value: b
+      right:
+      - Value: b
+      - Value: a
+      path: Setting
+      rules:
+        Setting: UNORDERED
+      missing: false
+  diagnostic-singleton:
+    data:
+      left:
+      - Value: a
+      right:
+      - Value: b
+      path: Setting
+      rules:
+        Setting: UNORDERED
+      missing: false
+  diagnostic-disjoint-sids:
+    data:
+      left:
+      - Sid: a
+        Value: a
+      right:
+      - Sid: b
+        Value: b
+      path: Setting
+      rules:
+        Setting:
+          unordered_key: Sid
+      missing: false
+  diagnostic-nested:
+    data:
+      left:
+      - Items:
+        - Value: a
+        - Value: b
+      right:
+      - Items:
+        - Value: b
+        - Value: a
+      path: Setting
+      rules:
+        Setting: UNORDERED
+        Setting[].Items: UNORDERED
+      missing: false
+  diagnostic-unique-key:
+    data:
+      left:
+      - Sid: A
+        Value: a
+      - Sid: B
+        Value: b
+      right:
+      - Sid: B
+        Value: b
+      - Sid: A
+        Value: x
+      path: Setting
+      rules:
+        Setting:
+          unordered_key: Sid
+      missing: false
+  diagnostic-remainder:
+    data:
+      left:
+      - Value: a
+      - Value: b
+      right:
+      - Value: a
+      - Value: x
+      path: Setting
+      rules:
+        Setting: UNORDERED
+      missing: false
+  uncertain-ambiguous:
+    data:
+      left:
+      - Value: a
+      - Value: b
+      right:
+      - Value: x
+      - Value: y
+      path: Setting
+      rules:
+        Setting: UNORDERED
+      missing: false
+  uncertain-unequal-length:
+    data:
+      left:
+      - Value: a
+      - Value: b
+      right:
+      - Value: a
+      - &id003
+        $caseType: Expression
+        operation: Unverified
+        operands: []
+      - *id003
+      path: Setting
+      rules:
+        Setting: UNORDERED
+      missing: false
+  atomic-reference:
+    data:
+      left:
+        $caseType: ResourceReference
+        value:
+          $resource:
+          - s3
+          - '001'
+          $attribute: Arn
+      right:
+        $caseType: ResourceReference
+        value:
+          $resource:
+          - s3
+          - '001'
+          $attribute: BucketName
+      path: Setting
+      rules:
+        Setting: REFERENCE
+      missing: false
+  atomic-missing:
+    data:
+      left: null
+      right: null
+      path: Setting
+      rules:
+        Setting: SCALAR
+      missing: true
+  nested-override:
+    data:
+      left:
+        Items:
+        - Values:
+          - 1
+          - 2
+      right:
+        Items:
+        - Values:
+          - 2
+          - 1
+      path: Setting
+      rules:
+        Setting: OBJECT
+        Setting.Items[].Values: UNORDERED
+      missing: false
+  nested-unknown-prefix:
+    data:
+      left:
+      - 1
+      - 2
+      right:
+      - 3
+      - $caseType: Expression
+        operation: Unverified
+        operands: []
+      path: Setting
+      rules:
+        Setting: ORDERED
+      missing: false
