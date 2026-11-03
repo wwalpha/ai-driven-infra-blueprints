@@ -624,7 +624,8 @@ def resolve_endpoint_aliases(m, ctx, snapshot):
             expression = {
                 "Fn::Select": [1, {"Fn::Split": [":", {"Fn::Select": [0, ref]}]}]
             }
-            if row.get("expression") != expression:
+            array = row.get("expression") == [expression]
+            if row.get("expression") != expression and not array:
                 row["reason"] = "unsupported Producer DNS selection"
                 continue
             try:
@@ -640,28 +641,49 @@ def resolve_endpoint_aliases(m, ctx, snapshot):
                     or record.get("VpcEndpointType") != "Interface"
                 ):
                     raise ValueError("Producer is not an available interface endpoint")
-                if not isinstance(entries, list) or len(entries) != 1:
+                if not isinstance(entries, list) or not entries:
                     raise ValueError("Producer DnsEntries selection is ambiguous")
-                if not isinstance(entries[0], dict):
-                    raise ValueError("Producer DnsEntries is invalid")
-                name = entries[0].get("DnsName")
-                zone = entries[0].get("HostedZoneId")
-                if (
-                    not isinstance(name, str)
-                    or not name
-                    or not isinstance(zone, str)
-                    or not zone
-                    or ":" in name
-                    or ":" in zone
+                if any(
+                    not isinstance(entry, dict)
+                    or any(
+                        not isinstance(entry.get(key), str)
+                        or not entry[key]
+                        or ":" in entry[key]
+                        for key in ("DnsName", "HostedZoneId")
+                    )
+                    for entry in entries
                 ):
                     raise ValueError("Producer DnsEntries is invalid")
-                row.update(status="resolved", value=name, reason="")
+                if len(entries) > 1:
+                    region = record.get("ServiceRegion") or ctx.target.get("awsRegion")
+                    pattern = (
+                        re.escape(endpoint)
+                        + r"-[a-z0-9]+\.[a-z0-9.-]+\."
+                        + re.escape(region if isinstance(region, str) else "")
+                        + r"\.vpce\.amazonaws\.com"
+                    )
+                    names = [
+                        entry.get("DnsName") if isinstance(entry, dict) else None
+                        for entry in entries
+                    ]
+                    matches = [
+                        i
+                        for i, name in enumerate(names)
+                        if isinstance(name, str) and re.fullmatch(pattern, name)
+                    ]
+                    if not region or matches != [0]:
+                        raise ValueError("Producer DnsEntries selection is ambiguous")
+                name = entries[0].get("DnsName")
+                row.update(
+                    status="resolved", value=[name] if array else name, reason=""
+                )
             except (
                 m.AcquisitionError,
                 m.Unresolved,
                 ValueError,
                 TypeError,
                 KeyError,
+                AttributeError,
             ) as error:
                 row["reason"] = "Producer observation unavailable: " + (
                     str(error)

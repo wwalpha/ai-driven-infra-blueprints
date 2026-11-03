@@ -284,6 +284,23 @@ def test_route53_alias_producer_observation():
             assert any(
                 call[0] == ("ec2", "describe-vpc-endpoints") for call in cli.calls
             )
+        route["desired.row.001-005.property"] = "Route53.RecordSet.ResourceRecords"
+        route["desired.row.001-005.value"] = "`" + json.dumps([expression]) + "`"
+        route["desired.row.001-005.comment"] = "fixture"
+        write_model(root / "model/dev/cde/route53.properties", route)
+        array_snap = snapshot(generator.generate(root, "dev", "cde", "route53")[0])
+        array_row = array_snap["referenceRows"]["dev/cde/route53"]["001-005"]
+        assert array_row["producer"]["endpointId"] == "vpce-123", array_row
+        assert array_row["expression"] == [expression], array_row
+        audit_runtime.resolve_endpoint_aliases(
+            SimpleNamespace(AcquisitionError=AcquisitionError, Unresolved=ValueError),
+            SimpleNamespace(
+                target={"awsRegion": "us-east-1"},
+                pages=lambda *args, **kwargs: {"VpcEndpoints": [endpoint_record]},
+            ),
+            array_snap,
+        )
+        assert array_row["value"] == ["producer.example"], array_row
         endpoint.pop("observed.row.001-001.value")
         write_model(root / "model/dev/cde/vpc-endpoint.properties", endpoint)
         unresolved = snapshot(generator.generate(root, "dev", "cde", "route53")[0])
@@ -311,6 +328,71 @@ def test_route53_alias_producer_observation():
         assert (
             resolved["status"] == "resolved" and resolved["value"] == "producer.example"
         ), resolved
+
+
+def test_endpoint_dns_selection_offline():
+    ref = {"$modelRef": {"logicalId": "EndpointA", "attribute": "DnsEntries"}}
+    expression = {"Fn::Select": [1, {"Fn::Split": [":", {"Fn::Select": [0, ref]}]}]}
+    regional = "vpce-123-abc.service.us-east-1.vpce.amazonaws.com"
+    entries = [
+        {"DnsName": regional, "HostedZoneId": "Z"},
+        {
+            "DnsName": "vpce-123-abc-us-east-1a.service.us-east-1.vpce.amazonaws.com",
+            "HostedZoneId": "Z",
+        },
+    ]
+    record = {
+        "VpcEndpointId": "vpce-123",
+        "VpcEndpointType": "Interface",
+        "State": "available",
+        "DnsEntries": entries,
+    }
+    m = SimpleNamespace(AcquisitionError=AcquisitionError, Unresolved=ValueError)
+    for wrapped in (False, True):
+        for response, expected in [
+            ([record], regional),
+            ([{**record, "DnsEntries": entries[::-1]}], None),
+            ([{**record, "DnsEntries": []}], None),
+            ([{**record, "DnsEntries": [{"DnsName": None}]}], None),
+            ([{**record, "DnsEntries": [entries[0], {}]}], None),
+            ([{**record, "VpcEndpointType": "Gateway"}], None),
+            ([{**record, "State": "pending"}], None),
+            ([], None),
+        ]:
+            row = {
+                "status": "logical_only",
+                "producer": {"logicalId": "EndpointA", "endpointId": "vpce-123"},
+                "expression": [expression] if wrapped else expression,
+            }
+            snap = {"referenceRows": {"route53": {"001": row}}}
+            ctx = SimpleNamespace(
+                target={"awsRegion": "us-east-1"},
+                pages=lambda *args, response=response, **kwargs: {
+                    "VpcEndpoints": response
+                },
+            )
+            audit_runtime.resolve_endpoint_aliases(m, ctx, snap)
+            assert row["status"] == ("resolved" if expected else "logical_only"), row
+            if expected:
+                assert row["value"] == ([expected] if wrapped else expected)
+        row = {
+            "status": "logical_only",
+            "producer": {"logicalId": "EndpointA", "endpointId": "vpce-123"},
+            "expression": {
+                "Fn::Select": [2, {"Fn::Split": [":", {"Fn::Select": [0, ref]}]}]
+            },
+        }
+        audit_runtime.resolve_endpoint_aliases(
+            m, ctx, {"referenceRows": {"route53": {"001": row}}}
+        )
+        assert row["status"] == "logical_only"
+        row["expression"] = {
+            "Fn::Select": [1, {"Fn::Split": [":", {"Fn::Select": [9, ref]}]}]
+        }
+        audit_runtime.resolve_endpoint_aliases(
+            m, ctx, {"referenceRows": {"route53": {"001": row}}}
+        )
+        assert row["status"] == "logical_only"
 
 
 def test_codebuild_boolean_generated():

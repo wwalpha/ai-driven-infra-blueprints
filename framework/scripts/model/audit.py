@@ -531,7 +531,11 @@ def reference_rows(root, models):
             resolved = not diagnostics and statuses == ["resolved"]
             producer = None
             if (
-                row["property"] == "Route53.RecordSet.AliasTarget.DNSName"
+                row["property"]
+                in {
+                    "Route53.RecordSet.AliasTarget.DNSName",
+                    "Route53.RecordSet.ResourceRecords",
+                }
                 and len(references) == 1
             ):
                 node = references[0]
@@ -577,7 +581,9 @@ def reference_rows(root, models):
                     value = execution_document(
                         value, root, property_name=row["property"], scope=data.scope
                     )
-                    if not isinstance(value, str) or not value:
+                    if row["property"] == "Route53.RecordSet.AliasTarget.DNSName" and (
+                        not isinstance(value, str) or not value
+                    ):
                         resolved = False
                         value = None
             rows[rid] = {
