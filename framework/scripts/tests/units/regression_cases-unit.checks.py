@@ -3,9 +3,11 @@
 
 import sys
 from copy import deepcopy
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest import TestCase
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -212,6 +214,202 @@ def check_inline_expected_and_non_dict_rejected(runner_environment):
     )
     with pytest.raises(ValueError, match="inline expected"):
         runner.run("example", "first", execute)
+
+
+@pytest.fixture
+def grouped_runner(runner_environment):
+    runner = runner_environment
+    (fixture_cases._FIXTURES / "example.yaml").write_text(
+        "version: 1\ncases:\n"
+        "  first:\n    expected_group: wait\n    data: {result: [true, false, 0, '1', null]}\n"
+        "  second:\n    expected_group: wait\n    data: {result: [other]}\n",
+        encoding="utf-8",
+    )
+    return runner
+
+
+def grouped_expected():
+    path = regression_cases.expected_path("example", "first", group="wait")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "first:\n  result: [true, false, 0, '1', null]\n"
+        "# Preserve this other case verbatim.\n"
+        "second:\n  result: [other]\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def select_group_update(runner, case_id):
+    runner.request.config.getoption.side_effect = {"force_regen": True}.get
+    runner.request.node.nodeid = "units/example.checks.py::check_cases[" + case_id + "]"
+    runner.request.config.args = [
+        str(runner.request.node.path) + "::check_cases[" + case_id + "]"
+    ]
+
+
+def check_grouped_individual_execution_and_ownership(grouped_runner):
+    runner = grouped_runner
+    path = grouped_expected()
+    before = path.read_bytes()
+    for cid in ("first", "second", "first"):
+        runner.request.node.nodeid = "check_case[" + cid + "]"
+        runner.run("example", cid, execute)
+    TestCase().assertEqual(path.read_bytes(), before)
+    runner.request.node.nodeid = "another[first]"
+    with pytest.raises(ValueError, match="another test"):
+        runner.run("example", "first", execute)
+    TestCase().assertEqual(
+        regression_cases.expected_text("example", "second"), "result:\n- other\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "actual",
+    [
+        {"result": [1, False, 0, "1", None]},
+        {"result": [True, 0, 0, "1", None]},
+        {"result": [True, False, 0, 1, None]},
+        {"result": [True, False, 0, "1"]},
+        {"result": [False, True, 0, "1", None]},
+        {"result": [True, False, 0, "1", None], "extra": 1},
+    ],
+)
+def check_grouped_strict_snapshot(grouped_runner, actual):
+    path = grouped_expected()
+    before = path.read_bytes()
+    with pytest.raises(
+        pytest.fail.Exception, match=r"FILES DIFFER:[\s\S]*first"
+    ) as failure:
+        grouped_runner.run("example", "first", Mock(return_value=actual))
+    TestCase().assertNotIn("other", str(failure.value))
+    TestCase().assertEqual(path.read_bytes(), before)
+
+
+@pytest.mark.parametrize("text", [None, "second:\n  result: [other]\n"])
+def check_grouped_missing_case_does_not_execute_or_write(grouped_runner, text):
+    path = regression_cases.expected_path("example", "first", group="wait")
+    if text is not None:
+        path.parent.mkdir(parents=True)
+        path.write_text(text, encoding="utf-8")
+    executor = Mock()
+    with pytest.raises(pytest.fail.Exception, match="missing regression Expected"):
+        grouped_runner.run("example", "first", executor)
+    executor.assert_not_called()
+    TestCase().assertEqual(path.read_text() if path.exists() else None, text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "first: {}\nfirst: {}\n",
+        "first: []\n",
+        "unknown: {}\n",
+        "first: &shared {}\nsecond: *shared\n",
+        "[]\n",
+        "{first: {}}\n",
+    ],
+)
+def check_invalid_grouped_expected_refused(grouped_runner, text):
+    path = grouped_expected()
+    path.write_text(text, encoding="utf-8")
+    executor = Mock()
+    with pytest.raises(ValueError):
+        grouped_runner.run("example", "first", executor)
+    executor.assert_not_called()
+
+
+def check_grouped_update_preserves_sibling_and_requires_exact_case(
+    grouped_runner, monkeypatch
+):
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    runner = grouped_runner
+    path = grouped_expected()
+    sibling = path.read_text().split("# Preserve", 1)[1]
+    select_group_update(runner, "second")
+    with pytest.raises(pytest.UsageError, match="explicit case"):
+        runner.run("example", "first", execute)
+    select_group_update(runner, "first")
+    with pytest.raises(pytest.fail.Exception, match="regenerating"):
+        runner.run("example", "first", Mock(return_value={"result": "updated"}))
+    TestCase().assertEqual(path.read_text().split("# Preserve", 1)[1], sibling)
+    TestCase().assertFalse(path.with_suffix(".yml.tmp").exists())
+    TestCase().assertIsNone(regression_cases._EXPECTED_UPDATE.get())
+    runner.request.config.getoption.side_effect = {}.get
+    runner.run("example", "first", Mock(return_value={"result": "updated"}))
+    runner.request.node.nodeid = "check_case[second]"
+    runner.run("example", "second", execute)
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def check_grouped_update_creates_only_selected_case(
+    grouped_runner, existing, monkeypatch
+):
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    runner = grouped_runner
+    path = regression_cases.expected_path("example", "first", group="wait")
+    if existing:
+        path.parent.mkdir(parents=True)
+        path.write_text("second:\n  result: [other]\n", encoding="utf-8")
+    select_group_update(runner, "first")
+    with pytest.raises(pytest.fail.Exception, match="regenerating"):
+        runner.run("example", "first", execute)
+    content = yaml.safe_load(path.read_text())
+    TestCase().assertEqual(set(content), {"first", "second"} if existing else {"first"})
+    TestCase().assertEqual(
+        content["first"], execute(fixture_cases.load_case("example", "first"))
+    )
+
+
+@pytest.mark.parametrize("fault", ["external-edit", "replace-failure", "busy"])
+def check_grouped_atomic_update_retains_other_work(grouped_runner, monkeypatch, fault):
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    runner = grouped_runner
+    path = grouped_expected()
+    before = path.read_bytes()
+    temporary = path.with_suffix(".yml.tmp")
+    select_group_update(runner, "first")
+    if fault == "external-edit":
+        executor = Mock(side_effect=partial(edit_expected_during_execution, path))
+        with pytest.raises(ValueError, match="changed during"):
+            runner.run("example", "first", executor)
+        TestCase().assertEqual(path.read_text(), "second:\n  result: [external]\n")
+    elif fault == "replace-failure":
+        with patch.object(
+            regression_cases.os, "replace", side_effect=OSError("write failure")
+        ):
+            with pytest.raises(OSError, match="write failure"):
+                runner.run("example", "first", Mock(return_value={"result": "changed"}))
+        TestCase().assertEqual(path.read_bytes(), before)
+    else:
+        temporary.write_text("another writer", encoding="utf-8")
+        with pytest.raises(FileExistsError):
+            runner.run("example", "first", Mock(return_value={"result": "changed"}))
+        TestCase().assertEqual(temporary.read_text(), "another writer")
+        TestCase().assertEqual(path.read_bytes(), before)
+    if fault != "busy":
+        TestCase().assertFalse(temporary.exists())
+    TestCase().assertIsNone(regression_cases._EXPECTED_UPDATE.get())
+
+
+def edit_expected_during_execution(path, case):
+    path.write_text("second:\n  result: [external]\n", encoding="utf-8")
+    return {"result": "changed"}
+
+
+@pytest.mark.parametrize("option", ["force_regen", "regen_all"])
+def check_grouped_ci_update_refused(grouped_runner, monkeypatch, option):
+    monkeypatch.setenv("CI", "true")
+    runner = grouped_runner
+    runner.request.config.getoption.side_effect = {option: True}.get
+    executor = Mock()
+    with pytest.raises(pytest.UsageError):
+        runner.run("example", "first", executor)
+    executor.assert_not_called()
+    TestCase().assertFalse(regression_cases._EXPECTED.exists())
 
 
 if __name__ == "__main__":

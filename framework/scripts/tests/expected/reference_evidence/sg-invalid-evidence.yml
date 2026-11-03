@@ -1,0 +1,540 @@
+sg-invalid-evidence-000:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-001:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-002:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-003:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-004:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-005:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-006:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-007:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-008:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-009:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-010:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-011:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-012:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-013:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-014:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-015:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-016:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-017:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-018:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-019:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-020:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-021:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-022:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-023:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-024:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-025:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-026:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-027:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-028:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-029:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-030:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-031:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-032:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-033:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-034:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-evidence-035:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null

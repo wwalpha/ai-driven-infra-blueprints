@@ -1,0 +1,20 @@
+display-nonreference-00:
+  fields:
+  - iac: 'null'
+    model: '{"a":1}'
+    path: ''
+display-nonreference-01:
+  fields:
+  - iac: ordinary
+    model: '{"a":1}'
+    path: ''
+display-nonreference-02:
+  fields:
+  - iac: 欠落
+    model: '1'
+    path: a
+display-nonreference-03:
+  fields:
+  - iac: '{"$expression":"Join","$operands":["/",["a","b"]]}'
+    model: '{"a":1}'
+    path: ''

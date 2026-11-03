@@ -1,0 +1,60 @@
+import-receiver-00:
+  attribute: SubnetId
+  resource:
+  - producer
+  - '001'
+import-receiver-01:
+  attribute: SubnetId
+  resource:
+  - producer
+  - '001'
+import-receiver-02:
+  attribute: SubnetId
+  resource:
+  - producer
+  - '001'
+import-receiver-03:
+  attribute: SubnetId
+  resource:
+  - producer
+  - '001'
+import-receiver-04:
+  attribute: SubnetId
+  resource:
+  - producer
+  - '001'
+import-receiver-05:
+  attribute: Arn
+  resource:
+  - producer
+  - '001'
+import-receiver-06:
+  attribute: SubnetId
+  resource:
+  - producer
+  - '001'
+import-receiver-07:
+  attribute: SubnetId
+  resource:
+  - producer
+  - '001'
+import-receiver-08:
+  attribute: SubnetId
+  resource:
+  - producer
+  - '001'
+import-receiver-09:
+  attribute: SubnetId
+  resource:
+  - producer
+  - '001'
+import-receiver-10:
+  attribute: SubnetId
+  resource:
+  - producer
+  - '001'
+import-receiver-11:
+  attribute: SubnetId
+  resource:
+  - producer
+  - '001'

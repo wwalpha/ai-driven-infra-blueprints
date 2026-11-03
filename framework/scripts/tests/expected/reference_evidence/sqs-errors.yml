@@ -1,0 +1,24 @@
+sqs-errors-00:
+  batch_failure:
+    message: synthetic reference evaluation failure
+    type: OSError
+  raised:
+    message: synthetic reference evaluation failure
+    type: OSError
+  records: []
+sqs-errors-01:
+  batch_failure:
+    message: synthetic reference evaluation failure
+    type: ValueError
+  raised:
+    message: synthetic reference evaluation failure
+    type: ValueError
+  records: []
+sqs-errors-02:
+  batch_failure:
+    message: synthetic reference evaluation failure
+    type: TypeError
+  raised:
+    message: synthetic reference evaluation failure
+    type: TypeError
+  records: []

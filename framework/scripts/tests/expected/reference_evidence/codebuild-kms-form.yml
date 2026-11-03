@@ -1,0 +1,285 @@
+codebuild-kms-form-00:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: reference expression equivalent
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: unproven
+      local_comparison: matched
+      model: alias/material
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: AliasName
+        producer: kms/002
+      reason: iac_concrete
+    resource: '002'
+    service: codebuild
+    stack: producer
+codebuild-kms-form-01:
+  records:
+  - actual:
+      EnvironmentVariables:
+      - Name: MATERIAL_KEY_ID
+        Type: PLAINTEXT
+        Value:
+          $attribute: AliasName
+          $resource:
+          - kms
+          - '002'
+    category: difference
+    desired:
+      EnvironmentVariables:
+      - Name: MATERIAL_KEY_ID
+        Type: PLAINTEXT
+        Value: alias/other
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - {}
+    property: CodeBuild.Project.Environment
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: unproven
+      local_comparison: difference
+      model: alias/other
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: AliasName
+        producer: kms/002
+      reason: iac_concrete
+    resource: '002'
+    service: codebuild
+    stack: producer
+codebuild-kms-form-02:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: reference expression equivalent
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Sub
+        $operands:
+        - arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}
+        - AWS::AccountId: '123456789012'
+          AWS::Partition: aws
+          AWS::Region: ap-northeast-1
+          Alias:
+            $attribute: AliasName
+            $resource:
+            - kms
+            - '002'
+      identity: unproven
+      local_comparison: matched
+      model: arn:aws:kms:ap-northeast-1:123456789012:alias/material
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: AliasName
+        producer: kms/002
+      reason: iac_concrete
+    resource: '002'
+    service: codebuild
+    stack: producer
+codebuild-kms-form-03:
+  records:
+  - actual:
+      EnvironmentVariables:
+      - Name: MATERIAL_KEY_ID
+        Type: PLAINTEXT
+        Value:
+          $expression: Sub
+          $operands:
+          - arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}
+          - AWS::AccountId: '123456789012'
+            AWS::Partition: aws
+            AWS::Region: ap-northeast-1
+            Alias:
+              $attribute: AliasName
+              $resource:
+              - kms
+              - '002'
+    category: difference
+    desired:
+      EnvironmentVariables:
+      - Name: MATERIAL_KEY_ID
+        Type: PLAINTEXT
+        Value: arn:aws:kms:ap-northeast-1:123456789012:alias/other
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - {}
+    property: CodeBuild.Project.Environment
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Sub
+        $operands:
+        - arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}
+        - AWS::AccountId: '123456789012'
+          AWS::Partition: aws
+          AWS::Region: ap-northeast-1
+          Alias:
+            $attribute: AliasName
+            $resource:
+            - kms
+            - '002'
+      identity: unproven
+      local_comparison: difference
+      model: arn:aws:kms:ap-northeast-1:123456789012:alias/other
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: AliasName
+        producer: kms/002
+      reason: iac_concrete
+    resource: '002'
+    service: codebuild
+    stack: producer
+codebuild-kms-form-04:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: reference identity or property format is unproven
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: recorded_observed
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: unproven
+      local_comparison: uncompared
+      model: 12345678-1234-1234-1234-123456789012
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: KeyId
+        producer: kms/001
+      reason: recorded_observed cannot prove current or next-deploy physical identity
+    resource: '002'
+    service: codebuild
+    stack: producer
+codebuild-kms-form-05:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: reference identity or property format is unproven
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: recorded_observed
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: unproven
+      local_comparison: uncompared
+      model: 12345678-1234-1234-1234-000000000000
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: KeyId
+        producer: kms/001
+      reason: 'recorded_identifier_mismatch: historical value cannot prove an IaC
+        difference'
+    resource: '002'
+    service: codebuild
+    stack: producer
+codebuild-kms-form-06:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: reference identity or property format is unproven
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: recorded_observed
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: Arn
+        current_aws_verified: false
+        derived_format: KeyArn
+        evidence_type: recorded_observed
+        producer: kms/001
+        source_property: KMS.Key.KeyId
+      reason: recorded_observed cannot prove current or next-deploy physical identity
+    resource: '002'
+    service: codebuild
+    stack: producer

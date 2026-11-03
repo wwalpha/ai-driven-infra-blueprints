@@ -1,0 +1,88 @@
+resource-failure-00:
+  record:
+    actual: null
+    category: uncompared
+    desired: null
+    iac: null
+    model: null
+    property: '*'
+    reason: not proven
+    resource: '001'
+    service: codebuild
+    stack: null
+resource-failure-01:
+  record:
+    actual: null
+    category: error
+    desired: null
+    iac: null
+    model: null
+    property: '*'
+    reason: malformed
+    resource: '001'
+    service: codebuild
+    stack: null
+resource-failure-02:
+  record:
+    actual: null
+    category: excluded
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.Subnets[]
+      kind: import-reference-excluded
+      phase: pending_deploy
+      producer:
+        attribute: SubnetId
+        resource: '004'
+        resourceType: EC2.Subnet
+        service: vpc
+    desired: null
+    iac: null
+    model: null
+    property: '*'
+    reason: 'IMPORT reference comparison excluded: pending_deploy'
+    resource: '001'
+    service: codebuild
+    stack: null
+resource-failure-03:
+  record:
+    actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.Subnets[]
+      kind: import-reference-deferred
+      phase: unobserved
+      producer:
+        attribute: SubnetId
+        resource: '004'
+        resourceType: EC2.Subnet
+        service: vpc
+    desired: null
+    iac: null
+    model: null
+    property: '*'
+    reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+    resource: '001'
+    service: codebuild
+    stack: null
+resource-failure-04:
+  record:
+    actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.Subnets[]
+      kind: import-reference-deferred
+      phase: awaiting_handoff
+      producer:
+        attribute: SubnetId
+        resource: '004'
+        resourceType: EC2.Subnet
+        service: vpc
+    desired: null
+    iac: null
+    model: null
+    property: '*'
+    reason: 'IMPORT reference comparison deferred: awaiting_handoff; approved handoff
+      required'
+    resource: '001'
+    service: codebuild
+    stack: null

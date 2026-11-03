@@ -1,0 +1,30 @@
+action-context-00:
+  attribute: Name
+action-context-01:
+  errors:
+  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+    type: Blocked
+  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+    type: Blocked
+action-context-02:
+  errors:
+  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+    type: Blocked
+  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+    type: Blocked
+action-context-03:
+  errors:
+  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+    type: Blocked
+  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+    type: Blocked
+action-context-04:
+  errors:
+  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+    type: Blocked
+  - message: 'reference context or receiving property contract unproven: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+    type: Blocked
+action-context-05:
+  errors:
+  - message: 'reference target must be CodeCommit.Repository: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+    type: Blocked

@@ -1,0 +1,935 @@
+import-wait-00:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 0
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 1
+      difference: 0
+      error: 0
+      excluded: 0
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: EC2.Subnet.VpcId
+      kind: import-reference-deferred
+      phase: unobserved
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: ''
+    property: EC2.Subnet.VpcId
+    reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-01:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 0
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 1
+      difference: 0
+      error: 0
+      excluded: 0
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-deferred
+      phase: unobserved
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-02:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 0
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 1
+      difference: 0
+      error: 0
+      excluded: 0
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-deferred
+      phase: unobserved
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-03:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 0
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 1
+      difference: 0
+      error: 0
+      excluded: 0
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-deferred
+      phase: unobserved
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId/Fn::Join/1/0
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-04:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 0
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 1
+      difference: 0
+      error: 0
+      excluded: 0
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-deferred
+      phase: unobserved
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId/Fn::Join/1/0
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-05:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 1
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 0
+      difference: 0
+      error: 0
+      excluded: 1
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: excluded
+    cause:
+      consumer_property: EC2.Subnet.VpcId
+      kind: import-reference-excluded
+      phase: pending_deploy
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: ''
+    property: EC2.Subnet.VpcId
+    reason: 'IMPORT reference comparison excluded: pending_deploy'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-06:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 1
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 0
+      difference: 0
+      error: 0
+      excluded: 1
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: excluded
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-excluded
+      phase: pending_deploy
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison excluded: pending_deploy'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-07:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 1
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 0
+      difference: 0
+      error: 0
+      excluded: 1
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: excluded
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-excluded
+      phase: pending_deploy
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison excluded: pending_deploy'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-08:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 1
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 0
+      difference: 0
+      error: 0
+      excluded: 1
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: excluded
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-excluded
+      phase: pending_deploy
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId/Fn::Join/1/0
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison excluded: pending_deploy'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-09:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 1
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 0
+      difference: 0
+      error: 0
+      excluded: 1
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: excluded
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-excluded
+      phase: pending_deploy
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId/Fn::Join/1/0
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison excluded: pending_deploy'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-10:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 0
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 1
+      difference: 0
+      error: 0
+      excluded: 0
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: EC2.Subnet.VpcId
+      kind: import-reference-deferred
+      phase: awaiting_handoff
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: ''
+    property: EC2.Subnet.VpcId
+    reason: 'IMPORT reference comparison deferred: awaiting_handoff; approved handoff
+      required'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-11:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 0
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 1
+      difference: 0
+      error: 0
+      excluded: 0
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-deferred
+      phase: awaiting_handoff
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison deferred: awaiting_handoff; approved handoff
+      required'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-12:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 0
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 1
+      difference: 0
+      error: 0
+      excluded: 0
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-deferred
+      phase: awaiting_handoff
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison deferred: awaiting_handoff; approved handoff
+      required'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-13:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 0
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 1
+      difference: 0
+      error: 0
+      excluded: 0
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-deferred
+      phase: awaiting_handoff
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId/Fn::Join/1/0
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison deferred: awaiting_handoff; approved handoff
+      required'
+    resource: '001'
+    service: consumer
+    stack: producer
+import-wait-14:
+  overview:
+    categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    comparison_incomplete: false
+    direct_resources: 0
+    group_count: 0
+    groups: []
+    issue_count: 0
+    omitted_categories:
+      CFn非対応・比較対象外: 0
+      処理エラー: 0
+      原因未確定: 0
+      比較未完了: 0
+      要修正: 0
+      要判断: 0
+      要対応: 0
+    omitted_groups: 0
+    omitted_issues: 0
+    omitted_record_categories:
+      difference: 0
+      error: 0
+      uncompared: 0
+    omitted_records: 0
+    pending_deploy_excluded: 0
+    proven_causes: 0
+    record_count: 1
+    records:
+      deferred: 1
+      difference: 0
+      error: 0
+      excluded: 0
+      matched: 0
+      uncompared: 0
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-deferred
+      phase: awaiting_handoff
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId/Fn::Join/1/0
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison deferred: awaiting_handoff; approved handoff
+      required'
+    resource: '001'
+    service: consumer
+    stack: producer

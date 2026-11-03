@@ -1,0 +1,174 @@
+cloudtrail-membership-00:
+  records:
+  - actual:
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - a
+        - a
+      - Type: AWS::S3::Object
+        Values:
+        - b
+      IncludeManagementEvents: true
+    - DataResources: []
+      IncludeManagementEvents: false
+    category: difference
+    desired:
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - a
+        - a
+      IncludeManagementEvents: true
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - b
+      IncludeManagementEvents: false
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CloudTrail.Trail.EventSelectors
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+cloudtrail-membership-01:
+  records:
+  - actual:
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - a
+      IncludeManagementEvents: true
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - b
+      IncludeManagementEvents: false
+    category: difference
+    desired:
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - a
+        - a
+      IncludeManagementEvents: true
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - b
+      IncludeManagementEvents: false
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CloudTrail.Trail.EventSelectors
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+cloudtrail-membership-02:
+  records:
+  - actual:
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - a
+        - a
+      IncludeManagementEvents: true
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - b
+      IncludeManagementEvents: false
+    - IncludeManagementEvents: false
+    category: difference
+    desired:
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - a
+        - a
+      IncludeManagementEvents: true
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - b
+      IncludeManagementEvents: false
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CloudTrail.Trail.EventSelectors
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+cloudtrail-membership-03:
+  records:
+  - actual:
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - a
+        - a
+      IncludeManagementEvents: true
+    - DataResources:
+      - Type: AWS::Lambda::Function
+        Values:
+        - b
+      IncludeManagementEvents: false
+    category: difference
+    desired:
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - a
+        - a
+      IncludeManagementEvents: true
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - b
+      IncludeManagementEvents: false
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CloudTrail.Trail.EventSelectors
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+cloudtrail-membership-04:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac: null
+    model: null
+    property: CloudTrail.Trail.EventSelectors
+    reason: 'array membership unresolved: EventSelectors; incomplete compact display
+      group: CloudTrail.Trail.EventSelectors[].DataResources[].Values'
+    resource: '001'
+    service: cloudtrail
+    stack: producer
+  - actual: false
+    category: difference
+    desired: true
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CloudTrail.Trail.IsLogging
+    reason: value mismatch
+    resource: '001'
+    service: cloudtrail
+    stack: producer

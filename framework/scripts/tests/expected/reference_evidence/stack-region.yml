@@ -1,0 +1,92 @@
+stack-region-00:
+  missing: []
+  partition: aws
+  policy_categories:
+  - - matched
+  - - difference
+  redacted: <masked sensitive parameter>
+  suffix: amazonaws.com
+  suffix_input:
+    name: AWS::URLSuffix
+    source:
+      key: AWS::URLSuffix
+      kind: botocore-endpoints
+      region: ap-northeast-1
+    value: amazonaws.com
+stack-region-01:
+  missing: []
+  partition: aws-cn
+  policy_categories:
+  - - matched
+  - - difference
+  redacted: <masked sensitive parameter>
+  suffix: amazonaws.com.cn
+  suffix_input:
+    name: AWS::URLSuffix
+    source:
+      key: AWS::URLSuffix
+      kind: botocore-endpoints
+      region: cn-north-1
+    value: amazonaws.com.cn
+stack-region-02:
+  missing: []
+  partition: aws-us-gov
+  policy_categories:
+  - - matched
+  - - difference
+  redacted: <masked sensitive parameter>
+  suffix: amazonaws.com
+  suffix_input:
+    name: AWS::URLSuffix
+    source:
+      key: AWS::URLSuffix
+      kind: botocore-endpoints
+      region: us-gov-west-1
+    value: amazonaws.com
+stack-region-03:
+  missing: []
+  partition: aws-iso
+  policy_categories:
+  - - matched
+  - - difference
+  redacted: <masked sensitive parameter>
+  suffix: c2s.ic.gov
+  suffix_input:
+    name: AWS::URLSuffix
+    source:
+      key: AWS::URLSuffix
+      kind: botocore-endpoints
+      region: us-iso-east-1
+    value: c2s.ic.gov
+stack-region-04:
+  missing: []
+  partition: aws-eusc
+  policy_categories:
+  - - matched
+  - - difference
+  redacted: <masked sensitive parameter>
+  suffix: amazonaws.eu
+  suffix_input:
+    name: AWS::URLSuffix
+    source:
+      key: AWS::URLSuffix
+      kind: botocore-endpoints
+      region: eusc-de-east-1
+    value: amazonaws.eu
+stack-region-05:
+  missing:
+  - message: 'unresolved pseudo parameter: AWS::Partition'
+    type: Blocked
+  - message: 'unresolved pseudo parameter: AWS::Partition'
+    type: Blocked
+  - message: 'unresolved pseudo parameter: AWS::URLSuffix'
+    type: Blocked
+  - message: 'unresolved pseudo parameter: AWS::URLSuffix'
+    type: Blocked
+  partition: null
+  policy_categories:
+  - - uncompared
+  - - uncompared
+  redacted: <masked sensitive parameter>
+  suffix: null
+  suffix_input: null

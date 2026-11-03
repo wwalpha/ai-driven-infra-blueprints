@@ -1,0 +1,3576 @@
+sg-external-000:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-001:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-002:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-003:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-004:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-005:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-006:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-007:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-008:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-009:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-010:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-011:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-012:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-013:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-014:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-015:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-016:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.Instance.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-017:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-018:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-019:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.Instance.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-020:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-021:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-022:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.Instance.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-023:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-024:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-025:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.Instance.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-026:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-027:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-028:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-029:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-030:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-031:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-032:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-033:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-034:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-035:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-036:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-037:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-038:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-039:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-040:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-041:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-042:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-043:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-044:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-045:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-046:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-047:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-048:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-049:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-050:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-051:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-052:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-053:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-054:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-055:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-056:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-057:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-058:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-059:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-060:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-061:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-062:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-063:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-064:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-065:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-066:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-067:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-068:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-069:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-070:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-071:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-072:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-073:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-074:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-075:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-076:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-077:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-078:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-079:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-080:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-081:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-082:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-083:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-084:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-085:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-086:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-087:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-088:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-089:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-090:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-091:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-092:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-093:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-094:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-095:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-096:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-097:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-098:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-099:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-100:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-101:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-102:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-103:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-104:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-105:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-106:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-107:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-108:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-109:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-110:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-111:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-112:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-113:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-114:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-115:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-116:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-117:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-118:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-119:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-120:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-121:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '002'
+    category: difference
+    desired:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Glue.Connection.ConnectionInput
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-122:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-123:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-124:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '002'
+    category: difference
+    desired:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Glue.Connection.ConnectionInput
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-125:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-126:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-127:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '002'
+    category: difference
+    desired:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Glue.Connection.ConnectionInput
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-128:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-129:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-130:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '002'
+    category: difference
+    desired:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Glue.Connection.ConnectionInput
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-131:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-132:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-133:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-134:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-135:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-136:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Lambda.Function.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-137:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-138:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-139:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Lambda.Function.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-140:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-141:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-142:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Lambda.Function.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-143:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-144:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-145:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Lambda.Function.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-146:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-147:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-148:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-149:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-150:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-151:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-152:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-153:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-154:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-155:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-156:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-157:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-158:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-159:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-160:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-161:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-162:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-163:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-164:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-165:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-166:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-167:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-168:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-169:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-170:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-171:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-172:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-173:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-174:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-175:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-external-176:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-177:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-178:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-external-179:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: ExternalVpcId'
+    type: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null

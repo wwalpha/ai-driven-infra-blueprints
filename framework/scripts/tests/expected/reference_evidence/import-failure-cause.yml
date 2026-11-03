@@ -1,0 +1,18 @@
+import-failure-cause-00:
+  cause:
+    consumer_stack: consumer
+    kind: template-missing
+    path: missing.yaml
+    relationship: export-search-incomplete
+import-failure-cause-01:
+  cause:
+    consumer_stack: consumer
+    export: missing
+    kind: import-unresolved
+    relationship: import
+import-failure-cause-02:
+  cause:
+    consumer_stack: consumer
+    export: missing
+    kind: import-unresolved
+    relationship: import

@@ -1,3 +1,0 @@
-error:
-  message: 'reference context or receiving property contract unproven: CodeBuild.Project.Environment.EnvironmentVariables[].Value'
-  type: Blocked

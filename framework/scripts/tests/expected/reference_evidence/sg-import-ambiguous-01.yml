@@ -1,3 +1,0 @@
-error:
-  message: 'ImportValue handoff matches=1 or same-stack export: ExternalVpcId'
-  type: Blocked

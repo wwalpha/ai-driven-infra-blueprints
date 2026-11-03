@@ -1,9 +1,0 @@
-decision:
-  comparisons: []
-  diagnostics: []
-  equal: true
-  equivalent: false
-outcome:
-  code: null
-  equal: true
-  message: null

@@ -1,6 +1,0 @@
-attribute: BucketName
-different: false
-resource:
-- s3
-- '001'
-same: true

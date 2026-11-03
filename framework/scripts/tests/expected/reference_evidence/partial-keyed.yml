@@ -1,0 +1,222 @@
+partial-keyed-00:
+  display:
+    90a9623bc457f31afa48:
+    - iac: '{"min":1,"max":2}'
+      model: '3'
+      path: Tags.要素数
+  records:
+  - actual:
+    - Key: Known
+      Value: one
+    - Key:
+        $expression: Unverified
+        $operands:
+        - Fn::If:
+          - Unknown
+          - key
+          - Ref: AWS::NoValue
+      Value: two
+    category: difference
+    desired:
+    - Key: Known
+      Value: one
+    - Key: Missing
+      Value: two
+    - Key: Third
+      Value: three
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    - null
+    - null
+    - null
+    - null
+    - null
+    property: CodeBuild.Project.Tags
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Tags#/1/Key
+    reason: unresolved/unverified intrinsic; JSON Pointer='/1/Key'
+    resource: '001'
+    service: codebuild
+    stack: producer
+partial-keyed-01:
+  display: {}
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Tags
+    reason: 'unresolved or cyclic Condition: Unknown'
+    reference_diagnostics: []
+    resource: '001'
+    service: codebuild
+    stack: null
+partial-keyed-02:
+  display:
+    8f42c27f63aa1e37a89d:
+    - iac: wrong
+      model: one
+      path: Tags[Key=Known].Value
+  records:
+  - actual:
+    - Key: Known
+      Value: wrong
+    - Key:
+        $expression: Unverified
+        $operands:
+        - Fn::If:
+          - Unknown
+          - key
+          - Ref: AWS::NoValue
+      Value: two
+    category: difference
+    desired:
+    - Key: Known
+      Value: one
+    - Key: Missing
+      Value: two
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    - null
+    - null
+    - null
+    property: CodeBuild.Project.Tags
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Tags#/1/Key
+    reason: unresolved/unverified intrinsic; JSON Pointer='/1/Key'
+    resource: '001'
+    service: codebuild
+    stack: producer
+partial-keyed-03:
+  display:
+    e15d77defffc59deaf9c:
+    - iac: '2'
+      model: '1'
+      path: Tags[Key=Known].要素数（キー重複）
+  records:
+  - actual:
+    - Key: Known
+      Value: one
+    - Key: Known
+      Value: one
+    - Key:
+        $expression: Unverified
+        $operands:
+        - Fn::If:
+          - Unknown
+          - key
+          - Ref: AWS::NoValue
+      Value: two
+    category: difference
+    desired:
+    - Key: Known
+      Value: one
+    - Key: Missing
+      Value: two
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    - null
+    - null
+    - null
+    property: CodeBuild.Project.Tags
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Tags#/2/Key
+    reason: unresolved/unverified intrinsic; JSON Pointer='/2/Key'
+    resource: '001'
+    service: codebuild
+    stack: producer
+partial-keyed-04:
+  display:
+    ea3a329ac1444ee8eba3:
+    - iac: 欠落
+      model: '{"Key":"Missing","Value":"two"}'
+      path: Tags[Key=Missing]
+  records:
+  - actual:
+    - Key: Known
+      Value: one
+    - Value: two
+    category: difference
+    desired:
+    - Key: Known
+      Value: one
+    - Key: Missing
+      Value: two
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    - null
+    - null
+    - null
+    property: CodeBuild.Project.Tags
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+partial-keyed-05:
+  display: {}
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Tags
+    reason: 'unresolved or cyclic Condition: Unknown'
+    reference_diagnostics: []
+    resource: '001'
+    service: codebuild
+    stack: null
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: /Fn::If/1/0/Value
+    model: null
+    property: CodeBuild.Project.Tags#/Fn::If/1/0/Value
+    reason: invalid Select operands
+    resource: '001'
+    service: codebuild
+    stack: producer

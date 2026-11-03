@@ -1,0 +1,18 @@
+array-member-literal-00:
+  values:
+    ProtectedResource.S3Bucket.BucketName: '["a/","b/"]'
+    ProtectedResource.S3Bucket.ObjectPrefixes[1]: '["a/","b/"]'
+    Tags[1].Value: '["a/","b/"]'
+    Tags[].Value: '["a/","b/"]'
+array-member-literal-01:
+  values:
+    ProtectedResource.S3Bucket.BucketName: '[]'
+    ProtectedResource.S3Bucket.ObjectPrefixes[1]: '[]'
+    Tags[1].Value: '[]'
+    Tags[].Value: '[]'
+array-member-literal-02:
+  values:
+    ProtectedResource.S3Bucket.BucketName: '["a/",]'
+    ProtectedResource.S3Bucket.ObjectPrefixes[1]: '["a/",]'
+    Tags[1].Value: '["a/",]'
+    Tags[].Value: '["a/",]'

@@ -1,0 +1,14 @@
+policy-bijection-00:
+  equal: true
+policy-bijection-01:
+  equal: false
+policy-bijection-02:
+  equal: false
+policy-bijection-03:
+  equal: false
+policy-bijection-04:
+  equal: false
+policy-bijection-05:
+  equal: null
+policy-bijection-06:
+  equal: false

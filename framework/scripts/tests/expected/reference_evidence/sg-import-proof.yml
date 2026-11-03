@@ -1,0 +1,12 @@
+sg-import-proof-00:
+  attribute: GroupId
+sg-import-proof-01:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+sg-import-proof-02:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked

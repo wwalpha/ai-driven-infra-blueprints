@@ -1,3 +1,0 @@
-error:
-  message: 'unsupported ImportValue expression: Ref'
-  type: Blocked

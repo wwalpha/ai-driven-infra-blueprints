@@ -1,6 +1,0 @@
-attribute: RoleName
-different: false
-resource:
-- iam
-- '001'
-same: true

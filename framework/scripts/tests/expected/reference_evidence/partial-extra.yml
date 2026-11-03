@@ -1,0 +1,96 @@
+partial-extra-00:
+  display: {}
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: equal
+    resource: '001'
+    service: codebuild
+    stack: producer
+partial-extra-01:
+  display:
+    c6385835fdbb18f3c10d:
+    - iac: OTHER_IMAGE
+      model: MODEL_IMAGE
+      path: Image
+  records:
+  - actual:
+      AdditionalField:
+        Fn::If:
+        - InvalidCondition
+        - A
+        - B
+      Image: OTHER_IMAGE
+    category: difference
+    desired:
+      Image: MODEL_IMAGE
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.Environment
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+partial-extra-02:
+  display: {}
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: 'unresolved or cyclic Condition: InvalidCondition'
+    reference_diagnostics: []
+    resource: '001'
+    service: codebuild
+    stack: null
+partial-extra-03:
+  display:
+    3555d8895c470b799a41:
+    - iac: OTHER_IMAGE
+      model: MODEL_IMAGE
+      path: Image
+  records:
+  - actual:
+      AdditionalField:
+        $expression: Unverified
+        $operands:
+        - Fn::If:
+          - InvalidCondition
+          - A
+          - B
+      Image: OTHER_IMAGE
+    category: difference
+    desired:
+      Image: MODEL_IMAGE
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.Environment
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment#/AdditionalField
+    reason: unresolved/unverified intrinsic; JSON Pointer='/AdditionalField'
+    resource: '001'
+    service: codebuild
+    stack: producer

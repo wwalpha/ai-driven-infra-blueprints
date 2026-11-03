@@ -1,0 +1,216 @@
+sg-receiver-000:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-001:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-002:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-003:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-004:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-005:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-006:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-007:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-008:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-009:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-010:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-011:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-012:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-013:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-014:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-015:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-016:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-017:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-018:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-019:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-020:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-021:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-022:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true
+sg-receiver-023:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+  results:
+  - true
+  - false
+  - true

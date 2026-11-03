@@ -1,4 +1,0 @@
-error:
-  message: 'reference attribute Arn is outside property contract: EC2.Subnet.VpcId'
-  type: Blocked
-issue_count: 1

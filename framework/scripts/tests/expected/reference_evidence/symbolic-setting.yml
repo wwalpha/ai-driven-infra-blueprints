@@ -1,0 +1,166 @@
+symbolic-setting-00:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Logs.LogGroup.LogGroupName
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: producer
+symbolic-setting-01:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Logs.LogGroup.LogGroupName
+    reason: 'local resource reference missing/inactive: producer/OtherLog'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+symbolic-setting-02:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Logs.LogGroup.LogGroupName
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: producer
+symbolic-setting-03:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Logs.LogGroup.LogGroupName
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: producer
+symbolic-setting-04:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: ''
+    model: null
+    property: Logs.LogGroup.LogGroupName
+    reason: 'invalid Fn::Split: invalid argument shape'
+    resource: 090
+    service: consumer
+    stack: producer
+symbolic-setting-05:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Logs.LogGroup.LogGroupName
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+symbolic-setting-06:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Logs.LogGroup.LogGroupName
+    reason: reference identity or property format is unproven
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      direct:
+      - scope:
+        - aws
+        - '123456789012'
+        - ap-northeast-1
+        stack: producer
+        unproven: 'Select bounds are unproven: index 1, symbolic array minItems=1'
+      evidence_type: direct_expression
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Select
+        $operands:
+        - 1
+        - $expression: Split
+          $operands:
+          - :*
+          - $attribute: Arn
+            $resource:
+            - cloudwatch-logs
+            - '001'
+      identity: unproven
+      model:
+        $expression: Select
+        $operands:
+        - 0
+        - $expression: Split
+          $operands:
+          - :*
+          - $attribute: Arn
+            $resource:
+            - cloudwatch-logs
+            - '001'
+      path: Logs.LogGroup.LogGroupName
+      reason: Select bounds and selection contract are unproven
+      runtime_bounds_verified: false
+    resource: 090
+    service: consumer
+    stack: producer
+symbolic-setting-07:
+  records:
+  - actual: a-b
+    category: difference
+    desired: a:b
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Logs.LogGroup.LogGroupName
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+symbolic-setting-08:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Logs.LogGroup.LogGroupName
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: producer

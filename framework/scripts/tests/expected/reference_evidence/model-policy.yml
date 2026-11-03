@@ -1,0 +1,125 @@
+model-policy-00:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: IAM.ManagedPolicy.PolicyDocument
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+model-policy-01:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: IAM.ManagedPolicy.PolicyDocument
+    reason: reference identity or property format is unproven
+    reference_diagnostics:
+    - allowed_forms: null
+      correspondence: unproven
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Join
+        $operands:
+        - ''
+        - - $expression: Select
+            $operands:
+            - 0
+            - $expression: Split
+              $operands:
+              - :*
+              - $attribute: Arn
+                $resource:
+                - cloudwatch-logs
+                - '001'
+          - :stream
+      identity: unproven
+      model:
+        $attribute: Arn
+        $resource:
+        - cloudwatch-logs
+        - '001'
+      path: IAM.ManagedPolicy.PolicyDocument.Statement[].Resource
+      reason: expression string equivalence is unproven
+    resource: 090
+    service: consumer
+    stack: producer
+model-policy-02:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: IAM.ManagedPolicy.PolicyDocument
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: producer
+model-policy-03:
+  operation: Unverified
+  warnings:
+  - code: json.intrinsic.unresolved
+    function: Fn::Join
+    message: 'Fn::Join: JSON Pointer=''/Statement/0/Resource'', Property=IAM.ManagedPolicy.PolicyDocument;
+      unresolved/unverified: no confirmed template binding or physical value; not
+      deployed/unresolved'
+    model: synthetic-project/model/fixture/team/consumer.properties
+    pointer: /Statement/0/Resource
+    property: IAM.ManagedPolicy.PolicyDocument
+    resource: null
+    severity: WARNING
+  - code: json.intrinsic.unresolved
+    function: Fn::Select
+    message: 'Fn::Select: JSON Pointer=''/Statement/0/Resource/Fn::Join/1/0'', Property=IAM.ManagedPolicy.PolicyDocument;
+      unresolved/unverified: no confirmed template binding or physical value; not
+      deployed/unresolved'
+    model: synthetic-project/model/fixture/team/consumer.properties
+    pointer: /Statement/0/Resource/Fn::Join/1/0
+    property: IAM.ManagedPolicy.PolicyDocument
+    resource: null
+    severity: WARNING
+  - code: json.intrinsic.unresolved
+    function: Fn::Split
+    message: 'Fn::Split: JSON Pointer=''/Statement/0/Resource/Fn::Join/1/0/Fn::Select/1'',
+      Property=IAM.ManagedPolicy.PolicyDocument; unresolved/unverified: no confirmed
+      template binding or physical value; not deployed/unresolved'
+    model: synthetic-project/model/fixture/team/consumer.properties
+    pointer: /Statement/0/Resource/Fn::Join/1/0/Fn::Select/1
+    property: IAM.ManagedPolicy.PolicyDocument
+    resource: null
+    severity: WARNING
+  - code: json.intrinsic.unresolved
+    function: Fn::GetAtt
+    message: 'Fn::GetAtt: JSON Pointer=''/Statement/0/Resource/Fn::Join/1/0/Fn::Select/1/Fn::Split/1'',
+      Property=IAM.ManagedPolicy.PolicyDocument; unresolved/unverified: no confirmed
+      template binding or physical value; not deployed/unresolved'
+    model: synthetic-project/model/fixture/team/consumer.properties
+    pointer: /Statement/0/Resource/Fn::Join/1/0/Fn::Select/1/Fn::Split/1
+    property: IAM.ManagedPolicy.PolicyDocument
+    resource: null
+    severity: WARNING
+model-policy-04:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: IAM.ManagedPolicy.PolicyDocument
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer

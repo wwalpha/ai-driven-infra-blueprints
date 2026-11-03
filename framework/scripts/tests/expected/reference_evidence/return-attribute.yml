@@ -1,0 +1,15 @@
+return-attribute-00:
+  attribute: Name
+  ref_attribute: Name
+return-attribute-01:
+  attribute: Id
+  ref_attribute: Id
+return-attribute-02:
+  attribute: PolicyArn
+  ref_attribute: PolicyArn
+return-attribute-03:
+  attribute: Name
+  ref_attribute: RepositoryId
+return-attribute-04:
+  attribute: Arn
+  ref_attribute: null

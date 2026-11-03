@@ -1,0 +1,58 @@
+inline-document-00:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: S3.BucketPolicy.PolicyDocument
+    reason: equal
+    resource: '001'
+    service: s3
+    stack: producer
+inline-document-01:
+  records:
+  - actual:
+      Statement:
+      - Action:
+        - s3:GetObject
+        Effect: Allow
+        Resource:
+        - second
+        - first
+      Version: '2012-10-17'
+    category: difference
+    desired:
+      Statement:
+      - Action:
+        - s3:GetObject
+        Effect: Allow
+        Resource:
+        - first
+        - second
+      Version: '2012-10-17'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: S3.BucketPolicy.PolicyDocument
+    reason: value mismatch
+    resource: '001'
+    service: s3
+    stack: producer
+inline-document-02:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: S3.BucketPolicy.PolicyDocument
+    reason: 'Expecting property name enclosed in double quotes: line 1 column 2 (char
+      1)'
+    resource: '001'
+    service: s3
+    stack: producer

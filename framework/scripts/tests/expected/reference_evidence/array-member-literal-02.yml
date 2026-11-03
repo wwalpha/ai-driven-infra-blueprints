@@ -1,5 +1,0 @@
-values:
-  ProtectedResource.S3Bucket.BucketName: '["a/",]'
-  ProtectedResource.S3Bucket.ObjectPrefixes[1]: '["a/",]'
-  Tags[1].Value: '["a/",]'
-  Tags[].Value: '["a/",]'

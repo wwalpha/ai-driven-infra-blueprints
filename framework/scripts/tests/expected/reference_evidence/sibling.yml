@@ -1,0 +1,166 @@
+sibling-0-all:
+  display: {}
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: '001'
+    service: codebuild
+    stack: producer
+  unresolved: {}
+  valid:
+  - - 001-001
+    - property: CodeBuild.Project.VpcConfig.VpcId
+      value: '`vpc-123`'
+  - - 001-002
+    - property: CodeBuild.Project.VpcConfig.Subnets[]
+      value: '`["subnet-2","subnet-1"]`'
+      valueShape: projection
+  warnings: []
+sibling-0-leaf:
+  display: {}
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: '001'
+    service: codebuild
+    stack: producer
+  unresolved: {}
+  valid:
+  - - 001-001
+    - property: CodeBuild.Project.VpcConfig.VpcId
+      value: '`vpc-123`'
+  - - 001-002
+    - property: CodeBuild.Project.VpcConfig.Subnets[]
+      value: '`["subnet-2","subnet-1"]`'
+      valueShape: projection
+  warnings: []
+sibling-0-parent:
+  display: {}
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: '001'
+    service: codebuild
+    stack: producer
+  unresolved: {}
+  valid:
+  - - 001-001
+    - property: CodeBuild.Project.VpcConfig.VpcId
+      value: '`vpc-123`'
+  - - 001-002
+    - property: CodeBuild.Project.VpcConfig.Subnets[]
+      value: '`["subnet-2","subnet-1"]`'
+      valueShape: projection
+  warnings: []
+sibling-1-all:
+  display: {}
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac: null
+    model: null
+    property: CodeBuild.Project.VpcConfig.Subnets[]
+    reason: 'ambiguous leaf/projection array membership: CodeBuild.Project.VpcConfig.Subnets[],
+      CodeBuild.Project.VpcConfig.Subnets[]'
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: '001'
+    service: codebuild
+    stack: producer
+  unresolved:
+    VpcConfig.Subnets[]:
+    - 001-002
+    - 'ambiguous leaf/projection array membership: CodeBuild.Project.VpcConfig.Subnets[],
+      CodeBuild.Project.VpcConfig.Subnets[]'
+  valid:
+  - - 001-001
+    - property: CodeBuild.Project.VpcConfig.VpcId
+      value: '`vpc-123`'
+  warnings: []
+sibling-1-leaf:
+  display: {}
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: '001'
+    service: codebuild
+    stack: producer
+  unresolved:
+    VpcConfig.Subnets[]:
+    - 001-002
+    - 'ambiguous leaf/projection array membership: CodeBuild.Project.VpcConfig.Subnets[],
+      CodeBuild.Project.VpcConfig.Subnets[]'
+  valid:
+  - - 001-001
+    - property: CodeBuild.Project.VpcConfig.VpcId
+      value: '`vpc-123`'
+  warnings: []
+sibling-1-parent:
+  display: {}
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac: null
+    model: null
+    property: CodeBuild.Project.VpcConfig.Subnets[]
+    reason: 'ambiguous leaf/projection array membership: CodeBuild.Project.VpcConfig.Subnets[],
+      CodeBuild.Project.VpcConfig.Subnets[]'
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: '001'
+    service: codebuild
+    stack: producer
+  unresolved:
+    VpcConfig.Subnets[]:
+    - 001-002
+    - 'ambiguous leaf/projection array membership: CodeBuild.Project.VpcConfig.Subnets[],
+      CodeBuild.Project.VpcConfig.Subnets[]'
+  valid:
+  - - 001-001
+    - property: CodeBuild.Project.VpcConfig.VpcId
+      value: '`vpc-123`'
+  warnings: []

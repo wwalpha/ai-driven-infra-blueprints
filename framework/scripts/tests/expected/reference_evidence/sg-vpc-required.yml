@@ -1,0 +1,33 @@
+sg-vpc-required-00:
+  attribute: GroupId
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+sg-vpc-required-01:
+  attribute: GroupId
+  error:
+    message: 'unresolved pseudo parameter: AWS::NoValue'
+    type: Blocked
+sg-vpc-required-02:
+  attribute: GroupId
+  error:
+    message: 'unresolved pseudo parameter: AWS::NoValue'
+    type: Blocked
+sg-vpc-required-03:
+  attribute: GroupId
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+sg-vpc-required-04:
+  attribute: GroupId
+  error:
+    message: 'cyclic resource reference: producer/Group'
+    type: Blocked
+sg-vpc-required-05:
+  attribute: GroupId
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked

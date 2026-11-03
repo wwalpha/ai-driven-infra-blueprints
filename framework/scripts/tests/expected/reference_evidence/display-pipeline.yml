@@ -1,0 +1,270 @@
+display-pipeline-00:
+  detail:
+    items:
+    - actual:
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: same
+        - Name: SECOND
+          Type: PLAINTEXT
+          Value: same
+        - Name: KEY_ID
+          Type: PLAINTEXT
+          Value:
+            $attribute: KeyId
+            $resource:
+            - kms
+            - '007'
+      category: difference
+      desired:
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: same
+        - Name: SECOND
+          Type: PLAINTEXT
+          Value: same
+        - Name: KEY_ID
+          Type: PLAINTEXT
+          Value: alias/fixture
+      iac: {}
+      issue_id: ISSUE-dd1aabbb8b2fdbf66f44
+      model: null
+      model_sources:
+      - {}
+      property: CodeBuild.Project.Environment
+      reason: value mismatch
+      record_index: 0
+      resource: '002'
+      service: codebuild
+      stack: producer
+      value_differences:
+      - iac: '"12345678-1234-1234-1234-123456789012" (参照: kms/007.KeyId、取得元: Observed（記録値・現在AWS未確認）)'
+        model: alias/fixture
+        path: EnvironmentVariables[2].Value
+    offset: 0
+    omitted: 0
+    total: 1
+  display:
+    4a7378fc6cd8dfc3b881:
+    - iac: '"12345678-1234-1234-1234-123456789012" (参照: kms/007.KeyId、取得元: Observed（記録値・現在AWS未確認）)'
+      model: alias/fixture
+      path: EnvironmentVariables[2].Value
+  records:
+  - actual:
+      EnvironmentVariables:
+      - Name: FIRST
+        Type: PLAINTEXT
+        Value: same
+      - Name: SECOND
+        Type: PLAINTEXT
+        Value: same
+      - Name: KEY_ID
+        Type: PLAINTEXT
+        Value:
+          $attribute: KeyId
+          $resource:
+          - kms
+          - '007'
+    category: difference
+    desired:
+      EnvironmentVariables:
+      - Name: FIRST
+        Type: PLAINTEXT
+        Value: same
+      - Name: SECOND
+        Type: PLAINTEXT
+        Value: same
+      - Name: KEY_ID
+        Type: PLAINTEXT
+        Value: alias/fixture
+    iac: {}
+    model: null
+    model_sources:
+    - {}
+    property: CodeBuild.Project.Environment
+    reason: value mismatch
+    resource: '002'
+    service: codebuild
+    stack: producer
+display-pipeline-01:
+  detail:
+    items:
+    - actual:
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: same
+        - Name: SECOND
+          Type: PLAINTEXT
+          Value: same
+        - Name: KEY_ID
+          Type: PLAINTEXT
+          Value:
+            $attribute: KeyId
+            $resource:
+            - kms
+            - '007'
+      category: difference
+      desired:
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: same
+        - Name: SECOND
+          Type: PLAINTEXT
+          Value: same
+        - Name: KEY_ID
+          Type: PLAINTEXT
+          Value: alias/fixture
+      iac: {}
+      issue_id: ISSUE-dd1aabbb8b2fdbf66f44
+      model: null
+      model_sources:
+      - {}
+      property: CodeBuild.Project.Environment
+      reason: value mismatch
+      record_index: 0
+      resource: '002'
+      service: codebuild
+      stack: producer
+      value_differences:
+      - iac: '未解決 (参照: kms/007.KeyId、理由: identifier_unobserved)'
+        model: alias/fixture
+        path: EnvironmentVariables[2].Value
+    offset: 0
+    omitted: 0
+    total: 1
+  display:
+    4a7378fc6cd8dfc3b881:
+    - iac: '未解決 (参照: kms/007.KeyId、理由: identifier_unobserved)'
+      model: alias/fixture
+      path: EnvironmentVariables[2].Value
+  records:
+  - actual:
+      EnvironmentVariables:
+      - Name: FIRST
+        Type: PLAINTEXT
+        Value: same
+      - Name: SECOND
+        Type: PLAINTEXT
+        Value: same
+      - Name: KEY_ID
+        Type: PLAINTEXT
+        Value:
+          $attribute: KeyId
+          $resource:
+          - kms
+          - '007'
+    category: difference
+    desired:
+      EnvironmentVariables:
+      - Name: FIRST
+        Type: PLAINTEXT
+        Value: same
+      - Name: SECOND
+        Type: PLAINTEXT
+        Value: same
+      - Name: KEY_ID
+        Type: PLAINTEXT
+        Value: alias/fixture
+    iac: {}
+    model: null
+    model_sources:
+    - {}
+    property: CodeBuild.Project.Environment
+    reason: value mismatch
+    resource: '002'
+    service: codebuild
+    stack: producer
+display-pipeline-02:
+  detail:
+    items:
+    - actual:
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: same
+        - Name: SECOND
+          Type: PLAINTEXT
+          Value: same
+        - Name: KEY_ID
+          Type: PLAINTEXT
+          Value:
+            $attribute: KeyId
+            $resource:
+            - kms
+            - '007'
+      category: difference
+      desired:
+        EnvironmentVariables:
+        - Name: FIRST
+          Type: PLAINTEXT
+          Value: same
+        - Name: SECOND
+          Type: PLAINTEXT
+          Value: same
+        - Name: KEY_ID
+          Type: PLAINTEXT
+          Value: alias/fixture
+      iac: {}
+      issue_id: ISSUE-dd1aabbb8b2fdbf66f44
+      model: null
+      model_sources:
+      - {}
+      property: CodeBuild.Project.Environment
+      reason: value mismatch
+      record_index: 0
+      resource: '002'
+      service: codebuild
+      stack: producer
+      value_differences:
+      - iac: '未解決 (参照: kms/007.KeyId、理由: identifier_unobserved)'
+        model: alias/fixture
+        path: EnvironmentVariables[2].Value
+    offset: 0
+    omitted: 0
+    total: 1
+  display:
+    4a7378fc6cd8dfc3b881:
+    - iac: '未解決 (参照: kms/007.KeyId、理由: identifier_unobserved)'
+      model: alias/fixture
+      path: EnvironmentVariables[2].Value
+  records:
+  - actual:
+      EnvironmentVariables:
+      - Name: FIRST
+        Type: PLAINTEXT
+        Value: same
+      - Name: SECOND
+        Type: PLAINTEXT
+        Value: same
+      - Name: KEY_ID
+        Type: PLAINTEXT
+        Value:
+          $attribute: KeyId
+          $resource:
+          - kms
+          - '007'
+    category: difference
+    desired:
+      EnvironmentVariables:
+      - Name: FIRST
+        Type: PLAINTEXT
+        Value: same
+      - Name: SECOND
+        Type: PLAINTEXT
+        Value: same
+      - Name: KEY_ID
+        Type: PLAINTEXT
+        Value: alias/fixture
+    iac: {}
+    model: null
+    model_sources:
+    - {}
+    property: CodeBuild.Project.Environment
+    reason: value mismatch
+    resource: '002'
+    service: codebuild
+    stack: producer

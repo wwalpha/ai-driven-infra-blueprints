@@ -1,0 +1,584 @@
+fragment-producer-00:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: s3/001
+        property: S3.Bucket.BucketName
+      evidence_type: logical_reference
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Join
+        $operands:
+        - ''
+        - - $attribute: Arn
+            $resource:
+            - s3
+            - '002'
+          - /*
+      identity: unproven
+      local_comparison: difference
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - 'arn:aws:s3:::'
+          - $attribute: BucketName
+            $resource:
+            - s3
+            - '001'
+          - /*
+      path: IAM.Role.Policies
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      - attribute: Arn
+        producer: s3/002
+      reason: different Producer or fixed expression parts
+    equal: false
+    equivalent: false
+fragment-producer-01:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: s3/001
+        property: S3.Bucket.BucketName
+      evidence_type: local_evaluation
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Join
+        $operands:
+        - ''
+        - - $attribute: Arn
+            $resource:
+            - s3
+            - '001'
+          - /*
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - 'arn:aws:s3:::'
+          - $attribute: BucketName
+            $resource:
+            - s3
+            - '001'
+          - /*
+      path: IAM.Role.Policies
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      reason: 'local resource reference missing/inactive: producer/Producer'
+    equal: null
+    equivalent: false
+fragment-producer-02:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: s3/001
+        property: S3.Bucket.BucketName
+      evidence_type: local_evaluation
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Join
+        $operands:
+        - ''
+        - - $attribute: Arn
+            $resource:
+            - s3
+            - '001'
+          - /*
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - 'arn:aws:s3:::'
+          - $attribute: BucketName
+            $resource:
+            - s3
+            - '001'
+          - /*
+      path: IAM.Role.Policies
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      reason: 'unproven resource correspondence: producer/Producer: formal CFn type
+        mismatch: AWS::EC2::VPC != AWS::S3::Bucket'
+    equal: null
+    equivalent: false
+fragment-producer-03:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: s3/001
+        property: S3.Bucket.BucketName
+      evidence_type: local_evaluation
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Join
+        $operands:
+        - ''
+        - - $attribute: Arn
+            $resource:
+            - s3
+            - '001'
+          - /*
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - 'arn:aws:s3:::'
+          - $attribute: BucketName
+            $resource:
+            - s3
+            - '001'
+          - /*
+      path: IAM.Role.Policies
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      - attribute: Arn
+        producer: s3/001
+      reason: named ARN requires CREATE resource correspondence; IMPORT requires approved
+        handoff
+    equal: null
+    equivalent: false
+fragment-producer-04:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: s3/001
+        property: S3.Bucket.BucketName
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:s3:::fixture-bucket/*
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - 'arn:aws:s3:::'
+          - $attribute: BucketName
+            $resource:
+            - s3
+            - '001'
+          - /*
+      path: IAM.Role.Policies
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      reason: expression Producer or attribute equivalence is unproven; recorded_observed
+        cannot prove physical identity
+    equal: null
+    equivalent: false
+fragment-producer-05:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: s3/001
+        property: S3.Bucket.BucketName
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Join
+        $operands:
+        - ''
+        - - pre/
+          - $attribute: Unknown
+            $resource:
+            - s3
+            - '001'
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - 'arn:aws:s3:::'
+          - $attribute: BucketName
+            $resource:
+            - s3
+            - '001'
+          - /*
+      path: IAM.Role.Policies
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      - attribute: Unknown
+        producer: s3/001
+      reason: 'unproven GetAtt return attribute: Producer.Unknown'
+    equal: null
+    equivalent: false
+fragment-producer-06:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: s3/001
+        property: S3.Bucket.BucketName
+      evidence_type: local_evaluation
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Join
+        $operands:
+        - ''
+        - - $attribute: Arn
+            $resource:
+            - s3
+            - '001'
+          - /*
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - 'arn:aws:s3:::'
+          - $attribute: BucketName
+            $resource:
+            - s3
+            - '001'
+          - /*
+      path: IAM.Role.Policies
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      - attribute: Arn
+        producer: s3/001
+      reason: 'attribute_format_unproven: not an identifier output'
+    equal: null
+    equivalent: false
+fragment-producer-07:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: kms/001
+        property: KMS.Key.KeyId
+      evidence_type: logical_reference
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '002'
+      identity: unproven
+      local_comparison: difference
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - $attribute: KeyId
+            $resource:
+            - kms
+            - '001'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: KeyId
+        producer: kms/001
+      - attribute: Arn
+        current_aws_verified: false
+        derived_format: KeyArn
+        evidence_type: recorded_observed
+        producer: kms/002
+        source_property: KMS.Key.KeyId
+      reason: different Producer or fixed expression parts
+    equal: false
+    equivalent: false
+fragment-producer-08:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: kms/001
+        property: KMS.Key.KeyId
+      evidence_type: local_evaluation
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - $attribute: KeyId
+            $resource:
+            - kms
+            - '001'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: KeyId
+        producer: kms/001
+      reason: 'local resource reference missing/inactive: producer/Producer'
+    equal: null
+    equivalent: false
+fragment-producer-09:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: kms/001
+        property: KMS.Key.KeyId
+      evidence_type: local_evaluation
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - $attribute: KeyId
+            $resource:
+            - kms
+            - '001'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: KeyId
+        producer: kms/001
+      reason: 'unproven resource correspondence: producer/Producer: formal CFn type
+        mismatch: AWS::EC2::VPC != AWS::KMS::Key'
+    equal: null
+    equivalent: false
+fragment-producer-10:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: kms/001
+        property: KMS.Key.KeyId
+      evidence_type: local_evaluation
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - $attribute: KeyId
+            $resource:
+            - kms
+            - '001'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: KeyId
+        producer: kms/001
+      reason: 'attribute_format_unproven: IMPORT requires approved handoff'
+    equal: null
+    equivalent: false
+fragment-producer-11:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: kms/001
+        property: KMS.Key.KeyId
+      evidence_type: recorded_observed
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - $attribute: KeyId
+            $resource:
+            - kms
+            - '001'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: KeyId
+        producer: kms/001
+      reason: expression Producer or attribute equivalence is unproven; recorded_observed
+        cannot prove physical identity
+    equal: null
+    equivalent: false
+fragment-producer-12:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: kms/001
+        property: KMS.Key.KeyId
+      evidence_type: recorded_observed
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Join
+        $operands:
+        - ''
+        - - pre/
+          - $attribute: Unknown
+            $resource:
+            - kms
+            - '001'
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - $attribute: KeyId
+            $resource:
+            - kms
+            - '001'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: KeyId
+        producer: kms/001
+      - attribute: Unknown
+        producer: kms/001
+      reason: 'unproven GetAtt return attribute: Producer.Unknown'
+    equal: null
+    equivalent: false
+fragment-producer-13:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      declarations:
+      - producer: kms/001
+        property: KMS.Key.KeyId
+      evidence_type: recorded_observed
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - arn:aws:kms:ap-northeast-1:123456789012:key/
+          - $attribute: KeyId
+            $resource:
+            - kms
+            - '001'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: KeyId
+        producer: kms/001
+      - attribute: Arn
+        producer: kms/001
+      reason: 'attribute_format_unproven: not an identifier output'
+    equal: null
+    equivalent: false

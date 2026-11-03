@@ -1,0 +1,6468 @@
+sg-identity-000:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-001:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-002:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-003:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-004:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-005:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-006:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-007:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-008:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-009:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-010:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-011:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-012:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-013:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-014:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-015:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-016:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-017:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-018:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-019:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-020:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-021:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-022:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-023:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-024:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-025:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-026:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-027:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-028:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-029:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-030:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-031:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.Instance.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-032:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-033:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.Instance.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-034:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-035:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.Instance.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-036:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-037:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.Instance.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-038:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-039:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.Instance.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-040:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-041:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-042:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-043:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-044:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-045:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-046:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-047:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-048:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-049:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-050:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-051:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-052:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-053:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-054:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-055:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-056:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-057:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-058:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-059:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-060:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-061:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-062:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-063:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-064:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-065:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-066:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-067:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-068:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-069:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-070:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-071:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-072:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-073:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-074:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-075:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-076:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-077:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-078:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-079:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-080:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-081:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-082:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-083:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-084:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-085:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-086:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-087:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-088:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-089:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-090:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-091:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-092:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-093:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-094:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-095:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-096:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-097:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-098:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-099:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-100:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-101:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-102:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-103:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-104:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-105:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-106:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-107:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-108:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-109:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-110:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-111:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-112:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-113:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-114:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-115:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-116:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-117:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-118:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-119:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-120:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-121:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-122:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-123:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-124:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-125:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-126:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-127:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-128:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-129:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-130:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-131:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-132:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-133:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-134:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-135:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-136:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-137:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-138:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-139:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-140:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-141:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-142:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-143:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-144:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-145:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-146:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-147:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-148:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-149:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-150:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-151:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-152:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-153:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-154:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-155:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-156:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-157:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-158:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-159:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+      $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-160:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-161:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-162:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-163:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-164:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-165:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-166:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-167:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-168:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-169:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-170:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-171:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-172:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-173:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-174:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-175:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-176:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-177:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-178:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-179:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-180:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-181:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-182:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-183:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-184:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-185:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-186:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-187:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-188:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-189:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+    - DestinationSecurityGroupId:
+        $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-190:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-191:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-192:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-193:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-194:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-195:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-196:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-197:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-198:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-199:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-200:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-201:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-202:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-203:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-204:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-205:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-206:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-207:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-208:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-209:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-210:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-211:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-212:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-213:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-214:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-215:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-216:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-217:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-218:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-219:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-220:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-221:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-222:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-223:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-224:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-225:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-226:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-227:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-228:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-229:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-230:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-231:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-232:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-233:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-234:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-235:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-236:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-237:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-238:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-239:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-240:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-241:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '002'
+    category: difference
+    desired:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Glue.Connection.ConnectionInput
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-242:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-243:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '002'
+    category: difference
+    desired:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Glue.Connection.ConnectionInput
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-244:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-245:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '002'
+    category: difference
+    desired:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Glue.Connection.ConnectionInput
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-246:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-247:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '002'
+    category: difference
+    desired:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Glue.Connection.ConnectionInput
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-248:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-249:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '002'
+    category: difference
+    desired:
+      PhysicalConnectionRequirements:
+        SecurityGroupIdList:
+        - $attribute: GroupId
+          $resource:
+          - security-group
+          - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Glue.Connection.ConnectionInput
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-250:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-251:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-252:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-253:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-254:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-255:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-256:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-257:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-258:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-259:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-260:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-261:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-262:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-263:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-264:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-265:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-266:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-267:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-268:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-269:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-270:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-271:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Lambda.Function.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-272:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-273:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Lambda.Function.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-274:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-275:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Lambda.Function.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-276:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-277:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Lambda.Function.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-278:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-279:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: Lambda.Function.VpcConfig
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-280:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-281:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-282:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-283:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-284:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-285:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-286:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-287:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-288:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-289:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-290:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-291:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-292:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-293:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-294:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-295:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-296:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-297:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-298:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-299:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-300:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-301:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-302:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-303:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-304:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-305:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-306:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-307:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-308:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-309:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '002'
+    category: difference
+    desired:
+      SecurityGroupIds:
+      - $attribute: GroupId
+        $resource:
+        - security-group
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-310:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-311:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-312:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-313:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-314:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-315:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-316:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-317:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-318:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-319:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-320:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-321:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-322:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-323:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-324:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-325:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-326:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-327:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-328:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-329:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-330:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-331:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-332:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-333:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-334:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-335:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-336:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-337:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-338:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: equal
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-339:
+  evaluation:
+    attribute: GroupId
+  records:
+  - actual:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '002'
+    category: difference
+    desired:
+    - $attribute: GroupId
+      $resource:
+      - security-group
+      - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: value mismatch
+    resource: 090
+    service: consumer
+    stack: producer
+sg-identity-340:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-341:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: 'unsupported ImportValue expression: Ref'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-342:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-343:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-344:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-345:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: 'unresolved pseudo parameter: AWS::NoValue'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-346:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-347:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-348:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-349:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-350:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-351:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-352:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-353:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-354:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-355:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-356:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-357:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-358:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-identity-359:
+  evaluation:
+    error: Blocked
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null

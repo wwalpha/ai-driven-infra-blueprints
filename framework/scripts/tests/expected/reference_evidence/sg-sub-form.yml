@@ -1,0 +1,28 @@
+sg-sub-form-00:
+  attribute: GroupId
+sg-sub-form-01:
+  attribute: GroupId
+sg-sub-form-02:
+  attribute: GroupId
+sg-sub-form-03:
+  attribute: GroupId
+sg-sub-form-04:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+sg-sub-form-05:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+sg-sub-form-06:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+sg-sub-form-07:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked

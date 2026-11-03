@@ -19,7 +19,7 @@ from model.sources import Scope
 from support.comparison_cases import projected
 from support.fixture_cases import load_case
 from support.model_reference_fixtures import reference as model_ref
-from support.regression_cases import case_ids, expected_path
+from support.regression_cases import case_ids, expected_text
 from utils.cloudformation.inputs import Blocked
 
 if not __debug__:
@@ -337,7 +337,7 @@ def test_quicksight_case_faults(data_regression, tmp_path, case_id):
         "difference" if case_id == "quicksight-sub" else "matched"
     )
     target = tmp_path / "expected.yml"
-    target.write_bytes(expected_path("reference_evidence", case_id).read_bytes())
+    target.write_text(expected_text("reference_evidence", case_id), encoding="utf-8")
     with pytest.raises(AssertionError, match="FILES DIFFER"):
         data_regression.check(result, fullpath=target)
 
@@ -349,7 +349,7 @@ def test_quicksight_executor_cannot_skip_comparison(data_regression, tmp_path):
         result = _execute_quicksight_principal(load_case("reference_evidence", case_id))
     compare.assert_called_once()
     target = tmp_path / "expected.yml"
-    target.write_bytes(expected_path("reference_evidence", case_id).read_bytes())
+    target.write_text(expected_text("reference_evidence", case_id), encoding="utf-8")
     with pytest.raises(AssertionError, match="FILES DIFFER"):
         data_regression.check(result, fullpath=target)
 

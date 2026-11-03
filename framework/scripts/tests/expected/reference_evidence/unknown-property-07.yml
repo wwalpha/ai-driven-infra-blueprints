@@ -1,3 +1,0 @@
-error:
-  message: 'reference property contract unproven: Route53.RecordSet.ResourceRecords[]'
-  type: Blocked

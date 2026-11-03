@@ -1,0 +1,16 @@
+sg-import-ambiguous-00:
+  error:
+    message: 'unresolved ImportValue variable: Stage'
+    type: Blocked
+sg-import-ambiguous-01:
+  error:
+    message: 'ImportValue handoff matches=1 or same-stack export: ExternalVpcId'
+    type: Blocked
+sg-import-ambiguous-02:
+  error:
+    message: 'ImportValue handoff matches=2 or same-stack export: ExternalVpcId'
+    type: Blocked
+sg-import-ambiguous-03:
+  error:
+    message: 'ImportValue handoff search incomplete: Transform requires external evaluation'
+    type: Blocked

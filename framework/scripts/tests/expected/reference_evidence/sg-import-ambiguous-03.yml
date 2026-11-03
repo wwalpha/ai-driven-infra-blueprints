@@ -1,3 +1,0 @@
-error:
-  message: 'ImportValue handoff search incomplete: Transform requires external evaluation'
-  type: Blocked

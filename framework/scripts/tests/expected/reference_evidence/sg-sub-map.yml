@@ -1,0 +1,21 @@
+sg-sub-map-00:
+  error:
+    message: 'local resource reference missing/inactive: producer/Missing'
+    type: Blocked
+sg-sub-map-01:
+  error:
+    message: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    type: Blocked
+sg-sub-map-02:
+  error:
+    message: 'local resource reference missing/inactive: producer/Missing'
+    type: Blocked
+sg-sub-map-03:
+  error:
+    message: 'local resource reference missing/inactive: producer/Missing'
+    type: Blocked
+sg-sub-map-04:
+  error:
+    message: 'invalid Fn::Sub: invalid argument shape'
+    type: ValueError

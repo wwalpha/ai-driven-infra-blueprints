@@ -18,7 +18,7 @@ from comparison.rows import validated_rows
 from model.references import declarations
 from support.comparison_cases import outcome_data, projected
 from support.fixture_cases import load_case
-from support.regression_cases import case_ids, expected_path
+from support.regression_cases import case_ids, expected_text
 from utils.comparison_rows import put_row
 from utils.iac_values import (
     ResourceReference,
@@ -336,7 +336,7 @@ def test_reference_case_faults(data_regression, tmp_path, case_id, fault):
     else:
         result = {"decision": {"equal": True}}
     target = tmp_path / "expected.yml"
-    target.write_bytes(expected_path("reference_evidence", case_id).read_bytes())
+    target.write_text(expected_text("reference_evidence", case_id), encoding="utf-8")
     with pytest.raises(AssertionError, match="FILES DIFFER"):
         data_regression.check(result, fullpath=target)
 

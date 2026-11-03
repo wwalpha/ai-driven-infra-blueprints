@@ -1,0 +1,16 @@
+export-scope-00:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: shared'
+    type: Blocked
+export-scope-01:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: shared'
+    type: Blocked
+export-scope-02:
+  error:
+    message: 'ImportValue handoff matches=0 or same-stack export: shared'
+    type: Blocked
+export-scope-03:
+  error:
+    message: reference requires a confirmed Partition
+    type: Blocked

@@ -1,0 +1,690 @@
+quicksight-account:
+  records:
+  - actual:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal: arn:aws:quicksight:ap-northeast-1:123456789012:group/default/analysts
+    category: difference
+    desired:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.DataSource.Permissions
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:ap-northeast-1:123456789012:group/default/analysts
+      identity: unproven
+      local_comparison: difference
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-actions-duplicate:
+  records:
+  - actual:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      - quicksight:DescribeDataSource
+      Principal: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+    category: difference
+    desired:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.DataSource.Permissions
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      identity: unproven
+      local_comparison: matched
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-actions-order:
+  records:
+  - actual:
+    - Actions:
+      - quicksight:PassDataSource
+      - quicksight:DescribeDataSource
+      Principal: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+    category: difference
+    desired:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.DataSource.Permissions
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      identity: unproven
+      local_comparison: matched
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-actions-value:
+  records:
+  - actual:
+    - Actions:
+      - quicksight:UpdateDataSource
+      Principal: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+    category: difference
+    desired:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.DataSource.Permissions
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      identity: unproven
+      local_comparison: matched
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-attribute:
+  blocked: true
+quicksight-cross-target:
+  blocked: true
+quicksight-deploy:
+  blocked: true
+quicksight-duplicate:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-group:
+  records:
+  - actual:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/other
+    category: difference
+    desired:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.DataSource.Permissions
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/other
+      identity: unproven
+      local_comparison: difference
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-indexed:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference expression equivalent
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      identity: unproven
+      local_comparison: matched
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-invalid-account:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-join:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference expression equivalent
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      identity: unproven
+      local_comparison: matched
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-link-name:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-missing-account:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-missing-anchor:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-missing-group:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-missing-namespace:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-namespace:
+  records:
+  - actual:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal: arn:aws:quicksight:ap-northeast-1:210987654321:group/other/analysts
+    category: difference
+    desired:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.DataSource.Permissions
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/other/analysts
+      identity: unproven
+      local_comparison: difference
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-no-partition:
+  blocked: true
+quicksight-none:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference expression equivalent
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      identity: unproven
+      local_comparison: matched
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-observed:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference expression equivalent
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      identity: unproven
+      local_comparison: matched
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-partition:
+  records:
+  - actual:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal: arn:aws-cn:quicksight:ap-northeast-1:210987654321:group/default/analysts
+    category: difference
+    desired:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.DataSource.Permissions
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws-cn:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      identity: unproven
+      local_comparison: difference
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-region:
+  records:
+  - actual:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal: arn:aws:quicksight:us-east-1:210987654321:group/default/analysts
+    category: difference
+    desired:
+    - Actions:
+      - quicksight:DescribeDataSource
+      - quicksight:PassDataSource
+      Principal:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: QuickSight.DataSource.Permissions
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:us-east-1:210987654321:group/default/analysts
+      identity: unproven
+      local_comparison: difference
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-sub:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference expression equivalent
+    reference_diagnostics:
+    - allowed_forms:
+      - Arn
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: allowed
+      iac: arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts
+      identity: unproven
+      local_comparison: matched
+      model:
+        $attribute: Arn
+        $resource:
+        - quicksight
+        - '001'
+      path: QuickSight.DataSource.Permissions[].Principal
+      producers:
+      - attribute: Arn
+        producer: quicksight/001
+      reason: iac_concrete
+    resource: 090
+    service: quicksight
+    stack: producer
+quicksight-terraform:
+  blocked: true
+quicksight-unresolved:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: quicksight
+    stack: null
+quicksight-unset:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: reference identity or property format is unproven
+    reference_diagnostics: []
+    resource: 090
+    service: quicksight
+    stack: producer

@@ -1,0 +1,36 @@
+fragment-invalid-00:
+  error:
+    message: 'producer_ambiguous: overlapping reference declarations'
+    type: Blocked
+fragment-invalid-01:
+  error:
+    message: 'producer_ambiguous: overlapping reference declarations'
+    type: Blocked
+fragment-invalid-02:
+  error:
+    message: 'reference occurrence does not identify saved text: ref'
+    type: Blocked
+fragment-invalid-03:
+  error:
+    message: 'producer_not_found: cross-target reference'
+    type: Blocked
+fragment-invalid-04:
+  error:
+    message: 'producer_not_found: producerLogicalId does not identify one Resource'
+    type: Blocked
+fragment-invalid-05:
+  error:
+    message: 'duplicate logicalId: S3_Bucket_001; [{"category": "MODEL_NEEDS_FIX",
+      "code": "MODEL_REF_TARGET_AMBIGUOUS", "message": "duplicate logicalId: S3_Bucket_001",
+      "status": "FAIL", "action": "Correct the Model reference or the invalid producer
+      field.", "targetLogicalId": "S3_Bucket_001", "resourceLogicalId": "S3_Bucket_001",
+      "modelKey": "desired.resource.002.logicalId", "resourceIds": ["001", "002"]}]'
+    type: Blocked
+fragment-invalid-06:
+  error:
+    message: 'attribute_format_unproven: producer Resource Type differs'
+    type: Blocked
+fragment-invalid-07:
+  error:
+    message: 'attribute_format_unproven: producer Property differs'
+    type: Blocked

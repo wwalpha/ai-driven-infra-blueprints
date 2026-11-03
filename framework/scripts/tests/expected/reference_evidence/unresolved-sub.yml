@@ -1,8 +1,0 @@
-decision:
-  comparisons: []
-  diagnostics: []
-  equal: null
-  equivalent: false
-error:
-  message: 'local resource reference missing/inactive: consumer/Missing'
-  type: Blocked

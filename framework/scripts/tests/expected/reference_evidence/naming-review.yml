@@ -1,0 +1,60 @@
+naming-review-00:
+  ordinary: []
+  unverified: []
+naming-review-01:
+  ordinary: []
+  unverified: []
+naming-review-02:
+  ordinary:
+  - applied_rule: vpc-{{application}}-{{environment}}
+    evidence: Reviewed the recorded name and rule
+    id: 7aa84a4420656a66a9e9
+    message: Naming finding
+    naming_item_id: f8d8ac8d76eb6ad28b92
+    property: Name
+    resource: '001'
+    rule: review.naming
+    service: vpc
+    violation: format
+  unverified: []
+naming-review-03:
+  ordinary:
+  - applied_rule: vpc-{{application}}-{{environment}}
+    evidence: Reviewed the recorded name and rule
+    id: 7aa84a4420656a66a9e9
+    message: Naming finding
+    naming_item_id: f8d8ac8d76eb6ad28b92
+    property: Name
+    resource: '001'
+    rule: review.naming
+    service: vpc
+    violation: format
+  unverified: []
+naming-review-04:
+  ordinary:
+  - actual: stg
+    applied_rule: vpc-{{application}}-{{environment}}
+    evidence: Reviewed the recorded name and rule
+    expected: dev
+    id: 568fe1dd4fb94556b32c
+    message: Naming finding
+    naming_item_id: f8d8ac8d76eb6ad28b92
+    property: Name
+    resource: '001'
+    rule: review.naming
+    service: vpc
+    violation: confirmed_mismatch
+  unverified: []
+naming-review-05:
+  ordinary:
+  - applied_rule: vpc-{{application}}-{{environment}}
+    evidence: Reviewed the recorded name and rule
+    id: d3653d2b3cd5a169eb14
+    message: Naming finding
+    naming_item_id: 4ba5acb873fa737a771f
+    property: Name
+    resource: '001'
+    rule: review.naming
+    service: vpc
+    violation: required_missing
+  unverified: []

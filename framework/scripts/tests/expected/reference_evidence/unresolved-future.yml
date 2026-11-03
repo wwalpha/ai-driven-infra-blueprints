@@ -1,8 +1,0 @@
-decision:
-  comparisons: []
-  diagnostics: []
-  equal: null
-  equivalent: false
-error:
-  message: 'unsupported ImportValue expression: Fn::Future'
-  type: Blocked

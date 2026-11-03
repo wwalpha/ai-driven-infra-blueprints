@@ -1,3 +1,0 @@
-error:
-  message: 'unresolved pseudo parameter: AWS::NoValue'
-  type: Blocked

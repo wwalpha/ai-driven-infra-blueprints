@@ -1,4 +1,0 @@
-error:
-  message: 'reference attribute VpcId is outside property contract: EC2.Instance.SubnetId'
-  type: Blocked
-issue_count: 1

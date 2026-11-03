@@ -385,7 +385,12 @@ def audit(event, args):
             path = Path(args[0]) if isinstance(args[0], str) else None
             if expected is not None and (
                 event == "open"
-                and path == expected
+                and path in (expected, expected.with_suffix(expected.suffix + ".tmp"))
+                or event == "os.remove"
+                and path == expected.with_suffix(expected.suffix + ".tmp")
+                or event == "os.rename"
+                and path == expected.with_suffix(expected.suffix + ".tmp")
+                and Path(args[1]) == expected
                 or event == "os.mkdir"
                 and path in (expected.parent, expected.parent.parent)
             ):

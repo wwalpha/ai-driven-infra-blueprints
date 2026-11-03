@@ -289,9 +289,15 @@ loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体
 
 移行済みケースは既存loaderと `support.regression_cases.case_ids` / `case_runner.run`
 を使う。入力YAMLは各checksモジュールに最大1ファイル、期待値は
-`expected/<suite>/<case-id>.yml` の1ケース1ファイル。移行済み入力のinline
-`expected` は禁止し、未移行loaderの互換性は維持する。別テストによる同じ出力先の共有、
-symlink、hardlink、空選択・未知IDは拒否する。
+`expected/<suite>/<case-id>.yml` に保存する。関連ケースは入力ケースの
+`expected_group: actual-wait` のような静的な指定で
+`expected/<suite>/actual-wait.yml` へまとめられる。グループファイルの最上位キーは
+既存のcase ID、その値はケースごとの完全なExpected辞書とする。
+ケース数・pytest node ID・個別実行は変えない。単独ファイルも引き続き使える。
+移行済み入力のinline `expected` は禁止し、未移行loaderの互換性は維持する。
+所有関係はファイルとcase IDの組で管理し、別テストによる同じ区画の共有や
+単独・グループ形式の混在、symlink、hardlink、空選択・未知IDは拒否する。
+グループをまたぐ結合を防ぐため、グループExpectedでYAML anchor/aliasは使わない。
 Pythonの固定callableが本体を呼び、辞書（例: `{"result": ...}`）を返す。
 型・入力不変・秘密非露出などの独立した契約検証は照合の前に行う。
 配列ソート、型変換、フィールド除去、丸めや事後マスクはしない。
@@ -303,12 +309,24 @@ Pythonの固定callableが本体を呼び、辞書（例: `{"result": ...}`）�
 python3 -B framework/scripts/run-python.py -m pytest -q 'framework/scripts/tests/units/issues_scan-unit.checks.py::check_difference_fields_cases[difference-true-one]' --force-regen
 ```
 
+グループExpectedも同じ完全node IDで1ケースだけ検証・更新する。例:
+
+```console
+python3 -B framework/scripts/run-python.py -m pytest -q 'framework/scripts/tests/units/reference-evidence-wait-pipeline-unit.checks.py::test_actual_wait_retains_pointer_and_known_siblings[actual-wait-00]' --force-regen
+```
+
+不一致のdiffは対象case IDとそのExpectedだけを表示する。更新は対象区画だけを差し替え、
+他ケースの本文・コメントをそのまま保持する。実行中にExpectedが変更された場合は更新を拒否する。
+同じグループの更新は並列実行しない。排他的な `.yml.tmp` を作成してから置き換え、
+書込失敗では元ファイルを維持する。残存する一時ファイルは別の更新として扱い、自動削除しない。
+
 更新回は必ずFAILし、合格証拠にはしない。入力とExpectedの差分をレビュー後、
 同じnode IDを更新オプションなしで実行する。`--regen-all` は拒否する。
 GitHub Actionsの `GITHUB_ACTIONS` または `CI` が非空の環境では更新を拒否する。
 秘密の合成値が結果に残る場合は、Expected書込・diff出力より前に汎用メッセージで停止する。
-Worktreeガードは、明示更新のplugin呼出中だけ検証済みExpectedファイルと
-その2階層のディレクトリ作成を許可する。他ファイル・Lifecycle・削除/移動の禁止と、
+Worktreeガードは、独立契約の検証後、明示更新中だけ検証済みExpectedと
+その2階層のディレクトリ作成、および対応する `.yml.tmp` の作成・削除と
+そのExpectedへの置き換えを許可する。他ファイル・Lifecycleへの書込の禁止と、
 既存cleanup、直接起動、公式IT/Receiptの責務は維持する。
 
 ケースを追加するときは、対応する既存モジュールのYAMLへ安定したIDと静的 `data` / `files` を追加し、

@@ -1,0 +1,21 @@
+run-mode-00:
+  category: excluded
+  cause: null
+  reason: IMPORT is outside IaC generation
+run-mode-01:
+  category: uncompared
+  cause: null
+  reason: 'Terraform: no existing local resource correspondence/evaluator; no init/plan/provider
+    calls'
+run-mode-02:
+  category: uncompared
+  cause: null
+  reason: 'cfn-logicalId stack is not declared: undeclared'
+run-mode-03:
+  category: difference
+  cause:
+    kind: template-missing
+    path: infra/cloudformation/templates/producer.yaml
+    relationship: direct
+    stack: producer
+  reason: モデルに対応するtemplateが存在しない（CREATE未実装）

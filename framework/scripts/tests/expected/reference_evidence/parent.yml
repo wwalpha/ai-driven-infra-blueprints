@@ -1,0 +1,30 @@
+parent-cloudtrail:
+  display: {}
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CloudTrail.Trail.EventSelectors
+    reason: equal
+    resource: '001'
+    service: cloudtrail
+    stack: producer
+  warnings: []
+parent-quicksight:
+  display: {}
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.DataSource.Permissions
+    reason: equal
+    resource: '001'
+    service: quicksight
+    stack: producer
+  warnings: []

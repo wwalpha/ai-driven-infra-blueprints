@@ -1,0 +1,24 @@
+wrong-producer-00:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: null
+    equivalent: false
+wrong-producer-01:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: null
+    equivalent: false
+wrong-producer-02:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: null
+    equivalent: false
+wrong-producer-03:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: null
+    equivalent: false

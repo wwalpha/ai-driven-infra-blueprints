@@ -1,0 +1,24 @@
+evidence-error-00:
+  error:
+    message: synthetic catalog read failure
+    type: OSError
+evidence-error-01:
+  error:
+    message: synthetic catalog read failure
+    type: OSError
+evidence-error-02:
+  error:
+    message: synthetic catalog read failure
+    type: ValueError
+evidence-error-03:
+  error:
+    message: synthetic catalog read failure
+    type: ValueError
+evidence-error-04:
+  error:
+    message: synthetic catalog read failure
+    type: TypeError
+evidence-error-05:
+  error:
+    message: synthetic catalog read failure
+    type: TypeError

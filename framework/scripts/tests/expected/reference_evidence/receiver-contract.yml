@@ -1,0 +1,322 @@
+receiver-contract-00:
+  attribute: BucketName
+  different: false
+  resource:
+  - s3
+  - '001'
+  same: true
+receiver-contract-01:
+  attribute: BucketName
+  different: false
+  resource:
+  - s3
+  - '001'
+  same: true
+receiver-contract-02:
+  attribute: BucketName
+  different: false
+  resource:
+  - s3
+  - '001'
+  same: true
+receiver-contract-03:
+  attribute: LogGroupName
+  different: false
+  resource:
+  - cloudwatch-logs
+  - '001'
+  same: true
+receiver-contract-04:
+  attribute: LogGroupName
+  different: false
+  resource:
+  - cloudwatch-logs
+  - '001'
+  same: true
+receiver-contract-05:
+  attribute: LogGroupName
+  different: false
+  resource:
+  - cloudwatch-logs
+  - '001'
+  same: true
+receiver-contract-06:
+  attribute: VpcId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-07:
+  attribute: VpcId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-08:
+  attribute: VpcId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-09:
+  attribute: VpcId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-10:
+  attribute: VpcId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-11:
+  attribute: VpcId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-12:
+  attribute: SubnetId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-13:
+  attribute: SubnetId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-14:
+  attribute: SubnetId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-15:
+  attribute: SubnetId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-16:
+  attribute: SubnetId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-17:
+  attribute: SubnetId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-18:
+  attribute: SubnetId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-19:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-20:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-21:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-22:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-23:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-24:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-25:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-26:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-27:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-28:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-29:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-30:
+  attribute: GroupId
+  different: false
+  resource:
+  - security-group
+  - '001'
+  same: true
+receiver-contract-31:
+  attribute: RouteTableId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-32:
+  attribute: RouteTableId
+  different: false
+  resource:
+  - vpc
+  - '001'
+  same: true
+receiver-contract-33:
+  attribute: RoleName
+  different: false
+  resource:
+  - iam
+  - '001'
+  same: true
+receiver-contract-34:
+  attribute: RoleName
+  different: false
+  resource:
+  - iam
+  - '001'
+  same: true
+receiver-contract-35:
+  attribute: InstanceProfileName
+  different: false
+  resource:
+  - iam
+  - '001'
+  same: true
+receiver-contract-36:
+  attribute: Name
+  different: false
+  resource:
+  - glue
+  - '001'
+  same: true
+receiver-contract-37:
+  attribute: FunctionName
+  different: false
+  resource:
+  - lambda
+  - '001'
+  same: true
+receiver-contract-38:
+  attribute: Id
+  different: false
+  resource:
+  - route53
+  - '001'
+  same: true
+receiver-contract-39:
+  attribute: Id
+  different: false
+  resource:
+  - secrets-manager
+  - '001'
+  same: true
+receiver-contract-40:
+  attribute: QueueUrl
+  different: false
+  resource:
+  - sqs
+  - '001'
+  same: true
+receiver-contract-41:
+  attribute: AliasName
+  different: false
+  resource:
+  - kms
+  - '001'
+  same: true
+receiver-contract-42:
+  attribute: AliasName
+  different: false
+  resource:
+  - kms
+  - '001'
+  same: true
+receiver-contract-43:
+  attribute: AliasName
+  different: false
+  resource:
+  - kms
+  - '001'
+  same: true
+receiver-contract-44:
+  attribute: AliasName
+  different: false
+  resource:
+  - kms
+  - '001'
+  same: true
+receiver-contract-45:
+  attribute: KeyId
+  different: false
+  resource:
+  - kms
+  - '001'
+  same: true

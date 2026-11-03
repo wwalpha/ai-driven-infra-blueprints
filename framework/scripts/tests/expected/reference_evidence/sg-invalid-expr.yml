@@ -1,0 +1,1404 @@
+sg-invalid-expr-000:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-001:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-002:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-003:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-004:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-005:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-006:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: /SecurityGroupIds/0
+    model: null
+    property: CodeBuild.Project.VpcConfig#/SecurityGroupIds/0
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-007:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.VpcConfig
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-008:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-009:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-010:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-011:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-012:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-013:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-014:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: /0
+    model: null
+    property: EC2.Instance.SecurityGroupIds#/0
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-015:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Instance.SecurityGroupIds
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-016:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-017:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-018:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-019:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-020:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-021:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-022:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: ''
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-023:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.GroupId
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-024:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-025:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-026:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-027:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-028:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-029:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-030:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: ''
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-031:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupIngress.SourceSecurityGroupId
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-032:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-033:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-034:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-035:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-036:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-037:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-038:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: ''
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-039:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.GroupId
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-040:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-041:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-042:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-043:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-044:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-045:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-046:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: ''
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-047:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroupEgress.DestinationSecurityGroupId
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-048:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-049:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-050:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-051:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-052:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-053:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-054:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: /0/DestinationSecurityGroupId
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress#/0/DestinationSecurityGroupId
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-055:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.SecurityGroup.SecurityGroupEgress
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-056:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-057:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-058:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-059:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-060:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-061:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-062:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: /0
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds#/0
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-063:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.VPCEndpoint.SecurityGroupIds
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-064:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-065:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-066:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-067:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-068:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-069:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-070:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: /PhysicalConnectionRequirements/SecurityGroupIdList/0
+    model: null
+    property: Glue.Connection.ConnectionInput#/PhysicalConnectionRequirements/SecurityGroupIdList/0
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-071:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Glue.Connection.ConnectionInput
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-072:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-073:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-074:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-075:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-076:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-077:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-078:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: /SecurityGroupIds/0
+    model: null
+    property: Lambda.Function.VpcConfig#/SecurityGroupIds/0
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-079:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.VpcConfig
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-080:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-081:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-082:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-083:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-084:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-085:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-086:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: /SecurityGroupIds/0
+    model: null
+    property: MWAA.Environment.NetworkConfiguration#/SecurityGroupIds/0
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-087:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: MWAA.Environment.NetworkConfiguration
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-088:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-089:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-090:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-091:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-092:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: 'local resource reference missing/inactive: producer/Missing'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-093:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: SecurityGroup Ref requires a proven explicit VpcId; group name is not
+      a group ID
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+sg-invalid-expr-094:
+  records:
+  - actual: null
+    category: error
+    desired: null
+    iac:
+      path: synthetic.yaml
+      pointer: /0
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds#/0
+    reason: invalid Join operands
+    resource: 090
+    service: consumer
+    stack: producer
+sg-invalid-expr-095:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: QuickSight.VPCConnection.SecurityGroupIds
+    reason: 'cyclic resource reference: producer/Producer'
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null

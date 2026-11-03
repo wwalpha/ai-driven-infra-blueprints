@@ -1,0 +1,16 @@
+managed-attachment-00:
+  result:
+  - $caseType: ResourceReference
+    value:
+      $attribute: RoleName
+      $resource:
+      - iam
+      - '002'
+managed-attachment-01:
+  result: []
+managed-attachment-02:
+  result: []
+managed-attachment-03:
+  error:
+    message: 'local resource reference missing/inactive: producer/Missing'
+    type: Blocked

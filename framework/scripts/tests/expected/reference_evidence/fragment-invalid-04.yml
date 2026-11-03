@@ -1,3 +1,0 @@
-error:
-  message: 'producer_not_found: producerLogicalId does not identify one Resource'
-  type: Blocked

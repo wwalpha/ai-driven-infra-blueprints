@@ -1,0 +1,289 @@
+codebuild-env-00:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: reference expression equivalent
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: BucketName
+        $resource:
+        - s3
+        - '001'
+      identity: unproven
+      local_comparison: matched
+      model: fixture-bucket
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      reason: iac_concrete
+    resource: '002'
+    service: codebuild
+    stack: producer
+codebuild-env-01:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: reference expression equivalent
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Join
+        $operands:
+        - ''
+        - - $attribute: BucketName
+            $resource:
+            - s3
+            - '001'
+      identity: unproven
+      local_comparison: matched
+      model: fixture-bucket
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      reason: iac_concrete
+    resource: '002'
+    service: codebuild
+    stack: producer
+codebuild-env-02:
+  records:
+  - actual:
+      EnvironmentVariables:
+      - Name: BUCKET
+        Type: PLAINTEXT
+        Value:
+          $expression: Join
+          $operands:
+          - ''
+          - - $attribute: BucketName
+              $resource:
+              - s3
+              - '001'
+    category: difference
+    desired:
+      EnvironmentVariables:
+      - Name: BUCKET
+        Type: PLAINTEXT
+        Value: other
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - {}
+    property: CodeBuild.Project.Environment
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $expression: Join
+        $operands:
+        - ''
+        - - $attribute: BucketName
+            $resource:
+            - s3
+            - '001'
+      identity: unproven
+      local_comparison: difference
+      model: other
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      reason: iac_concrete
+    resource: '002'
+    service: codebuild
+    stack: producer
+codebuild-env-03:
+  records:
+  - actual:
+      EnvironmentVariables:
+      - Name: BUCKET
+        Type: PLAINTEXT
+        Value:
+          $attribute: BucketName
+          $resource:
+          - s3
+          - '001'
+    category: difference
+    desired:
+      EnvironmentVariables:
+      - Name: BUCKET
+        Type: PLAINTEXT
+        Value: other
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - {}
+    property: CodeBuild.Project.Environment
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: BucketName
+        $resource:
+        - s3
+        - '001'
+      identity: unproven
+      local_comparison: difference
+      model: other
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      reason: iac_concrete
+    resource: '002'
+    service: codebuild
+    stack: producer
+codebuild-env-04:
+  records:
+  - actual: null
+    category: matched
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: reference expression equivalent
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: BucketName
+        $resource:
+        - s3
+        - '001'
+      identity: unproven
+      local_comparison: matched
+      model: fixture-bucket
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      reason: iac_concrete
+    resource: '002'
+    service: codebuild
+    stack: consumer
+codebuild-env-05:
+  records:
+  - actual:
+      EnvironmentVariables:
+      - Name: BUCKET
+        Type: PLAINTEXT
+        Value:
+          $attribute: BucketName
+          $resource:
+          - s3
+          - '001'
+    category: difference
+    desired:
+      EnvironmentVariables:
+      - Name: BUCKET
+        Type: PLAINTEXT
+        Value: other
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - {}
+    property: CodeBuild.Project.Environment
+    reason: value mismatch
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: BucketName
+        $resource:
+        - s3
+        - '001'
+      identity: unproven
+      local_comparison: difference
+      model: other
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: BucketName
+        producer: s3/001
+      reason: iac_concrete
+    resource: '002'
+    service: codebuild
+    stack: consumer
+codebuild-env-06:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: 'local resource reference missing/inactive: producer/Unknown'
+    reference_diagnostics: []
+    resource: '002'
+    service: codebuild
+    stack: null
+codebuild-env-07:
+  records:
+  - actual: null
+    category: uncompared
+    cause:
+      consumer_stack: consumer
+      export: missing
+      kind: import-unresolved
+      matches: 0
+      relationship: import
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: 'ImportValue handoff matches=0 or same-stack export: missing'
+    reference_diagnostics: []
+    resource: '002'
+    service: codebuild
+    stack: null

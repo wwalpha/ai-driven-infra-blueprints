@@ -47,10 +47,17 @@ def _relative(name):
 
 
 def _section(section):
-    if not isinstance(section, dict) or section.keys() - {"data", "files", "expected"}:
+    if not isinstance(section, dict) or section.keys() - {
+        "data",
+        "files",
+        "expected",
+        "expected_group",
+    }:
         raise ValueError("invalid fixture section")
     if "data" in section and not isinstance(section["data"], dict):
         raise ValueError("fixture data must be a mapping")
+    if "expected_group" in section and not _identifier(section["expected_group"]):
+        raise ValueError("invalid Expected group")
     _value(section)
     files = section.get("files", {})
     if not isinstance(files, dict):

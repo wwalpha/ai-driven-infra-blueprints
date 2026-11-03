@@ -1,6 +1,0 @@
-attribute: VpcId
-different: false
-resource:
-- vpc
-- '001'
-same: true

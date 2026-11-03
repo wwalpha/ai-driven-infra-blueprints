@@ -1,0 +1,1785 @@
+kms-matrix-00:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: 'KMS format outside allowed forms: model=KeyId, iac=KeyId'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=KeyId'
+kms-matrix-01:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: 'KMS format outside allowed forms: model=KeyId, iac=KeyArn'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=KeyArn'
+kms-matrix-02:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=AliasName'
+kms-matrix-03:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=AliasArn'
+kms-matrix-04:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: 'KMS format outside allowed forms: model=KeyArn, iac=KeyId'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=KeyId'
+kms-matrix-05:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: true
+    equivalent: false
+  outcome:
+    code: null
+    equal: true
+    message: null
+kms-matrix-06:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=AliasName'
+kms-matrix-07:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=AliasArn'
+kms-matrix-08:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=KeyId'
+kms-matrix-09:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=KeyArn'
+kms-matrix-10:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=AliasName'
+kms-matrix-11:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=AliasArn'
+kms-matrix-12:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=KeyId'
+kms-matrix-13:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=KeyArn'
+kms-matrix-14:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'
+kms-matrix-15:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - KeyArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=AliasArn'
+kms-matrix-16:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=KeyId, iac=KeyId'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=KeyId'
+kms-matrix-17:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=KeyId, iac=KeyArn'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=KeyArn'
+kms-matrix-18:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=KeyId, iac=AliasName'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=AliasName'
+kms-matrix-19:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=KeyId, iac=AliasArn'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=AliasArn'
+kms-matrix-20:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=KeyArn, iac=KeyId'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=KeyId'
+kms-matrix-21:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: true
+    equivalent: false
+  outcome:
+    code: null
+    equal: true
+    message: null
+kms-matrix-22:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=KeyArn, iac=AliasName'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=AliasName'
+kms-matrix-23:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_mismatch
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: allowed
+        model: allowed
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format mismatch: model=KeyArn, iac=AliasArn'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_mismatch
+    equal: false
+    message: 'KMS format mismatch: model=KeyArn, iac=AliasArn'
+kms-matrix-24:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=AliasName, iac=KeyId'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=KeyId'
+kms-matrix-25:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=AliasName, iac=KeyArn'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=KeyArn'
+kms-matrix-26:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=AliasName, iac=AliasName'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=AliasName'
+kms-matrix-27:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=AliasName, iac=AliasArn'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=AliasArn'
+kms-matrix-28:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=AliasArn, iac=KeyId'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=KeyId'
+kms-matrix-29:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_mismatch
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: allowed
+        model: allowed
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format mismatch: model=AliasArn, iac=KeyArn'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_mismatch
+    equal: false
+    message: 'KMS format mismatch: model=AliasArn, iac=KeyArn'
+kms-matrix-30:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      - KeyArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: Logs.LogGroup.KmsKeyId
+      reason: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'
+kms-matrix-31:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: true
+    equivalent: false
+  outcome:
+    code: null
+    equal: true
+    message: null
+kms-matrix-32:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=KeyId'
+kms-matrix-33:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=KeyArn'
+kms-matrix-34:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=AliasName'
+kms-matrix-35:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=AliasArn'
+kms-matrix-36:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=KeyId'
+kms-matrix-37:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=KeyArn'
+kms-matrix-38:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=AliasName'
+kms-matrix-39:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=AliasArn'
+kms-matrix-40:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=KeyId'
+kms-matrix-41:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=KeyArn'
+kms-matrix-42:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: 'KMS format outside allowed forms: model=AliasName, iac=AliasName'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=AliasName'
+kms-matrix-43:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: 'KMS format outside allowed forms: model=AliasName, iac=AliasArn'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=AliasArn'
+kms-matrix-44:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=KeyId'
+kms-matrix-45:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=KeyArn'
+kms-matrix-46:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn
+      reason: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'
+kms-matrix-47:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: true
+    equivalent: false
+  outcome:
+    code: null
+    equal: true
+    message: null
+kms-matrix-48:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=KeyId'
+kms-matrix-49:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=KeyArn'
+kms-matrix-50:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=AliasName'
+kms-matrix-51:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyId, iac=AliasArn'
+kms-matrix-52:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=KeyId'
+kms-matrix-53:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: same
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=KeyArn'
+kms-matrix-54:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=AliasName'
+kms-matrix-55:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: different
+      model:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=KeyArn, iac=AliasArn'
+kms-matrix-56:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=KeyId'
+kms-matrix-57:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=KeyArn'
+kms-matrix-58:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: outside allowed forms
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: 'KMS format outside allowed forms: model=AliasName, iac=AliasName'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=AliasName'
+kms-matrix-59:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: allowed
+        model: outside allowed forms
+      iac:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: 'KMS format outside allowed forms: model=AliasName, iac=AliasArn'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasName, iac=AliasArn'
+kms-matrix-60:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=KeyId'
+kms-matrix-61:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: Arn
+        $resource:
+        - kms
+        - '001'
+      identity: different
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: resource_type_mismatch
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=KeyArn'
+kms-matrix-62:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - AliasArn
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
+      format:
+        iac: outside allowed forms
+        model: allowed
+      iac:
+        $attribute: AliasName
+        $resource:
+        - kms
+        - '002'
+      identity: same
+      model:
+        $attribute: AliasArn
+        $resource:
+        - kms
+        - '002'
+      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
+      reason: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'
+    equal: false
+    equivalent: false
+  outcome:
+    code: kms.format_outside_allowed
+    equal: false
+    message: 'KMS format outside allowed forms: model=AliasArn, iac=AliasName'
+kms-matrix-63:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: true
+    equivalent: false
+  outcome:
+    code: null
+    equal: true
+    message: null

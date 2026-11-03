@@ -1,0 +1,18 @@
+unresolved-future:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: null
+    equivalent: false
+  error:
+    message: 'unsupported ImportValue expression: Fn::Future'
+    type: Blocked
+unresolved-sub:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: null
+    equivalent: false
+  error:
+    message: 'local resource reference missing/inactive: consumer/Missing'
+    type: Blocked

@@ -1,0 +1,91 @@
+negative-attribute:
+  decision:
+    comparisons: []
+    diagnostics: []
+    equal: null
+    equivalent: false
+negative-cross-target:
+  error:
+    message: 'producer_not_found: cross-target reference'
+    type: Blocked
+negative-duplicate:
+  error:
+    message: 'producer_ambiguous: overlapping reference declarations'
+    type: Blocked
+negative-logical-id:
+  error:
+    message: 'producer_not_found: producerLogicalId does not identify one Resource'
+    type: Blocked
+negative-occurrence:
+  error:
+    message: 'reference occurrence does not identify saved text: ref'
+    type: Blocked
+negative-partial:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - VpcId
+      current_aws_verified: false
+      declarations:
+      - producer: vpc/001
+        property: EC2.VPC.VpcId
+      evidence_type: local_evaluation
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: allowed
+        model: unproven
+      iac:
+        $attribute: VpcId
+        $resource:
+        - vpc
+        - '001'
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $expression: Join
+        $operands:
+        - ''
+        - - $attribute: VpcId
+            $resource:
+            - vpc
+            - '001'
+          - 0123456789abcdef0
+      path: EC2.Subnet.VpcId
+      producers: []
+      reason: 'recorded_identifier_mismatch: declaration and Producer Property differ'
+    equal: null
+    equivalent: false
+negative-resource:
+  decision:
+    comparisons: []
+    diagnostics:
+    - allowed_forms:
+      - VpcId
+      exports:
+      - export_name: shared
+        export_stack: producer
+      format:
+        iac: allowed
+        model: allowed
+      iac:
+        $attribute: VpcId
+        $resource:
+        - vpc
+        - '002'
+      identity: different
+      model:
+        $attribute: VpcId
+        $resource:
+        - vpc
+        - '001'
+      path: EC2.Subnet.VpcId
+      reason: different producer Resources
+    equal: false
+    equivalent: false
+negative-type:
+  error:
+    message: 'attribute_format_unproven: producer Resource Type differs'
+    type: Blocked

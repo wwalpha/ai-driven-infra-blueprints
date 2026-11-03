@@ -93,6 +93,10 @@ def check_expected_update_has_exact_write_scope(tmp_path):
         token = _EXPECTED_UPDATE.set(expected)
         try:
             audit("open", (str(expected), "w", 1))
+            temporary = expected.with_suffix(".yml.tmp")
+            audit("open", (str(temporary), "x", 1))
+            audit("os.rename", (str(temporary), str(expected), -1, -1))
+            audit("os.remove", (str(temporary), -1))
             for directory in (root, expected.parent):
                 audit("os.mkdir", (str(directory), 511, -1))
             for event, args in (
@@ -100,6 +104,13 @@ def check_expected_update_has_exact_write_scope(tmp_path):
                 ("open", (str(root.parent / "conftest.py"), "w", 1)),
                 ("open", (str(tmp_path / ".worktrees/.blueprint/state.json"), "w", 1)),
                 ("os.mkdir", (str(root.parent), 511, -1)),
+                ("open", (str(expected.with_name("other.yml.tmp")), "x", 1)),
+                (
+                    "os.rename",
+                    (str(temporary), str(expected.with_name("other.yml")), -1, -1),
+                ),
+                ("os.rename", (str(expected), str(temporary), -1, -1)),
+                ("os.remove", (str(expected), -1)),
                 ("os.remove", (str(expected), -1)),
                 (
                     "os.rename",

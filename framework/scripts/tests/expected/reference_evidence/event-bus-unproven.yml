@@ -1,0 +1,672 @@
+event-bus-unproven-00:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: ARN identifier and confirmed account differ
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: ARN identifier and confirmed account differ
+    equal: null
+    equivalent: false
+event-bus-unproven-01:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: ARN identifier and confirmed region differ
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: ARN identifier and confirmed region differ
+    equal: null
+    equivalent: false
+event-bus-unproven-02:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: ARN identifier and confirmed partition differ
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: ARN identifier and confirmed partition differ
+    equal: null
+    equivalent: false
+event-bus-unproven-03:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+event-bus-unproven-04:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+event-bus-unproven-05:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+event-bus-unproven-06:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+event-bus-unproven-07:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+event-bus-unproven-08:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a valid EventBus ARN
+    equal: null
+    equivalent: false
+event-bus-unproven-09:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a confirmed event bus name
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a confirmed event bus name
+    equal: null
+    equivalent: false
+event-bus-unproven-10:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a confirmed event bus name
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: rule ARN requires a confirmed event bus name
+    equal: null
+    equivalent: false
+event-bus-unproven-11:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: 'local resource reference missing/inactive: producer/Missing'
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: 'local resource reference missing/inactive: producer/Missing'
+    equal: null
+    equivalent: false
+event-bus-unproven-12:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: ARN requires a valid explicit resource Name
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: ARN requires a valid explicit resource Name
+    equal: null
+    equivalent: false
+event-bus-unproven-13:
+  decisions:
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      identity: unproven
+      local_comparison: uncompared
+      model:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: cyclic reference literal dependency
+    equal: null
+    equivalent: false
+  - comparisons: []
+    diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: Arn
+        $resource:
+        - events
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule
+      path: IAM.Role.Policies
+      producers:
+      - attribute: Arn
+        producer: events/002
+      reason: cyclic reference literal dependency
+    equal: null
+    equivalent: false

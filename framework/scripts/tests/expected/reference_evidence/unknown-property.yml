@@ -1,0 +1,32 @@
+unknown-property-00:
+  error:
+    message: 'reference property contract unproven: IAM.Role.UnknownPolicyArns[]'
+    type: Blocked
+unknown-property-01:
+  error:
+    message: 'reference property contract unproven: IAM.Role.ManagedPolicyArns'
+    type: Blocked
+unknown-property-02:
+  error:
+    message: 'reference property contract unproven: IAM.Role.Description[]'
+    type: Blocked
+unknown-property-03:
+  error:
+    message: 'reference property contract unproven: IAM.Role.Tags[].Value'
+    type: Blocked
+unknown-property-04:
+  error:
+    message: 'reference property contract unproven: IAM.Role.ArnLikeNames[]'
+    type: Blocked
+unknown-property-05:
+  error:
+    message: 'reference property contract unproven: IAM.User.Groups[]'
+    type: Blocked
+unknown-property-06:
+  error:
+    message: 'reference context or receiving property contract unproven: CodeBuild.Project.Environment.EnvironmentVariables[].Value'
+    type: Blocked
+unknown-property-07:
+  error:
+    message: 'reference property contract unproven: Route53.RecordSet.ResourceRecords[]'
+    type: Blocked

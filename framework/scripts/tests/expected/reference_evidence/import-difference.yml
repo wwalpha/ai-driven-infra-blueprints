@@ -1,0 +1,380 @@
+import-difference-00:
+  display:
+    349fe677097c6e8f5878:
+    - iac: subnet-second
+      model: subnet-first
+      path: Subnets[0]
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-deferred
+      phase: unobserved
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual:
+      Subnets:
+      - subnet-second
+      VpcId: vpc-unknown
+    category: difference
+    desired:
+      Subnets:
+      - subnet-first
+      VpcId: <unresolved>
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+import-difference-01:
+  display:
+    349fe677097c6e8f5878:
+    - iac: subnet-second
+      model: subnet-first
+      path: Subnets[0]
+  records:
+  - actual: null
+    category: excluded
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-excluded
+      phase: pending_deploy
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison excluded: pending_deploy'
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual:
+      Subnets:
+      - subnet-second
+      VpcId: vpc-unknown
+    category: difference
+    desired:
+      Subnets:
+      - subnet-first
+      VpcId: <unresolved>
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+import-difference-02:
+  display:
+    349fe677097c6e8f5878:
+    - iac: subnet-second
+      model: subnet-first
+      path: Subnets[0]
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-deferred
+      phase: unobserved
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual:
+      Subnets:
+      - subnet-second
+      VpcId: vpc-unknown
+    category: difference
+    desired:
+      Subnets:
+      - subnet-first
+      VpcId: <unresolved>
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+import-difference-03:
+  display:
+    349fe677097c6e8f5878:
+    - iac: subnet-second
+      model: subnet-first
+      path: Subnets[0]
+  records:
+  - actual: null
+    category: excluded
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-excluded
+      phase: pending_deploy
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison excluded: pending_deploy'
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual:
+      Subnets:
+      - subnet-second
+      VpcId: vpc-unknown
+    category: difference
+    desired:
+      Subnets:
+      - subnet-first
+      VpcId: <unresolved>
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+import-difference-04:
+  display:
+    349fe677097c6e8f5878:
+    - iac: subnet-second
+      model: subnet-first
+      path: Subnets[0]
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-deferred
+      phase: unobserved
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId/Fn::Join/1/0
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual:
+      Subnets:
+      - subnet-second
+      VpcId: vpc-unknown
+    category: difference
+    desired:
+      Subnets:
+      - subnet-first
+      VpcId: <unresolved>
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+import-difference-05:
+  display:
+    349fe677097c6e8f5878:
+    - iac: subnet-second
+      model: subnet-first
+      path: Subnets[0]
+  records:
+  - actual: null
+    category: excluded
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.VpcId
+      kind: import-reference-excluded
+      phase: pending_deploy
+      producer:
+        attribute: VpcId
+        resource: '001'
+        resourceType: EC2.VPC
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /VpcId/Fn::Join/1/0
+    property: CodeBuild.Project.VpcConfig.VpcId
+    reason: 'IMPORT reference comparison excluded: pending_deploy'
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual:
+      Subnets:
+      - subnet-second
+      VpcId: vpc-unknown
+    category: difference
+    desired:
+      Subnets:
+      - subnet-first
+      VpcId: <unresolved>
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+import-difference-06:
+  display:
+    a2144e8e934f05d8f7ee:
+    - iac: subnet-second
+      model: subnet-first
+      path: Subnets[1]
+  records:
+  - actual: null
+    category: deferred
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.Subnets[]
+      kind: import-reference-deferred
+      phase: unobserved
+      producer:
+        attribute: SubnetId
+        resource: '002'
+        resourceType: EC2.Subnet
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /Subnets/0
+    property: CodeBuild.Project.VpcConfig.Subnets[]
+    reason: 'IMPORT reference comparison deferred: unobserved; approved handoff required'
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual:
+      Subnets:
+      - subnet-external
+      - subnet-second
+      VpcId: vpc-0123456789abcdef0
+    category: difference
+    desired:
+      Subnets:
+      - <unresolved>
+      - subnet-first
+      VpcId: vpc-0123456789abcdef0
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer
+import-difference-07:
+  display:
+    a2144e8e934f05d8f7ee:
+    - iac: subnet-second
+      model: subnet-first
+      path: Subnets[1]
+  records:
+  - actual: null
+    category: excluded
+    cause:
+      consumer_property: CodeBuild.Project.VpcConfig.Subnets[]
+      kind: import-reference-excluded
+      phase: pending_deploy
+      producer:
+        attribute: SubnetId
+        resource: '002'
+        resourceType: EC2.Subnet
+        service: vpc
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model:
+      pointer: /Subnets/0
+    property: CodeBuild.Project.VpcConfig.Subnets[]
+    reason: 'IMPORT reference comparison excluded: pending_deploy'
+    resource: '001'
+    service: codebuild
+    stack: producer
+  - actual:
+      Subnets:
+      - subnet-external
+      - subnet-second
+      VpcId: vpc-0123456789abcdef0
+    category: difference
+    desired:
+      Subnets:
+      - <unresolved>
+      - subnet-first
+      VpcId: vpc-0123456789abcdef0
+    iac:
+      path: synthetic.yaml
+    model: null
+    model_sources:
+    - null
+    property: CodeBuild.Project.VpcConfig
+    reason: value mismatch
+    resource: '001'
+    service: codebuild
+    stack: producer

@@ -1,0 +1,34 @@
+display-failure-00:
+  resolve_count: 0
+  results:
+  - - iac: '未解決 (参照: vpc/999.VpcId、理由: reference Producer is unavailable in comparison
+        inputs)'
+      model: different
+      path: ''
+  - - iac: '未解決 (参照: vpc/999.VpcId、理由: reference Producer is unavailable in comparison
+        inputs)'
+      model: different
+      path: ''
+display-failure-01:
+  resolve_count: 0
+  results:
+  - - iac: '未解決 (参照: vpc/001.VpcId、理由: reference comparison context is unavailable)'
+      model: different
+      path: ''
+  - - iac: '未解決 (参照: vpc/001.VpcId、理由: reference comparison context is unavailable)'
+      model: different
+      path: ''
+display-failure-02:
+  resolve_count: 1
+  results:
+  - - iac: '未解決 (参照: vpc/001.VpcId、理由: identifier_unobserved)'
+      model: different
+      path: ''
+  - - iac: '未解決 (参照: vpc/001.VpcId、理由: identifier_unobserved)'
+      model: different
+      path: ''
+display-failure-03:
+  error:
+    message: implementation bug
+    type: ValueError
+  resolve_count: 1

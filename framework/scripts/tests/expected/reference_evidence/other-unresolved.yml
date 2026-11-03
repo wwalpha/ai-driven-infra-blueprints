@@ -1,0 +1,168 @@
+other-unresolved-00:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Subnet.VpcId
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+other-unresolved-01:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Subnet.VpcId
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+other-unresolved-02:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Subnet.VpcId
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+other-unresolved-03:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Subnet.VpcId
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+other-unresolved-04:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Subnet.VpcId
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+other-unresolved-05:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: EC2.Subnet.VpcId
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+other-unresolved-06:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.Code
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+other-unresolved-07:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.Code
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+other-unresolved-08:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.Code
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+other-unresolved-09:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.Code
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+other-unresolved-10:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.Code
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null
+other-unresolved-11:
+  records:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    model: null
+    property: Lambda.Function.Code
+    reason: comparison input is unresolved
+    reference_diagnostics: []
+    resource: 090
+    service: consumer
+    stack: null

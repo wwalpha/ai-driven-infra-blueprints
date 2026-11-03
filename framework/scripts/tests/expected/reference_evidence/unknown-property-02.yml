@@ -1,3 +1,0 @@
-error:
-  message: 'reference property contract unproven: IAM.Role.Description[]'
-  type: Blocked

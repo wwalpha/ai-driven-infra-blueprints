@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from unittest.mock import patch
 
 import pytest
+import yaml
 from support import fixture_cases as fixtures
 
 if not __debug__:
@@ -168,6 +169,17 @@ def check_authored_suite():
     assert files == {
         "issues/dev/123456789012/issues.md": "malformed report without inventory\n"
     }
+
+
+@pytest.mark.parametrize("group", ["../escape", "", True, ["wait"], {"wait": 1}])
+def check_invalid_expected_group(suite, group):
+    suite(
+        yaml.safe_dump(
+            {"version": 1, "cases": {"first": {"data": {}, "expected_group": group}}}
+        )
+    )
+    with pytest.raises(ValueError, match="Expected group"):
+        fixtures.load_case("example", "first")
 
 
 if __name__ == "__main__":
