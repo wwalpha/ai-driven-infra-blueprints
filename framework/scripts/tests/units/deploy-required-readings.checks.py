@@ -51,11 +51,10 @@ def check_broken_rule_reference_rejected(tmp_path, target):
     rules = root / "framework/rules"
     rules.mkdir(parents=True)
     (rules / "rules.md").write_text("## Required\nbody\n")
-    source = root / "framework/prompts/codex/04_deploy.md"
+    source = root / "framework/prompts/codex/deployment-notes.md"
     source.parent.mkdir(parents=True)
     with pytest.raises((OSError, ValueError)):
         rule_readings(root, source, f"[rule](../../rules/{target})")
-
 
 
 def check_direct_deploy_routes():
@@ -68,7 +67,11 @@ def check_direct_deploy_routes():
     commands = [shlex.split(line) for block in blocks for line in block.splitlines()]
     actions = [argv for argv in commands if "--action" in argv]
     assert [argv[argv.index("--action") + 1] for argv in actions] == [
-        "advance", "sync", "checkpoint", "status", "sync"
+        "advance",
+        "sync",
+        "checkpoint",
+        "status",
+        "sync",
     ]
     for argv in actions:
         assert "BLUEPRINT_TASK_FILE=tasks/<task-id>.md" in argv
@@ -85,11 +88,35 @@ def check_direct_deploy_routes():
     links = re.findall(r"deploy/runbook.md#([a-z-]+)", text)
     assert set(links) <= procedures.keys()
     for anchor in (
-        "cli-prepare", "observation-reads", "verify-and-finish", "terraform",
-        "confirm-unapproved-deletereplacement", "unfinished-aws-operation-recovery",
-        "correct-this-tasks-preparation-omissions", "external-iac-repair-handoff", "git-recovery",
+        "cli-prepare",
+        "observation-reads",
+        "verify-and-finish",
+        "terraform",
+        "confirm-unapproved-deletereplacement",
+        "unfinished-aws-operation-recovery",
+        "correct-this-tasks-preparation-omissions",
+        "external-iac-repair-handoff",
+        "git-recovery",
     ):
         assert anchor in links
+    # Independent CLI How remains reachable without SDK command/receipt dependencies.
+    expected = {
+        "cli-prepare": ("method-and-local-lifecycle", "preflight-and-fixed-snapshot"),
+        "cli-delivery": (
+            "order-dependencies-and-s3-delivery",
+            "s3-deployment-artifacts",
+        ),
+        "cli-changeset": ("changeset-review-and-execution",),
+        "cli-execute": ("changeset-review-and-execution",),
+        "cli-observe-and-save": ("observations-validation-and-publication",),
+        "cli-finish": ("observations-validation-and-publication",),
+        "cli-recovery": ("interruption-and-independent-recovery",),
+    }
+    for anchor, required in expected.items():
+        readings = rule_readings(root, runbook, procedures[anchor])
+        actual = readings[root / "framework/rules/cloudformation.md"]["sections"]
+        assert set(required) <= set(actual), anchor
+        assert "cloudformation-deploy.py" not in procedures[anchor]
     assert "--action" not in sections["common-entry"]
     assert "no unconditional status-before-advance call" in sections["sdk-operations"]
     rule_readings(root, skill, text)
@@ -103,6 +130,26 @@ def check_direct_deploy_routes():
     assert "Deploy entry only (`deploy-start`)" in permission
     assert "do not enter unrelated checkouts" in permission
     assert "does not change checkpoint, publication, finalize or cleanup" in permission
+
+
+def check_deploy_skill_structure_uses_definition_root(tmp_path):
+    from validation import framework_contracts
+    from validation.findings import Findings
+
+    root, definitions = tmp_path / "consumer", tmp_path / "definitions"
+    root.mkdir()
+    skill = definitions / ".agents/skills/deploy/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("# Deploy\n", encoding="utf-8")
+    for present in (True, False):
+        if not present:
+            skill.unlink()
+        findings = Findings(root)
+        framework_contracts.check_structure(
+            findings, root, definitions_root=definitions
+        )
+        missing = "required file missing: .agents/skills/deploy/SKILL.md"
+        assert (missing in findings.errors) is not present
 
 
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")

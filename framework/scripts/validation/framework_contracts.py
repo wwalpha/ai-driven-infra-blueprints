@@ -44,7 +44,7 @@ def check_structure(findings, root, *, consumer=True, definitions_root=None):
         "framework/prompts/codex/01_initialize.md",
         "framework/prompts/codex/02_add-target.md",
         "framework/prompts/codex/03_implement.md",
-        "framework/prompts/codex/04_deploy.md",
+        ".agents/skills/deploy/SKILL.md",
         "framework/prompts/codex/05_update.md",
         "framework/prompts/codex/06_scenario-test.md",
         "framework/prompts/codex/07_destroy.md",
@@ -53,7 +53,11 @@ def check_structure(findings, root, *, consumer=True, definitions_root=None):
         "framework/scripts/cloudformation_schema.py",
         "framework/scripts/sync-model.py",
     ):
-        base = definitions_root if filename.startswith("framework/") else root
+        base = (
+            definitions_root
+            if filename.startswith(("framework/", ".agents/"))
+            else root
+        )
         findings.check(
             input_is_file(base / filename),
             f"required file missing: {filename}",
@@ -138,7 +142,7 @@ def check_framework_active_task_transition(findings, root):
         "framework/rules/task-contract.md": "## Modified files",
         "framework/prompts/chatbot/service-design.md": "tasks/<task-name>.md",
         "framework/prompts/codex/03_implement.md": "tasks/<task-name>.md",
-        "framework/prompts/codex/04_deploy.md": "tasks/<task-name>.md",
+        ".agents/skills/deploy/SKILL.md": "tasks/<task-id>.md",
         "framework/prompts/codex/05_update.md": "tasks/<task-name>.md",
     }
     for relative, literal in required.items():

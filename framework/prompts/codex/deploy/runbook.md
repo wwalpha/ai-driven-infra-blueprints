@@ -1,20 +1,6 @@
 # Deploy operation runbook
 
-Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. The route matrix at the end is an operation index, not an instruction to read every route.
-
-## Managed entry
-
-Use the [Deploy Skill managed entry](../../../../.agents/skills/deploy/SKILL.md#managed-entry).
-
-## Prepare
-
-Read [Task transition](../../../rules/task-contract.md#task-transition) (including its required common and conditional reads), [Task boundary](../../../rules/task-contract.md#task-boundary), [Acceptance contract](../../../rules/task-contract.md#acceptance-contract), [Topology](../../../rules/project-configuration.md#topology) and [Credentials and account](../../../rules/project-configuration.md#credentials-and-account). Confirm Human environment/Target, Engine, account/Region/profile, Stack scope and allowed actions against `project.json`. Never substitute credentials after failure. Use the root returned by the managed Worktree entry and its registered Python wrapper. Register the Task as the first repository change; Deploy cannot edit IaC, intended design or scenarios.
-
-For Terraform select [Terraform](#terraform). For CloudFormation select only [SDK Prepare](#sdk-prepare) or [CLI Prepare](#cli-prepare), matching the fixed Task method. Before CloudFormation AWS operations read [Common rules](../../../rules/cloudformation.md#common-rules), [AWS execution context](../../../rules/cloudformation.md#aws-execution-context), [Resource mode boundary](../../../rules/cloudformation.md#resource-mode-boundary), [Deployment validation and execution](../../../rules/cloudformation.md#deployment-validation-and-execution), [Model authority](../../../rules/model-information.md#model-authority), [Resource management mode](../../../rules/model-information.md#resource-management-mode), [CloudFormation deployment policy](../../../rules/model-information.md#cloudformation-deployment-policy) and [Properties format](../../../rules/model-information.md#properties-format). Model, Template, Parameters and Stack definitions are authority; ordinary Deploy does not read generated detailed-design prose as execution input. Resolve ownership, Conditions and dependencies without guessing or expanding scope.
-
-## SDK Prepare
-
-Use [SDK preparation](../../../../.agents/skills/deploy/SKILL.md#sdk-preparation).
+Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. Normal SDK commands live only in the Skill; this runbook supplies Human-selected CLI and conditional procedures.
 
 ## CLI Prepare
 
@@ -23,14 +9,6 @@ Before CloudFormation AWS operations read [Common rules](../../../rules/cloudfor
 Read [Method and local lifecycle](../../../rules/cloudformation.md#method-and-local-lifecycle) and [Preflight and fixed Snapshot](../../../rules/cloudformation.md#preflight-and-fixed-snapshot). These are the sole CLI preflight command authority: verify CLI v2/options, configured context with STS, declare confirmed account/Region/Partition, select/register the infrastructure/deploy Task and retain the original input manifest and immutable copies outside Git. Confirm exact StackNames, Model/View paths, DeployOrder and MaxConcurrentStacks. CLI uses no SDK Preparation, Controller, boto3/botocore or Python AWS wrapper. `model/cli.py observed` is an offline mapping check, not an observation-saving command.
 
 Read current scoped Stacks, resources and ChangeSets as directed by that preflight. UNKNOWN is not absence; REVIEW_IN_PROGRESS needs ChangeSet classification. Missing inputs/context, competing activity or uncertain request evidence blocks new mutations. Resume through [CLI Recovery](#cli-recovery), preserving the original manifest and identities. Then select [CLI Delivery](#cli-delivery), even for inline templates, to check dependencies and whether S3 is required.
-
-## SDK Stack
-
-Use [SDK operations](../../../../.agents/skills/deploy/SKILL.md#sdk-operations).
-
-## CLI Stack
-
-This compatibility section routes to [CLI Delivery](#cli-delivery), [CLI ChangeSet](#cli-changeset), [CLI Execute](#cli-execute), [CLI Observe and save](#cli-observe-and-save) and [CLI Finish](#cli-finish) at their operation boundaries. Read only the current operation and its required rules. Never switch to SDK Controller, sync, checkpoint or deploy-publish.
 
 ## CLI Delivery
 
@@ -81,15 +59,7 @@ Repeat `--service` for exact affected services, or use confirmed `--scope <envir
 
 ## Verify and finish
 
-Read [Validation policy](../../../rules/loop-engineering.md#validation-policy), [Validation scope](../../../rules/loop-engineering.md#validation-scope) and [Infrastructure task completion](../../../rules/loop-engineering.md#infrastructure-task-completion). Check Task Acceptance and authorized differences. Report AWS attempt result, current Stack state, required observations/Model saves, View generation, Snapshot validation, Git commit/merge and Task status independently. A failed settled attempt can have a consistent Snapshot; Deploy FAIL remains FAIL. Unexecuted/incomplete checks never count as PASS. Active/uncertain requests or pending approval keep tracking and prevent completion. Use only [SDK Finish](#sdk-finish) or [CLI Finish](#cli-finish) for the fixed method. Do not proceed to scenarios or another task.
-
-## SDK Finish
-
-Use [SDK finish](../../../../.agents/skills/deploy/SKILL.md#sdk-finish).
-
-## SDK Publication
-
-Use [SDK finish](../../../../.agents/skills/deploy/SKILL.md#sdk-finish) after verified publication; Worktree permission/finalize/cleanup guards are unchanged.
+Read [Validation policy](../../../rules/loop-engineering.md#validation-policy), [Validation scope](../../../rules/loop-engineering.md#validation-scope) and [Infrastructure task completion](../../../rules/loop-engineering.md#infrastructure-task-completion). Check Task Acceptance and authorized differences. Report AWS attempt result, current Stack state, required observations/Model saves, View generation, Snapshot validation, Git commit/merge and Task status independently. A failed settled attempt can have a consistent Snapshot; Deploy FAIL remains FAIL. Unexecuted/incomplete checks never count as PASS. Active/uncertain requests or pending approval keep tracking and prevent completion. Use only [SDK finish](../../../../.agents/skills/deploy/SKILL.md#sdk-finish) or [CLI Finish](#cli-finish) for the fixed method. Do not proceed to scenarios or another task.
 
 ## CLI Finish
 
@@ -103,7 +73,7 @@ Read [Managed Deploy snapshot and Git publication](../../../rules/cloudformation
 python3 -B framework/scripts/worktree_task.py deploy-publish --task-id <task-id>
 ```
 
-This performs no AWS execution or recollection, including when Task completed locally. On conflict show file/base/source/impact and obtain explicit Human resolution; the existing `--publication-resolution <absolute-json-path>` option takes that approved resolution and revalidates the actual latest-base candidate. Never invent a resolution, force integration or edit lifecycle metadata. CLI instead retains its candidate and uses the ordinary same-Task recovery/finalize procedure; never switch it to deploy-publish. After verified SDK final publication use [SDK Publication](#sdk-publication).
+This performs no AWS execution or recollection, including when Task completed locally. On conflict show file/base/source/impact and obtain explicit Human resolution; the existing `--publication-resolution <absolute-json-path>` option takes that approved resolution and revalidates the actual latest-base candidate. Never invent a resolution, force integration or edit lifecycle metadata. CLI instead retains its candidate and uses the ordinary same-Task recovery/finalize procedure; never switch it to deploy-publish. After verified SDK final publication use [SDK finish](../../../../.agents/skills/deploy/SKILL.md#sdk-finish).
 
 ## CLI Recovery
 
@@ -175,41 +145,4 @@ Export は共通 Resolver で必要名だけを解決する。既知 Producer �
 
 ## Terraform
 
-Read [Terraform Rules](../../../rules/terraform.md), [Properties format](../../../rules/model-information.md#properties-format), [Local loop](../../../rules/loop-engineering.md#local-loop) and the common Task/Model/Observed/completion reads. Use `check-deploy-context.py --help` for the existing preflight command and saved-plan sequence; select only the designed Root/workspace/backend/variables and same account/Region/profile. Unapproved destroy/replacement requires full saved-plan consent; apply only that identical plan. Failed apply may be partial: inspect state/AWS read-only and stop, never blindly reapply. After success save non-sensitive observations and required Views; Terraform semantics are unchanged.
-
-## 最終保存
-
-Compatibility anchor: select [SDK Finish](#sdk-finish) or [CLI Finish](#cli-finish) for the Task's fixed method. Do not read both methods or convert a Task to finish it.
-
-## DeployOrder selection and synchronization scope
-
-Compatibility anchor: read [SDK Prepare](#sdk-prepare) for SDK selectors or [CLI Prepare](#cli-prepare) and [CLI Delivery](#cli-delivery) for explicit CLI scope/dependencies. Neither route gains authority over external consumers/producers.
-
-## Operation routes
-
-Use the row matching the current operation. Entry is Deploy Skill → Phase Router; Prepare/common authority reads are shared once per Task. “Reuse” means unchanged document text only; current AWS rechecks and input/identity/consent checks still apply. Every row's linked section owns its explicit commands and required Rule links.
-
-| Route | Read next | Operation / branch | Reuse / stop |
-| --- | --- | --- | --- |
-| sdk-first | [SDK Prepare](#sdk-prepare) → [SDK Stack](#sdk-stack) | Offline review/register, then advance | Reuse common Prepare; changed candidate/authority stops |
-| sdk-continue | [SDK Stack](#sdk-stack) | advance; no mechanical status call | Reuse unchanged reads; current AWS required |
-| sdk-multiple | [SDK Stack](#sdk-stack) | Full repeated stack scope, Order/capacity | Failure blocks later Orders, not independent same-Order peers |
-| sdk-sync | [SDK Stack](#sdk-stack) → [Observation reads](#observation-reads) | Selected sync; Task running | Reuse scope; no unsanctioned Consumer writes |
-| sdk-final | [SDK Finish](#sdk-finish) → [SDK Publication](#sdk-publication) | Final sync, then finalize | All requests settled and required saves/checks PASS |
-| sdk-checkpoint | [SDK Stack](#sdk-stack) | Resume saved candidate | No AWS replay/recollection; keep saved scope |
-| sdk-git-retry | [Git Recovery](#git-recovery) | Saved commit deploy-publish | No AWS calls; conflict needs Human decision |
-| cli-first | [CLI Prepare](#cli-prepare) → [CLI Delivery](#cli-delivery) | Context/Snapshot, scoped AWS inspection | No SDK preparation; missing context stops |
-| cli-s3 | [CLI Delivery](#cli-delivery) | Verify/deliver required objects | Reuse Rules; recheck object integrity before Create/Execute |
-| cli-create | [CLI ChangeSet](#cli-changeset) | Proven absent CREATE | Unique original token; lost response → recovery |
-| cli-update | [CLI ChangeSet](#cli-changeset) | Eligible existing UPDATE | Pin StackId, fixed inputs/settings; full Changes |
-| cli-approval | [Confirm unapproved delete/replacement](#confirm-unapproved-deletereplacement) → [CLI Execute](#cli-execute) | Wait for all destructive changes | Changed/recreated ChangeSet invalidates consent |
-| cli-execute | [CLI Execute](#cli-execute) | Recheck exact identity/content, Execute, inspect events | Submission is not success; uncertain → recovery |
-| cli-save | [CLI Observe and save](#cli-observe-and-save) | Direct CLI observation, guarded local API, generation/loop | No new writer; unknown inputs/Rows or failed Views stop |
-| cli-finish | [CLI Finish](#cli-finish) | Local complete and ordinary finalize | No SDK receipts; active requests prevent completion |
-| failure | [Verify and finish](#verify-and-finish); SDK: [Unfinished AWS operation recovery](#unfinished-aws-operation-recovery), CLI: [CLI Recovery](#cli-recovery) | Select only method-specific recovery | Preserve FAIL/current state; no automatic repair/redeploy |
-| lost-response | SDK: [Unfinished AWS operation recovery](#unfinished-aws-operation-recovery), CLI: [CLI Recovery](#cli-recovery) | Select SDK status or direct CLI reconciliation | Original identity/token; no blind resend |
-| task-resume | [Prepare](#prepare); SDK: [Unfinished AWS operation recovery](#unfinished-aws-operation-recovery), CLI: [CLI Recovery](#cli-recovery) | Reuse same Task; select fixed method | No rebaseline or replacement Task; current AWS required |
-| contract-correction | [Correct this Task's preparation omissions](#correct-this-tasks-preparation-omissions) | Suspend/correct/check/resume same SDK Task | Only proven omissions; deferred Consumer needs consent |
-| repair | [External IaC repair handoff](#external-iac-repair-handoff) | Authorized one-shot SDK child | Settle requests; exact IaC only, child AWS forbidden |
-| git-conflict | [Git Recovery](#git-recovery) | Select method; retain candidate | Human exact resolution and latest-base validation |
-| terraform | [Terraform](#terraform) | Preflight, reviewed identical saved plan, apply | No changed plan/credentials; partial failure stops |
+Read [Terraform Rules](../../../rules/terraform.md), [Properties format](../../../rules/model-information.md#properties-format), [Local loop](../../../rules/loop-engineering.md#local-loop) and [Model authority](../../../rules/model-information.md#model-authority), [Resource management mode](../../../rules/model-information.md#resource-management-mode), [Observation reads](#observation-reads) and [Verify and finish](#verify-and-finish); common Task/context reads are in the Skill. Use `check-deploy-context.py --help` for the existing preflight command and saved-plan sequence; select only the designed Root/workspace/backend/variables and same account/Region/profile. Unapproved destroy/replacement requires full saved-plan consent; apply only that identical plan. Failed apply may be partial: inspect state/AWS read-only and stop, never blindly reapply. After success save non-sensitive observations and required Views; Terraform semantics are unchanged.

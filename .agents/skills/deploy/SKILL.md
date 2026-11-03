@@ -73,7 +73,7 @@ env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-pyth
 python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id>
 ```
 
-Retain every fixed `--stack` and configured profile/account selector on final sync; add only needed `--sync-stack` observations. Before ending read [Verify and finish](../../../framework/prompts/codex/deploy/runbook.md#verify-and-finish) for Validation/Acceptance and reporting. No finalization while requests are active/uncertain, approval is pending, saves/checks are incomplete or publication is pending. Intermediate sync/checkpoint retains the same Worktree; checkpoint resumes saved intent without fresh AWS execution/recollection. Worktree completion/permission guards remain authoritative.
+Before ending read [Verify and finish](../../../framework/prompts/codex/deploy/runbook.md#verify-and-finish) for Validation/Acceptance and reporting. No finalization while requests are active/uncertain, approval is pending, saves/checks are incomplete or publication is pending. Intermediate sync/checkpoint retains the same Worktree; checkpoint resumes saved intent without fresh AWS execution/recollection. Worktree completion/permission guards remain authoritative.
 
 ## Conditional procedures
 

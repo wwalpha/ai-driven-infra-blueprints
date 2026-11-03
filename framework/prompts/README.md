@@ -25,14 +25,14 @@ Implementation scope: docs/designs/dev/cde/vpc.md
 
 | Situation | Use |
 | --- | --- |
-| Create new detailed designs through chatbot design | `chatbot/service-design.md` → Codex prompt output by chatbot → `03_implement.md` → `04_deploy.md` |
+| Create new detailed designs through chatbot design | `chatbot/service-design.md` → Codex prompt output by chatbot → `03_implement.md` → the [Deploy Skill](../../.agents/skills/deploy/SKILL.md) |
 | Reflect current values of existing AWS resources selected by the chatbot into detailed design | `chatbot/service-design.md` → read-only retrieval Codex prompt output by chatbot |
 | The human directly edits existing environment-specific properties Models, then reflects them in IaC and deploys while uncommitted | `05_update.md` |
 | Confirm application behavior after deploy | `06_scenario-test.md` only when needed in either workflow |
 
 For new designs, `service-design.md` outputs completed template/YAML sources and fixed bindings, destination Markdown/JSON, and a self-contained Codex prompt to create them in the repository. When using current values of existing AWS resources, it does not output completed Markdown; it outputs a read-only retrieval Codex prompt including target services, resource types, and properties. For IMPORT, hand off to `/import` / `codex/08_import.md`; direct current-value copying is prohibited. CREATE retrieval retains the existing procedure. Neither uses a fixed design-save-only prompt.
 
-When managing stacks in CloudFormation targets, save target-specific `cloudformation-stacks.md` with service detailed designs in the design task. `03_implement.md` implements templates and individual parameter files for each StackName listed there; `04_deploy.md` matches actual AWS resources and deploys per StackName. The same template may be assigned to multiple StackNames.
+When managing stacks in CloudFormation targets, save target-specific `cloudformation-stacks.md` with service detailed designs in the design task. `03_implement.md` implements templates and individual parameter files for each StackName listed there; the [Deploy Skill](../../.agents/skills/deploy/SKILL.md) matches actual AWS resources and deploys per StackName. The same template may be assigned to multiple StackNames.
 
 For manual edits, do not split implement and deploy. `05_update.md` receives human design diffs as immutable input and performs Markdown generation, IaC reflection, and deploy/apply in one task.
 
@@ -44,7 +44,7 @@ For manual edits, do not split implement and deploy. `05_update.md` receives hum
 | 2 | [`codex/02_add-target.md`](codex/02_add-target.md) | Add 1 environment/logical target after initialization | Update `project.json` and added target paths |
 | Design | [`chatbot/service-design.md`](chatbot/service-design.md) | Confirm detailed design values for new systems, features, or services with the human | Output completed template/YAML sources and fixed bindings and destination Markdown/JSON, or a self-contained Codex prompt for existing-resource retrieval |
 | 3 | [`codex/03_implement.md`](codex/03_implement.md) | Reflect detailed designs already created in the repository into CloudFormation/Terraform | Create/change IaC through local static validation |
-| 4 | [`codex/04_deploy.md`](codex/04_deploy.md) | Deploy/apply created/validated IaC to AWS | Execute, preserve guarded runtime recovery, hand IaC repair to a separate implement Task, and synchronize observations |
+| 4 | [Deploy Skill](../../.agents/skills/deploy/SKILL.md) | Deploy/apply created/validated IaC to AWS | Execute, preserve guarded runtime recovery, hand IaC repair to a separate implement Task, and synchronize observations |
 | 5 | [`codex/05_update.md`](codex/05_update.md) | The human manually edits existing authoritative service Model inputs, then reflects them in IaC and deploys while uncommitted | Perform Markdown generation, IaC changes, deploy/apply, and observed value updates in one task |
 | 8 | [`codex/08_import.md`](codex/08_import.md) | Rebuild IMPORT configuration from read-only AWS CLI inventory | Update IMPORT Model and generate/verify Markdown/JSON; never AWS or IaC |
 | 7 | [`codex/07_destroy.md`](codex/07_destroy.md) | Explicit CloudFormation Stack deletion requested | Independent destroy; observed consistency and scoped local loop |
@@ -138,16 +138,16 @@ Implementation scope:
 - docs/designs/dev/cde/cloudwatch-logs.md
 ```
 
-### `codex/04_deploy.md`
+### Deploy Skill
 
 - Description: Deploy/apply created/validated IaC to authorized target AWS accounts; authoritative IaC changes belong to a separately verified implement Task, integrated through a one-shot verified handoff before an independent new Deploy.
 - Timing: IaC from `03_implement.md` is confirmed and target IaC has no uncommitted changes.
-- How to use: Pass environment, alias when present, AWS account, deployment scope, permitted delete/replacement, and AWS profile if needed. For CloudFormation, explicitly select the existing SDK Controller or the independent LLM-direct AWS CLI procedure; no automatic fallback. Perform preflight, change set/plan checks, execution, completion confirmation, and necessary observed value updates. Follow the [CLI local lifecycle](../rules/cloudformation.md#method-and-local-lifecycle) for confirmed execution context, ordinary local completion and actual latest-base validation without SDK progress/receipts. Keep AWS outcome separate from local publication; do not report unexecuted checks as success.
+- How to use: Pass environment, alias when present, AWS account, deployment scope, permitted delete/replacement, and AWS profile if needed. For CloudFormation, use the default SDK Controller; select the independent LLM-direct AWS CLI procedure only when the Human explicitly requests CLI. No automatic fallback. Perform preflight, change set/plan checks, execution, completion confirmation, and necessary observed value updates. Follow the [CLI local lifecycle](../rules/cloudformation.md#method-and-local-lifecycle) for confirmed execution context, ordinary local completion and actual latest-base validation without SDK progress/receipts. Keep AWS outcome separate from local publication; do not report unexecuted checks as success.
 
 Usage example:
 
 ```text
-framework/prompts/codex/04_deploy.mdを使ってください。
+Use .agents/skills/deploy/SKILL.md.
 
 Target environment: dev
 Target alias: cde
@@ -200,7 +200,7 @@ When creating new designs with the chatbot:
 chatbot/service-design.md
   -> chatbotが出力したCodex prompt（詳細設計とmodelを作成）
   -> 03_implement.md
-  -> 04_deploy.md
+  -> Deploy Skill (.agents/skills/deploy/SKILL.md)
   -> 06_scenario-test.md（behavior確認が必要な場合だけ）
 ```
 
@@ -218,7 +218,7 @@ If design changes need new human decisions, confirm them in chat before reposito
 
 - Codex prompts output by `service-design.md` change only detailed designs and models.
 - `03_implement.md` changes only IaC and does not run AWS APIs.
-- `04_deploy.md` executes only authorized deploy/apply; IaC changes require a separate authorized implement Task and verified one-shot handoff and independent new Deploy.
+- the [Deploy Skill](../../.agents/skills/deploy/SKILL.md) executes only authorized deploy/apply; IaC changes require a separate authorized implement Task and verified one-shot handoff and independent new Deploy.
 - `05_update.md` preserves human intended-design model diffs, generates Markdown/JSON, reflects IaC, and executes only authorized deploy/apply and observed updates.
 - `06_scenario-test.md` changes only scenarios/results, without repairing designs or IaC.
 - Do not treat deploy success as application behavior PASS.

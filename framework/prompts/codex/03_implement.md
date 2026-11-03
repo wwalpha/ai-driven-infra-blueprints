@@ -13,7 +13,7 @@ or AWS permission.
 
 Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
-Use this prompt for an `infrastructure` task converting authoritative model properties, the authority for approved detailed designs, into CloudFormation or Terraform selected in `project.json`, through local static validation. Do not execute AWS APIs, change sets, plans, or deploy/apply. For deploy/apply, use `framework/prompts/codex/04_deploy.md` in a separate task.
+Use this prompt for an `infrastructure` task converting authoritative model properties, the authority for approved detailed designs, into CloudFormation or Terraform selected in `project.json`, through local static validation. Do not execute AWS APIs, change sets, plans, or deploy/apply. For deploy/apply, use the [Deploy Skill](../../../.agents/skills/deploy/SKILL.md) in a separate task.
 
 Follow [Credentials and account](../../rules/project-configuration.md#credentials-and-account) for common account/profile selection and apply [Policy account selection](../../rules/detailed-design.md#policy-account-selection) for policy-specific conditions.
 
@@ -99,7 +99,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py obs
 
 ## Receiving a deploy repair request
 
-For an explicitly authorized CloudFormation request, use the Worktree handoff in [deploy](04_deploy.md#external-iac-repair-handoff). Start only from the pinned suspended parent with `worktree_task.py create --task-id <repair-task-id> --repair-request <request.json>`. Register a distinct infrastructure/implement contract with the request's exact IaC write paths, target and Validation scope, `Deploy repair request: <absolute request.json>`, and AWS API execution/AWS mutation/Deploy/apply forbidden. The approved Model remains input. Preflight may identify the requested IaC defects as the repair work when Model design is complete; missing design, ownership, placement or confirmed reference values still stop for Human/design work. No AWS retrieval, provider plan or deployment is permitted.
+For an explicitly authorized CloudFormation request, use the Worktree handoff in [deploy](deploy/runbook.md#external-iac-repair-handoff). Start only from the pinned suspended parent with `worktree_task.py create --task-id <repair-task-id> --repair-request <request.json>`. Register a distinct infrastructure/implement contract with the request's exact IaC write paths, target and Validation scope, `Deploy repair request: <absolute request.json>`, and AWS API execution/AWS mutation/Deploy/apply forbidden. The approved Model remains input. Preflight may identify the requested IaC defects as the repair work when Model design is complete; missing design, ownership, placement or confirmed reference values still stop for Human/design work. No AWS retrieval, provider plan or deployment is permitted.
 
 Correct only the requested causes using the existing typed `comparison.Comparison`/schema/reference semantics when needed. Run `worktree_task.py repair-validate --task-id <repair-task-id> --repair-request <request.json>` for the real scoped static loop and sealed dependency receipt, then the existing complete and finalize helpers. Reuse this one-shot child/request for at most 3 static correction cycles; do not create another Task to evade FAIL or a limit. Static PASS is only a retry candidate. finalize integrates into the exact parent through its recorded intent and issues result.json outside Git; it does not complete or resume the parent. Clean up the child and discard its temporary request/result evidence, then let the supervising LLM explicitly resume the original Task and start an independent Deploy using current IaC and AWS state. No persistent Session, repair history or old approval is inherited. This authorization permits no unrelated Task/phase and grants no parent IaC write paths.
 
@@ -170,4 +170,4 @@ Do not add overall validation after successful scoped validation. Rerun only for
 
 State targets, accounts, regions, engines, changed files, implementation units/dependencies, validation results, retries, and blockers in completion reports. Do not save verification output in the repository.
 
-Do not create or execute AWS APIs, change sets, plans, deploy/apply, observed value updates, scenarios, other targets, or next tasks. Perform deploy/apply only when the human explicitly uses `framework/prompts/codex/04_deploy.md` as a separate task.
+Do not create or execute AWS APIs, change sets, plans, deploy/apply, observed value updates, scenarios, other targets, or next tasks. Perform deploy/apply only when the human explicitly uses the [Deploy Skill](../../../.agents/skills/deploy/SKILL.md) as a separate task.

@@ -243,11 +243,9 @@ def check_representative_routes():
             "read-before-changing-files",
             {"local-loop"},
         ),
-        ("framework/prompts/codex/04_deploy.md", "read-before-changing-files", set()),
     ):
         source = ROOT / relative
         source_text = source.read_text(encoding="utf-8")
-        # Deploy has a different heading and still refers directly to these sections.
         entry = markdown_sections(source_text).get(heading, source_text)
         actual = rule_readings(ROOT, source, entry).get(rule)
         assert actual and expected <= set(actual["sections"]), relative

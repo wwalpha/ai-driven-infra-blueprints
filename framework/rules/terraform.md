@@ -60,7 +60,7 @@
 - The `deploy` phase leaves IaC unchanged and runs `terraform fmt -check`, `terraform validate`, and `terraform plan` saved outside the repository.
 - The `update` phase generates Markdown without changing model properties manually edited by the human before task start; after implement-phase local validation, confirm plans saved outside the repository and apply. Permit only target IaC uncommitted diffs generated in this phase as apply targets.
 - If IaC repair is needed in the deploy phase, stop without changing it.
-- Do not introduce human review uniformly stopping all plans. Wait for human confirmation with an explanation according to `framework/prompts/codex/04_deploy.md` only when saved plans contain unapproved destroy/replacement.
+- Do not introduce human review uniformly stopping all plans. Wait for human confirmation with an explanation according to [approval procedure](../prompts/codex/deploy/runbook.md#confirm-unapproved-deletereplacement) only when saved plans contain unapproved destroy/replacement.
 - Execute saved plans for apply only when explicitly authorized by deploy/update phase active prompts and plan scope matches the prompt.
 - Saved plan resource change actions containing delete are subject to destroy/replacement confirmation. If unapproved, do not treat as deployment failure or task completion; wait for human confirmation without applying.
 - After human approval, reconfirm the same saved plan in the same task and apply that plan binary only when approved resource addresses, resource types, and actions match. If the plan binary is lost, recreated, or changed, reconfirm without using prior approval.

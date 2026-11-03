@@ -47,7 +47,7 @@ Do not use aliases when an environment has only one target. For multiple logical
 - `framework/prompts/codex/02_add-target.md`: Migration instructions to add one target confirmed after initialization
 - `framework/prompts/chatbot/service-design.md`: Ask instructions outputting detailed design files and a self-contained Codex prompt to create them in the repository
 - `framework/prompts/codex/03_implement.md`: Instructions converting approved detailed design into selected IaC through local static validation
-- `framework/prompts/codex/04_deploy.md`: Instructions for safety checks of created/validated IaC, deploy/apply, and deployment completion confirmation
+- [Deploy Skill](.agents/skills/deploy/SKILL.md): Instructions for safety checks of created/validated IaC, deploy/apply, and deployment completion confirmation
 - `framework/prompts/codex/05_update.md`: Instructions reflecting human-manually-edited uncommitted authoritative service Model inputs into generated designs and IaC through deploy/apply
 - `framework/prompts/codex/06_scenario-test.md`: Instructions validating application behavior in a task separate from deploy
 - `framework/scripts/check-deploy-context.py`: Preflight confirming topology, credentials, deployment account, region, IaC engine, and required commands
@@ -272,9 +272,9 @@ Per-resource `desired.resource.<nnn>.resourceMode` permits only `CREATE`/`IMPORT
 
 ## Post-design SDD
 
-For new design, save authoritative service Model inputs with the Codex prompt output by `framework/prompts/chatbot/service-design.md` and generate detailed design Markdown, create/validate IaC with `03_implement.md`, and deploy/apply with `04_deploy.md` in a separate task.
+For new design, save authoritative service Model inputs with the Codex prompt output by `framework/prompts/chatbot/service-design.md` and generate detailed design Markdown, create/validate IaC with `03_implement.md`, and deploy/apply with the [Deploy Skill](.agents/skills/deploy/SKILL.md) in a separate task.
 
-When humans directly change existing detailed design and reflect uncommitted differences into IaC through deploy/apply, use only `framework/prompts/codex/05_update.md`. Do not execute `03_implement.md` and `04_deploy.md` individually.
+When humans directly change existing detailed design and reflect uncommitted differences into IaC through deploy/apply, use only `framework/prompts/codex/05_update.md`. Do not execute `03_implement.md` and the [Deploy Skill](.agents/skills/deploy/SKILL.md) individually.
 
 For either workflow, use `framework/prompts/codex/06_scenario-test.md` in a separate task after deployment completion only when application behavior confirmation is necessary. See `framework/prompts/README.md` for detailed usage distinctions.
 
@@ -317,7 +317,6 @@ framework/
       01_initialize.md
       02_add-target.md
       03_implement.md
-      04_deploy.md
       05_update.md
       06_scenario-test.md
       07_destroy.md
@@ -592,6 +591,7 @@ Design update order is “confirm catalog selection items/naming rules → prepa
 CloudFormation Deploy has two independently selected execution procedures:
 the existing Python Controller + boto3 SDK method, and the LLM-direct AWS CLI
 method in [Direct AWS CLI deployment](framework/rules/cloudformation.md#direct-aws-cli-deployment).
+SDK is the default; use CLI only when the Human explicitly selects it.
 The CLI procedure covers context checks, fixed inputs, delivery, ChangeSet review/
 approval, execution and AWS-based recovery without a Python AWS executor. It never
 automatically switches to SDK. Common approval/order/Snapshot/Model/Validation/Git
@@ -630,7 +630,7 @@ Validate the whole scope locally; perform upload/checksum confirmation, AWS temp
 
 For SDK CloudFormation deploy failures, follow [Controlled deploy repair](framework/rules/cloudformation.md#controlled-deploy-repair); delegate only proved IaC defects to a separate isolated Implement Task, validate/integrate its exact commit, discard the one-shot handoff and start an independent current-input Deploy. CLI uses its independent AWS identity/token reconciliation and stops for repair without invoking SDK recovery/handoff. Ask the Human about external information, design decisions, rollback that cannot be safely recovered, and unapproved delete/replacement.
 
-SDK CloudFormation execution and failure next actions are documented by `deploy_preparation.py --help`, `cloudformation-deploy.py --help` and `deploy_handoff.py --help` under `framework/scripts/`. SDK Preparation returns the contract and target summary; `04_deploy.md` directs the LLM to applicable Rules and is outside execution snapshots. Python CLI JSON adds `stage`, safe `cause` and `nextAction`; a null command means review is required. Direct AWS CLI uses the separate Rules procedure and AWS JSON responses. AWS completion, Observed publication, generation and Git publication are distinct. Terraform's existing preflight and saved-plan/apply route is described by `check-deploy-context.py --help` and its Rules.
+SDK CloudFormation execution and failure next actions are documented by `deploy_preparation.py --help`, `cloudformation-deploy.py --help` and `deploy_handoff.py --help` under `framework/scripts/`. SDK Preparation returns the contract and target summary; the [Deploy Skill](.agents/skills/deploy/SKILL.md) provides normal SDK commands and conditional procedures and is outside execution snapshots. Python CLI JSON adds `stage`, safe `cause` and `nextAction`; a null command means review is required. Direct AWS CLI uses the separate Rules procedure and AWS JSON responses. AWS completion, Observed publication, generation and Git publication are distinct. Terraform's existing preflight and saved-plan/apply route is described by `check-deploy-context.py --help` and its Rules.
 
 ## Explicit CloudFormation Stack destroy
 

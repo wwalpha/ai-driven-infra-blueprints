@@ -211,7 +211,7 @@ def check_implementation_preflight_prompt() -> None:
     assert "git --no-optional-locks status --porcelain --untracked-files=all" in sandbox
     assert "git status --porcelain --untracked-files=all" not in sandbox
     for required in (
-        "create, setup (when needed), normal Deploy checkpoint, finalize, PR operations, orphan branch deletion and cleanup",
+        "create, deploy-start, setup (when needed), normal Deploy checkpoint, finalize, PR operations, orphan branch deletion and cleanup",
         "effective Sandbox restrictions",
         "protected exceptions and symlinks",
         "prior denial is not required",
@@ -587,8 +587,8 @@ def _check_task_transition_routes(text, entrypoints):
             ("issues-report-publication",),
         ),
         "deploy": (
-            "framework/prompts/codex/04_deploy.md",
-            "read-before-changing-files",
+            ".agents/skills/deploy/SKILL.md",
+            "common-entry",
             ("deploy-task-transitions",),
         ),
         "import": (
