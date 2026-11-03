@@ -7,6 +7,7 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import MagicMock, Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -80,23 +81,20 @@ def check_runner_parent_identity(tmp_path, monkeypatch, args, expected):
     (tests / "run_it.py").write_text("pass\n", encoding="utf-8")
     argv = [sys.executable, "-B", str(tests / "run_it.py"), *args]
 
-    class ProcessEntry:
-        def __init__(self, name=""):
-            self.name = name
-
-        def __truediv__(self, name):
-            return ProcessEntry(str(name))
-
-        def resolve(self, strict):
-            return Path(sys.executable).resolve() if self.name == "exe" else tmp_path
-
-        def read_bytes(self):
-            return b"\0".join(os.fsencode(arg) for arg in argv) + b"\0"
-
+    root, process, executable, cwd, command = (MagicMock() for _ in range(5))
+    root.__truediv__.return_value = process
+    process.__truediv__.side_effect = {
+        "exe": executable,
+        "cwd": cwd,
+        "cmdline": command,
+    }.get
+    executable.resolve.return_value = Path(sys.executable).resolve()
+    cwd.resolve.return_value = tmp_path
+    command.read_bytes.return_value = (
+        b"\0".join(os.fsencode(arg) for arg in argv) + b"\0"
+    )
     monkeypatch.setattr(
-        policy,
-        "Path",
-        lambda value: ProcessEntry() if value == "/proc" else Path(value),
+        policy, "Path", lambda value: root if value == "/proc" else Path(value)
     )
     assert policy.runner_parent(tests) is expected
 
@@ -107,23 +105,17 @@ def check_session_classification_revalidates_changed_sources(tmp_path, monkeypat
     source = tests / "suite.py"
     source.write_text("def check_one(): pass\n", encoding="utf-8")
     monkeypatch.setattr(policy, "WORKTREE_CASES", {"suite.py": ("check_one",)})
-    original = policy.worktree_suite
-    calls = []
-
-    def classify(path, root):
-        calls.append(path)
-        return original(path, root)
-
+    classify = Mock(wraps=policy.worktree_suite)
     monkeypatch.setattr(policy, "worktree_suite", classify)
     first = SessionClassifier()
     assert first(source, tests) and first(source, tests)
-    assert len(calls) == 1
+    assert classify.call_count == 1
     source.write_text("def check_other(): pass\n", encoding="utf-8")
     assert not first(source, tests)
-    assert len(calls) == 2
+    assert classify.call_count == 2
     second = SessionClassifier()
     assert not second(source, tests)
-    assert len(calls) == 3
+    assert classify.call_count == 3
 
 
 def check_forged_receipt_from_non_runner(tmp_path, monkeypatch):
