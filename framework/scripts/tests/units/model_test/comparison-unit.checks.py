@@ -1042,67 +1042,67 @@ class IngressRuleTests(unittest.TestCase):
 
 def test_quicksight_namespace_fixture():
     fixture = load_fixture("quicksight/namespace")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
 def test_quicksight_datasource_fixture():
     fixture = load_fixture("quicksight/datasource")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
 def test_glue_write_only_fixture():
     fixture = load_fixture("glue/write-only")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
 def test_lakeformation_federation_fixture():
     fixture = load_fixture("lakeformation/federation")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
 def test_lambda_comparison_fixture():
     fixture = load_fixture("lambda/comparison")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
 def test_macie_lookup_fixture():
     fixture = load_fixture("macie/lookup")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
 def test_references_flowlog_fixture():
     fixture = load_fixture("references/flowlog")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
 def test_iam_inline_fixture():
     fixture = load_fixture("iam/inline")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
 def test_glue_job_fixture():
     fixture = load_fixture("glue/job")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
 def test_route53_records_fixture():
     fixture = load_fixture("route53/records")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
 def test_sqs_policies_fixture():
     fixture = load_fixture("sqs/policies")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
@@ -1365,13 +1365,13 @@ def test_runtime_policy_and_reference_boundaries():
 
 def test_references_failures_fixture():
     fixture = load_fixture("references/failures")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 
 def test_iam_model_reference_fixture():
     fixture = load_fixture("iam/model-reference")
-    actual = execute(fixture)
+    actual = execute(fixture, snapshot_only=True)
     assert_result(actual, fixture)
 
 

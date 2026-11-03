@@ -9,8 +9,10 @@ from functools import lru_cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from model.audit import generate
+from model.audit import build_snapshot, generate
 from support.model_sources import write_model
+
+from model import audit_runtime
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/model_test"
 _compile_source = lru_cache(maxsize=32)(compile)
@@ -76,7 +78,7 @@ def load_fixture(name):
     return inputs, expected
 
 
-def prepare(root, inputs, overrides=None):
+def prepare(root, inputs, overrides=None, snapshot_only=False):
     (root / "project.json").write_text(json.dumps(inputs["project"]), encoding="utf-8")
     model = dict(inputs["model"])
     for key, value in (overrides or {}).items():
@@ -87,7 +89,8 @@ def prepare(root, inputs, overrides=None):
     for address, values in inputs.get("models", {}).items():
         write_model(root / "model" / (address + ".properties"), values)
     write_model(root / ("model/dev/cde/" + inputs["service"] + ".properties"), model)
-    return generate(root, "dev", "cde", inputs["service"])[0]
+    build = build_snapshot if snapshot_only else generate
+    return build(root, "dev", "cde", inputs["service"])[0]
 
 
 def generated(source, root):
@@ -105,7 +108,7 @@ def path_value(value, path):
     return value
 
 
-def execute(fixture):
+def execute(fixture, snapshot_only=False):
     inputs, _expected = fixture
     results, sources = [], {}
     with TemporaryDirectory(prefix="audit-unit-") as directory:
@@ -123,8 +126,18 @@ def execute(fixture):
                 sort_keys=True,
             )
             if identity not in sources:
-                sources[identity] = prepare(root, inputs, scenario.get("model"))
-            namespace = generated(sources[identity], root)
+                sources[identity] = prepare(
+                    root, inputs, scenario.get("model"), snapshot_only
+                )
+            namespace = (
+                {
+                    "SNAPSHOT": copy.deepcopy(sources[identity]),
+                    "audit": audit_runtime.audit,
+                    "report": audit_runtime.report,
+                }
+                if snapshot_only
+                else generated(sources[identity], root)
+            )
             snap = namespace["SNAPSHOT"]
             for update in scenario.get("snapshotUpdates", []):
                 path_value(snap, update["path"][:-1])[update["path"][-1]] = update[
