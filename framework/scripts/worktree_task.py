@@ -868,7 +868,12 @@ def _prepare_commit(
         )
     ):
         raise Blocked("base history was rewritten; task retained for review")
-    if not pr_update and not prepare_only and not recovery:
+    if (
+        not pr_update
+        and not prepare_only
+        and not recovery
+        and state.get("integrationMode") != "pr"
+    ):
         latest = output(root, "rev-parse", f"refs/heads/{state['base']}")
         if latest != state.get("validation_base", state["start"]):
             if not ancestor(
@@ -963,6 +968,8 @@ def _prepare_commit(
         raise Blocked("task worktree changed during commit; review required")
     if prepare_only:
         return None
+    if state.get("integrationMode") == "pr" and not pr_update:
+        return state.get("validation_base", state["start"])
     if pr_update:
         # Published history is never rebased during PR updates.
         state.update(tip=output(target, "rev-parse", "HEAD"), verified=True)
@@ -1468,7 +1475,7 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
                     "validated candidate, Task or base changed before merge; retain worktree"
                 )
         current_base = output(base, "rev-parse", "HEAD")
-        if current_base != latest:
+        if current_base != latest and state.get("integrationMode") != "pr":
             if not ancestor(root, latest, state["base"]):
                 raise Blocked("base history was rewritten; task retained for review")
             raise NeedsSync(current_base)
@@ -1536,7 +1543,10 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
         ):
             raise Blocked("validated candidate/base changed; no merge")
         current_base = output(base, "rev-parse", "HEAD")
-        if current_base != candidate.base_commit:
+        if (
+            current_base != candidate.base_commit
+            and state.get("integrationMode") != "pr"
+        ):
             if not ancestor(root, candidate.base_commit, state["base"]):
                 raise Blocked("base history was rewritten; task retained for review")
             raise NeedsSync(current_base)
@@ -1561,7 +1571,10 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
         ):
             raise Blocked("validated state changed during task completion; no merge")
         current_base = output(base, "rev-parse", "HEAD")
-        if current_base != candidate.base_commit:
+        if (
+            current_base != candidate.base_commit
+            and state.get("integrationMode") != "pr"
+        ):
             if not ancestor(root, candidate.base_commit, state["base"]):
                 raise Blocked("base history was rewritten; task retained for review")
             raise NeedsSync(current_base)

@@ -100,8 +100,7 @@ Other Task baseline/integration/completion rules remain.
 For Framework-only governance/catalog-maintenance/migration with `framework` Validation scope,
 finish edits, required dependency-selected UTs, necessary IT and static checks under
 [Validation policy](loop-engineering.md#validation-policy), then invoke finalize while running.
-[Complete and integrate](../../.agents/skills/worktree/SKILL.md#complete-and-integrate) owns latest-base
-candidate validation/completion and exact-HEAD ff-only integration; no Consumer service tuple
+[Complete and integrate](../../.agents/skills/worktree/SKILL.md#complete-and-integrate) owns final candidate validation/completion and exact-HEAD ff-only integration (or PR publication without base synchronization); no Consumer service tuple
 is required. Other Task types/approved suspended failures keep their completion order.
 
 ## Explicit PR integration
@@ -114,7 +113,9 @@ publication. The verified candidate is published without local-base merge or cle
 PR number/URL, GitHub state and separate Draft state. Retry the same operation and saved
 intent; plain finalize never falls back to merge or implicitly changes Draft status.
 
-The same Task/Worktree may explicitly `pr-update`: validate a new descendant candidate,
+PR creation and updates do not require the base to match the validated baseline; GitHub
+handles conflicts and merge conditions. The same Task/Worktree may explicitly `pr-update`:
+validate a new descendant candidate,
 retain old published HEAD/new candidate in the update intent, and use ordinary FF Push
 only when the remote HEAD equals the expected old HEAD. No force Push, published-history
 rebase, new PR or cleanup follows Push. Remote drift or an unconfirmed creation without a
