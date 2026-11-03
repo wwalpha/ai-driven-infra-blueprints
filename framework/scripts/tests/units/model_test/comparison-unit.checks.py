@@ -1077,6 +1077,93 @@ def test_lakeformation_federation_fixture():
     assert_result(actual, fixture)
 
 
+def test_lakeformation_generated_response_and_cache():
+    fixture = load_fixture("lakeformation/federation")
+    inputs, _ = fixture
+    arn = "arn:aws:s3:::fixture-bucket"
+    role = "arn:aws:iam::123456789012:role/lake-role"
+    inputs["model"].update(
+        {
+            "desired.row.001-004.property": "LakeFormation.Resource.RoleArn",
+            "desired.row.001-004.value": f"`{role}`",
+            "desired.row.001-004.comment": "fixture",
+            "desired.row.001-005.property": "LakeFormation.Resource.Id",
+            "desired.row.001-005.value": '`{"$modelRef":{"logicalId":"LakeFormation_Resource_001","attribute":"Id"}}`',
+            "desired.row.001-005.comment": "fixture",
+            "observed.row.001-005.value": "`PENDING_DEPLOY`",
+        }
+    )
+    cases = [
+        (
+            {"ResourceArn": arn, "RoleArn": role, "WithFederation": True},
+            ("match", "match", "excluded", "match"),
+        ),
+        (
+            {"RoleArn": role},
+            ("sdk_unavailable", "match", "sdk_unavailable", "sdk_unavailable"),
+        ),
+        (
+            {"ResourceArn": arn, "RoleArn": role},
+            ("match", "match", "excluded", "excluded"),
+        ),
+        (
+            {"ResourceArn": arn + "-other", "RoleArn": role},
+            ("difference", "match", "sdk_unavailable", "sdk_unavailable"),
+        ),
+    ]
+    inputs["scenarios"] = [
+        {
+            "responses": [
+                {
+                    "api": ["lakeformation", "describe-resource"],
+                    "response": {"ResourceInfo": info},
+                }
+            ],
+            "fields": ["propertiesKey", "status"],
+        }
+        for info, _ in cases
+    ] + [
+        {
+            "fail": ["lakeformation", "describe-resource"],
+            "fields": ["propertiesKey", "status"],
+        }
+    ]
+    expected = [statuses for _, statuses in cases] + [
+        (
+            "acquisition_failed",
+            "acquisition_failed",
+            "sdk_unavailable",
+            "acquisition_failed",
+        )
+    ]
+    for result, statuses in zip(execute(fixture), expected, strict=True):
+        records = {
+            item["propertiesKey"].rsplit(".", 1)[-1]: item["status"]
+            for item in result["records"]
+        }
+        assert (
+            tuple(
+                records[key]
+                for key in (
+                    "ResourceArn",
+                    "RoleArn",
+                    "UseServiceLinkedRole",
+                    "WithFederation",
+                )
+            )
+            == statuses
+        )
+        assert records["Id"] == "design_unresolved"
+        assert "PENDING_DEPLOY" in result["report"]
+        assert (
+            "DescribeResource does not return the CloudFormation Id."
+            in result["report"]
+        )
+        assert result["calls"] == [
+            [["lakeformation", "describe-resource"], {"ResourceArn": arn}]
+        ]
+
+
 def test_lambda_comparison_fixture():
     fixture = load_fixture("lambda/comparison")
     actual = execute(fixture, snapshot_only=True)
