@@ -5,7 +5,7 @@ import json
 import sys
 from dataclasses import replace
 from functools import partial
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
@@ -2292,6 +2292,7 @@ def _execute_model_policy(case):
     comparison = fixture()
     resource(comparison, "cloudwatch-logs", "001", "Logs.LogGroup", "Log", [])
     if data["prepare_directly"]:
+        comparison.root = PurePosixPath("synthetic-project")
         pending = comparison.prepare_value(
             "consumer",
             {
