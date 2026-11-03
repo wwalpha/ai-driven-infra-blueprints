@@ -391,6 +391,33 @@ def check_safe_failure_diagnostics_distinguish_root_rollback_and_unknown():
     assert diagnostic["resource"]["properties"] == ["BucketName"]
     assert diagnostic["reasonRedacted"]
     assert "private-value" not in json.dumps(state) + json.dumps(diagnostic)
+    state.update(
+        failureClassification="HUMAN_REQUIRED",
+        failure={
+            "classification": "HUMAN_REQUIRED",
+            "stage": "RECOVERY",
+            "code": "RECOVERY_BLOCKED",
+            "message": "Recovery blocked",
+            "requiredAction": "Review recovery",
+            "previousFailure": {"code": "older"},
+        },
+    )
+    separated = failures.diagnostic(state)
+    assert separated["primaryFailure"]["code"] == "InvalidRequest"
+    assert separated["primaryFailure"]["eventId"] == "first"
+    assert separated["recoveryFailure"]["code"] == "RECOVERY_BLOCKED"
+    assert "eventId" not in separated["recoveryFailure"]
+    assert separated["requiredAction"] == "Review recovery"
+    state["requestPending"] = True
+    unconfirmed = failures.diagnostic(state)
+    assert unconfirmed["code"] == "REQUEST_UNCONFIRMED"
+    assert "primaryFailure" not in unconfirmed and "eventId" not in unconfirmed
+    assert not unconfirmed["retryable"]
+    state.pop("requestPending")
+    state["failureEvents"] = [rollback]
+    assert failures.diagnostic(state)["primaryFailure"]["code"] == "UNKNOWN_REASON"
+    state.pop("failureClassification")
+    state.pop("failure")
     duplicate = dict(first, LogicalResourceId="Other", EventId="same-time")
     state["failureEvents"] = [first, duplicate]
     assert failures.diagnostic(state)["code"] == "UNKNOWN_REASON"
@@ -491,6 +518,36 @@ def check_observed_resource_progress_deduplicates_and_marks_uncertainty(stack_st
         progress["failed"],
     ) == (2, 1, 1, 0)
     assert [item["logicalId"] for item in progress["activeResources"]] == ["Key"]
+    assert len(progress["resources"]) == 2 and not progress["resourcesTruncated"]
+    assert progress["resourcesOmitted"] == 0
+    many = [
+        {
+            **start,
+            "LogicalResourceId": f"Item{i:03}",
+            "EventId": f"large-{i}",
+            "ResourceStatus": "CREATE_FAILED"
+            if i == 100
+            else "CREATE_IN_PROGRESS"
+            if i == 99
+            else "CREATE_COMPLETE",
+        }
+        for i in range(101)
+    ]
+    large = current_state.event_progress(
+        stack, [root, *many, foreign, other_stack], "current", "stack-a", "A"
+    )
+    assert (
+        large["observedResources"],
+        large["completed"],
+        large["inProgress"],
+        large["failed"],
+    ) == (101, 99, 1, 1)
+    assert len(large["resources"]) == 30 and large["resourcesOmitted"] == 71
+    assert large["resourcesTruncated"]
+    assert {item["logicalId"] for item in large["resources"][:2]} == {
+        "Item099",
+        "Item100",
+    }
     assert "percent" not in progress and "total" not in progress
     missing_token = current_state.event_progress(
         stack,

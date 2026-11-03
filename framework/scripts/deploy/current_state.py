@@ -302,6 +302,13 @@ def event_progress(stack, events, token, stack_id, stack_name):
         reverse=True,
     )
     history.sort(key=lambda item: (item["timestamp"], item["eventId"]), reverse=True)
+    ordered = sorted(
+        records,
+        key=lambda item: (
+            0 if item["resourceStatus"].endswith(("_IN_PROGRESS", "_FAILED")) else 1,
+            item["logicalId"],
+        ),
+    )
     result.update(
         available=True,
         partial=partial or not counts_available,
@@ -314,7 +321,9 @@ def event_progress(stack, events, token, stack_id, stack_name):
         else None,
         inProgress=len(active) if counts_available else None,
         failed=len(failed) if counts_available else None,
-        resources=sorted(records, key=lambda item: item["logicalId"]),
+        resources=ordered[:30],
+        resourcesTruncated=len(ordered) > 30,
+        resourcesOmitted=max(0, len(ordered) - 30),
         activeResources=active[:30],
         activeResourcesTruncated=len(active) > 30,
         recentFailures=history[:10],

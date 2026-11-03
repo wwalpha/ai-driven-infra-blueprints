@@ -366,10 +366,15 @@ def check_failure_evidence_survives_progress_reload_and_status(tmp_path):
         SimpleNamespace(states=restored["states"], run_context=restored)
     )["states"]["A"]["diagnostic"]
     assert diagnostic["classification"] == "HUMAN_REQUIRED"
-    assert diagnostic["code"] == "RECOVERY_BLOCKED"
-    assert "unsafe rollback state" in diagnostic["message"]
+    assert diagnostic["code"] == "InvalidRequest"
+    assert diagnostic["primaryFailure"]["eventId"] == "first"
+    assert diagnostic["primaryFailure"]["resource"]["LogicalResourceId"] == "Bucket"
+    assert diagnostic["recoveryFailure"]["code"] == "RECOVERY_BLOCKED"
+    assert "unsafe rollback state" in diagnostic["recoveryFailure"]["message"]
+    assert "eventId" not in diagnostic["recoveryFailure"]
     assert diagnostic["eventId"] == "first"
     assert diagnostic["requiredAction"]
+    assert secret not in json.dumps(diagnostic)
     current_state.record_attempt(saved, "ATTEMPT_SUCCESS")
     assert failures.diagnostic(saved) is None
 

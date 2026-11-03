@@ -221,6 +221,9 @@ def diagnostic(state: StackState) -> JsonObject | None:
         or state.get("attemptResult") == "UNKNOWN"
         or failure.get("classification") == "SUBMISSION_UNKNOWN"
     )
+    recovery = failure.get("stage") == "RECOVERY"
+    if pending and recovery:
+        root = None
     operation = None
     if not (
         failure
@@ -238,10 +241,28 @@ def diagnostic(state: StackState) -> JsonObject | None:
             or "Review the listed changes and approve or reject the ChangeSet."
         )
         code, stage, source = "APPROVAL_REQUIRED", "CHANGESET_REVIEW", "CHANGE_SET"
-    elif failure and (
-        state.get("failureClassification") == "HUMAN_REQUIRED"
-        or failure.get("code") == "OBSERVED_READINESS"
-        or failure.get("classification") == "OWNER_SCOPE_MISSING"
+    elif root and recovery:
+        message = (
+            root.get("message")
+            or "CloudFormation reported a Resource failure; the reason is unavailable."
+        )
+        action = (
+            failure.get("requiredAction")
+            or "Review the recovery failure before continuing."
+        )
+        code, stage, source = (
+            root.get("code") or "UNKNOWN_REASON",
+            "STACK_EXECUTION",
+            "STACK_EVENT",
+        )
+    elif (
+        failure
+        and not (pending and recovery)
+        and (
+            state.get("failureClassification") == "HUMAN_REQUIRED"
+            or failure.get("code") == "OBSERVED_READINESS"
+            or failure.get("classification") == "OWNER_SCOPE_MISSING"
+        )
     ):
         message = failure.get("message") or "The operation requires Human review."
         action = (
@@ -348,6 +369,30 @@ def diagnostic(state: StackState) -> JsonObject | None:
         )
         result["resource"]["properties"] = root.get("properties", [])
         result.update(eventId=root.get("EventId"), timestamp=root.get("timestamp"))
+    if recovery:
+        result["recoveryFailure"] = {
+            "code": failure.get("code") or "UNKNOWN_REASON",
+            "message": failure.get("message") or "Recovery could not be confirmed.",
+            "stage": "RECOVERY",
+            "requiredAction": failure.get("requiredAction")
+            or "Review the recovery failure before continuing.",
+        }
+        if root:
+            result["primaryFailure"] = {
+                "code": root.get("code") or "UNKNOWN_REASON",
+                "message": message,
+                "stage": "STACK_EXECUTION",
+                "resource": copy.deepcopy(result["resource"]),
+                "eventId": root.get("EventId"),
+                "requiredAction": "Review the initial Resource failure and request a correction if needed.",
+            }
+        elif not pending:
+            result["primaryFailure"] = {
+                "code": "UNKNOWN_REASON",
+                "message": "The initial Resource failure is unconfirmed.",
+                "stage": "STACK_EXECUTION",
+                "requiredAction": "Review the available Stack events before deciding how to continue.",
+            }
     if failure.get("resources"):
         result["resources"] = failure["resources"]
     if failure.get("owners"):
