@@ -1,0 +1,3 @@
+error:
+  message: 'reference property contract unproven: IAM.Role.Tags[].Value'
+  type: Blocked

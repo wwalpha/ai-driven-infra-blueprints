@@ -1,0 +1,6 @@
+attribute: KeyId
+different: false
+resource:
+- kms
+- '001'
+same: true

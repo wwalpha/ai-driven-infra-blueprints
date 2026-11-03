@@ -1,0 +1,4 @@
+fields:
+- iac: 欠落
+  model: '1'
+  path: a

@@ -1,0 +1,5 @@
+unverified:
+- check: naming
+  failure_kind: input_unavailable
+  reason: Model unavailable
+  service: vpc

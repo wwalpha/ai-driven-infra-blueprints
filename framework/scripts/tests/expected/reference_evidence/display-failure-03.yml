@@ -1,0 +1,4 @@
+error:
+  message: implementation bug
+  type: ValueError
+resolve_count: 1

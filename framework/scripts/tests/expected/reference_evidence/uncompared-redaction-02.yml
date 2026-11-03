@@ -1,0 +1,13 @@
+display: {}
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac: {}
+  model: null
+  property: Setting
+  reason: reference identity or property format is unproven
+  reference_diagnostics: []
+  resource: '002'
+  service: codebuild
+  stack: producer

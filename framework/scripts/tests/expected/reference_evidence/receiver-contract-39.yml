@@ -1,0 +1,6 @@
+attribute: Id
+different: false
+resource:
+- secrets-manager
+- '001'
+same: true

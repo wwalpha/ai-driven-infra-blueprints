@@ -1,0 +1,3 @@
+errors:
+- message: 'reference target must be CodeCommit.Repository: CodePipeline.Pipeline.Stages[].Actions[].Configuration.RepositoryName'
+  type: Blocked

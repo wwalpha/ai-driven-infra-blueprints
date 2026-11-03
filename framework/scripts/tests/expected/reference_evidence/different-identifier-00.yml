@@ -1,0 +1,34 @@
+decision:
+  comparisons: []
+  diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: local_evaluation
+    exports:
+    - export_name: shared
+      export_stack: producer
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: RepositoryId
+      $resource:
+      - repository
+      - '001'
+    identity: same
+    local_comparison: uncompared
+    model:
+      $attribute: Name
+      $resource:
+      - repository
+      - '001'
+    model_literal: fixture-name
+    path: IAM.Role.
+    producers:
+    - attribute: Name
+      producer: repository/001
+    - attribute: RepositoryId
+      producer: repository/001
+    reason: 'attribute_format_unproven: Ref identifier output is unproven'
+  equal: null
+  equivalent: false

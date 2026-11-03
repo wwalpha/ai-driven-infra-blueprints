@@ -1,0 +1,11 @@
+ordinary:
+- applied_rule: must match ^(alias/)[a-zA-Z0-9:/_-]+$
+  evidence: Provider schema
+  id: dcdcc13f6c78ff08a811
+  message: Invalid provider name
+  naming_item_id: b63bc76613af4b633738
+  property: AliasName
+  resource: '001'
+  rule: review.naming
+  service: kms
+  violation: provider_constraint

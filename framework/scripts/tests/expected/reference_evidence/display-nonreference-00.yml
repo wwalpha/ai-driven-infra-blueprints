@@ -1,0 +1,4 @@
+fields:
+- iac: 'null'
+  model: '{"a":1}'
+  path: ''

@@ -1,0 +1,6 @@
+attribute: GroupId
+different: false
+resource:
+- security-group
+- '001'
+same: true

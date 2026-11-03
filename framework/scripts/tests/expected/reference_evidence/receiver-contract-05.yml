@@ -1,0 +1,6 @@
+attribute: LogGroupName
+different: false
+resource:
+- cloudwatch-logs
+- '001'
+same: true

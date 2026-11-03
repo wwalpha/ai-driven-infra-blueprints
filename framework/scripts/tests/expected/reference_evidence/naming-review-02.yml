@@ -1,0 +1,12 @@
+ordinary:
+- applied_rule: vpc-{{application}}-{{environment}}
+  evidence: Reviewed the recorded name and rule
+  id: 7aa84a4420656a66a9e9
+  message: Naming finding
+  naming_item_id: f8d8ac8d76eb6ad28b92
+  property: Name
+  resource: '001'
+  rule: review.naming
+  service: vpc
+  violation: format
+unverified: []

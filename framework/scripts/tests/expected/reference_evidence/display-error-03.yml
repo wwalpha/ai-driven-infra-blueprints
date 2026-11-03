@@ -1,0 +1,24 @@
+display:
+  781435d5e0477a264e52:
+  - iac: '{"$resource":["s3","001"],"$attribute":"BucketName"}'
+    model: other
+    path: Setting
+records:
+- actual:
+    $attribute: BucketName
+    $resource:
+    - s3
+    - '001'
+  category: difference
+  desired: other
+  iac: {}
+  model: null
+  model_sources:
+  - {}
+  property: Setting
+  reason: value mismatch
+  resource: '001'
+  service: s3
+  stack: stack
+resolve_count: 0
+warnings: []

@@ -1,0 +1,27 @@
+detail:
+  items:
+  - actual: <masked>
+    category: difference
+    desired: <masked>
+    iac: {}
+    issue_id: ISSUE-92cfa68cf77521a0fcbf
+    model: null
+    model_sources:
+    - {}
+    property: SecretString
+    reason: value mismatch
+    record_index: 0
+    resource: '002'
+    service: codebuild
+    stack: producer
+    value_differences:
+    - iac: '"<masked>"'
+      model: '"<masked>"'
+      path: SecretString
+  offset: 0
+  omitted: 0
+  total: 1
+fields:
+- iac: '"<masked>"'
+  model: '"<masked>"'
+  path: SecretString

@@ -11752,3 +11752,1126 @@ cases:
         - Choose
         - vpc-123abc
         - vpc-456def
+  receiver-contract-00:
+    data:
+      service: s3
+      producer: S3.Bucket
+      attribute: BucketName
+      kind: CloudTrail.Trail
+      path: S3BucketName
+
+  receiver-contract-01:
+    data:
+      service: s3
+      producer: S3.Bucket
+      attribute: BucketName
+      kind: CodePipeline.Pipeline
+      path: ArtifactStore.Location
+
+  receiver-contract-02:
+    data:
+      service: s3
+      producer: S3.Bucket
+      attribute: BucketName
+      kind: Lambda.Function
+      path: Code.S3Bucket
+
+  receiver-contract-03:
+    data:
+      service: cloudwatch-logs
+      producer: Logs.LogGroup
+      attribute: LogGroupName
+      kind: CodeBuild.Project
+      path: LogsConfig.CloudWatchLogs.GroupName
+
+  receiver-contract-04:
+    data:
+      service: cloudwatch-logs
+      producer: Logs.LogGroup
+      attribute: LogGroupName
+      kind: Lambda.Function
+      path: LoggingConfig.LogGroup
+
+  receiver-contract-05:
+    data:
+      service: cloudwatch-logs
+      producer: Logs.LogGroup
+      attribute: LogGroupName
+      kind: EC2.FlowLog
+      path: LogGroupName
+
+  receiver-contract-06:
+    data:
+      service: vpc
+      producer: EC2.VPC
+      attribute: VpcId
+      kind: CodeBuild.Project
+      path: VpcConfig.VpcId
+
+  receiver-contract-07:
+    data:
+      service: vpc
+      producer: EC2.VPC
+      attribute: VpcId
+      kind: EC2.Subnet
+      path: VpcId
+
+  receiver-contract-08:
+    data:
+      service: vpc
+      producer: EC2.VPC
+      attribute: VpcId
+      kind: EC2.SecurityGroup
+      path: VpcId
+
+  receiver-contract-09:
+    data:
+      service: vpc
+      producer: EC2.VPC
+      attribute: VpcId
+      kind: EC2.RouteTable
+      path: VpcId
+
+  receiver-contract-10:
+    data:
+      service: vpc
+      producer: EC2.VPC
+      attribute: VpcId
+      kind: EC2.VPCEndpoint
+      path: VpcId
+
+  receiver-contract-11:
+    data:
+      service: vpc
+      producer: EC2.VPC
+      attribute: VpcId
+      kind: Route53.HostedZone
+      path: VPCs[].VPCId
+
+  receiver-contract-12:
+    data:
+      service: vpc
+      producer: EC2.Subnet
+      attribute: SubnetId
+      kind: EC2.Instance
+      path: SubnetId
+
+  receiver-contract-13:
+    data:
+      service: vpc
+      producer: EC2.Subnet
+      attribute: SubnetId
+      kind: CodeBuild.Project
+      path: VpcConfig.Subnets[]
+
+  receiver-contract-14:
+    data:
+      service: vpc
+      producer: EC2.Subnet
+      attribute: SubnetId
+      kind: Lambda.Function
+      path: VpcConfig.SubnetIds[]
+
+  receiver-contract-15:
+    data:
+      service: vpc
+      producer: EC2.Subnet
+      attribute: SubnetId
+      kind: EC2.VPCEndpoint
+      path: SubnetIds[]
+
+  receiver-contract-16:
+    data:
+      service: vpc
+      producer: EC2.Subnet
+      attribute: SubnetId
+      kind: Glue.Connection
+      path: ConnectionInput.PhysicalConnectionRequirements.SubnetId
+
+  receiver-contract-17:
+    data:
+      service: vpc
+      producer: EC2.Subnet
+      attribute: SubnetId
+      kind: MWAA.Environment
+      path: NetworkConfiguration.SubnetIds[]
+
+  receiver-contract-18:
+    data:
+      service: vpc
+      producer: EC2.Subnet
+      attribute: SubnetId
+      kind: QuickSight.VPCConnection
+      path: SubnetIds[]
+
+  receiver-contract-19:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: CodeBuild.Project
+      path: VpcConfig.SecurityGroupIds[]
+
+  receiver-contract-20:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: EC2.Instance
+      path: SecurityGroupIds[]
+
+  receiver-contract-21:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: EC2.SecurityGroupIngress
+      path: GroupId
+
+  receiver-contract-22:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: EC2.SecurityGroupIngress
+      path: SourceSecurityGroupId
+
+  receiver-contract-23:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: EC2.SecurityGroupEgress
+      path: GroupId
+
+  receiver-contract-24:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: EC2.SecurityGroupEgress
+      path: DestinationSecurityGroupId
+
+  receiver-contract-25:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: EC2.SecurityGroup
+      path: SecurityGroupEgress[].DestinationSecurityGroupId
+
+  receiver-contract-26:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: EC2.VPCEndpoint
+      path: SecurityGroupIds[]
+
+  receiver-contract-27:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: Glue.Connection
+      path: ConnectionInput.PhysicalConnectionRequirements.SecurityGroupIdList[]
+
+  receiver-contract-28:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: Lambda.Function
+      path: VpcConfig.SecurityGroupIds[]
+
+  receiver-contract-29:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: MWAA.Environment
+      path: NetworkConfiguration.SecurityGroupIds[]
+
+  receiver-contract-30:
+    data:
+      service: security-group
+      producer: EC2.SecurityGroup
+      attribute: GroupId
+      kind: QuickSight.VPCConnection
+      path: SecurityGroupIds[]
+
+  receiver-contract-31:
+    data:
+      service: vpc
+      producer: EC2.RouteTable
+      attribute: RouteTableId
+      kind: EC2.SubnetRouteTableAssociation
+      path: RouteTableId
+
+  receiver-contract-32:
+    data:
+      service: vpc
+      producer: EC2.RouteTable
+      attribute: RouteTableId
+      kind: EC2.VPCEndpoint
+      path: RouteTableIds[]
+
+  receiver-contract-33:
+    data:
+      service: iam
+      producer: IAM.Role
+      attribute: RoleName
+      kind: Glue.Job
+      path: Role
+
+  receiver-contract-34:
+    data:
+      service: iam
+      producer: IAM.Role
+      attribute: RoleName
+      kind: IAM.InstanceProfile
+      path: Roles[]
+
+  receiver-contract-35:
+    data:
+      service: iam
+      producer: IAM.InstanceProfile
+      attribute: InstanceProfileName
+      kind: EC2.Instance
+      path: IamInstanceProfile
+
+  receiver-contract-36:
+    data:
+      service: glue
+      producer: Glue.SecurityConfiguration
+      attribute: Name
+      kind: Glue.Job
+      path: SecurityConfiguration
+
+  receiver-contract-37:
+    data:
+      service: lambda
+      producer: Lambda.Function
+      attribute: FunctionName
+      kind: Lambda.Permission
+      path: FunctionName
+
+  receiver-contract-38:
+    data:
+      service: route53
+      producer: Route53.HostedZone
+      attribute: Id
+      kind: Route53.RecordSet
+      path: HostedZoneId
+
+  receiver-contract-39:
+    data:
+      service: secrets-manager
+      producer: SecretsManager.Secret
+      attribute: Id
+      kind: SecretsManager.RotationSchedule
+      path: SecretId
+
+  receiver-contract-40:
+    data:
+      service: sqs
+      producer: SQS.Queue
+      attribute: QueueUrl
+      kind: SQS.QueuePolicy
+      path: Queues[]
+
+  receiver-contract-41:
+    data:
+      service: kms
+      producer: KMS.Alias
+      attribute: AliasName
+      kind: CodeCommit.Repository
+      path: KmsKeyId
+
+  receiver-contract-42:
+    data:
+      service: kms
+      producer: KMS.Alias
+      attribute: AliasName
+      kind: EC2.Instance
+      path: BlockDeviceMappings[].Ebs.KmsKeyId
+
+  receiver-contract-43:
+    data:
+      service: kms
+      producer: KMS.Alias
+      attribute: AliasName
+      kind: MWAA.Environment
+      path: KmsKey
+
+  receiver-contract-44:
+    data:
+      service: kms
+      producer: KMS.Alias
+      attribute: AliasName
+      kind: SecretsManager.Secret
+      path: KmsKeyId
+
+  receiver-contract-45:
+    data:
+      service: kms
+      producer: KMS.Key
+      attribute: KeyId
+      kind: KMS.Alias
+      path: TargetKeyId
+
+  return-attribute-00:
+    data:
+      kind: Glue.Connection
+      ref_attribute: Name
+      attribute: Name
+      invalid: Arn
+
+  return-attribute-01:
+    data:
+      kind: SecretsManager.Secret
+      ref_attribute: Id
+      attribute: Id
+      invalid: Arn
+
+  return-attribute-02:
+    data:
+      kind: IAM.ManagedPolicy
+      ref_attribute: PolicyArn
+      attribute: PolicyArn
+      invalid: Arn
+
+  return-attribute-03:
+    data:
+      kind: CodeCommit.Repository
+      ref_attribute: RepositoryId
+      attribute: Name
+      invalid: Unknown
+
+  return-attribute-04:
+    data:
+      kind: QuickSight.VPCConnection
+      ref_attribute: null
+      attribute: Arn
+      invalid: VPCConnectionId
+  symbolic-setting-00:
+    data:
+      fault: null
+  symbolic-setting-01:
+    data:
+      fault: other-stack
+  symbolic-setting-02:
+    data:
+      fault: attribute
+  symbolic-setting-03:
+    data:
+      fault: delimiter
+  symbolic-setting-04:
+    data:
+      fault: invalid
+  symbolic-setting-05:
+    data:
+      fault: missing
+  symbolic-setting-06:
+    data:
+      fault: index
+  symbolic-setting-07:
+    data:
+      fault: literal
+  symbolic-setting-08:
+    data:
+      fault: sub
+  flowlog-context-00:
+    data:
+      prop: ResourceId
+      context:
+        ResourceType: VPC
+      producer: Vpc
+      accept: true
+  flowlog-context-01:
+    data:
+      prop: ResourceId
+      context: {}
+      producer: Vpc
+      accept: false
+  flowlog-context-02:
+    data:
+      prop: ResourceId
+      context:
+        ResourceType: Subnet
+      producer: Vpc
+      accept: false
+  flowlog-context-03:
+    data:
+      prop: ResourceId
+      context:
+        ResourceType: UNSET
+      producer: Vpc
+      accept: false
+  flowlog-context-04:
+    data:
+      prop: ResourceId
+      context:
+        ResourceType: VPC
+      producer: Subnet
+      accept: false
+  new-receiver-00:
+    data:
+      kind: ApiGatewayV2.Stage
+      path: AccessLogSettings.DestinationArn
+      producer: Logs.LogGroup
+      attribute: Arn
+  new-receiver-01:
+    data:
+      kind: S3.Bucket
+      path: ReplicationConfiguration.Rules[1].Destination.Bucket
+      producer: S3.Bucket
+      attribute: Arn
+  new-receiver-02:
+    data:
+      kind: RDS.DBInstance
+      path: DBSubnetGroupName
+      producer: RDS.DBSubnetGroup
+      attribute: DBSubnetGroupName
+  new-receiver-03:
+    data:
+      kind: Glue.Crawler
+      path: Role
+      producer: IAM.Role
+      attribute: Arn
+  new-receiver-04:
+    data:
+      kind: Glue.Crawler
+      path: Role
+      producer: IAM.Role
+      attribute: RoleName
+  new-receiver-05:
+    data:
+      kind: CodeBuild.Project
+      path: EncryptionKey
+      producer: KMS.Key
+      attribute: Arn
+  new-receiver-06:
+    data:
+      kind: CodeBuild.Project
+      path: EncryptionKey
+      producer: KMS.Alias
+      attribute: AliasName
+  new-receiver-07:
+    data:
+      kind: S3.Bucket
+      path: ReplicationConfiguration.Rules[1].Destination.EncryptionConfiguration.ReplicaKmsKeyID
+      producer: KMS.Key
+      attribute: Arn
+  new-receiver-08:
+    data:
+      kind: S3.Bucket
+      path: ReplicationConfiguration.Rules[1].Destination.EncryptionConfiguration.ReplicaKmsKeyID
+      producer: KMS.Alias
+      attribute: AliasArn
+  new-receiver-09:
+    data:
+      kind: SageMaker.Domain
+      path: VpcId
+      producer: EC2.VPC
+      attribute: VpcId
+  new-receiver-10:
+    data:
+      kind: NetworkFirewall.Firewall
+      path: VpcId
+      producer: EC2.VPC
+      attribute: VpcId
+  new-receiver-11:
+    data:
+      kind: ECS.Service
+      path: LoadBalancers[1].TargetGroupArn
+      producer: ElasticLoadBalancingV2.TargetGroup
+      attribute: TargetGroupArn
+  new-receiver-12:
+    data:
+      kind: EC2.Instance
+      path: NetworkInterfaces[1].SubnetId
+      producer: EC2.Subnet
+      attribute: SubnetId
+  new-receiver-13:
+    data:
+      kind: EC2.LaunchTemplate
+      path: LaunchTemplateData.NetworkInterfaces[1].SubnetId
+      producer: EC2.Subnet
+      attribute: SubnetId
+  new-receiver-14:
+    data:
+      kind: EC2.NatGateway
+      path: SubnetId
+      producer: EC2.Subnet
+      attribute: SubnetId
+  new-receiver-15:
+    data:
+      kind: EC2.SubnetRouteTableAssociation
+      path: SubnetId
+      producer: EC2.Subnet
+      attribute: SubnetId
+  new-receiver-16:
+    data:
+      kind: NetworkFirewall.Firewall
+      path: SubnetMappings[1].SubnetId
+      producer: EC2.Subnet
+      attribute: SubnetId
+  new-receiver-17:
+    data:
+      kind: ElasticLoadBalancingV2.LoadBalancer
+      path: SubnetMappings[1].SubnetId
+      producer: EC2.Subnet
+      attribute: SubnetId
+  new-receiver-18:
+    data:
+      kind: MWAA.Environment
+      path: ExecutionRoleArn
+      producer: IAM.Role
+      attribute: Arn
+  new-receiver-19:
+    data:
+      kind: MWAA.Environment
+      path: SourceBucketArn
+      producer: S3.Bucket
+      attribute: Arn
+  new-receiver-20:
+    data:
+      kind: RDS.DBProxy
+      path: Auth[1].SecretArn
+      producer: SecretsManager.Secret
+      attribute: Id
+  new-receiver-21:
+    data:
+      kind: RDS.DBProxy
+      path: RoleArn
+      producer: IAM.Role
+      attribute: Arn
+  new-receiver-22:
+    data:
+      kind: Scheduler.Schedule
+      path: Target.DeadLetterConfig.Arn
+      producer: SQS.Queue
+      attribute: Arn
+  new-receiver-23:
+    data:
+      kind: S3.Bucket
+      path: ReplicationConfiguration.Role
+      producer: IAM.Role
+      attribute: Arn
+  new-receiver-24:
+    data:
+      kind: ECS.TaskDefinition
+      path: TaskRoleArn
+      producer: IAM.Role
+      attribute: Arn
+  new-receiver-25:
+    data:
+      kind: ECS.TaskDefinition
+      path: ExecutionRoleArn
+      producer: IAM.Role
+      attribute: Arn
+  new-receiver-26:
+    data:
+      kind: Route53.HostedZone
+      path: QueryLoggingConfig.CloudWatchLogsLogGroupArn
+      producer: Logs.LogGroup
+      attribute: Arn
+  new-receiver-27:
+    data:
+      kind: Scheduler.Schedule
+      path: Target.RoleArn
+      producer: IAM.Role
+      attribute: Arn
+  array-member-literal-00:
+    data:
+      text: '["a/","b/"]'
+      fields:
+      - Tags[].Value
+      - Tags[1].Value
+      - ProtectedResource.S3Bucket.BucketName
+      - ProtectedResource.S3Bucket.ObjectPrefixes[1]
+  array-member-literal-01:
+    data:
+      text: '[]'
+      fields:
+      - Tags[].Value
+      - Tags[1].Value
+      - ProtectedResource.S3Bucket.BucketName
+      - ProtectedResource.S3Bucket.ObjectPrefixes[1]
+  array-member-literal-02:
+    data:
+      text: '["a/",]'
+      fields:
+      - Tags[].Value
+      - Tags[1].Value
+      - ProtectedResource.S3Bucket.BucketName
+      - ProtectedResource.S3Bucket.ObjectPrefixes[1]
+  display-cache-00:
+    data:
+      shape: direct
+  display-cache-01:
+    data:
+      shape: nested
+  display-cache-02:
+    data:
+      shape: join
+  display-cache-03:
+    data:
+      shape: sub
+  display-cache-04:
+    data:
+      shape: select
+  display-runner-00:
+    data:
+      desired: fixture-bucket
+      category: matched
+  display-runner-01:
+    data:
+      desired: different
+      category: difference
+  display-runner-02:
+    data:
+      desired: vpc-literal
+      category: uncompared
+  display-mask-00:
+    data:
+      mask: property
+  display-mask-01:
+    data:
+      mask: environment
+  display-mask-02:
+    data:
+      mask: sensitive
+  display-mask-03:
+    data:
+      mask: producer
+  display-mask-04:
+    data:
+      mask: expression
+  display-failure-00:
+    data:
+      failure: absent
+  display-failure-01:
+    data:
+      failure: context
+  display-failure-02:
+    data:
+      failure: blocked
+  display-failure-03:
+    data:
+      failure: bug
+  action-context-00:
+    data:
+      bad: null
+  action-context-01:
+    data:
+      bad: Category
+  action-context-02:
+    data:
+      bad: Owner
+  action-context-03:
+    data:
+      bad: Provider
+  action-context-04:
+    data:
+      bad: Version
+  action-context-05:
+    data:
+      bad: target
+  unknown-property-00:
+    data:
+      field: UnknownPolicyArns[]
+      context: {}
+  unknown-property-01:
+    data:
+      field: ManagedPolicyArns
+      context: {}
+  unknown-property-02:
+    data:
+      field: Description[]
+      context: {}
+  unknown-property-03:
+    data:
+      field: Tags[].Value
+      context: {}
+  unknown-property-04:
+    data:
+      field: ArnLikeNames[]
+      context: {}
+  unknown-property-05:
+    data:
+      field: Groups[]
+      context: {}
+  unknown-property-06:
+    data:
+      field: Environment.EnvironmentVariables[].Value
+      context: {}
+  unknown-property-07:
+    data:
+      field: ResourceRecords[]
+      context: {}
+  display-pipeline-00:
+    data:
+      observed: 12345678-1234-1234-1234-123456789012
+  display-pipeline-01:
+    data:
+      observed: null
+  display-pipeline-02:
+    data:
+      observed: PENDING_DEPLOY
+  display-nonreference-00:
+    data:
+      actual: null
+      join: false
+  display-nonreference-01:
+    data:
+      actual: ordinary
+      join: false
+  display-nonreference-02:
+    data:
+      actual: {}
+      join: false
+  display-nonreference-03:
+    data:
+      actual:
+      - /
+      - - a
+        - b
+      join: true
+  uncompared-redaction-00:
+    data:
+      shape: nested
+  uncompared-redaction-01:
+    data:
+      shape: expression
+  uncompared-redaction-02:
+    data:
+      shape: secret
+  uncompared-redaction-03:
+    data:
+      shape: sensitive
+  display-error-00:
+    data:
+      equal: null
+      actual_error: false
+  display-error-01:
+    data:
+      equal: false
+      actual_error: false
+  display-error-02:
+    data:
+      equal: null
+      actual_error: true
+  display-error-03:
+    data:
+      equal: false
+      actual_error: true
+  model-correspondence-00:
+    data:
+      mode: scalar
+  model-correspondence-01:
+    data:
+      mode: ordered
+  model-correspondence-02:
+    data:
+      mode: keyed
+  model-correspondence-03:
+    data:
+      mode: unordered
+  model-correspondence-04:
+    data:
+      mode: ambiguous
+  unordered-diagnosed-00:
+    data:
+      nested: false
+  unordered-diagnosed-01:
+    data:
+      nested: true
+  import-receiver-00:
+    data:
+      kind: ApiGatewayV2.VpcLink
+      path: SubnetIds[]
+      producer: EC2.Subnet
+      attribute: SubnetId
+  import-receiver-01:
+    data:
+      kind: EC2.TransitGatewayVpcAttachment
+      path: SubnetIds
+      producer: EC2.Subnet
+      attribute: SubnetId
+  import-receiver-02:
+    data:
+      kind: ECS.CapacityProvider
+      path: ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.Subnets[]
+      producer: EC2.Subnet
+      attribute: SubnetId
+  import-receiver-03:
+    data:
+      kind: ECS.Service
+      path: NetworkConfiguration.AwsvpcConfiguration.Subnets[]
+      producer: EC2.Subnet
+      attribute: SubnetId
+  import-receiver-04:
+    data:
+      kind: ElasticLoadBalancingV2.LoadBalancer
+      path: Subnets[]
+      producer: EC2.Subnet
+      attribute: SubnetId
+  import-receiver-05:
+    data:
+      kind: GuardDuty.MalwareProtectionPlan
+      path: Role
+      producer: IAM.Role
+      attribute: Arn
+  import-receiver-06:
+    data:
+      kind: RDS.DBProxy
+      path: VpcSubnetIds[]
+      producer: EC2.Subnet
+      attribute: SubnetId
+  import-receiver-07:
+    data:
+      kind: RDS.DBProxyEndpoint
+      path: VpcSubnetIds[]
+      producer: EC2.Subnet
+      attribute: SubnetId
+  import-receiver-08:
+    data:
+      kind: RDS.DBSubnetGroup
+      path: SubnetIds[]
+      producer: EC2.Subnet
+      attribute: SubnetId
+  import-receiver-09:
+    data:
+      kind: SageMaker.Domain
+      path: SubnetIds[]
+      producer: EC2.Subnet
+      attribute: SubnetId
+  import-receiver-10:
+    data:
+      kind: Scheduler.Schedule
+      path: Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]
+      producer: EC2.Subnet
+      attribute: SubnetId
+  import-receiver-11:
+    data:
+      kind: SecretsManager.RotationSchedule
+      path: HostedRotationLambda.VpcSubnetIds
+      producer: EC2.Subnet
+      attribute: SubnetId
+  wrong-producer-00:
+    data:
+      kind: ECS.TaskDefinition
+      path: TaskRoleArn
+  wrong-producer-01:
+    data:
+      kind: ECS.TaskDefinition
+      path: ExecutionRoleArn
+  wrong-producer-02:
+    data:
+      kind: Route53.HostedZone
+      path: QueryLoggingConfig.CloudWatchLogsLogGroupArn
+  wrong-producer-03:
+    data:
+      kind: Scheduler.Schedule
+      path: Target.RoleArn
+  unknown-context-00:
+    data:
+      kind: EC2.FlowLog
+      path: ResourceId
+  unknown-context-01:
+    data:
+      kind: CodePipeline.Pipeline
+      path: Stages[].Actions[].Configuration.ProjectName
+  unknown-context-02:
+    data:
+      kind: CloudTrail.Trail
+      path: EventSelectors[].DataResources[].Values[]
+  multi-attribute-00:
+    data:
+      kind: Glue.Crawler
+      path: Role
+      producer: IAM.Role
+  multi-attribute-01:
+    data:
+      kind: ECS.Service
+      path: Cluster
+      producer: ECS.Cluster
+  expression-display-00:
+    data:
+      shape: join
+  expression-display-01:
+    data:
+      shape: nested
+  expression-display-02:
+    data:
+      shape: nested_join
+  expression-display-03:
+    data:
+      shape: sub
+  expression-display-04:
+    data:
+      shape: reference
+  ordered-duplicate-00:
+    data:
+      join: false
+  ordered-duplicate-01:
+    data:
+      join: true
+  typed-duplicate-00:
+    data:
+      shape: reference
+      masked: false
+  typed-duplicate-01:
+    data:
+      shape: reference
+      masked: true
+  typed-duplicate-02:
+    data:
+      shape: join
+      masked: false
+  typed-duplicate-03:
+    data:
+      shape: join
+      masked: true
+  typed-duplicate-04:
+    data:
+      shape: sub
+      masked: false
+  typed-duplicate-05:
+    data:
+      shape: sub
+      masked: true
+  replacement-proof-00:
+    data:
+      operation: Arn
+  replacement-proof-01:
+    data:
+      operation: Sub
+  replacement-proof-02:
+    data:
+      operation: Join
+  replacement-proof-03:
+    data:
+      operation: SplitSelect
+  codebuild-display-00:
+    data:
+      observed: 12345678-1234-1234-1234-123456789012
+  codebuild-display-01:
+    data:
+      observed: null
+  naming-review-00:
+    data:
+      value: vpc-app-dev
+      violation: null
+      issue_expected: null
+      issue_actual: null
+  naming-review-01:
+    data:
+      value: UNSET
+      violation: null
+      issue_expected: null
+      issue_actual: null
+  naming-review-02:
+    data:
+      value: wrong-app-dev
+      violation: format
+      issue_expected: null
+      issue_actual: null
+  naming-review-03:
+    data:
+      value: vpc-app
+      violation: format
+      issue_expected: null
+      issue_actual: null
+  naming-review-04:
+    data:
+      value: vpc-app-stg
+      violation: confirmed_mismatch
+      issue_expected: dev
+      issue_actual: stg
+  naming-review-05:
+    data:
+      value: null
+      violation: required_missing
+      issue_expected: null
+      issue_actual: null
+  naming-provider-00:
+    data:
+      value: invalid alias
+  naming-missing-00:
+    data:
+      value: test-name
+  naming-unavailable-00:
+    data:
+      reason: unresolved reference
+  ambiguous-unordered-00:
+    data:
+      desired:
+      - one
+      - two
+  unordered-expression-00:
+    data:
+      desired:
+      - matched
+      - pending
+  duplicate-evidence-00:
+    data:
+      desired:
+      - first
+      - second
+  duplicate-status-00:
+    data:
+      desired:
+      - same
+      - same
+  sensitive-correspondence-00:
+    data:
+      secret: model-secret
+  many-unordered-00:
+    data:
+      stop: 31
+  expression-redaction-00:
+    data:
+      desired: pending
+  typed-mixed-00:
+    data:
+      desired:
+      - same
+      - same
+  different-identifier-00:
+    data:
+      value: fixture-name
+  grouped-parent-00:
+    data:
+      value: alias/fixture
+  duplicate-missing-00:
+    data:
+      desired:
+      - same
+      - same
+  wrong-consumer-00:
+    data:
+      vpc: vpc-0123456789abcdef0
+  declared-cache-00:
+    data:
+      vpc: vpc-0123456789abcdef0
+  declared-name-00:
+    data:
+      name: fixture-name
+  naming-targets-00:
+    data:
+      value: bad_pattern_value
+  fragment-nested-00:
+    data:
+      suffix: One
+  fragment-pointers-00:
+    data:
+      body:
+        a/b~c:
+        - Resource: arn:aws:s3:::fixture-bucket/*|arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012
+        sibling: 12345678-1234-1234-1234-123456789012
+  fragment-undeclared-00:
+    data:
+      description: changed-next-deploy

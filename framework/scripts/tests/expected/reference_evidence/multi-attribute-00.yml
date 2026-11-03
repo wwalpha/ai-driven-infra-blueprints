@@ -1,0 +1,7 @@
+error:
+  message: 'unsupported JSON Resource attribute: IAM.Role.Unknown; [{"category": "MODEL_NEEDS_FIX",
+    "code": "MODEL_REF_INVALID_ATTRIBUTE", "message": "unsupported JSON Resource attribute:
+    IAM.Role.Unknown", "status": "FAIL", "action": "Correct the Model reference or
+    the invalid producer field.", "producerModel": "synthetic-project/model/fixture/team/producer.properties",
+    "fixModels": ["synthetic-project/model/fixture/team/producer.properties"]}]'
+  type: Blocked

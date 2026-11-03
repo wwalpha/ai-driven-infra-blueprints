@@ -1,0 +1,6 @@
+attribute: Id
+different: false
+resource:
+- route53
+- '001'
+same: true

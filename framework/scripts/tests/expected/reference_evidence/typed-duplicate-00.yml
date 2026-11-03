@@ -1,0 +1,123 @@
+detail:
+  items:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac: {}
+    issue_id: ISSUE-bcf2b3fd7f58f29c222b
+    model: null
+    property: Setting
+    reason: reference identity or property format is unproven
+    record_index: 0
+    reference_diagnostics:
+    - allowed_forms: null
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: unproven
+      local_comparison: matched
+      model: confirmed
+      path: KMS.Key.Setting[]
+      reason: fixture
+    - allowed_forms: null
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '001'
+      identity: unproven
+      local_comparison: matched
+      model: confirmed
+      path: KMS.Key.Setting[]
+      reason: fixture
+    - allowed_forms: null
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '002'
+      identity: unproven
+      local_comparison: uncompared
+      model: pending
+      path: KMS.Key.Setting[]
+      reason: fixture
+    resource: '001'
+    service: test
+    stack: stack
+    value_differences:
+    - iac: 'resolved (参照: kms/002.KeyId、取得元: fixture)'
+      model: pending
+      path: IaC:[2]（比較未確定）
+  offset: 0
+  omitted: 0
+  total: 1
+display:
+  265e1965cdcac1bcdefa:
+  - iac: 'resolved (参照: kms/002.KeyId、取得元: fixture)'
+    model: pending
+    path: IaC:[2]（比較未確定）
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac: {}
+  model: null
+  property: Setting
+  reason: reference identity or property format is unproven
+  reference_diagnostics:
+  - allowed_forms: null
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: KeyId
+      $resource:
+      - kms
+      - '001'
+    identity: unproven
+    local_comparison: matched
+    model: confirmed
+    path: KMS.Key.Setting[]
+    reason: fixture
+  - allowed_forms: null
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: KeyId
+      $resource:
+      - kms
+      - '001'
+    identity: unproven
+    local_comparison: matched
+    model: confirmed
+    path: KMS.Key.Setting[]
+    reason: fixture
+  - allowed_forms: null
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: KeyId
+      $resource:
+      - kms
+      - '002'
+    identity: unproven
+    local_comparison: uncompared
+    model: pending
+    path: KMS.Key.Setting[]
+    reason: fixture
+  resource: '001'
+  service: test
+  stack: stack

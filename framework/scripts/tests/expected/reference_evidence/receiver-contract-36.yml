@@ -1,0 +1,6 @@
+attribute: Name
+different: false
+resource:
+- glue
+- '001'
+same: true

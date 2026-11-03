@@ -1,0 +1,6 @@
+attribute: FunctionName
+different: false
+resource:
+- lambda
+- '001'
+same: true

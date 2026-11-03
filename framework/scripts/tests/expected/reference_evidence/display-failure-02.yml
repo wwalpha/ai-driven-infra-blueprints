@@ -1,0 +1,8 @@
+resolve_count: 1
+results:
+- - iac: '未解決 (参照: vpc/001.VpcId、理由: identifier_unobserved)'
+    model: different
+    path: ''
+- - iac: '未解決 (参照: vpc/001.VpcId、理由: identifier_unobserved)'
+    model: different
+    path: ''

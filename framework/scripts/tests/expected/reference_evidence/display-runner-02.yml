@@ -1,0 +1,19 @@
+display:
+  9c22fc7dcf824d6ad31b:
+  - iac: 'vpc-0123456789abcdef0 (参照: vpc/001.VpcId、取得元: Observed（記録値・現在AWS未確認）)'
+    model: vpc-literal
+    path: IaC:IAM.Role.Description（参照情報）
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: IAM.Role.Description
+  reason: reference identity or property format is unproven
+  reference_diagnostics: []
+  resource: '002'
+  service: iam
+  stack: producer
+resolve_count: 1

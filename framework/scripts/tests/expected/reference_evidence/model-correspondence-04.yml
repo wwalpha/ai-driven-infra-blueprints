@@ -1,0 +1,32 @@
+display:
+  74ce9c3a74f5d66d1de8:
+  - iac: 'resolved (参照: kms/007.KeyId、取得元: fixture)'
+    model: 対応未確定
+    path: IaC:[0].Value（参照情報）
+  - iac: 'resolved (参照: kms/007.KeyId、取得元: fixture)'
+    model: 対応未確定
+    path: IaC:[1].Value（参照情報）
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac: {}
+  model: null
+  property: Setting
+  reason: reference identity or property format is unproven
+  reference_diagnostics:
+  - correspondence: unproven
+    iac:
+      $caseType: ResourceReference
+      value:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '007'
+    local_comparison: uncompared
+    model: 候補複数（未確定）
+    path: Setting[].Value
+    reason: unproven
+  resource: '001'
+  service: test
+  stack: stack

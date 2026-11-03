@@ -1,0 +1,6 @@
+attribute: QueueUrl
+different: false
+resource:
+- sqs
+- '001'
+same: true

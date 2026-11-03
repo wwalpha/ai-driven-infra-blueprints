@@ -1,0 +1,52 @@
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: Logs.LogGroup.LogGroupName
+  reason: reference identity or property format is unproven
+  reference_diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    direct:
+    - scope:
+      - aws
+      - '123456789012'
+      - ap-northeast-1
+      stack: producer
+      unproven: 'Select bounds are unproven: index 1, symbolic array minItems=1'
+    evidence_type: direct_expression
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $expression: Select
+      $operands:
+      - 1
+      - $expression: Split
+        $operands:
+        - :*
+        - $attribute: Arn
+          $resource:
+          - cloudwatch-logs
+          - '001'
+    identity: unproven
+    model:
+      $expression: Select
+      $operands:
+      - 0
+      - $expression: Split
+        $operands:
+        - :*
+        - $attribute: Arn
+          $resource:
+          - cloudwatch-logs
+          - '001'
+    path: Logs.LogGroup.LogGroupName
+    reason: Select bounds and selection contract are unproven
+    runtime_bounds_verified: false
+  resource: 090
+  service: consumer
+  stack: producer

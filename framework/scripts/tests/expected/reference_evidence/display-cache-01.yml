@@ -1,0 +1,6 @@
+fields:
+- iac: '{"Items":["fixture-bucket (参照: s3/001.BucketName、取得元: IaC（ローカル評価）)","fixture-bucket
+    (参照: s3/001.BucketName、取得元: IaC（ローカル評価）)"]}'
+  model: different
+  path: Setting
+resolve_count: 1

@@ -1,0 +1,4 @@
+attribute: Arn
+resource:
+- producer
+- '001'

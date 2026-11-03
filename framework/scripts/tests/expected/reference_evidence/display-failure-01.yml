@@ -1,0 +1,8 @@
+resolve_count: 0
+results:
+- - iac: '未解決 (参照: vpc/001.VpcId、理由: reference comparison context is unavailable)'
+    model: different
+    path: ''
+- - iac: '未解決 (参照: vpc/001.VpcId、理由: reference comparison context is unavailable)'
+    model: different
+    path: ''

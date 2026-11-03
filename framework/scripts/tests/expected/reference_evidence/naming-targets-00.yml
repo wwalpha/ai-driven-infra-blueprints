@@ -1,0 +1,171 @@
+names:
+- comment: null
+  conditions: {}
+  human_context_id: null
+  id: 4ba5acb873fa737a771f
+  identity:
+    anchor: vpc001
+    cfn-logicalId: producer-Vpc001
+    logicalId: EC2_VPC_001
+  pattern_review: Scan mandatory-constraint decision
+  property: Name
+  provider_checked: true
+  provider_errors: []
+  required_missing: true
+  resource: '001'
+  resourceMode: CREATE
+  resourceType: EC2.VPC
+  rule: EC2
+  rule_targets:
+  - EC2.VPC.Name
+  scope: CREATE selected naming target
+  service: vpc
+  source: null
+  value: null
+  value_available: false
+- comment: null
+  conditions: {}
+  human_context_id: null
+  id: f21c46c6a6d47315ce73
+  identity:
+    anchor: vpc002
+    cfn-logicalId: producer-Vpc002
+    logicalId: EC2_VPC_002
+  pattern_review: not applicable
+  property: (no selected naming property)
+  provider_checked: false
+  provider_errors: []
+  required_missing: false
+  resource: '002'
+  resourceMode: IMPORT
+  resourceType: EC2.VPC
+  rule: EC2
+  rule_targets:
+  - EC2.VPC.Name
+  scope: IMPORT framework convention excluded
+  service: vpc
+  source: null
+  value: null
+  value_available: false
+- comment: component evidence unconfirmed
+  conditions: {}
+  human_context_id: null
+  id: 74e1965eb878debe962b
+  identity:
+    anchor: vpc003
+    cfn-logicalId: producer-Vpc003
+    logicalId: EC2_VPC_003
+  pattern_review: Scan mandatory-constraint decision
+  property: Name
+  provider_checked: true
+  provider_errors: []
+  required_missing: false
+  resource: '003'
+  resourceMode: CREATE
+  resourceType: EC2.VPC
+  rule: EC2
+  rule_targets:
+  - EC2.VPC.Name
+  scope: CREATE selected naming target
+  service: vpc
+  source: null
+  value: '`bad_pattern_value`'
+  value_available: true
+- comment: fixture name
+  conditions: {}
+  human_context_id: null
+  id: a7decb2cca18113b6e42
+  identity:
+    anchor: codebuild
+    cfn-logicalId: producer-Codebuild
+    logicalId: CodeBuild_Project_001
+  pattern_review: Scan mandatory-constraint decision
+  property: Name
+  provider_checked: true
+  provider_errors: []
+  required_missing: false
+  resource: '001'
+  resourceMode: CREATE
+  resourceType: CodeBuild.Project
+  rule: CodeBuild
+  rule_targets:
+  - Name
+  scope: CREATE selected naming target
+  service: codebuild
+  source: null
+  value: '`invalid_root_name`'
+  value_available: true
+- comment: fixture name
+  conditions: {}
+  human_context_id: null
+  id: 4a49f4e211235281bf29
+  identity:
+    anchor: codepipeline
+    cfn-logicalId: producer-Codepipeline
+    logicalId: CodePipeline_Pipeline_001
+  pattern_review: Scan mandatory-constraint decision
+  property: Name
+  provider_checked: true
+  provider_errors: []
+  required_missing: false
+  resource: '001'
+  resourceMode: CREATE
+  resourceType: CodePipeline.Pipeline
+  rule: CodePipeline
+  rule_targets:
+  - Name
+  scope: CREATE selected naming target
+  service: codepipeline
+  source: null
+  value: '`invalid_root_name`'
+  value_available: true
+- comment: fixture name
+  conditions: {}
+  human_context_id: null
+  id: 46ef35b1f7097f647aba
+  identity:
+    anchor: glue
+    cfn-logicalId: producer-Glue
+    logicalId: Glue_Job_001
+  pattern_review: Scan mandatory-constraint decision
+  property: Name
+  provider_checked: true
+  provider_errors: []
+  required_missing: false
+  resource: '001'
+  resourceMode: CREATE
+  resourceType: Glue.Job
+  rule: Glue
+  rule_targets:
+  - Name
+  scope: CREATE selected naming target
+  service: glue
+  source: null
+  value: '`invalid_root_name`'
+  value_available: true
+- comment: human exception
+  conditions: {}
+  human_context_id: null
+  id: b63bc76613af4b633738
+  identity:
+    anchor: alias
+    cfn-logicalId: producer-Alias
+    logicalId: KMS_Alias_001
+  pattern_review: framework convention excluded
+  property: AliasName
+  provider_checked: true
+  provider_errors: []
+  required_missing: false
+  resource: '001'
+  resourceMode: IMPORT
+  resourceType: KMS.Alias
+  rule: KMS
+  rule_targets:
+  - AliasName
+  scope: IMPORT framework convention excluded
+  service: kms
+  source: null
+  value: '`alias/HumanActual`'
+  value_available: true
+review_policy: 全名称を保持し、AUTO_PASS以外だけをLLM Reviewする。必須条件と適用が証明されたPatternを検査する。未確認componentを名前から推測せず、その不足だけでIssueや未検証にしない。推奨形式との差異、追加要素、省略可能要素だけではIssueにしない。必須条件の検査不能はREVIEW_REQUIREDに残す。既存の機械診断とHuman
+  confirmationは全件確認する。applied_ruleは対象Pattern、rule_missingは共通規則path、provider_constraintはprovider_errorsを指定する。confirmed_mismatchは一意に証明されたcomponentの期待値と実値を要求する。

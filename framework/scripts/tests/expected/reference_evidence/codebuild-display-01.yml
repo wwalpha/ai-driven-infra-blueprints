@@ -1,0 +1,79 @@
+detail:
+  items:
+  - actual: null
+    category: uncompared
+    desired: null
+    iac:
+      path: synthetic.yaml
+    issue_id: ISSUE-a4d72d5876bba75dde30
+    model: null
+    property: CodeBuild.Project.Environment
+    reason: reference identity or property format is unproven
+    record_index: 0
+    reference_diagnostics:
+    - allowed_forms: null
+      current_aws_verified: false
+      evidence_type: local_evaluation
+      format:
+        iac: unproven
+        model: unproven
+      iac:
+        $attribute: KeyId
+        $resource:
+        - kms
+        - '007'
+      identity: unproven
+      local_comparison: uncompared
+      model: alias/venusinf-stg-material
+      path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+      producers:
+      - attribute: KeyId
+        producer: kms/007
+      reason: identifier_unobserved
+    resource: '002'
+    service: codebuild
+    stack: producer
+    value_differences:
+    - iac: '未解決 (参照: kms/007.KeyId、理由: identifier_unobserved)'
+      model: alias/venusinf-stg-material
+      path: IaC:EnvironmentVariables[2].Value（比較未確定）
+  offset: 0
+  omitted: 0
+  total: 1
+display:
+  32555e4901e09cf07ac9:
+  - iac: '未解決 (参照: kms/007.KeyId、理由: identifier_unobserved)'
+    model: alias/venusinf-stg-material
+    path: IaC:EnvironmentVariables[2].Value（比較未確定）
+records:
+- actual: null
+  category: uncompared
+  desired: null
+  iac:
+    path: synthetic.yaml
+  model: null
+  property: CodeBuild.Project.Environment
+  reason: reference identity or property format is unproven
+  reference_diagnostics:
+  - allowed_forms: null
+    current_aws_verified: false
+    evidence_type: local_evaluation
+    format:
+      iac: unproven
+      model: unproven
+    iac:
+      $attribute: KeyId
+      $resource:
+      - kms
+      - '007'
+    identity: unproven
+    local_comparison: uncompared
+    model: alias/venusinf-stg-material
+    path: CodeBuild.Project.Environment.EnvironmentVariables[].Value
+    producers:
+    - attribute: KeyId
+      producer: kms/007
+    reason: identifier_unobserved
+  resource: '002'
+  service: codebuild
+  stack: producer

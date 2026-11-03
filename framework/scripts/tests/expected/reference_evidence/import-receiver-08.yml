@@ -1,0 +1,4 @@
+attribute: SubnetId
+resource:
+- producer
+- '001'
