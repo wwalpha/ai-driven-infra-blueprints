@@ -207,7 +207,7 @@ def test_registered_contract_route(models, prop, producer, attribute):
     resolver = Resolver(models)
     resolver.validate_attribute(producer, attribute, field=prop)
     # Whole arrays are receiving contracts for elements, never permission to replace the array by a scalar.
-    schema = DesignSchemaCatalog(models)
+    schema = resolver.catalog
     path = prop.removeprefix(consumer_kind + ".")
     try:
         if schema.property_schema(consumer_kind, path).get("type") == "array":
