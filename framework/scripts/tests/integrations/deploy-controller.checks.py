@@ -41,6 +41,7 @@ from support.deploy_controller_fixtures import (
     drive as invoke,
 )
 from support.deploy_controller_fixtures import invoke as invoke_step
+from support.publication_fixtures import publication_repository
 from support.pytest_cli import run
 from support.worktree_deploy_fixtures import seed as managed_seed
 from task_contract_core import selected_task, status
@@ -186,7 +187,8 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
         ["git", "commit", "-qm", "Existing issue report"], cwd=root, check=True
     )
     aws_state(aws, delivery=True)
-    assert invoke(root, session, aws) == 0
+    with publication_repository():
+        assert invoke(root, session, aws) == 0
     assert inventory.read_text(encoding="utf-8") == original
     saved, provider = json.loads(session.read_text()), json.loads(aws.read_text())
     calls = provider["calls"]
@@ -225,7 +227,7 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
     task = TaskValidation(root, findings)
     task.task_type = "infrastructure"
     assert not findings.errors and not findings.warnings
-    with patch.object(worktree, "require", return_value={}):
+    with publication_repository(), patch.object(worktree, "require", return_value={}):
         complete(root, "tasks/deploy.md")
     assert status((root / "tasks/deploy.md").read_text()) == "completed"
     assert inventory.read_text(encoding="utf-8") == original
