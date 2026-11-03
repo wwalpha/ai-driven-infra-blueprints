@@ -176,7 +176,7 @@ def test_glue_projection_requires_sdk_shape(tmp_path):
         (SECRET_ARN, SECRET_ARN, 0),
         (SECRET_ARN, SECRET_ARN + "-different", 1),
         (None, SECRET_ARN, 2),
-        ("PENDING_DEPLOY", SECRET_ARN, 2),
+        ("PENDING_DEPLOY", SECRET_ARN, 1),  # Explicit pending state follows report policy.
         ("not-an-arn", SECRET_ARN, 2),
     ],
 )
