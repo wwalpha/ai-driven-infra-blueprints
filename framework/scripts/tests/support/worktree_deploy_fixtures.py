@@ -42,7 +42,7 @@ def seed(root, state_path, case="orders", **kwargs):
     shutil.copytree(
         Path(wt.__file__).resolve().parents[1],
         root / "framework",
-        ignore=shutil.ignore_patterns("__pycache__"),
+        ignore=shutil.ignore_patterns("__pycache__", "tests"),
     )
     skill = root / ".agents/skills/deploy/SKILL.md"
     skill.parent.mkdir(parents=True)
