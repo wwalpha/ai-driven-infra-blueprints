@@ -114,21 +114,26 @@ cases:
           OutputValue: value-B
       hints: *id001
   inventory-01:
+    expected_group: inventory
     data:
       response: null
   inventory-02:
+    expected_group: inventory
     data:
       response: {}
   inventory-03:
+    expected_group: inventory
     data:
       response:
         Exports: null
   inventory-04:
+    expected_group: inventory
     data:
       response:
         Exports: []
         NextToken: more
   inventory-05:
+    expected_group: inventory
     data:
       response:
         Exports:

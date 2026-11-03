@@ -1,0 +1,15 @@
+inventory-01:
+  error: Blocked
+  message: required Export inventory is incomplete
+inventory-02:
+  error: Blocked
+  message: required Export inventory is incomplete
+inventory-03:
+  error: Blocked
+  message: required Export inventory is incomplete
+inventory-04:
+  error: Blocked
+  message: required Export inventory is incomplete
+inventory-05:
+  error: Blocked
+  message: 'required Export identity is ambiguous: A'
