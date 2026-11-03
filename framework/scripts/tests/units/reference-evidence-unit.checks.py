@@ -3007,6 +3007,7 @@ def _execute_nested_diagnostic(case):
         properties=data["properties"],
     )
     comparison.sensitive_values.add("private")
+    _portable_synthetic_root(comparison)
     document = comparison.stack_inputs["producer"][0]
     result = comparison.compare_rows(
         "athena",
@@ -3014,7 +3015,7 @@ def _execute_nested_diagnostic(case):
         comparison.resources["athena"]["001"],
         "producer",
         "WorkGroup",
-        ROOT / "synthetic.yaml",
+        comparison.root / "synthetic.yaml",
         document["Resources"]["WorkGroup"],
         document,
     ).records
@@ -3106,6 +3107,14 @@ def test_all_children_failed_preserve_parent_and_categories(case_runner, case_id
     case_runner.run("reference_evidence", case_id, _execute_children_failed)
 
 
+def _portable_synthetic_root(comparison):
+    comparison.root = Path("synthetic-project")
+    comparison.models = {
+        name: replace(model, scope=replace(model.scope, root=comparison.root))
+        for name, model in comparison.models.items()
+    }
+
+
 def _execute_children_failed(case):
     data = case["data"]
     comparison = fixture()
@@ -3122,6 +3131,7 @@ def _execute_children_failed(case):
         rows,
         properties=data["properties"],
     )
+    _portable_synthetic_root(comparison)
     document = comparison.stack_inputs["producer"][0]
     batch = comparison.compare_rows(
         "codebuild",
@@ -3129,7 +3139,7 @@ def _execute_children_failed(case):
         comparison.resources["codebuild"]["001"],
         "producer",
         "Build",
-        ROOT / "synthetic.yaml",
+        comparison.root / "synthetic.yaml",
         document["Resources"]["Build"],
         document,
     )
@@ -4350,6 +4360,7 @@ def _execute_partial_condition(case):
         data["rows"],
         properties={"Environment": data["actual"]},
     )
+    _portable_synthetic_root(comparison)
     document = comparison.stack_inputs["producer"][0]
     batch = comparison.compare_rows(
         "codebuild",
@@ -4357,7 +4368,7 @@ def _execute_partial_condition(case):
         comparison.resources["codebuild"]["001"],
         "producer",
         "Build",
-        ROOT / "synthetic.yaml",
+        comparison.root / "synthetic.yaml",
         document["Resources"]["Build"],
         document,
     )

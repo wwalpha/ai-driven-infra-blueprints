@@ -59,7 +59,7 @@ warnings:
   function: Fn::If
   message: 'Fn::If: JSON Pointer=''/PrivilegedMode'', Property=CodeBuild.Project.Environment;
     unresolved/unverified: unresolved or cyclic Condition: Unknown'
-  model: /Users/macmini/Documents/projects/ai-driven-infra-blueprints/.worktrees/issue-126-iac-diagnostics/synthetic.yaml
+  model: synthetic-project/synthetic.yaml
   pointer: /PrivilegedMode
   property: CodeBuild.Project.Environment
   resource: null

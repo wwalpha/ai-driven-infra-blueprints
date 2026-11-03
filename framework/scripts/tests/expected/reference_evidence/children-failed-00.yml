@@ -35,7 +35,7 @@ records:
         [{"category": "MODEL_NEEDS_FIX", "code": "MODEL_REF_TARGET_MISSING", "message":
         "producer logicalId is absent", "status": "FAIL", "action": "Correct the Model
         reference or the invalid producer field.", "targetLogicalId": "KMS_Key_999",
-        "fixModels": ["/Users/macmini/Documents/projects/ai-driven-infra-blueprints/.worktrees/issue-126-iac-diagnostics/model/fixture/team/codebuild.properties"]}]'
+        "fixModels": ["synthetic-project/model/fixture/team/codebuild.properties"]}]'
     PrivilegedMode: <unresolved>
   iac:
     path: synthetic.yaml
