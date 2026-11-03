@@ -801,6 +801,28 @@ def _build(root, environment, selector, service, standalone):
                         reason="",
                     ),
                 )
+        elif name == "glue" and any(
+            row["property"] == "Glue.Connection.ConnectionInput.AthenaProperties"
+            for row in selected_rows
+        ):
+            # GetConnection already supplies this field; keep Compare/catalog unchanged.
+            sdk = aws_runtime().sdk_session().get_service_model("glue")
+            _imports_aws_mapping.response_shape(
+                sdk.operation_model("GetConnection").output_shape,
+                "Connection.AthenaProperties",
+            )
+            key = "Glue.Connection.ConnectionInput.AthenaProperties"
+            prop = props[key]
+            props[key] = replace(
+                prop,
+                field=replace(
+                    prop.field,
+                    getter="base",
+                    path="AthenaProperties",
+                    classification="supported",
+                    reason="",
+                ),
+            )
         for row in selected_rows:
             key = row["property"]
             prop = props.get(key)
