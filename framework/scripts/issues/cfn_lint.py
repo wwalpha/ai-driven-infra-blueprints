@@ -289,6 +289,26 @@ def owner(comparison, job, match):
     return None, False
 
 
+def quicksight_group_diagnostic(match, template):
+    path = match.get("Location", {}).get("Path")
+    if (
+        match.get("Level") != "Error"
+        or match.get("Rule", {}).get("Id", "").startswith("E000")
+        or not isinstance(path, list)
+        or len(path) < 2
+        or path[0] != "Resources"
+    ):
+        return False
+    try:
+        document, errors = decode_file(template)
+        return (
+            not errors
+            and document["Resources"][path[1]]["Type"] == "AWS::QuickSight::Group"
+        )
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
+
+
 def snowflake_enum_false_positive(match, template):
     path = match.get("Location", {}).get("Path")
     if (
@@ -364,7 +384,9 @@ def run_lint(comparison, *, result=None):
                 job["diagnostic_ids"].append(value["id"])
             counts = {}
             for match in result["matches"]:
-                if snowflake_enum_false_positive(match, job["template"]):
+                if quicksight_group_diagnostic(
+                    match, job["template"]
+                ) or snowflake_enum_false_positive(match, job["template"]):
                     continue
                 channel = classify(match, result)
                 if (

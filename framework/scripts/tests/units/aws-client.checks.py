@@ -852,6 +852,38 @@ def check_sdk_case_pending_responses_fail_on_exit(tmp_path, monkeypatch):
             pass
 
 
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        (
+            "Template format error: Unrecognized resource types: [AWS::QuickSight::Group]",
+            True,
+        ),
+        (
+            "Template format error: Unrecognized resource types: [AWS::QuickSight::Group, AWS::Other::Type]",
+            False,
+        ),
+        ("Another validation error", False),
+    ],
+)
+def check_quicksight_group_validation_error(monkeypatch, message, expected):
+    operation = Mock(
+        side_effect=ClientError(
+            {"Error": {"Code": "ValidationError", "Message": message}},
+            "ValidateTemplate",
+        )
+    )
+    monkeypatch.setattr(
+        sdk, "client", lambda *a, **k: SimpleNamespace(validate_template=operation)
+    )
+    with pytest.raises(sdk.AwsError) as caught:
+        cloudformation.validate_template(
+            (None, "region", "account", None), TemplateBody="Resources: {}"
+        )
+    assert caught.value.quicksight_group_unsupported is expected
+    assert message not in str(caught.value)
+
+
 if __name__ == "__main__":
     from support.pytest_cli import run
 

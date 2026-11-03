@@ -3636,5 +3636,26 @@ def check_mutation_and_recovery_with_issues(tmp_path, monkeypatch, capsys):
     assert "unsafe rollback state" in state["reason"]
 
 
+def check_quicksight_validation_failure_continues_to_change_set():
+    backend = StubAws()
+    original = backend.aws
+
+    def aws(operation, **arguments):
+        if operation == "validate_template":
+            raise AwsError(
+                "cloudformation",
+                operation,
+                "ValidationError",
+                quicksight_group_unsupported=True,
+            )
+        return original(operation, **arguments)
+
+    backend.aws = aws
+    state = {"status": "NOT_STARTED"}
+    backend.prepare(units(10)[0], state)
+    assert any(operation == "create_change_set" for operation, _ in backend.calls)
+    assert "validate_template" not in state.get("successfulPreparationOperations", {})
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

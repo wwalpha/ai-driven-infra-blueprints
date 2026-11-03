@@ -23,7 +23,7 @@ import utils.cfn_lint_worker as lint_worker
 from issues.aggregate import aggregate
 from issues.aggregate import aggregate as real_aggregate
 from issues.artifact import detail_payload, scan_exit_code, summary, validate_artifact
-from issues.cfn_lint import classify, owner, plan, run_lint
+from issues.cfn_lint import classify, owner, plan, quicksight_group_diagnostic, run_lint
 from issues.publication import save_scan
 from issues.records import identifier
 from issues.reports import ordinary_report
@@ -1353,6 +1353,32 @@ def check_snowflake_enum_filter(
         assert (message in report) == (not excluded)
         assert all(item["id"] in report for item in lint["ordinary"])
         assert ("未解決issueなし" in report) == excluded
+
+
+def check_quicksight_group_diagnostics(tmp_path):
+    template = tmp_path / "template.json"
+    template.write_text(
+        json.dumps(
+            {
+                "Resources": {
+                    "Group": {"Type": "AWS::QuickSight::Group"},
+                    "Other": {"Type": "AWS::S3::Bucket"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    match = {
+        "Level": "Error",
+        "Rule": {"Id": "E3006"},
+        "Location": {"Path": ["Resources", "Group", "Type"]},
+    }
+    assert quicksight_group_diagnostic(match, template)
+    match["Location"]["Path"][1] = "Other"
+    assert not quicksight_group_diagnostic(match, template)
+    match["Location"]["Path"][1] = "Group"
+    match["Rule"]["Id"] = "E0001"
+    assert not quicksight_group_diagnostic(match, template)
 
 
 if __name__ == "__main__":
