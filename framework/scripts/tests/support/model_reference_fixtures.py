@@ -90,7 +90,7 @@ def project_configuration(root):
     (root / "project.json").write_text(json.dumps(data), encoding="utf-8")
 
 
-def project(root):
+def project(root, *, build_index=True):
     project_configuration(root)
     producer, values = resource_values(root, "kms", "KMS.Key")
     consumer, policy = resource_values(
@@ -119,7 +119,8 @@ def project(root):
     policy["desired.resource.001.cfn-logicalId"] = "consumer-Policy"
     write(producer, values)
     write(consumer, policy)
-    dependency_index.rebuild(root)
+    if build_index:
+        dependency_index.rebuild(root)
     return producer, values, consumer, policy
 
 

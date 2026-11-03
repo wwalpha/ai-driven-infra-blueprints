@@ -47,7 +47,9 @@ from support.model_reference_fixtures import (
     project,
     reference,
     resource,
+    resource_values,
     save,
+    write,
 )
 from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
@@ -58,8 +60,7 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
-@pytest.fixture
-def models(tmp_path):
+def model_setup(tmp_path, *, build_index):
     with (
         mapping_alias(FRAMEWORK, tmp_path),
         patch("socket.socket", side_effect=AssertionError("network forbidden")),
@@ -71,17 +72,25 @@ def models(tmp_path):
             ("ssm", "SSM.Parameter", "Name", "/build/parameter"),
             ("secretsmanager", "SecretsManager.Secret", "Name", "build-secret"),
         ):
-            scope, values = resource(tmp_path, service, kind, attribute=field)
+            scope, values = resource_values(tmp_path, service, kind, attribute=field)
             values["desired.row.001-001.value"] = "`" + name + "`"
             values["desired.resource.001.anchor"] = service + "-saved-anchor"
-            save(scope, values)
-        project(tmp_path)
+            write(scope, values)
+        if build_index:
+            project(tmp_path)
+        else:
+            project(tmp_path, build_index=False)
         yield tmp_path
+
+
+@pytest.fixture
+def models(tmp_path):
+    yield from model_setup(tmp_path, build_index=False)
 
 
 def test_fixture_initialization_and_normal_save_are_independent(tmp_path):
     check = TestCase()
-    context = models.__wrapped__(tmp_path)
+    context = model_setup(tmp_path, build_index=True)
     with patch.object(
         dependency_index, "rebuild", wraps=dependency_index.rebuild
     ) as rebuild:
@@ -114,7 +123,7 @@ def test_fixture_initialization_and_normal_save_are_independent(tmp_path):
 
 
 def consumer(root, service="glue", kind="Glue.Job"):
-    scope, values = resource(root, service, kind, attribute="Name")
+    scope, values = resource_values(root, service, kind, attribute="Name")
     values["desired.row.001-001.value"] = "`consumer`"
     return scope, values, root / "docs/designs/qa/team" / (service + ".md")
 
@@ -161,10 +170,12 @@ def test_cloudtrail_reference_array_roundtrip(
     models, service, kind, attribute, resource_type, logical_id, label
 ):
     if service == "lambda":
-        target, target_values = resource(models, service, kind, attribute=attribute)
+        target, target_values = resource_values(
+            models, service, kind, attribute=attribute
+        )
         target_values["desired.row.001-001.value"] = "`function-name`"
         target_values["desired.resource.001.anchor"] = "lambda-saved-anchor"
-        save(target, target_values)
+        write(target, target_values)
     scope, values, path = consumer(models, "cloudtrail", "CloudTrail.Trail")
     values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
     add(
@@ -180,7 +191,7 @@ def test_cloudtrail_reference_array_roundtrip(
         [reference(logical_id, "ObjectArn" if service == "s3" else "Arn")],
         number=3,
     )
-    save(scope, values)
+    write(scope, values)
     before = copy.deepcopy(values)
     tables = []
     markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
@@ -225,18 +236,18 @@ def test_cloudtrail_invalid_reference_array_is_not_silently_accepted(models, val
         value,
         number=3,
     )
-    save(scope, values)
+    write(scope, values)
     with pytest.raises(ValueError):
         markdown = generate_markdown(path, values, FRAMEWORK)
         restore(path, markdown, values)
 
 
 def test_cloudtrail_pending_reference_is_not_invalid_model(models):
-    target, target_values = resource(
+    target, target_values = resource_values(
         models, "lambda", "Lambda.Function", attribute="Arn", observed="PENDING_DEPLOY"
     )
     add(target_values, "Lambda.Function", "FunctionName", "confirmed-label")
-    save(target, target_values)
+    write(target, target_values)
     validate_authority(target_values)
     scope, values, path = consumer(models, "cloudtrail", "CloudTrail.Trail")
     values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
@@ -254,7 +265,7 @@ def test_cloudtrail_pending_reference_is_not_invalid_model(models):
         [ref],
         number=3,
     )
-    save(scope, values)
+    write(scope, values)
     before = copy.deepcopy(values)
     producer_before = target.path.read_bytes()
     resolver = reference_resolver(values, scope, models)
@@ -274,14 +285,14 @@ def test_cloudtrail_pending_reference_is_not_invalid_model(models):
 
 
 def test_cloudtrail_unconfirmed_name_does_not_emit_raw_reference(models):
-    target, target_values = resource(
+    target, target_values = resource_values(
         models,
         "lambda",
         "Lambda.Function",
         attribute="FunctionName",
         observed="PENDING_DEPLOY",
     )
-    save(target, target_values)
+    write(target, target_values)
     validate_authority(target_values)
     scope, values, path = consumer(models, "cloudtrail", "CloudTrail.Trail")
     values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
@@ -298,7 +309,7 @@ def test_cloudtrail_unconfirmed_name_does_not_emit_raw_reference(models):
         [reference("Lambda_Function_001", "Arn")],
         number=3,
     )
-    save(scope, values)
+    write(scope, values)
     with pytest.raises(ReferenceResolutionError):
         generate_markdown(path, values, FRAMEWORK)
 
@@ -323,7 +334,7 @@ def test_cloudtrail_invalid_target_rejected_during_generation(models, fault):
         [reference(logical_id, "ObjectArn")],
         number=3,
     )
-    save(scope, values)
+    write(scope, values)
     with pytest.raises(ModelNeedsFixError):
         generate_markdown(path, values, FRAMEWORK)
 
@@ -338,13 +349,15 @@ def test_positions_glue_equal_names_escaping_and_roundtrip(models):
     rid = add(values, "Glue.Job", "DefaultArguments", args)
     exact_link = "[shared-name](s3.md#s3-saved-anchor)"
     add(values, "Glue.Job", "Description", exact_link, number=3, comment=exact_link)
-    _, other = resource(models, "glue", "Glue.Job", attribute="Name", number="002")
+    _, other = resource_values(
+        models, "glue", "Glue.Job", attribute="Name", number="002"
+    )
     other["desired.row.002-001.value"] = "`other-job`"
     other["desired.row.002-002.property"] = "Glue.Job.Description"
     other["desired.row.002-002.value"] = "`" + exact_link + "`"
     other["desired.row.002-002.comment"] = exact_link
     values.update(other)
-    save(scope, values)
+    write(scope, values)
     before = copy.deepcopy(values)
     presentation = Presentation(values, path, models)
     assert set(presentation.references) == {
@@ -499,7 +512,7 @@ def test_no_guessed_destination(models, fault):
                         key.replace(".001.", ".002.").replace(".001-", ".002-")
                     ] = value.replace("S3_Bucket_001", "S3_Bucket_002")
             from_values[COUNTERS] = json.dumps({"S3.Bucket": 2})
-        save(Scope(models, "qa", "team", "s3"), from_values)
+        write(Scope(models, "qa", "team", "s3"), from_values)
     rid = add(
         values,
         "Glue.Job",
@@ -519,10 +532,10 @@ def test_no_guessed_destination(models, fault):
 
 
 def test_array_indexes_duplicates_and_generic_service(models):
-    producer, first = resource(
+    producer, first = resource_values(
         models, "subnet", "EC2.Subnet", attribute="SubnetId", observed="subnet-11111111"
     )
-    _, second = resource(
+    _, second = resource_values(
         models,
         "subnet",
         "EC2.Subnet",
@@ -536,7 +549,7 @@ def test_array_indexes_duplicates_and_generic_service(models):
         first[f"desired.row.{number}-002.property"] = "EC2.Subnet.Name"
         first[f"desired.row.{number}-002.value"] = "`shared-subnet`"
         first[f"desired.row.{number}-002.comment"] = "名前"
-    save(producer, first)
+    write(producer, first)
     scope, values, path = consumer(models, "lambda", "Lambda.Function")
     values["desired.row.001-001.property"] = "Lambda.Function.FunctionName"
     items = [
@@ -577,11 +590,11 @@ def test_same_file_and_existing_link(models):
 )
 @pytest.mark.parametrize("observed", ["subnet-11111111", "PENDING_DEPLOY"])
 def test_linked_array_uses_model_rows_without_metadata(models, case, observed):
-    producer, subnet = resource(
+    producer, subnet = resource_values(
         models, "subnet", "EC2.Subnet", attribute="SubnetId", observed=observed
     )
     subnet["desired.resource.001.resourceMode"] = "IMPORT"
-    save(producer, subnet)
+    write(producer, subnet)
     scope, values, path = consumer(models, "lambda", "Lambda.Function")
     values["desired.row.001-001.property"] = "Lambda.Function.FunctionName"
     ref = reference("EC2_Subnet_001", "SubnetId")
@@ -605,7 +618,7 @@ def test_linked_array_uses_model_rows_without_metadata(models, case, observed):
             number=3,
             comment="追加先",
         )
-    save(scope, values)
+    write(scope, values)
     before = scope.path.read_bytes()
     saved_values = copy.deepcopy(values)
     tables = []
@@ -677,12 +690,12 @@ def test_codebuild_empty_linked_array_uses_model(models):
 
 @pytest.mark.parametrize("observed", [None, "PENDING_DEPLOY", "vpc-12345678"])
 def test_vpc_self_and_other_reference_display(models, observed):
-    scope, values = resource(
+    scope, values = resource_values(
         models, "vpc", "EC2.VPC", attribute="VpcId", observed=observed
     )
     values["desired.resource.001.resourceMode"] = "IMPORT" if observed else "CREATE"
     add(values, "EC2.VPC", "CidrBlock", "10.0.0.0/16")
-    _, other = resource(
+    _, other = resource_values(
         models, "vpc", "EC2.VPC", attribute="VpcId", number="002", observed=observed
     )
     other["desired.resource.002.resourceMode"] = "IMPORT"
@@ -690,7 +703,7 @@ def test_vpc_self_and_other_reference_display(models, observed):
     values["desired.row.002-002.property"] = "EC2.VPC.CidrBlock"
     values["desired.row.002-002.value"] = "`10.1.0.0/16`"
     values["desired.row.002-002.comment"] = "CIDR"
-    save(scope, values)
+    write(scope, values)
     path = models / "docs/designs/qa/team/vpc.md"
     before = copy.deepcopy(values)
     presentation = Presentation(values, path, models)
@@ -709,7 +722,9 @@ def test_vpc_self_and_other_reference_display(models, observed):
 
 def test_same_file_other_resource_link(models):
     scope, values, path = consumer(models)
-    _, other = resource(models, "glue", "Glue.Job", attribute="Name", number="002")
+    _, other = resource_values(
+        models, "glue", "Glue.Job", attribute="Name", number="002"
+    )
     other["desired.row.002-001.value"] = "`other-job`"
     values.update(other)
     add(
@@ -722,7 +737,7 @@ def test_same_file_other_resource_link(models):
             "--literal": "other-job",
         },
     )
-    save(scope, values)
+    write(scope, values)
     markdown = generate_markdown(path, values, FRAMEWORK)
     TestCase().assertIn("[other-job](#saved-002)", markdown)
     TestCase().assertIn("`consumer`", markdown)
@@ -883,7 +898,7 @@ def test_pipeline_configuration_positions(
     ],
 )
 def test_codebuild_vpc_connection(models, field, producer_kind, attribute):
-    producer, props = resource(
+    producer, props = resource_values(
         models,
         "network",
         producer_kind,
@@ -896,7 +911,7 @@ def test_codebuild_vpc_connection(models, field, producer_kind, attribute):
     )
     props["desired.resource.001.resourceMode"] = "IMPORT"
     props["display.resource.001.label"] = "network-resource"
-    save(producer, props)
+    write(producer, props)
     scope, values, path = consumer(models, "codebuild", "CodeBuild.Project")
     node = reference(producer_kind.replace(".", "_") + "_001", attribute)
     add(
@@ -1072,11 +1087,11 @@ def test_normal_resource_reference_labels(
     name,
     attribute,
 ):
-    target, producer = resource(
+    target, producer = resource_values(
         models, producer_service, producer_kind, attribute=name_field
     )
     producer["desired.row.001-001.value"] = f"`{name}`"
-    save(target, producer)
+    write(target, producer)
     scope, values, path = consumer(models, consumer_service, consumer_kind)
     node = reference(producer_kind.replace(".", "_") + "_001", attribute)
     rid = add(values, consumer_kind, field, node)
@@ -1101,7 +1116,7 @@ def test_normal_resource_reference_labels(
     if consumer_kind == "CloudTrail.Trail":
         values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
         before = copy.deepcopy(values)
-        save(scope, values)
+        write(scope, values)
         markdown = generate_markdown(path, values, FRAMEWORK)
         assert link in markdown
         assert "$modelRef" in restore(path, markdown, values)
@@ -1119,14 +1134,14 @@ def test_normal_resource_reference_labels(
     ],
 )
 def test_route53_endpoint_alias_expression_display(models, observed, index):
-    target, endpoint = resource(
+    target, endpoint = resource_values(
         models, "vpc-endpoint", "EC2.VPCEndpoint", attribute="Id"
     )
     if observed:
         endpoint["observed.row.001-001.value"] = "`" + observed + "`"
     add(endpoint, "EC2.VPCEndpoint", "Tags[].Key", "Name", number=2)
     add(endpoint, "EC2.VPCEndpoint", "Tags[].Value", "endpoint-name", number=3)
-    save(target, endpoint)
+    write(target, endpoint)
     scope, values, path = consumer(models, "route53", "Route53.RecordSet")
     values["desired.row.001-001.property"] = "Route53.RecordSet.Name"
     expression = {
@@ -1142,7 +1157,7 @@ def test_route53_endpoint_alias_expression_display(models, observed, index):
     }
     rid = add(values, "Route53.RecordSet", "AliasTarget.DNSName", expression)
     before = copy.deepcopy(values)
-    save(scope, values)
+    write(scope, values)
     markdown = generate_markdown(path, values, FRAMEWORK)
     if observed and index == 1:
         assert f"[{observed}](vpc-endpoint.md#saved-001)" in markdown, markdown
@@ -1169,14 +1184,14 @@ def test_route53_endpoint_alias_expression_display(models, observed, index):
 
 @pytest.mark.parametrize("observed", ["vpce-02771914003dc1188", "PENDING_DEPLOY", None])
 def test_route53_endpoint_record_expression_display(models, observed):
-    target, endpoint = resource(
+    target, endpoint = resource_values(
         models, "vpc-endpoint", "EC2.VPCEndpoint", attribute="Id"
     )
     if observed:
         endpoint["observed.row.001-001.value"] = "`" + observed + "`"
     add(endpoint, "EC2.VPCEndpoint", "Tags[].Key", "Name", number=2)
     add(endpoint, "EC2.VPCEndpoint", "Tags[].Value", "endpoint-name", number=3)
-    save(target, endpoint)
+    write(target, endpoint)
     scope, values, path = consumer(models, "route53", "Route53.RecordSet")
     values["desired.row.001-001.property"] = "Route53.RecordSet.Name"
     expression = {
@@ -1201,7 +1216,7 @@ def test_route53_endpoint_record_expression_display(models, observed):
         comment="接続先Endpoint: [endpoint-name](vpc-endpoint.md#saved-001)",
     )
     before = copy.deepcopy(values)
-    save(scope, values)
+    write(scope, values)
     markdown = generate_markdown(path, values, FRAMEWORK)
     lines = [line for line in markdown.splitlines() if "ResourceRecords[" in line]
     assert len(lines) == 3, markdown
@@ -1289,7 +1304,7 @@ def test_policy_sub_reference_shows_link_and_path_without_changing_json(models):
     rid = add(values, "IAM.ManagedPolicy", "PolicyDocument", "placeholder")
     values[f"desired.row.{rid}.value"] = "[Policy](iam/policy.json)"
     values[f"desired.row.{rid}.document"] = json.dumps(document)
-    save(scope, values)
+    write(scope, values)
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
     artifact = path.with_suffix("") / "policy.json"
@@ -1347,7 +1362,7 @@ def test_s3_bucket_policy_self_reference_links_only_bucket_arn(models):
     rid = add(values, "S3.BucketPolicy", "PolicyDocument", "placeholder")
     values[f"desired.row.{rid}.value"] = "[Policy](s3/policy.json)"
     values[f"desired.row.{rid}.document"] = json.dumps(document)
-    save(scope, values)
+    write(scope, values)
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
     artifact = path.with_suffix("") / "policy.json"
@@ -1370,7 +1385,7 @@ def test_s3_policy_kms_condition_uses_name_and_execution_arn(models):
     )
     key["observed.row.001-001.value"] = "`7c6b3f84-ede1-4f7b-a1e0-32cd6eed9295`"
     key["display.resource.001.label"] = "fixture-app-key"
-    save(key_scope, key)
+    write(key_scope, key)
     scope = Scope(models, "qa", "team", "s3")
     values = dict(load_model(scope).authoritative)
     path = models / "docs/designs/qa/team/s3.md"
@@ -1396,7 +1411,7 @@ def test_s3_policy_kms_condition_uses_name_and_execution_arn(models):
     rid = add(values, "S3.BucketPolicy", "PolicyDocument", "placeholder")
     values[f"desired.row.{rid}.value"] = "[Policy](s3/policy.json)"
     values[f"desired.row.{rid}.document"] = json.dumps(document)
-    save(scope, values)
+    write(scope, values)
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
     artifact = path.with_suffix("") / "policy.json"
@@ -1423,7 +1438,7 @@ def test_kms_policy_resource_uses_key_name_and_execution_arn(models):
     )
     key["observed.row.001-001.value"] = "`de6ef4b4-c7a2-489e-9355-feb9fb8f73cc`"
     key["display.resource.001.label"] = "fixture-app-key"
-    save(key_scope, key)
+    write(key_scope, key)
     scope, values, path = consumer(models, "iam", "IAM.Role")
     values["desired.row.001-001.property"] = "IAM.Role.RoleName"
     document = {
@@ -1447,7 +1462,7 @@ def test_kms_policy_resource_uses_key_name_and_execution_arn(models):
     rid = add(values, "IAM.Role", "AssumeRolePolicyDocument", "placeholder")
     values[f"desired.row.{rid}.value"] = "[Policy](iam/policy.json)"
     values[f"desired.row.{rid}.document"] = json.dumps(document)
-    save(scope, values)
+    write(scope, values)
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
     artifact = path.with_suffix("") / "policy.json"
@@ -1482,7 +1497,7 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     rid = add(values, "IAM.ManagedPolicy", "PolicyDocument", "placeholder")
     values[f"desired.row.{rid}.value"] = "[Policy](iam/policy.json)"
     values[f"desired.row.{rid}.document"] = json.dumps(document)
-    save(scope, values)
+    write(scope, values)
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
     artifact = path.with_suffix("") / "policy.json"
@@ -1573,11 +1588,11 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     ],
 )
 def test_indexed_model_reference_tables(models, service, kind, attribute, fields):
-    scope, values = resource(models, service, kind, attribute=attribute)
+    scope, values = resource_values(models, service, kind, attribute=attribute)
     values["desired.row.001-001.value"] = "`example`"
     for number, field in enumerate(fields, 2):
         add(values, kind, field, "value-" + str(number), number=number)
-    save(scope, values)
+    write(scope, values)
     path = models / "docs/designs/qa/team" / (service + ".md")
     tables = []
     markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
@@ -1633,19 +1648,20 @@ def test_undefined_indexed_property_is_rejected(models):
 
 
 def test_security_group_horizontal_display_and_restoration(models):
-    producer, network = resource(
+    producer, network = resource_values(
         models, "network", "EC2.VPC", attribute="VpcId", observed="vpc-11111111"
     )
     network["desired.resource.001.resourceMode"] = "IMPORT"
     network["display.resource.001.label"] = "network"
-    save(producer, network)
-    scope, values = resource(
+    write(producer, network)
+    scope, values = resource_values(
         models,
         "security-group",
         "EC2.SecurityGroup",
         attribute="Id",
         observed="sg-11111111",
     )
+    write(scope, values)
     values["desired.resource.001.resourceMode"] = "IMPORT"
     add(values, "EC2.SecurityGroup", "GroupDescription", "description")
     add(values, "EC2.SecurityGroup", "GroupName", "consumer-group", number=3)
@@ -1671,7 +1687,7 @@ def test_policy_enum_reference_is_validated_before_presentation(models):
     source = dict(load_model(producer).authoritative)
     source["desired.resource.001.resourceMode"] = "IMPORT"
     source["desired.row.001-001.value"] = "`Allow`"
-    save(producer, source)
+    write(producer, source)
     scope, values, path = consumer(models, "iam", "IAM.ManagedPolicy")
     values["desired.row.001-001.property"] = "IAM.ManagedPolicy.ManagedPolicyName"
     add(values, "IAM.ManagedPolicy", "PolicyDocument", "placeholder")
@@ -1699,13 +1715,13 @@ def test_policy_enum_reference_is_validated_before_presentation(models):
 
 @pytest.mark.parametrize("observed", [None, "PENDING_DEPLOY", "sg-0dd5df87e10362d7f"])
 def test_security_group_logical_link_and_confirmed_label(models, observed):
-    producer, target = resource(
+    producer, target = resource_values(
         models, "security-group", "EC2.SecurityGroup", attribute="Id", observed=observed
     )
     target["desired.resource.001.resourceMode"] = "IMPORT"
     target["desired.resource.001.anchor"] = "security-group-saved"
     add(target, "EC2.SecurityGroup", "GroupName", "VULNERABILITYSCANSECURITYGROUP01")
-    save(producer, target)
+    write(producer, target)
     scope, values, path = consumer(models, "lambda", "Lambda.Function")
     values["desired.row.001-001.property"] = "Lambda.Function.FunctionName"
     node = reference("EC2_SecurityGroup_001", "GroupId")
@@ -1735,20 +1751,20 @@ def test_security_group_logical_link_and_confirmed_label(models, observed):
     "fault", ["physical", "attribute", "type", "anchor", "duplicate-anchor"]
 )
 def test_logical_contract_is_separate_from_physical_diagnostics(models, fault):
-    producer, target = resource(
+    producer, target = resource_values(
         models, "invalid-bucket", "S3.Bucket", attribute="BucketName"
     )
     target["desired.row.001-001.value"] = "`invalid bucket`"
     if fault == "anchor":
         target["desired.resource.001.anchor"] = "invalid anchor"
     elif fault == "duplicate-anchor":
-        _, other = resource(
+        _, other = resource_values(
             models, "invalid-bucket", "S3.Bucket", attribute="BucketName", number="002"
         )
         other["desired.resource.002.anchor"] = target["desired.resource.001.anchor"]
         target.update(other)
     (models / "model/qa/team/s3.properties").unlink()
-    save(producer, target)
+    write(producer, target)
     scope, values, path = consumer(models, "lambda", "Lambda.Function")
     values["desired.row.001-001.property"] = "Lambda.Function.FunctionName"
     node = reference(
@@ -1781,8 +1797,10 @@ def test_logical_contract_is_separate_from_physical_diagnostics(models, fault):
 
 
 def test_producer_chain_cycle_and_drift(models):
-    scope, target = resource(models, "buckets", "S3.Bucket", attribute="BucketName")
-    _, other = resource(
+    scope, target = resource_values(
+        models, "buckets", "S3.Bucket", attribute="BucketName"
+    )
+    _, other = resource_values(
         models, "buckets", "S3.Bucket", attribute="BucketName", number="002"
     )
     target.update(other)
@@ -1792,14 +1810,14 @@ def test_producer_chain_cycle_and_drift(models):
     target["desired.row.002-001.value"] = "`chain-bucket`"
     # The fixture's independent s3 service must not duplicate these logical IDs.
     (models / "model/qa/team/s3.properties").unlink()
-    save(scope, target)
+    write(scope, target)
     resolver = reference_resolver(target, scope, models)
     result = reference_value(
         resolver, scope, parse(reference("S3_Bucket_001", "BucketName"))
     )
     TestCase().assertEqual(result.value, "chain-bucket")
     target["observed.row.001-001.value"] = "`different-bucket`"
-    save(scope, target)
+    write(scope, target)
     with pytest.raises(ModelNeedsFixError, match="MODEL_REF_VALUE_CONFLICT"):
         reference_value(
             reference_resolver(target, scope, models),
@@ -1810,7 +1828,7 @@ def test_producer_chain_cycle_and_drift(models):
     target["desired.row.002-001.value"] = (
         "`" + json.dumps(reference("S3_Bucket_001", "BucketName")) + "`"
     )
-    save(scope, target)
+    write(scope, target)
     with pytest.raises(ModelNeedsFixError, match="MODEL_REF_CYCLE"):
         reference_value(
             reference_resolver(target, scope, models),
