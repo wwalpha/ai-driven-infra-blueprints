@@ -339,7 +339,7 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
             "git",
             Mock(
                 return_value=SimpleNamespace(
-                    stdout="not the old contract", returncode=1
+                    stdout=case.state["deployContract"], returncode=0
                 )
             ),
         )
@@ -436,6 +436,13 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
     with pytest.raises(ValueError):
         runtime.correct_deploy_contract(case.root, case.name, case.source)
     assert_preserved(case, *original)
+    if problem in {"missing-original", "bad-original"}:
+        with pytest.raises(
+            correction_scope.Blocked, match="fixed Deploy contract evidence"
+        ):
+            correction_scope.ownership(case.root, state, context)
+    if problem == "missing-original":
+        correction.ws.git.assert_not_called()
 
 
 @pytest.mark.parametrize("file_number", [1, 2, 3])
@@ -533,24 +540,6 @@ class ConcurrentEdit:
             )
         else:
             self.save(path, dict(state, externalEdit=True))
-
-
-def check_old_git_evidence_and_live_candidate(case, monkeypatch):
-    state = dict(case.state)
-    state.pop("deployContract")
-    correction.wt.save(case.path, state)
-    monkeypatch.setattr(
-        correction.ws,
-        "git",
-        Mock(
-            return_value=SimpleNamespace(
-                stdout=case.state["deployContract"], returncode=0
-            )
-        ),
-    )
-    case.task.path.write_text(case.candidate, encoding="utf-8")
-    correction.correct(case.root, case.name, case.source)
-    assert read_state(case.root, case.name)[3]["deployContract"] == case.candidate
 
 
 @pytest.mark.parametrize("problem", [None, "digest", "files", "target", "save"])
@@ -835,42 +824,6 @@ def check_scope_failure_is_retained_and_transferred(case, monkeypatch):
     assert evidence.read_bytes() == original
 
 
-@pytest.mark.parametrize("variant", ["valid", "extra", "wrong-owner"])
-def check_legacy_scope_failure_requires_exact_proven_owner(case, monkeypatch, variant):
-    state, progress, _candidate, evidence = scope_failure_case(case, monkeypatch)
-    item = progress["runContext"]["states"]["A"]
-    item["failure"] = {
-        "stage": "PREPARATION",
-        "classification": "NEEDS_HUMAN",
-        "executionState": "NOT_EXECUTED",
-        "service": None,
-        "operation": None,
-        "code": None,
-    }
-    service = "unrelated" if variant == "wrong-owner" else "s3"
-    item["reason"] = (
-        "A: Observed readiness: AMBIGUOUS_OBSERVED_MAPPING: "
-        "A/Bucket: task scope violation: stack resource outside Validation scope: "
-        f"dev/team/{service}"
-        + ("\nA/Bucket: another failure" if variant == "extra" else "")
-    )
-    record = correction.read_sealed(case.root, evidence)
-    record["states"] = copy.deepcopy(progress["runContext"]["states"])
-    write_sealed(case.root, evidence, record)
-    write_sealed(case.root, case.progress_path, progress)
-    if variant != "valid":
-        with pytest.raises(ValueError, match="proven scope failure"):
-            correction.correct(case.root, case.name, case.source)
-    else:
-        correction.correct(case.root, case.name, case.source)
-        revised = read_state(case.root, case.name)[3]
-        assert not worktree.read_progress(case.root, revised)["runContext"].get(
-            "currentFailure"
-        )
-        assert evidence.exists()
-    case.aws.assert_not_called()
-
-
 @pytest.mark.parametrize("success", [True, False])
 def check_scope_failure_preserves_completed_request(case, monkeypatch, success):
     state, progress, _candidate, evidence = scope_failure_case(case, monkeypatch)
@@ -936,7 +889,17 @@ def check_interrupted_scope_failure_correction_preserves_evidence(
 
 @pytest.mark.parametrize(
     "problem",
-    ["task", "digest", "repository", "target", "cause", "unknown", "active", "missing"],
+    [
+        "task",
+        "digest",
+        "repository",
+        "target",
+        "cause",
+        "owners",
+        "unknown",
+        "active",
+        "missing",
+    ],
 )
 def check_scope_failure_rejects_unproven_evidence(case, monkeypatch, problem):
     state, progress, _candidate, evidence = scope_failure_case(case, monkeypatch)
@@ -950,11 +913,20 @@ def check_scope_failure_rejects_unproven_evidence(case, monkeypatch, problem):
         }[problem]
         record[key] = "different"
         write_sealed(case.root, evidence, record)
-    elif problem == "cause":
-        record["states"]["A"]["failure"]["classification"] = "NEEDS_HUMAN"
-        progress["runContext"]["states"]["A"]["failure"]["classification"] = (
-            "NEEDS_HUMAN"
-        )
+    elif problem in {"cause", "owners"}:
+        for item in (record["states"]["A"], progress["runContext"]["states"]["A"]):
+            if problem == "owners":
+                item["failure"].pop("owners")
+            else:
+                item["failure"] = {
+                    "stage": "PREPARATION",
+                    "classification": "NEEDS_HUMAN",
+                    "executionState": "NOT_EXECUTED",
+                }
+                item["reason"] = (
+                    "A: Observed readiness: AMBIGUOUS_OBSERVED_MAPPING: "
+                    "A/Bucket: task scope violation: stack resource outside Validation scope: dev/team/s3"
+                )
         write_sealed(case.root, evidence, record)
         write_sealed(case.root, case.progress_path, progress)
     elif problem in {"unknown", "active"}:

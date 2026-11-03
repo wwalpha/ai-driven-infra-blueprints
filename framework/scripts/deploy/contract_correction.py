@@ -39,21 +39,14 @@ from deploy import (
 )
 
 
-def original_contract(root, state):
-    """Old installations may have the text in Git, but a digest cannot recover it."""
-    digest = state["deployIdentity"]["taskDigest"]
+def original_contract(state):
     text = state.get("deployContract")
-    if text is not None:
-        if not isinstance(text, str) or tasks.task_digest(text) != digest:
-            raise ws.Blocked("fixed Deploy contract evidence is inconsistent")
-        return text
-    for revision in dict.fromkeys((state["tip"], state["start"])):
-        result = ws.git(root, "show", revision + ":" + state["task_file"], check=False)
-        if result.returncode == 0 and tasks.task_digest(result.stdout) == digest:
-            return result.stdout
-    raise ws.Blocked(
-        "original fixed Deploy contract text is unavailable; do not infer it"
-    )
+    if (
+        not isinstance(text, str)
+        or tasks.task_digest(text) != state["deployIdentity"]["taskDigest"]
+    ):
+        raise ws.Blocked("fixed Deploy contract evidence is missing or inconsistent")
+    return text
 
 
 def unchanged_authority(before, after):
@@ -135,37 +128,6 @@ def check_candidate(root, task, original, candidate, state, context, approved):
     if findings.errors:
         raise ws.Blocked("corrected Task scope: " + "; ".join(findings.errors))
     return consumers
-
-
-def legacy_scope_owners(name, saved, identity, context, owners):
-    detail = saved.get("failure", {})
-    if not isinstance(detail, dict) or (
-        detail.get("stage") != "PREPARATION"
-        or detail.get("classification") != "NEEDS_HUMAN"
-        or detail.get("executionState") != "NOT_EXECUTED"
-        or any(detail.get(key) is not None for key in ("service", "operation", "code"))
-    ):
-        return None
-    reason = saved.get("reason")
-    prefix = name + ": Observed readiness: AMBIGUOUS_OBSERVED_MAPPING: "
-    if not isinstance(reason, str) or not reason.startswith(prefix):
-        return None
-    result = []
-    separator = ": task scope violation: stack resource outside Validation scope: "
-    for line in reason[len(prefix) :].split("\n"):
-        address, found, scope = line.partition(separator)
-        if not found or not address.startswith(name + "/"):
-            return None
-        logical = address[len(name) + 1 :]
-        item = owners.get(name, {}).get(logical)
-        if not item or scope != "/".join(
-            (identity["environment"], context["directory"], item["service"])
-        ):
-            return None
-        result.append({"logicalId": logical, **item})
-    if not result or len({item["logicalId"] for item in result}) != len(result):
-        return None
-    return result
 
 
 def check_state(root, state, progress, task, consumers=(), candidate=None):
@@ -253,10 +215,7 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         }:
             raise ws.Blocked("currentFailure does not cover every current failure")
         owners = correction_scope.ownership(root, state, context)
-        before = (
-            tasks.replace(task, text=original_contract(root, state)).scope
-            or frozenset()
-        )
+        before = tasks.replace(task, text=original_contract(state)).scope or frozenset()
         after = tasks.replace(task, text=candidate).scope or frozenset()
         for name, saved in failures.items():
             current = copy.deepcopy(context["states"].get(name))
@@ -282,22 +241,16 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
             if not isinstance(detail, dict):
                 raise ws.Blocked("currentFailure classification is invalid")
             missing = detail.get("owners")
-            legacy = legacy_scope_owners(name, saved, identity, context, owners)
             if (
                 current != saved
                 or saved.get("status") != "BLOCKED"
-                or not (
-                    detail.get("stage") == "PREPARATION"
-                    and detail.get("classification") == "OWNER_SCOPE_MISSING"
-                    and detail.get("executionState") == "NOT_SUBMITTED"
-                    and isinstance(missing, list)
-                    and missing
-                    or legacy is not None
-                )
+                or detail.get("stage") != "PREPARATION"
+                or detail.get("classification") != "OWNER_SCOPE_MISSING"
+                or detail.get("executionState") != "NOT_SUBMITTED"
+                or not isinstance(missing, list)
+                or not missing
             ):
                 raise ws.Blocked("currentFailure is not a proven scope failure")
-            if legacy is not None:
-                missing = legacy
             ended = saved.get("endedRequest")
             if ended:
                 if not successful_request(
@@ -515,7 +468,7 @@ def successful_request(name, ended, input_digest):
 def pending_identity(root, task, candidate, state, saved, consumers, *, journal=None):
     """Validate the same signed candidates under the corrected, still fixed authority."""
     context = saved["runContext"]
-    original = original_contract(root, state)
+    original = original_contract(state)
     old_bytes = hashlib.sha256(
         tasks.set_status(original, "running").encode("utf-8")
     ).hexdigest()
@@ -620,7 +573,7 @@ def recover_publication(root, name, initial, candidate, approved, record):
     consumers = check_candidate(
         root,
         task,
-        original_contract(root, state),
+        original_contract(state),
         candidate,
         state,
         progress["runContext"],
@@ -782,7 +735,7 @@ def correct(root, name, source, approved=()):
         if state.get("python_setup", {}).get("status") != "ready":
             raise ws.Blocked("Deploy requires successful managed Python setup")
         task = tasks.read_task_snapshot(root, name, live=True)
-        original = original_contract(root, state)
+        original = original_contract(state)
         guard = guard_snapshot(root, state)
         progress_path = worktree.progress_path(root)
         before_progress = (

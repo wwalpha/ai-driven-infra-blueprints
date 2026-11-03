@@ -17,6 +17,9 @@ from deploy import deferred, preparation, scope
 
 def ownership(root, state, context):
     identity = state["deployIdentity"]
+    text = state.get("deployContract")
+    if not isinstance(text, str) or tasks.task_digest(text) != identity["taskDigest"]:
+        raise Blocked("fixed Deploy contract evidence is missing or inconsistent")
     mappings = preparation.owning_resources(
         root,
         identity["environment"],
@@ -25,7 +28,6 @@ def ownership(root, state, context):
         context["stepUnits"],
     )
     task = tasks.read_task_snapshot(root, state["task_file"], live=True)
-    text = state.get("deployContract", task.text)
     records = tasks.section(text, "## Execution scope")
     if not records:
         raise Blocked(

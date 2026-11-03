@@ -44,9 +44,14 @@ def seed(root, state_path, case="orders", **kwargs):
         root / "framework",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
+    skill = root / ".agents/skills/deploy/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    shutil.copyfile(
+        Path(wt.__file__).resolve().parents[2] / skill.relative_to(root), skill
+    )
     requirements = root / wt.python_env.REQUIREMENTS
     requirements.write_text("", encoding="utf-8")
-    git(root, "add", ".gitignore", "framework")
+    git(root, "add", ".gitignore", "framework", skill.relative_to(root).as_posix())
     git(root, "commit", "-qm", "Managed fixture ignores")
     # Provision only the interpreter offline; dependencies come from this fixed test runtime.
 
