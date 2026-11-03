@@ -1,3 +1,0 @@
-error: ValueError
-message: 'IMPORT existing Resource requires an explicitly selected refresh/bind/replace;
-  fields must be preserved: desired.row.001-003.document'

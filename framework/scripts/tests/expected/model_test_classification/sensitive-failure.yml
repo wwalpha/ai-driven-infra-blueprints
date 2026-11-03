@@ -1,0 +1,16 @@
+sensitive-failure-0:
+  result:
+    propertiesKey: credential
+    status: acquisition_failed
+sensitive-failure-1:
+  result:
+    propertiesKey: credential
+    status: resource_missing
+sensitive-failure-2:
+  result:
+    propertiesKey: credential
+    status: design_unresolved
+sensitive-failure-3:
+  result:
+    propertiesKey: credential
+    status: difference

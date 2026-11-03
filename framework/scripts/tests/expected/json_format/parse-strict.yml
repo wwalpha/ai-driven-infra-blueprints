@@ -1,0 +1,15 @@
+parse-strict-01:
+  value:
+    empty: {}
+    日本語:
+    - true
+    - false
+    - null
+    - 2
+    - -0.0
+    - 1.25
+parse-strict-02:
+  value:
+  - 123456789012345678901234567890
+  - 日本
+  - []

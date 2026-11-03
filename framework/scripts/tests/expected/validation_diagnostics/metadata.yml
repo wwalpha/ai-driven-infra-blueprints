@@ -1,0 +1,51 @@
+metadata-01:
+  checks: 0
+  errors: []
+  metadata:
+    complete: true
+    status: PASS
+    unavailable_services: {}
+    unverified: []
+  status: PASS
+metadata-02:
+  checks: 0
+  errors: []
+  metadata:
+    complete: false
+    reason: 'test: required validation did not complete'
+    status: FAIL
+    unavailable_services: {}
+    unverified: []
+  status: FAIL
+metadata-03:
+  checks: 0
+  errors: []
+  metadata:
+    complete: true
+    reason: 'test: handler reported failure without diagnostic details'
+    status: FAIL
+    unavailable_services: {}
+    unverified: []
+  status: FAIL
+metadata-05:
+  checks: 0
+  errors: []
+  metadata:
+    complete: false
+    reason: '{}'
+    status: FAIL
+    unavailable_services:
+      dev/team/iam: {}
+    unverified: []
+  status: FAIL
+metadata-06:
+  checks: 0
+  errors: []
+  metadata:
+    complete: false
+    reason: '{''code'': ''not-executed''}'
+    status: FAIL
+    unavailable_services: {}
+    unverified:
+    - code: not-executed
+  status: FAIL

@@ -1,8 +1,0 @@
-defaults:
-  Extra:
-  - 1
-  - 2.5
-explicit:
-  Extra:
-  - 1
-  - 2.5

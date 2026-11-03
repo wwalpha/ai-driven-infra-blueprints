@@ -1,0 +1,77 @@
+identifier-invalid-0:
+  result:
+    awsValue: vpc-123
+    designValue: null
+    propertiesKey: EC2.VPC.VpcId
+    reason: observed identifier is missing
+    status: design_unresolved
+identifier-invalid-1:
+  result:
+    awsValue: vpc-123
+    designValue: null
+    propertiesKey: EC2.VPC.VpcId
+    reason: observed identifier is PENDING_DEPLOY
+    status: pending_identifier
+identifier-invalid-10:
+  result:
+    awsValue: vpc-123
+    designValue: null
+    propertiesKey: EC2.VPC.VpcId
+    reason: observed identifier is unresolved or invalid
+    status: design_unresolved
+identifier-invalid-2:
+  result:
+    awsValue: vpc-123
+    designValue: null
+    propertiesKey: EC2.VPC.VpcId
+    reason: observed identifier is unresolved or invalid
+    status: design_unresolved
+identifier-invalid-3:
+  result:
+    awsValue: vpc-123
+    designValue: null
+    propertiesKey: EC2.VPC.VpcId
+    reason: observed identifier is unresolved or invalid
+    status: design_unresolved
+identifier-invalid-4:
+  result:
+    awsValue: vpc-123
+    designValue: null
+    propertiesKey: EC2.VPC.VpcId
+    reason: observed identifier is unresolved or invalid
+    status: design_unresolved
+identifier-invalid-5:
+  result:
+    awsValue: vpc-123
+    designValue: null
+    propertiesKey: EC2.VPC.VpcId
+    reason: observed identifier is unresolved or invalid
+    status: design_unresolved
+identifier-invalid-6:
+  result:
+    awsValue: vpc-123
+    designValue: null
+    propertiesKey: EC2.VPC.VpcId
+    reason: observed identifier is unresolved or invalid
+    status: design_unresolved
+identifier-invalid-7:
+  result:
+    awsValue: vpc-123
+    designValue: null
+    propertiesKey: EC2.VPC.VpcId
+    reason: observed identifier is unresolved or invalid
+    status: design_unresolved
+identifier-invalid-8:
+  result:
+    awsValue: vpc-123
+    designValue: null
+    propertiesKey: EC2.VPC.VpcId
+    reason: observed identifier is unresolved or invalid
+    status: design_unresolved
+identifier-invalid-9:
+  result:
+    awsValue: vpc-123
+    designValue: null
+    propertiesKey: EC2.VPC.VpcId
+    reason: observed identifier is unresolved or invalid
+    status: design_unresolved

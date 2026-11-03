@@ -1,0 +1,38 @@
+parameter-01:
+  defaults:
+    Extra: abc
+  explicit:
+    Extra: abc
+parameter-02:
+  defaults:
+    Extra: 7
+  explicit:
+    Extra: 7
+parameter-03:
+  defaults:
+    Extra: 9007199254740993
+  explicit:
+    Extra: 9007199254740993
+parameter-04:
+  defaults:
+    Extra: 0.5
+  explicit:
+    Extra: 0.5
+parameter-05:
+  defaults:
+    Extra:
+    - a
+    - b
+  explicit:
+    Extra:
+    - a
+    - b
+parameter-06:
+  defaults:
+    Extra:
+    - 1
+    - 2.5
+  explicit:
+    Extra:
+    - 1
+    - 2.5

@@ -1,0 +1,48 @@
+producer-01:
+  calls:
+  - - describe_stacks
+    - StackName: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+  error: Blocked
+  message: Export Producer Stack identity/status changed
+producer-02:
+  calls:
+  - - describe_stacks
+    - StackName: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+  error: Blocked
+  message: Export Producer Stack identity/status changed
+producer-03:
+  calls:
+  - - describe_stacks
+    - StackName: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+  error: Blocked
+  message: 'required Export Producer/value changed: A'
+producer-04:
+  calls:
+  - - describe_stacks
+    - StackName: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+  error: Blocked
+  message: 'required Export Producer/value changed: A'
+producer-05:
+  calls:
+  - - describe_stacks
+    - StackName: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+  error: Blocked
+  message: Export Producer Export identity is ambiguous
+producer-06:
+  calls:
+  - - describe_stacks
+    - StackName: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+  error: Blocked
+  message: Export Producer Outputs are incomplete or ambiguous
+producer-07:
+  calls:
+  - - describe_stacks
+    - StackName: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+  error: Blocked
+  message: Export Producer Outputs unavailable
+producer-08:
+  calls:
+  - - describe_stacks
+    - StackName: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
+  error: Blocked
+  message: Export Producer Outputs are incomplete or ambiguous

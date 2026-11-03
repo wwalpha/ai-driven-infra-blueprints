@@ -1,6 +1,7 @@
 version: 1
 cases:
   parameter-01:
+    expected_group: parameter
     data:
       document:
         Parameters:
@@ -8,6 +9,7 @@ cases:
             Type: String
             Default: abc
   parameter-02:
+    expected_group: parameter
     data:
       document:
         Parameters:
@@ -15,6 +17,7 @@ cases:
             Type: Number
             Default: '7'
   parameter-03:
+    expected_group: parameter
     data:
       document:
         Parameters:
@@ -22,6 +25,7 @@ cases:
             Type: Number
             Default: '9007199254740993'
   parameter-04:
+    expected_group: parameter
     data:
       document:
         Parameters:
@@ -29,6 +33,7 @@ cases:
             Type: Number
             Default: '0.5'
   parameter-05:
+    expected_group: parameter
     data:
       document:
         Parameters:
@@ -36,6 +41,7 @@ cases:
             Type: CommaDelimitedList
             Default: a, b
   parameter-06:
+    expected_group: parameter
     data:
       document:
         Parameters:
@@ -43,6 +49,7 @@ cases:
             Type: List<Number>
             Default: 1, 2.5
   definition-error-01:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -54,6 +61,7 @@ cases:
             - stg
       reason: AllowedValues
   definition-error-02:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -63,6 +71,7 @@ cases:
             AllowedPattern: good
       reason: AllowedPattern
   definition-error-03:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -72,6 +81,7 @@ cases:
             MinLength: 2
       reason: MinLength
   definition-error-04:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -81,6 +91,7 @@ cases:
             MaxLength: 3
       reason: MaxLength
   definition-error-05:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -90,6 +101,7 @@ cases:
             MinValue: 2
       reason: MinValue
   definition-error-06:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -99,6 +111,7 @@ cases:
             MaxValue: 2
       reason: MaxValue
   definition-error-07:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -107,6 +120,7 @@ cases:
             Default: NaN
       reason: Number
   definition-error-08:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -115,6 +129,7 @@ cases:
             Default: true
       reason: Number
   definition-error-09:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -123,6 +138,7 @@ cases:
             Default: []
       reason: String
   definition-error-10:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -130,6 +146,7 @@ cases:
             Type: String
       reason: required parameter
   definition-error-11:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -140,6 +157,7 @@ cases:
             - a
       reason: AllowedValues
   definition-error-12:
+    expected_group: definition-error
     data:
       document:
         Parameters:
@@ -149,6 +167,7 @@ cases:
             AllowedPattern: '[a-z]+'
       reason: AllowedPattern
   file-error-01:
+    expected_group: file-error
     data:
       document:
         Parameters:
@@ -158,6 +177,7 @@ cases:
     files:
       parameters.json: '[]'
   file-error-02:
+    expected_group: file-error
     data:
       document:
         Parameters:
@@ -167,6 +187,7 @@ cases:
     files:
       parameters.json: '[{"ParameterKey":"Unknown","ParameterValue":"x"}]'
   file-error-03:
+    expected_group: file-error
     data:
       document:
         Parameters:
@@ -176,6 +197,7 @@ cases:
     files:
       parameters.json: '[{"ParameterKey":"Name","ParameterValue":7}]'
   file-error-04:
+    expected_group: file-error
     data:
       document:
         Parameters:
@@ -185,6 +207,7 @@ cases:
     files:
       parameters.json: '[{"ParameterKey":"Name","ParameterValue":"a"},{"ParameterKey":"Name","ParameterValue":"b"}]'
   file-error-05:
+    expected_group: file-error
     data:
       document:
         Parameters:

@@ -1,6 +1,0 @@
-tree:
-  VpcConfig:
-    Subnets:
-    - subnet-2
-    - subnet-1
-    VpcId: vpc-123

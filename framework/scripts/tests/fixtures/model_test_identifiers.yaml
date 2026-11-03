@@ -18,36 +18,47 @@ cases:
     data:
       aws: vpc-456
   identifier-invalid-0:
+    expected_group: identifier-invalid
     data:
       observed: null
   identifier-invalid-1:
+    expected_group: identifier-invalid
     data:
       observed: '`PENDING_DEPLOY`'
   identifier-invalid-2:
+    expected_group: identifier-invalid
     data:
       observed: '`UNSET`'
   identifier-invalid-3:
+    expected_group: identifier-invalid
     data:
       observed: '`PENDING`'
   identifier-invalid-4:
+    expected_group: identifier-invalid
     data:
       observed: '`TODO`'
   identifier-invalid-5:
+    expected_group: identifier-invalid
     data:
       observed: '`N/A`'
   identifier-invalid-6:
+    expected_group: identifier-invalid
     data:
       observed: '`UNUSED`'
   identifier-invalid-7:
+    expected_group: identifier-invalid
     data:
       observed: '`unresolved`'
   identifier-invalid-8:
+    expected_group: identifier-invalid
     data:
       observed: '`${Thing}`'
   identifier-invalid-9:
+    expected_group: identifier-invalid
     data:
       observed: '[VPC](#vpc)'
   identifier-invalid-10:
+    expected_group: identifier-invalid
     data:
       observed: '`["vpc-1","vpc-2"]`'
   identifier-ambiguous:

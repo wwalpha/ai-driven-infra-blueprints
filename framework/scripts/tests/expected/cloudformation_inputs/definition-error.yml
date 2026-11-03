@@ -1,0 +1,36 @@
+definition-error-01:
+  error: ValueError
+  message: 'parameter violates AllowedValues: Extra'
+definition-error-02:
+  error: ValueError
+  message: 'parameter violates AllowedPattern: Extra'
+definition-error-03:
+  error: ValueError
+  message: 'parameter violates MinLength: Extra'
+definition-error-04:
+  error: ValueError
+  message: 'parameter violates MaxLength: Extra'
+definition-error-05:
+  error: ValueError
+  message: 'parameter violates MinValue: Extra'
+definition-error-06:
+  error: ValueError
+  message: 'parameter violates MaxValue: Extra'
+definition-error-07:
+  error: ValueError
+  message: 'invalid Number parameter: Extra'
+definition-error-08:
+  error: ValueError
+  message: 'invalid Number parameter: Extra'
+definition-error-09:
+  error: ValueError
+  message: 'invalid String parameter: Extra'
+definition-error-10:
+  error: ValueError
+  message: 'required parameter missing: Extra'
+definition-error-11:
+  error: ValueError
+  message: 'parameter violates AllowedValues: Extra'
+definition-error-12:
+  error: ValueError
+  message: 'parameter violates AllowedPattern: Extra'

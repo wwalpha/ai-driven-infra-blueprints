@@ -1,0 +1,62 @@
+owner-01:
+  evidence: service source path
+  owner:
+  - dev
+  - team
+  - iam
+  status: assigned
+owner-02:
+  evidence: service source path
+  owner:
+  - dev
+  - team
+  - iam
+  status: assigned
+owner-03:
+  evidence: explicit owner conflicts with source path
+  owner: null
+  status: unresolved
+owner-04:
+  evidence: no single service source or explicit owner
+  owner: null
+  status: unresolved
+owner-05:
+  evidence: no single service source or explicit owner
+  owner: null
+  status: unresolved
+owner-06:
+  evidence: explicit owner
+  owner:
+  - dev
+  - team
+  - iam
+  status: assigned
+owner-07:
+  evidence: service source path
+  owner:
+  - dev
+  - team
+  - s3
+  status: outside
+owner-08:
+  evidence: service source path
+  owner:
+  - stg
+  - team
+  - iam
+  status: outside
+owner-09:
+  evidence: service source path
+  owner:
+  - dev
+  - other
+  - iam
+  status: outside
+owner-10:
+  evidence: invalid explicit owner
+  owner: null
+  status: unresolved
+owner-11:
+  evidence: noncanonical source path
+  owner: null
+  status: unresolved

@@ -1,0 +1,18 @@
+error-strict-01:
+  error: ValueError
+  message: 'duplicate JSON key: x'
+error-strict-02:
+  error: ValueError
+  message: 'duplicate JSON key: 日本'
+error-strict-03:
+  error: ValueError
+  message: 'invalid JSON constant: NaN'
+error-strict-04:
+  error: ValueError
+  message: 'invalid JSON constant: Infinity'
+error-strict-05:
+  error: ValueError
+  message: 'invalid JSON constant: -Infinity'
+error-strict-06:
+  error: JSONDecodeError
+  message: 'Expecting value: line 1 column 6 (char 5)'

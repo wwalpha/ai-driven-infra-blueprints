@@ -1,2 +1,0 @@
-errors:
-- must be one of ['All', 'ReadOnly', 'WriteOnly']

@@ -1,6 +1,7 @@
 version: 1
 cases:
   normalize-01:
+    expected_group: normalize
     data:
       prop: Permissions[].Actions
       value:
@@ -8,6 +9,7 @@ cases:
       - B
       shape: leaf
   normalize-02:
+    expected_group: normalize
     data:
       prop: Permissions[].Actions
       value:
@@ -15,12 +17,14 @@ cases:
         - B
       shape: projection
   normalize-03:
+    expected_group: normalize
     data:
       prop: EventSelectors[].DataResources[].Values
       value:
       - - - arn:aws:s3
       shape: projection
   normalize-04:
+    expected_group: normalize
     data:
       prop: Items[]
       value:
@@ -28,27 +32,32 @@ cases:
       - B
       shape: projection
   normalize-05:
+    expected_group: normalize
     data:
       prop: Items[]
       value: A
       shape: leaf
   normalize-06:
+    expected_group: normalize
     data:
       prop: Permissions[].Actions
       value: []
       shape: leaf
   normalize-07:
+    expected_group: normalize
     data:
       prop: Permissions[].Actions
       value: []
       shape: projection
   normalize-08:
+    expected_group: normalize
     data:
       prop: Groups[].Members[].Values
       value:
       - []
       shape: projection
   normalize-09:
+    expected_group: normalize
     data:
       prop: Permissions[].Actions
       value:
@@ -56,6 +65,7 @@ cases:
       - - B
       shape: projection
   actions-01:
+    expected_group: actions
     data:
       value:
       - ActionA
@@ -63,6 +73,7 @@ cases:
       shape: leaf
       valid: true
   actions-02:
+    expected_group: actions
     data:
       value:
       - - ActionA
@@ -70,16 +81,19 @@ cases:
       shape: projection
       valid: true
   actions-03:
+    expected_group: actions
     data:
       value: ActionA
       shape: leaf
       valid: false
   actions-04:
+    expected_group: actions
     data:
       value: []
       shape: leaf
       valid: false
   actions-05:
+    expected_group: actions
     data:
       value:
       - ActionA
@@ -116,6 +130,7 @@ cases:
       shape: leaf
       valid: false
   actions-06:
+    expected_group: actions
     data:
       value:
       - ActionA
@@ -123,6 +138,7 @@ cases:
       shape: leaf
       valid: false
   actions-07:
+    expected_group: actions
     data:
       value:
       - - ActionA
@@ -130,114 +146,138 @@ cases:
       shape: projection
       valid: false
   actions-08:
+    expected_group: actions
     data:
       value:
       - - - ActionA
       shape: leaf
       valid: false
   actions-09:
+    expected_group: actions
     data:
       value:
       - ActionA
       shape: projection
       valid: false
   actions-10:
+    expected_group: actions
     data:
       value:
       - []
       shape: projection
       valid: false
   actions-11:
+    expected_group: actions
     data:
       value: []
       shape: projection
       valid: false
   column-constraints-01:
+    expected_group: column-constraints
     data:
       field: EventSelectors[].IncludeManagementEvents
       raw: '[true,false]'
       valid: true
   column-constraints-02:
+    expected_group: column-constraints
     data:
       field: EventSelectors[].IncludeManagementEvents
       raw: '[true,"false"]'
       valid: false
   column-constraints-03:
+    expected_group: column-constraints
     data:
       field: EventSelectors[].ReadWriteType
       raw: '["All","ReadOnly"]'
       valid: true
   column-constraints-04:
+    expected_group: column-constraints
     data:
       field: EventSelectors[].ReadWriteType
       raw: '["All","bad"]'
       valid: false
   column-constraints-05:
+    expected_group: column-constraints
     data:
       field: EventSelectors[].DataResources[].Type
       raw: '[["AWS::S3::Object"]]'
       valid: true
   column-constraints-06:
+    expected_group: column-constraints
     data:
       field: EventSelectors[].DataResources[].Values
       raw: '[[["arn:aws:s3"]]]'
       valid: true
   column-constraints-07:
+    expected_group: column-constraints
     data:
       field: EventSelectors[].ReadWriteType
       raw: '["All"]'
       valid: true
   column-constraints-08:
+    expected_group: column-constraints
     data:
       field: EventSelectors[].ReadWriteType
       raw: '["bad"]'
       valid: false
   column-constraints-09:
+    expected_group: column-constraints
     data:
       field: EventSelectors[].ReadWriteType
       raw: '[["All"]]'
       valid: false
   terminal-projection-constraints-01:
+    expected_group: terminal-projection-constraints
     data:
       raw: '["a/","b/"]'
       valid: true
   terminal-projection-constraints-02:
+    expected_group: terminal-projection-constraints
     data:
       raw: '[]'
       valid: true
   terminal-projection-constraints-03:
+    expected_group: terminal-projection-constraints
     data:
       raw: '  ["a/"]'
       valid: true
   terminal-projection-constraints-04:
+    expected_group: terminal-projection-constraints
     data:
       raw: '["a/",]'
       valid: false
   terminal-projection-constraints-05:
+    expected_group: terminal-projection-constraints
     data:
       raw: '['
       valid: false
   terminal-projection-constraints-06:
+    expected_group: terminal-projection-constraints
     data:
       raw: '[1]'
       valid: false
   terminal-projection-constraints-07:
+    expected_group: terminal-projection-constraints
     data:
       raw: '[null]'
       valid: false
   terminal-projection-constraints-08:
+    expected_group: terminal-projection-constraints
     data:
       raw: '[true]'
       valid: false
   terminal-projection-constraints-09:
+    expected_group: terminal-projection-constraints
     data:
       raw: '[{}]'
       valid: false
   terminal-projection-constraints-10:
+    expected_group: terminal-projection-constraints
     data:
       raw: '[["a/"]]'
       valid: false
   projection-siblings-reconstruct-01:
+    expected_group: projection-siblings-reconstruct
     data:
       values:
       - - VpcConfig.VpcId
@@ -248,6 +288,7 @@ cases:
         - - subnet-2
           - subnet-1
   projection-siblings-reconstruct-02:
+    expected_group: projection-siblings-reconstruct
     data:
       values:
       - - VpcConfig.Subnets[]
@@ -258,6 +299,7 @@ cases:
         - leaf
         - sg-1
   projection-siblings-reconstruct-03:
+    expected_group: projection-siblings-reconstruct
     data:
       values:
       - - EventSelectors[].ReadWriteType

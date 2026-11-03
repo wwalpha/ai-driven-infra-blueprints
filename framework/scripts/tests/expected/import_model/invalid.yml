@@ -1,0 +1,44 @@
+invalid-01:
+  error: ValueError
+  message: 'IMPORT existing Resource requires an explicitly selected refresh/bind/replace;
+    fields must be preserved: desired.row.001-002.value'
+invalid-02:
+  error: ValueError
+  message: 'IMPORT existing fixed identity, placement, mode and parent relationships
+    must be preserved: 001'
+invalid-03:
+  error: InputValidationError
+  message: 'logicalId requires ResourceType prefix and fixed sequence: Renamed'
+invalid-04:
+  error: ValueError
+  message: 'IMPORT existing fixed identity, placement, mode and parent relationships
+    must be preserved: 001'
+invalid-05:
+  error: ValueError
+  message: 'IMPORT existing Resource requires an explicitly selected refresh/bind/replace;
+    fields must be preserved: desired.row.001-001.value'
+invalid-06:
+  error: ValueError
+  message: 'IMPORT existing Resource requires an explicitly selected refresh/bind/replace;
+    fields must be preserved: observed.row.001-001.value'
+invalid-07:
+  error: ValueError
+  message: 'IMPORT existing Row Property must be preserved: 001-002'
+invalid-08:
+  error: ValueError
+  message: 'IMPORT existing Resource requires an explicitly selected refresh/bind/replace;
+    fields must be preserved: desired.row.001-003.value'
+invalid-09:
+  error: ValueError
+  message: 'IMPORT existing Resource requires an explicitly selected refresh/bind/replace;
+    fields must be preserved: desired.row.001-003.comment'
+invalid-10:
+  error: ValueError
+  message: 'IMPORT existing Resource requires an explicitly selected refresh/bind/replace;
+    fields must be preserved: desired.row.001-003.document'
+invalid-11:
+  error: ValueError
+  message: 'observed value requires a desired logical reference: 001-002'
+invalid-12:
+  error: InputValidationError
+  message: 'Row requires property, value and comment: 001-004'

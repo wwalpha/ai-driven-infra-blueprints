@@ -1,0 +1,22 @@
+column-constraints-01:
+  errors: []
+column-constraints-02:
+  errors:
+  - must be boolean
+column-constraints-03:
+  errors: []
+column-constraints-04:
+  errors:
+  - must be one of ['All', 'ReadOnly', 'WriteOnly']
+column-constraints-05:
+  errors: []
+column-constraints-06:
+  errors: []
+column-constraints-07:
+  errors: []
+column-constraints-08:
+  errors:
+  - must be one of ['All', 'ReadOnly', 'WriteOnly']
+column-constraints-09:
+  errors:
+  - must be string

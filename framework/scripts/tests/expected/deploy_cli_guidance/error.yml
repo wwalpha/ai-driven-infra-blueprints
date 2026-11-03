@@ -1,0 +1,85 @@
+error-01:
+  cause:
+    code: null
+    detailDigest: 67289abcaf488e5784135353253ce19e9885d06779f8938267339f1ee657181a
+    diagnosticCategories: []
+    errorType: ValueError
+  nextAction:
+    command: null
+    reason: Execution stopped at this stage. Review the current cause, Task authority
+      and inputs; no safe automatic command is established.
+    type: HUMAN_REVIEW
+  stage: PREPARATION
+error-02:
+  cause:
+    code: PREPARATION_INPUT_CHANGED
+    detailDigest: 67289abcaf488e5784135353253ce19e9885d06779f8938267339f1ee657181a
+    diagnosticCategories: []
+    errorType: InputChanged
+    missingConditions: []
+  nextAction:
+    command: null
+    reason: Frozen preparation inputs changed; review the changes and prepare again
+      before registration. No old plan may be run.
+    type: PREPARE_AGAIN
+  stage: INPUT_REVALIDATION
+error-03:
+  cause:
+    code: null
+    detailDigest: 67289abcaf488e5784135353253ce19e9885d06779f8938267339f1ee657181a
+    diagnosticCategories: []
+    errorType: OSError
+  nextAction:
+    command: null
+    reason: Execution stopped at this stage. Review the current cause, Task authority
+      and inputs; no safe automatic command is established.
+    type: HUMAN_REVIEW
+  stage: REGISTRATION
+error-04:
+  cause:
+    code: null
+    detailDigest: 67289abcaf488e5784135353253ce19e9885d06779f8938267339f1ee657181a
+    diagnosticCategories: []
+    errorType: ValueError
+  nextAction:
+    command: null
+    reason: Execution stopped at this stage. Review the current cause, Task authority
+      and inputs; no safe automatic command is established.
+    type: CONTEXT_REVIEW
+  stage: TASK_AUTHORITY
+error-05:
+  cause:
+    code: InvalidIdentity
+    detailDigest: 67289abcaf488e5784135353253ce19e9885d06779f8938267339f1ee657181a
+    diagnosticCategories: []
+    errorType: IdentityError
+  nextAction:
+    command: null
+    reason: Execution stopped at this stage. Review the current cause, Task authority
+      and inputs; no safe automatic command is established.
+    type: CONTEXT_REVIEW
+  stage: AUTHENTICATION
+error-06:
+  cause:
+    code: null
+    detailDigest: 67289abcaf488e5784135353253ce19e9885d06779f8938267339f1ee657181a
+    diagnosticCategories: []
+    errorType: RuntimeError
+  nextAction:
+    command: null
+    reason: Execution stopped at this stage. Review the current cause, Task authority
+      and inputs; no safe automatic command is established.
+    type: CONTEXT_REVIEW
+  stage: TARGET_SELECTION
+error-07:
+  cause:
+    code: null
+    detailDigest: 67289abcaf488e5784135353253ce19e9885d06779f8938267339f1ee657181a
+    diagnosticCategories: []
+    errorType: ValueError
+  nextAction:
+    command: null
+    reason: Execution stopped at this stage. Review the current cause, Task authority
+      and inputs; no safe automatic command is established.
+    type: HUMAN_REVIEW
+  stage: HANDOFF

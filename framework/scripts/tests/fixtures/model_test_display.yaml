@@ -24,6 +24,7 @@ cases:
         EC2.VPC:
         - EC2.VPC.VpcId
   partial-0:
+    expected_group: partial
     data:
       names:
         Internal_0: duplicate
@@ -39,6 +40,7 @@ cases:
         EC2.VPC:
         - EC2.VPC.VpcId
   partial-1:
+    expected_group: partial
     data:
       names:
         Internal_0: duplicate
@@ -58,6 +60,7 @@ cases:
         EC2.VPC:
         - EC2.VPC.VpcId
   partial-2:
+    expected_group: partial
     data:
       names:
         Internal_0: duplicate
@@ -73,6 +76,7 @@ cases:
         EC2.VPC:
         - EC2.VPC.VpcId
   partial-3:
+    expected_group: partial
     data:
       names:
         Internal_0: duplicate
@@ -93,6 +97,7 @@ cases:
         - EC2.EIP.AllocationId
         - EC2.EIP.PublicIp
   partial-4:
+    expected_group: partial
     data:
       names:
         Internal_0: duplicate
@@ -113,6 +118,7 @@ cases:
         - EC2.EIP.AllocationId
         - EC2.EIP.PublicIp
   partial-5:
+    expected_group: partial
     data:
       names:
         Internal_0: duplicate
@@ -134,6 +140,7 @@ cases:
         - EC2.EIP.AllocationId
         - EC2.EIP.PublicIp
   partial-6:
+    expected_group: partial
     data:
       names:
         Internal_0: duplicate
@@ -156,6 +163,7 @@ cases:
         - EC2.EIP.AllocationId
         - EC2.EIP.PublicIp
   partial-7:
+    expected_group: partial
     data:
       names:
         Internal_0: duplicate

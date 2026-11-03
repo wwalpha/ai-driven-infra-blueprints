@@ -262,46 +262,55 @@ cases:
         desired.row.001-001.comment: 起動するイメージ
         desired.resource.001.resourceMode: IMPORT
   subnet-01:
+    expected_group: subnet
     data:
       property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
       value: subnet-a, subnet-b
       valid: true
   subnet-02:
+    expected_group: subnet
     data:
       property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
       value: '` subnet-a ,  subnet-b `'
       valid: true
   subnet-03:
+    expected_group: subnet
     data:
       property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
       value: '` [a](vpc.md#a), [b](vpc.md#b) `'
       valid: true
   subnet-04:
+    expected_group: subnet
     data:
       property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
       value: ''
       valid: false
   subnet-05:
+    expected_group: subnet
     data:
       property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
       value: ','
       valid: false
   subnet-06:
+    expected_group: subnet
     data:
       property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
       value: subnet-a,
       valid: false
   subnet-07:
+    expected_group: subnet
     data:
       property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
       value: subnet-a,,subnet-b
       valid: false
   subnet-08:
+    expected_group: subnet
     data:
       property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
       value: subnet-a|b
       valid: false
   subnet-09:
+    expected_group: subnet
     data:
       property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
       value: 'subnet-a
@@ -309,6 +318,7 @@ cases:
         subnet-b'
       valid: false
   subnet-10:
+    expected_group: subnet
     data:
       property: SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds
       value: subnet-`a

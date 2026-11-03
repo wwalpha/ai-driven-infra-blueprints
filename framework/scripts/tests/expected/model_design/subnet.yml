@@ -1,0 +1,40 @@
+subnet-01:
+  items:
+  - '`subnet-a`'
+  - '`subnet-b`'
+subnet-02:
+  items:
+  - '`subnet-a`'
+  - '`subnet-b`'
+subnet-03:
+  items:
+  - '[a](vpc.md#a)'
+  - '[b](vpc.md#b)'
+subnet-04:
+  error: ValueError
+  message: 'SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds: Subnet
+    list must contain non-empty string elements'
+subnet-05:
+  error: ValueError
+  message: 'SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds: Subnet
+    list must contain non-empty string elements'
+subnet-06:
+  error: ValueError
+  message: 'SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds: Subnet
+    list must contain non-empty string elements'
+subnet-07:
+  error: ValueError
+  message: 'SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds: Subnet
+    list must contain non-empty string elements'
+subnet-08:
+  error: ValueError
+  message: 'SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds: Subnet
+    list must contain non-empty string elements'
+subnet-09:
+  error: ValueError
+  message: 'SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds: Subnet
+    list must contain non-empty string elements'
+subnet-10:
+  error: ValueError
+  message: 'SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds: Subnet
+    list must contain non-empty string elements'

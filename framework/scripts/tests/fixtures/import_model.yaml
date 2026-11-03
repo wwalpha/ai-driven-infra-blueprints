@@ -41,50 +41,62 @@ cases:
     data:
       alias: true
   invalid-01:
+    expected_group: invalid
     data:
       key: desired.row.001-002.value
       value: '`10.11.0.0/23`'
   invalid-02:
+    expected_group: invalid
     data:
       key: desired.resource.001.anchor
       value: renamed
   invalid-03:
+    expected_group: invalid
     data:
       key: desired.resource.001.logicalId
       value: Renamed
   invalid-04:
+    expected_group: invalid
     data:
       key: desired.resource.001.resourceMode
       value: CREATE
   invalid-05:
+    expected_group: invalid
     data:
       key: desired.row.001-001.value
       value: '`vpc-confirmed`'
   invalid-06:
+    expected_group: invalid
     data:
       key: observed.row.001-001.value
       value: '`vpc-invented`'
   invalid-07:
+    expected_group: invalid
     data:
       key: desired.row.001-002.property
       value: EC2.VPC.Name
   invalid-08:
+    expected_group: invalid
     data:
       key: desired.row.001-003.value
       value: '`renamed-vpc`'
   invalid-09:
+    expected_group: invalid
     data:
       key: desired.row.001-003.comment
       value: changed
   invalid-10:
+    expected_group: invalid
     data:
       key: desired.row.001-003.document
       value: '{}'
   invalid-11:
+    expected_group: invalid
     data:
       key: observed.row.001-002.value
       value: '`10.11.0.0/23`'
   invalid-12:
+    expected_group: invalid
     data:
       key: desired.row.001-004.value
       value: '`true`'

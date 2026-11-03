@@ -1,26 +1,31 @@
 version: 1
 cases:
   field-01:
+    expected_group: field
     data:
       field: version
       value: 6.0
       message: version
   field-02:
+    expected_group: field
     data:
       field: version
       value: true
       message: version
   field-03:
+    expected_group: field
     data:
       field: version
       value: 7
       message: version
   field-04:
+    expected_group: field
     data:
       field: naming_context
       value: []
       message: naming_context
   field-05:
+    expected_group: field
     data:
       field: record_meta
       value: null

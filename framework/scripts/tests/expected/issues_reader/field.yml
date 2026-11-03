@@ -1,0 +1,15 @@
+field-01:
+  error: ValueError
+  message: 'Scan artifact: invalid type at version'
+field-02:
+  error: ValueError
+  message: 'Scan artifact: invalid type at version'
+field-03:
+  error: ValueError
+  message: 'Scan artifact: unsupported version'
+field-04:
+  error: ValueError
+  message: 'Scan artifact: invalid type at naming_context'
+field-05:
+  error: ValueError
+  message: 'Scan artifact: missing required field record_meta'

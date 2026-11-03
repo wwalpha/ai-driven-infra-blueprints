@@ -1,0 +1,16 @@
+file-error-01:
+  error: ValueError
+  message: 'required parameter missing: Name'
+file-error-02:
+  error: ValueError
+  message: undeclared stack parameter
+file-error-03:
+  error: ValueError
+  message: parameter file must contain explicit stack-specific ParameterKey/ParameterValue
+    entries
+file-error-04:
+  error: ValueError
+  message: duplicate parameter key
+file-error-05:
+  error: ValueError
+  message: 'duplicate policy JSON key: ParameterValue'

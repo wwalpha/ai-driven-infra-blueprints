@@ -1,0 +1,31 @@
+actions-01:
+  errors: []
+actions-02:
+  errors: []
+actions-03:
+  errors:
+  - must be array
+actions-04:
+  errors:
+  - items must be >= 1
+actions-05:
+  errors:
+  - items must be <= 30
+actions-06:
+  errors:
+  - '[1]: must be string'
+actions-07:
+  errors:
+  - '[1]: must be string'
+actions-08:
+  errors:
+  - '[0]: must be string'
+actions-09:
+  errors:
+  - must be array
+actions-10:
+  errors:
+  - items must be >= 1
+actions-11:
+  errors:
+  - 'Permissions: items must be >= 1'

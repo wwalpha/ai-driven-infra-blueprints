@@ -1,52 +1,63 @@
 version: 1
 cases:
   metadata-01:
+    expected_group: metadata
     data:
       metadata: {}
       status: PASS
   metadata-02:
+    expected_group: metadata
     data:
       metadata:
         complete: false
       status: FAIL
   metadata-03:
+    expected_group: metadata
     data:
       metadata:
         status: FAIL
       status: FAIL
   metadata-05:
+    expected_group: metadata
     data:
       metadata:
         unavailable_services:
           dev/team/iam: {}
       status: FAIL
   metadata-06:
+    expected_group: metadata
     data:
       metadata:
         unverified:
         - code: not-executed
       status: FAIL
   completion-01:
+    expected_group: completion
     data:
       started: false
       complete: null
   completion-02:
+    expected_group: completion
     data:
       started: true
       complete: null
   completion-03:
+    expected_group: completion
     data:
       started: false
       complete: false
   completion-04:
+    expected_group: completion
     data:
       started: true
       complete: false
   completion-05:
+    expected_group: completion
     data:
       started: false
       complete: true
   completion-06:
+    expected_group: completion
     data:
       started: true
       complete: true

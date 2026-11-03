@@ -1,42 +1,49 @@
 version: 1
 cases:
   error-01:
+    expected_group: error
     data:
       stage: PREPARATION
       errorType: ValueError
       message: private-secret
       nextAction: HUMAN_REVIEW
   error-02:
+    expected_group: error
     data:
       stage: REGISTRATION
       errorType: InputChanged
       message: private-secret
       nextAction: PREPARE_AGAIN
   error-03:
+    expected_group: error
     data:
       stage: REGISTRATION
       errorType: OSError
       message: private-secret
       nextAction: HUMAN_REVIEW
   error-04:
+    expected_group: error
     data:
       stage: TASK_AUTHORITY
       errorType: ValueError
       message: private-secret
       nextAction: CONTEXT_REVIEW
   error-05:
+    expected_group: error
     data:
       stage: AUTHENTICATION
       errorType: IdentityError
       message: private-secret
       nextAction: CONTEXT_REVIEW
   error-06:
+    expected_group: error
     data:
       stage: TARGET_SELECTION
       errorType: RuntimeError
       message: private-secret
       nextAction: CONTEXT_REVIEW
   error-07:
+    expected_group: error
     data:
       stage: HANDOFF
       errorType: ValueError

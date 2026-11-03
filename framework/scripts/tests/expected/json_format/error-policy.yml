@@ -1,0 +1,18 @@
+error-policy-01:
+  error: ValueError
+  message: 'duplicate policy JSON key: x'
+error-policy-02:
+  error: ValueError
+  message: 'duplicate policy JSON key: 日本'
+error-policy-03:
+  error: ValueError
+  message: 'invalid JSON constant: NaN'
+error-policy-04:
+  error: ValueError
+  message: 'invalid JSON constant: Infinity'
+error-policy-05:
+  error: ValueError
+  message: 'invalid JSON constant: -Infinity'
+error-policy-06:
+  error: JSONDecodeError
+  message: 'Expecting value: line 1 column 6 (char 5)'

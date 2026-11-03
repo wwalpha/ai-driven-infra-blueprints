@@ -1,0 +1,57 @@
+normalize-01:
+  arrays: []
+  values:
+  - - A
+    - B
+normalize-02:
+  arrays:
+  - - Permissions
+    - - - A
+        - B
+  values:
+  - - A
+    - B
+normalize-03:
+  arrays:
+  - - EventSelectors
+    - - - - arn:aws:s3
+  - - EventSelectors[].DataResources
+    - - - arn:aws:s3
+  values:
+  - - arn:aws:s3
+normalize-04:
+  arrays:
+  - - Items
+    - - A
+      - B
+  values:
+  - A
+  - B
+normalize-05:
+  arrays: []
+  values:
+  - A
+normalize-06:
+  arrays: []
+  values:
+  - []
+normalize-07:
+  arrays:
+  - - Permissions
+    - []
+  values: []
+normalize-08:
+  arrays:
+  - - Groups
+    - - []
+  - - Groups[].Members
+    - []
+  values: []
+normalize-09:
+  arrays:
+  - - Permissions
+    - - - A
+      - - B
+  values:
+  - - A
+  - - B

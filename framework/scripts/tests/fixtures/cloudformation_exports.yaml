@@ -1,6 +1,7 @@
 version: 1
 cases:
   producer-01:
+    expected_group: producer
     data:
       defect: id
       stack:
@@ -23,6 +24,7 @@ cases:
           Value: value-B
           ExportingStackId: arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Producer/original
   producer-02:
+    expected_group: producer
     data:
       defect: status
       stack:
@@ -37,6 +39,7 @@ cases:
           OutputValue: value-B
       hints: *id001
   producer-03:
+    expected_group: producer
     data:
       defect: value
       stack:
@@ -51,6 +54,7 @@ cases:
           OutputValue: value-B
       hints: *id001
   producer-04:
+    expected_group: producer
     data:
       defect: missing
       stack:
@@ -62,6 +66,7 @@ cases:
           OutputValue: value-B
       hints: *id001
   producer-05:
+    expected_group: producer
     data:
       defect: duplicate-export
       stack:
@@ -76,6 +81,7 @@ cases:
           OutputValue: value-B
       hints: *id001
   producer-06:
+    expected_group: producer
     data:
       defect: duplicate-output
       stack:
@@ -93,6 +99,7 @@ cases:
           OutputValue: value-A
       hints: *id001
   producer-07:
+    expected_group: producer
     data:
       defect: output-type
       stack:
@@ -101,6 +108,7 @@ cases:
         Outputs: null
       hints: *id001
   producer-08:
+    expected_group: producer
     data:
       defect: invalid-key
       stack:

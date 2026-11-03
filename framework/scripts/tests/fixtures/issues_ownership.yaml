@@ -1,6 +1,7 @@
 version: 1
 cases:
   owner-01:
+    expected_group: owner
     data:
       source: model/dev/team/iam.properties
       explicit: null
@@ -10,6 +11,7 @@ cases:
       - team
       - iam
   owner-02:
+    expected_group: owner
     data:
       source: docs/designs/dev/team/iam.md
       explicit: null
@@ -19,6 +21,7 @@ cases:
       - team
       - iam
   owner-03:
+    expected_group: owner
     data:
       source: model/dev/team/iam.properties
       explicit:
@@ -28,18 +31,21 @@ cases:
       status: unresolved
       owner: null
   owner-04:
+    expected_group: owner
     data:
       source: project.json
       explicit: null
       status: unresolved
       owner: null
   owner-05:
+    expected_group: owner
     data:
       source: null
       explicit: null
       status: unresolved
       owner: null
   owner-06:
+    expected_group: owner
     data:
       source: null
       explicit:
@@ -52,6 +58,7 @@ cases:
       - team
       - iam
   owner-07:
+    expected_group: owner
     data:
       source: model/dev/team/s3.properties
       explicit: null
@@ -61,6 +68,7 @@ cases:
       - team
       - s3
   owner-08:
+    expected_group: owner
     data:
       source: model/stg/team/iam.properties
       explicit: null
@@ -70,6 +78,7 @@ cases:
       - team
       - iam
   owner-09:
+    expected_group: owner
     data:
       source: model/dev/other/iam.properties
       explicit: null
@@ -79,6 +88,7 @@ cases:
       - other
       - iam
   owner-10:
+    expected_group: owner
     data:
       source: null
       explicit:
@@ -88,6 +98,7 @@ cases:
       status: unresolved
       owner: null
   owner-11:
+    expected_group: owner
     data:
       source: model/dev/team/../team/iam.properties
       explicit: null

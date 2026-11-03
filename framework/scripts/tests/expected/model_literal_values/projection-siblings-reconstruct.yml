@@ -1,0 +1,32 @@
+projection-siblings-reconstruct-01:
+  tree:
+    VpcConfig:
+      Subnets:
+      - subnet-2
+      - subnet-1
+      VpcId: vpc-123
+projection-siblings-reconstruct-02:
+  tree:
+    VpcConfig:
+      SecurityGroupIds:
+      - sg-1
+      Subnets:
+      - subnet-2
+      - subnet-1
+projection-siblings-reconstruct-03:
+  tree:
+    EventSelectors:
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - bucket-2
+        - bucket-1
+      ReadWriteType: All
+    - DataResources:
+      - Type: AWS::S3::Object
+        Values:
+        - bucket-3
+      - Type: AWS::Lambda::Function
+        Values:
+        - function-1
+      ReadWriteType: ReadOnly

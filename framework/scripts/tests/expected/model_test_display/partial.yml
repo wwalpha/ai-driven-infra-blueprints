@@ -1,0 +1,39 @@
+partial-0:
+  names:
+  - duplicate (vpc-a)
+  - duplicate
+partial-1:
+  names:
+  - duplicate
+  - duplicate
+  - duplicate
+partial-2:
+  names:
+  - duplicate
+  - duplicate
+partial-3:
+  names:
+  - duplicate (alloc-a)
+  - duplicate (ip-b)
+  - duplicate
+partial-4:
+  names:
+  - duplicate
+  - duplicate
+  - duplicate
+partial-5:
+  names:
+  - duplicate (ip-a)
+  - duplicate (same)
+  - duplicate
+partial-6:
+  names:
+  - duplicate (alloc-a)
+  - duplicate (alloc-b)
+  - duplicate
+partial-7:
+  names:
+  - duplicate (alloc-a, ip-a)
+  - duplicate (alloc-a, ip-b)
+  - duplicate (alloc-b, ip-a)
+  - duplicate

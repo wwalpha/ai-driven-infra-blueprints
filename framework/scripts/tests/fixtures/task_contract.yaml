@@ -40,50 +40,66 @@ base:
       '
 cases:
   unsafe-selector-01:
+    expected_group: unsafe-selector
     data:
       selector: tasks\..\my-task.md
   unsafe-selector-02:
+    expected_group: unsafe-selector
     data:
       selector: tasks/../my-task.md
   unsafe-selector-03:
+    expected_group: unsafe-selector
     data:
       selector: ..\tasks\my-task.md
   unsafe-selector-04:
+    expected_group: unsafe-selector
     data:
       selector: /tasks/my-task.md
   unsafe-selector-05:
+    expected_group: unsafe-selector
     data:
       selector: \tasks\my-task.md
   unsafe-selector-06:
+    expected_group: unsafe-selector
     data:
       selector: C:\tasks\my-task.md
   unsafe-selector-07:
+    expected_group: unsafe-selector
     data:
       selector: C:/tasks/my-task.md
   unsafe-selector-08:
+    expected_group: unsafe-selector
     data:
       selector: C:tasks\my-task.md
   unsafe-selector-09:
+    expected_group: unsafe-selector
     data:
       selector: \\server\share\tasks\my-task.md
   unsafe-selector-10:
+    expected_group: unsafe-selector
     data:
       selector: //server/share/tasks/my-task.md
   unsafe-selector-11:
+    expected_group: unsafe-selector
     data:
       selector: tasks\My-task.md
   unsafe-selector-12:
+    expected_group: unsafe-selector
     data:
       selector: tasks\my_task.md
   unsafe-selector-13:
+    expected_group: unsafe-selector
     data:
       selector: tasks\my--task.md
   unsafe-selector-14:
+    expected_group: unsafe-selector
     data:
       selector: tasks\\my-task.md
   unsafe-selector-15:
+    expected_group: unsafe-selector
     data:
       selector: tasks\.\my-task.md
   unsafe-selector-16:
+    expected_group: unsafe-selector
     data:
       selector: "tasks/my-task.md\0"

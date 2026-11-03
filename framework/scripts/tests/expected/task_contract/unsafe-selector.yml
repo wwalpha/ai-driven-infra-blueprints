@@ -1,0 +1,96 @@
+unsafe-selector-01:
+  errors:
+  - 'invalid task selector: tasks/../my-task.md'
+  - 'invalid task selector: tasks/../my-task.md'
+  - 'invalid task selector: tasks/../my-task.md'
+  - 'invalid task selector: tasks/../my-task.md'
+unsafe-selector-02:
+  errors:
+  - 'invalid task selector: tasks/../my-task.md'
+  - 'invalid task selector: tasks/../my-task.md'
+  - 'invalid task selector: tasks/../my-task.md'
+  - 'invalid task selector: tasks/../my-task.md'
+unsafe-selector-03:
+  errors:
+  - 'invalid task selector: ../tasks/my-task.md'
+  - 'invalid task selector: ../tasks/my-task.md'
+  - 'invalid task selector: ../tasks/my-task.md'
+  - 'invalid task selector: ../tasks/my-task.md'
+unsafe-selector-04:
+  errors:
+  - 'invalid task selector: /tasks/my-task.md'
+  - 'invalid task selector: /tasks/my-task.md'
+  - 'invalid task selector: /tasks/my-task.md'
+  - 'invalid task selector: /tasks/my-task.md'
+unsafe-selector-05:
+  errors:
+  - 'invalid task selector: /tasks/my-task.md'
+  - 'invalid task selector: /tasks/my-task.md'
+  - 'invalid task selector: /tasks/my-task.md'
+  - 'invalid task selector: /tasks/my-task.md'
+unsafe-selector-06:
+  errors:
+  - 'invalid task selector: C:/tasks/my-task.md'
+  - 'invalid task selector: C:/tasks/my-task.md'
+  - 'invalid task selector: C:/tasks/my-task.md'
+  - 'invalid task selector: C:/tasks/my-task.md'
+unsafe-selector-07:
+  errors:
+  - 'invalid task selector: C:/tasks/my-task.md'
+  - 'invalid task selector: C:/tasks/my-task.md'
+  - 'invalid task selector: C:/tasks/my-task.md'
+  - 'invalid task selector: C:/tasks/my-task.md'
+unsafe-selector-08:
+  errors:
+  - 'invalid task selector: C:tasks/my-task.md'
+  - 'invalid task selector: C:tasks/my-task.md'
+  - 'invalid task selector: C:tasks/my-task.md'
+  - 'invalid task selector: C:tasks/my-task.md'
+unsafe-selector-09:
+  errors:
+  - 'invalid task selector: //server/share/tasks/my-task.md'
+  - 'invalid task selector: //server/share/tasks/my-task.md'
+  - 'invalid task selector: //server/share/tasks/my-task.md'
+  - 'invalid task selector: //server/share/tasks/my-task.md'
+unsafe-selector-10:
+  errors:
+  - 'invalid task selector: //server/share/tasks/my-task.md'
+  - 'invalid task selector: //server/share/tasks/my-task.md'
+  - 'invalid task selector: //server/share/tasks/my-task.md'
+  - 'invalid task selector: //server/share/tasks/my-task.md'
+unsafe-selector-11:
+  errors:
+  - 'invalid task selector: tasks/My-task.md'
+  - 'invalid task selector: tasks/My-task.md'
+  - 'invalid task selector: tasks/My-task.md'
+  - 'invalid task selector: tasks/My-task.md'
+unsafe-selector-12:
+  errors:
+  - 'invalid task selector: tasks/my_task.md'
+  - 'invalid task selector: tasks/my_task.md'
+  - 'invalid task selector: tasks/my_task.md'
+  - 'invalid task selector: tasks/my_task.md'
+unsafe-selector-13:
+  errors:
+  - 'invalid task selector: tasks/my--task.md'
+  - 'invalid task selector: tasks/my--task.md'
+  - 'invalid task selector: tasks/my--task.md'
+  - 'invalid task selector: tasks/my--task.md'
+unsafe-selector-14:
+  errors:
+  - 'invalid task selector: tasks//my-task.md'
+  - 'invalid task selector: tasks//my-task.md'
+  - 'invalid task selector: tasks//my-task.md'
+  - 'invalid task selector: tasks//my-task.md'
+unsafe-selector-15:
+  errors:
+  - 'invalid task selector: tasks/./my-task.md'
+  - 'invalid task selector: tasks/./my-task.md'
+  - 'invalid task selector: tasks/./my-task.md'
+  - 'invalid task selector: tasks/./my-task.md'
+unsafe-selector-16:
+  errors:
+  - "invalid task selector: tasks/my-task.md\0"
+  - "invalid task selector: tasks/my-task.md\0"
+  - "invalid task selector: tasks/my-task.md\0"
+  - "invalid task selector: tasks/my-task.md\0"

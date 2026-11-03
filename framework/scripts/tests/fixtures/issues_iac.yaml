@@ -1,31 +1,37 @@
 version: 1
 cases:
   boolean-01:
+    expected_group: boolean
     data:
       model: 'False'
       actual: false
       category: matched
   boolean-02:
+    expected_group: boolean
     data:
       model: 'false'
       actual: false
       category: matched
   boolean-03:
+    expected_group: boolean
     data:
       model: 'True'
       actual: true
       category: matched
   boolean-04:
+    expected_group: boolean
     data:
       model: 'true'
       actual: true
       category: matched
   boolean-05:
+    expected_group: boolean
     data:
       model: 'True'
       actual: false
       category: difference
   boolean-06:
+    expected_group: boolean
     data:
       model: 'False'
       actual: true

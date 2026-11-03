@@ -1,0 +1,90 @@
+completion-01:
+  checks: 10
+  metadata:
+    complete: false
+    reason: 'required: required check has not started'
+    status: FAIL
+    unavailable_services: {}
+    unverified: []
+  retry:
+    calls: 1
+    metadata:
+      complete: true
+      status: PASS
+      unavailable_services: {}
+      unverified: []
+    status: PASS
+  started: false
+  status: FAIL
+completion-02:
+  checks: 10
+  metadata:
+    complete: false
+    reason: 'required: required validation did not complete'
+    status: FAIL
+    unavailable_services: {}
+    unverified: []
+  retry:
+    calls: 1
+    metadata:
+      complete: true
+      status: PASS
+      unavailable_services: {}
+      unverified: []
+    status: PASS
+  started: true
+  status: FAIL
+completion-03:
+  checks: 10
+  metadata:
+    complete: false
+    reason: 'required: required check has not started'
+    status: FAIL
+    unavailable_services: {}
+    unverified: []
+  retry:
+    calls: 1
+    metadata:
+      complete: true
+      status: PASS
+      unavailable_services: {}
+      unverified: []
+    status: PASS
+  started: false
+  status: FAIL
+completion-04:
+  checks: 10
+  metadata:
+    complete: false
+    reason: 'required: required validation did not complete'
+    status: FAIL
+    unavailable_services: {}
+    unverified: []
+  retry:
+    calls: 1
+    metadata:
+      complete: true
+      status: PASS
+      unavailable_services: {}
+      unverified: []
+    status: PASS
+  started: true
+  status: FAIL
+completion-05:
+  checks: 10
+  metadata:
+    complete: true
+    status: PASS
+    unavailable_services: {}
+    unverified: []
+  started: false
+  status: PASS
+completion-06:
+  checks: 10
+  metadata:
+    complete: true
+    status: PASS
+    unavailable_services: {}
+    unverified: []
+  started: true
+  status: PASS

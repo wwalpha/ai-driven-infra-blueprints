@@ -1,0 +1,27 @@
+terminal-projection-constraints-01:
+  errors: []
+terminal-projection-constraints-02:
+  errors: []
+terminal-projection-constraints-03:
+  errors: []
+terminal-projection-constraints-04:
+  errors:
+  - 'Illegal trailing comma before end of array: line 1 column 6 (char 5)'
+terminal-projection-constraints-05:
+  errors:
+  - 'Expecting value: line 1 column 2 (char 1)'
+terminal-projection-constraints-06:
+  errors:
+  - must be string
+terminal-projection-constraints-07:
+  errors:
+  - must be string
+terminal-projection-constraints-08:
+  errors:
+  - must be string
+terminal-projection-constraints-09:
+  errors:
+  - must be string
+terminal-projection-constraints-10:
+  errors:
+  - must be string

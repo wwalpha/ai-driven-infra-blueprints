@@ -1,9 +1,0 @@
-checks: 0
-errors: []
-metadata:
-  complete: true
-  reason: 'test: handler reported failure without diagnostic details'
-  status: FAIL
-  unavailable_services: {}
-  unverified: []
-status: FAIL
