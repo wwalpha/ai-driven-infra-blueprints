@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from collections import Counter
 from contextlib import nullcontext, suppress
 from functools import partial as _bind_framework_callback
@@ -27,8 +28,14 @@ import validation.loop as _imports_validation_loop
 from support.it_discovery import discover
 from support.it_revision import compare_revisions
 from support.pytest_cli import unit_commands
+from support.worktree_test_policy import (
+    POLICY_RECEIPT,
+    POLICY_TOKEN,
+    ordinary_suite,
+    source_snapshot,
+    violations,
+)
 from support.worktree_test_policy import audit as worktree_audit
-from support.worktree_test_policy import ordinary_suite, violations
 from task_contract_core import SELECTOR
 
 if not __debug__:
@@ -960,9 +967,34 @@ def main():
             environment = _imports_validation_loop.utf8_environment()
             environment["BLUEPRINT_UT_TIMING_DIR"] = directory
             started = time.monotonic()
+            snapshot = source_snapshot(TESTS)
+            errors = violations(TESTS)
+            if errors:
+                raise ValueError("Worktree test policy: " + "; ".join(errors))
+            if source_snapshot(TESTS) != snapshot:
+                raise ValueError(
+                    "Worktree test policy: sources changed during inspection"
+                )
+            token = uuid.uuid4().hex
+            receipt = Path(directory) / "worktree-policy.json"
+            receipt.write_text(
+                json.dumps(
+                    {
+                        "root": str(TESTS.resolve()),
+                        "pid": os.getpid(),
+                        "token": token,
+                        "snapshot": snapshot,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            environment[POLICY_RECEIPT] = str(receipt)
+            environment[POLICY_TOKEN] = token
             unit_status = _imports_validation_loop.run_commands(
                 TESTS.parents[2], commands, environment, Path(directory), jobs=2
             )
+            if source_snapshot(TESTS) != snapshot:
+                raise ValueError("Worktree test policy: sources changed during UT")
             timing = unit_timing(Path(directory), commands, time.monotonic() - started)
             summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
             try:
