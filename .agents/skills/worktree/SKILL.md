@@ -184,6 +184,23 @@ The local operation is for ordinary running/completed Tasks; the PR operation is
 
 After synchronization, the LLM reviews the inherited changes and selects and runs the relevant UT/IT and other checks under Validation policy. Confirm their results, then resume the same `finalize` or `pr-update`; the existing final-candidate guard and Validation remain separate mandatory checks. The Python helper does not select or run UT/IT or record their PASS. If the base advances again, repeat synchronization and reassess the tests; stop and report persistent churn or an actual failure instead of an unlimited automatic retry. Do not switch to a new PR or alter Deploy checkpoint/repair lifecycles.
 
+### Prepared PR before any push
+
+When initial PR publication is `PREPARED` and its base advanced before any push,
+explicitly review the exact Task, candidate, latest local and remote base, remote
+head and PR state. If no push or creation intent exists, use the same Task:
+
+```console
+python3 -B framework/scripts/worktree_task.py sync-latest-base --task-id <task-id> --expected-base <reviewed-local-and-remote-base-sha> --expected-commit <reviewed-candidate-sha> --recover-prepared-pr
+```
+
+The helper verifies the recorded candidate, Task hash, remote identity, matching
+GitHub/Git base, absence of the remote head and any PR, and rejects any push or
+creation intent. It retains the existing interrupted-rebase intent and its checks.
+After `needs_validation`, rerun dependency-selected checks and retry the same
+`finalize --create-pr`; its final-candidate validation and remote checks still apply.
+Never clear metadata manually or use this for uncertain push/create outcomes.
+
 ## Explicit PR publication
 
 Use `python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id> --create-pr`

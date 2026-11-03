@@ -61,6 +61,85 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+def _check_unpublished_prepared_pr_base_recovery():
+    with fixture() as root:
+        target, initial = start(root)
+        (target / "file.txt").write_text("task change\n", encoding="utf-8")
+        finish_contract(target, initial)
+        _, _, path, state = wt.load(root, "example")
+        wt._prepare_commit(root, path, state, target, None, prepare_only=True)
+        state["integrationMode"] = "pr"
+        wt.save(path, state)
+        old = state["tip"]
+        pr.prepare(root, path, state, state["start"], old)
+        identity = dict(
+            remote="origin",
+            remoteUrl="https://github.com/fixture/repository.git",
+            repository="fixture/repository",
+            host="github.com",
+        )
+        state["prPublication"].update(identity)
+        wt.save(path, state)
+        (root / "upstream.txt").write_text("base\n", encoding="utf-8")
+        git(root, "add", "upstream.txt")
+        git(root, "commit", "-qm", "advance base")
+        latest = git(root, "rev-parse", "HEAD")
+        refs = {"refs/heads/main": latest}
+        with (
+            patch.object(pr, "remote_identity", return_value=identity),
+            patch.object(pr, "remote_heads", return_value=refs),
+            patch.object(
+                pr, "gh", return_value=json.dumps({"commit": {"sha": latest}})
+            ),
+            patch.object(pr, "existing_pr", return_value=None),
+        ):
+            with pytest.raises(wt.Blocked, match="ordinary"):
+                wt.sync_latest_base(root, "example", latest)
+            refs["refs/heads/" + state["branch"]] = old
+            with pytest.raises(wt.Blocked, match="head exists"):
+                wt.sync_latest_base(
+                    root,
+                    "example",
+                    latest,
+                    recover_prepared_pr=True,
+                    expected_commit=old,
+                )
+            del refs["refs/heads/" + state["branch"]]
+            state["prPublication"]["pushIntent"] = True
+            wt.save(path, state)
+            with pytest.raises(wt.Blocked, match="not safely recoverable"):
+                wt.sync_latest_base(
+                    root,
+                    "example",
+                    latest,
+                    recover_prepared_pr=True,
+                    expected_commit=old,
+                )
+            del state["prPublication"]["pushIntent"]
+            wt.save(path, state)
+            original = wt.git
+            with patch.object(
+                wt,
+                "git",
+                side_effect=_bind_framework_callback(_interrupt_after_rebase, original),
+            ):
+                with pytest.raises(RuntimeError, match="simulated interruption"):
+                    wt.sync_latest_base(
+                        root,
+                        "example",
+                        latest,
+                        recover_prepared_pr=True,
+                        expected_commit=old,
+                    )
+            result = wt.sync_latest_base(
+                root, "example", latest, recover_prepared_pr=True, expected_commit=old
+            )
+            assert result["status"] == "needs_validation"
+            assert result["integrationMode"] == "pr" and "prPublication" not in result
+            assert git(target, "rev-parse", "HEAD^1") == latest
+            assert (target / "file.txt").read_text() == "task change\n"
+
+
 @it_case
 def check_implement_rebases_on_latest_base():
     check = TestCase()
@@ -141,6 +220,7 @@ def _fail_rebase(original, target, *args, **kwargs):
 
 @it_case
 def check_latest_base_linear_repeated_and_recovery():
+    _check_unpublished_prepared_pr_base_recovery()
     check = TestCase()
     with fixture() as root:
         target, state = start(root)
