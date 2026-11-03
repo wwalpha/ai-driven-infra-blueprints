@@ -6,6 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import design.catalog as catalog_module
 import design.layout as _imports_design_layout
 import pytest
 from design.services.macie import job_bucket_tables, write_job_bucket_definitions
@@ -61,6 +62,68 @@ def check_api_schema():
 
 
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
+
+
+def test_catalog_cli_batch_and_single(monkeypatch, capsys):
+    original = catalog_module.DesignSchemaCatalog
+    calls = []
+
+    def create_catalog(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(catalog_module, "DesignSchemaCatalog", create_catalog)
+    monkeypatch.setattr(
+        sys, "argv", ["catalog", "--cloudformation-type", "Macie.Session"]
+    )
+    assert catalog_module.main() == 0
+    assert capsys.readouterr().out == "AWS::Macie::Session\nAPI design catalog: PASS\n"
+    assert len(calls) == 1
+
+    calls.clear()
+    monkeypatch.setattr(
+        sys, "argv", ["catalog", "--cloudformation-type", "Macie.ClassificationJob"]
+    )
+    assert catalog_module.main() == 1
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out == (
+        "API design catalog: FAIL\n- Macie.ClassificationJob: CloudFormation unsupported; "
+        "implementation remains incomplete if this resource is in scope\n"
+    )
+    assert len(calls) == 1
+
+    calls.clear()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "catalog",
+            "--cloudformation-type",
+            "Macie.Session",
+            "QuickSight.Group",
+            "Macie.ClassificationJob",
+            "Macie.Session",
+        ],
+    )
+    assert catalog_module.main() == 1
+    output = capsys.readouterr().out
+    assert output.count("Macie.Session: AWS::Macie::Session") == 2
+    assert "QuickSight.Group: AWS::QuickSight::Group" in output
+    assert (
+        "Macie.ClassificationJob" in output and "CloudFormation unsupported" in output
+    )
+    assert "API design catalog: FAIL" in output
+    assert len(calls) == 1
+
+    monkeypatch.setattr(
+        catalog_module,
+        "api_snapshot_errors",
+        lambda *args, **kwargs: ["snapshot broken"],
+    )
+    assert catalog_module.main() == 1
+    output = capsys.readouterr().out
+    assert output == "API design catalog: FAIL\n- snapshot broken\n"
 
 
 def check_macie_inputs_and_tables():

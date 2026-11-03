@@ -10,7 +10,7 @@ from utils.script_loader import module
 
 import model.dependency_index as dependency_index
 from model import prepare_edit, publish_edit, render_model
-from model.files import find_model, read_resource, trace_model
+from model.files import find_model, read_resources, trace_model
 from model.references import incoming as reference_incoming
 from model.sources import (
     candidate_sources,
@@ -92,7 +92,7 @@ def execute(args):
                 result = trace_model(args.model, args.key)
             elif args.command in {"resource", "find"}:
                 selected = (
-                    read_resource(args.model, args.selector)
+                    read_resources(args.model, args.selector)
                     if args.command == "resource"
                     else find_model(args.model, args.selector)
                 )

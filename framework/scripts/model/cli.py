@@ -64,7 +64,7 @@ def main(argv=None):
     for name in ("resource", "find"):
         command = commands.add_parser(name)
         command.add_argument("model", type=Path)
-        command.add_argument("selector")
+        command.add_argument("selector", nargs="+" if name == "resource" else None)
     incoming = commands.add_parser("incoming")
     incoming.add_argument("model", type=Path)
     incoming.add_argument("resource")

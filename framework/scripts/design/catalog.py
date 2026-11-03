@@ -213,13 +213,13 @@ def selected_properties(root: Path, resource_type: str) -> set[str]:
     return set(catalogs_for(root).selected(resource_type))
 
 
-def api_snapshot_errors(root: Path) -> list[str]:
+def api_snapshot_errors(root: Path, *, catalog=None) -> list[str]:
     definition_root = _imports_utils_aws_mappings.definition_root
     root = definition_root(root)
     directory = root / "framework/materials/api"
     files = sorted(input_select(directory, "*"))
     try:
-        catalog = DesignSchemaCatalog(root)
+        catalog = catalog or DesignSchemaCatalog(root)
         expected_files = {
             "Macie_ClassificationJob.json",
             "Macie_ClassificationJob.properties",
@@ -356,6 +356,7 @@ def main() -> int:
     parser.add_argument("--write-lock", action="store_true")
     parser.add_argument(
         "--cloudformation-type",
+        nargs="+",
         help="Resolve a selected design type; reject API-only and unknown types",
     )
     args = parser.parse_args()
@@ -369,16 +370,19 @@ def main() -> int:
             ),
             encoding="utf-8",
         )
-    errors = api_snapshot_errors(args.repository_root)
+    try:
+        catalog = DesignSchemaCatalog(args.repository_root)
+        errors = api_snapshot_errors(args.repository_root, catalog=catalog)
+    except (OSError, KeyError, ValueError, TypeError) as error:
+        errors = [f"API design snapshot cannot be loaded: {error}"]
     if not errors and args.cloudformation_type:
-        try:
-            print(
-                DesignSchemaCatalog(args.repository_root).cloudformation_type(
-                    args.cloudformation_type
-                )
-            )
-        except (KeyError, ValueError) as error:
-            errors.append(str(error))
+        multiple = len(args.cloudformation_type) > 1
+        for resource_type in args.cloudformation_type:
+            try:
+                resolved = catalog.cloudformation_type(resource_type)
+                print(f"{resource_type}: {resolved}" if multiple else resolved)
+            except (KeyError, ValueError) as error:
+                errors.append(f"{resource_type}: {error}" if multiple else str(error))
     print("API design catalog: " + ("FAIL" if errors else "PASS"))
     for error in errors:
         print(f"- {error}")
