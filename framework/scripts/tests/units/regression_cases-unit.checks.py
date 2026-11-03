@@ -19,6 +19,9 @@ from pytest_regressions.data_regression import (
 from support import fixture_cases, regression_cases
 from support.pytest_cli import run
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 @pytest.fixture
 def runner_environment(tmp_path, monkeypatch, request):

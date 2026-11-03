@@ -15,6 +15,9 @@ from support.regression_cases import case_ids
 
 from model import audit_runtime as audit
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 @pytest.mark.parametrize(
     "case_id", case_ids("model_test_classification", prefix="queue-")
