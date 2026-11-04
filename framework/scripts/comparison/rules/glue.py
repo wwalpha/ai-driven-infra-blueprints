@@ -2,10 +2,27 @@
 
 from dataclasses import replace
 
+from utils.iac_values import ResourceReference
 from utils.reference_contracts import KMS_FORMS
 
 from ..methods import REFERENCE, properties
 from .kms import compare_forms
+
+
+def compare_federated_identifier(inputs, left, right, _path, *, export_origins):
+    if (
+        isinstance(left, ResourceReference)
+        and isinstance(right, ResourceReference)
+        and not hasattr(left, "saved_literal")
+        and not hasattr(right, "saved_literal")
+        and left == right
+        and left["$attribute"] == "Name"
+        and inputs.resource_type(left) == "Glue.Connection"
+        and not export_origins([left, right], inputs.export_provenance)
+    ):
+        return True, "same explicit Glue Connection Name reference"
+    return NotImplemented
+
 
 RULES = {
     "Glue.Catalog": properties(
@@ -225,6 +242,11 @@ RULES = {
         """,
     ),
 }
+
+RULES["Glue.Catalog"]["FederatedCatalog.Identifier"] = replace(
+    RULES["Glue.Catalog"]["FederatedCatalog.Identifier"],
+    selected_decision=compare_federated_identifier,
+)
 
 for _path in (
     "EncryptionConfiguration.S3Encryptions[].KmsKeyArn",

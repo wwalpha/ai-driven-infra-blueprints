@@ -39,16 +39,64 @@ from support.reference_evidence_shared import (
 )
 
 
-def test_federated_catalog_identifier_does_not_assume_connection_identity():
+def test_federated_catalog_identifier_requires_same_explicit_connection_name():
     comparison = fixture()
     resource(comparison, "producer", "001", "Glue.Connection", "Producer", [])
+    resource(comparison, "producer", "002", "Glue.Connection", "Other", [])
     symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Name"})
-    assert (
-        comparison.reference_decision(
-            symbol, symbol, "Glue.Catalog", "FederatedCatalog.Identifier"
-        ).equal
-        is None
+    kind, path = "Glue.Catalog", "FederatedCatalog.Identifier"
+    assert comparison.reference_decision(symbol, symbol, kind, path).equal is True
+    other = ResourceReference({"$resource": ["producer", "002"], "$attribute": "Name"})
+    assert comparison.reference_decision(symbol, other, kind, path).equal is None
+    assert comparison.reference_decision(symbol, "Producer", kind, path).equal is None
+
+
+@pytest.mark.parametrize(
+    "catalog_id, prefix, category",
+    [
+        ("123456789012", "arn:aws:glue:ap-northeast-1:123456789012:", "matched"),
+        ("123456789013", "arn:aws:glue:ap-northeast-1:123456789012:", "uncompared"),
+        ("123456789012", "arn:aws:glue:ap-northeast-1:123456789013:", "uncompared"),
+        ("123456789012", "arn:aws:glue:ap-northeast-2:123456789012:", "uncompared"),
+        ("123456789012", "arn:aws-cn:glue:ap-northeast-1:123456789012:", "uncompared"),
+    ],
+)
+def test_glue_connection_registration_preserves_producer_name_difference(
+    catalog_id, prefix, category
+):
+    comparison = fixture()
+    resource(
+        comparison,
+        "glue",
+        "001",
+        "Glue.Connection",
+        "Connection",
+        [("ConnectionInput.Name", "desired-name", None)],
+        properties={"CatalogId": catalog_id, "ConnectionInput": {"Name": "iac-name"}},
     )
+    records = setting(
+        comparison,
+        "LakeFormation.Resource",
+        "ResourceArn",
+        model_ref("Glue_Connection_001", "Arn"),
+        {"Fn::Sub": prefix + "connection/${Connection}"},
+    )
+    assert [record["category"] for record in records] == [category], records
+    document = comparison.stack_inputs["producer"][0]
+    producer = comparison.compare_rows(
+        "glue",
+        "001",
+        comparison.resources["glue"]["001"],
+        "producer",
+        "Connection",
+        ROOT / "synthetic.yaml",
+        document["Resources"]["Connection"],
+        document,
+    )
+    assert producer.failure is None
+    assert [record["category"] for record in producer.records] == ["difference"]
+    assert producer.records[0]["desired"]["Name"] == "desired-name"
+    assert producer.records[0]["actual"]["Name"] == "iac-name"
 
 
 def test_lambda_source_access_uri_rejects_wrong_producer():

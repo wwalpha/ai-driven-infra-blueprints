@@ -7,7 +7,7 @@ from utils.reference_contracts import ARN_SHAPES, reference_attribute
 from .expressions import parts, references
 
 
-def project(value, *, resource_type, producer_scope):
+def project(value, *, resource_type, producer_scope, symbolic_arn=None):
     """Return an existing reference type only after shape and owning scope agree."""
     try:
         tokens = parts(value)
@@ -24,6 +24,12 @@ def project(value, *, resource_type, producer_scope):
             return None
         identifier, template, _ = ARN_SHAPES[kind]
         attribute = reference_attribute(kind, "Arn")
+        projected = ResourceReference(dict(source, **{"$attribute": attribute}))
+        if kind == "Glue.Connection" and source["$attribute"] == "Name":
+            # The named ARN validates the producer's CatalogId against its stack account.
+            if symbolic_arn is not None and tokens == parts(symbolic_arn(projected)):
+                return projected
+            return None
         scope = producer_scope(source)
         if len(tokens) == 1 and source["$attribute"] == attribute:
             return ResourceReference(source)
@@ -40,6 +46,6 @@ def project(value, *, resource_type, producer_scope):
         ]
         if tokens != expected:
             return None
-        return ResourceReference(dict(source, **{"$attribute": attribute}))
+        return projected
     except (Blocked, ValueError, KeyError, TypeError):
         return None

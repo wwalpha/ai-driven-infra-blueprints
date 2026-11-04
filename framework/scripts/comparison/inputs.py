@@ -876,7 +876,10 @@ class Inputs:
 
     def project_arn(self, value):
         return arn_projection.project(
-            value, resource_type=self.resource_type, producer_scope=self.producer_scope
+            value,
+            resource_type=self.resource_type,
+            producer_scope=self.producer_scope,
+            symbolic_arn=partial(self.reference_literal, symbolic_arn=True),
         )
 
     def reference_component(self, stack, value, *, recorded=None, seen=frozenset()):
