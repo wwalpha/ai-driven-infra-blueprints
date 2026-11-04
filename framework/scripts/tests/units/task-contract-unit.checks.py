@@ -534,6 +534,70 @@ def check_normal_final_model_classification():
         tasks.final_model_task(text.replace(f"- `{model}`", "invalid"), {model})
 
 
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "- Deploy/apply: `forbidden`",
+        "- deploy/apply: forbidden",
+        "- deploy/apply: `allowed`",
+        "",
+        "- deploy/apply: `forbidden`\n- deploy/apply: `forbidden`",
+        "- deploy/apply: `forbidden`\n- Deploy/apply: `forbidden`",
+        "- deploy/apply: `forbidden`\n- Deploy/apply: `allowed`",
+    ],
+)
+def check_model_only_declaration_registration_and_refresh(tmp_path, replacement):
+    name = "tasks/example.md"
+    model = "model/dev/team/iam.properties"
+    text = transition_contract(name, [model], kind="design", scope="dev/team/iam")
+    text = text.replace(
+        "- Task status:",
+        "- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n- Task status:",
+    )
+    invalid = text.replace("- deploy/apply: `forbidden`", replacement)
+    errors = tasks.parse_declarations(invalid, name).errors
+    assert any("Expected: - deploy/apply: `forbidden`" in error for error in errors)
+    with pytest.raises(ValueError, match="Expected: - deploy/apply"):
+        tasks.start(tmp_path, name, invalid)
+    assert not (tmp_path / "tasks").exists()
+    tasks.start(tmp_path, name, text)
+    task = tmp_path / name
+    task.write_text(invalid)
+    assert tasks.read_task_snapshot(tmp_path, name, live=True).text == invalid
+    with pytest.raises(ValueError, match="Expected: - deploy/apply"):
+        task_runtime.refresh(tmp_path, name)
+    assert task.read_text() == invalid
+    task.write_text(text)
+    task_runtime.refresh(tmp_path, name)
+
+
+@pytest.mark.parametrize("field", ["AWS API execution", "Task type", "Workflow"])
+def check_model_only_other_required_declarations(tmp_path, field):
+    name = "tasks/example.md"
+    model = "model/dev/team/iam.properties"
+    text = transition_contract(name, [model], kind="design", scope="dev/team/iam")
+    text = text.replace(
+        "- Task status:",
+        "- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n- Task status:",
+    )
+    expected = {
+        "Task type": "design",
+        "Workflow": "update",
+        "AWS API execution": "forbidden",
+    }[field]
+    bad = text.replace(
+        f"- {field}: `{expected}`",
+        f"- {field}: `{expected}`\n- {field.upper()}: `allowed`",
+    )
+    assert any(
+        f"Expected: - {field}: `{expected}`" in error
+        for error in tasks.parse_declarations(bad, name).errors
+    )
+    with pytest.raises(ValueError):
+        tasks.start(tmp_path, name, bad)
+    assert not (tmp_path / "tasks").exists()
+
+
 def check_framework_final_classification():
     source = "framework/scripts/worktree_task.py"
     text = (

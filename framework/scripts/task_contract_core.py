@@ -411,6 +411,55 @@ def validate_contract(root, name, text, *, check_paths=True):
             raise ValueError(f"Modified file is outside Allowed paths: {name}: {value}")
 
 
+def model_only_declaration_errors(text: str, name: str) -> tuple[str, ...] | None:
+    """Check ordinary Model-only declarations without consulting the Git diff."""
+    lines = section(text, "## Task contract")
+
+    def has_value(field, value):
+        return any(
+            re.fullmatch(
+                r"-\s*" + re.escape(field) + r"\s*:\s*`?" + value + r"`?\s*",
+                line,
+                re.IGNORECASE,
+            )
+            for line in lines
+        )
+
+    if not (has_value("Task type", "design") and has_value("Workflow", "update")):
+        return None
+    declared = paths_in(text, "## Modified files")
+    if not any(p.startswith("model/") and p.endswith(".properties") for p in declared):
+        return None
+    if not all(
+        (p.startswith("model/") and p.endswith(".properties"))
+        or (p.startswith("docs/designs/") and p.endswith((".md", ".json")))
+        or p == name
+        for p in declared
+    ):
+        return None
+    operation = model_operation(text)
+    if operation is not None or model_refactor(text, operation=operation) is not None:
+        return None
+    errors = []
+    for field, value in (
+        ("Task type", "design"),
+        ("Workflow", "update"),
+        ("AWS API execution", "forbidden"),
+        ("deploy/apply", "forbidden"),
+    ):
+        expected = f"- {field}: `{value}`"
+        found = [
+            line
+            for line in lines
+            if re.match(r"-\s*" + re.escape(field) + r"\s*:", line, re.IGNORECASE)
+        ]
+        if found != [expected]:
+            errors.append(
+                f"Expected: {expected}\nFound:    " + ("; ".join(found) or "(missing)")
+            )
+    return tuple(errors)
+
+
 @dataclass(frozen=True)
 class ContractDeclarations:
     task_type: str
@@ -434,6 +483,10 @@ def parse_declarations(text: str, name: str) -> ContractDeclarations:
             sections[heading] = []
             errors.append(str(error))
     contract = sections["## Task contract"]
+    try:
+        errors.extend(model_only_declaration_errors(text, name) or ())
+    except ValueError as error:
+        errors.append(str(error))
     task_types = []
     for line in contract:
         match = re.fullmatch("- Task type: `([^`]+)`", line)
@@ -933,18 +986,10 @@ def final_model_task(text, changed_paths=()):
     refactor = model_refactor(text, operation=operation)
     if operation is not None or refactor is not None:
         return True
-    lines = section(text, "## Task contract")
-    for name, value in (
-        ("Task type", "design"),
-        ("Workflow", "update"),
-        ("AWS API execution", "forbidden"),
-        ("deploy/apply", "forbidden"),
-    ):
-        if [
-            line for line in lines if re.match(r"-\s*" + re.escape(name) + r"\b", line)
-        ] != [f"- {name}: `{value}`"]:
-            return False
     declared = paths_in(text, "## Modified files")
+    task_names = [p for p in declared if TASK_NAME.fullmatch(p)]
+    if len(task_names) != 1 or model_only_declaration_errors(text, task_names[0]) != ():
+        return False
     changed = set(changed_paths() if callable(changed_paths) else changed_paths)
     return (
         bool(changed & declared)
