@@ -477,6 +477,12 @@ class ReviewController:
                     key in accepted and accepted[key] == result
                     for key, result in results.items()
                 ):
+                    if validate_only:
+                        return {
+                            "valid": True,
+                            "batch_id": submission["batch_id"],
+                            "section": section,
+                        }
                     return self._status(state)
                 raise ValueError("Review conflict: implicit overwrite prohibited")
             pending = state["pending"]
@@ -505,8 +511,13 @@ class ReviewController:
                 self._sections(candidate) if section == "judgments" else sections
             )
             self._validate_candidate(candidate, candidate_sections)
-            if not validate_only:
-                self._write(candidate, candidate_sections)
+            if validate_only:
+                return {
+                    "valid": True,
+                    "batch_id": submission["batch_id"],
+                    "section": section,
+                }
+            self._write(candidate, candidate_sections)
             return self._status(candidate, candidate_sections)
 
     def _validate_candidate(self, state: Json, sections=None) -> None:

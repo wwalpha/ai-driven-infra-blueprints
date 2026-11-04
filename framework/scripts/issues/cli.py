@@ -8,13 +8,12 @@ import tempfile
 from pathlib import Path
 
 from utils.input_cache import input_context
-from utils.json_format import strict_json
 
 import issues.artifact as _imports_issues_artifact
 import issues.publication as _imports_issues_publication
 import issues.runner as _imports_issues_runner
 
-from .progress import Progress
+from .progress import Progress, read_progress
 from .reader import read_review_json, read_scan_artifact
 from .records import safe_text
 from .review_cli import SELECTOR, outside, parser, run_review
@@ -61,7 +60,7 @@ def main():
         if args.command == "scan-status":
             print(
                 json.dumps(
-                    strict_json(outside(root, args.progress).read_bytes()),
+                    read_progress(outside(root, args.progress)),
                     ensure_ascii=False,
                 )
             )

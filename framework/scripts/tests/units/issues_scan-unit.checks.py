@@ -3458,6 +3458,13 @@ def check_scan_heartbeat_and_progress_write_failure(tmp_path, capsys):
     progress.stage("naming", 2)
     progress.advance()
     assert progress.state["stages"][-1]["completed"] == 1
+    path = tmp_path / "count.json"
+    progress = Progress(path)
+    progress.stage("naming", 2)
+    capsys.readouterr()
+    progress.advance()
+    assert json.loads(path.read_text())["stages"][-1]["completed"] == 1
+    assert capsys.readouterr().err == ""
 
 
 if __name__ == "__main__":
