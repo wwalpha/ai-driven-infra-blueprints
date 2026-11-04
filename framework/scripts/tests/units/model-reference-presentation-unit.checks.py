@@ -141,8 +141,10 @@ def add(values, kind, field, value, *, number=2, comment="参照元"):
     return rid
 
 
-def restore(path, markdown, values):
-    document = DesignIndex(FRAMEWORK).get(path, text=markdown, values=values)
+def restore(path, markdown, values, *, check_display=True):
+    document = DesignIndex(FRAMEWORK, check_display=check_display).get(
+        path, text=markdown, values=values
+    )
     return "\n".join(document.raw.display_lines)
 
 
@@ -1681,7 +1683,8 @@ def test_indexed_model_reference_tables(models, service, kind, attribute, fields
                 expanded_display_rows(indexed, FRAMEWORK)
 
 
-def test_quicksight_principal_group_reference_roundtrip(models):
+@pytest.mark.parametrize("check_display", [True, False])
+def test_quicksight_principal_group_reference_roundtrip(models, check_display):
     scope, values, path = consumer(models, "quicksight", "QuickSight.DataSource")
     _, group = resource_values(
         models, "quicksight", "QuickSight.Group", attribute="GroupName", number="002"
@@ -1712,17 +1715,21 @@ def test_quicksight_principal_group_reference_roundtrip(models):
         principal_cell = "Permissions[1].Principal | "
         link = principal_cell + "[reader-group](#saved-002)"
         assert link in markdown
-        assert json.dumps(principal) in restore(path, markdown, values)
-        with pytest.raises(ValueError, match="differs from Model"):
-            restore(
-                path,
-                markdown.replace(
-                    link,
-                    principal_cell + "`arn:aws:quicksight:ap-northeast-1:"
-                    "123456789012:group/default/reader-group`",
-                ),
-                values,
-            )
+        assert json.dumps(principal) in restore(
+            path, markdown, values, check_display=check_display
+        )
+        reason = "differs from Model" if check_display else "indexed array display"
+        for altered_value in (
+            "[reader-group](#saved-001)",
+            "`arn:aws:quicksight:ap-northeast-1:123456789012:group/default/reader-group`",
+        ):
+            with pytest.raises(ValueError, match=reason):
+                restore(
+                    path,
+                    markdown.replace(link, principal_cell + altered_value),
+                    values,
+                    check_display=check_display,
+                )
 
 
 def test_undefined_indexed_property_is_rejected(models):
