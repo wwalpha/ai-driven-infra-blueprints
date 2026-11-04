@@ -39,6 +39,7 @@ from issues.aggregate import MAX_GROUPS, comparison_status, iac_actions
 from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
 from issues.inputs import view_text
+from issues.progress import Progress
 from issues.records import brief, iac_key
 from issues.reports import notice_content, ordinary_report
 from model.core import ReferenceResolutionError, resource_row_index
@@ -3431,6 +3432,39 @@ def nested_report_reference(left, right, path, *, decision):
             ),
         )
     return decision(NotImplemented)
+
+
+def check_scan_progress_records_stages_and_failure(tmp_path):
+    path = tmp_path / "progress.json"
+    progress = Progress(path)
+    progress.start()
+    progress.stage("mechanical")
+    with progress.lock:
+        progress._emit()
+    assert json.loads(path.read_text())["stage"] == "mechanical"
+    progress.finish("failed")
+    state = json.loads(path.read_text())
+    assert state["status"] == "failed"
+    assert state["completed_stages"] == 1
+    assert state["stages"][-1]["status"] == "failed"
+
+
+def check_scan_heartbeat_and_progress_write_failure(tmp_path, capsys):
+    progress = Progress(tmp_path / "missing" / "progress.json")
+    progress.stop.wait = Mock(side_effect=[False, True])
+    progress._heartbeat()
+    assert "Scan progress write failed" in capsys.readouterr().err
+    progress.stage("preflight")
+    progress.stage("naming", 2)
+    progress.advance()
+    assert progress.state["stages"][-1]["completed"] == 1
+    path = tmp_path / "count.json"
+    progress = Progress(path)
+    progress.stage("naming", 2)
+    capsys.readouterr()
+    progress.advance()
+    assert json.loads(path.read_text())["stages"][-1]["completed"] == 1
+    assert capsys.readouterr().err == ""
 
 
 if __name__ == "__main__":

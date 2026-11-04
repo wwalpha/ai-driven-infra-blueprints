@@ -130,9 +130,14 @@ all Issue IDs for issue-fix. Do not start Model/IaC repair from this investigati
 
 ## Batch Review execution and resume
 
-Execute the whole flow: Scan → Review Init → Next → LLM Review → Submit → Status →
-repeat Next while incomplete → Export → existing Save → post-save Local Loop → report.
-Use `issues_scan.py review init|next|submit|status|inspect|revise|export` with the same external
+Execute the whole flow: Prepare → Scan + Progress → Review Init → Next → LLM Review →
+submission JSON → Validate → Submit → Status → repeat for every batch while incomplete →
+Export → existing Save → post-save Local Loop → report. Run `issues_scan.py prepare` to obtain
+external paths; use `scan --progress <progress>` and `scan-status --progress <progress>`
+to inspect execution. Heartbeats report process liveness, not forward progress. Use
+`prepare --workspace <existing-external-directory>` to recover the same paths without changing
+its checkpoint. On resume reuse the Scan and checkpoint and start with `review status`.
+Use `issues_scan.py review init|next|validate|submit|status|inspect|revise|export` with the same external
 `--artifact` and `--state` paths. See [commands and batch format](../../../framework/rules/issues-investigation.md#review-controller).
 
 - A valid Scan artifact allows Review even when Scan returns diagnostic FAIL/exit 1
@@ -160,7 +165,7 @@ Use `issues_scan.py review init|next|submit|status|inspect|revise|export` with t
   byte budget if the complete item can be read. Never treat truncation as success.
 - Explicitly judge every expected ID with reason/evidence and current Issues or
   Unverified information. Submit each complete batch immediately to checkpoint it.
-  A rejected/incomplete batch advances no IDs. Reacquiring a smaller batch replaces
+  Run `review validate --artifact <scan> --state <checkpoint> --submission <submission>` before every Submit. Fix only the indicated submission errors; retain the checkpoint. A rejected/incomplete batch advances no IDs. Reacquiring a smaller batch replaces
   the outstanding Batch ID; submit that current batch. Identical resubmission is
   idempotent; different judgments cannot overwrite accepted results implicitly.
 - Correct a mistaken accepted judgment explicitly: `review inspect --section <section>
@@ -170,7 +175,7 @@ Use `issues_scan.py review init|next|submit|status|inspect|revise|export` with t
   overwrite accepted IDs. A different current digest rejects a conflicting change;
   resending an already-applied result is idempotent. No revision history is saved.
 - After revision, inspect Status and re-review the pending dependencies with Next →
-  Review → Submit → Status. Owner changes invalidate only affected Diagnostic
+  Review → Validate → Submit → Status. Owner changes invalidate only affected Diagnostic
   Decisions; unrelated accepted results remain. Final confirmation returns to pending
   when its inputs change. Its previous Issues/Unverified remain as `previous_result`
   in the final batch: recheck and explicitly retain, correct or remove those findings.

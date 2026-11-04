@@ -4,6 +4,8 @@ import json
 import os
 import shlex
 import sys
+import tempfile
+from pathlib import Path
 
 from utils.input_cache import input_context
 
@@ -11,9 +13,39 @@ import issues.artifact as _imports_issues_artifact
 import issues.publication as _imports_issues_publication
 import issues.runner as _imports_issues_runner
 
+from .progress import Progress, read_progress
 from .reader import read_review_json, read_scan_artifact
 from .records import safe_text
 from .review_cli import SELECTOR, outside, parser, run_review
+
+
+def outside_workspace(root, path):
+    path = outside(root, path)
+    if any((parent / ".git").exists() for parent in (path, *path.parents)):
+        raise ValueError("workspace/progress must be outside Git repositories")
+    return path
+
+
+def prepare(root, workspace):
+    workspace = (
+        outside_workspace(root, workspace)
+        if workspace
+        else outside_workspace(root, Path(tempfile.mkdtemp(prefix="issues-scan-")))
+    )
+    workspace.mkdir(parents=True, exist_ok=True)
+    return {
+        "workspace": str(workspace),
+        **{
+            key: str(workspace / name)
+            for key, name in (
+                ("artifact", "scan.json"),
+                ("state", "checkpoint.json"),
+                ("submission", "submission.json"),
+                ("review", "review.json"),
+                ("progress", "scan-progress.json"),
+            )
+        },
+    }
 
 
 def main():
@@ -22,6 +54,17 @@ def main():
     if args.task_file:
         os.environ[SELECTOR] = args.task_file
     try:
+        if args.command == "prepare":
+            print(json.dumps(prepare(root, args.workspace)))
+            return 0
+        if args.command == "scan-status":
+            print(
+                json.dumps(
+                    read_progress(outside(root, args.progress)),
+                    ensure_ascii=False,
+                )
+            )
+            return 0
         if args.command == "review":
             return run_review(args, root)
         if args.command == "scan":
@@ -29,22 +72,36 @@ def main():
             scan_exit_code = _imports_issues_artifact.scan_exit_code
             scan = _imports_issues_runner.scan
             artifact_path = outside(root, args.artifact)
-            with input_context():
-                artifact = scan(
-                    root,
-                    args.environment,
-                    args.target_directory,
-                    args.service,
-                    fresh=args.fresh,
-                    jobs=args.jobs,
-                )
-                artifact_path.write_text(
-                    json.dumps(artifact, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8",
-                )
-                output = review_payload(artifact, artifact_path)
-                print(json.dumps(output, ensure_ascii=False))
-                return scan_exit_code(artifact)
+            progress_path = (
+                outside_workspace(root, args.progress) if args.progress else None
+            )
+            if progress_path == artifact_path:
+                raise ValueError("progress must differ from Scan artifact")
+            progress = Progress(progress_path)
+            progress.start()
+            try:
+                with input_context():
+                    artifact = scan(
+                        root,
+                        args.environment,
+                        args.target_directory,
+                        args.service,
+                        fresh=args.fresh,
+                        jobs=args.jobs,
+                        progress=progress,
+                    )
+                    artifact_path.write_text(
+                        json.dumps(artifact, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    output = review_payload(artifact, artifact_path)
+                    print(json.dumps(output, ensure_ascii=False))
+                    code = scan_exit_code(artifact)
+            except BaseException:
+                progress.finish("failed")
+                raise
+            progress.finish("completed")
+            return code
         if args.command == "detail":
             detail_payload = _imports_issues_artifact.detail_payload
             artifact = read_scan_artifact(outside(root, args.artifact)).artifact

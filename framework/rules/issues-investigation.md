@@ -130,16 +130,23 @@ rules. The following example assumes both named services are the entire target a
 Human authorized both. For a smaller requested scope, scan it and report publication
 refusal with missing services; do not broaden it automatically.
 
+Prepare an external workspace with `issues_scan.py prepare`, and use the returned paths below.
+`prepare --workspace <directory>` reuses an external workspace without modifying its checkpoint.
+Progress is optional for existing callers; use `scan-status --progress <path>` to inspect it.
+A heartbeat indicates liveness, not actual forward progress.
+
 ```console
-python3 framework/scripts/issues_scan.py scan --environment dev --target-directory cde --service s3 --service iam --artifact /tmp/issues-scan.json
-python3 framework/scripts/issues_scan.py review init --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json
-python3 framework/scripts/issues_scan.py review next --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json --limit 20
-# Explicit LLM judgment of every returned ID, then write /tmp/issues-batch.json.
-python3 framework/scripts/issues_scan.py review submit --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json --submission /tmp/issues-batch.json
-python3 framework/scripts/issues_scan.py review status --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json
-# Repeat Next / LLM Review / Submit / Status until complete, then:
-python3 framework/scripts/issues_scan.py review export --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json --review /tmp/issues-review.json
-python3 framework/scripts/issues_scan.py --task-file tasks/save-local-issues.md save --artifact /tmp/issues-scan.json --review /tmp/issues-review.json
+python3 framework/scripts/issues_scan.py prepare --workspace /tmp/issues-work
+python3 framework/scripts/issues_scan.py scan --environment dev --target-directory cde --service s3 --service iam --artifact /tmp/issues-work/scan.json --progress /tmp/issues-work/scan-progress.json
+python3 framework/scripts/issues_scan.py review init --artifact /tmp/issues-work/scan.json --state /tmp/issues-work/checkpoint.json
+python3 framework/scripts/issues_scan.py review next --artifact /tmp/issues-work/scan.json --state /tmp/issues-work/checkpoint.json --limit 20
+# Explicit LLM judgment of every returned ID, then write /tmp/issues-work/submission.json.
+python3 framework/scripts/issues_scan.py review validate --artifact /tmp/issues-work/scan.json --state /tmp/issues-work/checkpoint.json --submission /tmp/issues-work/submission.json
+python3 framework/scripts/issues_scan.py review submit --artifact /tmp/issues-work/scan.json --state /tmp/issues-work/checkpoint.json --submission /tmp/issues-work/submission.json
+python3 framework/scripts/issues_scan.py review status --artifact /tmp/issues-work/scan.json --state /tmp/issues-work/checkpoint.json
+# Repeat Next / LLM Review / Validate / Submit / Status until complete, then:
+python3 framework/scripts/issues_scan.py review export --artifact /tmp/issues-work/scan.json --state /tmp/issues-work/checkpoint.json --review /tmp/issues-work/review.json
+python3 framework/scripts/issues_scan.py --task-file tasks/save-local-issues.md save --artifact /tmp/issues-work/scan.json --review /tmp/issues-work/review.json
 ```
 
 Register the migration contract before any repository write. Declare all authorized
@@ -217,7 +224,7 @@ State reads validate schema/checksum, ID coverage, dependency ordering and recor
 Dependent final findings may remain as an unconfirmed draft during re-review.
 
 `next --limit 20 --max-bytes 32768` returns `scan_id`, `section`, `batch_id`,
-`expected_ids` and complete `items`. It records issuance, never confirmation.
+`expected_ids`, complete `items` and the submission contract within the byte limit. It records issuance, never confirmation. Validate every submission before Submit; validation is read-only and Submit reloads and revalidates the checkpoint. Correct only submission errors and preserve accepted results. Resume with Status using the same Scan and checkpoint.
 Items carry original masked Scan material, explicit matching Human facts and reference access to other
 previously reviewed Human facts. Judgments retain diagnostic ownership evidence and
 selected services. No machine IaC record set is added to LLM work.

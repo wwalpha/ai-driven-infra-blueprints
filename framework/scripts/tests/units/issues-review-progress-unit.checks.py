@@ -316,9 +316,12 @@ def check_real_naming_rules_shared_with_complete_twenty_item_batch(
         review.submit(submission(review.next_batch()))
     batch = review.next_batch(limit=20)
     assert 0 < len(batch["items"]) <= 20
-    if len(namespaces) == 1:
-        assert len(batch["items"]) == 20
     assert len(encoded(batch).encode("utf-8")) <= 32768
+    full_batch = review.next_batch(limit=20, max_bytes=65536)
+    assert len(full_batch["items"]) == 20
+    if len(batch["items"]) < 20:
+        assert len(encoded(full_batch).encode("utf-8")) > 32768
+    batch = full_batch
     shared = batch["naming_context"]
     assert shared == dict(
         data["naming_context"], rules={k: rules[k] for k in ("common", *namespaces)}
@@ -678,6 +681,9 @@ def check_invalid_batch_is_atomic_and_retryable(tmp_path, fault):
         result["results"][0]["assignment"] = {}
     before = review.path.read_bytes()
     with pytest.raises(ValueError):
+        review.submit(result, validate_only=True)
+    assert review.path.read_bytes() == before
+    with pytest.raises(ValueError):
         review.submit(result)
     assert review.path.read_bytes() == before
     assert review.status()["sections"]["naming"]["reviewed"] == 0
@@ -767,6 +773,8 @@ def check_retry_idempotence_overwrite_and_stale_batch(tmp_path):
     batch = review.next_batch(limit=2)
     stale = submission(batch)
     batch = review.next_batch(limit=1)
+    with pytest.raises(ValueError, match="stale"):
+        review.submit(stale, validate_only=True)
     with pytest.raises(ValueError, match="stale"):
         review.submit(stale)
     result = submission(batch)
@@ -1128,6 +1136,248 @@ def check_invalid_snapshot_material_cannot_complete(tmp_path):
     with pytest.raises(ValueError, match=r"service_results\[\].service"):
         controller(tmp_path, data)
     assert not (tmp_path / "progress.json").exists()
+
+
+def check_validate_is_read_only_and_submit_rechecks(tmp_path):
+    review = controller(tmp_path, named_artifact(tmp_path, 2))
+    review.initialize()
+    batch = review.next_batch()
+    result = submission(batch)
+    before = review.path.read_bytes()
+    assert "submission_contract" in batch
+    review.submit(result, validate_only=True)
+    assert review.path.read_bytes() == before
+    invalid = deepcopy(result)
+    del invalid["results"][0]["reason"]
+    with pytest.raises(ValueError):
+        review.submit(invalid, validate_only=True)
+    assert review.path.read_bytes() == before
+    review.submit(result)
+    assert review.path.read_bytes() != before
+    assert review.submit(result, validate_only=True) == {
+        "valid": True,
+        "batch_id": batch["batch_id"],
+        "section": batch["section"],
+    }
+
+
+def check_validate_final_batch_reports_only_validation(tmp_path):
+    review = controller(tmp_path)
+    review.initialize()
+    while review.status()["next_section"] != "additions":
+        review.submit(submission(review.next_batch()))
+    batch = review.next_batch()
+    result = submission(batch)
+    before = review.path.read_bytes()
+    current = review.status()
+    assert not current["complete"] and not current["exportable"]
+    assert review.submit(result, validate_only=True) == {
+        "valid": True,
+        "batch_id": batch["batch_id"],
+        "section": "additions",
+    }
+    assert review.path.read_bytes() == before
+    assert review.status() == current
+    submission_path = tmp_path / "submission.json"
+    submission_path.write_text(json.dumps(result), encoding="utf-8")
+    response = cli(review, "validate", "--submission", str(submission_path))
+    assert response.returncode == 0
+    assert json.loads(response.stdout) == {
+        "valid": True,
+        "batch_id": batch["batch_id"],
+        "section": "additions",
+    }
+    assert review.path.read_bytes() == before and not review.status()["exportable"]
+    assert review.submit(result)["exportable"]
+
+
+def check_prepare_reuses_external_checkpoint_and_status(tmp_path):
+    root = tmp_path / "repository"
+    root.mkdir()
+    workspace = tmp_path / "workspace"
+    command = [
+        "python",
+        "-B",
+        "issues_scan.py",
+        "--repository-root",
+        str(root),
+        "prepare",
+        "--workspace",
+        str(workspace),
+    ]
+    first = invoke_cli(command)
+    assert first.returncode == 0
+    paths = json.loads(first.stdout)
+    checkpoint = Path(paths["state"])
+    checkpoint.write_bytes(b"preserve")
+    second = invoke_cli(command)
+    assert json.loads(second.stdout) == paths
+    assert checkpoint.read_bytes() == b"preserve"
+    progress = issues_cli.Progress(Path(paths["progress"]))
+    progress.start()
+    progress.finish("completed")
+    status = invoke_cli(
+        [
+            "python",
+            "-B",
+            "issues_scan.py",
+            "--repository-root",
+            str(root),
+            "scan-status",
+            "--progress",
+            paths["progress"],
+        ]
+    )
+    assert json.loads(status.stdout)["status"] == "completed"
+    rejected = invoke_cli(
+        [
+            "python",
+            "-B",
+            "issues_scan.py",
+            "--repository-root",
+            str(root),
+            "prepare",
+            "--workspace",
+            str(root / "workspace"),
+        ]
+    )
+    assert rejected.returncode == 2
+
+
+def check_scan_progress_preserves_other_files_and_reuses_progress(tmp_path):
+    root = tmp_path / "repository"
+    root.mkdir()
+    artifact = tmp_path / "scan.json"
+    checkpoint = tmp_path / "checkpoint.json"
+    review = tmp_path / "review.json"
+    artifact.write_bytes(b"existing artifact")
+    checkpoint.write_bytes(b'{"schema":1,"state":{},"digest":"saved"}')
+    review.write_bytes(b'{"scan_id":"saved"}')
+    base = ["python", "-B", "issues_scan.py", "--repository-root", str(root)]
+    command = base + [
+        "scan",
+        "--environment",
+        "dev",
+        "--target-directory",
+        "team",
+        "--service",
+        "s3",
+        "--artifact",
+        str(artifact),
+        "--progress",
+    ]
+    with patch.object(issues_cli._imports_issues_runner, "scan") as scan:
+        for path in (checkpoint, review):
+            before = path.read_bytes()
+            rejected = invoke_cli(command + [str(path)])
+            assert rejected.returncode == 2
+            assert path.read_bytes() == before
+            assert (
+                invoke_cli(base + ["scan-status", "--progress", str(path)]).returncode
+                == 2
+            )
+        scan.assert_not_called()
+    assert artifact.read_bytes() == b"existing artifact"
+    progress_path = tmp_path / "scan-progress.json"
+    progress = issues_cli.Progress(progress_path)
+    progress.start()
+    progress.finish("completed")
+    legacy = json.loads(progress_path.read_text())
+    legacy.pop("kind")
+    legacy.pop("version")
+    progress_path.write_text(json.dumps(legacy))
+    assert (
+        invoke_cli(base + ["scan-status", "--progress", str(progress_path)]).returncode
+        == 0
+    )
+    with (
+        patch.object(
+            issues_cli._imports_issues_runner, "scan", return_value={"example": True}
+        ),
+        patch.object(
+            issues_cli._imports_issues_artifact,
+            "review_payload",
+            return_value={"result": "OK"},
+        ),
+        patch.object(
+            issues_cli._imports_issues_artifact, "scan_exit_code", return_value=0
+        ),
+    ):
+        assert invoke_cli(command + [str(progress_path)]).returncode == 0
+    assert json.loads(progress_path.read_text())["kind"] == "issues-scan-progress"
+    assert checkpoint.read_bytes() == b'{"schema":1,"state":{},"digest":"saved"}'
+    assert review.read_bytes() == b'{"scan_id":"saved"}'
+
+
+def check_scan_progress_separates_diagnostic_failure_and_execution_failure(tmp_path):
+    root = tmp_path / "repository"
+    root.mkdir()
+    artifact = tmp_path / "scan.json"
+    progress = tmp_path / "scan-progress.json"
+    command = [
+        "python",
+        "-B",
+        "issues_scan.py",
+        "--repository-root",
+        str(root),
+        "scan",
+        "--environment",
+        "dev",
+        "--target-directory",
+        "team",
+        "--service",
+        "s3",
+        "--artifact",
+        str(artifact),
+        "--progress",
+        str(progress),
+    ]
+    with (
+        patch.object(
+            issues_cli._imports_issues_runner, "scan", return_value={"example": True}
+        ),
+        patch.object(
+            issues_cli._imports_issues_artifact,
+            "review_payload",
+            return_value={"result": "FAIL"},
+        ),
+        patch.object(
+            issues_cli._imports_issues_artifact, "scan_exit_code", return_value=1
+        ),
+    ):
+        result = invoke_cli(command)
+    assert result.returncode == 1
+    assert json.loads(result.stdout) == {"result": "FAIL"}
+    assert json.loads(progress.read_text())["status"] == "completed"
+    before = artifact.read_bytes()
+    with patch.object(
+        issues_cli._imports_issues_runner, "scan", side_effect=ValueError("scan failed")
+    ):
+        result = invoke_cli(command)
+    assert result.returncode == 2 and "scan failed" in result.stderr
+    assert json.loads(progress.read_text())["status"] == "failed"
+    assert artifact.read_bytes() == before
+    with (
+        patch.object(
+            issues_cli._imports_issues_runner, "scan", return_value={"example": True}
+        ),
+        patch.object(
+            issues_cli._imports_issues_artifact,
+            "review_payload",
+            return_value={"result": "FAIL"},
+        ),
+        patch.object(
+            issues_cli._imports_issues_artifact, "scan_exit_code", return_value=1
+        ),
+        patch(
+            "issues.progress.atomic_replace_file",
+            side_effect=OSError("unwritable progress"),
+        ),
+    ):
+        result = invoke_cli(command)
+    assert result.returncode == 1 and json.loads(result.stdout) == {"result": "FAIL"}
+    assert "progress write failed" in result.stderr
+    assert json.loads(artifact.read_text()) == {"example": True}
 
 
 if __name__ == "__main__":
