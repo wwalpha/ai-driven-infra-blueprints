@@ -176,6 +176,18 @@ def reference_same(
         and expressions.references(left)
         and reference_error(kind + "." + path, context)
     ):
+        # External declarations describe saved strings without adding Model Resource links.
+        if (
+            evidence is not None
+            and context.get("Type") == "PLAINTEXT"
+            and isinstance(left, ResourceReference)
+            and getattr(left, "declared_format", None) == "identifier"
+            and left.saved_property == "KMS.Key.KeyId"
+            and isinstance(right, ResourceReference)
+            and right["$resource"][0] == "kms"
+            and right["$attribute"] == "KeyId"
+        ):
+            return evidence(left, right, kind, path)
         return ReferenceDecision(None)
     prop = kind + "." + path
     if (

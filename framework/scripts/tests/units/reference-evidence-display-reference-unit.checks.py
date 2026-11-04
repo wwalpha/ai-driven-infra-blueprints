@@ -34,6 +34,7 @@ if not __debug__:
 from support.reference_evidence_shared import (
     KEY_ID,
     ROOT,
+    declaration,
     fixture,
     kms_key,
     resource,
@@ -131,6 +132,84 @@ def _execute_codebuild_kms_form(case):
     TestCase().assertIs(evidence["current_aws_verified"], False)
     TestCase().assertTrue(evidence["reason"])
     return {"records": projected(outcome.records)}
+
+
+@pytest.mark.parametrize(
+    ("observed", "export_value", "category", "reason"),
+    [
+        (KEY_ID, {"Ref": "Key"}, "matched", "logical_reference"),
+        (
+            "87654321-1234-1234-1234-123456789012",
+            {"Ref": "Key"},
+            "uncompared",
+            "recorded_identifier_mismatch",
+        ),
+        (KEY_ID, {"Ref": "OtherKey"}, "difference", "different producer Resources"),
+    ],
+)
+def test_codebuild_declared_plaintext_key_id(observed, export_value, category, reason):
+    comparison = fixture()
+    resource(
+        comparison,
+        "kms",
+        "001",
+        "KMS.Key",
+        "Key",
+        [("KeyId", "PENDING_DEPLOY", observed)],
+    )
+    resource(comparison, "kms", "002", "KMS.Key", "OtherKey", [])
+    comparison.stack_inputs["producer"][0]["Outputs"]["SharedKey"] = {
+        "Value": export_value,
+        "Export": {"Name": "SharedKey"},
+    }
+    path = "Environment.EnvironmentVariables[].Value"
+    ((row_id, row),) = resource(
+        comparison,
+        "codebuild",
+        "002",
+        "CodeBuild.Project",
+        "Project",
+        [(path, KEY_ID, None)],
+        stack="consumer",
+    )
+    declaration(
+        comparison,
+        f"desired.row.{row_id}.value",
+        KEY_ID,
+        service="codebuild",
+        producer="kms",
+        logical="Key",
+        kind="KMS.Key",
+        prop="KMS.Key.KeyId",
+    )
+    context = {"Name": "MATERIAL_KEY_ID", "Type": "PLAINTEXT"}
+    value = comparison.prepare_value(
+        "codebuild",
+        row,
+        "CodeBuild.Project",
+        row_id=row_id,
+        stack="consumer",
+        context=context,
+    ).require_value()
+    desired = {"EnvironmentVariables": [dict(context, Value=value)]}
+    actual = {
+        "EnvironmentVariables": [dict(context, Value={"Fn::ImportValue": "SharedKey"})]
+    }
+    (record,) = comparison.compare_setting(
+        "codebuild",
+        "002",
+        "CodeBuild.Project",
+        "Environment",
+        desired,
+        Settings(desired={"Environment": desired}, sources={"Environment": [{}]}),
+        "consumer",
+        {"Properties": {"Environment": actual}},
+        ROOT / "synthetic.yaml",
+    ).records
+    assert record["category"] == category
+    (diagnostic,) = record["reference_diagnostics"]
+    assert diagnostic["reason"].startswith(reason)
+    assert diagnostic.get("current_aws_verified") in (None, False)
 
 
 def test_codebuild_observed_only_and_difference_are_preserved():
