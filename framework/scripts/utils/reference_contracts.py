@@ -517,6 +517,10 @@ IMPORT_PROPERTIES = {
         "S3.Bucket",
         "BucketName",
     ),
+    "QuickSight.DataSource.VpcConnectionProperties.VpcConnectionArn": (
+        "QuickSight.VPCConnection",
+        "Arn",
+    ),
     "ApiGateway.RestApi.BodyS3Location.Bucket": ("S3.Bucket", "BucketName"),
     "ApiGatewayV2.Api.BodyS3Location.Bucket": ("S3.Bucket", "BucketName"),
     "CodeCommit.Repository.Code.S3.Bucket": ("S3.Bucket", "BucketName"),
