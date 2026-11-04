@@ -83,6 +83,16 @@ def resource_record_errors(catalog, *items):
     )
 
 
+def test_alias_hosted_zone_provider_schema():
+    catalog = DesignSchemaCatalog(FRAMEWORK)
+    kind, path = "Route53.RecordSet", "AliasTarget.HostedZoneId"
+    expression = model_selection()
+    assert catalog.literal_errors(kind, path, json.dumps(expression))
+    expression["Fn::Select"][0] = 0
+    assert not catalog.literal_errors(kind, path, json.dumps(expression))
+    assert catalog.literal_errors(kind, path, "Z" * 45) == ["length must be <= 44"]
+
+
 def test_resource_records_provider_schema():
     catalog = DesignSchemaCatalog(FRAMEWORK)
     assert not resource_record_errors(

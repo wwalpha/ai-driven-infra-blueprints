@@ -15,12 +15,17 @@ import utils.cloudformation.schema as _dependency_cloudformation_schema
 from model.reference_nodes import is_reference, parse
 from utils.cloudformation.schema import CloudFormationSchemaCatalog
 from utils.input_cache import input_select, input_text, memoized
+from utils.json_format import strict_json
 from utils.property_path import definition_path
 
 from design.services.definitions.macie import MACIE_JOB as MACIE_JOB
 from design.services.definitions.quicksight import QUICKSIGHT_GROUP as QUICKSIGHT_GROUP
 from design.services.macie import job_errors, job_rule_inputs
-from design.services.route53 import RECORD_PROPERTY, endpoint_dns_operand
+from design.services.route53 import (
+    ALIAS_ZONE_PROPERTY,
+    RECORD_PROPERTY,
+    endpoint_dns_operand,
+)
 
 
 @memoized
@@ -87,13 +92,16 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
         self, resource_type: str, property_path: str, raw_value: str
     ) -> list[str]:
         if raw_value.lstrip().startswith("{"):
+            alias_zone = f"{resource_type}.{property_path}" == ALIAS_ZONE_PROPERTY
             try:
-                value = json.loads(raw_value)
+                value = strict_json(raw_value) if alias_zone else json.loads(raw_value)
             except ValueError:
                 value = None
             if is_reference(value):
                 parse(value)
                 return []  # Resolved attribute types are checked by the Model reference validator.
+            if alias_zone and endpoint_dns_operand(value, field_index=0) is not None:
+                return []  # The expression text is not the Hosted Zone ID.
         if resource_type not in self.api_schemas:
             return super().literal_errors(resource_type, property_path, raw_value)
         node = self.property_schema(resource_type, property_path)
