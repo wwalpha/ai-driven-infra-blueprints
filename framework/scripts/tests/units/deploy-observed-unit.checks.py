@@ -46,6 +46,11 @@ def _sg_rule_result(backend, stack, document, actual, output="sgr-12345678"):
     )
 
 
+def _capture_destinations(captured, root, environment, directory, loaded, changes):
+    captured.update(changes)
+    return {}, [], None
+
+
 @pytest.mark.parametrize("old_output", [False, True])
 @pytest.mark.parametrize("old_row", [False, True])
 def test_queue_policy_id_is_not_observed(project_workspace, old_output, old_row):
@@ -260,11 +265,11 @@ def test_queue_policy_sync_preserves_old_observation(
     )
     captured = {}
 
-    def destinations(root, environment, directory, loaded, changes):
-        captured.update(changes)
-        return {}, [], None
-
-    monkeypatch.setattr(deploy_observed, "observed_destinations", destinations)
+    monkeypatch.setattr(
+        deploy_observed,
+        "observed_destinations",
+        _bind_framework_callback(_capture_destinations, captured),
+    )
     before = scope.path.read_bytes()
     states = {"producer": {}}
     deploy_observed.collect_successful(backend, [unit], states)
