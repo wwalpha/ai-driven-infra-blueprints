@@ -1312,6 +1312,14 @@ def _check_pr_creation_with_advancing_base():
                 assert remote.created == 1
 
 
+def _checked_pr_create(attempts, retry_fails, remote, target, host, *args):
+    if args[:2] == ("pr", "create"):
+        attempts.append(args)
+        if len(attempts) == 1 or retry_fails:
+            raise wt.Blocked("simulated create failure")
+    return remote.gh(target, host, *args)
+
+
 def _check_reviewed_pr_creation_retry():
     for retry_fails in (False, True):
         with fixture() as root:
@@ -1321,23 +1329,13 @@ def _check_reviewed_pr_creation_retry():
             remote = PRGitHub(root, state)
             attempts = []
 
-            def checked_gh(
-                target,
-                host,
-                *args,
-                attempts=attempts,
-                retry_fails=retry_fails,
-                remote=remote,
-            ):
-                if args[:2] == ("pr", "create"):
-                    attempts.append(args)
-                    if len(attempts) == 1 or retry_fails:
-                        raise wt.Blocked("simulated create failure")
-                return remote.gh(target, host, *args)
-
             with (
                 patch.object(wt, "git", side_effect=remote.git),
-                patch.object(pr, "gh", side_effect=checked_gh),
+                patch.object(
+                    pr, "gh", side_effect=_bind_framework_callback(
+                        _checked_pr_create, attempts, retry_fails, remote
+                    )
+                ),
             ):
                 with pytest.raises(wt.Blocked, match="simulated create failure"):
                     wt.finalize(root, "example", create_pr=True)
