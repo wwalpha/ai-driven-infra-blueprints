@@ -960,8 +960,17 @@ def candidate_sources(
 ) -> tuple[dict[Path, str | None], ModelSnapshot]:
     """A complete selected-service properties candidate never grants producer write access."""
     directory = Path(directory).absolute()
-    if directory.is_relative_to(root) or not directory.is_dir():
+    if directory.is_relative_to(root):
         raise ValueError("Model properties candidate must be outside the repository")
+    if not directory.exists():
+        raise ValueError("Model candidate path does not exist: " + str(directory))
+    if directory.is_file():
+        raise ValueError(
+            "Model candidate must be a directory, not a file. Pass an external "
+            "candidate directory containing model/<environment>/<target>/<service>.properties."
+        )
+    if not directory.is_dir():
+        raise ValueError("Model candidate must be an external directory: " + str(directory))
     output = {}
     for path in directory.rglob("*"):
         safe(directory, path)

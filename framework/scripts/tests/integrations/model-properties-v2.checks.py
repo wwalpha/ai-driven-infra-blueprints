@@ -51,6 +51,13 @@ def check_cli_subprocess_and_canonical_imports():
     with tempfile.TemporaryDirectory() as directory:
         scope, values = fixture(Path(directory))
         cli = Path(__file__).resolve().parents[2] / "model/cli.py"
+        help_result = subprocess.run(
+            [sys.executable, "-B", str(cli), "edit", "--help"],
+            capture_output=True, text=True,
+        )
+        assert help_result.returncode == 0
+        assert "external directory" in help_result.stdout
+        assert "not a single properties file" in " ".join(help_result.stdout.split())
         environment = {
             key: value for key, value in os.environ.items() if key != "PYTHONPATH"
         }
@@ -363,7 +370,7 @@ def check_managed_observation_preserves_exact_authority(monkeypatch):
 @pytest.mark.parametrize(
     "change", ["display", "create", "import-config", "fixed-id", "cli"]
 )
-def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, change):
+def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, capsys, change):
     prepare_edit = _imports_model_operations.prepare_edit
     publish_edit = _imports_model_operations.publish_edit
     fixture = _imports_support_repository_fixtures.fixture
@@ -411,6 +418,11 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
                 candidate.write_text(
                     patch(before.documents[path], fields), encoding="utf-8"
                 )
+                assert main([
+                    "edit", str(path), "--candidate", str(candidate), "--task-file", name
+                ]) == 1
+                assert "directory, not a file" in capsys.readouterr().err
+                assert path.read_bytes() == original
                 assert (
                     main(
                         [

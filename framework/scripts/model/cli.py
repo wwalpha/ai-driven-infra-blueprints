@@ -57,7 +57,10 @@ def main(argv=None):
         "edit", help="publish one ordinary properties candidate under the selected Task"
     )
     edit.add_argument("model", type=Path)
-    edit.add_argument("--candidate", type=Path, required=True)
+    edit.add_argument(
+        "--candidate", type=Path, required=True,
+        help="external directory containing the repository-relative model hierarchy; not a single properties file",
+    )
     edit.add_argument("--task-file", required=True)
     render = commands.add_parser("render")
     render.add_argument("model", type=Path)

@@ -42,8 +42,26 @@ Modified files／Allowed paths を照合し、context を発行します。
 生成候補や人間の編集を直接 write_text で正本へ保存する helper は接続し直してください。
 通常の Model 編集には、外部の完全な properties 候補と Task を指定する既存 CLI も使えます。
 
-```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py edit model/<environment>/<target-directory>/<service-id>.properties --candidate <external-candidate> --task-file tasks/<task-name>.md
+```text
+/tmp/model-candidate/
+└── model/
+    └── stg/
+        └── non-cde/
+            ├── route53.properties
+            └── route53/
+                └── part-001.properties
+```
+
+part ファイルは存在する場合の例です。候補には対象サービスの入口ファイルと、
+保持するすべての part ファイルを含めます。既存 part の省略は削除候補として扱います。
+`--candidate` には `/tmp/model-candidate` を指定し、properties ファイル自体は指定しません。
+
+```bash
+python3 -B framework/scripts/run-python.py -B \
+  framework/scripts/model/cli.py edit \
+  model/stg/non-cde/route53.properties \
+  --candidate /tmp/model-candidate \
+  --task-file tasks/<task-name>.md
 ```
 
 独自 helper から同じ保護付き API を呼ぶ場合は次のようにします。

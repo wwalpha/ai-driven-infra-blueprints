@@ -710,6 +710,41 @@ def candidate_scope_and_changed_files_case(tmp_path, case):
     }
 
 
+def check_candidate_directory_requirements(tmp_path):
+    root, stage = tmp_path / "repository", tmp_path / "candidate"
+    operation_fixture(root)
+    entrance = root / "model/dev/cde/vpc.properties"
+    before = load_model(entrance)
+    original = entrance.read_bytes()
+    stage.mkdir()
+    file = stage / "vpc.properties"
+    file.write_bytes(original)
+    with pytest.raises(ValueError, match="directory, not a file"):
+        candidate_sources(root, file, before)
+    with pytest.raises(ValueError, match="path does not exist"):
+        candidate_sources(root, tmp_path / "missing", before)
+    with pytest.raises(ValueError, match="outside the repository"):
+        candidate_sources(root, root / "model", before)
+    file.unlink()
+    with pytest.raises(ValueError, match="including its entrance"):
+        candidate_sources(root, stage, before)
+    candidate = stage / entrance.relative_to(root)
+    candidate.parent.mkdir(parents=True)
+    candidate.write_bytes(original)
+    part = entrance.with_suffix("") / "part-001.properties"
+    part.parent.mkdir()
+    part.write_bytes(original)
+    entrance.write_text(
+        "# model-format: 2\n# model-index: 2\n# part: vpc/part-001.properties\n",
+        encoding="utf-8",
+    )
+    before = load_model(entrance)
+    index = entrance.read_bytes()
+    changes, _ = candidate_sources(root, stage, before)
+    assert changes[part] is None
+    assert entrance.read_bytes() == index and part.read_bytes() == original
+
+
 @pytest.mark.parametrize("case_id", case_ids("import_model", prefix="scope-"))
 def check_candidate_scope_and_changed_files(tmp_path, case_runner, case_id):
     case_runner.run(
