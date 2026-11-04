@@ -23,6 +23,10 @@ from utils.reference_contracts import (
 
 from . import expressions, registry
 
+_LOCAL_REFERENCE_CONTRACTS = {
+    "Lambda.Permission.SourceArn": {"S3.Bucket": ("Arn",), "Events.Rule": ("Arn",)},
+}
+
 
 @dataclass(frozen=True)
 class ReferenceDecision:
@@ -196,6 +200,11 @@ def reference_same(
         if proven and all(item == proven[0] for item in proven):
             context = proven[0]
     rule = registry.property_rule(kind, path)
+    declared = (
+        _LOCAL_REFERENCE_CONTRACTS.get(prop) or contract(prop, context)
+        if local_comparison
+        else {}
+    )
     if (
         local_comparison
         and nested_symbols
@@ -203,7 +212,7 @@ def reference_same(
         and rule.forms is None
         and rule.direct_attribute is None
         and not requires_context(prop, context)
-        and not contract(prop, context)
+        and not declared
     ):
         try:
             route53_export = (
@@ -240,7 +249,6 @@ def reference_same(
         )
         and requires_context(prop, context)
     ):
-        declared = contract(prop, context)
         for symbol in nested_symbols:
             try:
                 refkind = resource_type(symbol)
@@ -266,7 +274,6 @@ def reference_same(
             if refkind not in declared or symbol["$attribute"] not in allowed:
                 return ReferenceDecision(None)
     elif local_comparison:
-        declared = contract(prop, context)
         for value in (left, right):
             for symbol in expressions.references(value) if declared else ():
                 try:
@@ -373,7 +380,6 @@ def reference_same(
         and symbols
         and requires_context(prop, context)
     ):
-        declared = contract(prop, context)
         if not declared:
             return decision(None)
         for symbol in symbols:

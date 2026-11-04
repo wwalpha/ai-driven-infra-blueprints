@@ -2948,6 +2948,45 @@ def test_kms_forms_and_arn_values():
             comparison.reference_literal(arn)
 
 
+def test_lambda_permission_source_arn(tmp_path):
+    comparison = reference_comparison(tmp_path)
+    producer, consumer = "producer", "consumer"
+    comparison.stack_inputs[producer][0]["Outputs"]["BucketName"] = {
+        "Value": {"Ref": "Bucket"},
+        "Export": {"Name": "fixture-BucketName"},
+    }
+    desired = comparison.evaluate(producer, {"Fn::GetAtt": ["Bucket", "Arn"]})
+    bucket_name = {"Fn::ImportValue": "fixture-BucketName"}
+    arn = "arn:${AWS::Partition}:s3:::${BucketName}"
+
+    for expression, source, expected in [
+        (arn, bucket_name, True),
+        (arn, {"Ref": "Bucket"}, None),
+        (arn + "/*", bucket_name, None),
+        ("arn:aws-cn:s3:::${BucketName}", bucket_name, None),
+        ("${BucketName}", bucket_name, None),
+    ]:
+        actual = comparison.evaluate(
+            consumer, {"Fn::Sub": [expression, {"BucketName": source}]}
+        )
+        assert (
+            comparison.reference_same(desired, actual, "Lambda.Permission", "SourceArn")
+            is expected
+        ), (expression, source)
+
+    event_arn = comparison.evaluate(producer, {"Fn::GetAtt": ["Rule", "Arn"]})
+    actual = comparison.evaluate(
+        consumer,
+        {
+            "Fn::Sub": "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/fixture-rule"
+        },
+    )
+    assert (
+        comparison.reference_same(event_arn, actual, "Lambda.Permission", "SourceArn")
+        is True
+    )
+
+
 def test_policy_action_and_expression_values():
     with tempfile.TemporaryDirectory() as directory:
         comparison = reference_comparison(Path(directory))
