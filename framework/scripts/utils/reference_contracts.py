@@ -509,6 +509,10 @@ IMPORT_PROPERTIES = {
         "DomainName",
     ),
     "S3.BucketPolicy.Bucket": ("S3.Bucket", "BucketName"),
+    "QuickSight.DataSource.DataSourceParameters.AthenaParameters.RoleArn": (
+        "IAM.Role",
+        "Arn",
+    ),
     "QuickSight.DataSource.DataSourceParameters.S3Parameters.ManifestFileLocation.Bucket": (
         "S3.Bucket",
         "BucketName",
