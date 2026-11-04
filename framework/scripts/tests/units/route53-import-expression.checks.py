@@ -42,7 +42,14 @@ def check_limited_import_expression(tmp_path):
         assert is_import_expression(prop, value)
     for value in ("Z123", "Z" * 45, "[Z123](vpc-endpoint.md#endpoint)"):
         assert not is_import_expression(prop, value)
+    endpoint = {
+        "$modelRef": {"logicalId": "EC2_VPCEndpoint_001", "attribute": "DnsEntries"}
+    }
+    direct = {"Fn::Select": [0, {"Fn::Split": [":", {"Fn::Select": [0, endpoint]}]}]}
+    assert not is_import_expression(prop, "`" + json.dumps(direct) + "`")
+    direct["Fn::Select"][0] = 1
     for value in (
+        "`" + json.dumps(direct) + "`",
         expression.replace("ImportValue", "Unknown"),
         expression.replace("QuickSightWebsiteInterfaceEndpointHostedZoneId", ""),
         expression.replace("QuickSightWebsite", "Quick SightWebsite"),

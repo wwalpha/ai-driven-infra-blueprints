@@ -24,6 +24,7 @@ from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
 from contracts.target import AWS_ACCOUNT_ID_KEY
 from design.catalog import design_material_files
 from design.services.definitions.registry import HIDDEN_PROPERTIES
+from design.services.route53 import ALIAS_ZONE_PROPERTY, endpoint_dns_operand
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
 from utils.input_cache import input_is_file, input_text, memo_table, memoized
 from utils.reference_contracts import (
@@ -121,7 +122,15 @@ def is_import_expression(prop: str, raw_value: str) -> bool:
     value = literal(raw_value)
     link = re.fullmatch(r"\[([^\]]+)\]\(([^)]*)\)", value)
     expression = link[1] if link else value
-    hosted_zone = prop == "Route53.RecordSet.AliasTarget.HostedZoneId"
+    hosted_zone = prop == ALIAS_ZONE_PROPERTY
+    if hosted_zone and value.startswith("{"):
+        try:
+            typed = _imports_utils_json_format.strict_json(value)
+        except ValueError:
+            pass
+        else:
+            if endpoint_dns_operand(typed, field_index=0) is not None:
+                return False
     if not (
         expression.startswith(("Fn::", "Ref:"))
         or hosted_zone

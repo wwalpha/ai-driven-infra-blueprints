@@ -13,12 +13,13 @@ from model.reference_values import reference_value
 import model as _model_api
 
 ALIAS_PROPERTY = "Route53.RecordSet.AliasTarget.DNSName"
+ALIAS_ZONE_PROPERTY = "Route53.RecordSet.AliasTarget.HostedZoneId"
 RECORD_PROPERTY = "Route53.RecordSet.ResourceRecords"
 POINTER = "/Fn::Select/1/Fn::Split/1/Fn::Select/1"
 
 
-def endpoint_dns_operand(value, pointer=""):
-    """Recognize the documented DNS extraction without evaluating a runtime index."""
+def endpoint_dns_operand(value, pointer="", *, field_index=1):
+    """Recognize a DnsEntries extraction without evaluating a runtime index."""
     match value:
         case {
             "Fn::Select": [
@@ -34,7 +35,7 @@ def endpoint_dns_operand(value, pointer=""):
             **outer_extra,
         } if (
             type(field) is int
-            and field == 1
+            and field == field_index
             and type(entry) is int
             and entry >= 0
             and not (outer_extra or split_extra or inner_extra)
@@ -53,6 +54,7 @@ def endpoint_nodes(values, row_id, field, raw):
     prop = values.get(f"desired.row.{row_id}.property")
     if field != "value" or prop not in {
         ALIAS_PROPERTY,
+        ALIAS_ZONE_PROPERTY,
         RECORD_PROPERTY,
         RECORD_PROPERTY + "[]",
     }:
@@ -61,14 +63,18 @@ def endpoint_nodes(values, row_id, field, raw):
         if prop != RECORD_PROPERTY:
             return []
         candidates = enumerate(raw)
-    elif prop in {ALIAS_PROPERTY, RECORD_PROPERTY + "[]"}:
+    elif prop in {ALIAS_PROPERTY, ALIAS_ZONE_PROPERTY, RECORD_PROPERTY + "[]"}:
         candidates = [(None, raw)]
     else:
         return []
     result = []
     for index, item in candidates:
-        operand = endpoint_dns_operand(item, f"/{index}" if index is not None else "")
-        if operand is not None and operand[0] == 0:
+        operand = endpoint_dns_operand(
+            item,
+            f"/{index}" if index is not None else "",
+            field_index=0 if prop == ALIAS_ZONE_PROPERTY else 1,
+        )
+        if operand is not None and (prop == ALIAS_ZONE_PROPERTY or operand[0] == 0):
             result.append((index, operand[1]))
     return result
 
@@ -101,6 +107,8 @@ def endpoint_id(node, scope, resolver):
 def reference_label(
     values, position, node, scope, resolver, resource, attribute, name, displayed
 ):
+    if values.get(f"desired.row.{position.row_id}.property") == ALIAS_ZONE_PROPERTY:
+        return name
     if resource[
         RESOURCE_TYPE_KEY
     ] != "EC2.VPCEndpoint" or not position.pointer.endswith(POINTER):
