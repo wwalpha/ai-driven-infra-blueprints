@@ -22,6 +22,9 @@ from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
 from utils.local_evidence import evidence_store, write_sealed
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 def setup_case(tmp_path):
     root = tmp_path / "repo"
@@ -124,6 +127,75 @@ def check_diagnostic_paths_are_task_local(tmp_path):
     root, journal, directory, template, backend = setup_case(tmp_path)
     backend.states = {"App": {"delivery": {"path": str(root / "App.json")}}}
     assert temporary.diagnostic_paths(journal, backend, ["App"]) == {str(template)}
+
+
+@pytest.mark.parametrize("missing", ["none", "file", "directory"])
+def check_saved_template_diagnostic_when_missing(tmp_path, missing):
+    root, journal, directory, template, backend = setup_case(tmp_path)
+    backend.workdir = None
+    backend.states = {"App": {"delivery": {"path": str(template)}}}
+    if missing != "none":
+        template.unlink()
+    if missing == "directory":
+        directory.rmdir()
+    assert temporary.diagnostic_paths(journal, backend, ["App"]) == {str(template)}
+
+
+def check_diagnostic_rejects_symlinks_and_foreign_paths(tmp_path):
+    root, journal, directory, template, backend = setup_case(tmp_path)
+    backend.workdir = None
+    foreign = root / "App.json"
+    backend.states = {"App": {"delivery": {"path": str(foreign)}}}
+    assert not temporary.diagnostic_paths(journal, backend, ["App"])
+    template.unlink()
+    directory.rmdir()
+    directory.symlink_to(root, target_is_directory=True)
+    backend.states["App"]["delivery"]["path"] = str(template)
+    assert not temporary.diagnostic_paths(journal, backend, ["App"])
+
+
+def check_diagnostic_rejects_untrusted_task_directory(tmp_path):
+    if os.name == "nt":
+        pytest.skip("POSIX permissions")
+    root, journal, directory, template, backend = setup_case(tmp_path)
+    journal.parent.chmod(0o777)
+    assert not temporary.diagnostic_paths(journal, backend, ["App"])
+
+
+@pytest.mark.parametrize("status", ["RUNNING", "BLOCKED"])
+@pytest.mark.parametrize("exceptional", [False, True])
+def check_unreferenced_empty_directory_removed(tmp_path, status, exceptional):
+    root, journal, directory, template, backend = setup_case(tmp_path)
+    template.unlink()
+    backend.run_context["states"] = {"App": {"status": status}}
+    (temporary.evidence_store(root) / "deploy-failure-current.json").write_text(
+        "unverified"
+    )
+    if exceptional:
+        try:
+            raise ValueError("failure")
+        except ValueError:
+            cleanup(root, journal, directory, backend)
+    else:
+        cleanup(root, journal, directory, backend)
+    assert not directory.exists()
+
+
+def check_empty_directory_referenced_in_progress_is_retained(tmp_path):
+    root, journal, directory, template, backend = setup_case(tmp_path)
+    template.unlink()
+    saved = {"runContext": {"states": {"App": {"delivery": {"path": str(template)}}}}}
+    cleanup(root, journal, directory, backend, saved)
+    assert directory.exists()
+
+
+def check_exception_retains_nonempty_directory(tmp_path):
+    root, journal, directory, template, backend = setup_case(tmp_path)
+    try:
+        raise ValueError("failure")
+    except ValueError:
+        cleanup(root, journal, directory, backend)
+    assert template.exists()
 
 
 TARGET = {
@@ -245,7 +317,7 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
             ),
             2 if blocked else 0,
         )
-    assert current_directory.exists()
+    assert not current_directory.exists()
     assert prior_directory.exists()
     if blocked == "missing":
         output = json.loads(capsys.readouterr().out)

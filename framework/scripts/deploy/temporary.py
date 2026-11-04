@@ -17,45 +17,29 @@ def create(journal, stacks):
     return Path(tempfile.mkdtemp(prefix="inputs-", dir=journal.parent))
 
 
+def task_directory(journal, directory):
+    if directory.parent != journal.parent or not directory.name.startswith("inputs-"):
+        raise Blocked("temporary directory outside Task scope")
+    operation_journal.private_path(journal.parent.parent, directory=True)
+    operation_journal.private_path(journal.parent, directory=True)
+    operation_journal.safe_path(directory)
+    if directory.exists():
+        operation_journal.private_path(directory, directory=True)
+
+
 def reclaim(journal, root, *, directory, backend, stacks):
     """Only the current invocation's proven directory is eligible for removal."""
-    if sys.exc_info()[0] is not None:
-        return
+    exceptional = sys.exc_info()[0] is not None
     try:
+        task_directory(journal, directory)
         operation_journal.private_path(directory, directory=True)
-        if directory.parent != journal.parent or not directory.name.startswith(
-            "inputs-"
-        ):
-            return
         with handoff.repair_lock(root):
-            store = evidence_store(root, create=False)
-            if any(
-                next(store.glob(pattern), None)
-                for pattern in (
-                    "deploy-failure-*",
-                    "deploy-repair-*",
-                    "deploy-cleanup-*",
-                )
-            ):
-                return
             progress = worktree.read_progress(root, worktree.progress_state(backend))
             contexts = [backend.run_context]
             if progress:
                 contexts.append(progress["runContext"])
             for context in contexts:
-                if any(
-                    context.get(key)
-                    for key in (
-                        "currentFailure",
-                        "pendingObserved",
-                        "pendingGeneration",
-                        "generationError",
-                        "checkpointPending",
-                    )
-                ):
-                    return
-                states = context["states"]
-                for state in states.values():
+                for state in context["states"].values():
                     delivery = state.get("delivery", {})
                     if not isinstance(delivery, dict):
                         return
@@ -69,18 +53,48 @@ def reclaim(journal, root, *, directory, backend, stacks):
                             return
                         if Path(path).is_relative_to(directory):
                             return
-                    if state.get("attemptResult") == "UNKNOWN" or state.get(
-                        "status"
-                    ) in {
+            files = list(directory.iterdir())
+            if not files:
+                directory.rmdir()
+                return
+            if exceptional:
+                return
+            store = evidence_store(root, create=False)
+            if any(
+                next(store.glob(pattern), None)
+                for pattern in (
+                    "deploy-failure-*",
+                    "deploy-repair-*",
+                    "deploy-cleanup-*",
+                )
+            ):
+                return
+            for context in contexts:
+                if any(
+                    context.get(key)
+                    for key in (
+                        "currentFailure",
+                        "pendingObserved",
+                        "pendingGeneration",
+                        "generationError",
+                        "checkpointPending",
+                    )
+                ):
+                    return
+                if any(
+                    state.get("attemptResult") == "UNKNOWN"
+                    or state.get("status")
+                    in {
                         "RUNNING",
                         "CHANGESET_CREATING",
                         "READY",
                         "BLOCKED",
                         "FAILED",
                         "UNKNOWN",
-                    }:
-                        return
-            files = list(directory.iterdir())
+                    }
+                    for state in context["states"].values()
+                ):
+                    return
             if any(
                 file.name not in {name + ".json" for name in stacks} for file in files
             ):
@@ -111,7 +125,7 @@ def diagnostic_paths(journal, backend, stacks):
                 and path.parent.name.startswith("inputs-")
                 and path.name in {name + ".json" for name in stacks}
             ):
-                operation_journal.private_path(path.parent, directory=True)
+                task_directory(journal, path.parent)
                 operation_journal.safe_path(path)
                 result.add(str(path))
         except (OSError, ValueError, Blocked):

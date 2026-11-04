@@ -85,6 +85,19 @@ def check_missing_template_safe_diagnostic():
     assert path not in json.dumps(hidden) and "secret" not in json.dumps(hidden)
 
 
+def check_missing_template_operation_and_errno(tmp_path):
+    path = tmp_path / "inputs-missing" / "App.json"
+    try:
+        path.read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        result = G.stopped("STEP", error, template_paths={str(path)})["cause"]
+        assert result["path"] == str(path)
+        assert result["errno"] == 2 and result["operation"] in {"open", "read"}
+        assert str(path) not in json.dumps(G.stopped("STEP", error))
+    else:
+        pytest.fail("missing template unexpectedly existed")
+
+
 def check_pending_failure_uses_type_not_prose():
     state = {"status": "BLOCKED"}
     failures.exception(state, EnvironmentValuePending("secret"), "PREPARATION")
