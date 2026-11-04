@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import re
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
@@ -195,6 +196,76 @@ def identifier_source(catalog, resource, outputs, logical, prop, values):
     return primary, keys
 
 
+def queue_policy_id_references(root, policies):
+    """Report actual consumers of an identifier that cannot be observed."""
+    if not policies:
+        return []
+    reads = FileReads()
+    errors = []
+    for path in model_paths(root, read_context=reads):
+        snapshot = raw_model(path, reads)
+        values = snapshot.authoritative
+        if not any(key[-1] in value for key in policies for value in values.values()):
+            continue
+        for usage in usages(snapshot, reads):
+            target = (
+                (*usage.producer_scope.split("/"), usage.logical_id)
+                if usage.producer_scope
+                else None
+            )
+            if target not in policies:
+                continue
+            attribute = usage.attribute or values.get(
+                f"desired.reference.{usage.metadata_id}.property", ""
+            ).removeprefix("SQS.QueuePolicy.")
+            if attribute != "Id":
+                continue
+            owner_path, identity = policies[target]
+            key = usage.consumer_key
+            self_row = (
+                path == owner_path
+                and key.startswith(f"desired.row.{identity}-")
+                and key.endswith(".value")
+                and values.get(key.removesuffix(".value") + ".property")
+                == "SQS.QueuePolicy.Id"
+                and not usage.pointer
+            )
+            if not self_row:
+                errors.append(
+                    f"{path.relative_to(root)}:{key}: SQS.QueuePolicy.Id cannot be observed"
+                )
+    return errors
+
+
+def queue_policy_template_references(value, logical, location):
+    if isinstance(value, dict):
+        getatt = value.get("Fn::GetAtt")
+        if getatt == [logical, "Id"] or getatt == f"{logical}.Id":
+            yield location
+        sub = value.get("Fn::Sub")
+        template = sub[0] if isinstance(sub, list) and sub else sub
+        overrides = (
+            sub[1]
+            if isinstance(sub, list) and len(sub) == 2 and isinstance(sub[1], dict)
+            else {}
+        )
+        if (
+            isinstance(template, str)
+            and f"{logical}.Id" not in overrides
+            and re.search(r"\$\{" + re.escape(logical) + r"\.Id\}", template)
+        ):
+            yield location
+        for key, child in value.items():
+            yield from queue_policy_template_references(
+                child, logical, f"{location}.{key}"
+            )
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from queue_policy_template_references(
+                child, logical, f"{location}[{index}]"
+            )
+
+
 def mapped_resource(direct, name, logical, cfn_type):
     candidates = direct.get((name, logical), [])
     if len(candidates) != 1:
@@ -375,7 +446,7 @@ def _mappings(
         else {}
     )
     result, owners, errors = {}, {}, {}
-    row_indexes = {}
+    row_indexes, policies = {}, {}
     if values and selection is None:
         names = set(bound) or {
             stack["name"] for _, stack in entries(values, "desired.stack.")
@@ -478,6 +549,18 @@ def _mappings(
                     else catalog_outputs(root, resource[RESOURCE_TYPE_KEY])
                     - HIDDEN_PROPERTIES
                 )
+                if resource[RESOURCE_TYPE_KEY] == "SQS.QueuePolicy":
+                    outputs.discard("SQS.QueuePolicy.Id")
+                    if identifiers:
+                        policies[own_key(path, resource)] = (path, identity)
+                        for section, content in document.items():
+                            if section != "Outputs":
+                                for location in queue_policy_template_references(
+                                    content, logical, section
+                                ):
+                                    errors.setdefault(name, []).append(
+                                        f"{name}/{location}: SQS.QueuePolicy.Id cannot be observed"
+                                    )
                 if path not in row_indexes:
                     row_indexes[path] = resource_row_index(loaded[path])
                 rows = [
@@ -517,6 +600,8 @@ def _mappings(
                 result[name][logical] = (path, identity, resource, rows, outputs)
             except (ValueError, Blocked) as error:
                 errors.setdefault(name, []).append(f"{name}/{logical}: {error}")
+    for detail in queue_policy_id_references(root, policies):
+        errors.setdefault("SQS.QueuePolicy.Id", []).append(detail)
     if errors:
         raise MappingError(errors)
     return loaded, result

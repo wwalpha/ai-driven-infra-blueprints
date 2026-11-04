@@ -11,13 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import json
 
+import deploy.observed as deploy_observed
 import model.adapters.observed as observed_adapter
 import pytest
 from deploy import deferred
 from deploy.observed import security_group_rule_id
 from model.adapters.aws import Unresolved, service_module
 from model.adapters.observed import (
-    identifier_source,
     propagate_references,
     resolve_resources,
 )
@@ -46,24 +46,234 @@ def _sg_rule_result(backend, stack, document, actual, output="sgr-12345678"):
     )
 
 
-def test_queue_policy_id_requires_getatt_output():
-    catalog = SimpleNamespace(
-        schema=lambda kind: {"primaryIdentifier": ["/properties/Id"]}
+@pytest.mark.parametrize("old_output", [False, True])
+@pytest.mark.parametrize("old_row", [False, True])
+def test_queue_policy_id_is_not_observed(project_workspace, old_output, old_row):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root, "sqs", "SQS.QueuePolicy", attribute="Id", observed="old-id"
     )
-    resource = {"resourceType": "SQS.QueuePolicy"}
-    outputs = {"Id"}
-    declarations = {"id": {"Fn::GetAtt": ["Policy", "Id"]}, "ref": {"Ref": "Policy"}}
-    assert identifier_source(
-        catalog, resource, outputs, "Policy", "SQS.QueuePolicy.Id", declarations
-    ) == (False, ["id"])
-    assert identifier_source(
-        catalog,
-        resource,
-        outputs,
-        "Policy",
-        "SQS.QueuePolicy.Id",
-        {"ref": {"Ref": "Policy"}},
-    ) == (False, [])
+    if not old_row:
+        values = {
+            key: value for key, value in values.items() if ".row.001-001." not in key
+        }
+    model_reference_fixtures.write(scope, values)
+    before = scope.path.read_bytes()
+    document = {"Resources": {"Resource001": {"Type": "AWS::SQS::QueuePolicy"}}}
+    if old_output:
+        document["Outputs"] = {
+            "PolicyId": {"Value": {"Fn::GetAtt": ["Resource001", "Id"]}}
+        }
+    _, mapped = resolve_resources(
+        root,
+        "qa",
+        "team",
+        {"producer": (document, {})},
+        [{"name": "producer"}],
+        {"producer": {"Resource001"}},
+        target=TARGET,
+        check_scope=False,
+    )
+    assert "SQS.QueuePolicy.Id" not in mapped["producer"]["Resource001"][4]
+    assert scope.path.read_bytes() == before
+
+
+@pytest.mark.parametrize("declared", [False, True])
+def test_queue_policy_id_external_reference_is_diagnosed(project_workspace, declared):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root, "sqs", "SQS.QueuePolicy", attribute="Id", observed="old-id"
+    )
+    model_reference_fixtures.write(scope, values)
+    consumer, other = model_reference_fixtures.resource_values(
+        root, "iam", "IAM.ManagedPolicy", attribute="ManagedPolicyName"
+    )
+    other["desired.resource.001.cfn-logicalId"] = "consumer-Policy"
+    other["desired.row.001-002.property"] = "IAM.ManagedPolicy.PolicyDocument"
+    other["desired.row.001-002.comment"] = "consumer"
+    other["desired.row.001-002.value"] = (
+        "`"
+        + json.dumps(model_reference_fixtures.reference("SQS_QueuePolicy_001", "Id"))
+        + "`"
+    )
+    if declared:
+        other["desired.row.001-002.value"] = "`old-id`"
+        spec = {
+            "consumerKey": "desired.row.001-002.value",
+            "text": "old-id",
+            "occurrence": "1",
+            "producerKind": "resource",
+            "producerScope": "qa/team/sqs",
+            "producerLogicalId": "SQS_QueuePolicy_001",
+            "resourceType": "SQS.QueuePolicy",
+            "format": "identifier",
+            "property": "SQS.QueuePolicy.Id",
+            "labelPolicy": "none",
+        }
+        other.update(
+            {f"desired.reference.external.{key}": value for key, value in spec.items()}
+        )
+    model_reference_fixtures.write(consumer, other)
+    document = {"Resources": {"Resource001": {"Type": "AWS::SQS::QueuePolicy"}}}
+    with pytest.raises(
+        ValueError,
+        match=r"iam.properties:desired.row.001-002.value.*cannot be observed",
+    ):
+        resolve_resources(
+            root,
+            "qa",
+            "team",
+            {"producer": (document, {})},
+            [{"name": "producer"}],
+            {"producer": {"Resource001"}},
+            target=TARGET,
+            check_scope=False,
+        )
+
+
+def test_queue_policy_id_other_setting_is_diagnosed(project_workspace):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root, "sqs", "SQS.QueuePolicy", attribute="Id"
+    )
+    values["desired.row.001-002.property"] = "SQS.QueuePolicy.Queues"
+    values["desired.row.001-002.comment"] = "consumer"
+    values["desired.row.001-002.value"] = (
+        "`"
+        + json.dumps([model_reference_fixtures.reference("SQS_QueuePolicy_001", "Id")])
+        + "`"
+    )
+    model_reference_fixtures.write(scope, values)
+    document = {"Resources": {"Resource001": {"Type": "AWS::SQS::QueuePolicy"}}}
+    with pytest.raises(
+        ValueError,
+        match=r"sqs.properties:desired.row.001-002.value.*cannot be observed",
+    ):
+        resolve_resources(
+            root,
+            "qa",
+            "team",
+            {"producer": (document, {})},
+            [{"name": "producer"}],
+            {"producer": {"Resource001"}},
+            target=TARGET,
+            check_scope=False,
+        )
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [{"Fn::GetAtt": ["Resource001", "Id"]}, {"Fn::Sub": "${Resource001.Id}"}],
+)
+def test_queue_policy_id_template_consumer_is_diagnosed(project_workspace, expression):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root, "sqs", "SQS.QueuePolicy", attribute="Id"
+    )
+    model_reference_fixtures.write(scope, values)
+    document = {
+        "Resources": {
+            "Resource001": {"Type": "AWS::SQS::QueuePolicy"},
+            "Consumer": {
+                "Type": "AWS::SQS::Queue",
+                "Properties": {"QueueName": expression},
+            },
+        }
+    }
+    with pytest.raises(
+        ValueError, match=r"Resources.Consumer.Properties.QueueName.*cannot be observed"
+    ):
+        resolve_resources(
+            root,
+            "qa",
+            "team",
+            {"producer": (document, {})},
+            [{"name": "producer"}],
+            {"producer": {"Resource001"}},
+            target=TARGET,
+            check_scope=False,
+        )
+
+
+@pytest.mark.parametrize("old_output", [False, True])
+def test_queue_policy_sync_preserves_old_observation(
+    project_workspace, monkeypatch, old_output
+):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root, "sqs", "SQS.QueuePolicy", attribute="Id", observed="old-id"
+    )
+    model_reference_fixtures.write(scope, values)
+    document = {"Resources": {"Resource001": {"Type": "AWS::SQS::QueuePolicy"}}}
+    if old_output:
+        document["Outputs"] = {
+            "PolicyId": {"Value": {"Fn::GetAtt": ["Resource001", "Id"]}}
+        }
+    unit = {"name": "producer"}
+    mapped = resolve_resources(
+        root,
+        "qa",
+        "team",
+        {"producer": (document, {})},
+        [unit],
+        {"producer": {"Resource001"}},
+        target=TARGET,
+        check_scope=False,
+    )
+    backend = SimpleNamespace(
+        root=root,
+        environment="qa",
+        directory="team",
+        target=TARGET,
+        templates={"producer": (document, {})},
+        aws=Mock(),
+        run_context={},
+    )
+    stack = {
+        "StackId": "stack",
+        "StackStatus": "CREATE_COMPLETE",
+        "Outputs": [{"OutputKey": "PolicyId", "OutputValue": "new-id"}]
+        if old_output
+        else [],
+    }
+    monkeypatch.setattr(deploy_observed, "resolve_resources", lambda *a, **k: mapped)
+    monkeypatch.setattr(
+        deploy_observed.execution_scope, "check_fixed_resources", lambda *a, **k: None
+    )
+    monkeypatch.setattr(deploy_observed.current_state, "read", lambda *a: stack)
+    monkeypatch.setattr(
+        deploy_observed.current_state,
+        "pages",
+        lambda *a, **k: [
+            {
+                "LogicalResourceId": "Resource001",
+                "ResourceType": "AWS::SQS::QueuePolicy",
+                "ResourceStatus": "CREATE_COMPLETE",
+                "PhysicalResourceId": "physical-id",
+            }
+        ],
+    )
+    captured = {}
+
+    def destinations(root, environment, directory, loaded, changes):
+        captured.update(changes)
+        return {}, [], None
+
+    monkeypatch.setattr(deploy_observed, "observed_destinations", destinations)
+    before = scope.path.read_bytes()
+    states = {"producer": {}}
+    deploy_observed.collect_successful(backend, [unit], states)
+    assert captured[scope.path] == {}
+    assert (
+        states["producer"]["observedCoverage"]["Resource001"]["status"]
+        == "NO_IDENTIFIER"
+    )
+    assert scope.path.read_bytes() == before
 
 
 def seed(root, kind, child_kind, setting):
