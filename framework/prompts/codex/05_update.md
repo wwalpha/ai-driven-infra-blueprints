@@ -28,9 +28,11 @@ eligible, including settings previously approved or imported in another Task. En
 exact Modified files, Allowed paths, service Validation scope and affected consumers.
 Do not acquire AWS values in this branch. Keep the infrastructure branch separate.
 
-For complete external candidates use `model.sources.edit_base(path, context.snapshot)`
-and `candidate_sources`, then the existing `edit_write_context`, `prepare_edit(path,
-candidate, context)` and `publish_edit`. The old baseline records bytes and file sets,
+For authorized additions use the [Model allocation CLI](../../docs/model-identity.md#ordinary-create-and-import-additions)
+with the complete external candidate and explicitly ordered Resource numbers.
+Preview first, then pass `--write-candidate` to update the candidate. Publish the
+complete candidate through [`model/cli.py edit`](../../docs/model-helper-integration.md#保存権限)
+with the selected Task. The old baseline records bytes and file sets,
 without `load_model` or fixed-field/layout validation. The candidate must pass structure,
 ID and reference checks. Never manually persist generated views; generate and validate
 through the existing APIs. Complete and integrate only the verified final candidate.

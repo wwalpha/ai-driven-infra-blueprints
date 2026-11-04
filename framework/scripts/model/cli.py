@@ -59,6 +59,19 @@ def main(argv=None):
     edit.add_argument("model", type=Path)
     edit.add_argument("--candidate", type=Path, required=True)
     edit.add_argument("--task-file", required=True)
+    allocate = commands.add_parser(
+        "allocate", help="allocate Resource IDs in a complete external candidate"
+    )
+    allocate.add_argument("model", type=Path)
+    allocate.add_argument("--candidate", type=Path, required=True)
+    allocate.add_argument(
+        "--resource", action="append", required=True,
+        help="new Resource entry number (repeat in allocation order)",
+    )
+    allocate.add_argument(
+        "--write-candidate", action="store_true",
+        help="update external candidate files instead of only previewing",
+    )
     render = commands.add_parser("render")
     render.add_argument("model", type=Path)
     for name in ("resource", "find"):

@@ -1,18 +1,24 @@
 """Offline fixed identity allocation checks; no project or AWS inputs."""
 
 import json
+import os
 import sys
 import tempfile
+from contextlib import redirect_stderr, redirect_stdout
+from functools import partial
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import model.projection as _imports_model_projection
 import model.render as _imports_model_render
 import model.sources as _imports_model_sources
 import model.sources as sources
+from model.cli import main as cli
 from model.core import entries
-from model.format import serialize
+from model.format import parse, serialize, split
 from model.identity import (
     COUNTERS,
     Resolver,
@@ -23,6 +29,7 @@ from model.identity import (
 )
 from model.sources import Scope
 from model.validations.identity import validate_resource_identities
+from support.model_v2_fixtures import format_fixture
 from utils.aws_mappings import mapping_alias
 
 if not __debug__:
@@ -80,6 +87,135 @@ def main():
         "[vpc](#anchor)", Scope(Path("/synthetic"), "test", "team", "vpc")
     ) == ("test", "team", "vpc", "anchor")
     print("fixed identity allocation: PASS")
+
+
+def run_allocate(scope, *options, directory, error=None):
+    stdout, stderr = StringIO(), StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        code = cli(["allocate", str(scope.path), "--candidate", str(directory), *options])
+    if error is not None:
+        assert code == 1, stdout.getvalue()
+        result = json.loads(stderr.getvalue())
+        assert error in result["reason"], result
+        return
+    assert code == 0, stderr.getvalue()
+    return json.loads(stdout.getvalue())
+
+
+def fail_second_replace(replace, replacements, source, destination):
+    replacements.append(destination)
+    if len(replacements) == 2:
+        raise OSError("injected replacement failure")
+    replace(source, destination)
+
+
+def check_allocate_cli():
+    with tempfile.TemporaryDirectory() as directory:
+        temporary = Path(directory).resolve()
+        root = temporary / "repository"
+        root.mkdir()
+        scope, saved = format_fixture(root)
+        original = scope.path.read_bytes()
+        candidate = temporary / "candidate"
+        relative = scope.path.relative_to(root)
+        entrance = candidate / relative
+        entrance.parent.mkdir(parents=True)
+        vpc_type = "desired.resource.009.resourceType"
+        vpc_id = "desired.resource.009.logicalId"
+        saved_id = "desired.resource.007.logicalId"
+        single = {**saved, vpc_type: "EC2.VPC"}
+        entrance.write_bytes(serialize(single).replace("\n", "\r\n").encode("utf-8"))
+        initial = entrance.read_bytes()
+
+        run = partial(run_allocate, scope, directory=candidate)
+        select = ("--resource", "009")
+        result = run(*select)
+        assert result["status"] == "preview"
+        assert result["allocations"] == [{"resource": "009", "logicalId": "EC2_VPC_002"}]
+        assert entrance.read_bytes() == initial
+        assert run(*select, "--write-candidate")["status"] == "updated"
+        updated = entrance.read_bytes()
+        assert updated == initial.replace(
+            b"lastAllocated={\"EC2.VPC\":1}", b"lastAllocated={\"EC2.VPC\":2}"
+        ) + (vpc_id + "=EC2_VPC_002\r\n").encode()
+        assert scope.path.read_bytes() == original
+
+        entrance.write_bytes(initial)
+        run(*select, *select, "--write-candidate", error="duplicate allocation selection")
+        run("--resource", "999", error="999")
+        run("--resource", "007", error="cannot reallocate a saved logicalId")
+        assert entrance.read_bytes() == initial
+        for invalid, number, reason in (
+            ({**single, saved_id: ""}, "007", "cannot reallocate a saved logicalId"),
+            ({**single, COUNTERS: '{"EC2.VPC":false}'}, "009", "nonnegative integers"),
+            ({**single, COUNTERS: '{"EC2.VPC":0}'}, "009", "duplicate logicalId"),
+            ({**single, COUNTERS: '{"EC2.VPC":2}'}, "009", "allocation state does not match"),
+        ):
+            raw = serialize(invalid).encode()
+            entrance.write_bytes(raw)
+            run("--resource", number, "--write-candidate", error=reason)
+            assert entrance.read_bytes() == raw
+
+        run(*select, directory=root, error="outside the repository")
+        run(*select, directory=scope.path.parent, error="outside the repository")
+        extra = entrance.with_name("outside.properties")
+        extra.write_bytes(initial)
+        run(*select, error="outside the selected service")
+        extra.unlink()
+        if os.name != "nt":
+            link = temporary / "link"
+            link.symlink_to(candidate, target_is_directory=True)
+            run(*select, directory=link, error="unsafe Model source path")
+            entrance.unlink()
+            entrance.symlink_to(scope.path)
+            run(*select, "--write-candidate", error="unsafe Model source path")
+            entrance.unlink()
+
+        candidate_values = {
+            **saved,
+            vpc_type: "EC2.VPC",
+            "desired.resource.008.resourceType": "EC2.VPC",
+            "desired.resource.010.resourceType": "EC2.Subnet",
+        }
+        files = {
+            candidate / path.relative_to(root): (
+                text.replace("\n", "\r\n") + "# 保持するコメント\r\n"
+            ).encode("utf-8")
+            for path, text in split(scope.path, candidate_values, limit=2).items()
+        }
+        for path, raw in files.items():
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(raw)
+
+        selected = (*select, "--resource", "010", "--resource", "008")
+        replacements = []
+        with patch(
+            "utils.file_operations.os.replace",
+            side_effect=partial(fail_second_replace, os.replace, replacements),
+        ):
+            run(*selected, "--write-candidate", error="injected replacement failure")
+        assert len(replacements) == 3
+        assert files == {path: path.read_bytes() for path in files}
+        assert set(files) == {path for path in candidate.rglob("*") if path.is_file()}
+
+        result = run(*selected, "--write-candidate")
+        assert result["allocations"] == [
+            {"resource": "009", "logicalId": "EC2_VPC_002"},
+            {"resource": "010", "logicalId": "EC2_Subnet_001"},
+            {"resource": "008", "logicalId": "EC2_VPC_003"},
+        ]
+        assert result["lastAllocated"] == {"EC2.VPC": 3, "EC2.Subnet": 1}
+        changed = {path for path, raw in files.items() if path.read_bytes() != raw}
+        assert changed == {Path(path) for path in result["paths"]}
+        assert len(changed) == 4
+        for path in changed:
+            raw = path.read_bytes()
+            assert raw.endswith("# 保持するコメント\r\n".encode("utf-8"))
+            assert b"\n" not in raw.replace(b"\r\n", b"")
+            values = parse(raw.decode()).values
+            assert saved_id not in values
+        assert scope.path.read_bytes() == original
+    print("Model allocation CLI: PASS")
 
 
 def check_snapshots():
@@ -314,5 +450,6 @@ def check_cfn_and_outputs():
 
 if __name__ == "__main__":
     main()
+    check_allocate_cli()
     check_snapshots()
     check_cfn_and_outputs()

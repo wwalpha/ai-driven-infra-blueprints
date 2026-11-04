@@ -3,14 +3,19 @@
 import json
 import sys
 from dataclasses import asdict
+from pathlib import Path
 
 import task_contract_core as _imports_task_contract
 from task_contract_core import model_operation, selected_task, task_path
+from utils.file_operations import atomic_files
 from utils.script_loader import module
+from utils.source_reads import FileReads
 
 import model.dependency_index as dependency_index
 from model import prepare_edit, publish_edit, render_model
 from model.files import find_model, read_resources, trace_model
+from model.format import owner, patch, validate_blocks
+from model.identity import COUNTERS, allocate, preserve_allocation
 from model.references import incoming as reference_incoming
 from model.sources import (
     candidate_sources,
@@ -18,8 +23,64 @@ from model.sources import (
     list_models,
     load_model,
     raw_model,
+    safe,
     scope_for,
 )
+
+
+def allocate_candidate(args):
+    scope = scope_for(args.model)
+    directory = args.candidate.absolute()
+    safe(Path(directory.anchor), directory)
+    root = scope.root.resolve()
+    if (
+        directory.is_relative_to(root)
+        or root.is_relative_to(directory)
+        or any((path / ".git").exists() for path in (directory, *directory.parents))
+    ):
+        raise ValueError("Model properties candidate must be outside the repository")
+
+    reads = FileReads()
+    saved = reads.kind(scope.path) != "missing"
+    before = raw_model(scope, reads) if saved else edit_base(scope.path, reads)
+    _, candidate = candidate_sources(scope.root, directory, before)
+    values, locations = validate_blocks(candidate.documents)
+    keys = [f"desired.resource.{number}.logicalId" for number in args.resource]
+    for number, key in zip(args.resource, keys, strict=True):
+        if before.authoritative.get(key):
+            raise ValueError("cannot reallocate a saved logicalId: " + number)
+    allocated = allocate(values, args.resource)
+    if saved:
+        preserve_allocation(before.authoritative, allocated)
+
+    owners = {owner(key, values): path for key, (path, _) in locations.items()}
+    updates = {}
+    for key in [*keys, COUNTERS]:
+        path = owners.get(owner(key, values))
+        if path is None:
+            if len(candidate.parts) != 1:
+                raise ValueError("split Model candidate needs a service block for " + key)
+            path = candidate.parts[0]
+        updates.setdefault(path, {})[key] = allocated[key]
+    output = {
+        directory / path.relative_to(scope.root): patch(candidate.documents[path], changes)
+        for path, changes in updates.items()
+    }
+    if args.write_candidate:
+        _, current = candidate_sources(scope.root, directory, before)
+        if current.files != candidate.files:
+            raise ValueError("Model candidate changed during allocation")
+        reads.verify()
+        atomic_files(output)
+    return {
+        "status": "updated" if args.write_candidate else "preview",
+        "allocations": [
+            {"resource": number, "logicalId": allocated[key]}
+            for number, key in zip(args.resource, keys, strict=True)
+        ],
+        "lastAllocated": json.loads(allocated[COUNTERS]),
+        "paths": [str(path) for path in output],
+    }
 
 
 def execute(args):
@@ -51,6 +112,8 @@ def execute(args):
                     "files": [str(path) for path in snapshot.files],
                     "warnings": list(snapshot.warnings),
                 }
+            elif args.command == "allocate":
+                result = allocate_candidate(args)
             elif args.command == "edit":
                 scope = scope_for(args.model)
                 with (

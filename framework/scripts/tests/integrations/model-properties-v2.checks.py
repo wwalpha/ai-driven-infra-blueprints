@@ -29,12 +29,13 @@ from model.format import parse, patch, serialize
 from model.format import split as split
 from model.sources import Scope, load_model
 from support.model_sources import catalog_display
-from support.model_v2_fixtures import format_fixture as fixture
 from support.model_v2_fixtures import (
+    deploy_properties_fixture,
     logs_fixture,
     properties_fixture,
     source_context,
 )
+from support.model_v2_fixtures import format_fixture as fixture
 from support.sync_model_fixtures import build_generated_policy
 from sync_runtime import generate_views, stage_inputs
 from task_contract_core import selected_task
@@ -361,7 +362,7 @@ def check_managed_observation_preserves_exact_authority(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "change", ["display", "create", "import-config", "fixed-id", "cli"]
+    "change", ["display", "create", "import-config", "fixed-id", "cli", "allocate"]
 )
 def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, change):
     prepare_edit = _imports_model_operations.prepare_edit
@@ -371,7 +372,11 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
     start = _imports_support_repository_fixtures.start
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     with fixture() as root:
-        scope = properties_fixture(root)
+        scope = (
+            deploy_properties_fixture(root)[0]
+            if change == "allocate"
+            else properties_fixture(root)
+        )
         if change == "create":
             values = dict(load_model(scope).authoritative)
             values["desired.resource.007.resourceMode"] = "CREATE"
@@ -403,27 +408,54 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
                 "desired.row.007-001.value": '`{"$modelRef":{"logicalId":"EC2_VPC_002","attribute":"VpcId"}}`',
                 "desired.service.identity.lastAllocated": '{"EC2.VPC":2}',
             }
+        elif change == "allocate":
+            fields = {
+                "desired.resource.008.resourceType": "EC2.VPC",
+                "desired.resource.008.resourceMode": "CREATE",
+                "desired.resource.008.anchor": "network-new",
+                "desired.resource.008.cfn-logicalId": "FixedPlacement-NewVpc",
+                "desired.row.008-001.property": "EC2.VPC.Name",
+                "desired.row.008-001.value": "vpc-new",
+                "desired.row.008-001.comment": "新規 VPC 名",
+            }
         with selected_task(target, name):
-            if change == "cli":
+            if change in {"cli", "allocate"}:
                 before = load_model(path)
-                candidate = tmp_path / "candidate" / relative
+                candidate_root = tmp_path.resolve() / "candidate"
+                candidate = candidate_root / relative
                 candidate.parent.mkdir(parents=True)
                 candidate.write_text(
                     patch(before.documents[path], fields), encoding="utf-8"
                 )
+                if change == "allocate":
+                    cli = Path(__file__).resolve().parents[2] / "model/cli.py"
+                    result = subprocess.run(
+                        [
+                            sys.executable, "-I", "-B", str(cli), "allocate", str(path),
+                            "--candidate", str(candidate_root), "--resource", "008",
+                            "--write-candidate",
+                        ],
+                        cwd=target, capture_output=True, text=True,
+                    )
+                    assert result.returncode == 0, result.stderr
+                    assert json.loads(result.stdout)["allocations"] == [
+                        {"resource": "008", "logicalId": "EC2_VPC_002"}
+                    ]
+                    assert path.read_bytes() == original
                 assert (
                     main(
                         [
                             "edit",
                             str(path),
                             "--candidate",
-                            str(tmp_path / "candidate"),
+                            str(candidate_root),
                             "--task-file",
                             name,
                         ]
                     )
                     == 0
                 )
+                assert path.read_bytes() == candidate.read_bytes()
             else:
                 with edit_write_context(
                     target, {("qa-synthetic", "team-a", "network")}, name
