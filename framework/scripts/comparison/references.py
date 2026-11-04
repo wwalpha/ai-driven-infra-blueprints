@@ -25,6 +25,7 @@ from . import expressions, registry
 
 _LOCAL_REFERENCE_CONTRACTS = {
     "Lambda.Permission.SourceArn": {"S3.Bucket": ("Arn",), "Events.Rule": ("Arn",)},
+    "QuickSight.VPCConnection.RoleArn": {"IAM.Role": ("Arn",)},
 }
 
 

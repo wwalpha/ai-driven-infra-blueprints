@@ -387,6 +387,23 @@ def producer(root, kind, properties):
     return inputs, symbol
 
 
+def test_quicksight_vpc_connection_role_requires_role_arn(models):
+    inputs, desired = producer(models, "IAM.Role", {"RoleName": "fixture"})
+    actual = inputs.evaluate_for_comparison(
+        "producer", {"Fn::GetAtt": ["Resource001", "Arn"]}
+    )
+    name = inputs.evaluate_for_comparison("producer", {"Ref": "Resource001"})
+
+    assert (
+        inputs.reference_same(desired, actual, "QuickSight.VPCConnection", "RoleArn")
+        is True
+    )
+    assert (
+        inputs.reference_same(desired, name, "QuickSight.VPCConnection", "RoleArn")
+        is None
+    )
+
+
 def prepared(inputs, kind, payload):
     scope = inputs.models["receiver"].scope
     authored = dict(inputs.models["receiver"].authoritative)
