@@ -9,6 +9,7 @@ from contracts.model import (
     row_resource,
 )
 from model.core import literal
+from model.projection import is_import_expression
 from utils.arn_values import context_value
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import select
@@ -59,7 +60,7 @@ def selected_reference(inputs, service, key, symbol):
     number = row_resource(key_parts(key)[2])
     row = inputs.model(service).authoritative[key.rsplit(".", 1)[0] + ".property"]
     expected = (
-        {"A", "AAAA"} if row == "Route53.RecordSet.AliasTarget.DNSName" else {"CNAME"}
+        {"A", "AAAA"} if row.startswith("Route53.RecordSet.AliasTarget.") else {"CNAME"}
     )
     if model_property(inputs, service, number, "Type") not in expected:
         raise Blocked("Endpoint DNS requires a compatible RecordSet Type")
@@ -100,15 +101,49 @@ def dns_expression(value):
     return value, index, delimiter, field
 
 
+def alias_zone_export(inputs, service, row_id, row, stack):
+    raw = row["value"]
+    if not is_import_expression(row["property"], raw):
+        return None
+    name = literal(raw).split("Fn::ImportValue: ", 1)[1].split("](", 1)[0]
+    name = inputs.evaluate(stack, {"Fn::Sub": name}, frozenset({("export-name",)}))
+    if not isinstance(name, str):
+        raise Blocked("Alias HostedZoneId Export name is unproven")
+    # The Model labels an Output. An IaC ImportValue still requires a different Stack.
+    scope, producer, value = inputs.export_candidate(stack, name, allow_same_stack=True)
+    reference, index, delimiter, field = dns_expression(
+        inputs.evaluate_for_comparison(producer, value)
+    )
+    endpoint_service, endpoint_id = reference["$resource"]
+    resource = inputs.resources[endpoint_service][endpoint_id]
+    if (
+        (index, delimiter, field) != (0, ":", 0)
+        or cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])[0] != producer
+    ):
+        raise Blocked("Alias HostedZoneId Export selection is unproven")
+    reference = selected_reference(
+        inputs, service, f"desired.row.{row_id}.value", reference
+    )
+    entry = Expression("Select", [index, reference])
+    return Expression(
+        "Select",
+        [field, Expression("Split", [delimiter, entry])],
+        export_origins=({"export_name": name, "export_stack": producer, "scope": scope},),
+    )
+
+
 def selected_decision(inputs, left, right, path, *, export_origins):
     consumers = {
         ref.dns_consumer
         for ref in expressions.references([left, right])
         if hasattr(ref, "dns_consumer")
     }
+    alias = path.startswith("AliasTarget.")
+    hosted_zone = path == "AliasTarget.HostedZoneId"
     if not consumers:
-        if path == "AliasTarget.DNSName" and expressions.references([left, right]):
-            return None, "Alias Endpoint DNS consumer correspondence is unproven"
+        if alias and expressions.references([left, right]):
+            field = "HostedZoneId" if hosted_zone else "DNS"
+            return None, f"Alias Endpoint {field} consumer correspondence is unproven"
         return NotImplemented
     if len(consumers) != 1:
         return None, "Endpoint DNS consumer correspondence is unproven"
@@ -117,7 +152,7 @@ def selected_decision(inputs, left, right, path, *, export_origins):
         left_ref, left_index, left_delimiter, left_field = dns_expression(left)
         right_ref, right_index, right_delimiter, right_field = dns_expression(right)
         record_type, scope = stack_property(inputs, *consumer, "Type")
-        expected = {"A", "AAAA"} if path == "AliasTarget.DNSName" else {"CNAME"}
+        expected = {"A", "AAAA"} if alias else {"CNAME"}
         if (
             record_type not in expected
             or model_property(inputs, *consumer, "Type") != record_type
@@ -148,11 +183,14 @@ def selected_decision(inputs, left, right, path, *, export_origins):
             or left_delimiter != right_delimiter
             or left_field != right_field
         ):
-            return False, "Endpoint DNS selection or transformation differs"
+            return (
+                None if alias else False,
+                "Endpoint DNS selection or transformation differs",
+            )
         if (
             left_ref["$attribute"] != "DnsEntries"
             or left_delimiter != ":"
-            or left_field != 1
+            or left_field != (0 if hosted_zone else 1)
         ):
             raise Blocked("Endpoint DNS extraction contract is unproven")
         for ref in (left_ref, right_ref):
@@ -172,19 +210,21 @@ def selected_decision(inputs, left, right, path, *, export_origins):
                 raise Blocked(
                     "Endpoint DNS requires same-scope Model and IaC Interface Endpoint"
                 )
-        if path == "AliasTarget.DNSName":
+        if alias:
+            companion = "DNSName" if hosted_zone else "HostedZoneId"
+            companion_path = "AliasTarget." + companion
             rows = [
                 (rid, row)
                 for rid, row in _model_api.ModelView(
                     inputs.model(consumer[0]).authoritative
                 ).all_rows()
                 if row_resource(rid) == consumer[1]
-                and row.get("property") == "Route53.RecordSet.AliasTarget.HostedZoneId"
+                and row.get("property") == "Route53.RecordSet." + companion_path
             ]
             if len(rows) != 1:
-                raise Blocked("Alias HostedZoneId correspondence is unproven")
+                raise Blocked(f"Alias {companion} correspondence is unproven")
             rid, row = rows[0]
-            model_zone = inputs.prepare_value(
+            model_companion = inputs.prepare_value(
                 consumer[0], row, "Route53.RecordSet", stack=consumer_stack, row_id=rid
             ).require_value()
             _, logical = cfn_resource_identity(
@@ -194,36 +234,37 @@ def selected_decision(inputs, left, right, path, *, export_origins):
                 unit for _, unit in inputs.templates() if unit["name"] == consumer_stack
             )
             _, (document, _, _) = inputs.stack(unit)
-            actual_zone = inputs.evaluate_for_comparison(
+            actual_companion = inputs.evaluate_for_comparison(
                 consumer_stack,
                 select(
                     document["Resources"][logical].get("Properties", {}),
-                    "AliasTarget.HostedZoneId",
+                    companion_path,
                 ),
             )
-            zone_origins = export_origins(
-                [model_zone, actual_zone], inputs.export_provenance
+            companion_values = [model_companion, actual_companion]
+            companion_origins = export_origins(
+                companion_values, inputs.export_provenance
             )
-            zone_direct = export_origins(
-                [model_zone, actual_zone],
+            companion_direct = export_origins(
+                companion_values,
                 getattr(inputs, "select_provenance", {}),
                 direct=True,
             )
             if (
-                any(origin.get("scope") != scope for origin in zone_origins)
+                any(origin.get("scope") != scope for origin in companion_origins)
                 or any(
                     origin.get("scope") != scope or origin["stack"] != consumer_stack
-                    for origin in zone_direct
+                    for origin in companion_direct
                 )
-                or not (zone_origins or zone_direct)
+                or not (companion_origins or companion_direct)
             ):
-                raise Blocked("Alias HostedZoneId provenance or scope is unproven")
-            for zone in (model_zone, actual_zone):
-                zone_ref, zone_index, zone_delimiter, zone_field = dns_expression(zone)
-                if (zone_index, zone_delimiter, zone_field) != (left_index, ":", 0):
+                raise Blocked(f"Alias {companion} provenance or scope is unproven")
+            for value in companion_values:
+                reference, index, delimiter, field = dns_expression(value)
+                if (index, delimiter, field) != (left_index, ":", 1 - left_field):
                     raise Blocked("Alias HostedZoneId and DNSName selection differs")
                 decision = inputs.reference_decision(
-                    zone_ref, left_ref, "EC2.VPCEndpoint", "DnsEntries"
+                    reference, left_ref, "EC2.VPCEndpoint", "DnsEntries"
                 )
                 if decision.equal is not True:
                     raise Blocked(
@@ -233,7 +274,10 @@ def selected_decision(inputs, left, right, path, *, export_origins):
             left_ref, right_ref, "EC2.VPCEndpoint", "DnsEntries"
         )
         if producer.equal is False:
-            return False, "Endpoint DNS uses different Producer Resources"
+            return (
+                None if alias else False,
+                "Endpoint DNS uses different Producer Resources",
+            )
         if producer.equal is not True:
             raise Blocked("Endpoint DNS Producer correspondence is unproven")
         if (
@@ -316,8 +360,9 @@ RULES["Route53.RecordSet"]["ResourceRecords[]"] = replace(
     OBJECT, selected_reference=selected_reference, selected_decision=selected_decision
 )
 
-RULES["Route53.RecordSet"]["AliasTarget.DNSName"] = replace(
-    RULES["Route53.RecordSet"]["AliasTarget.DNSName"],
-    selected_reference=selected_reference,
-    selected_decision=selected_decision,
-)
+for alias_property in ("AliasTarget.DNSName", "AliasTarget.HostedZoneId"):
+    RULES["Route53.RecordSet"][alias_property] = replace(
+        RULES["Route53.RecordSet"][alias_property],
+        selected_reference=selected_reference,
+        selected_decision=selected_decision,
+    )

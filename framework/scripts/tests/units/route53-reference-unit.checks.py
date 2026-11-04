@@ -68,8 +68,13 @@ def model_selection(entry=0):
 
 def test_model_selection_preserved_before_deploy():
     expression = model_selection()
-    case = TestCase()
-    case.assertEqual(project_document(expression), expression)
+    document = [expression, expression, {"Ref": "Missing"}]
+    warnings = []
+    assert project_document(document, warnings=warnings) == document
+    assert [warning["pointer"] for warning in warnings] == ["/0", "/1", "/2"]
+    for index, warning in enumerate(warnings[:2]):
+        assert "EC2_VPCEndpoint_001.DnsEntries" in warning["message"]
+        assert f"/{index}/Fn::Select/1/Fn::Split/1/Fn::Select/1" in warning["message"]
 
 
 def resource_record_errors(catalog, *items):
@@ -592,8 +597,24 @@ def test_direct_comparison_setting_failures(models, fault, category):
     assert [row["category"] for row in result.records] == [category], result.records
 
 
-@pytest.mark.parametrize("zone_index,expected", [(0, True), (1, None)])
-def test_alias_dns_selection(models, zone_index, expected):
+@pytest.mark.parametrize(
+    "model_export, fault",
+    [
+        (False, None),
+        (False, "actual_index"),
+        (True, None),
+        (True, "actual_index"),
+        (True, "missing"),
+        (True, "duplicate"),
+        (True, "inactive"),
+        (True, "export_index"),
+        (True, "export_field"),
+        (True, "other_endpoint"),
+        (True, "dns_index"),
+        (True, "same_stack_import"),
+    ],
+)
+def test_alias_dns_selection(models, model_export, fault):
     root, _, values = models
     values["desired.row.001-001.value"] = "`A`"
     values["desired.row.001-002.property"] = "Route53.RecordSet.AliasTarget.DNSName"
@@ -603,32 +624,80 @@ def test_alias_dns_selection(models, zone_index, expected):
     values["desired.row.001-003.property"] = (
         "Route53.RecordSet.AliasTarget.HostedZoneId"
     )
-    values["desired.row.001-003.value"] = json.dumps(zone)
+    values["desired.row.001-003.value"] = (
+        "[Fn::ImportValue: EndpointZone${Suffix}](endpoint.md)"
+        if model_export
+        else json.dumps(zone)
+    )
     values["desired.row.001-003.comment"] = "Endpoint zone"
     endpoint = dict(
         load_model(root / "model/qa/team/endpoint.properties").authoritative
     )
     endpoint["desired.resource.001.cfn-logicalId"] = "consumer-Resource001"
+    endpoint["desired.resource.002.cfn-logicalId"] = "consumer-Resource002"
     save(Scope(root, "qa", "team", "endpoint"), endpoint)
     inputs, prepared = prepare(models)
-    resources = inputs.stack_inputs["consumer"][0]["Resources"]
+    document, parameters, _ = inputs.stack_inputs["consumer"]
+    resources = document["Resources"]
     resources["Resource001"] = {
         "Type": "AWS::EC2::VPCEndpoint",
         "Properties": {"VpcEndpointType": "Interface"},
     }
+    resources["Resource002"] = copy.deepcopy(resources["Resource001"])
+    zone_value = extraction(entry=int(fault == "actual_index"), field=0)
+    if fault == "same_stack_import":
+        zone_value = {"Fn::ImportValue": "EndpointZoneTest"}
+    actual_dns = extraction(entry=int(fault == "dns_index"))
     resources["Policy"]["Properties"] = {
         "Type": "A",
         "AliasTarget": {
-            "DNSName": extraction(),
-            "HostedZoneId": extraction(entry=zone_index, field=0),
+            "DNSName": actual_dns,
+            "HostedZoneId": zone_value,
         },
     }
+    if model_export:
+        parameters["Suffix"] = "Test"
+        output = {
+            "Value": extraction(
+                logical="Resource002" if fault == "other_endpoint" else "Resource001",
+                entry=int(fault == "export_index"), field=int(fault == "export_field")
+            ),
+            "Export": {"Name": {"Fn::Sub": "EndpointZone${Suffix}"}},
+        }
+        document["Outputs"] = {} if fault == "missing" else {"Zone": output}
+        if fault == "duplicate":
+            document["Outputs"]["OtherZone"] = copy.deepcopy(output)
+        if fault == "inactive":
+            document["Conditions"] = {"Disabled": {"Fn::Equals": ["a", "b"]}}
+            output["Condition"] = "Disabled"
+        if fault is None or fault == "same_stack_import":
+            with pytest.raises(Blocked, match="same-stack export"):
+                inputs.evaluate("consumer", {"Fn::ImportValue": "EndpointZoneTest"})
     desired = prepared.require_value()
-    actual = inputs.evaluate_for_comparison("consumer", extraction())
+    actual = inputs.evaluate_for_comparison("consumer", actual_dns)
     result = inputs.reference_decision(
         desired, actual, "Route53.RecordSet", "AliasTarget.DNSName"
     )
-    TestCase().assertIs(result.equal, expected, result)
+    assert result.equal is (True if fault is None else None), result
+    row = dict(entries(values, "desired.row."))["001-003"]
+    zone = inputs.prepare_value(
+        "dns", row, "Route53.RecordSet", stack="consumer", row_id="001-003"
+    )
+    if fault in {"missing", "duplicate", "inactive", "export_index", "export_field"}:
+        assert isinstance(zone.error, Blocked), zone
+    elif fault != "same_stack_import":
+        result = inputs.reference_decision(
+            zone.require_value(),
+            inputs.evaluate_for_comparison("consumer", zone_value),
+            "Route53.RecordSet",
+            "AliasTarget.HostedZoneId",
+        )
+        assert result.equal is (True if fault is None else None), result
+        if model_export and fault is None:
+            assert result.diagnostics[0]["evidence_type"] == "export_expression"
+            assert result.diagnostics[0]["exports"][0]["export_name"] == "EndpointZoneTest"
+            assert result.diagnostics[0]["current_aws_verified"] is False
+            assert result.diagnostics[0]["runtime_bounds_verified"] is False
 
 
 def test_alias_without_consumer_proof_is_uncompared():

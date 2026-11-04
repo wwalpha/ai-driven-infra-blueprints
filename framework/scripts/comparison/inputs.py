@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import replace
 from functools import partial
 
 import design.array_display as _imports_array_display
@@ -76,6 +77,7 @@ from . import (
 from .deferral import defer_import_reference
 from .result import redacted
 from .rules.kms import kms_format
+from .rules.route53 import alias_zone_export
 
 
 class Inputs:
@@ -543,13 +545,7 @@ class Inputs:
         self.symbols[cachekey] = result
         return result
 
-    def import_value(self, stack, argument, seen):
-        name = self.evaluate(stack, argument, seen | {("export-name",)})
-        if not isinstance(name, str):
-            raise Blocked("ImportValue name is not a local string")
-        token = ("import", stack, name)
-        if token in seen:
-            raise Blocked(f"cyclic ImportValue: {name}")
+    def export_candidate(self, stack, name, *, allow_same_stack=False):
         scope = tuple(
             context_value(self.stack_inputs[stack][2], group)
             for group in ("partition", "account", "region")
@@ -612,7 +608,9 @@ class Inputs:
                     "consumer_stack": stack,
                 }
             raise blocked from error
-        if len(candidates) != 1 or candidates[0][0] == stack:
+        if len(candidates) != 1 or (
+            not allow_same_stack and candidates[0][0] == stack
+        ):
             blocked = Blocked(
                 f"ImportValue handoff matches={len(candidates)} or same-stack export: {name}"
             )
@@ -624,7 +622,16 @@ class Inputs:
                 "matches": len(candidates),
             }
             raise blocked
-        producer, value = candidates[0]
+        return scope, *candidates[0]
+
+    def import_value(self, stack, argument, seen):
+        name = self.evaluate(stack, argument, seen | {("export-name",)})
+        if not isinstance(name, str):
+            raise Blocked("ImportValue name is not a local string")
+        token = ("import", stack, name)
+        if token in seen:
+            raise Blocked(f"cyclic ImportValue: {name}")
+        scope, producer, value = self.export_candidate(stack, name)
         try:
             deferred = None
             try:
@@ -1236,7 +1243,7 @@ class Inputs:
             if self.local_comparison and row_id is not None
             else None
         )
-        return values.desired_value(
+        prepared = values.desired_value(
             service,
             row,
             kind,
@@ -1255,6 +1262,21 @@ class Inputs:
             environment_mapping=environment_values.mapping_for(self.root, kind),
             catalog=self.catalog,
         )
+        if (
+            self.local_comparison
+            and stack is not None
+            and row_id is not None
+            and row["property"] == "Route53.RecordSet.AliasTarget.HostedZoneId"
+            and "document" not in row
+            and isinstance(prepared.value, str)
+        ):
+            try:
+                value = alias_zone_export(self, service, row_id, row, stack)
+            except (Blocked, KeyError, ValueError, TypeError, OSError) as error:
+                return replace(prepared, error=error)
+            if value is not None:
+                return replace(prepared, value=value)
+        return prepared
 
     def project_rows(self, kind, rows):
         indexed_rows = _imports_array_display.indexed_rows

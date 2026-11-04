@@ -2523,6 +2523,9 @@ def test_import_value_requires_a_complete_export_search():
     comparison.export_failures = []
     comparison.local_comparison = True
     comparison.import_value = issues_iac.Comparison.import_value.__get__(comparison)
+    comparison.export_candidate = issues_iac.Comparison.export_candidate.__get__(
+        comparison
+    )
 
     with unittest.TestCase().assertRaisesRegex(Blocked, "search incomplete"):
         comparison.import_value(

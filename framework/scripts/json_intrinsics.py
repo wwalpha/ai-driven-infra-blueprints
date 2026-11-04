@@ -152,6 +152,7 @@ def _recursive_project_document_visit(
     value,
     pointer="",
     operand=False,
+    report_logical=True,
 ):
     if is_reference(value):
         parse(value, pointer)
@@ -162,11 +163,14 @@ def _recursive_project_document_visit(
             for key, child in value.items()
             if key == "Ref" or key.startswith("Fn::")
         )
+        logical = []
         try:
             if len(value) != 1:
                 raise Blocked("unsupported function/object syntax; unverified")
-            if not template and any(nodes(value)):
-                raise Blocked("logical Model references remain in design JSON")
+            if not template:
+                logical = list(nodes(value, pointer))
+                if logical:
+                    raise Blocked("logical Model references remain in design JSON")
             marker = uuid4().hex if not bound and not template else None
             result = evaluate(
                 _pending_marker(value, marker, evaluate) if marker else value
@@ -181,6 +185,12 @@ def _recursive_project_document_visit(
                 )
             return result
         except (Blocked, KeyError, TypeError) as error:
+            reason = str(error)
+            if logical and report_logical:
+                reason += ": " + ", ".join(
+                    f"{node.logical_id}.{node.attribute} at {node.pointer!r}"
+                    for node in logical
+                )
             warning = dict(
                 code="json.intrinsic.unresolved",
                 severity="WARNING",
@@ -190,9 +200,9 @@ def _recursive_project_document_visit(
                 model=str(model_path),
                 resource=logical_id,
                 message=f"{name}: JSON Pointer={pointer!r}, Property={property_name}; "
-                f"unresolved/unverified: {error}",
+                f"unresolved/unverified: {reason}",
             )
-            if warning not in warnings:
+            if (not logical or report_logical) and warning not in warnings:
                 warnings.append(warning)
             _recursive_project_document_visit(
                 bound,
@@ -208,6 +218,7 @@ def _recursive_project_document_visit(
                 argument,
                 pointer + "/" + name.replace("~", "~0").replace("/", "~1"),
                 True,
+                report_logical and not logical,
             )
             return unresolved(value) if unresolved else value
         except ValueError as error:
@@ -228,6 +239,7 @@ def _recursive_project_document_visit(
                 child,
                 pointer + "/" + key.replace("~", "~0").replace("/", "~1"),
                 operand,
+                report_logical,
             )
             for key, child in value.items()
         }
@@ -247,6 +259,7 @@ def _recursive_project_document_visit(
                 child,
                 pointer + "/" + str(index),
                 operand,
+                report_logical,
             )
             for index, child in enumerate(value)
         ]
