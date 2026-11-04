@@ -182,6 +182,15 @@ def reference_same(
     ):
         # The receiving Type is attached to each Values[] reference.
         return ReferenceDecision(NotImplemented)
+    if (
+        local_comparison
+        and type(left) is dict
+        and type(right) is dict
+        and prop.rpartition(".")[0].endswith(".Condition")
+        and policy_condition(prop)
+    ):
+        # The receiving contract belongs to the condition key inside the operator.
+        return ReferenceDecision(NotImplemented)
     nested_symbols = expressions.references([left, right])
     if (
         local_comparison

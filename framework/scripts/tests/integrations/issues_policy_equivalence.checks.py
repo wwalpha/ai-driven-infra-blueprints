@@ -347,6 +347,27 @@ def sqs_policy_artifact_checks():
             assert "<masked ARN/secret>" not in json.dumps(
                 detail.get("reference_diagnostics", [])
             )
+        typed_policy = deepcopy(policy)
+        statement = typed_policy["Statement"][0]
+        statement["Resource"] = {
+            "$modelRef": {"logicalId": "SQS_Queue_001", "attribute": "Arn"}
+        }
+        statement["Condition"]["ArnEquals"]["aws:SourceArn"] = {
+            "$modelRef": {"logicalId": "Events_Rule_001", "attribute": "Arn"}
+        }
+        model["desired.row.002-001.document"] = json.dumps(typed_policy)
+        fixtures.write_model(root / "model/dev/123456789012/sqs.properties", model)
+        for source, category in (("Rule", "matched"), ("Queue", "uncompared")):
+            actual["Statement"][0]["Condition"]["ArnEquals"]["aws:SourceArn"] = {
+                "Fn::GetAtt": [source, "Arn"]
+            }
+            fixtures.mutate_template(root, template)
+            with patch(
+                "socket.socket", side_effect=AssertionError("network forbidden")
+            ):
+                _, records = fixtures.compare(root, ["sqs"])
+            selected = [item for item in records if item["resource"] == "002"]
+            assert len(selected) == 1 and selected[0]["category"] == category, records
     print(
         "SQS policy artifact: PASS (matched/difference/uncompared/error; SQS-only region difference; proof/report masking)"
     )
