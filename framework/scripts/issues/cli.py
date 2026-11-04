@@ -27,6 +27,28 @@ def outside_workspace(root, path):
     return path
 
 
+def prepare(root, workspace):
+    workspace = (
+        outside_workspace(root, workspace)
+        if workspace
+        else outside_workspace(root, Path(tempfile.mkdtemp(prefix="issues-scan-")))
+    )
+    workspace.mkdir(parents=True, exist_ok=True)
+    return {
+        "workspace": str(workspace),
+        **{
+            key: str(workspace / name)
+            for key, name in (
+                ("artifact", "scan.json"),
+                ("state", "checkpoint.json"),
+                ("submission", "submission.json"),
+                ("review", "review.json"),
+                ("progress", "scan-progress.json"),
+            )
+        },
+    }
+
+
 def main():
     args = parser().parse_args()
     root = args.repository_root.resolve()
@@ -34,31 +56,7 @@ def main():
         os.environ[SELECTOR] = args.task_file
     try:
         if args.command == "prepare":
-            workspace = (
-                outside_workspace(root, args.workspace)
-                if args.workspace
-                else outside_workspace(
-                    root, Path(tempfile.mkdtemp(prefix="issues-scan-"))
-                )
-            )
-            workspace.mkdir(parents=True, exist_ok=True)
-            print(
-                json.dumps(
-                    {
-                        "workspace": str(workspace),
-                        **{
-                            key: str(workspace / name)
-                            for key, name in (
-                                ("artifact", "scan.json"),
-                                ("state", "checkpoint.json"),
-                                ("submission", "submission.json"),
-                                ("review", "review.json"),
-                                ("progress", "scan-progress.json"),
-                            )
-                        },
-                    }
-                )
-            )
+            print(json.dumps(prepare(root, args.workspace)))
             return 0
         if args.command == "scan-status":
             print(
