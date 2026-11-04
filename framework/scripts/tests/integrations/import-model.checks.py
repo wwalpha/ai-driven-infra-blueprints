@@ -326,6 +326,70 @@ def check_explicit_no_profile(tmp_path):
     assert publish_fixture(root, acquired)["model"] == "reflected"
 
 
+@pytest.mark.parametrize(
+    ("execution_account", "caller_account"),
+    [
+        pytest.param(ACCOUNT, ACCOUNT, id="same-account"),
+        pytest.param("210987654321", "210987654321", id="split-account"),
+        pytest.param("210987654321", ACCOUNT, id="sts-mismatch"),
+    ],
+)
+def check_quicksight_group_execution_account(tmp_path, execution_account, caller_account):
+    root = tmp_path / "case"
+    fixture(root, "quicksight", register=False, focused=True)
+    project_path = root / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["targets"][0]["awsExecutionAccountId"] = execution_account
+    project_path.write_text(json_text(project), encoding="utf-8")
+    cli = AwsCli(account=caller_account)
+    group = {"GroupName": "fixture-group", "PrincipalId": "list-principal"}
+    cli.responses.update(
+        {
+            ("quicksight", "list-namespaces"): {"Namespaces": [{"Name": "default"}]},
+            ("quicksight", "list-groups"): {"GroupList": [group]},
+            ("quicksight", "describe-group"): {
+                "Group": {
+                    "GroupName": group["GroupName"],
+                    "Arn": f"arn:aws:quicksight:ap-northeast-1:{execution_account}:group/default/fixture-group",
+                    "PrincipalId": "describe-principal",
+                }
+            },
+        }
+    )
+    kind = "QuickSight.Group"
+    if caller_account != execution_account:
+        with pytest.raises(ValueError, match="AWS account mismatch"):
+            m.acquire(root, "dev", "quicksight", TARGET, True, cli, resource_types=[kind])
+        assert cli.calls == [("sts", "get-caller-identity", {})]
+        return
+
+    acquired = m.acquire(
+        root, "dev", "quicksight", TARGET, True, cli, resource_types=[kind]
+    )
+    namespace_args = {"AwsAccountId": execution_account}
+    list_args = dict(namespace_args, Namespace="default")
+    describe_args = dict(list_args, GroupName=group["GroupName"])
+    assert cli.calls == [
+        ("sts", "get-caller-identity", {}),
+        ("quicksight", "list-namespaces", namespace_args),
+        ("quicksight", "list-groups", list_args),
+        ("quicksight", "describe-group", describe_args),
+    ]
+    assert acquired["status"] == "acquired"
+    (record,) = acquired["records"]
+    assert record["identityStatus"] == "known"
+    assert record["identityComponents"] == [
+        {"property": f"{kind}.{name}", "value": value}
+        for name, value in describe_args.items()
+    ]
+    account = record["properties"][kind + ".AwsAccountId"]
+    assert account["status"] == "captured" and account["value"] == execution_account
+    principal = record["properties"][kind + ".PrincipalId"]
+    assert principal["status"] == "captured"
+    assert principal["value"] == "describe-principal"
+    import_evidence.discard_acquisition(root, acquired["evidence"])
+
+
 def check_shared_property_and_bindings(tmp_path):
     root = tmp_path / "case"
     fixture(root)

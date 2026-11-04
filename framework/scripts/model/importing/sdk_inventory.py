@@ -11,6 +11,7 @@ from contracts.target import (
     AWS_EXECUTION_ACCOUNT_ID_KEY,
     AWS_REGION_KEY,
 )
+from utils.aws.identity import execution_account
 from utils.aws_sdk import aws_runtime
 from utils.json_format import policy_json
 
@@ -89,7 +90,7 @@ def record(
 
 
 def quicksight_groups(ctx: Any) -> list[dict[str, Any]]:
-    account = account_for(ctx)
+    account = execution_account(ctx.target)
     records = []
     namespaces = collection(
         ctx, "quicksight", "list_namespaces", "Namespaces", AwsAccountId=account
@@ -114,7 +115,7 @@ def quicksight_groups(ctx: Any) -> list[dict[str, Any]]:
                 record(
                     "QuickSight.Group",
                     {**selectors, "GroupName": group_name},
-                    {"sdk-quicksight-group": {"Group": group}},
+                    {},  # Leave the detail getter to DescribeGroup.
                     selectors=selectors,
                 )
             )
