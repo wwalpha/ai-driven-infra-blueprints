@@ -257,6 +257,16 @@ def begin_prepare(
         state.setdefault("successfulPreparationOperations", {})["validate_template"] = (
             state["preparationId"]
         )
+        latest = read(aws, unit["name"])
+        if category(latest) == "UNKNOWN":
+            if latest.get("errorCode"):
+                raise AwsError("cloudformation", "describe_stacks", latest["errorCode"])
+            raise Blocked("current Stack state is unavailable")
+        if (
+            (stack is None and category(latest) != "ABSENT")
+            or (stack is not None and (category(latest) == "RUNNING" or latest.get("StackId") != stack.get("StackId") or latest.get("StackStatus") != stack.get("StackStatus")))
+        ):
+            raise Blocked("Stack state changed before ChangeSet creation: " + latest["StackStatus"])
         state["operationType"] = (
             "UPDATE"
             if stack and stack["StackStatus"] != "REVIEW_IN_PROGRESS"
@@ -266,12 +276,6 @@ def begin_prepare(
         state["changeSetId"] = "blueprint-" + uuid.uuid4().hex
         state["changeSetStarted"] = time.time()
         save()
-        latest = read(aws, unit["name"])
-        if category(latest) == "UNKNOWN" or (
-            (stack is None and category(latest) != "ABSENT")
-            or (stack is not None and (category(latest) == "RUNNING" or latest.get("StackId") != stack.get("StackId") or latest.get("StackStatus") != stack.get("StackStatus")))
-        ):
-            raise Blocked("Stack state changed before ChangeSet creation: " + latest["StackStatus"])
         started = time.perf_counter()
         response = aws(
             "create_change_set",

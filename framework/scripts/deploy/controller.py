@@ -637,6 +637,16 @@ def execute(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> Non
         runtime.observed_readiness(
             unit, {"changes": change_sets.change_summary(current)}
         )
+        stack = current_state.read(runtime.aws, unit["name"])
+        status = stack["StackStatus"]
+        allowed = (
+            status == "REVIEW_IN_PROGRESS"
+            and current_state.category(stack) == "REVIEW"
+            if state.get("operationType") == "CREATE"
+            else status in current_state.UPDATEABLE
+        )
+        if not allowed or stack.get("StackId") != state.get("stackId"):
+            raise Blocked("Stack is not ready for execution or its identity changed: " + status)
         evidence = change_sets.record_execution(
             runtime.aws, unit, state, current, runtime.input_digest(unit, fresh=True)
         )
@@ -648,16 +658,6 @@ def execute(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> Non
             runtime.templates[unit["name"]][0]
         )
         runtime.save()
-        stack = current_state.read(runtime.aws, unit["name"])
-        status = stack["StackStatus"]
-        allowed = (
-            status == "REVIEW_IN_PROGRESS"
-            and current_state.category(stack) == "REVIEW"
-            if state.get("operationType") == "CREATE"
-            else status in current_state.UPDATEABLE
-        )
-        if not allowed or stack.get("StackId") != state.get("stackId"):
-            raise Blocked("Stack is not ready for execution or its identity changed: " + status)
     except Exception:
         state["status"] = "BLOCKED"
         raise

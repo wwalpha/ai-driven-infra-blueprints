@@ -4,6 +4,7 @@ import copy
 import json
 import sys
 import tempfile
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -12,10 +13,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from deploy import change_sets, controller, run_context
+from deploy import change_sets, controller, run_context, scheduler
 from deploy import operation_journal as J
 from deploy.controller import create_runtime
 from support.pytest_cli import run
+from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
 
 if not __debug__:
@@ -378,12 +380,16 @@ def test_execution_rechecks_stack_and_rejects_active_or_unknown(monkeypatch, sta
     )
     monkeypatch.setattr(controller.change_sets, "verify_execution", Mock(return_value={}))
     monkeypatch.setattr(controller.change_sets, "change_summary", Mock(return_value=[]))
-    monkeypatch.setattr(controller.change_sets, "record_execution", Mock(return_value={}))
+    recorded = Mock(return_value={})
+    monkeypatch.setattr(controller.change_sets, "record_execution", recorded)
     monkeypatch.setattr(controller.current_state, "read", Mock(return_value={"StackStatus": status, "StackId": STACK}))
     with pytest.raises(Blocked):
         controller.execute(backend, {"name": "Kms"}, state)
     backend.aws.assert_not_called()
     assert state["status"] == "BLOCKED"
+    assert "executionEvidence" not in state
+    recorded.assert_not_called()
+    backend.save.assert_not_called()
 
 @pytest.mark.parametrize("previous", ['{"status":"REQUEST_UNCONFIRMED"}', "{broken"])
 def test_old_request_does_not_affect_new_task(tmp_path, monkeypatch, previous):
@@ -409,3 +415,126 @@ def test_stack_read_error_reports_aws_code(tmp_path, monkeypatch):
             {"name": "Kms"}, {}, Mock(), Mock(), Mock(), Mock(return_value={}),
             Mock(), Mock(), Mock(), Mock(),
         )
+
+
+def test_stack_change_before_create_allows_next_advance(tmp_path, monkeypatch):
+    parameters = tmp_path / "parameters.json"
+    parameters.write_text("[]", encoding="utf-8")
+    stable = {"StackStatus": "UPDATE_COMPLETE", "StackId": STACK}
+    busy = {"StackStatus": "UPDATE_IN_PROGRESS", "StackId": STACK}
+    monkeypatch.setattr(change_sets, "read", Mock(side_effect=[stable, busy, stable, stable]))
+    aws = Mock(side_effect=[{}, {}, {"Id": "new-change", "StackId": STACK}])
+    state = {"status": "NOT_STARTED"}
+    saved = []
+    save = Mock(side_effect=lambda: saved.append(copy.deepcopy(state)))
+    begin = partial(
+        change_sets.begin_prepare, aws=aws, save=save, check_imports=Mock(),
+        template_arguments=Mock(return_value={"TemplateBody": "Resources: {}"}),
+        cleanup_failed_create=Mock(), reset_after_cleanup=Mock(),
+        verify_stack_ownership=Mock(),
+        paths=Mock(return_value=(tmp_path / "template.yaml", parameters)),
+    )
+    backend = SimpleNamespace(
+        prepare=Mock(), begin_prepare=begin, poll=Mock(), describe_change_set=Mock(return_value={}),
+        review_prepared=Mock(return_value="CHANGESET_CREATING"),
+    )
+    unit = {"name": "Kms", "deployOrder": 1}
+    assert scheduler.run_group([unit], 1, {"Kms": state}, backend, save) == "STOPPED"
+    assert state["status"] == "BLOCKED"
+    assert "changeSetId" not in state
+    assert all("changeSetId" not in snapshot for snapshot in saved)
+    assert [call.args[0] for call in aws.call_args_list] == ["validate_template"]
+    assert scheduler.run_group([unit], 1, {"Kms": state}, backend, save) == "ACTIVE"
+    assert state["changeSetId"] == "new-change"
+    assert sum(call.args[0] == "create_change_set" for call in aws.call_args_list) == 1
+    assert any(snapshot.get("changeSetId", "").startswith("blueprint-") for snapshot in saved)
+
+
+def test_stack_read_failure_before_create_retains_no_intent(tmp_path, monkeypatch):
+    parameters = tmp_path / "parameters.json"
+    parameters.write_text("[]", encoding="utf-8")
+    stable = {"StackStatus": "UPDATE_COMPLETE", "StackId": STACK}
+    unknown = {"StackStatus": "UNKNOWN", "errorCode": "AccessDenied"}
+    monkeypatch.setattr(change_sets, "read", Mock(side_effect=[stable, unknown]))
+    aws = Mock(return_value={})
+    state, saved = {}, []
+    save = Mock(side_effect=lambda: saved.append(copy.deepcopy(state)))
+    with pytest.raises(Blocked, match="AccessDenied"):
+        change_sets.begin_prepare(
+            {"name": "Kms"}, state, aws, save, Mock(), Mock(return_value={}),
+            Mock(), Mock(), Mock(), Mock(return_value=(tmp_path / "template.yaml", parameters)),
+        )
+    assert "changeSetId" not in state
+    assert all("changeSetId" not in snapshot for snapshot in saved)
+    assert [call.args[0] for call in aws.call_args_list] == ["validate_template"]
+
+
+def test_create_timeout_keeps_submission_intent_without_resending(tmp_path, monkeypatch):
+    parameters = tmp_path / "parameters.json"
+    parameters.write_text("[]", encoding="utf-8")
+    stable = {"StackStatus": "UPDATE_COMPLETE", "StackId": STACK}
+    monkeypatch.setattr(change_sets, "read", Mock(return_value=stable))
+    aws = Mock(side_effect=[{}, AwsError("cloudformation", "create_change_set", "ReadTimeoutError")])
+    state, saved = {}, []
+    save = Mock(side_effect=lambda: saved.append(copy.deepcopy(state)))
+    args = (
+        {"name": "Kms"}, state, aws, save, Mock(), Mock(return_value={}),
+        Mock(), Mock(), Mock(), Mock(return_value=(tmp_path / "template.yaml", parameters)),
+    )
+    with pytest.raises(AwsError, match="ReadTimeoutError"):
+        change_sets.begin_prepare(*args)
+    assert state["changeSetId"].startswith("blueprint-")
+    assert saved[-1]["changeSetId"] == state["changeSetId"]
+    assert saved[-1]["preparationId"] == state["preparationId"]
+    assert change_sets.begin_prepare(*args) == "CHANGESET_CREATING"
+    assert sum(call.args[0] == "create_change_set" for call in aws.call_args_list) == 1
+
+
+def test_execution_rejects_changed_stack_identity_without_evidence(monkeypatch):
+    state = {"operationType": "UPDATE", "stackId": STACK, "status": "RUNNING"}
+    backend = SimpleNamespace(
+        expected_digests={}, load_inputs=Mock(), observed_readiness=Mock(),
+        input_digest=Mock(return_value="digest"), file_digest=Mock(),
+        template_arguments=Mock(), check_imports=Mock(), describe_change_set=Mock(),
+        templates={"Kms": ({}, {})}, aws=Mock(), save=Mock(),
+    )
+    monkeypatch.setattr(controller.change_sets, "verify_execution", Mock(return_value={}))
+    monkeypatch.setattr(controller.change_sets, "change_summary", Mock(return_value=[]))
+    recorded = Mock(return_value={})
+    monkeypatch.setattr(controller.change_sets, "record_execution", recorded)
+    monkeypatch.setattr(controller.current_state, "read", Mock(return_value={"StackStatus": "UPDATE_COMPLETE", "StackId": STACK + "-other"}))
+    with pytest.raises(Blocked, match="identity changed"):
+        controller.execute(backend, {"name": "Kms"}, state)
+    backend.aws.assert_not_called()
+    backend.save.assert_not_called()
+    recorded.assert_not_called()
+    assert "executionEvidence" not in state
+
+
+def test_execute_saves_evidence_before_aws_submission(monkeypatch):
+    state = {
+        "operationType": "UPDATE", "stackId": STACK, "status": "RUNNING",
+        "changeSetId": CHANGE, "clientToken": "current-token",
+    }
+    saved, sent = [], []
+    backend = SimpleNamespace(
+        expected_digests={}, load_inputs=Mock(), observed_readiness=Mock(),
+        input_digest=Mock(return_value="digest"), file_digest=Mock(),
+        template_arguments=Mock(), check_imports=Mock(), describe_change_set=Mock(),
+        templates={"Kms": ({}, {})},
+        save=Mock(side_effect=lambda: saved.append(copy.deepcopy(state))),
+        aws=Mock(side_effect=lambda *args, **kwargs: sent.append(copy.deepcopy(state)) or {}),
+    )
+    evidence = {"StackId": STACK, "ChangeSetId": CHANGE, "clientToken": "current-token"}
+    monkeypatch.setattr(controller.change_sets, "verify_execution", Mock(return_value={}))
+    monkeypatch.setattr(controller.change_sets, "change_summary", Mock(return_value=[]))
+    monkeypatch.setattr(controller.change_sets, "record_execution", Mock(return_value=evidence))
+    monkeypatch.setattr(controller.current_state, "read", Mock(return_value={"StackStatus": "UPDATE_COMPLETE", "StackId": STACK}))
+    controller.execute(backend, {"name": "Kms"}, state)
+    assert saved[0]["executionEvidence"] == evidence
+    assert sent[0]["executionEvidence"] == evidence
+    assert saved[0]["clientToken"] == sent[0]["clientToken"] == "current-token"
+    backend.aws.assert_called_once_with(
+        "execute_change_set", StackName=STACK, ChangeSetName=CHANGE,
+        ClientRequestToken="current-token",
+    )
