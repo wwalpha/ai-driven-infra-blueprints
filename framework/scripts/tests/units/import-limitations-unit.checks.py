@@ -14,13 +14,13 @@ import pytest
 from design.catalog import DesignSchemaCatalog
 from model.format import FORMAT_FIELDS
 from model.importing import (
-    adapter_contracts,
     approval,
     cli,
     evidence,
     limitations,
     sources,
 )
+from model.importing.adapter_contract_cases import core
 from support.import_model_fixtures import resource_values
 from support.model_v2_fixtures import value_snapshot
 from support.pytest_cli import run
@@ -616,9 +616,7 @@ def test_lambda_retained_code_is_reviewed_as_unverified():
     ],
 )
 def test_lambda_new_resource_requires_code_source(package, code, rows, complete):
-    ctx = cli.import_context(
-        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
-    )
+    ctx = cli.import_context(ROOT, core.TARGET, service="lambda", no_profile=True)
     ctx.verified = True
     ctx.call = Mock(
         return_value={

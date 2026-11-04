@@ -19,11 +19,12 @@ from aws_mapping_compare import value as mapping_value
 from model.importing import (
     adapter_contracts,
     cli,
-    contract_fixtures,
     coverage,
     inventory,
     limitations,
 )
+from model.importing.adapter_contract_cases import core, fake_sdk, registry
+from model.importing.adapter_contract_cases.services import lambda_, quicksight, sqs
 from model.importing.discovery import ADAPTER_INVENTORIES
 from support.check_model_aws_fixtures import SchemaOffline
 from support.pytest_cli import run
@@ -134,14 +135,14 @@ def test_new_mapping_property_stays_unverified():
     copy.properties["QuickSight.VPCConnection.NewField"] = missing
     result = adapter_contracts.run(ROOT, copy, "QuickSight.VPCConnection")
     assert result["not-registered"]["status"] == "broken"
+    copy.getters = {**copy.getters, "not-registered": {"kind": "adapter"}}
+    result = adapter_contracts.run(ROOT, copy, "QuickSight.VPCConnection")
+    assert result["not-registered"]["status"] == "unverified"
 
 
-def test_shared_getter_fixture_rechecks_each_mapping_path(monkeypatch):
+def test_shared_getter_fixture_rechecks_each_mapping_path():
     mapping = runtime_registry(ROOT, "quicksight")
-    fixture = Mock(wraps=adapter_contracts.group_fixture)
-    monkeypatch.setattr(adapter_contracts, "group_fixture", fixture)
     result = adapter_contracts.run(ROOT, mapping, "QuickSight.Group")
-    assert fixture.call_count == 1
     assert result["sdk-quicksight-group"]["status"] == "verified"
     key = "QuickSight.Group.Description"
     prop = mapping.properties[key]
@@ -223,11 +224,11 @@ def test_logs_import_normalization_does_not_require_kms_api():
     assert result["properties"]["Logs.LogGroup.LogGroupName"]["status"] == "verified"
     assert result["properties"]["Logs.LogGroup.KmsKeyId"]["status"] == "verified"
     ctx = cli.import_context(
-        ROOT, adapter_contracts.TARGET, service="cloudwatch-logs", no_profile=True
+        ROOT, core.TARGET, service="cloudwatch-logs", no_profile=True
     )
     assert ("kms", "describe_key") not in ctx.allowed
     ctx.call = Mock(side_effect=AssertionError("Import normalization must be offline"))
-    adapter_contracts.import_normalize(
+    core.import_normalize(
         ctx,
         "Logs.LogGroup",
         "Logs.LogGroup.KmsKeyId",
@@ -276,7 +277,7 @@ def test_config_inventory_and_adapter_contract(kind, getter):
 
 def test_failed_fixture_is_broken_and_coverage_keeps_levels(monkeypatch, capsys):
     monkeypatch.setattr(
-        adapter_contracts,
+        quicksight,
         "vpc_fixture",
         Mock(side_effect=ValueError("fixture failure")),
     )
@@ -300,7 +301,7 @@ def test_failed_fixture_is_broken_and_coverage_keeps_levels(monkeypatch, capsys)
 
 
 def test_fake_context_rejects_invalid_and_unknown_requests():
-    fake = adapter_contracts.FakeCalls(
+    fake = fake_sdk.FakeCalls(
         SimpleNamespace(allowed={("quicksight", "describe_vpc_connection")}), {}
     )
     with pytest.raises(ValueError):
@@ -323,7 +324,7 @@ def test_fake_context_rejects_invalid_and_unknown_requests():
 
 def test_invalid_response_fixture_is_validation_error(monkeypatch, capsys):
     monkeypatch.setattr(
-        adapter_contracts,
+        quicksight,
         "vpc_fixture",
         Mock(side_effect=adapter_contracts.InvalidFixture("invalid SDK output")),
     )
@@ -337,32 +338,13 @@ def test_invalid_response_fixture_is_validation_error(monkeypatch, capsys):
 
 def test_model_invalid_fixture_is_validation_error(monkeypatch):
     monkeypatch.setattr(
-        adapter_contracts.cli,
+        cli,
         "validation_errors",
         Mock(return_value=["invalid fixture value"]),
     )
     mapping = runtime_registry(ROOT, "config")
     with pytest.raises(adapter_contracts.InvalidFixture, match="invalid fixture value"):
         adapter_contracts.run(ROOT, mapping, "Config.DeliveryChannel")
-
-
-def test_shared_sdk_fixture_records_partial_evidence_without_verification():
-    mapping = runtime_registry(ROOT, "vpc")
-    result = adapter_contracts.shared_fixture_evidence(
-        ROOT,
-        mapping,
-        "EC2.FlowLog",
-        "base",
-        adapter_contracts.contracts(mapping, "EC2.FlowLog")["base"],
-    )
-    evidence = result["EC2.FlowLog.ResourceId"]
-    assert evidence["status"] == "unverified"
-    assert set(evidence["branches"]) == {
-        "normal",
-        "access-denied",
-        "all-selectors-missing",
-    }
-    assert "SDK-shaped synthetic" in evidence["reason"]
 
 
 @pytest.mark.parametrize(
@@ -489,7 +471,7 @@ def test_lambda_function_and_recursion_contracts_use_distinct_operations():
 
 
 def test_lambda_get_function_response_shape():
-    fake = adapter_contracts.FakeCalls(SimpleNamespace(allowed=set()), {})
+    fake = fake_sdk.FakeCalls(SimpleNamespace(allowed=set()), {})
     payload = {
         "Code": {
             "ResolvedS3Object": {
@@ -526,9 +508,7 @@ def test_eventbridge_rule_and_scheduler_contracts_cover_bus_scope():
 
 def test_scheduler_import_uses_group_and_cloud_inventory():
     kind = "Scheduler.Schedule"
-    ctx, _ = adapter_contracts.fixture_context(
-        ROOT, "eventbridge", adapter_contracts.DirectCalls, {}
-    )
+    ctx, _ = core.fixture_context(ROOT, "eventbridge", fake_sdk.DirectCalls, {})
     ctx.pages = Mock(
         return_value={
             "ResourceDescriptions": [
@@ -574,9 +554,7 @@ def test_scheduler_import_uses_group_and_cloud_inventory():
 
 def test_scheduler_import_rejects_unconfirmed_group():
     kind = "Scheduler.Schedule"
-    ctx, _ = adapter_contracts.fixture_context(
-        ROOT, "eventbridge", adapter_contracts.DirectCalls, {}
-    )
+    ctx, _ = core.fixture_context(ROOT, "eventbridge", fake_sdk.DirectCalls, {})
     ctx.pages = Mock(
         return_value={
             "ResourceDescriptions": [
@@ -601,13 +579,21 @@ def test_secret_metadata_includes_external_secret_type():
     assert result["properties"]["SecretsManager.Secret.Type"]["status"] == "verified"
 
 
+def test_registry_rejects_duplicate_contracts():
+    registration = quicksight.CONTRACTS[:1]
+    with pytest.raises(ValueError, match="Duplicate adapter fixture registration"):
+        registry._collect((registration, registration))
+
+
 def test_all_mapped_contracts_have_execution_or_sensitive_evidence():
     mappings = {}
+    exercised = set()
     for kind, service in sorted(owners(ROOT).items()):
         if service not in mappings:
             mappings[service] = runtime_registry(ROOT, service)
         mapping = mappings[service]
         for getter, result in adapter_contracts.run(ROOT, mapping, kind).items():
+            exercised.add((kind, getter))
             assert result["fixtureOperation"], (kind, getter)
             assert result["status"] != "broken", (kind, getter, result)
             for key, evidence in result["properties"].items():
@@ -623,6 +609,8 @@ def test_all_mapped_contracts_have_execution_or_sensitive_evidence():
                         result["paths"][key]["path"]
                         == mapping.properties[key].field.path
                     )
+
+    assert exercised == registry.CONTRACTS.keys()
 
 
 def test_iam_direct_contracts_preserve_sensitive_classification():
@@ -795,10 +783,10 @@ def test_repaired_contract_preserves_static_diagnostics(service, capsys):
     ],
 )
 def test_sqs_import_normalizes_sdk_string_values(fifo, retention, expected_status):
-    ctx, fake = adapter_contracts.fixture_context(
+    ctx, fake = core.fixture_context(
         ROOT,
         "sqs",
-        adapter_contracts.SQSCalls,
+        sqs.SQSCalls,
         {"FifoQueue": fifo, "MessageRetentionPeriod": retention},
     )
     source = inventory.inventory_for(ctx)
@@ -880,31 +868,12 @@ def test_vpc_contract_covers_id_name_and_attribute_paths():
     )
 
 
-def test_invalid_shared_sdk_output_cannot_be_verified(monkeypatch):
-    monkeypatch.setitem(
-        contract_fixtures.PATCHES,
-        ("ec2", "describe_flow_logs"),
-        {"FlowLogs.FlowLogId": 7},
-    )
-    mapping = runtime_registry(ROOT, "vpc")
-    with pytest.raises(adapter_contracts.InvalidFixture, match="describe_flow_logs"):
-        adapter_contracts.shared_fixture_evidence(
-            ROOT,
-            mapping,
-            "EC2.FlowLog",
-            "base",
-            adapter_contracts.contracts(mapping, "EC2.FlowLog")["base"],
-        )
-
-
 @pytest.mark.parametrize(
     "code",
     [{}, {"ResolvedS3Object": {"S3Bucket": "fixture-code", "S3Key": "handler.zip"}}],
 )
 def test_lambda_optional_code_source_capture(code):
-    ctx = cli.import_context(
-        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
-    )
+    ctx = cli.import_context(ROOT, core.TARGET, service="lambda", no_profile=True)
     ctx.verified = True
     record = {
         "kind": "Lambda.Function",
@@ -934,9 +903,7 @@ def test_lambda_optional_code_source_capture(code):
 
 
 def test_lambda_zip_missing_image_uri_does_not_fail_inventory():
-    ctx = cli.import_context(
-        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
-    )
+    ctx = cli.import_context(ROOT, core.TARGET, service="lambda", no_profile=True)
     ctx.verified = True
     record = {
         "kind": "Lambda.Function",
@@ -989,9 +956,7 @@ def test_lambda_zip_missing_image_uri_does_not_fail_inventory():
     ],
 )
 def test_lambda_code_source_classification(package, code, expected):
-    ctx = cli.import_context(
-        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
-    )
+    ctx = cli.import_context(ROOT, core.TARGET, service="lambda", no_profile=True)
     ctx.verified = True
     record = {
         "kind": "Lambda.Function",
@@ -1026,9 +991,7 @@ def test_lambda_code_source_classification(package, code, expected):
 
 
 def test_lambda_missing_source_requires_identity_and_propagates_denial(monkeypatch):
-    ctx = cli.import_context(
-        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
-    )
+    ctx = cli.import_context(ROOT, core.TARGET, service="lambda", no_profile=True)
     ctx.verified = True
     record = {
         "kind": "Lambda.Function",
@@ -1050,8 +1013,8 @@ def test_lambda_missing_source_requires_identity_and_propagates_denial(monkeypat
     assert props["Lambda.Function.Code.S3Bucket"]["status"] == "unavailable"
     mapping = runtime_registry(ROOT, "lambda")
     monkeypatch.setattr(
-        adapter_contracts,
-        "direct_fixture",
+        lambda_,
+        "direct_resource",
         Mock(side_effect=adapter_contracts.InvalidFixture("invalid SDK input")),
     )
     with pytest.raises(adapter_contracts.InvalidFixture, match="invalid SDK input"):
@@ -1059,9 +1022,7 @@ def test_lambda_missing_source_requires_identity_and_propagates_denial(monkeypat
 
 
 def test_lambda_access_denied_is_not_a_limitation(monkeypatch):
-    ctx = cli.import_context(
-        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
-    )
+    ctx = cli.import_context(ROOT, core.TARGET, service="lambda", no_profile=True)
     ctx.verified = True
     record = {"kind": "Lambda.Function", "identity": "fixture", "getters": {}}
     monkeypatch.setattr(
@@ -1080,9 +1041,7 @@ def test_lambda_access_denied_is_not_a_limitation(monkeypatch):
 
 
 def test_sdk_fixture_request_shape_is_validation_error():
-    fake = adapter_contracts.FakeCalls(
-        SimpleNamespace(allowed={("lambda", "get_function")}), {}
-    )
+    fake = fake_sdk.FakeCalls(SimpleNamespace(allowed={("lambda", "get_function")}), {})
     with pytest.raises(
         adapter_contracts.InvalidFixture, match="Invalid fixture request"
     ):

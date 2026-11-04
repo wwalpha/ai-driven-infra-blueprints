@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from aws_mapping_compare import value as mapping_value
-from model.importing import adapter_contracts, cli, inventory
+from model.importing import cli, inventory
+from model.importing.adapter_contract_cases import core, fake_sdk
 from support.aws_mapping_fixtures import (
     BASELINE,
     CHANNEL,
@@ -431,8 +432,8 @@ def check_scheduler_compare():
             result[kind + ".Target.RetryPolicy.MaximumRetryAttempts"]["status"]
             == "match"
         )
-        import_ctx, _ = adapter_contracts.fixture_context(
-            ROOT, "eventbridge", adapter_contracts.DirectCalls, {}
+        import_ctx, _ = core.fixture_context(
+            ROOT, "eventbridge", fake_sdk.DirectCalls, {}
         )
         import_ctx.pages = Mock(
             return_value={
@@ -824,9 +825,7 @@ def check_s3_replication():
                 {"Bucket": "fixture-bucket", "ExpectedBucketOwner": "123456789012"}
             ]
 
-        ctx, _ = adapter_contracts.fixture_context(
-            ROOT, "s3", adapter_contracts.DirectCalls, {}
-        )
+        ctx, _ = core.fixture_context(ROOT, "s3", fake_sdk.DirectCalls, {})
         fake = ReplicationImportCalls(payload)
         ctx.call, ctx.pages = fake.call, fake.pages
         records = inventory.inventory_for(ctx).inventory("s3", kind)
