@@ -560,39 +560,6 @@ def guard_snapshot(root, state):
     }
 
 
-def template_owners(root, state, candidate_digest=None):
-    """Template ownership is current cleanup evidence, never an AWS authorization."""
-    identity = state["deployIdentity"]
-    digests = {identity["taskDigest"]}
-    if candidate_digest is not None:
-        digests.add(candidate_digest)
-    result = {}
-    directory = operation_journal.location(root, state["task_file"]).parent
-    for path in sorted(directory.glob("inputs-*/owner.json")):
-        operation_journal.private_path(path.parent, directory=True)
-        owner = read_sealed(root, path)
-        if not isinstance(owner, dict):
-            raise ws.Blocked("temporary template ownership evidence is corrupt")
-        if (
-            owner.get("repository") != str(root)
-            or owner.get("taskFile") != state["task_file"]
-        ):
-            continue
-        if (
-            owner.get("target") != identity["target"]
-            or owner.get("taskDigest") not in digests
-            or not isinstance(owner.get("files"), list)
-            or not all(isinstance(name, str) for name in owner["files"])
-            or len(set(owner["files"])) != len(owner["files"])
-            or not set(owner["files"]) <= {s + ".json" for s in identity["stacks"]}
-        ):
-            raise ws.Blocked(
-                "temporary template owner differs from fixed Deploy authority"
-            )
-        result[path] = path.read_bytes().decode("utf-8")
-    return result
-
-
 def recover_update(root, path, state, candidate):
     intent = state["deployContractUpdate"]
     before = intent["state"]
@@ -608,17 +575,6 @@ def recover_update(root, path, state, candidate):
         tasks.safe_path(root, before["task_file"]),
         worktree.progress_path(root),
     )
-    owners = template_owners(root, before, tasks.task_digest(candidate))
-    if {str(p) for p in owners} != set(intent["beforeOwners"]):
-        raise ws.Blocked("temporary template owner set changed during correction")
-    originals = {}
-    for file, raw in owners.items():
-        if raw not in (
-            intent["beforeOwners"][str(file)],
-            intent["afterOwners"][str(file)],
-        ):
-            raise ws.Blocked("temporary template owner changed during correction")
-        originals[file] = intent["beforeOwners"][str(file)]
     for file, key in ((task_path, "Task"), (progress_path, "Progress")):
         if file.read_bytes().decode("utf-8") not in (
             intent["before" + key],
@@ -631,7 +587,6 @@ def recover_update(root, path, state, candidate):
         {
             task_path: intent["beforeTask"],
             progress_path: intent["beforeProgress"],
-            **originals,
             path: json.dumps(before, indent=2) + "\n",
         }
     )
@@ -685,7 +640,6 @@ def correct(root, name, source, approved=()):
         progress = worktree.read_progress(root, state)
         if progress is None:
             raise ws.Blocked("saved fixed execution input evidence is missing")
-        owners = template_owners(root, state)
         consumers = check_candidate(
             root,
             task,
@@ -724,12 +678,6 @@ def correct(root, name, source, approved=()):
                 taskDigest=new_identity["taskDigest"],
             )
         after_progress = sealed(root, saved)
-        revised_owners = {
-            p: sealed(
-                root, dict(read_sealed(root, p), taskDigest=new_identity["taskDigest"])
-            )
-            for p in owners
-        }
         tasks.verify_snapshot(task)
         if (
             source.read_bytes() != source_raw
@@ -737,7 +685,6 @@ def correct(root, name, source, approved=()):
             or worktree.read_progress(root, state) != progress
             or progress_path.read_text(encoding="utf-8") != before_progress
             or guard_snapshot(root, state) != guard
-            or template_owners(root, state) != owners
         ):
             raise ws.Blocked("contract correction inputs changed before save")
         intent = dict(
@@ -747,8 +694,6 @@ def correct(root, name, source, approved=()):
             afterTask=candidate,
             beforeProgress=before_progress,
             afterProgress=after_progress,
-            beforeOwners={str(p): raw for p, raw in owners.items()},
-            afterOwners={str(p): raw for p, raw in revised_owners.items()},
         )
         saving = dict(state, deployContractUpdate=intent)
         wt.save(path, saving)
@@ -759,14 +704,12 @@ def correct(root, name, source, approved=()):
                 or guard_snapshot(root, state) != guard
                 or source.read_bytes() != source_raw
                 or ws.load(root, state["task_id"])[3] != saving
-                or template_owners(root, state) != owners
             ):
                 raise ws.Blocked("contract correction inputs changed during save")
             atomic_files(
                 {
                     task.path: candidate,
                     progress_path: after_progress,
-                    **revised_owners,
                     path: json.dumps(revised, indent=2) + "\n",
                 }
             )
@@ -775,7 +718,6 @@ def correct(root, name, source, approved=()):
                 task.path.read_bytes() == task.raw
                 and progress_path.read_text(encoding="utf-8") == before_progress
                 and ws.load(root, state["task_id"])[3] == saving
-                and template_owners(root, state) == owners
             ):
                 wt.save(path, state)
             raise

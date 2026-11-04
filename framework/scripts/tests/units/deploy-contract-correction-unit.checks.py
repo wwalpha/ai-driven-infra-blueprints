@@ -528,55 +528,6 @@ class ConcurrentEdit:
             self.save(path, dict(state, externalEdit=True))
 
 
-@pytest.mark.parametrize("problem", [None, "digest", "files", "target", "save"])
-def check_template_cleanup_owner_is_updated(case, monkeypatch, problem):
-    directory = (
-        correction.operation_journal.location(case.root, case.name).parent / "inputs-fixture"
-    )
-    directory.mkdir(mode=0o700)
-    owner = dict(
-        repository=str(case.root),
-        taskFile=case.name,
-        taskDigest=case.state["deployIdentity"]["taskDigest"],
-        target=case.target,
-        files=["A.json"],
-    )
-    if problem == "digest":
-        owner.pop("taskDigest")
-    elif problem == "files":
-        owner["files"] = ["A.json", "A.json"]
-    elif problem == "target":
-        owner["target"] = dict(case.target, awsRegion="us-east-1")
-    path = directory / "owner.json"
-    write_sealed(case.root, path, owner)
-    template = directory / "A.json"
-    template.write_text("private input", encoding="utf-8")
-    if problem:
-        original = [
-            p.read_bytes() for p in (case.task.path, case.progress_path, case.path)
-        ]
-        if problem == "save":
-            monkeypatch.setattr(
-                file_operations.os,
-                "replace",
-                SaveFailure(
-                    file_operations.os.replace,
-                    Mock(side_effect=OSError("injected save failure")),
-                    3,
-                    case.path,
-                ),
-            )
-        with pytest.raises((ValueError, OSError)):
-            correction.correct(case.root, case.name, case.source)
-        assert_preserved(case, *original)
-        assert correction.read_sealed(case.root, path) == owner
-        return
-    correction.correct(case.root, case.name, case.source)
-    expected = dict(owner, taskDigest=tasks.task_digest(case.candidate))
-    assert correction.read_sealed(case.root, path) == expected
-    assert template.read_text(encoding="utf-8") == "private input"
-
-
 @pytest.mark.parametrize("boundary", ["Task", "Progress", "both"])
 @pytest.mark.parametrize("pending", [False, True])
 def check_interrupted_correction_retries_same_operation(

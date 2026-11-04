@@ -31,7 +31,6 @@ WORKTREE_CASES = {
         "check_inconsistent_states_refused",
         "check_save_failure_rolls_back",
         "check_concurrent_edits_preserved",
-        "check_template_cleanup_owner_is_updated",
         "check_interrupted_correction_retries_same_operation",
         "check_closed_checkpoint_is_verified_before_rebinding",
         "check_resume_cannot_adopt_unreconciled_digest",

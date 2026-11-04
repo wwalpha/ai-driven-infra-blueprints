@@ -74,6 +74,17 @@ def check_error_secret_guard_precedes_snapshot(monkeypatch):
         exception_route_case(load_case("deploy_cli_guidance", "error-01"))
 
 
+def check_missing_template_safe_diagnostic():
+    path = "/private/task/inputs-123/App.json"
+    error = FileNotFoundError(2, "secret", path)
+    report = G.stopped("STEP", error, template_paths={path})["cause"]
+    assert report["code"] == "FILE_NOT_FOUND"
+    assert report["path"] == path and report["errno"] == 2
+    assert report["operation"] == "access"
+    hidden = G.stopped("STEP", error)["cause"]
+    assert path not in json.dumps(hidden) and "secret" not in json.dumps(hidden)
+
+
 def check_pending_failure_uses_type_not_prose():
     state = {"status": "BLOCKED"}
     failures.exception(state, EnvironmentValuePending("secret"), "PREPARATION")

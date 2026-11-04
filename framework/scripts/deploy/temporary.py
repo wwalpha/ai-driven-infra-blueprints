@@ -1,95 +1,119 @@
-"""Task-local Deploy inputs and locally owned save/repair evidence."""
+"""Task-local Deploy temporary inputs."""
 
-import os
 import shutil
-import stat
 import sys
 import tempfile
 from pathlib import Path
 
-from contracts.deploy import DEPLOY_RUNNING
 from utils.cloudformation.inputs import Blocked
-from utils.local_evidence import read_sealed, write_sealed
+from utils.local_evidence import evidence_store
 
-from deploy import handoff, operation_journal
+from deploy import handoff, operation_journal, worktree
 
 
-def create(journal, root, task, target, stacks):
-    files = sorted(name + ".json" for name in stacks)
-    if any(Path(name).name != name for name in files):
+def create(journal, stacks):
+    if any(Path(name + ".json").name != name + ".json" for name in stacks):
         raise Blocked("invalid temporary template filename")
-    path = Path(tempfile.mkdtemp(prefix="inputs-", dir=journal.parent))
-    write_sealed(
-        journal.parent,
-        path / "owner.json",
-        {
-            "repository": str(root),
-            "taskFile": task.name,
-            "taskDigest": task.task_digest,
-            "target": target,
-            "files": files,
-        },
-    )
-    return path
+    return Path(tempfile.mkdtemp(prefix="inputs-", dir=journal.parent))
 
 
-def reclaim(journal, root, target, *, task, run_context):
-    """Unknown files survive; no PID inference, global /tmp sweep or lock removal."""
-    if run_context.get("currentFailure"):
+def reclaim(journal, root, *, directory, backend, stacks):
+    """Only the current invocation's proven directory is eligible for removal."""
+    if sys.exc_info()[0] is not None:
         return
-    needed = {
-        Path(saved["delivery"]["path"])
-        for saved in run_context["states"].values()
-        if saved.get("delivery", {}).get("path")
-        and (
-            saved.get("status") in {DEPLOY_RUNNING, "READY", "CHANGESET_CREATING"}
-            or saved.get("attemptResult") == "UNKNOWN"
-            or any(
-                run_context.get(key)
-                for key in (
-                    "pendingObserved",
-                    "pendingGeneration",
-                    "generationError",
-                    "checkpointPending",
+    try:
+        operation_journal.private_path(directory, directory=True)
+        if directory.parent != journal.parent or not directory.name.startswith(
+            "inputs-"
+        ):
+            return
+        with handoff.repair_lock(root):
+            store = evidence_store(root, create=False)
+            if any(
+                next(store.glob(pattern), None)
+                for pattern in (
+                    "deploy-failure-*",
+                    "deploy-repair-*",
+                    "deploy-cleanup-*",
                 )
-            )
-        )
-    }
-    for directory in journal.parent.glob("inputs-*"):
-        try:
-            operation_journal.private_path(directory, directory=True)
-            marker = operation_journal.safe_path(directory / "owner.json")
-            operation_journal.private_path(marker)
-            owner = read_sealed(journal.parent, marker)
-            if operation_journal.target_identity(
-                owner["target"]
-            ) != operation_journal.target_identity(target):
-                continue
-            if (
-                operation_journal.safe_path(Path(owner["repository"])) != root
-                or owner["taskFile"] != task.name
-                or owner["taskDigest"] != task.task_digest
             ):
-                continue
-            with handoff.repair_lock(Path(owner["repository"])):
-                if any(p.is_relative_to(directory) for p in needed):
-                    continue
-                expected = {"owner.json", *owner["files"]}
-                files = list(directory.iterdir())
+                return
+            progress = worktree.read_progress(root, worktree.progress_state(backend))
+            contexts = [backend.run_context]
+            if progress:
+                contexts.append(progress["runContext"])
+            for context in contexts:
                 if any(
-                    p.name not in expected
-                    or p.is_symlink()
-                    or not stat.S_ISREG(p.lstat().st_mode)
-                    or os.name != "nt"
-                    and p.stat().st_uid != os.getuid()
-                    for p in files
+                    context.get(key)
+                    for key in (
+                        "currentFailure",
+                        "pendingObserved",
+                        "pendingGeneration",
+                        "generationError",
+                        "checkpointPending",
+                    )
                 ):
-                    raise Blocked("unknown temporary files need preservation")
-                for file in files:
-                    operation_journal.private_path(file, permissions=0o022)
-                shutil.rmtree(directory)
-        except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
-            print(
-                f"Deploy temporary files retained: {directory}: {error}",
-                file=sys.stderr,
-            )
+                    return
+                states = context["states"]
+                for state in states.values():
+                    delivery = state.get("delivery", {})
+                    if not isinstance(delivery, dict):
+                        return
+                    path = delivery.get("path")
+                    if path:
+                        if (
+                            not isinstance(path, str)
+                            or not Path(path).is_absolute()
+                            or ".." in Path(path).parts
+                        ):
+                            return
+                        if Path(path).is_relative_to(directory):
+                            return
+                    if state.get("attemptResult") == "UNKNOWN" or state.get(
+                        "status"
+                    ) in {
+                        "RUNNING",
+                        "CHANGESET_CREATING",
+                        "READY",
+                        "BLOCKED",
+                        "FAILED",
+                        "UNKNOWN",
+                    }:
+                        return
+            files = list(directory.iterdir())
+            if any(
+                file.name not in {name + ".json" for name in stacks} for file in files
+            ):
+                return
+            for file in files:
+                operation_journal.private_path(file, permissions=0o022)
+            shutil.rmtree(directory)
+    except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
+        print(f"Deploy temporary files retained: {directory}: {error}", file=sys.stderr)
+
+
+def diagnostic_paths(journal, backend, stacks):
+    """Return only known templates in the selected Task's private input area."""
+    result = set()
+    candidates = []
+    directory = getattr(backend, "workdir", None)
+    if directory:
+        candidates.extend(Path(directory) / (name + ".json") for name in stacks)
+    for state in getattr(backend, "states", {}).values():
+        delivery = state.get("delivery")
+        if isinstance(delivery, dict) and isinstance(delivery.get("path"), str):
+            candidates.append(Path(delivery["path"]))
+    for path in candidates:
+        try:
+            if (
+                path.is_absolute()
+                and path.parent.parent == journal.parent
+                and path.parent.name.startswith("inputs-")
+                and path.name in {name + ".json" for name in stacks}
+            ):
+                operation_journal.private_path(path.parent, directory=True)
+                operation_journal.safe_path(path)
+                result.add(str(path))
+        except (OSError, ValueError, Blocked):
+            continue
+    return result

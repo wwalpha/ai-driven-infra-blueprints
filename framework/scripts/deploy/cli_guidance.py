@@ -421,8 +421,21 @@ def python_command(root, script, arguments, *, task_file=None):
     return "cd " + shlex.quote(str(root)) + " && " + shlex.join(argv)
 
 
-def stopped(stage, error):
+def stopped(stage, error, *, template_paths=()):
     cause = safe_error(error)
+    if isinstance(error, FileNotFoundError) and error.filename in template_paths:
+        operations = {
+            "read_text": "read",
+            "write_text": "write",
+            "stat": "stat",
+            "open": "open",
+        }
+        trace, operation = error.__traceback__, "access"
+        while trace:
+            if trace.tb_frame.f_code.co_name in operations:
+                operation = operations[trace.tb_frame.f_code.co_name]
+            trace = trace.tb_next
+        cause.update(operation=operation, path=error.filename, errno=error.errno)
     if isinstance(error, InputChanged):
         return guidance(
             "INPUT_REVALIDATION",

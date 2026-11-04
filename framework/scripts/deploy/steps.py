@@ -81,8 +81,13 @@ def restore(backend: SimpleNamespace, task: TaskSnapshot) -> None:
                 raise Blocked(
                     "fixed execution inputs changed without verified implement authority"
                 )
-            if any(state.get("status") in {DEPLOY_RUNNING, "CHANGESET_CREATING", "READY"} for state in saved["states"].values()):
-                raise Blocked("current Deploy operation must settle before changing its inputs")
+            if any(
+                state.get("status") in {DEPLOY_RUNNING, "CHANGESET_CREATING", "READY"}
+                for state in saved["states"].values()
+            ):
+                raise Blocked(
+                    "current Deploy operation must settle before changing its inputs"
+                )
             for key in (
                 "pendingObserved",
                 "pendingGeneration",
@@ -721,12 +726,22 @@ def run(
                 raise Blocked("resume the saved checkpoint before advance")
             if args.action == "advance":
                 backend.guard()
-                backend.workdir = temporary.create(
-                    journal, root, task, target, args.stack
-                )
-                resources.callback(
-                    temporary.reclaim, journal, root, target, task=task, run_context=run
-                )
+                backend.workdir = temporary.create(journal, args.stack)
+                try:
+                    resources.callback(
+                        temporary.reclaim,
+                        journal,
+                        root,
+                        directory=backend.workdir,
+                        backend=backend,
+                        stacks=args.stack,
+                    )
+                except BaseException:
+                    try:
+                        backend.workdir.rmdir()
+                    except OSError:
+                        pass
+                    raise
                 models = RunModels(root, run)
                 resources.enter_context(model_session(models))
                 for unit in units:
@@ -749,7 +764,9 @@ def run(
                 if "- Runtime recovery: `allowed`" in task.text.splitlines():
                     for unit in units:
                         state = backend.states[unit["name"]]
-                        if state["status"] == "FAILED" and not state.get("bootstrapAttempted"):
+                        if state["status"] == "FAILED" and not state.get(
+                            "bootstrapAttempted"
+                        ):
                             backend.repair(unit, state)
                 if any(
                     s["status"] in {"FAILED", "BLOCKED"}
@@ -815,7 +832,15 @@ def run(
                     )
                     if backend
                     else "NOT_RUN",
-                    **cli_guidance.stopped("STEP", error),
+                    **cli_guidance.stopped(
+                        "STEP",
+                        error,
+                        template_paths=temporary.diagnostic_paths(
+                            journal, backend, args.stack
+                        )
+                        if backend and "journal" in locals()
+                        else (),
+                    ),
                 },
                 indent=2,
             )
