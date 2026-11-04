@@ -72,23 +72,31 @@ def test_model_selection_preserved_before_deploy():
     case.assertEqual(project_document(expression), expression)
 
 
+def resource_record_errors(catalog, *items):
+    return catalog.literal_errors(
+        "Route53.RecordSet", "ResourceRecords", json.dumps(items)
+    )
+
+
 def test_resource_records_provider_schema():
     catalog = DesignSchemaCatalog(FRAMEWORK)
-
-    def errors(*items):
-        return catalog.literal_errors(
-            "Route53.RecordSet", "ResourceRecords", json.dumps(items)
-        )
-
-    assert not errors("example.com", model_selection(), model_selection(entry=2))
-    assert errors(model_selection(), 123) == ["[1]: must be string"]
-    assert errors(model_selection(entry=-1)) == ["[0]: must be string"]
-    assert errors(model_selection(entry=False)) == ["[0]: must be string"]
+    assert not resource_record_errors(
+        catalog, "example.com", model_selection(), model_selection(entry=2)
+    )
+    assert resource_record_errors(catalog, model_selection(), 123) == [
+        "[1]: must be string"
+    ]
+    assert resource_record_errors(catalog, model_selection(entry=-1)) == [
+        "[0]: must be string"
+    ]
+    assert resource_record_errors(catalog, model_selection(entry=False)) == [
+        "[0]: must be string"
+    ]
     wrong_attribute = model_selection()
     wrong_attribute["Fn::Select"][1]["Fn::Split"][1]["Fn::Select"][1] = reference(
         "EC2_VPCEndpoint_001", "NetworkInterfaceIds"
     )
-    assert errors(wrong_attribute) == ["[0]: must be string"]
+    assert resource_record_errors(catalog, wrong_attribute) == ["[0]: must be string"]
     assert catalog.literal_errors(
         "EC2.VPCEndpoint", "SubnetIds", json.dumps([model_selection()])
     ) == ["[0]: must be string"]
