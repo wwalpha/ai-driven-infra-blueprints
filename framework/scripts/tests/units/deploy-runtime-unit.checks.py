@@ -85,7 +85,7 @@ def _callback_check_sdk_execution_poll(_state_check_sdk_execution_65, /, unit, e
 
 def execution_poll_aws(event, actual, operation, **args):
     if operation == "describe_change_set":
-        raise M.current_request.AwsError(
+        raise AwsError(
             "cloudformation", operation, "ChangeSetNotFound"
         )
     return (
@@ -141,7 +141,10 @@ def supervise_turns(units, limit, context, backend, save):
                 backend.repair(unit, context["states"][unit["name"]]) for unit in failed
             ]
             save()
-            if all(repaired):
+            if all(repaired) and any(
+                context["states"][unit["name"]]["status"] != "FAILED"
+                for unit in failed
+            ):
                 continue
         return result
     raise AssertionError("test supervisor did not settle bounded turns")
@@ -383,27 +386,19 @@ def check_sdk_execution():
         "changeSetId": "cs-A",
         "executionEvidence": {"StackId": "stack-A"},
     }
-    with patch.object(M.current_request, "reconcile", return_value=None):
-        TestCase().assertEqual(
-            _state_check_sdk_execution_65.backend.poll(unit, state),
-            "ROLLBACK_IN_PROGRESS",
-        )
-        TestCase().assertTrue(state["failureDetected"])
-        actual[0], event["ResourceStatus"] = "ROLLBACK_COMPLETE", "ROLLBACK_COMPLETE"
-        TestCase().assertEqual(
-            _state_check_sdk_execution_65.backend.poll(unit, state), "ATTEMPT_FAIL"
-        )
-        actual[0], event["ResourceStatus"] = "UPDATE_COMPLETE", "UPDATE_IN_PROGRESS"
-        TestCase().assertEqual(
-            _state_check_sdk_execution_65.backend.poll(unit, state), "UNCONFIRMED"
-        )
-    with patch.object(
-        M.current_request, "reconcile", return_value={"token": "current"}
-    ):
-        TestCase().assertEqual(
-            _state_check_sdk_execution_65.backend.poll(unit, state),
-            "UNCONFIRMED",
-        )
+    TestCase().assertEqual(
+        _state_check_sdk_execution_65.backend.poll(unit, state),
+        "ROLLBACK_IN_PROGRESS",
+    )
+    TestCase().assertTrue(state["failureDetected"])
+    actual[0], event["ResourceStatus"] = "ROLLBACK_COMPLETE", "ROLLBACK_COMPLETE"
+    TestCase().assertEqual(
+        _state_check_sdk_execution_65.backend.poll(unit, state), "ATTEMPT_FAIL"
+    )
+    actual[0], event["ResourceStatus"] = "UPDATE_COMPLETE", "UPDATE_IN_PROGRESS"
+    TestCase().assertEqual(
+        _state_check_sdk_execution_65.backend.poll(unit, state), "UNCONFIRMED"
+    )
 
 
 def _check_empty_rollback_recreation_synced(_backend, items, entries):
@@ -460,6 +455,8 @@ class EmptyRollbackAws(StubAws):
             target = args["StackName"]
             name = target.removeprefix("old-")
             if operation == "describe_stacks":
+                if self.current[name] is None and name in self.created:
+                    return {"Stacks": [{"StackId": "stackid-" + name, "StackStatus": "REVIEW_IN_PROGRESS"}]}
                 if self.current[name] is None:
                     raise AwsError(
                         "cloudformation",
@@ -526,56 +523,14 @@ def check_empty_rollback_recreation(tmp_path):
         )
         assert deletion < creation and saved[name]["operationType"] == "CREATE"
         assert saved[name]["absentBeforeCreate"] and saved[name]["emptyStackRecreated"]
-    # Resumed FAILED states also recover when no authoritative IaC correction exists.
-    _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
-    saved = {
-        name: {
-            "status": "FAILED",
-            "stackStatus": "ROLLBACK_COMPLETE",
-            "stackId": "old-" + name,
-            "changeSetId": "stale",
-            "clientToken": "stale",
-            "delivery": {"stale": True},
-        }
-        for name in ("A", "B")
-    }
-    session = {
-        "inputRevision": 0,
-        "states": saved,
-        "metrics": {"observedSyncSeconds": 0},
-    }
-    synced = _check_empty_rollback_recreation_synced
-    with patch.object(TEST_OBSERVATION, "sync", side_effect=synced):
-        assert (
-            supervise_turns(
-                scoped,
-                2,
-                session,
-                _state_check_empty_rollback_recreation_180.backend,
-                lambda: None,
-            )
-            == "COMPLETE"
-        )
-    assert _state_check_empty_rollback_recreation_180.backend.deletes == [
-        "old-A",
-        "old-B",
-    ]
-    assert all(
-        entry["changeSetId"] != "stale" and "delivery" not in entry
-        for entry in saved.values()
-    )
-    # The same failure cannot trigger an unbounded recreation loop.
-    saved["A"].update(status="FAILED", stackStatus="ROLLBACK_COMPLETE", stackId="old-A")
-    _state_check_empty_rollback_recreation_180.backend.current["A"] = (
-        "ROLLBACK_COMPLETE"
-    )
-    assert not _state_check_empty_rollback_recreation_180.backend.repair(
-        scoped[0], saved["A"]
-    ) and _state_check_empty_rollback_recreation_180.backend.deletes == [
-        "old-A",
-        "old-B",
-    ]
-    assert saved["A"]["failureClassification"] == "HUMAN_REQUIRED"
+    # A failed attempt remains failed and is not recreated within this Task.
+    backend = EmptyRollbackAws(root)
+    saved = {name: {"status": "FAILED", "stackStatus": "ROLLBACK_COMPLETE", "stackId": "old-" + name} for name in ("A", "B")}
+    session = {"inputRevision": 0, "states": saved, "metrics": {"observedSyncSeconds": 0}}
+    with patch.object(TEST_OBSERVATION, "sync", side_effect=_check_empty_rollback_recreation_synced):
+        assert supervise_turns(scoped, 2, session, backend, lambda: None) == "STOPPED"
+    assert not backend.deletes
+    assert all(entry["status"] == "FAILED" for entry in saved.values())
     for actuals in ([], [{"ResourceStatus": "DELETE_COMPLETE"}]):
         _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
         _state_check_empty_rollback_recreation_180.backend.actuals = actuals
@@ -2066,7 +2021,11 @@ def _callback_check_secret_runtime_bootstrap_configure_aws(
                 }
             ]
         }
+    if operation == "list_change_sets":
+        return {"Summaries": []}
     if operation == "create_change_set":
+        if statuses[name] is None:
+            statuses[name] = "REVIEW_IN_PROGRESS"
         return {"Id": args["ChangeSetName"], "StackId": stack_ids[name]}
     if operation == "describe_change_set":
         return {
@@ -2525,11 +2484,11 @@ def check_secret_runtime_bootstrap(tmp_path):
     puts = _check_secret_runtime_bootstrap_puts
     # Cases 1, 8, 13: one JSON PUT, failed CREATE cleanup/retry, peer sync and original remaining order.
     _state_check_secret_runtime_bootstrap_1420.f = configure()
-    assert _state_check_secret_runtime_bootstrap_1420.f.run() == "COMPLETE", (
+    assert _state_check_secret_runtime_bootstrap_1420.f.run() == "STOPPED", (
         _state_check_secret_runtime_bootstrap_1420.f.run_context
     )
     assert (
-        _state_check_secret_runtime_bootstrap_1420.f.executed == ["A", "B", "B", "C"]
+        _state_check_secret_runtime_bootstrap_1420.f.executed == ["A", "B"]
         and _state_check_secret_runtime_bootstrap_1420.f.validations == ["B"]
         and _state_check_secret_runtime_bootstrap_1420.f.syncs.count("A") == 1
     )
@@ -2540,7 +2499,7 @@ def check_secret_runtime_bootstrap(tmp_path):
     completed_state = _state_check_secret_runtime_bootstrap_1420.f.run_context[
         "states"
     ]["B"]
-    assert completed_state["bootstrapAttempted"] and "bootstrap" not in completed_state
+    assert completed_state["bootstrapAttempted"] and completed_state["status"] == "FAILED"
     assert (
         all(
             p.read_bytes() == data
@@ -2558,9 +2517,9 @@ def check_secret_runtime_bootstrap(tmp_path):
     # Later uncreated Secret producers do not block the proven current Secret's bootstrap.
     _state_check_secret_runtime_bootstrap_1420.f = configure(future=True)
     assert (
-        _state_check_secret_runtime_bootstrap_1420.f.run() == "COMPLETE"
+        _state_check_secret_runtime_bootstrap_1420.f.run() == "STOPPED"
         and _state_check_secret_runtime_bootstrap_1420.f.executed
-        == ["A", "B", "B", "C", "FutureSecretOwner"]
+        == ["A", "B"]
     ), _state_check_secret_runtime_bootstrap_1420.f.run_context
     assert len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1 and not any(
         op == "list_stack_resources" and args == ("--stack-name", "FutureSecretOwner")
@@ -2704,7 +2663,7 @@ def check_secret_runtime_bootstrap(tmp_path):
         )
     # A proven scalar slot consumes the whole string; no JSON keys are invented.
     _state_check_secret_runtime_bootstrap_1420.f = configure(keys=("", ""))
-    assert _state_check_secret_runtime_bootstrap_1420.f.run() == "COMPLETE"
+    assert _state_check_secret_runtime_bootstrap_1420.f.run() == "STOPPED"
     assert (
         puts(_state_check_secret_runtime_bootstrap_1420.f)[0]["SecretString"]
         == "DUMMY_DEPLOY_ONLY"
@@ -2895,10 +2854,7 @@ def check_secret_runtime_bootstrap(tmp_path):
             )
         assert token in _state_check_secret_runtime_bootstrap_1420.f.versions
         assert (
-            "bootstrap"
-            not in _state_check_secret_runtime_bootstrap_1420.f.run_context["states"][
-                "B"
-            ]
+            _state_check_secret_runtime_bootstrap_1420.f.run_context["states"]["B"]["bootstrap"]["stage"] == "BOOTSTRAP_CONFIRMED"
         )
         assert (
             len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1
@@ -2908,20 +2864,20 @@ def check_secret_runtime_bootstrap(tmp_path):
             _state_check_secret_runtime_bootstrap_1420.f.run_context["states"]["B"][
                 "status"
             ]
-            == "NOT_STARTED"
+            == "FAILED"
         )
     # Case 12: the same failure after retry cannot trigger a second PUT or empty-shell recreation.
     _state_check_secret_runtime_bootstrap_1420.f = configure(repeated=True)
     assert (
         _state_check_secret_runtime_bootstrap_1420.f.run() == "STOPPED"
-        and _state_check_secret_runtime_bootstrap_1420.f.executed == ["A", "B", "B"]
+        and _state_check_secret_runtime_bootstrap_1420.f.executed == ["A", "B"]
         and len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1
     )
     assert (
         _state_check_secret_runtime_bootstrap_1420.f.run_context["states"]["B"][
             "failureClassification"
         ]
-        == "HUMAN_REQUIRED"
+        == "RUNTIME_BOOTSTRAP"
     )
     assert (
         _state_check_secret_runtime_bootstrap_1420.f.run_context["states"]["C"][
@@ -2934,11 +2890,11 @@ def check_secret_runtime_bootstrap(tmp_path):
             op == "delete_stack"
             for op, _ in _state_check_secret_runtime_bootstrap_1420.f.calls
         )
-        == 1
+        == 0
     )
     # Existing UPDATE_ROLLBACK_COMPLETE handling does not delete/redeploy the successful peer.
     _state_check_secret_runtime_bootstrap_1420.f = configure(create=False)
-    assert _state_check_secret_runtime_bootstrap_1420.f.run() == "COMPLETE" and not any(
+    assert _state_check_secret_runtime_bootstrap_1420.f.run() == "STOPPED" and not any(
         op == "delete_stack"
         for op, _ in _state_check_secret_runtime_bootstrap_1420.f.calls
     )
@@ -2948,12 +2904,13 @@ def check_secret_runtime_bootstrap(tmp_path):
         _state_check_secret_runtime_bootstrap_1420.f.failed()
     )
     _state_check_secret_runtime_bootstrap_1420.f.knobs["unsafeCleanup"] = True
-    assert not _state_check_secret_runtime_bootstrap_1420.f.backend.repair(
+    assert _state_check_secret_runtime_bootstrap_1420.f.backend.repair(
         selected[2], _state_check_secret_runtime_bootstrap_1420.state
     ) and not any(
         op == "delete_stack"
         for op, _ in _state_check_secret_runtime_bootstrap_1420.f.calls
     )
+    assert _state_check_secret_runtime_bootstrap_1420.state["status"] == "FAILED"
     for race in ("race", "promotionRace"):
         _state_check_secret_runtime_bootstrap_1420.f = configure()
         _state_check_secret_runtime_bootstrap_1420.state = (
@@ -3281,7 +3238,7 @@ def check_execute_timeout_keeps_evidence(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8"))["states"] == restored
     assert (
         restored["A"]["status"] == "SUCCESS"
-        and restored["A"]["endedRequest"]["executionEvidence"] == evidence
+        and restored["A"]["executionEvidence"] == evidence
     )
     assert sum(op == "create_change_set" for op, _ in backend.calls) == 1
     assert sum(op == "execute_change_set" for op, _ in backend.calls) == 1
@@ -3297,7 +3254,7 @@ def check_guard_failure_drains_accepted_peer():
     assert advance_group(selected, 2, saved, backend) == "STOPPED"
     assert (
         saved["A"]["status"] == "SUCCESS"
-        and saved["A"]["endedRequest"]["executionEvidence"]["clientToken"]
+        and saved["A"]["executionEvidence"]["clientToken"]
     )
     assert (
         saved["B"]["status"] == "BLOCKED" and "inputs changed" in saved["B"]["reason"]
@@ -3629,8 +3586,8 @@ def check_mutation_and_recovery_with_issues(tmp_path, monkeypatch, capsys):
         assert mutation.call_count == 2
     state = {"stackStatus": "ROLLBACK_COMPLETE"}
     with patch.object(backend, "cleanup_failed_create", return_value=True) as cleanup:
-        assert backend.repair({"name": "A"}, state)
-        cleanup.assert_called_once()
+        assert not backend.repair({"name": "A"}, state)
+        cleanup.assert_not_called()
     assert not capsys.readouterr().err
     state = {"stackStatus": "DELETE_FAILED"}
     assert not backend.repair({"name": "A"}, state)

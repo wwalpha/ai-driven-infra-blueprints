@@ -1,4 +1,4 @@
-"""Private Deploy inputs; retain current requests and locally owned save/repair evidence."""
+"""Task-local Deploy inputs and locally owned save/repair evidence."""
 
 import os
 import shutil
@@ -35,16 +35,15 @@ def create(journal, root, task, target, stacks):
 
 def reclaim(journal, root, target, *, task, run_context):
     """Unknown files survive; no PID inference, global /tmp sweep or lock removal."""
+    if run_context.get("currentFailure"):
+        return
     needed = {
         Path(saved["delivery"]["path"])
         for saved in run_context["states"].values()
         if saved.get("delivery", {}).get("path")
         and (
             saved.get("status") in {DEPLOY_RUNNING, "READY", "CHANGESET_CREATING"}
-            or saved.get("requestPending")
-            or saved.get("requestError")
             or saved.get("attemptResult") == "UNKNOWN"
-            and not saved.get("endedRequest")
             or any(
                 run_context.get(key)
                 for key in (
@@ -73,9 +72,6 @@ def reclaim(journal, root, target, *, task, run_context):
             ):
                 continue
             with handoff.repair_lock(Path(owner["repository"])):
-                needed.update(
-                    handoff.failure_templates(Path(owner["repository"]), target)
-                )
                 if any(p.is_relative_to(directory) for p in needed):
                     continue
                 expected = {"owner.json", *owner["files"]}

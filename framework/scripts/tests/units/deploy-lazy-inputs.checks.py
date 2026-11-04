@@ -1022,6 +1022,7 @@ def check_readiness_removal_and_ready_execution(tmp_path, monkeypatch):
             controller.change_sets, "record_execution", return_value={}
         ) as record,
         patch.object(backend, "aws", create=True) as aws,
+        patch.object(controller.current_state, "read", return_value={"StackStatus": "UPDATE_COMPLETE", "StackId": "stack"}),
     ):
         with pytest.raises(Blocked, match="Unknown"):
             controller.execute(backend, unit, state)

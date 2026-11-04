@@ -21,7 +21,6 @@ import pytest
 from deploy import (
     cli_guidance,
     controller,
-    current_request,
     current_state,
     failures,
     observed,
@@ -44,7 +43,6 @@ from support.regression_cases import case_ids
 from utils import sealed_evidence
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
-from utils.json_format import fingerprint
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -408,12 +406,12 @@ def check_safe_failure_diagnostics_distinguish_root_rollback_and_unknown():
     assert separated["recoveryFailure"]["code"] == "RECOVERY_BLOCKED"
     assert "eventId" not in separated["recoveryFailure"]
     assert separated["requiredAction"] == "Review recovery"
-    state["requestPending"] = True
+    state["attemptResult"] = "UNKNOWN"
     unconfirmed = failures.diagnostic(state)
-    assert unconfirmed["code"] == "REQUEST_UNCONFIRMED"
+    assert unconfirmed["code"] == "SUBMISSION_UNKNOWN"
     assert "primaryFailure" not in unconfirmed and "eventId" not in unconfirmed
     assert not unconfirmed["retryable"]
-    state.pop("requestPending")
+    state.pop("attemptResult")
     state["failureEvents"] = [rollback]
     assert failures.diagnostic(state)["primaryFailure"]["code"] == "UNKNOWN_REASON"
     state.pop("failureClassification")
@@ -424,8 +422,8 @@ def check_safe_failure_diagnostics_distinguish_root_rollback_and_unknown():
     assert "eventId" not in failures.diagnostic(state)
     state.update(failureEvents=[rollback], eventReadStatus="EVENT_READ_FAILED")
     assert failures.diagnostic(state)["code"] == "EVENT_READ_FAILED"
-    state.update(status="BLOCKED", requestPending=True)
-    assert failures.diagnostic(state)["code"] == "REQUEST_UNCONFIRMED"
+    state.update(status="BLOCKED", attemptResult="UNKNOWN")
+    assert failures.diagnostic(state)["code"] == "SUBMISSION_UNKNOWN"
     denied = {"status": "BLOCKED"}
     failures.exception(
         denied,
@@ -853,55 +851,6 @@ def save_test_state(case, request, progress, state):
 
 
 class TestCurrentState(TestCase):
-    def test_confirmed_execution_without_root_event_is_saved_before_release(self):
-        request = {
-            "operation": "execute_change_set",
-            "name": "A",
-            "stackId": "stack",
-            "changeSetId": "change",
-            "token": "own",
-            "settled": True,
-            "trackingReason": "CHANGESET_EXECUTION_ENDED",
-            "result": "SUCCESS",
-            "attemptStatus": "UPDATE_COMPLETE",
-        }
-        state = {
-            "status": "RUNNING",
-            "clientToken": "own",
-            "changeSetId": "change",
-            "executionEvidence": {"StackId": "stack"},
-            "attemptResult": "UNKNOWN",
-        }
-        backend = SimpleNamespace(
-            states={"A": state},
-            templates={},
-            aws=Mock(
-                side_effect=[
-                    {
-                        "Stacks": [
-                            {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
-                        ]
-                    },
-                    {"StackEvents": []},
-                ]
-            ),
-        )
-        backend.poll = lambda unit, snapshot: controller.poll(backend, unit, snapshot)
-        saved = []
-        with (
-            patch.object(current_request, "reconcile", return_value=request),
-            patch.object(current_request, "release") as release,
-        ):
-            scheduler.run_group(
-                [{"name": "A", "deployOrder": 1}],
-                1,
-                backend.states,
-                backend,
-                save=lambda: saved.append(dict(state)),
-            )
-            self.assertEqual(saved[-1]["status"], "SUCCESS")
-            self.assertNotIn("attemptResult", saved[-1])
-            release.assert_called_once_with(backend, request)
 
     def test_restarting_clears_unexecuted_reason(self):
         scoped = units(10)
@@ -913,177 +862,8 @@ class TestCurrentState(TestCase):
         current_state.record_attempt(state["A"], "UPDATE_COMPLETE")
         self.assertNotIn("unexecutedReason", state["A"])
 
-    def test_change_set_completion_requires_matching_identities(self):
-        data = load_case("deploy_steps", "request-identity-input")["data"]
-        record = data["record"]
-        change = data["change"]
-        current = data["current"]
-        aws = Mock(side_effect=[change, {"StackEvents": []}])
-        self.assertTrue(current_request.settled(aws, record, current))
-        self.assertEqual(record["result"], "SETTLED")
-        other_event = {
-            "ResourceType": "AWS::CloudFormation::Stack",
-            "StackId": "stack",
-            "PhysicalResourceId": "stack",
-            "ClientRequestToken": "other",
-            "ResourceStatus": "UPDATE_COMPLETE",
-        }
-        self.assertTrue(
-            current_request.settled(
-                Mock(side_effect=[change, {"StackEvents": [other_event]}]),
-                record.copy(),
-                current,
-            )
-        )
-        self.assertTrue(
-            current_request.settled(
-                Mock(return_value=change), record, current | {"StackId": "other"}
-            )
-        )
-        for wrong in (change | {"ChangeSetId": "other"}, change | {"StackId": "other"}):
-            with self.assertRaises(Blocked):
-                current_request.settled(Mock(return_value=wrong), record, current)
-        self.assertFalse(
-            current_request.owns(
-                {
-                    "clientToken": "other",
-                    "changeSetId": "change",
-                    "executionEvidence": {"StackId": "stack"},
-                },
-                record,
-            )
-        )
 
-    def test_uncertain_submission_and_identity_mismatches_keep_request(self):
-        record = {
-            "operation": "execute_change_set",
-            "name": "A",
-            "stackId": "stack",
-            "changeSetId": "change",
-            "token": "own",
-            "submission": "SENDING",
-        }
-        change = {
-            "ChangeSetId": "change",
-            "StackId": "stack",
-            "ExecutionStatus": "EXECUTE_COMPLETE",
-        }
-        current = {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
-        later = {
-            "ResourceType": "AWS::CloudFormation::Stack",
-            "StackId": "stack",
-            "PhysicalResourceId": "stack",
-            "ClientRequestToken": "other",
-            "ResourceStatus": "UPDATE_COMPLETE",
-        }
-        aws = Mock(side_effect=[change, {"StackEvents": [later]}])
-        self.assertTrue(current_request.settled(aws, record, current))
-        later["ClientRequestToken"] = "own"
-        aws = Mock(side_effect=[change, {"StackEvents": [later]}])
-        self.assertTrue(current_request.settled(aws, record, current))
-        self.assertEqual(record["result"], "SETTLED")
-        for key, wrong in [
-            ("StackId", "other"),
-            ("ChangeSetId", "other"),
-            ("clientToken", "other"),
-        ]:
-            state = {
-                "status": "RUNNING",
-                "clientToken": "own",
-                "changeSetId": "change",
-                "executionEvidence": {
-                    "StackId": "stack",
-                    "ChangeSetId": "change",
-                    "clientToken": "own",
-                },
-            }
-            state["executionEvidence"][key] = wrong
-            backend = SimpleNamespace(
-                states={"A": state},
-                units=[{"name": "A"}],
-                aws=partial(
-                    recovery_test_aws,
-                    current="UPDATE_COMPLETE",
-                    execution="EXECUTE_COMPLETE",
-                ),
-                target={},
-                save=Mock(),
-            )
-            backend.poll = partial(controller.poll, backend)
-            with (
-                patch.object(
-                    current_request,
-                    "reconcile",
-                    return_value=record | {"settled": True},
-                ),
-                patch.object(current_request, "release") as release,
-            ):
-                steps.refresh_requests(backend)
-            self.assertTrue(state["requestPending"])
-            release.assert_not_called()
-            backend.save.assert_not_called()
 
-    def test_uncertain_terminal_change_sets_settle_only_when_stack_is_stable(self):
-        record = {
-            "operation": "execute_change_set",
-            "name": "A",
-            "stackId": "stack",
-            "changeSetId": "change",
-            "token": "own",
-            "submission": "SENDING",
-        }
-        current = {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
-        for execution in ("EXECUTE_FAILED", "OBSOLETE", "EXECUTE_COMPLETE"):
-            change = {
-                "ChangeSetId": "change",
-                "StackId": "stack",
-                "ExecutionStatus": execution,
-            }
-            with self.subTest(execution=execution):
-                evidence = dict(record)
-                self.assertTrue(
-                    current_request.settled(
-                        Mock(return_value=change), evidence, current
-                    )
-                )
-                self.assertEqual(evidence["result"], "SETTLED")
-                self.assertFalse(
-                    current_request.settled(
-                        Mock(return_value=change),
-                        dict(record),
-                        current | {"StackStatus": "UPDATE_IN_PROGRESS"},
-                    )
-                )
-        change["ExecutionStatus"] = "EXECUTE_FAILED"
-        for status in (
-            "UPDATE_FAILED",
-            "CREATE_FAILED",
-            "UNKNOWN",
-            "NEW_UNRECOGNIZED_STATUS",
-        ):
-            self.assertFalse(
-                current_request.settled(
-                    Mock(return_value=change),
-                    dict(record),
-                    current | {"StackStatus": status},
-                )
-            )
-        change["ExecutionStatus"] = "EXECUTE_IN_PROGRESS"
-        self.assertFalse(
-            current_request.settled(Mock(return_value=change), dict(record), current)
-        )
-        change["ExecutionStatus"] = "AVAILABLE"
-        self.assertFalse(
-            current_request.settled(Mock(return_value=change), dict(record), current)
-        )
-        change["ExecutionStatus"] = "EXECUTE_IN_PROGRESS"
-        self.assertFalse(
-            current_request.settled(
-                Mock(return_value=change),
-                dict(record),
-                current | {"StackStatus": "UPDATE_IN_PROGRESS"},
-            )
-        )
 
     def test_settled_revalidation_allows_next_order_without_reexecuting(self):
         scoped = units(10, 20)
@@ -1158,7 +938,6 @@ class TestCurrentState(TestCase):
             aws=aws,
         )
         with (
-            patch.object(current_request, "reconcile", return_value=None),
             patch.object(observed, "collect_successful") as collect,
         ):
             controller.current_satisfied(backend, unit)
@@ -1275,8 +1054,7 @@ class TestCurrentState(TestCase):
                 ),
             )
             with (
-                patch.object(current_request, "reconcile", return_value=None),
-                patch.object(observed, "collect_successful"),
+                    patch.object(observed, "collect_successful"),
             ):
                 controller.current_satisfied(backend, unit)
                 backend.verify_object.assert_called_once_with(obj)
@@ -1328,56 +1106,6 @@ class TestCurrentState(TestCase):
             with self.assertRaises(Blocked):
                 controller.check_imports(backend, consumer)
 
-    def test_uncertain_terminal_requests_persist_before_release(self):
-        for execution in ("EXECUTE_FAILED", "OBSOLETE"):
-            with (
-                self.subTest(execution=execution),
-                tempfile.TemporaryDirectory() as directory,
-            ):
-                path = Path(directory).resolve() / "request.json"
-                record = {
-                    "operation": "execute_change_set",
-                    "name": "A",
-                    "stackId": "stack",
-                    "changeSetId": "change",
-                    "token": "own",
-                    "submission": "SENDING",
-                }
-                path.write_text(json.dumps(record), encoding="utf-8")
-                path.chmod(0o600)
-                state = {
-                    "status": "RUNNING",
-                    "clientToken": "own",
-                    "changeSetId": "change",
-                    "executionEvidence": {
-                        "StackId": "stack",
-                        "ChangeSetId": "change",
-                        "clientToken": "own",
-                    },
-                }
-                backend = SimpleNamespace(
-                    target={},
-                    states={"A": state},
-                    units=[{"name": "A"}],
-                    templates={},
-                    aws=partial(
-                        recovery_test_aws,
-                        current="UPDATE_COMPLETE",
-                        execution=execution,
-                    ),
-                )
-                backend.poll = partial(controller.poll, backend)
-                saved = []
-                backend.save = partial(save_test_snapshot, saved, state, path)
-                with patch.object(current_request, "location", return_value=path):
-                    steps.refresh_requests(backend)
-                    self.assertEqual(saved[-1][0]["status"], "SETTLED")
-                    self.assertEqual(saved[-1][0]["attemptResult"], "UNKNOWN")
-                    self.assertTrue(saved[-1][1])
-                    self.assertFalse(path.exists())
-                    steps.refresh_requests(backend)
-                    self.assertEqual(state["status"], "SETTLED")
-                    self.assertEqual(state["attemptResult"], "UNKNOWN")
 
     def test_settled_unknown_is_terminal_without_reexecution(self):
         state = {
@@ -1406,273 +1134,13 @@ class TestCurrentState(TestCase):
                 prepare_complete(Path("/synthetic"), task)
             required.assert_called_once()
 
-    def test_settled_execution_is_not_sent_again_before_save(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory).resolve() / "request.json"
-            record = {
-                "name": "A",
-                "operation": "execute_change_set",
-                "stackId": "stack",
-                "changeSetId": "change",
-                "token": "own",
-            }
-            path.write_text(json.dumps(record), encoding="utf-8")
-            path.chmod(0o600)
-            transport = Mock()
-            runtime = SimpleNamespace(target={}, aws=Mock(), states={})
-            with (
-                patch.object(current_request, "location", return_value=path),
-                patch.object(
-                    current_state,
-                    "read",
-                    return_value={"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"},
-                ),
-                patch.object(current_request, "settled", return_value=True),
-            ):
-                with self.assertRaisesRegex(
-                    Blocked, "settled request needs durable progress"
-                ):
-                    current_request.send(
-                        runtime,
-                        "execute_change_set",
-                        {"StackName": "A", "ChangeSetName": "change"},
-                        transport,
-                    )
-            transport.assert_not_called()
-            self.assertTrue(path.exists())
 
-    def test_missing_changeset_poll_saves_before_release(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory).resolve() / "request.json"
-            record = {
-                "name": "A",
-                "operation": "execute_change_set",
-                "stackId": "stack",
-                "changeSetId": "change",
-                "token": "original",
-            }
-            path.write_text(json.dumps(record), encoding="utf-8")
-            path.chmod(0o600)
-            event = {
-                "StackId": "stack",
-                "PhysicalResourceId": "stack",
-                "ResourceType": "AWS::CloudFormation::Stack",
-                "ClientRequestToken": "original",
-                "ResourceStatus": "UPDATE_COMPLETE",
-            }
-            state = {
-                "status": "RUNNING",
-                "clientToken": "original",
-                "changeSetId": "change",
-                "executionEvidence": {"StackId": "stack"},
-            }
-            backend = SimpleNamespace(
-                target={},
-                states={"A": state},
-                units=[{"name": "A"}],
-                aws=partial(missing_changeset_aws, event),
-                templates={},
-            )
-            backend.poll = partial(controller.poll, backend)
-            progress = path.parent / "progress.json"
-            backend.save = Mock(
-                side_effect=partial(save_test_state, self, path, progress, state)
-            )
-            with patch.object(current_request, "location", return_value=path):
-                worker_state = dict(state)
-                self.assertEqual(
-                    controller.poll(backend, {"name": "A"}, worker_state),
-                    "ATTEMPT_SUCCESS",
-                )
-                self.assertEqual(json.loads(path.read_text()), record)
-                steps.refresh_requests(backend)
-            self.assertEqual(state["status"], "SUCCESS")
-            self.assertEqual(
-                worktree.read_sealed(path.parent, progress)["status"], "SUCCESS"
-            )
-            self.assertFalse(path.exists())
-            backend.save.assert_called_once()
 
-    def test_release_preserves_newer_request(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory).resolve() / "request.json"
-            old = {
-                "name": "A",
-                "operation": "execute_change_set",
-                "stackId": "stack",
-                "changeSetId": "old",
-                "token": "old",
-            }
-            new = old | {"changeSetId": "new", "token": "new"}
-            path.write_text(json.dumps(new), encoding="utf-8")
-            path.chmod(0o600)
-            with patch.object(current_request, "location", return_value=path):
-                current_request.release(SimpleNamespace(target={}), old)
-            self.assertEqual(json.loads(path.read_text()), new)
 
-    def test_request_ownership_checks_original_stack(self):
-        record = {
-            "operation": "execute_change_set",
-            "token": "token",
-            "changeSetId": "change",
-            "stackId": "stack",
-        }
-        state = {
-            "clientToken": "token",
-            "changeSetId": "change",
-            "executionEvidence": {"StackId": "other"},
-        }
-        self.assertFalse(current_request.owns(state, record))
-        state["executionEvidence"]["StackId"] = "stack"
-        self.assertTrue(current_request.owns(state, record))
-        self.assertTrue(current_request.owns(state, record | {"stackId": None}))
-        state["executionEvidence"] = {}
-        self.assertFalse(current_request.owns(state, record | {"stackId": None}))
 
-    def test_released_request_recovers_from_saved_token(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory).resolve() / "request.json"
-            event = {
-                "StackId": "stack",
-                "PhysicalResourceId": "stack",
-                "ResourceType": "AWS::CloudFormation::Stack",
-                "ClientRequestToken": "original",
-                "ResourceStatus": "UPDATE_COMPLETE",
-            }
-            state = {
-                "status": "RUNNING",
-                "clientToken": "original",
-                "changeSetId": "deleted",
-                "executionEvidence": {"StackId": "stack"},
-            }
-            aws = Mock(side_effect=partial(missing_changeset_aws, event))
-            backend = SimpleNamespace(
-                target={},
-                states={"A": state},
-                units=[{"name": "A"}],
-                aws=aws,
-                templates={},
-                save=Mock(),
-            )
-            backend.poll = partial(controller.poll, backend)
-            with patch.object(current_request, "location", return_value=path):
-                steps.refresh_requests(backend)
-            self.assertEqual(state["status"], "SUCCESS")
-            backend.save.assert_called_once()
-            self.assertIn(
-                "describe_change_set", [call.args[0] for call in aws.call_args_list]
-            )
 
-    def test_interruption_before_save_or_release_recovers(self):
-        for boundary in ("save", "release"):
-            with (
-                self.subTest(boundary=boundary),
-                tempfile.TemporaryDirectory() as directory,
-            ):
-                root = Path(directory).resolve()
-                path, progress = root / "request.json", root / "progress.json"
-                record = {
-                    "name": "A",
-                    "operation": "execute_change_set",
-                    "stackId": "stack",
-                    "changeSetId": "change",
-                    "token": "original",
-                }
-                path.write_text(json.dumps(record), encoding="utf-8")
-                path.chmod(0o600)
-                event = {
-                    "StackId": "stack",
-                    "PhysicalResourceId": "stack",
-                    "ResourceType": "AWS::CloudFormation::Stack",
-                    "ClientRequestToken": "original",
-                    "ResourceStatus": "UPDATE_COMPLETE",
-                }
-                original = {
-                    "status": "RUNNING",
-                    "clientToken": "original",
-                    "changeSetId": "change",
-                    "executionEvidence": {"StackId": "stack"},
-                }
-                state = dict(original)
-                aws = Mock(side_effect=partial(missing_changeset_aws, event))
-                backend = SimpleNamespace(
-                    target={},
-                    states={"A": state},
-                    units=[{"name": "A"}],
-                    aws=aws,
-                    templates={},
-                )
-                backend.poll = partial(controller.poll, backend)
-                backend.save = Mock(
-                    side_effect=OSError("interrupted")
-                    if boundary == "save"
-                    else partial(worktree.write_sealed, root, progress, state)
-                )
-                release = current_request.release
-                with (
-                    patch.object(current_request, "location", return_value=path),
-                    patch.object(
-                        current_request,
-                        "release",
-                        side_effect=OSError("interrupted")
-                        if boundary == "release"
-                        else None,
-                        wraps=release,
-                    ),
-                ):
-                    with self.assertRaises(OSError):
-                        steps.refresh_requests(backend)
-                    self.assertTrue(path.exists())
-                state = (
-                    worktree.read_sealed(root, progress)
-                    if progress.exists()
-                    else dict(original)
-                )
-                backend.states = {"A": state}
-                backend.save = Mock(
-                    side_effect=partial(worktree.write_sealed, root, progress, state)
-                )
-                with patch.object(current_request, "location", return_value=path):
-                    steps.refresh_requests(backend)
-                self.assertEqual(state["status"], "SUCCESS")
-                self.assertFalse(path.exists())
-                self.assertNotIn(
-                    "execute_change_set", [call.args[0] for call in aws.call_args_list]
-                )
 
-    def test_unknown_attempt_does_not_restart(self):
-        scoped = [{"name": "A", "deployOrder": 10}]
-        state = {"A": {"status": "BLOCKED", "attemptResult": "UNKNOWN"}}
-        backend = Fake()
-        backend.prepare = Mock()
-        backend.execute = Mock()
-        scheduler.run_group(scoped, 1, state, backend)
-        steps.retry_terminal_attempts(
-            SimpleNamespace(states=state, units=scoped), {"A"}
-        )
-        self.assertEqual(state["A"]["attemptResult"], "UNKNOWN")
-        backend.prepare.assert_not_called()
-        backend.execute.assert_not_called()
 
-    def test_request_read_failure_does_not_stop_other_stack(self):
-        states = {"A": {"status": "RUNNING"}, "B": {"status": "SUCCESS"}}
-        backend = SimpleNamespace(
-            units=[{"name": "A"}, {"name": "B"}],
-            states=states,
-            aws=Mock(
-                return_value={
-                    "Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}]
-                }
-            ),
-        )
-        with patch.object(
-            current_request, "reconcile", side_effect=[Blocked("busy"), None]
-        ):
-            steps.refresh_requests(backend)
-        self.assertTrue(states["A"]["requestPending"])
-        self.assertEqual(states["A"]["requestError"], "busy")
-        self.assertEqual(states["B"]["status"], "SUCCESS")
-        self.assertEqual(states["B"]["currentStack"]["StackStatus"], "UPDATE_COMPLETE")
 
     def test_next_order_requires_aws_success_without_observed_or_git(self):
         scoped = units(10, 20)
@@ -1692,9 +1160,6 @@ class TestCurrentState(TestCase):
         self.assertEqual(state["C"]["status"], "NOT_STARTED")
         state["A"].update(status="FAILED")
         state["B"].update(status="NOT_STARTED")
-        steps.retry_terminal_attempts(
-            SimpleNamespace(states=state, units=scoped, run_context={}), {"A"}
-        )
         self.assertEqual(state["A"]["status"], "FAILED")
 
     def test_old_scheduler_diagnostic_does_not_stop_current_scope(self):
@@ -1732,41 +1197,8 @@ class TestCurrentState(TestCase):
         current_state.refresh(backend, [{"name": "A"}])
         self.assertEqual(state["status"], "SUCCESS")
         self.assertTrue(state["needsCurrentReview"])
-        steps.retry_terminal_attempts(backend, {"A"})
-        self.assertEqual(state["status"], "NOT_STARTED")
+        self.assertEqual(state["status"], "SUCCESS")
 
-    def test_completed_changeset_outweighs_stale_failure_event(self):
-        stack = {"StackId": "root", "StackStatus": "UPDATE_COMPLETE"}
-        record = {
-            "operation": "execute_change_set",
-            "name": "A",
-            "stackId": "root",
-            "changeSetId": "change",
-            "token": "original",
-            "before": current_state.identity(stack),
-        }
-        aws = Mock(
-            side_effect=[
-                {
-                    "ChangeSetId": "change",
-                    "StackId": "root",
-                    "Status": "CREATE_COMPLETE",
-                    "ExecutionStatus": "EXECUTE_COMPLETE",
-                },
-                {
-                    "StackEvents": [
-                        {
-                            "StackId": "root",
-                            "PhysicalResourceId": "root",
-                            "ResourceType": "AWS::CloudFormation::Stack",
-                            "ClientRequestToken": "original",
-                            "ResourceStatus": "UPDATE_FAILED",
-                        }
-                    ]
-                },
-            ]
-        )
-        self.assertTrue(current_request.settled(aws, record, stack))
 
     def test_status_classes_are_distinct(self):
         cases = {
@@ -1859,98 +1291,8 @@ class TestCurrentState(TestCase):
                 StackName="A",
             )
 
-    def test_foreign_settled_failure_is_not_this_attempts_failure(self):
-        record = {
-            "operation": "execute_change_set",
-            "name": "A",
-            "stackId": "stack",
-            "token": "submitted",
-            "changeSetId": "change",
-            "result": "FAIL",
-        }
-        for own in [False, True]:
-            state = {
-                "status": "NOT_STARTED",
-                "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
-            }
-            if own:
-                state.update(
-                    clientToken="submitted",
-                    changeSetId="change",
-                    executionEvidence={"StackId": "stack"},
-                )
-            backend = SimpleNamespace(target={}, states={"A": state}, aws=Mock())
-            with (
-                self.subTest(own=own),
-                patch.object(current_request, "location", return_value=Mock()),
-                patch.object(operation_journal, "locked", return_value=nullcontext()),
-                patch.object(current_request, "read", return_value=record),
-                patch.object(current_request, "settled", return_value=True),
-            ):
-                found = current_request.reconcile(backend, {"name": "A"})
-                self.assertTrue(found["settled"])
-                self.assertEqual(current_request.owns(state, found), own)
-                self.assertFalse(state.get("failureDetected", False))
 
-    def test_nested_stack_event_does_not_settle_the_root_request(self):
-        record = {
-            "operation": "continue_update_rollback",
-            "name": "A",
-            "stackId": "root",
-            "token": "submitted",
-        }
-        event = {
-            "StackId": "root",
-            "PhysicalResourceId": "child",
-            "ResourceType": "AWS::CloudFormation::Stack",
-            "ClientRequestToken": "submitted",
-            "ResourceStatus": "UPDATE_COMPLETE",
-        }
-        aws = Mock(return_value={"StackEvents": [event]})
-        current = {"StackId": "root", "StackStatus": "UPDATE_COMPLETE"}
-        self.assertFalse(current_request.settled(aws, record, current))
-        event["PhysicalResourceId"] = "root"
-        self.assertTrue(current_request.settled(aws, record, current))
-        event.pop("ResourceStatus")
-        self.assertFalse(current_request.settled(aws, record, current))
 
-    def test_pending_secret_request_preserves_bootstrap_resume(self):
-        states = {
-            "Owner": {"status": "SUCCESS"},
-            "Consumer": {"status": "FAILED", "bootstrap": {"stage": "PUT_SUBMITTED"}},
-        }
-        backend = SimpleNamespace(
-            units=[{"name": "Owner"}, {"name": "Consumer"}],
-            states=states,
-            aws=Mock(
-                side_effect=[
-                    {
-                        "Stacks": [
-                            {"StackId": "owner", "StackStatus": "CREATE_COMPLETE"}
-                        ]
-                    },
-                    {
-                        "Stacks": [
-                            {"StackId": "consumer", "StackStatus": "ROLLBACK_COMPLETE"}
-                        ]
-                    },
-                ]
-            ),
-            run_context={"deployResult": "FAIL"},
-        )
-        with patch.object(
-            current_request,
-            "reconcile",
-            side_effect=[
-                {"service": "secretsmanager", "operation": "put_secret_value"},
-                None,
-            ],
-        ):
-            steps.refresh_requests(backend)
-        steps.retry_terminal_attempts(backend, {"Consumer"})
-        self.assertEqual(states["Owner"]["status"], "SUCCESS")
-        self.assertEqual(states["Consumer"]["status"], "FAILED")
-        self.assertEqual(states["Consumer"]["bootstrap"]["stage"], "PUT_SUBMITTED")
 
     def test_all_pages_and_incomplete_listing(self):
         aws = Mock(
@@ -1987,70 +1329,7 @@ class TestCurrentState(TestCase):
                 StackName="Example",
             )
 
-    def test_old_complete_does_not_settle_lost_execute(self):
-        record = {
-            "operation": "execute_change_set",
-            "name": "Example",
-            "changeSetId": "change",
-            "stackId": "stack",
-            "token": "original",
-        }
-        aws = Mock(
-            side_effect=[
-                {
-                    "ExecutionStatus": "AVAILABLE",
-                    "ChangeSetId": "change",
-                    "StackId": "stack",
-                },
-                {"StackEvents": []},
-            ]
-        )
-        self.assertFalse(
-            current_request.settled(
-                aws, record, {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
-            )
-        )
-        aws = Mock(
-            return_value={
-                "ExecutionStatus": "EXECUTE_COMPLETE",
-                "ChangeSetId": "change",
-                "StackId": "stack",
-            }
-        )
-        self.assertTrue(
-            current_request.settled(
-                aws,
-                record,
-                {"StackId": "stack", "StackStatus": "UPDATE_ROLLBACK_COMPLETE"},
-            )
-        )
 
-    def test_missing_change_set_requires_terminal_original_root_event(self):
-        record = {
-            "operation": "execute_change_set",
-            "name": "Example",
-            "changeSetId": "change",
-            "stackId": "stack",
-            "token": "original",
-        }
-        event = {
-            "StackId": "stack",
-            "PhysicalResourceId": "stack",
-            "ResourceType": "AWS::CloudFormation::Stack",
-            "ClientRequestToken": "original",
-            "ResourceStatus": "UPDATE_COMPLETE",
-        }
-        current = {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
-        for events, expected in [([], False), ([event], True)]:
-            aws = Mock(
-                side_effect=[
-                    AwsError(
-                        "cloudformation", "describe_change_set", "ChangeSetNotFound"
-                    ),
-                    {"StackEvents": events},
-                ]
-            )
-            self.assertEqual(current_request.settled(aws, record, current), expected)
 
     def test_attempt_events_do_not_replace_current_stack_observation(self):
         for current, event_status, expected in [
@@ -2078,7 +1357,7 @@ class TestCurrentState(TestCase):
                     ]
                 )
                 backend = SimpleNamespace(aws=aws, templates={})
-                with patch.object(current_request, "reconcile", return_value=None):
+                with nullcontext():
                     result = controller.poll(backend, {"name": "A"}, state)
                 current_state.record_attempt(state, result)
                 self.assertEqual(state["status"], expected)
@@ -2092,136 +1371,8 @@ class TestCurrentState(TestCase):
         current_state.record_attempt(failed, "UNCONFIRMED")
         self.assertEqual(failed["status"], "BLOCKED")
 
-    def test_missing_request_recovers_changeset_result_and_keeps_current_observation(
-        self,
-    ):
-        for execution, current, expected in [
-            ("EXECUTE_COMPLETE", "UPDATE_COMPLETE", "SETTLED"),
-            ("EXECUTE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE", "SETTLED"),
-            ("EXECUTE_FAILED", "UPDATE_COMPLETE", "SETTLED"),
-            ("AVAILABLE", "UPDATE_COMPLETE", "BLOCKED"),
-        ]:
-            with (
-                self.subTest(execution=execution),
-                tempfile.TemporaryDirectory() as directory,
-            ):
-                state = {
-                    "status": "RUNNING",
-                    "clientToken": "own",
-                    "changeSetId": "change",
-                    "executionEvidence": {"StackId": "stack"},
-                }
 
-                aws = partial(recovery_test_aws, current=current, execution=execution)
-                reader = Mock(side_effect=aws)
-                backend = SimpleNamespace(
-                    target={},
-                    states={"A": state},
-                    units=[{"name": "A"}],
-                    aws=reader,
-                    templates={},
-                    save=Mock(),
-                )
-                backend.poll = partial(controller.poll, backend)
-                with patch.object(
-                    current_request,
-                    "location",
-                    return_value=Path(directory).resolve() / "absent",
-                ):
-                    steps.refresh_requests(backend)
-                self.assertEqual(state["status"], expected, state)
-                self.assertEqual(state["currentStack"]["StackStatus"], current)
-                self.assertIn(
-                    "describe_change_set",
-                    [call.args[0] for call in reader.call_args_list],
-                )
-                self.assertNotIn(
-                    "execute_change_set",
-                    [call.args[0] for call in reader.call_args_list],
-                )
-                if expected == "SETTLED":
-                    backend.save.assert_called_once()
-                else:
-                    self.assertTrue(state["requestPending"])
 
-    def test_completed_shared_request_is_saved_before_release_with_later_event(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory).resolve() / "request.json"
-            record = {
-                "name": "A",
-                "operation": "execute_change_set",
-                "stackId": "stack",
-                "changeSetId": "change",
-                "token": "original",
-            }
-            path.write_text(json.dumps(record), encoding="utf-8")
-            path.chmod(0o600)
-            state = {
-                "status": "RUNNING",
-                "clientToken": "original",
-                "changeSetId": "change",
-                "executionEvidence": {
-                    "StackId": "stack",
-                    "ChangeSetId": "change",
-                    "clientToken": "original",
-                },
-            }
-
-            backend = SimpleNamespace(
-                target={},
-                states={"A": state},
-                units=[{"name": "A"}],
-                aws=later_event_test_aws,
-                templates={},
-            )
-            backend.poll = partial(controller.poll, backend)
-            progress = path.parent / "progress.json"
-            backend.save = Mock(
-                side_effect=partial(save_test_state, self, path, progress, state)
-            )
-            with patch.object(current_request, "location", return_value=path):
-                steps.refresh_requests(backend)
-            saved = worktree.read_sealed(path.parent, progress)
-            self.assertEqual(saved["status"], "SETTLED")
-            self.assertEqual(saved["attemptResult"], "UNKNOWN")
-            self.assertEqual(
-                saved["currentStack"]["StackStatus"], "UPDATE_ROLLBACK_COMPLETE"
-            )
-            self.assertFalse(path.exists())
-
-    def test_inconsistent_saved_execution_identity_stays_unconfirmed(self):
-        for field, value in [("clientToken", "other"), ("ChangeSetId", "other")]:
-            state = {
-                "status": "RUNNING",
-                "clientToken": "original",
-                "changeSetId": "change",
-                "executionEvidence": {
-                    "StackId": "stack",
-                    "ChangeSetId": "change",
-                    "clientToken": "original",
-                },
-            }
-            state["executionEvidence"][field] = value
-            aws = Mock(
-                return_value={
-                    "Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}]
-                }
-            )
-            status = controller.poll(
-                SimpleNamespace(aws=aws, templates={}), {"name": "A"}, state
-            )
-            self.assertEqual(status, "UNCONFIRMED")
-            self.assertFalse(
-                current_request.owns(
-                    state,
-                    {
-                        "operation": "execute_change_set",
-                        "token": "original",
-                        "changeSetId": "change",
-                        "stackId": "stack",
-                    },
-                )
-            )
 
     def test_unknown_identifier_does_not_render_an_old_id(self):
         row = {
@@ -2243,28 +1394,6 @@ class TestCurrentState(TestCase):
             validate_model_keys(properties(after))
         stack_model(properties(before))
 
-    def test_external_request_completion_requires_fresh_desired_changeset(self):
-        backend = SimpleNamespace(
-            units=[{"name": "A"}],
-            states={"A": {"status": "NOT_STARTED"}},
-            target={},
-            aws=Mock(
-                return_value={
-                    "Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}]
-                }
-            ),
-        )
-        pending = {
-            "operation": "execute_change_set",
-            "changeSetId": "foreign",
-            "token": "foreign-token",
-        }
-        with patch.object(current_request, "reconcile", side_effect=[pending, None]):
-            steps.refresh_requests(backend)
-            self.assertTrue(backend.states["A"]["externalOperation"])
-            steps.refresh_requests(backend)
-        self.assertEqual(backend.states["A"]["status"], "NOT_STARTED")
-        self.assertNotIn("clientToken", backend.states["A"])
 
     def test_update_refreshes_only_unclaimed_input_identities(self):
         unit = {"name": "A"}
@@ -2328,56 +1457,7 @@ class TestCurrentState(TestCase):
         backend.file_digest.assert_not_called()
         backend.input_digest.assert_not_called()
 
-    def test_external_secret_repair_settles_initial_stage_without_overwrite(self):
-        record = {
-            "service": "secretsmanager",
-            "operation": "update_secret_version_stage",
-            "resourceId": "secret",
-            "token": "original",
-        }
-        metadata = {
-            "VersionIdsToStages": {"original": ["PRIVATE"], "external": ["AWSCURRENT"]}
-        }
-        self.assertTrue(
-            current_request.settled(
-                Mock(return_value=metadata), record, {"StackStatus": "UPDATE_COMPLETE"}
-            )
-        )
-        transport = Mock()
-        with self.assertRaises(Blocked):
-            current_request.send(
-                SimpleNamespace(),
-                "update_secret_version_stage",
-                {
-                    "MoveToVersionId": "original",
-                    "RemoveFromVersionId": "external",
-                    "VersionStage": "AWSCURRENT",
-                },
-                transport,
-                service="secretsmanager",
-                stack_name="Owner",
-            )
-        transport.assert_not_called()
 
-    def test_new_advance_uses_external_repair_without_inheriting_failure(self):
-        state = {
-            "status": "FAILED",
-            "failureDetected": True,
-            "clientToken": "past",
-            "currentStack": {"StackId": "current", "StackStatus": "UPDATE_COMPLETE"},
-            "stackStatus": "UPDATE_COMPLETE",
-            "requestPending": False,
-        }
-        backend = SimpleNamespace(
-            states={"A": state}, run_context={"deployResult": "FAIL"}
-        )
-        steps.retry_terminal_attempts(backend, {"A"})
-        self.assertEqual(state["status"], "NOT_STARTED")
-        self.assertNotIn("failureDetected", state)
-        self.assertNotIn("deployResult", backend.run_context)
-        state.update(status="FAILED", requestPending=True)
-        steps.retry_terminal_attempts(backend, {"A"})
-        self.assertEqual(state["status"], "FAILED")
 
     def test_generation_is_independent_of_deploy_result(self):
         states = {
@@ -2548,101 +1628,12 @@ def check_candidate_subprocess_result_and_resolved_root(
     assert run.call_args.kwargs["capture_output"] is True
 
 
-@pytest.mark.parametrize(
-    "operation", ["execute_change_set", "delete_stack", "continue_update_rollback"]
-)
-def check_deleted_original_stack_ends_tracking_without_success(operation):
-    record = {
-        "operation": operation,
-        "name": "A",
-        "stackId": "old-id",
-        "changeSetId": "old-change",
-        "token": "original",
-    }
-    aws = Mock(
-        side_effect=AwsError(
-            "cloudformation", "describe_stacks", "ValidationError", stack_absent=True
-        )
-    )
-    assert current_request.settled(aws, record, {"StackStatus": "ABSENT"})
-    aws.assert_called_once_with("describe_stacks", StackName="old-id")
-    assert record["result"] == "SETTLED"
-    assert record["trackingReason"] == "ORIGINAL_STACK_DELETED"
 
 
-@pytest.mark.parametrize(
-    "operation", ["execute_change_set", "create_change_set", "put_secret_value"]
-)
-def check_recreated_stack_does_not_mix_request_targets(operation):
-    record = {
-        "operation": operation,
-        "name": "A",
-        "stackId": "old-id",
-        "changeSetId": "old-change",
-        "token": "original",
-        "resourceId": "secret",
-    }
-    if operation == "put_secret_value":
-        record["service"] = "secretsmanager"
-        aws = Mock(return_value={"VersionIdsToStages": {"other": ["AWSCURRENT"]}})
-    else:
-        aws = Mock(
-            side_effect=AwsError(
-                "cloudformation", "describe_change_set", "ChangeSetNotFound"
-            )
-        )
-    confirmed = current_request.settled(
-        aws, record, {"StackId": "new-id", "StackStatus": "UPDATE_COMPLETE"}
-    )
-    assert confirmed == (operation == "execute_change_set")
-    if confirmed:
-        assert record["result"] == "SETTLED"
-        aws.assert_not_called()
 
 
-@pytest.mark.parametrize("error", ["AccessDenied", "EndpointConnectionError"])
-def check_original_stack_read_error_never_means_deleted(error):
-    record = {
-        "operation": "execute_change_set",
-        "name": "A",
-        "stackId": "old-id",
-        "changeSetId": "change",
-        "token": "original",
-    }
-    aws = Mock(side_effect=AwsError("cloudformation", "describe_stacks", error))
-    assert not current_request.settled(aws, record, {"StackStatus": "ABSENT"})
-    assert "trackingReason" not in record
 
 
-def check_ended_unknown_detaches_submission_and_allows_fresh_preparation():
-    record = {
-        "operation": "execute_change_set",
-        "name": "A",
-        "stackId": "old-id",
-        "changeSetId": "old-change",
-        "token": "original",
-        "settled": True,
-        "trackingReason": "ORIGINAL_STACK_REPLACED",
-        "result": "SETTLED",
-    }
-    state = {
-        "status": "RUNNING",
-        "clientToken": "original",
-        "changeSetId": "old-change",
-        "executionEvidence": {"StackId": "old-id"},
-        "currentStack": {"StackId": "new-id", "StackStatus": "UPDATE_COMPLETE"},
-    }
-    current_request.end_tracking(state, record)
-    assert state["attemptResult"] == state["endedRequest"]["result"] == "UNKNOWN"
-    assert (
-        not {"clientToken", "changeSetId", "executionEvidence", "preparationId"}
-        & state.keys()
-    )
-    backend = SimpleNamespace(states={"A": state}, run_context={})
-    steps.retry_terminal_attempts(backend, {"A"})
-    assert state["status"] == "NOT_STARTED"
-    assert state["endedRequest"]["result"] == "UNKNOWN"
-    assert not state.get("clientToken")
 
 
 @pytest.mark.parametrize("action", ["advance", "checkpoint", "status"])
@@ -2664,88 +1655,6 @@ def check_final_cli_rejected_before_action(action):
     run_step.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "owner,change",
-    [("original", "change"), ("foreign", "change"), ("original", "other")],
-)
-def check_completed_create_only_allows_its_own_execute(tmp_path, owner, change):
-    stack = "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/id"
-    change_arn = (
-        "arn:aws:cloudformation:ap-northeast-1:123456789012:changeSet/change/id"
-    )
-    request = tmp_path / "request.json"
-    request.write_text(
-        json.dumps(
-            {
-                "operation": "create_change_set",
-                "name": "A",
-                "stackId": stack,
-                "changeSetId": "change",
-                "token": "original",
-            }
-        ),
-        encoding="utf-8",
-    )
-    request.chmod(0o600)
-    runtime = SimpleNamespace(
-        target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
-        states={
-            "A": {
-                "preparationId": owner,
-                "changeSetId": change_arn,
-                "stackId": stack,
-                "changeDigest": fingerprint([]),
-                "approvedChangeDigest": fingerprint([]),
-                "clientToken": "execute",
-                "executionEvidence": {
-                    "StackId": stack,
-                    "ChangeSetId": change_arn,
-                    "clientToken": "execute",
-                    "changeDigest": fingerprint([]),
-                    "inputDigest": "input",
-                },
-            }
-        },
-        save=Mock(),
-        aws=Mock(
-            return_value={
-                "StackId": stack,
-                "ChangeSetId": change_arn,
-                "Status": "CREATE_COMPLETE",
-                "ExecutionStatus": "AVAILABLE",
-            }
-        ),
-    )
-    arguments = {
-        "StackName": stack,
-        "ChangeSetName": change_arn if change == "change" else change,
-        "ClientRequestToken": "execute",
-    }
-    transport = Mock(return_value={})
-    with (
-        patch.object(current_request, "location", return_value=request),
-        patch.object(
-            current_state,
-            "read",
-            return_value={"StackId": stack, "StackStatus": "UPDATE_COMPLETE"},
-        ),
-    ):
-        if owner == "original" and change == "change":
-            current_request.send(runtime, "execute_change_set", arguments, transport)
-            transport.assert_called_once_with(
-                runtime, "cloudformation", "execute_change_set", arguments
-            )
-            TestCase().assertEqual(
-                json.loads(request.read_text(encoding="utf-8"))["operation"],
-                "execute_change_set",
-            )
-        else:
-            with pytest.raises(Blocked, match="fresh current ChangeSet"):
-                current_request.send(
-                    runtime, "execute_change_set", arguments, transport
-                )
-            transport.assert_not_called()
-    runtime.save.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -2880,31 +1789,20 @@ def check_missing_execution_identity_cannot_adopt_current_success():
         states={},
     )
     state = {"status": "BLOCKED", "attemptResult": "UNKNOWN"}
-    with patch.object(current_request, "reconcile", return_value=None):
-        assert controller.poll(backend, {"name": "A"}, state) == "UNCONFIRMED"
-    assert (
-        state["attemptResult"] == "UNKNOWN"
-        and "identity is incomplete" in state["requestError"]
-    )
+    assert controller.poll(backend, {"name": "A"}, state) == "UNCONFIRMED"
+    assert state["attemptResult"] == "UNKNOWN"
 
 
 def check_refresh_only_reads_selected_sync_stacks_once():
     backend = SimpleNamespace(
         units=[{"name": "A"}, {"name": "B"}],
-        states={
-            "A": {"status": "NOT_STARTED"},
-            "B": {"status": "SUCCESS", "observedSynced": True},
-        },
-        aws=Mock(
-            return_value={
-                "Stacks": [{"StackId": "a", "StackStatus": "UPDATE_COMPLETE"}]
-            }
-        ),
+        states={"A": {"status": "NOT_STARTED"}, "B": {"status": "SUCCESS", "observedSynced": True}},
+        aws=Mock(return_value={"Stacks": [{"StackId": "a", "StackStatus": "UPDATE_COMPLETE"}]}),
     )
-    with patch.object(current_request, "reconcile", return_value=None):
-        steps.refresh_requests(backend, [backend.units[0]])
+    current_state.refresh(backend, [backend.units[0]])
     backend.aws.assert_called_once_with("describe_stacks", StackName="A")
     assert backend.states["B"] == {"status": "SUCCESS", "observedSynced": True}
+
 
 
 def check_final_acceptance_includes_earlier_task_checkpoints(tmp_path, monkeypatch):
@@ -2944,42 +1842,6 @@ def check_final_acceptance_includes_earlier_task_checkpoints(tmp_path, monkeypat
     assert paths.call_args_list[1].args[-1] == "HEAD"
 
 
-def check_unconfirmed_create_preserves_original_recovery_identity(tmp_path):
-    request = tmp_path / "request.json"
-    record = {
-        "operation": "create_change_set",
-        "name": "A",
-        "stackId": None,
-        "changeSetId": "original-change",
-        "token": "original-token",
-    }
-    request.write_text(json.dumps(record), encoding="utf-8")
-    request.chmod(0o600)
-    state = {
-        "status": "CHANGESET_CREATING",
-        "preparationId": "original-token",
-        "changeSetId": "original-change",
-        "currentStack": {"StackStatus": "ABSENT"},
-    }
-    backend = SimpleNamespace(
-        target={},
-        states={"A": state},
-        aws=Mock(
-            side_effect=AwsError(
-                "cloudformation", "describe_change_set", "ChangeSetNotFound"
-            )
-        ),
-    )
-    with patch.object(current_request, "location", return_value=request):
-        found = current_request.reconcile(backend, {"name": "A"})
-    assert state["createUnconfirmed"] and found["createUnconfirmed"]
-    assert (
-        found["token"] == "original-token" and found["changeSetId"] == "original-change"
-    )
-    assert (
-        not found.get("settled")
-        and json.loads(request.read_text(encoding="utf-8")) == record
-    )
 
 
 @pytest.mark.parametrize(
@@ -2999,14 +1861,13 @@ def check_current_guidance_preserves_safe_recovery_and_final_choices(condition):
         "snapshotValidation": "PASS",
     }
     if condition == "request":
-        state.update(status="RUNNING", requestPending=True)
+        state.update(status="RUNNING")
     elif condition in {"approval", "authorization"}:
         state.update(status="BLOCKED", failure={"classification": condition.upper()})
     elif condition == "ended-unknown":
         state.update(
             status="SETTLED",
             attemptResult="UNKNOWN",
-            endedRequest={"result": "UNKNOWN"},
         )
     else:
         context["generationError"] = "generation incomplete"
@@ -3035,157 +1896,6 @@ def check_current_guidance_preserves_safe_recovery_and_final_choices(condition):
         assert report["deployResult"] == "UNKNOWN" and report["task"] == "running"
 
 
-@pytest.mark.parametrize(
-    "problem",
-    [
-        "owner",
-        "stack",
-        "changeset",
-        "same-name-other-id",
-        "approval",
-        "digest",
-        "evidence",
-        "token",
-        "failed",
-        "in-progress",
-        "unavailable",
-        "account",
-        "region",
-        "partition",
-        "input",
-        "ended",
-        "ended-missing-identity",
-        "ended-delete-unconfirmed",
-    ],
-)
-def check_create_handoff_rejects_mismatched_evidence(tmp_path, problem):
-    stack = "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/stack-id"
-    change = "arn:aws:cloudformation:ap-northeast-1:123456789012:changeSet/change/id"
-    digest = fingerprint([])
-    prior = {
-        "operation": "create_change_set",
-        "name": "A",
-        "stackId": stack,
-        "changeSetId": "change",
-        "token": "create",
-    }
-    state = {
-        "status": "RUNNING",
-        "preparationId": "create",
-        "stackId": stack,
-        "changeSetId": change,
-        "clientToken": "execute",
-        "changeDigest": digest,
-        "approvedChangeDigest": digest,
-        "executionEvidence": {
-            "StackId": stack,
-            "ChangeSetId": change,
-            "clientToken": "execute",
-            "changeDigest": digest,
-            "inputDigest": "input",
-        },
-    }
-    observed = {
-        "Status": "CREATE_COMPLETE",
-        "ExecutionStatus": "AVAILABLE",
-        "StackId": stack,
-        "ChangeSetId": change,
-        "Changes": [],
-    }
-    arguments = {
-        "StackName": stack,
-        "ChangeSetName": change,
-        "ClientRequestToken": "execute",
-    }
-    if problem == "owner":
-        state["preparationId"] = "foreign"
-    if problem == "stack":
-        prior["stackId"] = stack + "-other"
-    if problem == "changeset":
-        state["changeSetId"] = change + "-other"
-    if problem == "same-name-other-id":
-        observed["ChangeSetId"] = change + "-other"
-    if problem == "approval":
-        state.pop("approvedChangeDigest")
-    if problem == "digest":
-        observed["Changes"] = [{"other": "change"}]
-    if problem == "evidence":
-        state["executionEvidence"]["StackId"] = stack + "-other"
-    if problem == "token":
-        arguments["ClientRequestToken"] = "other"
-    if problem == "failed":
-        observed["Status"] = "FAILED"
-    if problem == "in-progress":
-        observed["Status"] = "CREATE_IN_PROGRESS"
-    if problem == "unavailable":
-        observed["ExecutionStatus"] = "OBSOLETE"
-    if problem == "input":
-        state["executionEvidence"].pop("inputDigest")
-    if problem == "ended-missing-identity":
-        state["endedRequest"] = {
-            "request": {
-                "operation": "execute_change_set",
-                "settled": True,
-                "trackingReason": "TOKEN_ROOT_EVENT",
-                "result": "FAIL",
-            },
-            "executionEvidence": {"inputDigest": "earlier-input"},
-            "result": "FAIL",
-        }
-    if problem == "ended-delete-unconfirmed":
-        state["endedRequest"] = {
-            "request": {
-                "operation": "delete_stack",
-                "name": "A",
-                "stackId": stack + "-previous",
-                "token": "previous",
-                "settled": True,
-                "trackingReason": "ORIGINAL_STACK_DELETED",
-                "result": "SETTLED",
-                "originalStack": {"StackStatus": "ROLLBACK_COMPLETE"},
-            },
-            "result": "UNKNOWN",
-        }
-    if problem == "ended":
-        state["endedRequest"] = {"request": {"token": "earlier"}, "result": "UNKNOWN"}
-    if problem == "partition":
-        stack_other = stack.replace("arn:aws:", "arn:aws-cn:")
-        change_other = change.replace("arn:aws:", "arn:aws-cn:")
-        prior["stackId"] = stack_other
-        state.update(stackId=stack_other, changeSetId=change_other)
-        state["executionEvidence"].update(StackId=stack_other, ChangeSetId=change_other)
-        observed.update(StackId=stack_other, ChangeSetId=change_other)
-        arguments.update(StackName=stack_other, ChangeSetName=change_other)
-        stack = stack_other
-    request = tmp_path / "request.json"
-    request.write_text(json.dumps(prior), encoding="utf-8")
-    request.chmod(0o600)
-    backend = SimpleNamespace(
-        target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
-        states={"A": state},
-        aws=Mock(return_value=observed),
-        save=Mock(),
-    )
-    if problem == "account":
-        backend.target["awsAccountId"] = "999999999999"
-    if problem == "region":
-        backend.target["awsRegion"] = "us-east-1"
-    transport = Mock()
-    with (
-        patch.object(current_request, "location", return_value=request),
-        patch.object(
-            current_state,
-            "read",
-            return_value={"StackId": stack, "StackStatus": "UPDATE_COMPLETE"},
-        ),
-    ):
-        with pytest.raises(Blocked):
-            current_request.send(backend, "execute_change_set", arguments, transport)
-    transport.assert_not_called()
-    if problem == "ended":
-        assert state["endedRequest"]["request"]["token"] == "earlier"
-        assert json.loads(request.read_text())["token"] == "create"
-        backend.save.assert_not_called()
 
 
 def handoff_test_save(boundary, tmp_path, progress, state):
@@ -3203,139 +1913,6 @@ def handoff_test_replace_file(boundary, replace, *args, **kwargs):
     return result
 
 
-@pytest.mark.parametrize("boundary", ["save", "replace", "after_replace", "transport"])
-@pytest.mark.parametrize("previous", [None, "SUCCESS", "FAIL", "DELETED"])
-def check_create_handoff_interruption_preserves_evidence(tmp_path, boundary, previous):
-    stack = "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/stack-id"
-    change = "arn:aws:cloudformation:ap-northeast-1:123456789012:changeSet/change/id"
-    digest = fingerprint([])
-    prior = {
-        "operation": "create_change_set",
-        "name": "A",
-        "stackId": stack,
-        "changeSetId": "change",
-        "token": "create",
-    }
-    state = {
-        "status": "RUNNING",
-        "preparationId": "create",
-        "stackId": stack,
-        "changeSetId": change,
-        "clientToken": "execute",
-        "changeDigest": digest,
-        "approvedChangeDigest": digest,
-        "executionEvidence": {
-            "StackId": stack,
-            "ChangeSetId": change,
-            "clientToken": "execute",
-            "changeDigest": digest,
-            "inputDigest": "input",
-        },
-    }
-    if previous:
-        state["endedRequest"] = {
-            "request": {
-                "operation": "execute_change_set",
-                "stackId": stack,
-                "changeSetId": change + "-previous",
-                "token": "previous",
-                "settled": True,
-                "trackingReason": "TOKEN_ROOT_EVENT",
-                "result": previous,
-            },
-            "executionEvidence": {
-                "StackId": stack,
-                "ChangeSetId": change + "-previous",
-                "clientToken": "previous",
-                "inputDigest": "earlier-input",
-            },
-            "result": previous,
-        }
-    if previous == "DELETED":
-        state["endedRequest"] = {
-            "request": {
-                "operation": "delete_stack",
-                "name": "A",
-                "stackId": stack.replace("stack-id", "previous-stack"),
-                "token": "previous",
-                "settled": True,
-                "trackingReason": "ORIGINAL_STACK_DELETED",
-                "result": "SETTLED",
-                "originalStack": {"StackStatus": "ABSENT"},
-            },
-            "result": "UNKNOWN",
-        }
-    observed = {
-        "Status": "CREATE_COMPLETE",
-        "ExecutionStatus": "AVAILABLE",
-        "StackId": stack,
-        "ChangeSetId": change,
-        "Changes": [],
-    }
-    arguments = {
-        "StackName": stack,
-        "ChangeSetName": change,
-        "ClientRequestToken": "execute",
-    }
-    request, progress = tmp_path / "request.json", tmp_path / "progress.json"
-    request.write_text(json.dumps(prior), encoding="utf-8")
-    request.chmod(0o600)
-
-    save = partial(handoff_test_save, boundary, tmp_path, progress, state)
-
-    backend = SimpleNamespace(
-        target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
-        states={"A": state},
-        aws=Mock(return_value=observed),
-        save=save,
-    )
-    transport = Mock(side_effect=OSError("transport interrupted"))
-    replace = current_request.atomic_replace_file
-
-    replace_file = partial(handoff_test_replace_file, boundary, replace)
-
-    with (
-        patch.object(current_request, "location", return_value=request),
-        patch.object(
-            current_state,
-            "read",
-            return_value={"StackId": stack, "StackStatus": "UPDATE_COMPLETE"},
-        ),
-        patch.object(current_request, "atomic_replace_file", side_effect=replace_file),
-    ):
-        with pytest.raises(OSError):
-            current_request.send(backend, "execute_change_set", arguments, transport)
-    saved_request = json.loads(request.read_text())
-    assert saved_request["operation"] == (
-        "execute_change_set"
-        if boundary in {"after_replace", "transport"}
-        else "create_change_set"
-    )
-    assert transport.call_count == (1 if boundary == "transport" else 0)
-    if boundary != "save":
-        assert worktree.read_sealed(tmp_path, progress)["endedRequest"]["request"][
-            "token"
-        ] == ("previous" if previous else "create")
-    if boundary in {"after_replace", "transport"}:
-        assert saved_request["submission"] == "SENDING"
-        with (
-            patch.object(current_request, "location", return_value=request),
-            patch.object(
-                current_state,
-                "read",
-                return_value={"StackId": stack, "StackStatus": "UPDATE_COMPLETE"},
-            ),
-        ):
-            backend.aws = Mock(
-                side_effect=lambda operation, **kwargs: observed
-                if operation == "describe_change_set"
-                else {"StackEvents": []}
-            )
-            with pytest.raises(Blocked):
-                current_request.send(
-                    backend, "execute_change_set", arguments, transport
-                )
-        assert transport.call_count == (1 if boundary == "transport" else 0)
 
 
 if __name__ == "__main__":

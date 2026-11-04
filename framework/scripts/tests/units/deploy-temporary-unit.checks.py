@@ -50,8 +50,6 @@ def workspace(tmp_path):
         "CHANGESET_CREATING",
         "blocked",
         "changed-task-digest",
-        "uncertain-request",
-        "request-error",
         "unknown-attempt",
         "pending-observed",
         "pending-generation",
@@ -146,11 +144,7 @@ def check_owned_directory_cleanup(tmp_path, state):
     ):
         saved = {"App": {"status": state, "delivery": {"path": str(template)}}}
         context = {"states": saved}
-        if state == "uncertain-request":
-            saved["App"].update(status="BLOCKED", requestPending=True)
-        elif state == "request-error":
-            saved["App"].update(status="BLOCKED", requestError="unreadable request")
-        elif state == "unknown-attempt":
+        if state == "unknown-attempt":
             saved["App"].update(status="BLOCKED", attemptResult="UNKNOWN")
         pending = {
             "pending-observed": "pendingObserved",
@@ -174,19 +168,11 @@ def check_owned_directory_cleanup(tmp_path, state):
             "other-task",
             "same-repository",
             "changed-task-digest",
-            "uncertain-request",
-            "request-error",
-            "unknown-attempt",
+                    "unknown-attempt",
             "pending-observed",
             "pending-generation",
             "generation-error",
             "checkpoint-pending",
-            "failure",
-            "tampered-failure",
-            "foreign-failure",
-            "missing-template",
-            "request",
-            "unknown-request",
             "hardlink",
             "writable",
             "active-handoff",
@@ -222,7 +208,8 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         action="advance",
         sequential=False,
     )
-    prior_directory = temporary.create(journal, root, task, TARGET, ["App"])
+    prior_task = SimpleNamespace(name="tasks/prior.md", task_digest="prior")
+    prior_directory = temporary.create(journal, root, prior_task, TARGET, ["App"])
     prior_template = prior_directory / "App.json"
     prior_template.write_text("{}", encoding="utf-8")
     failure = evidence_store(root) / "deploy-failure-prior.json"
@@ -269,7 +256,7 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
             "stack_snapshot",
             return_value=SimpleNamespace(authoritative={}),
         ),
-        patch.object(steps, "refresh_requests"),
+        patch.object(steps.current_state, "refresh"),
         patch.object(steps, "checkpoint_receipts"),
         patch.object(steps, "describe", report),
         patch.object(steps, "run_group", return_value="ACTIVE"),
@@ -338,7 +325,7 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
         assert "approvedChangeDigest" not in read_sealed(root, failure)["states"]["App"]
         backend.run_context.update(taskFile="tasks/another.md", taskDigest="another")
         second = Path(temporary.handoff.record_failure(backend))
-        temporary.reclaim(journal, root, TARGET, task=task, run_context={"states": {}})
+        temporary.reclaim(journal, root, TARGET, task=task, run_context={"states": {}, "currentFailure": str(failure)})
         assert (
             failure.read_bytes() == original and second.exists() and template.exists()
         )
@@ -359,7 +346,7 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
             write_sealed(root, request, identity)
             with J.locked(journal):
                 temporary.reclaim(
-                    journal, root, TARGET, task=task, run_context={"states": {}}
+                    journal, root, TARGET, task=task, run_context={"states": {}, "currentFailure": str(failure)}
                 )
             assert template.exists() and failure.exists()
             write_sealed(
@@ -395,7 +382,7 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
                     failure.unlink()
                 with J.locked(journal):
                     temporary.reclaim(
-                        journal, root, TARGET, task=task, run_context={"states": {}}
+                        journal, root, TARGET, task=task, run_context={"states": {}, "currentFailure": str(failure)}
                     )
                 assert template.exists()
                 if consume == "unknown-cleanup":
@@ -407,46 +394,6 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
     with J.locked(journal):
         temporary.reclaim(journal, root, TARGET, task=task, run_context={"states": {}})
     assert not directory.exists()
-
-
-def check_inline_failure_template_does_not_block_reclamation(tmp_path):
-    root = tmp_path / "project"
-    root.mkdir()
-    template = root / "template.yaml"
-    template.write_text("Resources: {}", encoding="utf-8")
-    failure = evidence_store(root) / "deploy-failure-inline.json"
-    write_sealed(
-        root,
-        failure,
-        {
-            "repository": str(root),
-            "target": TARGET,
-            "states": {
-                "App": {
-                    "delivery": {"path": str(template), "arguments": {"inline": True}}
-                }
-            },
-        },
-    )
-    assert temporary.handoff.failure_templates(root, TARGET) == set()
-    assert template.exists() and failure.exists()
-    external = tmp_path / "external.json"
-    external.write_text("{}", encoding="utf-8")
-    external.chmod(0o600)
-    write_sealed(
-        root,
-        failure,
-        {
-            "repository": str(root),
-            "target": TARGET,
-            "states": {
-                "App": {
-                    "delivery": {"path": str(external), "arguments": {"inline": True}}
-                }
-            },
-        },
-    )
-    assert temporary.handoff.failure_templates(root, TARGET) == {external}
 
 
 if __name__ == "__main__":

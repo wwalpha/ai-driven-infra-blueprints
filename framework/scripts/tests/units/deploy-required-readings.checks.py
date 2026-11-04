@@ -130,7 +130,7 @@ def check_direct_deploy_routes():
     entry = sections["managed-entry"]
     assert "returned `worktree` and `task_file`" in entry
     assert "never investigate unrelated checkout contents" in entry
-    assert "do not prepare/register again" in sections["sdk-preparation"]
+    assert "Each Deploy Skill invocation starts a new Deploy" in entry
     permission = markdown_sections(
         (root / ".agents/skills/worktree/SKILL.md").read_text(encoding="utf-8")
     )["sandbox-permission-approval-and-continuation"]

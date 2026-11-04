@@ -21,11 +21,9 @@ import worktree_state as ws
 import worktree_task as wt
 from deploy import (
     contracts,
-    current_request,
     inputs,
     operation_journal,
     preparation,
-    temporary,
     worktree,
 )
 from deploy import git_publication as publication
@@ -101,109 +99,6 @@ class RequestProbe:
         return {"Id": arguments.get("ChangeSetName"), "StackId": arguments["StackName"]}
 
 
-def check_current_request_is_shared_without_history_or_duplicate_execute(tmp_path):
-    case = TestCase()
-    with (
-        fixture() as primary,
-        patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
-    ):
-        first = Path(wt.create(primary, "request-one")["worktree"])
-        second = Path(wt.create(primary, "request-two")["worktree"])
-        target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
-        probe = RequestProbe()
-        states = {
-            "Example": {
-                "currentStack": {"StackId": "Example", "StackStatus": "UPDATE_COMPLETE"}
-            }
-        }
-        one = SimpleNamespace(root=first, target=target, aws=probe.aws, states=states)
-        two = SimpleNamespace(root=second, target=target, aws=probe.aws, states=states)
-        journal = tmp_path / "operations/journal.json"
-        with patch.object(operation_journal, "location", return_value=journal):
-            arguments = {
-                "StackName": "Example",
-                "ChangeSetName": "change",
-                "ClientRequestToken": "original",
-            }
-            current_request.send(one, "execute_change_set", dict(arguments), probe.send)
-            case.assertIsNotNone(current_request.reconcile(two, {"name": "Example"}))
-            case.assertEqual(probe.tokens, [("Example", "original")])
-            assert not journal.exists()
-            owner = SimpleNamespace(name="tasks/request-one.md", task_digest="one")
-            directory = temporary.create(journal, first, owner, target, ["Example"])
-            template = directory / "Example.json"
-            template.write_text("{}", encoding="utf-8")
-            states["Example"].update(status="RUNNING", delivery={"path": str(template)})
-            one.phase = "deploy"
-            one.run_context = {
-                "states": states,
-                "directory": "app",
-                "inputDigests": {"Example": "fixed"},
-            }
-            identity = {
-                "taskFile": owner.name,
-                "taskDigest": owner.task_digest,
-                "target": target,
-                "environment": "dev",
-                "stacks": ["Example"],
-            }
-            pin_progress(one, identity)
-            worktree.save_progress(one, operation_journal.OPERATION_FIELDS)
-            progress_path = worktree.progress_path(first)
-            progress_bytes = progress_path.read_bytes()
-            request_path = current_request.location(target, "Example")
-            request_bytes = request_path.read_bytes()
-            temporary.reclaim(
-                journal,
-                second,
-                target,
-                task=SimpleNamespace(name="tasks/request-two.md", task_digest="two"),
-                run_context={"states": {}},
-            )
-            assert template.read_text(encoding="utf-8") == "{}"
-            assert (
-                progress_path.read_bytes() == progress_bytes
-                and request_path.read_bytes() == request_bytes
-            )
-            restored = worktree.read_progress(first, {"deployIdentity": identity})[
-                "runContext"
-            ]
-            assert restored["states"]["Example"]["delivery"]["path"] == str(template)
-            temporary.reclaim(journal, first, target, task=owner, run_context=restored)
-            assert template.exists()
-            probe.finished = True
-            settled = current_request.reconcile(two, {"name": "Example"})
-            case.assertTrue(settled["settled"])
-            current_request.release(two, settled)
-            case.assertFalse(current_request.location(target, "Example").exists())
-            # Secret bootstrap keeps only the version token/identity, never the value.
-            metadata = Mock(
-                return_value={
-                    "Stacks": [
-                        {"StackId": "SecretOwner", "StackStatus": "UPDATE_COMPLETE"}
-                    ],
-                    "VersionIdsToStages": {},
-                }
-            )
-            one.aws = two.aws = metadata
-            secret = {
-                "SecretId": "synthetic-secret",
-                "SecretString": "private-value-must-not-be-recorded",
-                "ClientRequestToken": "stable-version",
-            }
-            transport = Mock(return_value={})
-            current_request.send(
-                two,
-                "put_secret_value",
-                dict(secret),
-                transport,
-                service="secretsmanager",
-                stack_name="SecretOwner",
-            )
-            case.assertEqual(
-                transport.call_args.args[3]["ClientRequestToken"], "stable-version"
-            )
-            case.assertFalse(current_request.location(target, "SecretOwner").exists())
 
 
 def deploy_contract(name, files):

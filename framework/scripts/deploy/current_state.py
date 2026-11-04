@@ -24,6 +24,17 @@ FAILED = {
 }
 
 
+def root_events(events, token, identity):
+    return [
+        event for event in events
+        if identity
+        and event.get("ResourceType") == "AWS::CloudFormation::Stack"
+        and event.get("ClientRequestToken") == token
+        and event.get("StackId") == identity
+        and event.get("PhysicalResourceId") == identity
+    ]
+
+
 def classify(status, change_sets=()):
     if not isinstance(status, str) or status == "UNKNOWN":
         return "UNKNOWN"
@@ -120,6 +131,7 @@ def read(aws, name):
         return {
             "StackStatus": "ABSENT" if error.stack_absent else "UNKNOWN",
             "reason": "STACK_ABSENT" if error.stack_absent else "READ_FAILED",
+            "errorCode": error.code,
             "observedAt": now,
         }
     except (OSError, Blocked):
@@ -152,6 +164,7 @@ def observation(stack):
             "DeletionTime",
             "observedAt",
             "reason",
+            "errorCode",
             "classification",
         }
     }

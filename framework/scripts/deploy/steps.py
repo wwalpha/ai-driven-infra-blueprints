@@ -25,7 +25,6 @@ from deploy import (
     cli_guidance,
     context,
     contracts,
-    current_request,
     current_state,
     failures,
     generation_resume,
@@ -82,16 +81,8 @@ def restore(backend: SimpleNamespace, task: TaskSnapshot) -> None:
                 raise Blocked(
                     "fixed execution inputs changed without verified implement authority"
                 )
-            for unit in backend.units:
-                paths = {
-                    path.relative_to(backend.root).as_posix()
-                    for path in backend.deployment_input_paths([unit])
-                }
-                if paths & changed_inputs and current_request.reconcile(backend, unit):
-                    raise Blocked(
-                        "current request must settle before changing its inputs: "
-                        + unit["name"]
-                    )
+            if any(state.get("status") in {DEPLOY_RUNNING, "CHANGESET_CREATING", "READY"} for state in saved["states"].values()):
+                raise Blocked("current Deploy operation must settle before changing its inputs")
             for key in (
                 "pendingObserved",
                 "pendingGeneration",
@@ -188,171 +179,6 @@ def checkpoint_receipts(backend: SimpleNamespace) -> dict:
 
 def save(backend):
     worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-
-
-def refresh_requests(backend, units=None):
-    units = backend.units if units is None else units
-    current_state.refresh(backend, units)
-    for unit in units:
-        state = backend.states[unit["name"]]
-        try:
-            request = current_request.reconcile(backend, unit)
-        except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
-            state.update(
-                requestPending=True, requestError=failures.exception_message(error)
-            )
-            continue
-        if request and request.get("settled"):
-            if (
-                request.get("operation") == "execute_change_set"
-                and request.get("token") == state.get("clientToken")
-                and not current_request.owns(state, request)
-            ):
-                state.update(
-                    requestPending=True, requestError="current request identity differs"
-                )
-                continue
-            if (
-                current_request.owns(state, request)
-                and request["operation"] == "execute_change_set"
-                and request.get("trackingReason")
-                not in {"ORIGINAL_STACK_DELETED", "ORIGINAL_STACK_REPLACED"}
-            ):
-                status = backend.poll(unit, state)
-                if status in {"ATTEMPT_SUCCESS", "ATTEMPT_FAIL"}:
-                    request["result"] = (
-                        "SUCCESS" if status == "ATTEMPT_SUCCESS" else "FAIL"
-                    )
-            elif state.get("externalOperation"):
-                current = state["currentStack"]
-                state.clear()
-                state.update(
-                    status="NOT_STARTED",
-                    currentStack=current,
-                    stackId=current.get("StackId"),
-                    stackStatus=current["StackStatus"],
-                )
-            current_request.end_tracking(state, request)
-            backend.save()
-            current_request.release(backend, request)
-            continue
-        state["requestPending"] = bool(request)
-        if state.get("cleanupStatus") == "DELETE_INTENT":
-            state["status"] = "NOT_STARTED"
-            continue
-        if request:
-            if (
-                request.get("service") == "secretsmanager"
-                and current_state.category(state["currentStack"]) != "RUNNING"
-            ):
-                continue
-            own_request = current_request.owns(state, request)
-            if not own_request:
-                if state["status"] != "SETTLED":
-                    state["externalOperation"] = True
-                    state["status"] = DEPLOY_RUNNING
-            elif request.get("operation") == "create_change_set":
-                state["status"] = (
-                    "NOT_STARTED"
-                    if state.get("createUnconfirmed")
-                    else "CHANGESET_CREATING"
-                )
-            else:
-                state["status"] = (
-                    DEPLOY_RUNNING
-                    if current_state.category(state["currentStack"]) == "RUNNING"
-                    else "BLOCKED"
-                )
-        elif (
-            state["status"] == DEPLOY_RUNNING
-            or state.get("attemptResult") == "UNKNOWN"
-            and state["status"] != "SETTLED"
-        ) and (
-            state.get("clientToken")
-            or current_state.category(state["currentStack"]) != "RUNNING"
-        ):
-            if state.get("externalOperation"):
-                current = state["currentStack"]
-                state.clear()
-                state.update(
-                    status="NOT_STARTED",
-                    currentStack=current,
-                    stackId=current.get("StackId"),
-                    stackStatus=current["StackStatus"],
-                )
-            else:
-                try:
-                    status = backend.poll(unit, state)
-                    current_state.record_attempt(state, status)
-                    settled = state.get("settledRequest")
-                    if settled:
-                        current_request.end_tracking(state, settled)
-                    backend.save()
-                    if settled:
-                        current_request.release(backend, settled)
-                except (
-                    OSError,
-                    ValueError,
-                    KeyError,
-                    TypeError,
-                    RuntimeError,
-                ) as error:
-                    state["requestError"] = failures.exception_message(error)
-
-        elif (
-            state["status"] != "SETTLED"
-            and current_state.category(state["currentStack"]) == "RUNNING"
-        ):
-            state.update(status=DEPLOY_RUNNING, externalOperation=True)
-
-
-def retry_terminal_attempts(backend, previous_terminal):
-    retried = False
-    for name in previous_terminal:
-        state = backend.states[name]
-        if (
-            state.get("attemptResult") == "UNKNOWN"
-            and not state.get("endedRequest")
-            or state.get("requestPending")
-            or state.get("requestError")
-            or state.get("bootstrap", {}).get("stage")
-            in {
-                "BOOTSTRAP_INTENT",
-                "VALUE_CHECKED_MISSING",
-                "PUT_SUBMITTED",
-            }
-        ):
-            continue
-        unit = next(
-            (u for u in getattr(backend, "units", []) if u["name"] == name), None
-        )
-        if unit and any(
-            other["name"] != name
-            and other["deployOrder"] == unit["deployOrder"]
-            and backend.states[other["name"]]["status"]
-            in {"NOT_STARTED", "READY", "CHANGESET_CREATING"}
-            for other in backend.units
-        ):
-            continue
-        retained = {
-            key: state[key]
-            for key in (
-                "currentStack",
-                "stackId",
-                "stackStatus",
-                "cleanupStatus",
-                "cleanupStackId",
-                "emptyStackRecreated",
-                "bootstrapAttempted",
-                "endedRequest",
-            )
-            if key in state
-        }
-        state.clear()
-        state.update(retained, status="NOT_STARTED")
-        retried = True
-    if retried:
-        backend.run_context.pop("deployResult", None)
 
 
 def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
@@ -553,7 +379,6 @@ def describe(backend: SimpleNamespace) -> dict:
         and not pending
         and all(
             s.get("status") != DEPLOY_RUNNING
-            and not s.get("requestPending")
             and current_state.category(s.get("currentStack", {})) != "RUNNING"
             for s in states.values()
         )
@@ -586,7 +411,6 @@ def describe(backend: SimpleNamespace) -> dict:
     can_advance = any(
         s["status"]
         in {DEPLOY_RUNNING, "NOT_STARTED", "READY", "CHANGESET_CREATING", "SETTLED"}
-        and not s.get("requestError")
         and not s.get("schedulerError")
         and s.get("failure", {}).get("classification") != "APPROVAL"
         for s in candidates
@@ -630,9 +454,6 @@ def describe(backend: SimpleNamespace) -> dict:
                 "aws": current_state.category(state.get("currentStack", {})),
                 "attempt": state["status"],
                 "attemptResult": state.get("attemptResult"),
-                "endedRequest": state.get("endedRequest"),
-                "requestPending": state.get("requestPending", False),
-                "requestError": state.get("requestError"),
                 "stackId": state.get("stackId"),
                 "stackStatus": state.get("stackStatus"),
                 "progress": {
@@ -768,7 +589,7 @@ def run(
         if target[IAC_ENGINE_KEY] != "cloudformation":
             raise Blocked("step operations require CloudFormation")
         directory = args.alias or args.aws_account_id
-        journal = operation_journal.location(target)
+        journal = operation_journal.location(root, task.name)
         with (
             ExitStack() as resources,
             selected_task(root, task.name),
@@ -840,14 +661,8 @@ def run(
             backend.wait_cleanup = partial(
                 recovery.wait_cleanup, backend.aws, backend.save, single_step=True
             )
-            previous_terminal = {
-                name
-                for name, state in backend.states.items()
-                if state["status"] == "FAILED"
-                or state.get("attemptResult") == "UNKNOWN"
-            }
             if args.action != "checkpoint" and task.status != "completed":
-                refresh_requests(
+                current_state.refresh(
                     backend,
                     [unit for unit in units if unit["name"] in args.sync_stack]
                     if args.action == "sync"
@@ -862,7 +677,6 @@ def run(
                         stack_id = evidence.get("StackId") or current.get("StackId")
                         if (
                             not token
-                            or state.get("externalOperation")
                             or (
                                 evidence.get("clientToken")
                                 and evidence["clientToken"] != token
@@ -902,14 +716,6 @@ def run(
                                 "partial": True,
                                 "stale": True,
                             }
-                if args.action == "advance":
-                    previous_terminal.update(
-                        name
-                        for name, state in backend.states.items()
-                        if backend.states[name]["status"] == DEPLOY_SUCCESS
-                        and state.get("needsCurrentReview")
-                    )
-                    retry_terminal_attempts(backend, previous_terminal)
             checkpoint_receipts(backend)
             if args.action == "advance" and run.get("checkpointPending"):
                 raise Blocked("resume the saved checkpoint before advance")
@@ -931,8 +737,6 @@ def run(
                         "READY",
                     }:
                         backend.load_inputs(unit)
-                    if state.get("requestError"):
-                        state.update(status="BLOCKED", reason=state["requestError"])
                 run_group(
                     units,
                     limit,
@@ -944,8 +748,9 @@ def run(
                     run["deployResult"] = "FAIL"
                 if "- Runtime recovery: `allowed`" in task.text.splitlines():
                     for unit in units:
-                        if backend.states[unit["name"]]["status"] == "FAILED":
-                            backend.repair(unit, backend.states[unit["name"]])
+                        state = backend.states[unit["name"]]
+                        if state["status"] == "FAILED" and not state.get("bootstrapAttempted"):
+                            backend.repair(unit, state)
                 if any(
                     s["status"] in {"FAILED", "BLOCKED"}
                     for s in backend.states.values()

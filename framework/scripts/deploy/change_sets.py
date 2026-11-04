@@ -6,12 +6,13 @@ import uuid
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
-from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
+from contracts.deploy import DEPLOY_SUCCESS
 from contracts.target import (
     AWS_ACCOUNT_ID_KEY,
     AWS_EXECUTION_ACCOUNT_ID_KEY,
     AWS_REGION_KEY,
 )
+from utils.aws.client import AwsError
 from utils.cloudformation.export_resolution import resolve_exports, stack_exports
 from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import Blocked, condition_active, resolve_value
@@ -222,10 +223,11 @@ def begin_prepare(
         boundary = {}
         check_imports(unit, boundary=boundary)
     arguments = template_arguments(unit, state, boundary=boundary)
-    resubmit = state.pop("createUnconfirmed", False)
-    if not state.get("changeSetId") or resubmit:
+    if not state.get("changeSetId"):
         current = read(aws, unit["name"])
         if current["StackStatus"] == "UNKNOWN":
+            if current.get("errorCode"):
+                raise AwsError("cloudformation", "describe_stacks", current["errorCode"])
             raise Blocked("current Stack state is unavailable")
         stack = None if category(current) == "ABSENT" else current
         if stack and stack["StackStatus"] == "ROLLBACK_COMPLETE":
@@ -245,8 +247,7 @@ def begin_prepare(
             arguments = template_arguments(unit, state, boundary=boundary)
             stack = None
         if stack and category(stack) == "RUNNING":
-            state.update(stackId=stack["StackId"], externalOperation=True)
-            return DEPLOY_RUNNING  # Observe an already-running AWS operation before preparing new inputs.
+            raise Blocked(f"stack operation in progress: {stack['StackStatus']}")
         if stack and stack["StackStatus"] not in UPDATEABLE | {"REVIEW_IN_PROGRESS"}:
             raise Blocked(f"stack not updateable: {stack['StackStatus']}")
         if stack:
@@ -256,16 +257,21 @@ def begin_prepare(
         state.setdefault("successfulPreparationOperations", {})["validate_template"] = (
             state["preparationId"]
         )
-        if not resubmit:
-            state["operationType"] = (
-                "UPDATE"
-                if stack and stack["StackStatus"] != "REVIEW_IN_PROGRESS"
-                else "CREATE"
-            )
-            state["absentBeforeCreate"] = stack is None
-            state["changeSetId"] = "blueprint-" + uuid.uuid4().hex
-            state["changeSetStarted"] = time.time()
+        state["operationType"] = (
+            "UPDATE"
+            if stack and stack["StackStatus"] != "REVIEW_IN_PROGRESS"
+            else "CREATE"
+        )
+        state["absentBeforeCreate"] = stack is None
+        state["changeSetId"] = "blueprint-" + uuid.uuid4().hex
+        state["changeSetStarted"] = time.time()
         save()
+        latest = read(aws, unit["name"])
+        if category(latest) == "UNKNOWN" or (
+            (stack is None and category(latest) != "ABSENT")
+            or (stack is not None and (category(latest) == "RUNNING" or latest.get("StackId") != stack.get("StackId") or latest.get("StackStatus") != stack.get("StackStatus")))
+        ):
+            raise Blocked("Stack state changed before ChangeSet creation: " + latest["StackStatus"])
         started = time.perf_counter()
         response = aws(
             "create_change_set",

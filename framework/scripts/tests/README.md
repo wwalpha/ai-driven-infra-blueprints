@@ -166,7 +166,7 @@ Model / Import / Deploy / Issues / Validation / CloudFormationの業務テスト
 業務側は `repository_fixtures` の独立した通常Git、または `import_repository_fixtures` のファイルsnapshotを使う。
 保存能力は `publication_fixtures` で渡し、実Task検証・入力変更検知・保存・生成・rollbackを通す。
 productionの管理所有者確認は維持し、そのfactory/registry境界を専用UT/ITで検証する。
-通常controllerはTask固有のprogress（identity/runContext）と未確定current requestを実保存する。旧Session/ledgerの保存・再生は行わない。
+通常controllerはTask固有のprogress（identity/runContext）と今回の実行証拠を保存する。旧Session/ledgerの保存・再生は行わない。
 外部修復のcheckpoint・child・検証・親統合・cleanupは専用Worktree ITが実行する。
 
 全UT/IT/supportの依存を静的にたどり、直接/間接Import・動的fixture loader・worktree Mockを検出する。
@@ -379,7 +379,7 @@ Issue 21のローカル確認は関連UT・構文・collect-only・登録/参照
 
 `deploy-runtime-unit.checks.py` は旧controller suiteのrequest/判定/scheduler/保存・再読込ケースを保持する。`deploy-sdk.checks.py` は境界内共有と境界間再取得、cleanup中の配送条件変更、削除証拠を検証する。`deploy-observed-unit.checks.py` は条件付き親参照とraw候補探索を、`aws-client.checks.py` は実SDKの一時設定/合成credential、生成排他とpaginationを検証する。API総件数や読込量・120秒判定を合格条件にしない。
 
-`integrations/deploy-controller.checks.py` は実controllerからtarget/Task/CFN loader、guard、SDK service wrapper、scheduler、progress保存/再読込とobserved公開を通す。AWS応答をSDK client取得境界で置換し、未定義operationは失敗する。static seedは `fixtures/deploy_controller.yaml` と既存 `fixture_cases` を使い、各ケースが独立Project/cwd/実Git/progressを持つ。別プロセスresumeはfake AWS JSONとprogress/current requestだけを共有する。finallyを通らない終了後のlockは、その子を終了確認したテストだけが明示的に回収する。productionには回収分岐を追加しない。
+`integrations/deploy-controller.checks.py` は実controllerからtarget/Task/CFN loader、guard、SDK service wrapper、scheduler、progress保存/再読込とobserved公開を通す。AWS応答をSDK client取得境界で置換し、未定義operationは失敗する。static seedは `fixtures/deploy_controller.yaml` と既存 `fixture_cases` を使い、各ケースが独立Project/cwd/実Git/progressを持つ。別プロセスresumeはfake AWS JSONと今回のprogressだけを使用する。finallyを通らない終了後のlockは、その子を終了確認したテストだけが明示的に回収する。productionには回収分岐を追加しない。
 
 関連UTは各ファイルの既存直接入口または明示pytestで実行できる。既定収集は `python3 -B framework/scripts/run-python.py -m pytest --collect-only -q framework/scripts/tests`。正式ITは既存のGitHub Actions `Framework IT` jobが `framework/scripts/tests/run_it.py` を実行する。新しいFull IT runnerは追加していない。
 

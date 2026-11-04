@@ -5,14 +5,13 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from contextlib import ExitStack
 from dataclasses import replace
 from types import SimpleNamespace
 
 import task_contract_core as tasks
 import worktree_task as wt
 from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
-from deploy import contracts, current_request, git_publication, worktree
+from deploy import contracts, git_publication, worktree
 from deploy.cli_guidance import DeployStepBlocked
 from model.observed import verify_observed_outputs
 from model.sources import source_scope
@@ -315,120 +314,112 @@ def final_checkpoint(backend, primary, path, state, pending):
         raise DeployStepBlocked(
             "final checkpoint includes changes outside synchronized Model/View"
         )
-    with ExitStack() as locks:
-        for name in sorted(state["deployIdentity"]["stacks"]):
-            request_path = current_request.location(backend.target, name)
-            locks.enter_context(current_request.journal.locked(request_path))
-            if current_request.read(request_path):
-                raise DeployStepBlocked(
-                    "final checkpoint has an unresolved current request: " + name
-                )
-        backend.guard()
-        head = wt.output(target, "rev-parse", "HEAD")
-        index = wt.output(target, "write-tree")
-        intent = copy.deepcopy(state.get("deployCheckpointIntent"))
-        validated = final.get("validated")
-        if validated is None:
-            if task.status != "running" or head != state["tip"] or intent:
-                raise DeployStepBlocked(
-                    "final validation requires the original running Task and source HEAD"
-                )
-            context["snapshotValidation"] = VALIDATION_FAIL
-            backend.save()
-            tree = git_publication.final_tree(target, changed, candidate)
-            git_publication.validate_candidate(target, tree, head, candidate)
-            if (
-                tasks.read_task_snapshot(target, task.name, live=True).raw != task.raw
-                or wt.output(target, "rev-parse", "HEAD") != head
-                or wt.output(target, "write-tree") != index
-                or contracts.validation_snapshot(target) != current
-                or json.loads(path.read_text(encoding="utf-8")).get(
-                    "deployCheckpointIntent"
-                )
-                != intent
-            ):
-                raise DeployStepBlocked(
-                    "final Task/inputs/HEAD/index/candidate changed during validation"
-                )
-            validated = {"tree": tree, "head": head, "index": index}
-            final["validated"] = validated
-            context["snapshotValidation"] = VALIDATION_PASS
-            backend.save()
-        else:
-            committed = (
-                head != validated["head"]
-                and wt.output(target, "rev-parse", "HEAD^") == validated["head"]
-                and wt.output(target, "rev-parse", "HEAD^{tree}") == validated["tree"]
-                and (
-                    head == state["tip"]
-                    or intent
-                    and intent["head"] == validated["head"]
-                    and intent["tree"] == validated["tree"]
-                )
+    backend.guard()
+    head = wt.output(target, "rev-parse", "HEAD")
+    index = wt.output(target, "write-tree")
+    intent = copy.deepcopy(state.get("deployCheckpointIntent"))
+    validated = final.get("validated")
+    if validated is None:
+        if task.status != "running" or head != state["tip"] or intent:
+            raise DeployStepBlocked(
+                "final validation requires the original running Task and source HEAD"
             )
-            if (
-                context.get("snapshotValidation") != VALIDATION_PASS
-                or head != validated["head"]
-                and not committed
-                or index not in {validated["index"], validated["tree"]}
-                or intent
-                and intent["tree"] != validated["tree"]
-            ):
-                raise DeployStepBlocked(
-                    "saved final candidate HEAD/index or validation changed"
-                )
+        context["snapshotValidation"] = VALIDATION_FAIL
+        backend.save()
+        tree = git_publication.final_tree(target, changed, candidate)
+        git_publication.validate_candidate(target, tree, head, candidate)
         if (
-            git_publication.final_tree(
-                target, git_publication.output_changes(target, state), candidate
+            tasks.read_task_snapshot(target, task.name, live=True).raw != task.raw
+            or wt.output(target, "rev-parse", "HEAD") != head
+            or wt.output(target, "write-tree") != index
+            or contracts.validation_snapshot(target) != current
+            or json.loads(path.read_text(encoding="utf-8")).get(
+                "deployCheckpointIntent"
             )
-            != validated["tree"]
+            != intent
         ):
             raise DeployStepBlocked(
-                "saved final candidate bytes changed before Task adoption"
+                "final Task/inputs/HEAD/index/candidate changed during validation"
             )
-        # Recheck fixed inputs and authority immediately before adopting the verified Task.
-        backend.guard()
-        if tasks.read_task_snapshot(target, task.name, live=True).raw != task.raw:
-            raise DeployStepBlocked("final Task changed before adoption")
-        if task.status == "running":
-            tasks.atomic_files(
-                {target / task.name: candidate.text}, staging_directory=target
-            )
-            tasks.invalidate_task_reads(target)
-        current = contracts.validation_snapshot(target)
-        preflight = {
-            "task": candidate.raw,
-            "head": head,
-            "index": index,
-            "changed": git_publication.output_changes(target, state),
-            "candidate": current,
-            "intent": intent,
-            "tree": validated["tree"],
-        }
-        commit = git_publication.checkpoint(target, path, state, preflight=preflight)
-        if wt.output(target, "rev-parse", commit + "^{tree}") != validated["tree"]:
-            raise DeployStepBlocked("source commit differs from validated final tree")
-        receipts = state.setdefault("deployCheckpoints", {})
-        for name in pending["stacks"]:
-            receipts[name] = checkpoint_receipt(backend, state, name, commit)
-        publication = state.setdefault(
-            "deployPublication",
-            {"publishedSource": state["start"], "status": "PENDING"},
-        )
-        publication["finalCandidate"] = {
-            "source": commit,
-            "tree": validated["tree"],
-            "taskBefore": final["taskBefore"],
-            "taskAfter": final["taskAfter"],
-        }
-        wt.save(path, state)
-        for name in pending["stacks"]:
-            backend.states[name].pop("checkpointRequired", None)
-            backend.states[name]["checkpointed"] = True
-        context.pop("checkpointPending")
-        backend.task_status = "completed"
+        validated = {"tree": tree, "head": head, "index": index}
+        final["validated"] = validated
+        context["snapshotValidation"] = VALIDATION_PASS
         backend.save()
-        return {name: receipts[name] for name in pending["stacks"]}
+    else:
+        committed = (
+            head != validated["head"]
+            and wt.output(target, "rev-parse", "HEAD^") == validated["head"]
+            and wt.output(target, "rev-parse", "HEAD^{tree}") == validated["tree"]
+            and (
+                head == state["tip"]
+                or intent
+                and intent["head"] == validated["head"]
+                and intent["tree"] == validated["tree"]
+            )
+        )
+        if (
+            context.get("snapshotValidation") != VALIDATION_PASS
+            or head != validated["head"]
+            and not committed
+            or index not in {validated["index"], validated["tree"]}
+            or intent
+            and intent["tree"] != validated["tree"]
+        ):
+            raise DeployStepBlocked(
+                "saved final candidate HEAD/index or validation changed"
+            )
+    if (
+        git_publication.final_tree(
+            target, git_publication.output_changes(target, state), candidate
+        )
+        != validated["tree"]
+    ):
+        raise DeployStepBlocked(
+            "saved final candidate bytes changed before Task adoption"
+        )
+    # Recheck fixed inputs and authority immediately before adopting the verified Task.
+    backend.guard()
+    if tasks.read_task_snapshot(target, task.name, live=True).raw != task.raw:
+        raise DeployStepBlocked("final Task changed before adoption")
+    if task.status == "running":
+        tasks.atomic_files(
+            {target / task.name: candidate.text}, staging_directory=target
+        )
+        tasks.invalidate_task_reads(target)
+    current = contracts.validation_snapshot(target)
+    preflight = {
+        "task": candidate.raw,
+        "head": head,
+        "index": index,
+        "changed": git_publication.output_changes(target, state),
+        "candidate": current,
+        "intent": intent,
+        "tree": validated["tree"],
+    }
+    commit = git_publication.checkpoint(target, path, state, preflight=preflight)
+    if wt.output(target, "rev-parse", commit + "^{tree}") != validated["tree"]:
+        raise DeployStepBlocked("source commit differs from validated final tree")
+    receipts = state.setdefault("deployCheckpoints", {})
+    for name in pending["stacks"]:
+        receipts[name] = checkpoint_receipt(backend, state, name, commit)
+    publication = state.setdefault(
+        "deployPublication",
+        {"publishedSource": state["start"], "status": "PENDING"},
+    )
+    publication["finalCandidate"] = {
+        "source": commit,
+        "tree": validated["tree"],
+        "taskBefore": final["taskBefore"],
+        "taskAfter": final["taskAfter"],
+    }
+    wt.save(path, state)
+    for name in pending["stacks"]:
+        backend.states[name].pop("checkpointRequired", None)
+        backend.states[name]["checkpointed"] = True
+    context.pop("checkpointPending")
+    backend.task_status = "completed"
+    backend.save()
+    return {name: receipts[name] for name in pending["stacks"]}
 
 
 def checkpoint_receipt(backend, state, name, commit):

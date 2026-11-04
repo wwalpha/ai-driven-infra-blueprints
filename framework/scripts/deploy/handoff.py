@@ -23,7 +23,6 @@ from utils.type_contracts import JsonValue as JsonValue
 
 from deploy import (
     context,
-    current_request,
     current_state,
     operation_journal,
     worktree,
@@ -98,48 +97,6 @@ def referenced_failures(root: Path, *, excluding: Path | None = None) -> set[Pat
     return result
 
 
-def failure_templates(root: Path, target: dict[str, str]) -> set[Path]:
-    """Caller holds Journal then Repair; uncertain evidence prevents reclamation."""
-    if any(evidence_store(root).glob("deploy-cleanup-*")):
-        raise Blocked(
-            "repair evidence cleanup is incomplete; retain temporary templates"
-        )
-    paths = referenced_failures(root) | set(
-        evidence_store(root).glob("deploy-failure-*.json")
-    )
-    needed = set()
-    for path in paths:
-        operation_journal.private_path(external(root, path))
-        failure = read_sealed(root, path)
-        if failure["repository"] != str(root):
-            raise Blocked("failure evidence repository is unknown")
-        if operation_journal.target_identity(
-            failure["target"]
-        ) != operation_journal.target_identity(target):
-            continue
-        if not isinstance(failure["states"], dict):
-            raise Blocked("failure Stack evidence is unknown")
-        for state in failure["states"].values():
-            if not isinstance(state, dict) or not isinstance(
-                state.get("delivery", {}), dict
-            ):
-                raise Blocked("failure delivery evidence is unknown")
-            delivery = state.get("delivery", {})
-            if delivery:
-                template = Path(delivery["path"])
-                if (
-                    template.is_absolute()
-                    and not any(p.is_symlink() for p in (template, *template.parents))
-                    and template.resolve().is_relative_to(root.resolve())
-                ):
-                    continue
-                operation_journal.private_path(
-                    external(root, template), permissions=0o022
-                )
-                needed.add(template)
-    return needed
-
-
 def discard_failure(root: Path, path: Path) -> None:
     """Explicit abandonment of an unconsumed proof grants no old Task authority."""
     path = external(root, path)
@@ -151,10 +108,7 @@ def discard_failure(root: Path, path: Path) -> None:
         or not re.fullmatch(r"deploy-failure-[a-zA-Z0-9-]+\.json", path.name)
     ):
         raise Blocked("failure evidence ownership is unknown")
-    with (
-        operation_journal.locked(operation_journal.location(failure["target"])),
-        repair_lock(root),
-    ):
+    with repair_lock(root):
         operation_journal.private_path(path)
         if read_sealed(root, path) != failure:
             raise Blocked("failure evidence changed before discard")
@@ -317,7 +271,6 @@ def require_settled(
     root: Path, request: JsonObject, *, changed: Iterable[str] = ()
 ) -> None:
     """Caller holds Journal then Repair until request publication/checkpoint completes."""
-    target = request["target"]
     stacks = set(request["diagnosis"])
     if not stacks:
         raise Blocked("repair request has no failed Stack scope")
@@ -345,16 +298,9 @@ def require_settled(
                 raise Blocked("current unfinished publication conflicts with repair")
     reader = dependency_reader(root, request)
     for name in sorted(stacks):
-        path = current_request.location(target, name)
-        with operation_journal.locked(path):
-            current = current_state.read(reader, name)
-            record = current_request.read(path)
-            if current_state.category(current) in {"RUNNING", "UNKNOWN"}:
-                raise Blocked("repair target AWS operation is not settled: " + name)
-            if record:
-                if not current_request.settled(reader, record, current):
-                    raise Blocked("repair target request is not settled: " + name)
-                path.unlink()
+        current = current_state.read(reader, name)
+        if current_state.category(current) in {"RUNNING", "UNKNOWN"}:
+            raise Blocked("repair target AWS operation is not settled: " + name)
 
 
 def discard_request(state: JsonObject) -> None:

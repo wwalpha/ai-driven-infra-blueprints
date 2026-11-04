@@ -217,8 +217,7 @@ def diagnostic(state: StackState) -> JsonObject | None:
     if root and sum(item["timestamp"] == root["timestamp"] for item in candidates) > 1:
         root = None
     pending = (
-        state.get("requestPending")
-        or state.get("attemptResult") == "UNKNOWN"
+        state.get("attemptResult") == "UNKNOWN"
         or failure.get("classification") == "SUBMISSION_UNKNOWN"
     )
     recovery = failure.get("stage") == "RECOVERY"
@@ -283,9 +282,7 @@ def diagnostic(state: StackState) -> JsonObject | None:
             "STACK_EVENT",
         )
     elif pending:
-        operation = failure.get("operation") or state.get("endedRequest", {}).get(
-            "request", {}
-        ).get("operation")
+        operation = failure.get("operation")
         if operation not in {
             "create_change_set",
             "execute_change_set",
@@ -300,7 +297,7 @@ def diagnostic(state: StackState) -> JsonObject | None:
         code, stage, source = (
             failure.get("code")
             if failure.get("code") in HANDLER_CODES
-            else "REQUEST_UNCONFIRMED",
+            else "SUBMISSION_UNKNOWN",
             failure.get("stage") or "STACK_EXECUTION",
             "REQUEST",
         )
@@ -340,7 +337,7 @@ def diagnostic(state: StackState) -> JsonObject | None:
     result = {
         "classification": state.get("failureClassification")
         or failure.get("classification")
-        or ("REQUEST_UNCONFIRMED" if pending else "NEEDS_DIAGNOSIS"),
+        or ("SUBMISSION_UNKNOWN" if pending else "NEEDS_DIAGNOSIS"),
         "stage": stage,
         "code": code,
         "message": message,

@@ -145,11 +145,7 @@ AWS再実行やTask完了は訂正の結果として行わない。元契約原�
 
 ## Unfinished AWS operation recovery
 
-この節の共有要求記録・ロック・ResolverはSDK方式専用。CLIはRulesの独立した再開手順で同じ現在AWS/identity要件を確認する。
-
-通常開始・再開は対象 Stack の最新 AWS 状態を先に取得する。旧 Task、mode、StackStatus、expectedOutputs、Observed、checkpoint/Git、特定の修復経路の証明は現在状態の採用・次の試行の条件にしない。UPDATE_COMPLETE だけで今回の Desired 適用済みとは判断せず、固定入力から ChangeSet を判定する。
-
-共有記録は account/Region/StackName ごとの現在の未確定要求だけ。送信直前に同一 Stack ロック下で intent を保存し、応答喪失時は元の StackId・ChangeSetId・token を維持する。直前 Execute が不確定なら、単一の古い COMPLETE 読み取りで新 token の Execute を許可しない。現在 ChangeSet・token event を確認し、AWS 要求が決着したら Model/Git を待たず記録を終了する。破損時は当該 Stack の新しい変更だけを保留し、独立 Stack や Model 保存・Git 統合を止めない。
+同一 Deploy の応答喪失時は、今回の StackId・ChangeSetId・token と AWS 状態を確認し、結果不明を報告する。無条件に再送しない。別の Deploy Skill 呼び出しでは、新規 Task と Snapshot を使い、過去の Task や共有要求記録を参照せず、最新 AWS 状態から判断する。競合は AWS API の結果として扱う。
 
 REVIEW_IN_PROGRESS は ChangeSet と合わせて判断する。UPDATE_ROLLBACK_COMPLETE は今回失敗と次回更新可否を分ける。ROLLBACK_COMPLETE、rollback failed は AWS 制約に従う。構造化された不存在だけ ABSENT、取得不能は UNKNOWN。Output 欠落、削除履歴、不完全な一覧、保持リソースを不存在と混同しない。
 

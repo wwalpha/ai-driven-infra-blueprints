@@ -25,8 +25,6 @@ from validation.task import TaskValidation
 from deploy import (
     contracts,
     correction_scope,
-    current_request,
-    current_state,
     deferred,
     generation_resume,
     git_publication,
@@ -230,11 +228,7 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
                 in {
                     "checkpointed",
                     "currentStack",
-                    "requestPending",
-                    "requestError",
-                    "endedRequest",
                     "reason",
-                    "createUnconfirmed",
                 }
             }
             detail = saved.get("failure", {})
@@ -251,17 +245,8 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
                 or not missing
             ):
                 raise ws.Blocked("currentFailure is not a proven scope failure")
-            ended = saved.get("endedRequest")
-            if ended:
-                if not successful_request(
-                    name, ended, context["inputDigests"].get(name)
-                ):
-                    raise ws.Blocked("previous AWS request success cannot be proven")
-            elif (
-                saved.get("executionEvidence")
-                or saved.get("attemptResult") == "UNKNOWN"
-            ):
-                raise ws.Blocked("previous AWS request outcome is unknown")
+            if saved.get("executionEvidence") or saved.get("attemptResult") == "UNKNOWN":
+                raise ws.Blocked("current execution outcome is unknown")
             for item in missing:
                 if not isinstance(item, dict) or set(item) != {
                     "logicalId",
@@ -390,16 +375,11 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         raise ws.Blocked("fixed Deploy execution units changed")
     for name, item in context["states"].items():
         if (
-            item.get("requestPending")
-            or item.get("requestError")
-            or item.get("createUnconfirmed")
-            or item.get("status")
+            item.get("status")
             not in {"NOT_STARTED", DEPLOY_SUCCESS, "FAILED", "SETTLED", "BLOCKED"}
             or worktree.current_category(item) in {"RUNNING", "UNKNOWN"}
             and item.get("currentStack")
-            or item.get("clientToken")
-            and not item.get("endedRequest")
-            or current_request.read(current_request.location(target, name)) is not None
+            or item.get("attemptResult") == "UNKNOWN"
         ):
             raise ws.Blocked("unresolved or active AWS request: " + name)
     expected = {
@@ -435,34 +415,6 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
     if state.get("deployCheckpoints"):
         git_publication.checkpoint_source(root, state, progress)
     git_publication.require_observation_delta(root, state["start"])
-
-
-def successful_request(name, ended, input_digest):
-    if not isinstance(ended, dict):
-        return False
-    request = ended.get("request")
-    evidence = ended.get("executionEvidence")
-    if not isinstance(request, dict) or not isinstance(evidence, dict):
-        return False
-    return bool(
-        ended.get("result") == "SUCCESS"
-        and request.get("result") == "SUCCESS"
-        and request.get("operation") == "execute_change_set"
-        and request.get("name") == name
-        and request.get("settled")
-        and request.get("trackingReason")
-        in {"TOKEN_ROOT_EVENT", "CHANGESET_EXECUTION_ENDED"}
-        and request.get("token")
-        and request.get("token") == evidence.get("clientToken")
-        and request.get("stackId")
-        and request.get("stackId") == evidence.get("StackId")
-        and input_digest
-        and input_digest == evidence.get("inputDigest")
-        and evidence.get("changeDigest")
-        and current_state.same_change_set(
-            request.get("changeSetId"), evidence.get("ChangeSetId")
-        )
-    )
 
 
 def pending_identity(root, task, candidate, state, saved, consumers, *, journal=None):
@@ -591,7 +543,6 @@ def guard_snapshot(root, state):
         for k, v in contracts.validation_snapshot(root).items()
         if k != state["task_file"]
     }
-    identity = state["deployIdentity"]
     store = evidence_store(root, create=False)
     return {
         "head": wt.output(root, "rev-parse", "HEAD"),
@@ -600,12 +551,6 @@ def guard_snapshot(root, state):
         "fileIdentities": {
             p: file_revision(root / p) if (root / p).is_file() else None
             for p in manifest
-        },
-        "requests": {
-            name: current_request.read(
-                current_request.location(identity["target"], name)
-            )
-            for name in identity["stacks"]
         },
         "repairEvidence": sorted(
             [p.name, sha(p) if p.is_file() else None]
@@ -622,7 +567,7 @@ def template_owners(root, state, candidate_digest=None):
     if candidate_digest is not None:
         digests.add(candidate_digest)
     result = {}
-    directory = operation_journal.location(identity["target"]).parent
+    directory = operation_journal.location(root, state["task_file"]).parent
     for path in sorted(directory.glob("inputs-*/owner.json")):
         operation_journal.private_path(path.parent, directory=True)
         owner = read_sealed(root, path)
@@ -709,12 +654,6 @@ def correct(root, name, source, approved=()):
         locks.enter_context(
             operation_journal.locked(worktree.progress_path(root, create=True))
         )
-        for stack in sorted(identity["stacks"]):
-            locks.enter_context(
-                operation_journal.locked(
-                    current_request.location(identity["target"], stack)
-                )
-            )
         locks.enter_context(handoff.repair_lock(root))
         locks.enter_context(
             publication_lock(
@@ -769,11 +708,6 @@ def correct(root, name, source, approved=()):
                     "correctedTaskDigest": new_identity["taskDigest"],
                 }
             )
-            for item in saved["runContext"]["states"].values():
-                if item.get("status") == "BLOCKED" and item.get("endedRequest"):
-                    item["status"] = DEPLOY_SUCCESS
-                    item.pop("failure", None)
-                    item.pop("reason", None)
         revised.update(deployIdentity=new_identity, deployContract=candidate)
         saved["identity"] = new_identity
         pending_identity(root, task, candidate, state, saved, consumers)

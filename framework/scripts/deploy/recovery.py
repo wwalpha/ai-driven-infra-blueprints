@@ -207,8 +207,6 @@ def reset_after_cleanup(save, state, *, retain_delivery=False):
 def finish_repair(
     refresh_validation,
     save,
-    cleanup_failed_create,
-    reset_after_cleanup,
     unit,
     state,
     entry,
@@ -218,8 +216,5 @@ def finish_repair(
     refresh_validation(unit)
     entry["stage"] = "BOOTSTRAP_CONFIRMED"
     save()
-    cleanup_failed_create(unit, state)
-    state.pop("bootstrap", None)
     state["bootstrapAttempted"] = True
-    reset_after_cleanup(state)
     save()

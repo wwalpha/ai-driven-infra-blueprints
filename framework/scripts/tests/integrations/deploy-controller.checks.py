@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
@@ -19,7 +20,6 @@ import sync_runtime
 from deploy import (
     contracts,
     controller,
-    current_request,
     current_state,
     failures,
     generation_resume,
@@ -35,7 +35,6 @@ from support.deploy_controller_fixtures import (
     child_environment,
     ordinary_base,
     seed,
-    unresolved_requests,
 )
 from support.deploy_controller_fixtures import (
     drive as invoke,
@@ -108,7 +107,7 @@ def assert_single_execution(aws, states):
                 and args["StackName"]
                 == state.get(
                     "executionEvidence",
-                    state.get("endedRequest", {}).get("executionEvidence"),
+                    state.get("executionEvidence"),
                 )["StackId"]
                 for _, op, args in calls
             )
@@ -120,7 +119,6 @@ def assert_published(root, session, evidence):
     design = root / f"docs/designs/dev/{ACCOUNT}"
     saved = json.loads(session.read_text())
     assert generation_resume.complete(saved)
-    TestCase().assertFalse(unresolved_requests(session, saved["states"]))
     assert saved["repository"] == str(root) and saved["taskFile"] == "tasks/deploy.md"
     assert all(
         state["status"] == "SUCCESS" and state["observedSynced"]
@@ -129,7 +127,7 @@ def assert_published(root, session, evidence):
     assert {
         name: saved["states"][name].get(
             "executionEvidence",
-            saved["states"][name].get("endedRequest", {}).get("executionEvidence"),
+            saved["states"][name].get("executionEvidence"),
         )
         for name in evidence
     } == evidence
@@ -217,7 +215,7 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
         session,
         {
             name: s.get(
-                "executionEvidence", s.get("endedRequest", {}).get("executionEvidence")
+                "executionEvidence", s.get("executionEvidence")
             )
             for name, s in saved["states"].items()
         },
@@ -242,13 +240,12 @@ def check_model_publication_across_process(tmp_path):
     saved = json.loads(report.read_text())
     assert saved["states"][FIRST]["observedSynced"]
     assert not saved.get("pendingObserved") and not saved.get("pendingGeneration")
-    TestCase().assertFalse(unresolved_requests(report, saved["states"]))
     TestCase().assertEqual(
         sum(
             (
                 op == "execute_change_set"
                 and args["StackName"]
-                == saved["states"][FIRST]["endedRequest"]["executionEvidence"][
+                == saved["states"][FIRST]["executionEvidence"][
                     "StackId"
                 ]
                 for _, op, args in json.loads(aws.read_text())["calls"]
@@ -308,7 +305,7 @@ def check_failure_evidence_survives_progress_reload_and_status(tmp_path):
         ),
         templates={"A": ({"Resources": {"Bucket": {"Properties": {}}}}, {})},
     )
-    with patch.object(current_request, "reconcile", return_value=None):
+    with nullcontext():
         assert (
             controller.poll(runtime, {"name": "A"}, state)
             == "UPDATE_ROLLBACK_IN_PROGRESS"
@@ -392,7 +389,7 @@ def check_event_read_failure_keeps_running_operation_unconfirmed():
         ),
         templates={},
     )
-    with patch.object(current_request, "reconcile", return_value=None):
+    with nullcontext():
         assert controller.poll(runtime, {"name": "A"}, state) == "UPDATE_IN_PROGRESS"
     report = steps.describe(
         SimpleNamespace(states={"A": state}, run_context={"states": {"A": state}})

@@ -43,12 +43,7 @@ def main(argv=None):
             )
             return 0
         failure = read_sealed(root, handoff.external(root, args.failure))
-        with (
-            handoff.operation_journal.locked(
-                handoff.operation_journal.location(failure["target"])
-            ),
-            handoff.repair_lock(root),
-        ):
+        with handoff.repair_lock(root):
             request = handoff.issue_request(
                 root,
                 args.failure,
