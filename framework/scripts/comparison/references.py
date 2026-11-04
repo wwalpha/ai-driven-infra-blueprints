@@ -174,6 +174,14 @@ def reference_same(
     ):
         return ReferenceDecision(None)
     prop = kind + "." + path
+    if (
+        local_comparison
+        and prop == "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
+        and isinstance(left, list)
+        and isinstance(right, list)
+    ):
+        # The receiving Type is attached to each Values[] reference.
+        return ReferenceDecision(NotImplemented)
     nested_symbols = expressions.references([left, right])
     if (
         local_comparison

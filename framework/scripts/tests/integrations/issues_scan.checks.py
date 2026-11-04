@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -173,7 +175,8 @@ def check_detail_cli(tmp_path):
     )
 
 
-def check_cloudtrail_comparison(tmp_path):
+@pytest.mark.parametrize("with_lambda", [False, True])
+def check_cloudtrail_comparison(tmp_path, with_lambda):
     root = tmp_path / "project"
     _, template = fixture(root, services=[])
     kind = "CloudTrail.Trail"
@@ -183,15 +186,45 @@ def check_cloudtrail_comparison(tmp_path):
         "desired.resource.001.cfn-logicalId": "cfn-stack-app-dev-data1-Trail",
     }
     model.update(allocate(model, ["001"]))
+    s3_values = ["arn:aws:s3"] if with_lambda else ["arn:aws:s3:::fixture/"] * 2
     fields = [
         ("IsLogging", "`true`"),
         ("EventSelectors[].IncludeManagementEvents", "`false`"),
         ("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`"),
         (
             "EventSelectors[].DataResources[].Values",
-            '`["arn:aws:s3:::fixture/","arn:aws:s3:::fixture/"]`',
+            f"`{json.dumps(s3_values)}`",
         ),
     ]
+    functions = {}
+    data_resources = [{"Type": "AWS::S3::Object", "Values": s3_values}]
+    if with_lambda:
+        fields.extend(
+            [
+                ("EventSelectors[].DataResources[].Type", "`AWS::Lambda::Function`"),
+                (
+                    "EventSelectors[].DataResources[].Values",
+                    '`[{"$modelRef":{"logicalId":"Lambda_Function_001","attribute":"Arn"}}]`',
+                ),
+            ]
+        )
+        lambda_model = {"desired.service.lambda.serviceId": "lambda"}
+        for identity, logical in (("001", "Handler"), ("002", "OtherHandler")):
+            prefix = f"desired.resource.{identity}."
+            lambda_model[prefix + "resourceType"] = "Lambda.Function"
+            lambda_model[prefix + "cfn-logicalId"] = (
+                f"cfn-stack-app-dev-data1-{logical}"
+            )
+            functions[logical] = {
+                "Type": "AWS::Lambda::Function",
+                "Properties": {"FunctionName": logical},
+            }
+        lambda_model.update(allocate(lambda_model, ["001", "002"]))
+        write_model(root / "model/dev/123456789012/lambda.properties", lambda_model)
+        lambda_values = [{"Fn::GetAtt": ["Handler", "Arn"]}]
+        data_resources.append(
+            {"Type": "AWS::Lambda::Function", "Values": lambda_values}
+        )
     for number, (prop, value) in enumerate(fields, 1):
         model.update(
             {
@@ -202,6 +235,7 @@ def check_cloudtrail_comparison(tmp_path):
         )
     write_model(root / "model/dev/123456789012/cloudtrail.properties", model)
     template["Resources"] = {
+        **functions,
         "Trail": {
             "Type": "AWS::CloudTrail::Trail",
             "Properties": {
@@ -209,19 +243,11 @@ def check_cloudtrail_comparison(tmp_path):
                 "EventSelectors": [
                     {
                         "IncludeManagementEvents": False,
-                        "DataResources": [
-                            {
-                                "Type": "AWS::S3::Object",
-                                "Values": [
-                                    "arn:aws:s3:::fixture/",
-                                    "arn:aws:s3:::fixture/",
-                                ],
-                            }
-                        ],
+                        "DataResources": data_resources,
                     }
                 ],
             },
-        }
+        },
     }
     mutate_template(root, template)
     _, records = compare(root, ["cloudtrail"])
@@ -232,6 +258,14 @@ def check_cloudtrail_comparison(tmp_path):
         kind + ".IsLogging",
         kind + ".EventSelectors",
     }
+    if with_lambda:
+        lambda_values[0] = {"Fn::GetAtt": ["OtherHandler", "Arn"]}
+        mutate_template(root, template)
+        _, records = compare(root, ["cloudtrail"])
+        selectors = next(
+            item for item in records if item["property"] == kind + ".EventSelectors"
+        )
+        assert selectors["category"] == "difference", records
 
 
 def check_cross_service_reference(tmp_path):
