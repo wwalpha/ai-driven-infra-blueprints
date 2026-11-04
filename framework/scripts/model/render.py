@@ -27,6 +27,9 @@ from design.catalog import DesignSchemaCatalog as DesignSchemaCatalog
 from design.layout_schema import GROUPED
 from design.layout_schema import resource_anchor as resource_anchor
 from design.services.definitions.lambda_permission import LAMBDA_PERMISSION
+from design.services.definitions.quicksight import (
+    RESOURCE_REFERENCE_PROPERTIES as QUICKSIGHT_LINK_PROPERTIES,
+)
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from design.services.definitions.secrets_manager import ROTATION_SCHEDULE
 from sync_files import changed_files
@@ -765,23 +768,35 @@ def render_markdown(
             semantic = resource_table_lines(
                 resource, name, rows, children, root, references=references, formal=True
             )
+            # QuickSight Principal must remain a link when the parser checks this table.
+            quicksight_links = (
+                presentation is not None and kind == "QuickSight.DataSource"
+            )
+            baseline = resource_table_lines(
+                resource,
+                name,
+                [
+                    presentation.rows([row])[0]
+                    if row[1] in QUICKSIGHT_LINK_PROPERTIES
+                    else row
+                    for row in rows
+                ]
+                if quicksight_links
+                else rows,
+                children,
+                root,
+                references=references,
+                indexed=False,
+            )
+            if quicksight_links:
+                baseline = presentation.lines(baseline, baseline)
             reference_tables.append(
                 _dependency_model_display.ReferenceTable(
                     resource["anchor"],
                     sources,
                     tuple(table),
                     tuple(semantic),
-                    tuple(
-                        resource_table_lines(
-                            resource,
-                            name,
-                            rows,
-                            children,
-                            root,
-                            references=references,
-                            indexed=False,
-                        )
-                    ),
+                    tuple(baseline),
                 )
             )
         output += (policy_views or {}).get(identity, [])

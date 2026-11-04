@@ -1681,6 +1681,50 @@ def test_indexed_model_reference_tables(models, service, kind, attribute, fields
                 expanded_display_rows(indexed, FRAMEWORK)
 
 
+def test_quicksight_principal_group_reference_roundtrip(models):
+    scope, values, path = consumer(models, "quicksight", "QuickSight.DataSource")
+    _, group = resource_values(
+        models, "quicksight", "QuickSight.Group", attribute="GroupName", number="002"
+    )
+    values.update({key: value for key, value in group.items() if ".002" in key})
+    values[COUNTERS] = '{"QuickSight.DataSource":1,"QuickSight.Group":2}'
+    values["desired.service.quicksight.ownedCatalogResourceTypes"] += (
+        ",QuickSight.Group"
+    )
+    values["desired.resource.002.resourceMode"] = "IMPORT"
+    values.pop("desired.resource.002.cfn-logicalId")
+    values.update(
+        {
+            "desired.row.002-001.value": "`reader-group`",
+            "desired.row.002-002.property": "QuickSight.Group.Namespace",
+            "desired.row.002-002.value": "`default`",
+            "desired.row.002-002.comment": "名前空間",
+            "desired.row.002-003.property": "QuickSight.Group.AwsAccountId",
+            "desired.row.002-003.value": "`123456789012`",
+            "desired.row.002-003.comment": "アカウント",
+        }
+    )
+    principal = reference("QuickSight_Group_002", "Arn")
+    add(values, "QuickSight.DataSource", "Permissions[].Principal", principal)
+    write(scope, values)
+    with input_context(read_only=True):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        principal_cell = "Permissions[1].Principal | "
+        link = principal_cell + "[reader-group](#saved-002)"
+        assert link in markdown
+        assert json.dumps(principal) in restore(path, markdown, values)
+        with pytest.raises(ValueError, match="differs from Model"):
+            restore(
+                path,
+                markdown.replace(
+                    link,
+                    principal_cell + "`arn:aws:quicksight:ap-northeast-1:"
+                    "123456789012:group/default/reader-group`",
+                ),
+                values,
+            )
+
+
 def test_undefined_indexed_property_is_rejected(models):
     scope, values = resource(models, "s3", "S3.Bucket", attribute="BucketName")
     add(values, "S3.Bucket", "LifecycleConfiguration.Rules[1].Missing", "value")
