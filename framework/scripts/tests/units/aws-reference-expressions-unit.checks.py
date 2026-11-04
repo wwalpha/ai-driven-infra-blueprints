@@ -850,7 +850,7 @@ def test_lakeformation_connection_arn_and_formal_returns(models):
         inputs.reference_same(
             symbol, expression, "LakeFormation.Resource", "ResourceArn"
         )
-        is None
+        is True
     )
 
 
