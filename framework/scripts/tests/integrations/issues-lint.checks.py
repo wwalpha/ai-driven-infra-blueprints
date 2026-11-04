@@ -222,6 +222,66 @@ Outputs:
     )
 
 
+@pytest.mark.parametrize(
+    "value,invalid_item",
+    [
+        ("fixture-first", None),
+        (" fixture-first , fixture-second ", None),
+        (
+            "fixture-first, fixture-private\ninvalid-item",
+            "fixture-private\ninvalid-item",
+        ),
+    ],
+)
+def check_comma_delimited_parameter_file(tmp_path, monkeypatch, value, invalid_item):
+    _, cwd = isolated(tmp_path, monkeypatch)
+    template = cwd / "iam.yaml"
+    template.write_text(
+        """Parameters:
+  Patterns:
+    Type: CommaDelimitedList
+    AllowedValues: [fixture-first, fixture-second]
+    NoEcho: true
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: '*'
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:PrincipalArn: !Ref Patterns
+""",
+        encoding="utf-8",
+    )
+    parameters = cwd / "iam.json"
+    parameters.write_text(
+        json.dumps([{"ParameterKey": "Patterns", "ParameterValue": value}]),
+        encoding="utf-8",
+    )
+
+    with lint_session(cwd) as session:
+        result = validate_template(session, template, "ap-northeast-1", parameters)
+
+    assert result["completed"] and not result["processing_errors"], result
+    errors = [m for m in result["matches"] if m["Level"] == "Error"]
+    if invalid_item is None:
+        assert not errors, errors
+    else:
+        assert len(errors) == 1
+        assert errors[0]["Rule"]["Id"] == "E2900"
+        assert errors[0]["Filename"] == str(parameters)
+        assert errors[0]["Location"]["Path"] == ["Parameters", "Patterns", 1]
+        assert errors[0]["Message"] == "<masked sensitive parameter>"
+        assert invalid_item in result.pop("sensitive_values")
+        assert "fixture-private" not in json.dumps(result)
+
+
 def check_worker_config_isolation(tmp_path, monkeypatch):
     home, cwd = isolated(tmp_path, monkeypatch)
     (home / ".cfnlintrc.yml").write_text("include_checks: [I]\n")

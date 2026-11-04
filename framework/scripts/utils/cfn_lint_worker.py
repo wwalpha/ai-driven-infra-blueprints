@@ -10,6 +10,7 @@ import signal
 import sys
 import time
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
 from json import JSONDecodeError
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
@@ -153,19 +154,45 @@ def _callback_structured_track_config(
                 sensitive.add(str(value))
 
 
-def _callback_structured_parameters(noecho, parameters_property, sensitive, /, self):
+def _callback_structured_parameters(
+    list_keys, noecho, parameter_file, parameters_property, sensitive, /, self
+):
     sets = parameters_property.fget(self)
-    for parameter_set in sets:
+    for index, parameter_set in enumerate(sets):
+        normalized = {}
         for key, value in parameter_set.parameters.items():
             if key in noecho:
                 sensitive.add(str(value))
+            if (
+                key in list_keys
+                and parameter_set.source == parameter_file
+                and isinstance(value, str)
+            ):
+                items = [item.strip() for item in value.split(",")]
+                normalized[key] = items
+                if key in noecho:
+                    sensitive.update(items)
+                    sensitive.update(repr(item)[1:-1] for item in items)
+        if normalized:
+            # E2900 expects typed values; the CloudFormation parameter file stores strings.
+            sets[index] = replace(
+                parameter_set, parameters={**parameter_set.parameters, **normalized}
+            )
     return sets
 
 
 def _callback_structured_template_args(
-    original_template_args, track_config, /, self, template
+    list_keys, original_template_args, parameter_file, track_config, /, self, template
 ):
     original_template_args(self, template)
+    definitions = template.get("Parameters")
+    if parameter_file and isinstance(definitions, dict):
+        list_keys.update(
+            key
+            for key, definition in definitions.items()
+            if isinstance(definition, dict)
+            and definition.get("Type") == "CommaDelimitedList"
+        )
     # Observe effective Metadata dependencies before rules/parameter-file execution.
     track_config()
 
@@ -484,14 +511,25 @@ def structured(request, emit=None):
             track,
             track_directory,
         )
+        list_keys = set()
+        parameter_file = request.get("parameters")
         parameters_property = ConfigMixIn.parameters
         parameters = _bind_framework_callback(
-            _callback_structured_parameters, noecho, parameters_property, sensitive
+            _callback_structured_parameters,
+            list_keys,
+            noecho,
+            parameter_file,
+            parameters_property,
+            sensitive,
         )
         ConfigMixIn.parameters = property(parameters)
         original_template_args = ConfigMixIn.set_template_args
         template_args = _bind_framework_callback(
-            _callback_structured_template_args, original_template_args, track_config
+            _callback_structured_template_args,
+            list_keys,
+            original_template_args,
+            parameter_file,
+            track_config,
         )
         ConfigMixIn.set_template_args = template_args
         observe = _bind_framework_callback(

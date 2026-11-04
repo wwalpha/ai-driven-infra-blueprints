@@ -1128,7 +1128,9 @@ def check_noecho_redaction():
             return_value=[SimpleNamespace(parameters={"Input": secret + "-override"})]
         )
     )
-    lint_worker._callback_structured_parameters(noecho, parameters, sensitive, Mock())
+    lint_worker._callback_structured_parameters(
+        set(), noecho, None, parameters, sensitive, Mock()
+    )
     matches = {
         "Rule": {"Id": "E3002"},
         "Level": "Error",
