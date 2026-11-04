@@ -16,6 +16,7 @@ from comparison.methods import compare_values
 from comparison.registry import rules
 from comparison.rules import route53
 from comparison.runner import Settings
+from design.catalog import DesignSchemaCatalog
 from json_intrinsics import project_document
 from model.core import entries
 from model.projection import document_references, reference_resolver
@@ -69,6 +70,28 @@ def test_model_selection_preserved_before_deploy():
     expression = model_selection()
     case = TestCase()
     case.assertEqual(project_document(expression), expression)
+
+
+def test_resource_records_provider_schema():
+    catalog = DesignSchemaCatalog(FRAMEWORK)
+
+    def errors(*items):
+        return catalog.literal_errors(
+            "Route53.RecordSet", "ResourceRecords", json.dumps(items)
+        )
+
+    assert not errors("example.com", model_selection(), model_selection(entry=2))
+    assert errors(model_selection(), 123) == ["[1]: must be string"]
+    assert errors(model_selection(entry=-1)) == ["[0]: must be string"]
+    assert errors(model_selection(entry=False)) == ["[0]: must be string"]
+    wrong_attribute = model_selection()
+    wrong_attribute["Fn::Select"][1]["Fn::Split"][1]["Fn::Select"][1] = reference(
+        "EC2_VPCEndpoint_001", "NetworkInterfaceIds"
+    )
+    assert errors(wrong_attribute) == ["[0]: must be string"]
+    assert catalog.literal_errors(
+        "EC2.VPCEndpoint", "SubnetIds", json.dumps([model_selection()])
+    ) == ["[0]: must be string"]
 
 
 @pytest.fixture

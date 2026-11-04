@@ -20,6 +20,7 @@ from utils.property_path import definition_path
 from design.services.definitions.macie import MACIE_JOB as MACIE_JOB
 from design.services.definitions.quicksight import QUICKSIGHT_GROUP as QUICKSIGHT_GROUP
 from design.services.macie import job_errors, job_rule_inputs
+from design.services.route53 import RECORD_PROPERTY, endpoint_dns_operand
 
 
 @memoized
@@ -112,6 +113,12 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
         if is_reference(value):
             parse(value)
             return []
+        if (
+            f"{resource_type}.{property_path}" == RECORD_PROPERTY + "[]"
+            and node.get("type") == "string"
+            and endpoint_dns_operand(value) is not None
+        ):
+            return []  # The Model reference validator checks the producer.
         return super()._item_errors(node, value, resource_type, property_path)
 
     def api_value_errors(
