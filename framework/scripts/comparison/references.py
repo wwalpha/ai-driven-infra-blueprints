@@ -24,6 +24,9 @@ from utils.reference_contracts import (
 from . import expressions, registry
 
 _LOCAL_REFERENCE_CONTRACTS = {
+    "Events.Rule.Targets[].Arn": {"Lambda.Function": ("Arn",)},
+    "Events.Rule.Targets[].DeadLetterConfig.Arn": {"SQS.Queue": ("Arn",)},
+    "Scheduler.Schedule.Target.Arn": {"Lambda.Function": ("Arn",)},
     "Lambda.Permission.SourceArn": {"S3.Bucket": ("Arn",), "Events.Rule": ("Arn",)},
     "QuickSight.VPCConnection.RoleArn": {"IAM.Role": ("Arn",)},
 }
@@ -207,8 +210,8 @@ def reference_same(
                 return ReferenceDecision(None)
         except (Blocked, KeyError, ValueError, TypeError):
             return ReferenceDecision(None)
+    normalized = re.sub(r"\[\d+\]", "[]", prop) if local_comparison else prop
     if local_comparison and context is None:
-        normalized = re.sub(r"\[\d+\]", "[]", prop)
         proven = [
             ref.receiving_context
             for ref in expressions.references(left)
@@ -219,7 +222,7 @@ def reference_same(
             context = proven[0]
     rule = registry.property_rule(kind, path)
     declared = (
-        _LOCAL_REFERENCE_CONTRACTS.get(prop) or contract(prop, context)
+        _LOCAL_REFERENCE_CONTRACTS.get(normalized) or contract(prop, context)
         if local_comparison
         else {}
     )

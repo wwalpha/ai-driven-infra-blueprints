@@ -277,6 +277,47 @@ def _execute_replacement_proof(case):
 
 
 @pytest.mark.parametrize(
+    ("kind", "path", "service", "producer", "name_property"),
+    [
+        ("Events.Rule", "Targets[0].Arn", "lambda", "Lambda.Function", "FunctionName"),
+        (
+            "Events.Rule",
+            "Targets[].DeadLetterConfig.Arn",
+            "sqs",
+            "SQS.Queue",
+            "QueueName",
+        ),
+        (
+            "Scheduler.Schedule",
+            "Target.Arn",
+            "lambda",
+            "Lambda.Function",
+            "FunctionName",
+        ),
+    ],
+)
+def test_eventbridge_target_arn_compares_producer_identity(
+    kind, path, service, producer, name_property
+):
+    comparison = fixture()
+    for identity, logical in (("001", "Target"), ("002", "OtherTarget")):
+        resource(
+            comparison,
+            service,
+            identity,
+            producer,
+            logical,
+            [],
+            properties={name_property: logical.lower()},
+        )
+    target = comparison.evaluate("producer", {"Fn::GetAtt": ["Target", "Arn"]})
+    other = comparison.evaluate("producer", {"Fn::GetAtt": ["OtherTarget", "Arn"]})
+
+    assert comparison.reference_same(target, target, kind, path) is True
+    assert comparison.reference_same(target, other, kind, path) is False
+
+
+@pytest.mark.parametrize(
     "case_id", case_ids("reference_evidence", prefix="event-bus-valid-")
 )
 def test_eventbridge_bus_name_arn_and_proven_reference(case_runner, case_id):
