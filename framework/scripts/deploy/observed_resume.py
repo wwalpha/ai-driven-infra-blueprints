@@ -61,7 +61,6 @@ EVIDENCE_FIELDS = (
     "changeDigest",
     "clientToken",
     "executionEvidence",
-    "endedRequest",
 )
 
 

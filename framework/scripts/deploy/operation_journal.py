@@ -1,9 +1,8 @@
-"""Current request storage, locks and ownership checks; no operation replay store."""
+"""Task-local temporary paths, locks and ownership checks."""
 
 import errno
 import os
 import stat
-import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -14,6 +13,7 @@ from contracts.target import (
 )
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
+from utils.local_evidence import evidence_store
 
 if os.name == "nt":
     import msvcrt
@@ -35,11 +35,9 @@ OPERATION_FIELDS = {
     "clientToken",
     "executionStarted",
     "executionEvidence",
-    "endedRequest",
     "operationType",
     "absentBeforeCreate",
     "operationStackId",
-    "externalOperation",
     "observedSynced",
     "cleanupStatus",
     "cleanupStackId",
@@ -70,16 +68,11 @@ OPERATION_FIELDS = {
 }
 
 
-def location(target):
-    identity = [
-        target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY]),
-        target[AWS_REGION_KEY],
-    ]
-    return (
-        Path(tempfile.gettempdir()).resolve()
-        / ("blueprint-cfn-current-v3-" + fingerprint(identity))
-        / "journal.json"
-    )
+def location(root, task_file):
+    directory = evidence_store(root) / ("inputs-" + fingerprint(task_file))
+    directory.mkdir(mode=0o700, exist_ok=True)
+    private_path(directory, directory=True)
+    return directory / "journal.json"
 
 
 def safe_path(path):

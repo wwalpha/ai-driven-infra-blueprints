@@ -31,7 +31,6 @@ states:
     checkpoint: CHECKPOINTED
     coverage: {}
     deferredConsumers: []
-    endedRequest: null
     failure: null
     generation: COMPLETE
     observed: COMPLETE
@@ -41,8 +40,6 @@ states:
       partial: true
       phase: UNKNOWN
       stackStatus: null
-    requestError: null
-    requestPending: false
     runtime: null
     stackId: null
     stackStatus: null
@@ -69,7 +66,6 @@ states:
       retryable: false
       source: CONTROLLER
       stage: STACK_EXECUTION
-    endedRequest: null
     failure: null
     generation: COMPLETE
     observed: COMPLETE
@@ -79,8 +75,6 @@ states:
       partial: true
       phase: UNKNOWN
       stackStatus: null
-    requestError: null
-    requestPending: false
     runtime: null
     stackId: null
     stackStatus: null
@@ -94,7 +88,6 @@ states:
     checkpoint: CHECKPOINTED
     coverage: {}
     deferredConsumers: []
-    endedRequest: null
     failure: null
     generation: COMPLETE
     observed: COMPLETE
@@ -104,8 +97,6 @@ states:
       partial: true
       phase: NOT_STARTED
       stackStatus: null
-    requestError: null
-    requestPending: false
     runtime: null
     stackId: null
     stackStatus: null

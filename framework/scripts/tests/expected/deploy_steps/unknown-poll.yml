@@ -46,7 +46,7 @@ report:
       deferredConsumers: []
       diagnostic:
         classification: SUBMISSION_UNKNOWN
-        code: REQUEST_UNCONFIRMED
+        code: SUBMISSION_UNKNOWN
         eventReadStatus: NOT_OBSERVED
         message: The AWS request outcome is not yet confirmed.
         reasonRedacted: false
@@ -57,7 +57,6 @@ report:
         retryable: false
         source: REQUEST
         stage: POLL
-      endedRequest: null
       failure:
         classification: SUBMISSION_UNKNOWN
         code: null
@@ -77,8 +76,6 @@ report:
         partial: true
         phase: EXECUTION
         stackStatus: UNRECOGNIZED
-      requestError: null
-      requestPending: false
       runtime: null
       stackId: null
       stackStatus: UNRECOGNIZED

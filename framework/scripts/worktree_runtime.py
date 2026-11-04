@@ -176,9 +176,6 @@ def deploy_checkpoint(where, task_id, session_path):
     request = read_sealed(target, request_path)
     with (
         wt.lifecycle_lock(root),
-        handoff.operation_journal.locked(
-            handoff.operation_journal.location(request["target"])
-        ),
         handoff.locked(request_path),
     ):
         if read_sealed(target, request_path) != request:

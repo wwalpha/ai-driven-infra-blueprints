@@ -29,7 +29,7 @@ import sync_files as _imports_sync_files
 import sync_runtime
 import utils.cloudformation.inputs as _imports_cfn_inputs
 from botocore.exceptions import ClientError
-from deploy import current_request, operation_journal, steps, worktree
+from deploy import operation_journal, steps, worktree
 from deploy.controller import main
 from model.core import properties, stack_model
 from model.dependency_index import rebuild as rebuild_index
@@ -983,15 +983,6 @@ def recover_owned_lock(root, child):
 
     with operation_journal.locked(worktree.progress_path(root)):
         pass
-
-
-def unresolved_requests(state_path, names):
-    with patch.object(
-        operation_journal,
-        "location",
-        return_value=state_path.with_suffix(".operations.json"),
-    ):
-        return [name for name in names if current_request.location({}, name).exists()]
 
 
 def ordinary_base(root, name):

@@ -173,6 +173,7 @@ class StubAws(Runtime):
     def __init__(self, exports=(), destructive=False):
         super().__init__(ROOT, "dev", "123456789012", TARGET)
         self.exports, self.calls = list(exports), []
+        self.created = set()
         self._temporary = tempfile.TemporaryDirectory()
         self.root = Path(self._temporary.name)
         for unit in units(10, 10, 10, 10):
@@ -242,11 +243,16 @@ class StubAws(Runtime):
                         }
                     ]
                 }
+            if arguments["StackName"] in self.created:
+                return {"Stacks": [{"StackId": "stackid-" + arguments["StackName"], "StackStatus": "REVIEW_IN_PROGRESS"}]}
             AwsError = _imports_utils_aws_client.AwsError
             raise AwsError(
                 "cloudformation", operation, "ValidationError", stack_absent=True
             )
+        if operation == "list_change_sets":
+            return {"Summaries": []}
         if operation == "create_change_set":
+            self.created.add(arguments["StackName"])
             return {
                 "Id": "cs-" + arguments["StackName"],
                 "StackId": "stackid-" + arguments["StackName"],

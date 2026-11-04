@@ -112,7 +112,7 @@ The worktree contains committed base inputs only. Do not silently copy/stash the
 
 ## Independent Deploy lifecycle
 
-`/deploy` automatically uses this lifecycle through `worktree_task.py deploy-start --task-id <id>`; no explicit Human `/worktree` invocation is needed. New starts use a currently unused Task ID; continue an existing Task in its own Worktree without another `deploy-start`. Follow [Managed Deploy snapshot and Git publication](../../../framework/rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) for the Deploy-only fixed baseline, per-Stack checkpoints, delta publication, Human conflict review and Git-only `deploy-publish` recovery. These publication commands require the same permission inspection above. After required Snapshot validation and publication, run ordinary `finalize`; the final Deploy candidate already includes its completed contract. Its Deploy branch verifies publication and uses existing guarded cleanup. Other Tasks retain the sequence below.
+`/deploy` automatically uses this lifecycle through `worktree_task.py deploy-start --task-id <id>`; no explicit Human `/worktree` invocation is needed. Every Skill invocation starts a new Task with an unused Task ID; operations within that invocation use its Worktree and Snapshot. Follow [Managed Deploy snapshot and Git publication](../../../framework/rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) for the Deploy-only fixed baseline, per-Stack checkpoints, delta publication, Human conflict review and Git-only `deploy-publish` recovery. These publication commands require the same permission inspection above. After required Snapshot validation and publication, run ordinary `finalize`; the final Deploy candidate already includes its completed contract. Its Deploy branch verifies publication and uses existing guarded cleanup. Other Tasks retain the sequence below.
 
 ## Complete and integrate
 
@@ -237,7 +237,17 @@ lock file stays at the same inode and the OS releases exclusion on process exit.
 After failure, retain Worktree/branch/lifecycle and retry the same Task with `--create-pr`.
 Reconcile remote refs and the matching PR after a push/API or creation/state-save interruption;
 never silently create a second PR or fall back to FF Merge. A prior create intent with no
-matching PR has an uncertain outcome and requires Human review. Plain finalize on a PR Task
+matching PR has an uncertain outcome and requires Human review. After explicit Human
+approval to retry that exact Task, verify repository, base/head, candidate SHA, current
+remote head, and absence of a matching PR, then use:
+
+```console
+python3 -B framework/scripts/worktree_task.py pr-retry-create --task-id <task-id> --expected-commit <reviewed-candidate-sha>
+```
+
+The helper rechecks these boundaries and records a single retry intent before the request.
+It reconciles an existing matching PR without another request. A second uncertain retry,
+changed head, foreign PR, or failed check retains state for review. Plain finalize on a PR Task
 stops with explicit guidance. Candidate/authority changes and unsafe Git state require
 review; do not hand-edit lifecycle metadata or overwrite remote refs. PR success returns
 `prPublication.url`, `number`, `prState` and `status: OPEN`; worktree and branch remain.

@@ -24,7 +24,6 @@ initial:
       checkpoint: CHECKPOINTED
       coverage: {}
       deferredConsumers: []
-      endedRequest: null
       failure: null
       generation: COMPLETE
       observed: COMPLETE
@@ -34,8 +33,6 @@ initial:
         partial: true
         phase: CHANGESET
         stackStatus: null
-      requestError: null
-      requestPending: false
       runtime: null
       stackId: null
       stackStatus: null
@@ -71,7 +68,6 @@ unknownPeer:
       checkpoint: CHECKPOINTED
       coverage: {}
       deferredConsumers: []
-      endedRequest: null
       failure: null
       generation: COMPLETE
       observed: COMPLETE
@@ -81,8 +77,6 @@ unknownPeer:
         partial: true
         phase: CHANGESET
         stackStatus: null
-      requestError: null
-      requestPending: false
       runtime: null
       stackId: null
       stackStatus: null
@@ -97,8 +91,8 @@ unknownPeer:
       coverage: {}
       deferredConsumers: []
       diagnostic:
-        classification: REQUEST_UNCONFIRMED
-        code: REQUEST_UNCONFIRMED
+        classification: SUBMISSION_UNKNOWN
+        code: SUBMISSION_UNKNOWN
         eventReadStatus: NOT_OBSERVED
         message: The AWS request outcome is not yet confirmed.
         reasonRedacted: false
@@ -109,7 +103,6 @@ unknownPeer:
         retryable: false
         source: REQUEST
         stage: STACK_EXECUTION
-      endedRequest: null
       failure: null
       generation: COMPLETE
       observed: COMPLETE
@@ -119,8 +112,6 @@ unknownPeer:
         partial: true
         phase: UNKNOWN
         stackStatus: null
-      requestError: null
-      requestPending: false
       runtime: null
       stackId: null
       stackStatus: null

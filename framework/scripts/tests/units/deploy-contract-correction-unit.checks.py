@@ -118,7 +118,6 @@ def case(tmp_path, monkeypatch):
             "A": dict(
                 status="SUCCESS",
                 clientToken="original-token",
-                endedRequest={"token": "original-token"},
                 currentStack={"StackStatus": "UPDATE_COMPLETE"},
                 observedSynced=False,
                 changeSetId="original-change-set",
@@ -178,7 +177,6 @@ def case(tmp_path, monkeypatch):
     scope = Mock()
     monkeypatch.setattr(correction, "TaskValidation", scope)
     aws = Mock(side_effect=AssertionError("contract correction must not use AWS"))
-    monkeypatch.setattr(correction.current_request, "settled", aws)
     return SimpleNamespace(
         root=root,
         name=name,
@@ -309,10 +307,6 @@ def check_unproven_paths_refused(case, added):
         "iacRepair",
         "publication",
         "handoff",
-        "request",
-        "requestPending",
-        "requestError",
-        "createUnconfirmed",
         "running",
         "token",
         "region",
@@ -379,18 +373,10 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
         state["deployPublication"] = {"status": "PENDING"}
     elif problem == "handoff":
         (case.progress_path.parent / "deploy-repair-retained").mkdir()
-    elif problem == "request":
-        monkeypatch.setattr(
-            correction.current_request,
-            "read",
-            Mock(return_value={"token": "uncertain"}),
-        )
-    elif problem in {"requestPending", "requestError", "createUnconfirmed"}:
-        context["states"]["A"][problem] = True
     elif problem == "running":
         context["states"]["A"]["currentStack"]["StackStatus"] = "UPDATE_IN_PROGRESS"
     elif problem == "token":
-        context["states"]["A"].pop("endedRequest")
+        context["states"]["A"]["attemptResult"] = "UNKNOWN"
     elif problem == "region":
         monkeypatch.setattr(
             correction,
@@ -545,9 +531,8 @@ class ConcurrentEdit:
 @pytest.mark.parametrize("problem", [None, "digest", "files", "target", "save"])
 def check_template_cleanup_owner_is_updated(case, monkeypatch, problem):
     directory = (
-        correction.operation_journal.location(case.target).parent / "inputs-fixture"
+        correction.operation_journal.location(case.root, case.name).parent / "inputs-fixture"
     )
-    directory.parent.mkdir(mode=0o700)
     directory.mkdir(mode=0o700)
     owner = dict(
         repository=str(case.root),
@@ -824,47 +809,6 @@ def check_scope_failure_is_retained_and_transferred(case, monkeypatch):
     assert evidence.read_bytes() == original
 
 
-@pytest.mark.parametrize("success", [True, False])
-def check_scope_failure_preserves_completed_request(case, monkeypatch, success):
-    state, progress, _candidate, evidence = scope_failure_case(case, monkeypatch)
-    request = {
-        "operation": "execute_change_set",
-        "name": "A",
-        "token": "token",
-        "stackId": "stack",
-        "changeSetId": "change",
-        "settled": True,
-        "trackingReason": "CHANGESET_EXECUTION_ENDED",
-        "result": "SUCCESS" if success else "UNKNOWN",
-    }
-    progress["runContext"]["states"]["A"]["endedRequest"] = {
-        "request": request,
-        "result": "SUCCESS",
-        "executionEvidence": {
-            "StackId": "stack",
-            "ChangeSetId": "change",
-            "clientToken": "token",
-            "inputDigest": progress["runContext"]["inputDigests"]["A"],
-            "changeDigest": "change-digest",
-        },
-    }
-    record = correction.read_sealed(case.root, evidence)
-    record["states"] = copy.deepcopy(progress["runContext"]["states"])
-    write_sealed(case.root, evidence, record)
-    write_sealed(case.root, case.progress_path, progress)
-    if not success:
-        with pytest.raises(ValueError, match="success cannot be proven"):
-            correction.correct(case.root, case.name, case.source)
-    else:
-        correction.correct(case.root, case.name, case.source)
-        revised = read_state(case.root, case.name)[3]
-        assert (
-            worktree.read_progress(case.root, revised)["runContext"]["states"]["A"][
-                "status"
-            ]
-            == "SUCCESS"
-        )
-    case.aws.assert_not_called()
 
 
 @pytest.mark.parametrize("boundary", ["Task", "Progress", "both"])
@@ -930,8 +874,9 @@ def check_scope_failure_rejects_unproven_evidence(case, monkeypatch, problem):
         write_sealed(case.root, evidence, record)
         write_sealed(case.root, case.progress_path, progress)
     elif problem in {"unknown", "active"}:
-        progress["runContext"]["states"]["A"]["requestPending"] = problem
-        record["states"]["A"]["requestPending"] = problem
+        key, value = ("attemptResult", "UNKNOWN") if problem == "unknown" else ("status", "RUNNING")
+        progress["runContext"]["states"]["A"][key] = value
+        record["states"]["A"][key] = value
         write_sealed(case.root, evidence, record)
         write_sealed(case.root, case.progress_path, progress)
     else:
@@ -1157,7 +1102,7 @@ def check_desired_model_change_is_never_authorized(case, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "changed", ["progress", "inputs", "branch", "request", "handoff"]
+    "changed", ["progress", "inputs", "branch", "handoff"]
 )
 def check_interrupted_correction_external_edit_is_retained(case, monkeypatch, changed):
     atomic = correction.atomic_files
@@ -1172,12 +1117,6 @@ def check_interrupted_correction_external_edit_is_retained(case, monkeypatch, ch
             correction.contracts,
             "validation_snapshot",
             Mock(return_value={"project.json": "external change"}),
-        )
-    elif changed == "request":
-        monkeypatch.setattr(
-            correction.current_request,
-            "read",
-            Mock(return_value={"token": "new uncertain request"}),
         )
     elif changed == "handoff":
         (case.progress_path.parent / "deploy-repair-new").mkdir()

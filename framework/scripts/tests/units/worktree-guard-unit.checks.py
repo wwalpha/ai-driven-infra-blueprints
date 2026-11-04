@@ -870,9 +870,6 @@ def check_checkpoint_observed_barrier(tmp_path, pending):
         ),
         patch.object(handoff, "dependency_reader", return_value=Mock()),
         patch.object(
-            handoff.current_request, "location", return_value=tmp_path / "request.json"
-        ),
-        patch.object(
             handoff.current_state, "read", return_value={"StackStatus": stack_status}
         ),
     ):
@@ -884,7 +881,7 @@ def check_checkpoint_observed_barrier(tmp_path, pending):
 
 
 @pytest.mark.parametrize(
-    "case", ["independent", "publication-overlap", "journal-active", "repair-active"]
+    "case", ["independent", "publication-overlap", "repair-active"]
 )
 def check_checkpoint_uses_scoped_barrier_under_ordered_locks(tmp_path, case):
     runtime = wt._worktree_runtime()
@@ -1345,6 +1342,8 @@ def check_pr_gh_noninteractive(tmp_path, failure):
             assert "sensitive" not in str(error.value)
             if failure == "api":
                 assert "HTTP 422" in str(error.value)
+            if failure == "exit":
+                assert "exit 1" in str(error.value)
 
 
 def check_pr_lock_and_mode_retention(tmp_path):

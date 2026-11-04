@@ -259,11 +259,7 @@ def save_progress(backend, fields):
             in {
                 "checkpointed",
                 "currentStack",
-                "requestPending",
-                "requestError",
-                "endedRequest",
                 "reason",
-                "createUnconfirmed",
             }
         }
         for name, entry in context["states"].items()
@@ -352,8 +348,6 @@ def end_unexecuted(context):
         if (
             item["status"] in {"READY", "NOT_STARTED", "BLOCKED", "CHANGESET_CREATING"}
             and not item.get("clientToken")
-            and not item.get("requestPending")
-            and not item.get("requestError")
         ):
             order = int(units[name]["deployOrder"])
             item.update(
@@ -385,8 +379,6 @@ def final_blockers(context):
                 )
         if not item.get("observedSynced") or not item.get("currentStack"):
             blockers.append({"stack": name, "reason": "current observation needs sync"})
-        if item.get("requestPending") or item.get("requestError"):
-            blockers.append({"stack": name, "reason": "current request is unresolved"})
         if current_category(item) in {"RUNNING", "UNKNOWN"}:
             blockers.append(
                 {"stack": name, "reason": "current AWS is running or unreadable"}

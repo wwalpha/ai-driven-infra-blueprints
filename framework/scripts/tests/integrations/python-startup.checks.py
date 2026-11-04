@@ -112,7 +112,7 @@ def check_imports_in_one_process():
 
 
 def check_deploy_modules_import_first_in_fresh_processes():
-    for module in ("scheduler", "current_request", "operation_journal", "controller"):
+    for module in ("scheduler", "operation_journal", "controller"):
         subprocess.run(
             [sys.executable, "-c", f"import deploy.{module}"],
             env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},

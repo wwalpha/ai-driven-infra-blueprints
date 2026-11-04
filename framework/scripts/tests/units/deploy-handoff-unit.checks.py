@@ -639,7 +639,7 @@ def check_explicit_failure_discard_preserves_referenced_or_unknown_evidence(
             assert path.exists()
 
 
-@pytest.mark.parametrize("held", ["journal", "repair"])
+@pytest.mark.parametrize("held", ["repair"])
 def check_explicit_discard_lock_contention_preserves_evidence(tmp_path, held):
     root = tmp_path / "repo"
     root.mkdir()
@@ -683,11 +683,9 @@ def check_handoff_uses_current_state_without_journal(tmp_path, status):
         "allowedPaths": [],
     }
     reader = Mock()
-    path = tmp_path / "request.json"
     current = {"StackId": "stack", "StackStatus": status}
     with (
         patch.object(handoff, "dependency_reader", return_value=reader),
-        patch.object(handoff.current_request, "location", return_value=path),
         patch.object(handoff.current_state, "read", return_value=current),
     ):
         if status == "UPDATE_COMPLETE":

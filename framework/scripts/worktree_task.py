@@ -2377,6 +2377,7 @@ def main():
             "branches",
             "branch-delete",
             "pr-update",
+            "pr-retry-create",
             "pr-sync-base",
             "pr-merge",
             "pr-status",
@@ -2461,6 +2462,13 @@ def main():
         and not args.branch
     ):
         parser.error("--branch is required only for branch-delete")
+    if args.command == "pr-retry-create" and (
+        not args.expected_commit
+        or args.expected_base
+        or args.finish_recovery
+        or args.repin_recovery
+    ):
+        parser.error("pr-retry-create requires only --expected-commit")
     if args.recover_prepared_pr and (
         args.command != "sync-latest-base"
         or not args.expected_commit
@@ -2490,6 +2498,7 @@ def main():
         "recover",
         "sync-base",
         "sync-latest-base",
+        "pr-retry-create",
         "pr-sync-base",
         "rewrite-base",
     } and (
@@ -2518,6 +2527,10 @@ def main():
                 state = publication.close_existing(where, args.pr)
             elif args.command == "pr-update":
                 state = publication.update(where, args.task_id)
+            elif args.command == "pr-retry-create":
+                state = publication.retry_create(
+                    where, args.task_id, args.expected_commit
+                )
             elif args.command == "pr-sync-base":
                 state = publication.sync_base(where, args.task_id, args.expected_base)
             else:

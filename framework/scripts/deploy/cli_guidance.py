@@ -78,9 +78,9 @@ The LLM chooses sync timing and explicit scope; no background writer or Sub Agen
 Deploy result, Model save, Snapshot validation and Git publication are independent.
 A consistent failed Snapshot can complete its Task with Deploy FAIL unchanged.
 Intermediate saves keep Task running and fixed IaC/parameters/artifacts unchanged.
-Current request identity and saved candidate integrity determine the next action.
-Current Stack requests retain original IDs/tokens across lost replies and Worktrees;
-a stale COMPLETE alone never settles an uncertain Execute. Retire only requests with proven identity-specific completion or loss of effect.
+Current Task identity and saved candidate integrity determine the next action.
+Keep this execution’s IDs and token when reporting an uncertain response;
+a new Deploy invocation starts a new Task based on current AWS state.
 Choose an explicit --action for every invocation.
 Retry saved Git commits with worktree_task.py deploy-publish, without AWS or recollection.
 Same-Order independent peers can continue after a failure; later Order still requires
@@ -93,7 +93,7 @@ This illustrative ID is not an approval. Use only the actual returned ID; repeat
 for each approved ChangeSet. Runtime rechecks ID, Stack, full content and input
 fingerprints, CREATE_COMPLETE/AVAILABLE. Interrupted or changed approval is invalid.
 
---action status inspects and reconciles existing requests without starting a new AWS Execute.
+--action status inspects this Task without starting a new AWS Execute.
 It may recover and save previously persisted unfinished work, including pending Observed
 values, generated artifacts and progress. It never implicitly starts a new Deploy
 or automatically grants Human approval. Use explicit sync and checkpoint for their

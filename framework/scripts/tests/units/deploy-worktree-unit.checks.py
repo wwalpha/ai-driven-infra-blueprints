@@ -21,20 +21,15 @@ import worktree_checkpoint as checkpoints
 import worktree_state as ws
 from deploy import (
     controller,
-    current_request,
     guards,
     inputs,
     operation_journal,
     run_context,
-    scheduler,
-    steps,
     worktree,
 )
 from deploy import git_publication as publication
 from support.pytest_cli import run
-from support.worktree_deploy_fixtures import pin_progress
 from task_contract_core import task_digest
-from utils.json_format import fingerprint
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -485,7 +480,6 @@ def check_git_failure_preserves_stack_success(tmp_path, monkeypatch):
         "generationError",
         "checkpointPending",
         "aws",
-        "request",
         "final",
         "task",
     ],
@@ -527,8 +521,6 @@ def check_completion_keeps_states_separate(tmp_path, monkeypatch, pending):
         context[pending] = "generation failed"
     elif pending == "aws":
         context["states"]["A"]["status"] = "RUNNING"
-    elif pending == "request":
-        context["states"]["A"]["requestPending"] = True
     elif pending == "final":
         state["deployPublication"].pop("finalCandidate")
     elif pending == "task":
@@ -931,7 +923,6 @@ def check_progress_has_one_mutable_context_and_preserves_recovery(tmp_path):
             "A": {
                 "status": "SETTLED",
                 "attemptResult": "UNKNOWN",
-                "endedRequest": {"request": {"token": "original"}},
             }
         },
         "inputDigests": {"A": "fixed"},
@@ -1129,97 +1120,6 @@ def check_untracked_cleanup_uses_only_published_exact_task(
         assert path.read_text(encoding="utf-8") == after
 
 
-@pytest.mark.parametrize("replacement_request", [False, True])
-def check_old_worktree_reconciles_released_identity_without_removing_new_request(
-    tmp_path, replacement_request
-):
-    # Two local progress stores share only the current request, never each other's files.
-    target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
-    roots = [tmp_path / "original", tmp_path / "peer"]
-    for root in roots:
-        root.mkdir()
-    request = tmp_path / "request.json"
-    original = {
-        "operation": "execute_change_set",
-        "name": "A",
-        "service": "cloudformation",
-        "resourceId": None,
-        "stackId": "old-id",
-        "changeSetId": "old-change",
-        "token": "old-token",
-    }
-    request.write_text(json.dumps(original), encoding="utf-8")
-    request.chmod(0o600)
-    backends = []
-    for root in roots:
-        identity = {
-            "taskFile": "tasks/deploy.md",
-            "taskDigest": "fixed",
-            "target": target,
-            "environment": "dev",
-            "stacks": ["A"],
-        }
-        state = {
-            "status": "RUNNING",
-            "clientToken": "old-token",
-            "changeSetId": "old-change",
-            "executionEvidence": {"StackId": "old-id"},
-        }
-        context = {
-            "stepUnits": [{"name": "A", "deployOrder": 1}],
-            "directory": "app",
-            "states": {"A": state},
-            "inputDigests": {"A": "fixed"},
-        }
-        backend = SimpleNamespace(
-            root=root,
-            phase="deploy",
-            target=target,
-            units=context["stepUnits"],
-            states=context["states"],
-            run_context=context,
-            templates={},
-            aws=Mock(
-                return_value={
-                    "Stacks": [{"StackId": "new-id", "StackStatus": "UPDATE_COMPLETE"}]
-                }
-            ),
-        )
-        pin_progress(backend, identity)
-        backend.save = partial(
-            worktree.save_progress, backend, operation_journal.OPERATION_FIELDS
-        )
-        backend.poll = partial(controller.poll, backend)
-        backend.save()
-        backends.append(backend)
-    with patch.object(current_request, "location", return_value=request):
-        steps.refresh_requests(backends[1])
-        TestCase().assertTrue(not request.exists())
-        if replacement_request:
-            new = original | {
-                "stackId": "new-id",
-                "changeSetId": "new-change",
-                "token": "new-token",
-            }
-            request.write_text(json.dumps(new), encoding="utf-8")
-            request.chmod(0o600)
-        steps.refresh_requests(backends[0])
-        saved = worktree.read_progress(
-            roots[0], {"deployIdentity": backends[0].progress_identity}
-        )["runContext"]["states"]["A"]
-        TestCase().assertTrue(
-            saved["attemptResult"] == saved["endedRequest"]["result"] == "UNKNOWN"
-        )
-        TestCase().assertTrue(
-            not {"clientToken", "changeSetId", "executionEvidence"} & saved.keys()
-        )
-        TestCase().assertTrue(saved["requestPending"] == replacement_request)
-        if replacement_request:
-            TestCase().assertTrue(
-                json.loads(request.read_text(encoding="utf-8")) == new
-            )
-        else:
-            TestCase().assertTrue(not request.exists())
 
 
 def atomic_test_save(tmp_path, progress, state, request, saves):
@@ -1243,119 +1143,8 @@ def atomic_test_transport(
     )
 
 
-def atomic_test_aws(runtime, transport, stack, observed, operation, **arguments):
-    if operation in {"create_change_set", "execute_change_set"}:
-        return current_request.send(runtime, operation, arguments, transport)
-    if operation == "describe_stacks":
-        return {"Stacks": [{"StackId": stack, "StackStatus": "UPDATE_COMPLETE"}]}
-    if operation == "describe_change_set":
-        return dict(observed)
-    if operation == "describe_stack_events":
-        return {"StackEvents": []}
-    raise AssertionError(operation)
 
 
-@pytest.mark.parametrize(
-    "released,missing_stack", [(False, False), (False, True), (True, False)]
-)
-def check_create_review_execute_uses_one_atomic_request(
-    tmp_path, released, missing_stack
-):
-    name = "Example"
-    stack = "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/Example/stack-id"
-    change = "arn:aws:cloudformation:ap-northeast-1:123456789012:changeSet/change/id"
-    observed = {
-        "StackId": stack,
-        "ChangeSetId": change,
-        "Status": "CREATE_COMPLETE",
-        "ExecutionStatus": "AVAILABLE",
-        "Changes": [],
-    }
-    unit = {"name": name, "deployOrder": 1}
-    state = {
-        "status": "CHANGESET_CREATING",
-        "stackId": stack,
-        "changeSetId": "change",
-        "preparationId": "create-token",
-    }
-    request = tmp_path / "request.json"
-    progress = tmp_path / "progress.json"
-    calls = []
-    saves = []
-    runtime = SimpleNamespace(
-        target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
-        states={name: state},
-        templates={name: ({}, None)},
-        expected_digests={name: "input"},
-    )
-
-    save = partial(atomic_test_save, tmp_path, progress, state, request, saves)
-    transport = partial(atomic_test_transport, calls, request, missing_stack, stack)
-    aws = partial(atomic_test_aws, runtime, transport, stack, observed)
-
-    runtime.aws = aws
-    runtime.save = save
-    runtime.describe_change_set = lambda _unit, _state: dict(observed)
-    runtime.approvals = set()
-    runtime.review_prepared = partial(controller.review_prepared, runtime)
-    runtime.execute = partial(controller.execute, runtime)
-    runtime.prepare = Mock()
-    runtime.load_inputs = Mock()
-    runtime.observed_readiness = Mock()
-    runtime.input_digest = lambda _unit, fresh=False: "input"
-    runtime.file_digest = Mock()
-    runtime.template_arguments = Mock()
-    runtime.check_imports = Mock()
-    runtime.poll = Mock()
-    with patch.object(current_request, "location", return_value=request):
-        aws(
-            "create_change_set",
-            StackName=name,
-            ChangeSetName="change",
-            ClientToken="create-token",
-        )
-        if released:
-            state["currentStack"] = {"StackId": stack, "StackStatus": "UPDATE_COMPLETE"}
-            settled = current_request.reconcile(runtime, unit)
-            TestCase().assertTrue(settled["settled"])
-            current_request.end_tracking(state, settled)
-            save()
-            current_request.release(runtime, settled)
-            TestCase().assertTrue(not request.exists())
-        TestCase().assertTrue(
-            current_request.current_state.same_change_set("change", change)
-        )
-        TestCase().assertTrue(
-            not current_request.current_state.same_change_set(change, "change")
-        )
-        TestCase().assertTrue(
-            scheduler.run_group([unit], 1, runtime.states, runtime, save) == "ACTIVE"
-        )
-        TestCase().assertTrue(
-            [call[0] for call in calls] == ["create_change_set", "execute_change_set"]
-        )
-        TestCase().assertTrue(calls[-1][2]["submission"] == "SENDING")
-        TestCase().assertTrue(calls[-1][1]["ClientRequestToken"] != "create-token")
-        TestCase().assertTrue(
-            any(
-                (
-                    item[0]
-                    and item[0]["operation"] == "create_change_set"
-                    and item[1].get("endedRequest")
-                    for item in saves
-                )
-            )
-        )
-        TestCase().assertTrue(json.loads(request.read_text())["submission"] == "SENT")
-        TestCase().assertTrue(state["changeDigest"] == fingerprint([]))
-        with pytest.raises(current_request.Blocked):
-            aws(
-                "execute_change_set",
-                StackName=stack,
-                ChangeSetName=change,
-                ClientRequestToken=state["clientToken"],
-            )
-        TestCase().assertTrue(len(calls) == 2)
 
 
 def _checkpoint_output(trace, root, *args):
@@ -1534,13 +1323,6 @@ def check_final_checkpoint_rejects_changes_before_adoption(
     monkeypatch.setattr(
         publication, "output_changes", Mock(return_value={"model/a.properties"})
     )
-    monkeypatch.setattr(
-        current_request, "location", Mock(return_value=tmp_path / "request.json")
-    )
-    monkeypatch.setattr(
-        current_request.journal, "locked", Mock(return_value=nullcontext())
-    )
-    monkeypatch.setattr(current_request, "read", Mock(return_value=None))
     monkeypatch.setattr(
         checkpoints.wt, "output", partial(_final_checkpoint_output, trace)
     )

@@ -136,7 +136,7 @@ A failure/rollback stops dependent later Orders; independent peers at the same O
 
 Deploy never edits IaC. Diagnose the current failed Stack and structured AWS error against approved Model and exact inputs. Proven IaC defects use the separately authorized one-shot [Implement handoff](../prompts/codex/deploy/runbook.md#external-iac-repair-handoff): settle unfinished operations, pin/checkpoint current Task/input authority, suspend parent, isolate child, run static validation, verify exact commit/paths/bytes, ff-only integrate, discard temporary evidence and start an independent Deploy from latest IaC/AWS. No Session, Workflow Ledger/Registry, cumulative attempt budget, SAME/NEW history or historical approval participates. Unknown cause, authentication/scope/design defects and unconfirmed submissions require investigation/Human action.
 
-Runtime bootstrap remains separate and changes no IaC. Preserve original StackId/Token, failed-template Retain/Custom/nested safety, deletion inventory/protection and empty-shell ownership checks. At most one same-Stack bootstrap/empty-shell retry is permitted within a run; Secrets versions and unfinished stable Token prevent duplicate initialization after interruption. Never use corrected template policy as authority to delete old resources. A subsequent run accepts latest IaC and creates/evaluates its own ChangeSet; no local hash alone proves AWS application.
+Runtime bootstrap remains separate and changes no IaC. Preserve original StackId/Token, failed-template Retain/Custom/nested safety, deletion inventory/protection and empty-shell ownership checks. A failed Stack remains FAILED in this Task; never retry it within the same run. Secrets versions and the current Task’s stable Token prevent duplicate initialization after interruption. Never use corrected template policy as authority to delete old resources. A subsequent run accepts latest IaC and creates/evaluates its own ChangeSet; no local hash alone proves AWS application.
 
 ## Delete and replacement confirmation
 
@@ -482,8 +482,7 @@ AWS command arguments follow the official CLI references for
 
 ## Independent controller runs and execution timing
 
-This section's Controller commands, Scheduler, shared AWS request records/locks,
-sealed progress, SDK repair handoff and receipts describe the existing **SDK method**.
+This section's Controller commands, Scheduler, Task-local progress, SDK repair handoff and receipts describe the existing **SDK method**.
 They are not CLI execution/recovery dependencies. The fixed-input Snapshot,
 Model/Observed/View, Validation and Git integrity requirements still apply to CLI;
 its independent procedure and non-AWS completion path are defined above.
@@ -527,16 +526,12 @@ retain AWS's actual operation restrictions. REVIEW_IN_PROGRESS is classified wit
 current ChangeSet execution, never by suffix alone. Structured absence is ABSENT;
 read/permission/network failures are UNKNOWN, never absence.
 
-Retain the original request identity and token across Worktrees when a submission reply
-is lost. A single old UPDATE_COMPLETE cannot settle an uncertain Execute; inspect its
-ChangeSet and token events. Retire a confirmed AWS request before Model/Git work. Never
-infer completion from TTL, PID, old Task, Outputs or checkpoint evidence. Corrupt records
-block only the affected Stack's new mutations; other Stacks and Snapshot saves continue.
+Keep this Task's original Stack ID, ChangeSet ID and token when a submission reply is lost. Report an uncertain outcome without blind resubmission. A new Deploy uses a new Task and current AWS state; it does not inspect previous request records.
 
 ### Managed Deploy snapshot and Git publication
 
 Independent new Deploy uses `worktree_task.py deploy-start --task-id <id>` with a
-currently unused ID. Continue an existing Task in its own Worktree. Keep lifecycle ownership, current Task authority,
+currently unused ID. Operations within that invocation use its Worktree and Snapshot. Keep lifecycle ownership, current Task authority,
 Target/Account/Region, destructive-change consent and fixed IaC/parameters/artifacts.
 Self-authored Observed/View/contract commits advance HEAD without changing execution
 inputs. Base advancement or rewritten publication history does not replace fixed inputs.
@@ -589,9 +584,7 @@ Deploy remains mandatory.
 Correction requires ready managed Python, valid unchanged lifecycle/HEAD/index, original
 contract text and readable saved progress. It verifies current project target, execution
 units, file identities/consumed hashes/unit digests, saved Model inputs, and closed checkpoint
-receipts. Requests must be locally settled: any current per-Stack request record, uncertain
-submission, active/unknown recorded Stack, unended token or active controller stops. No AWS
-read is used to settle requests on this path. Missing progress/input evidence stops.
+receipts. Current Task operations must be settled: an uncertain submission, active/unknown recorded Stack or active controller stops correction. No AWS read is used to settle operations on this path. Missing progress/input evidence stops.
 
 Pending Observed and generation Intents may be rebound only after checking original Task
 bytes, ownership, execution evidence, exact before/after manifests, current bytes, file
@@ -625,8 +618,7 @@ in the consumer's existing workflow, or Human facts/IMPORT refresh when acquisit
 needed. Present affected Target, key, producer Stack and unconfirmed facts; do not create
 or execute a follow-up Task automatically or claim View generation changed Consumer AWS.
 
-The operation holds existing progress, per-Stack request, repair, Model publication and
-lifecycle locks. It compares candidate, contract, Git/index, project inputs, progress and
+The operation holds existing progress, repair, Model publication and lifecycle locks. It compares candidate, contract, Git/index, project inputs, progress and
 temporary template owners again before saving. One rollback batch changes the current
 contract, lifecycle identity/text, progress identity, verified closed receipt identities and
 matching temporary template ownership, including pending Intent identities. Tokens/results,
@@ -654,7 +646,7 @@ Use only `framework/prompts/codex/07_destroy.md` and independent `cloudformation
 
 Resolve local units, DeployOrder, MaxConcurrentStacks, resource ownership, identifier outputs/incoming references and exact observed/model/view paths before AWS calls. Use existing deterministic model readers and explicit cfn-logicalId; legacy name inference and template/parameter body reading are prohibited. Reject out-of-target references under existing scope policy before deletion. No desired/IaC changes.
 
-Authenticate once per invocation through the existing `deploy/context.py` read-only target/account and STS logic (no IaC command requirement). Destroy uses the existing SDK, not an AWS CLI subprocess: DescribeStacks, ListImports and DeleteStack use `utils/aws/cloudformation.py`; DescribeStackEvents uses the common `utils/aws/client.py` request per page. Pin execution account, region, profile and each described StackId; all deletes address StackId. Confirm StackName/StackStatus/EnableTerminationProtection/ParentId/RootId. Block termination protection or direct nested targets without changing protection or scope. Share the target controller lock with deploy.
+Authenticate once per invocation through the existing `deploy/context.py` read-only target/account and STS logic (no IaC command requirement). Destroy uses the existing SDK, not an AWS CLI subprocess: DescribeStacks, ListImports and DeleteStack use `utils/aws/cloudformation.py`; DescribeStackEvents uses the common `utils/aws/client.py` request per page. Pin execution account, region, profile and each described StackId; all deletes address StackId. Confirm StackName/StackStatus/EnableTerminationProtection/ParentId/RootId. Block termination protection or direct nested targets without changing protection or scope. Use the destroy controller's existing lock.
 
 Build the Export snapshot once per external session from confirmed scoped Stack Outputs, then query imports only for scoped owner exports; do not call ListExports. On resume, reuse export snapshot only when current scoped Outputs' ExportNames match it; recheck relevant imports. Outside importers block all new deletes. Require importer DeployOrder strictly greater than producer; conflicts, including the same order, block without redesign. AWS standard deletion remains the final authoritative dependency enforcement.
 
@@ -691,15 +683,7 @@ bytes on cleanup retry. Other untracked/ignored files and foreign edits remain b
 Progress persists identity plus one runContext, including full observation/generation
 candidates, fixed input evidence, generationError and checkpoint intent. Lifecycle
 Deploy publication is the only saved Git state; display always derives it freshly.
-Request reconciliation uses the same identity proof in send/poll/reconcile. A pinned
-StackId confirmed deleted or replaced can retire tracking while preserving UNKNOWN.
-A single same-ID COMPLETE, AVAILABLE or ChangeSetNotFound alone cannot release an
-uncertain Execute. StackName-bound Create and SecretId/version-token-bound Secrets
-requests retain their own recovery rules. Persist current observation, outcome and
-detached original identity before releasing only that request under the Stack lock.
-Missing/different shared records never prove old completion. Corrupt/unreadable evidence
-blocks the affected Stack until trustworthy identity evidence can be checked; no
-manual status deletion, Reset, force release, TTL or PID inference is part of Deploy.
+Each Deploy Skill invocation creates a new Task and Snapshot. It does not read previous Tasks or shared request records. Within the current Task retain its Stack ID, ChangeSet ID, token and execution evidence; report an unknown response without blindly resending it. Read the current AWS Stack state immediately before creating and executing a ChangeSet. AWS API conflicts are reported as the current operation result.
 
 ## DeployOrder selection and synchronization scope
 
@@ -734,7 +718,7 @@ Destroy and Import retain their existing propagation and permission checks.
 Necessary external producers are not deployed automatically. The existing Export Resolver
 checks current required Exports before creating a consumer ChangeSet; selected producers
 still require success. Missing/unknown/pending values do not prove a dependency satisfied.
-Snapshot, current-request deduplication, change/replacement approval, Order barriers,
+Snapshot, current AWS state checks, change/replacement approval, Order barriers,
 same-Order concurrency, partial saves and checkpoint/Git publication recovery remain required.
 CLI deployment remains independent: the LLM fixes the explicit selected StackNames in
 its Task and applies the same Order/dependency boundaries without calling SDK Preparation.

@@ -44,7 +44,6 @@ import deploy.failures as _imports_deploy_failures
 from deploy import (
     change_sets,
     cli_guidance,
-    current_request,
     current_state,
     delivery,
     inputs,
@@ -145,30 +144,15 @@ def aws(
     **arguments: AwsValue,
 ) -> AwsResponse:
     try:
-        if service == "cloudformation" and operation in current_request.TOKENS:
-            return current_request.send(runtime, operation, arguments, call)
         if service == "secretsmanager" and operation in {
-            "put_secret_value",
-            "update_secret_version_stage",
+            "put_secret_value", "update_secret_version_stage"
         }:
-            entries = [
-                state["bootstrap"]
-                for state in runtime.states.values()
-                if state.get("bootstrap", {}).get("secretId")
-                == arguments.get("SecretId")
+            owners = [
+                state["bootstrap"] for state in runtime.states.values()
+                if state.get("bootstrap", {}).get("secretId") == arguments.get("SecretId")
             ]
-            if len(entries) != 1:
-                raise Blocked(
-                    "Secret submission needs its current scoped bootstrap owner"
-                )
-            return current_request.send(
-                runtime,
-                operation,
-                arguments,
-                call,
-                service=service,
-                stack_name=entries[0]["owner"]["stack"],
-            )
+            if len(owners) != 1:
+                raise Blocked("Secret submission needs its current scoped bootstrap owner")
         return call(runtime, service, operation, arguments)
     except Exception as error:
         error.deploy_service, error.deploy_operation = service, operation
@@ -459,21 +443,13 @@ def current_satisfied(runtime: SimpleNamespace, unit: StackUnit) -> None:
     """Prove current inputs and identifiers without changing the attempt outcome."""
     name = unit["name"]
     state = runtime.states[name]
-    if (
-        state.get("requestPending")
-        or state.get("requestError")
-        or not state.get("observedSynced")
-    ):
-        raise Blocked(
-            "current request or observed synchronization is incomplete: " + name
-        )
+    if not state.get("observedSynced"):
+        raise Blocked("observed synchronization is incomplete: " + name)
     runtime.load_inputs(unit)
     expected_digest = runtime.expected_digests.get(name)
     if not expected_digest or runtime.input_digest(unit, fresh=True) != expected_digest:
         raise Blocked("fixed deployment inputs cannot be confirmed: " + name)
     current = current_state.read(runtime.aws, name)
-    if current_request.reconcile(runtime, unit):
-        raise Blocked("current Stack request is unresolved: " + name)
     if current_state.category(current) != "SUCCESS" or not current.get("StackId"):
         raise Blocked("current Stack is not stable and successful: " + name)
     if current_state.identity(current) != current_state.identity(
@@ -569,7 +545,6 @@ def current_satisfied(runtime: SimpleNamespace, unit: StackUnit) -> None:
     )
     checked = {name: copy.deepcopy(state)}
     checked[name].pop("executionEvidence", None)
-    checked[name].pop("endedRequest", None)
     checked[name].pop("changes", None)
     observed.collect_successful(runtime, [unit], checked)
     if any(
@@ -577,8 +552,6 @@ def current_satisfied(runtime: SimpleNamespace, unit: StackUnit) -> None:
         for item in checked[name].get("observedCoverage", {}).values()
     ):
         raise Blocked("current Stack identifiers need synchronization: " + name)
-    if current_request.reconcile(runtime, unit):
-        raise Blocked("current Stack request changed during verification: " + name)
     if current_state.identity(current) != current_state.identity(
         current_state.read(runtime.aws, name)
     ):
@@ -664,6 +637,16 @@ def execute(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> Non
         runtime.observed_readiness(
             unit, {"changes": change_sets.change_summary(current)}
         )
+        stack = current_state.read(runtime.aws, unit["name"])
+        status = stack["StackStatus"]
+        allowed = (
+            status == "REVIEW_IN_PROGRESS"
+            and current_state.category(stack) == "REVIEW"
+            if state.get("operationType") == "CREATE"
+            else status in current_state.UPDATEABLE
+        )
+        if not allowed or stack.get("StackId") != state.get("stackId"):
+            raise Blocked("Stack is not ready for execution or its identity changed: " + status)
         evidence = change_sets.record_execution(
             runtime.aws, unit, state, current, runtime.input_digest(unit, fresh=True)
         )
@@ -781,8 +764,6 @@ def finish_repair(
     return repair_ops.finish_repair(
         runtime.refresh_validation,
         runtime.save,
-        runtime.cleanup_failed_create,
-        runtime.reset_after_cleanup,
         unit,
         state,
         entry,
@@ -809,16 +790,6 @@ def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool
             for e in state.get("failureEvents", [])
         ):
             return runtime.bootstrap(unit, state)
-        # This unchanged-input exception is independent of IaC repair, once per Stack.
-        if (
-            state.get("stackStatus") == "ROLLBACK_COMPLETE"
-            and not state.get("emptyStackRecreated")
-            and not entry
-            and runtime.cleanup_failed_create(unit, state, empty_only=True)
-        ):
-            state["emptyStackRecreated"] = True
-            runtime.reset_after_cleanup(state)
-            return True
         state["failureClassification"] = (
             "HUMAN_REQUIRED" if state.get("emptyStackRecreated") else "NEEDS_DIAGNOSIS"
         )
@@ -904,7 +875,7 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
                 )
             ]
             state["eventReadStatus"] = "COMPLETE"
-            stack_events = current_request.root_events(
+            stack_events = current_state.root_events(
                 matched, state["clientToken"], execution_stack
             )
             if stack_events and stack_events[0].get("ResourceStatus") in {
@@ -932,35 +903,6 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
             "partial": True,
             "eventAsOf": current.get("observedAt"),
         }
-    request = current_request.reconcile(runtime, unit, state)
-    if request and state.get("requestError"):
-        raise Blocked(state["requestError"])
-    if request and not request.get("settled"):
-        state["requestPending"] = True
-        return (
-            "UNCONFIRMED"
-            if current_state.category(current) != "RUNNING"
-            else current["StackStatus"]
-        )
-    if request and not current_request.owns(state, request):
-        return "UPDATE_IN_PROGRESS"
-    if request and current_request.owns(state, request):
-        state["settledRequest"] = request
-        state["requestPending"] = False
-    if request and current_request.owns(state, request):
-        if request.get("trackingReason") in {
-            "ORIGINAL_STACK_DELETED",
-            "ORIGINAL_STACK_REPLACED",
-        }:
-            return "ATTEMPT_SETTLED"
-        if request.get("result") == "SUCCESS":
-            return "ATTEMPT_SUCCESS"
-        if request.get("result") == "FAIL":
-            return "ATTEMPT_FAIL"
-        if attempt_status is None:
-            attempt_status = request.get("attemptStatus")
-        if request.get("result") == "SETTLED" and attempt_status is None:
-            return "ATTEMPT_SETTLED"
     if (
         current["StackStatus"] == "UNKNOWN"
         and state.get("clientToken")
@@ -974,11 +916,6 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     }:
         raise Blocked("current Stack state is unavailable: " + unit["name"])
     if (
-        state.pop("externalOperation", False)
-        and current_state.category(current) != "RUNNING"
-    ):
-        return "RECHECK"
-    if (
         attempt_status in {"CREATE_FAILED", "UPDATE_FAILED"}
         and current_state.category(current) == "RUNNING"
     ):
@@ -989,14 +926,7 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
             if attempt_status in current_state.FAILED
             else "ATTEMPT_SUCCESS"
         )
-    if (
-        state.get("attemptResult") == "UNKNOWN"
-        and not state.get("endedRequest")
-        and not state.get("clientToken")
-    ):
-        state["requestError"] = (
-            "original execution identity is incomplete; current Stack status cannot prove its outcome"
-        )
+    if state.get("attemptResult") == "UNKNOWN" and not state.get("clientToken"):
         return "UNCONFIRMED"
     if state.get("clientToken") and current_state.category(current) != "RUNNING":
         return "UNCONFIRMED"

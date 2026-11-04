@@ -17,13 +17,13 @@ Select only the fixed method: SDK follows the sections below directly. Read only
 
 ## Managed entry
 
-For a new Deploy choose a Task ID not currently in use and resolve the Target; follow the Worktree [permission inspection and continuation procedure](../worktree/SKILL.md#sandbox-permission-approval-and-continuation), then use the existing lifecycle entry from a surviving root:
+Each Deploy Skill invocation starts a new Deploy. Choose a Task ID not currently in use and resolve the Target; follow the Worktree [permission inspection and continuation procedure](../worktree/SKILL.md#sandbox-permission-approval-and-continuation), then use the existing lifecycle entry from a surviving root:
 
 ```console
 python3 -B framework/scripts/worktree_task.py deploy-start --task-id <task-id>
 ```
 
-Adopt its returned `worktree` and `task_file` for registration/preparation/child commands. The entry verifies configured upstream and fast-forwards only a clean base; `LOCAL_ONLY` means no upstream was configured, not proof of remote freshness. Existing IDs are rejected. Inspect only the selected Task/current checkout and necessary shared metadata under the Worktree entry procedure; never investigate unrelated checkout contents or infer scope from another Task. Do not repeat the helper's Task/Git inventory after success. Continue an unfinished Task in its existing Worktree with its fixed Snapshot/progress/current requests, without calling `deploy-start` again; ambiguous ownership stops. Offline preparation/help/read-only diagnostics remain available outside managed Worktrees.
+Adopt its returned `worktree` and `task_file` for registration/preparation/child commands. The entry verifies configured upstream and fast-forwards only a clean base; `LOCAL_ONLY` means no upstream was configured, not proof of remote freshness. Existing IDs are rejected. Inspect only the selected Task/current checkout and necessary shared metadata under the Worktree entry procedure; never investigate unrelated checkout contents or infer scope from another Task. Do not repeat the helper's Task/Git inventory after success. Within this invocation use the returned Task and fixed Snapshot for subsequent operations; do not search or resume a previous Deploy Task. Offline preparation/help/read-only diagnostics remain available outside managed Worktrees.
 
 ## SDK preparation
 
@@ -36,7 +36,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparati
 python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --register <absolute-preparation.json>
 ```
 
-Repeat `--stack`, or use inclusive `--order-from`/`--order-to` instead; never combine the selectors. Optional `--service` checks the discovered owners and grants no additional services. Use `--aws-account-id` instead of `--alias` when no alias exists and the configured `--profile` when set. Missing/invalid scope, changed inputs or ambiguous ownership stop registration. Preserve the registered Snapshot and all fixed StackNames on resume; do not rerun old preparation to replace evidence. External consumers are deferred without Model/View authority. On a valid unfinished Task, use its existing contract/Snapshot and go directly to SDK operations; do not prepare/register again or search other Tasks for inputs.
+Repeat `--stack`, or use inclusive `--order-from`/`--order-to` instead; never combine the selectors. Optional `--service` checks the discovered owners and grants no additional services. Use `--aws-account-id` instead of `--alias` when no alias exists and the configured `--profile` when set. Missing/invalid scope, changed inputs or ambiguous ownership stop registration. Preserve this invocation’s registered Snapshot and fixed StackNames for its operations. External consumers are deferred without Model/View authority.
 
 ## SDK operations
 

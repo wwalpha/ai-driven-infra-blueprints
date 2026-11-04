@@ -147,6 +147,13 @@ Retain the Task and PR mode, reconcile the remote, synchronize the reviewed base
 rerun selected checks and final candidate validation, and retry the same PR publication.
 Any remote head, existing PR, recorded push/create intent or inconsistent state stops.
 
+## Reviewed PR creation retry
+
+For an unconfirmed PR creation after a pushed candidate, follow the explicit Human-reviewed
+single retry in [Worktree PR publication](../../.agents/skills/worktree/SKILL.md#explicit-pr-publication).
+Reconcile a matching existing PR first; never reset intent or retry an uncertain request
+without the named review. Preserve candidate, Task and remote identity checks.
+
 ## Human-approved validation failures
 
 Only explicit Human approval of concrete failures permits isolated Git integration with
