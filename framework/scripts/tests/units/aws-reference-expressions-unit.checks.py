@@ -846,12 +846,25 @@ def test_lakeformation_connection_arn_and_formal_returns(models):
             "Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:connection/${Resource001}"
         },
     )
-    assert (
-        inputs.reference_same(
-            symbol, expression, "LakeFormation.Resource", "ResourceArn"
+    assert inputs.project_arn(expression) == symbol
+    for left, right in ((symbol, expression), (expression, symbol)):
+        assert (
+            inputs.reference_same(left, right, "LakeFormation.Resource", "ResourceArn")
+            is True
         )
-        is None
-    )
+    for prefix in (
+        "arn:aws-cn:glue:ap-northeast-1:123456789012:",
+        "arn:aws:glue:ap-northeast-2:123456789012:",
+        "arn:aws:glue:ap-northeast-1:123456789013:",
+    ):
+        wrong_scope = inputs.evaluate(
+            "producer", {"Fn::Sub": prefix + "connection/${Resource001}"}
+        )
+        assert inputs.project_arn(wrong_scope) is None
+        assert (
+            inputs.reference_same(symbol, wrong_scope, "LakeFormation.Resource", "ResourceArn")
+            is not True
+        )
 
 
 def test_import_name_cannot_depend_on_a_resource(models):
