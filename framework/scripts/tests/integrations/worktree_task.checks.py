@@ -967,12 +967,19 @@ def _check_normal_model_final_candidate(base_change="advance"):
         task_contract_runtime.refresh(target, state["task_file"])
         _, _, lifecycle, saved = wt.load(root, "example")
         wt._prepare_commit(root, lifecycle, saved, target, None, prepare_only=True)
+        candidate = git(target, "rev-parse", "HEAD")
+        for _ in range(2):
+            result = wt.sync_latest_base(root, "example", base_head)
+            assert result["status"] == "ok" and result["candidate"] == candidate
+            assert git(target, "rev-parse", "HEAD") == candidate
         source.write_text(source.read_text() + "# additional correction\n")
         assert (
             wt.sync_latest_base(root, "example", base_head)["status"]
             == "needs_validation"
         )
         (target / "file.txt").write_text("outside scope\n")
+        with pytest.raises(wt.Blocked):
+            wt.sync_latest_base(root, "example", base_head)
         with pytest.raises(
             wt.Blocked, match="outside the exact task contract.*file.txt"
         ):
@@ -982,6 +989,10 @@ def _check_normal_model_final_candidate(base_change="advance"):
         git(target, "add", relative)
         git(target, "commit", "-qm", "additional Task correction")
         assert git(target, "rev-parse", "HEAD") != saved["tip"]
+        committed = git(target, "rev-parse", "HEAD")
+        result = wt.sync_latest_base(root, "example", base_head)
+        assert result["status"] == "needs_validation" and result["candidate"] == committed
+        assert wt.sync_latest_base(root, "example", base_head)["status"] == "ok"
         source.write_text(source.read_text() + "# uncommitted correction\n")
         if base_change != "advance":
             git(root, "commit", "--amend", "-qm", "rewritten Model base")

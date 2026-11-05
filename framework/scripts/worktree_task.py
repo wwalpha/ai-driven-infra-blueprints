@@ -1786,13 +1786,20 @@ def sync_latest_base(where, task_id, expected_base):
                         and tasks.model_refactor(text) is None
                     )
                     if ordinary_model:
+                        head = output(target, "rev-parse", "HEAD")
+                        unchanged = (
+                            not changed_paths(target)
+                            and state["tip"] == head
+                            and state["commit"] == head
+                        )
                         _prepare_commit(
                             root, path, state, target, None, prepare_only=True
                         )
+                        candidate = output(target, "rev-parse", "HEAD")
                         return {
                             **state,
-                            "status": "needs_validation",
-                            "candidate": output(target, "rev-parse", "HEAD"),
+                            "status": "ok" if unchanged and candidate == head else "needs_validation",
+                            "candidate": candidate,
                         }
                     if (
                         changed_paths(target)
