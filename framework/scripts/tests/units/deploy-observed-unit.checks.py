@@ -33,6 +33,48 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+def _config_rule_denied_aws(document, denied, operation, **kwargs):
+    if operation == ("get_template" if denied == "template" else "get_resource"):
+        raise AwsError("aws", operation, "AccessDeniedException")
+    return _config_rule_sync_aws(document, operation, **kwargs)
+
+
+def _cloudcontrol_test_aws(document, physical, attribute, stack, operation, **kwargs):
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    if operation == "get_resource":
+        return {
+            "ResourceDescription": {
+                "Identifier": physical,
+                "Properties": json.dumps({attribute: physical}),
+            }
+        }
+    if operation == "describe_stacks":
+        return {"Stacks": [stack]}
+    raise AssertionError(operation)
+
+
+def _permission_test_aws(document, fault, arn, statement, stack, operation, **kwargs):
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    if operation == "describe_rule":
+        assert kwargs == {
+            "service": "events",
+            "Name": "my-rule",
+            "EventBusName": "custom",
+        }
+        return {
+            "Name": "other" if fault == "name" else "my-rule",
+            "EventBusName": "other" if fault == "bus" else "custom",
+            "Arn": arn + "-other" if fault == "arn" else arn,
+        }
+    if operation == "get_policy":
+        return {"Policy": json.dumps({"Statement": [statement]})}
+    if operation == "describe_stacks":
+        return {"Stacks": [stack]}
+    raise AssertionError(operation)
+
+
 def _config_rule_evidence_aws(document, fault, description, stack, operation, **kwargs):
     if operation == "get_template":
         return {"TemplateBody": document}
@@ -934,12 +976,7 @@ def test_config_rule_collects_checked_api_value(
     aws = _bind_framework_callback(_config_rule_sync_aws, document)
     if denied:
 
-        def aws(operation, **kwargs):
-            if operation == (
-                "get_template" if denied == "template" else "get_resource"
-            ):
-                raise AwsError("aws", operation, "AccessDeniedException")
-            return _config_rule_sync_aws(document, operation, **kwargs)
+        aws = _bind_framework_callback(_config_rule_denied_aws, document, denied)
 
     backend = SimpleNamespace(
         root=root,
@@ -1498,19 +1535,7 @@ def test_provider_confirms_single_identifier_without_output(
         "PhysicalResourceId": physical,
     }
 
-    def aws(operation, **kwargs):
-        if operation == "get_template":
-            return {"TemplateBody": document}
-        if operation == "get_resource":
-            return {
-                "ResourceDescription": {
-                    "Identifier": physical,
-                    "Properties": json.dumps({attribute: physical}),
-                }
-            }
-        if operation == "describe_stacks":
-            return {"Stacks": [stack]}
-        raise AssertionError(operation)
+    aws = _bind_framework_callback(_cloudcontrol_test_aws, document, physical, attribute, stack)
 
     backend = SimpleNamespace(root=project_workspace, target=TARGET, aws=aws)
     assert deploy_observed.cloudcontrol_observation(
@@ -1651,25 +1676,7 @@ def test_permission_event_rule_arn_identity(project_workspace, sub, fault):
         "Condition": {"ArnLike": {"AWS:SourceArn": arn}},
     }
 
-    def aws(operation, **kwargs):
-        if operation == "get_template":
-            return {"TemplateBody": document}
-        if operation == "describe_rule":
-            assert kwargs == {
-                "service": "events",
-                "Name": "my-rule",
-                "EventBusName": "custom",
-            }
-            return {
-                "Name": "other" if fault == "name" else "my-rule",
-                "EventBusName": "other" if fault == "bus" else "custom",
-                "Arn": arn + "-other" if fault == "arn" else arn,
-            }
-        if operation == "get_policy":
-            return {"Policy": json.dumps({"Statement": [statement]})}
-        if operation == "describe_stacks":
-            return {"Stacks": [stack]}
-        raise AssertionError(operation)
+    aws = _bind_framework_callback(_permission_test_aws, document, fault, arn, statement, stack)
 
     backend = SimpleNamespace(root=root, target=TARGET, aws=aws)
     value, reason = deploy_observed.permission_observation(

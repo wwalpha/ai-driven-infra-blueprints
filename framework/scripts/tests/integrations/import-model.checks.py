@@ -64,6 +64,14 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+def _incomplete_runner(cli, command, **kwargs):
+    if command[1:3] == ["logs", "describe-log-groups"]:
+        return subprocess.CompletedProcess(
+            command, 1, "", "Could not connect to the endpoint URL: private-token"
+        )
+    return cli(command, **kwargs)
+
+
 def _callback_offline_without_git(popen, /, command, *args, **kwargs):
     assert Path(command[0]).stem != "git", "Import IT must not start Git"
     return popen(command, *args, **kwargs)
@@ -1379,12 +1387,7 @@ def test_incomplete_evidence_cannot_publish(tmp_path):
     fixture(root, register=False, focused=True)
     cli = aws()
 
-    def runner(command, **kwargs):
-        if command[1:3] == ["logs", "describe-log-groups"]:
-            return subprocess.CompletedProcess(
-                command, 1, "", "Could not connect to the endpoint URL: private-token"
-            )
-        return cli(command, **kwargs)
+    runner = _bind_framework_callback(_incomplete_runner, cli)
 
     before = source_files(root)
     result = m.acquire(

@@ -35,6 +35,26 @@ from support.resource_delete_fixtures import (
 )
 
 
+def _model_edit(cli, repository, model, candidate_path, task):
+    return subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            str(cli),
+            "edit",
+            str(model),
+            "--candidate",
+            str(candidate_path),
+            "--task-file",
+            task,
+        ],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+    )
+
+
 def _callback_check_one_parent_model_operation_merge_final_check(
     name, /, repository, options, *, final_candidate
 ):
@@ -128,12 +148,7 @@ def check_cli_candidate_managed_task(tmp_path):
         )
         original = path.read_bytes()
 
-        def edit(repository, model, candidate_path, task):
-            return subprocess.run(
-                [sys.executable, "-I", "-B", str(cli), "edit", str(model),
-                 "--candidate", str(candidate_path), "--task-file", task],
-                cwd=repository, capture_output=True, text=True,
-            )
+        edit = _bind_framework_callback(_model_edit, cli)
 
         result = edit(target, path, candidate, name)
         assert result.returncode != 0

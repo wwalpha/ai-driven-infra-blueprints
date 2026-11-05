@@ -1,6 +1,7 @@
 """Post-success synchronization and execution-bound deletion evidence."""
 
 import re
+from functools import partial as _bind_framework_callback
 
 import design.layout as _imports_design_layout
 import utils.cloudformation.format as _imports_cfn_format
@@ -44,6 +45,211 @@ from deploy import change_sets, current_state
 from deploy import deferred as deferred_work
 from deploy import scope as execution_scope
 from model import dependency_index
+
+
+def _visit_evidence(
+    document,
+    parameters,
+    stack,
+    pseudo,
+    _condition_stack,
+    definitions,
+    conditions,
+    needed,
+    seen,
+    value,
+):
+    if isinstance(value, list):
+        for item in value:
+            _visit_evidence(
+                document,
+                parameters,
+                stack,
+                pseudo,
+                _condition_stack,
+                definitions,
+                conditions,
+                needed,
+                seen,
+                item,
+            )
+    elif isinstance(value, dict):
+        if set(value) == {"Fn::If"}:
+            argument = value["Fn::If"]
+            if not isinstance(argument, list) or len(argument) != 3:
+                raise Blocked("invalid Fn::If expression")
+            name = argument[0]
+            if not isinstance(name, str) or name in _condition_stack:
+                raise Blocked("cyclic or invalid condition")
+            condition = {"Condition": name}
+            if not checked_evidence_parameters(
+                document,
+                parameters,
+                stack,
+                condition,
+                pseudo,
+                _condition_stack | {name},
+            ):
+                raise Blocked("condition parameters unavailable")
+            _visit_evidence(
+                document,
+                parameters,
+                stack,
+                pseudo,
+                _condition_stack,
+                definitions,
+                conditions,
+                needed,
+                seen,
+                condition,
+            )
+            selected = _imports_cfn_inputs.output_value(
+                document, parameters, pseudo or {}, value
+            )
+            _visit_evidence(
+                document,
+                parameters,
+                stack,
+                pseudo,
+                _condition_stack,
+                definitions,
+                conditions,
+                needed,
+                seen,
+                selected,
+            )
+            return
+        if "Ref" in value and value["Ref"] in definitions:
+            needed.add(value["Ref"])
+        if "Fn::Sub" in value:
+            sub = value["Fn::Sub"]
+            text = sub if isinstance(sub, str) else sub[0]
+            overrides = {} if isinstance(sub, str) else sub[1]
+            for name in re.findall(r"\$\{([^}!]+)\}", text):
+                if name in definitions and name not in overrides:
+                    needed.add(name)
+        for key in ("Condition", "Fn::If"):
+            name = value.get(key)
+            if key == "Fn::If" and isinstance(name, list) and name:
+                name = name[0]
+            if isinstance(name, str) and name in conditions and name not in seen:
+                seen.add(name)
+                _visit_evidence(
+                    document,
+                    parameters,
+                    stack,
+                    pseudo,
+                    _condition_stack,
+                    definitions,
+                    conditions,
+                    needed,
+                    seen,
+                    conditions[name],
+                )
+        for item in value.values():
+            _visit_evidence(
+                document,
+                parameters,
+                stack,
+                pseudo,
+                _condition_stack,
+                definitions,
+                conditions,
+                needed,
+                seen,
+                item,
+            )
+
+
+def _permission_attribute(
+    backend, actuals, mapped, document, parameters, pseudo, stack, logical, name
+):
+    entry = mapped.get(logical)
+    matches = [item for item in actuals if item.get("LogicalResourceId") == logical]
+    if entry is None or len(matches) != 1:
+        raise Blocked("GetAtt resource mapping unavailable")
+    resource, actual = entry[2], matches[0]
+    catalog = DesignSchemaCatalog(backend.root)
+    kind = resource[RESOURCE_TYPE_KEY]
+    schema = catalog.schema(kind)
+    primary = schema.get("primaryIdentifier", [])
+    physical = actual.get("PhysicalResourceId")
+    if (
+        actual.get("ResourceType") != catalog.cloudformation_type(kind)
+        or actual.get("ResourceStatus")
+        not in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
+        or not isinstance(physical, str)
+        or not physical
+        or "|" in physical
+        or len(primary) != 1
+        or "read" not in schema.get("handlers", {})
+        or "/properties/" + name not in schema.get("readOnlyProperties", [])
+    ):
+        raise Blocked("GetAtt resource identity or attribute unsupported")
+    if kind == "Events.Rule" and name == "Arn":
+        definition = document["Resources"][logical]
+        props = definition.get("Properties", {})
+        evidence = {key: props[key] for key in ("Name", "EventBusName") if key in props}
+        if not checked_evidence_parameters(
+            document, parameters, stack, evidence, pseudo
+        ):
+            raise Blocked("rule identity parameters unavailable")
+        resolved = {
+            key: _imports_cfn_inputs.resolve_value(
+                val, parameters, pseudo, conditions=document.get("Conditions")
+            )
+            for key, val in evidence.items()
+        }
+        rule_name = resolved.get("Name", physical)
+        bus = resolved.get("EventBusName", "default")
+        if (
+            rule_name != physical
+            or not isinstance(bus, str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+", bus)
+        ):
+            raise Blocked("rule identity ambiguous")
+        response = service_module("eventbridge").fetch(
+            PermissionContext(backend),
+            PermissionResource(
+                rule_name, {"Name": rule_name, "EventBusName": bus}, physical
+            ),
+            "base",
+        )
+        partition = stack["StackId"].split(":")[1]
+        account = backend.target.get(
+            AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
+        )
+        prefix = (
+            f"arn:{partition}:events:{backend.target[AWS_REGION_KEY]}:{account}:rule/"
+        )
+        expected = prefix + ("" if bus == "default" else bus + "/") + rule_name
+        if (
+            response.get("Name") != rule_name
+            or response.get("EventBusName") != bus
+            or response.get("Arn") != expected
+        ):
+            raise Blocked("rule provider identity mismatch")
+        return response["Arn"]
+    response = backend.aws(
+        "get_resource",
+        service="cloudcontrol",
+        TypeName=catalog.cloudformation_type(kind),
+        Identifier=physical,
+    )
+    description = (
+        response.get("ResourceDescription") if isinstance(response, dict) else None
+    )
+    if not isinstance(description, dict) or description.get("Identifier") != physical:
+        raise Blocked("GetAtt provider identity mismatch")
+    payload = properties_json(description.get("Properties"))
+    result = pointer_value(payload, "/properties/" + name)
+    if (
+        pointer_value(payload, primary[0]) != physical
+        or not isinstance(result, str)
+        or not result
+    ):
+        raise Blocked("GetAtt provider attribute unavailable")
+    return result
 
 
 def removed_resources(units, states):
@@ -212,52 +418,7 @@ def checked_evidence_parameters(
         raise ValueError("parameter or condition declarations invalid")
     needed, seen = set(), set()
 
-    def visit(value):
-        if isinstance(value, list):
-            for item in value:
-                visit(item)
-        elif isinstance(value, dict):
-            if set(value) == {"Fn::If"}:
-                argument = value["Fn::If"]
-                if not isinstance(argument, list) or len(argument) != 3:
-                    raise Blocked("invalid Fn::If expression")
-                name = argument[0]
-                if not isinstance(name, str) or name in _condition_stack:
-                    raise Blocked("cyclic or invalid condition")
-                condition = {"Condition": name}
-                if not checked_evidence_parameters(
-                    document,
-                    parameters,
-                    stack,
-                    condition,
-                    pseudo,
-                    _condition_stack | {name},
-                ):
-                    raise Blocked("condition parameters unavailable")
-                visit(condition)
-                selected = _imports_cfn_inputs.output_value(
-                    document, parameters, pseudo or {}, value
-                )
-                visit(selected)
-                return
-            if "Ref" in value and value["Ref"] in definitions:
-                needed.add(value["Ref"])
-            if "Fn::Sub" in value:
-                sub = value["Fn::Sub"]
-                text = sub if isinstance(sub, str) else sub[0]
-                overrides = {} if isinstance(sub, str) else sub[1]
-                for name in re.findall(r"\$\{([^}!]+)\}", text):
-                    if name in definitions and name not in overrides:
-                        needed.add(name)
-            for key in ("Condition", "Fn::If"):
-                name = value.get(key)
-                if key == "Fn::If" and isinstance(name, list) and name:
-                    name = name[0]
-                if isinstance(name, str) and name in conditions and name not in seen:
-                    seen.add(name)
-                    visit(conditions[name])
-            for item in value.values():
-                visit(item)
+    visit = _bind_framework_callback(_visit_evidence, document, parameters, stack, pseudo, _condition_stack, definitions, conditions, needed, seen)
 
     visit(expressions)
     actual = stack.get("Parameters", [])
@@ -397,96 +558,7 @@ def permission_expression(
 ):
     """Resolve GetAtt only from a uniquely mapped, identity-checked provider read."""
 
-    def attribute(logical, name):
-        entry = mapped.get(logical)
-        matches = [item for item in actuals if item.get("LogicalResourceId") == logical]
-        if entry is None or len(matches) != 1:
-            raise Blocked("GetAtt resource mapping unavailable")
-        resource, actual = entry[2], matches[0]
-        catalog = DesignSchemaCatalog(backend.root)
-        kind = resource[RESOURCE_TYPE_KEY]
-        schema = catalog.schema(kind)
-        primary = schema.get("primaryIdentifier", [])
-        physical = actual.get("PhysicalResourceId")
-        if (
-            actual.get("ResourceType") != catalog.cloudformation_type(kind)
-            or actual.get("ResourceStatus")
-            not in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
-            or not isinstance(physical, str)
-            or not physical
-            or "|" in physical
-            or len(primary) != 1
-            or "read" not in schema.get("handlers", {})
-            or "/properties/" + name not in schema.get("readOnlyProperties", [])
-        ):
-            raise Blocked("GetAtt resource identity or attribute unsupported")
-        if kind == "Events.Rule" and name == "Arn":
-            definition = document["Resources"][logical]
-            props = definition.get("Properties", {})
-            evidence = {
-                key: props[key] for key in ("Name", "EventBusName") if key in props
-            }
-            if not checked_evidence_parameters(
-                document, parameters, stack, evidence, pseudo
-            ):
-                raise Blocked("rule identity parameters unavailable")
-            resolved = {
-                key: _imports_cfn_inputs.resolve_value(
-                    val, parameters, pseudo, conditions=document.get("Conditions")
-                )
-                for key, val in evidence.items()
-            }
-            rule_name = resolved.get("Name", physical)
-            bus = resolved.get("EventBusName", "default")
-            if (
-                rule_name != physical
-                or not isinstance(bus, str)
-                or not re.fullmatch(r"[A-Za-z0-9_.-]+", bus)
-            ):
-                raise Blocked("rule identity ambiguous")
-            response = service_module("eventbridge").fetch(
-                PermissionContext(backend),
-                PermissionResource(
-                    rule_name, {"Name": rule_name, "EventBusName": bus}, physical
-                ),
-                "base",
-            )
-            partition = stack["StackId"].split(":")[1]
-            account = backend.target.get(
-                AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
-            )
-            prefix = f"arn:{partition}:events:{backend.target[AWS_REGION_KEY]}:{account}:rule/"
-            expected = prefix + ("" if bus == "default" else bus + "/") + rule_name
-            if (
-                response.get("Name") != rule_name
-                or response.get("EventBusName") != bus
-                or response.get("Arn") != expected
-            ):
-                raise Blocked("rule provider identity mismatch")
-            return response["Arn"]
-        response = backend.aws(
-            "get_resource",
-            service="cloudcontrol",
-            TypeName=catalog.cloudformation_type(kind),
-            Identifier=physical,
-        )
-        description = (
-            response.get("ResourceDescription") if isinstance(response, dict) else None
-        )
-        if (
-            not isinstance(description, dict)
-            or description.get("Identifier") != physical
-        ):
-            raise Blocked("GetAtt provider identity mismatch")
-        payload = properties_json(description.get("Properties"))
-        result = pointer_value(payload, "/properties/" + name)
-        if (
-            pointer_value(payload, primary[0]) != physical
-            or not isinstance(result, str)
-            or not result
-        ):
-            raise Blocked("GetAtt provider attribute unavailable")
-        return result
+    attribute = _bind_framework_callback(_permission_attribute, backend, actuals, mapped, document, parameters, pseudo, stack)
 
     if isinstance(value, list):
         return [

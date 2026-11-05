@@ -107,6 +107,14 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+def _fail_inventory(original, command, **kwargs):
+    if command[1:3] == ["logs", "describe-log-groups"]:
+        return subprocess.CompletedProcess(
+            command, 1, "", "Could not connect to the endpoint URL: secret-token"
+        )
+    return original(command, **kwargs)
+
+
 def schema_for(prop):
     return {
         "type": "boolean"
@@ -4250,12 +4258,7 @@ def test_import_acquisition_failure_preserves_session(tmp_path):
     cli = aws()
     original = cli.__call__
 
-    def fail_inventory(command, **kwargs):
-        if command[1:3] == ["logs", "describe-log-groups"]:
-            return subprocess.CompletedProcess(
-                command, 1, "", "Could not connect to the endpoint URL: secret-token"
-            )
-        return original(command, **kwargs)
+    fail_inventory = _bind_framework_callback(_fail_inventory, original)
 
     result = m.acquire(
         tmp_path,
