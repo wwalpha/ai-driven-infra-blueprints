@@ -10,6 +10,43 @@ from unittest.mock import patch
 import utils.markdown_format as _imports_utils_markdown_format
 from support.validator import MODULE, SCRIPT
 from validation import framework_contracts
+from validation.findings import Findings
+
+
+def check_task_completion_contract() -> None:
+    root = SCRIPT.parents[2]
+    path = root / "framework/rules/task-contract.md"
+    contract = path.read_text(encoding="utf-8")
+    sections = _imports_utils_markdown_format.markdown_sections(contract)
+
+    def check(text):
+        findings = Findings(root)
+        original = framework_contracts.input_text
+        with patch.object(
+            framework_contracts,
+            "input_text",
+            side_effect=lambda source, **kwargs: (
+                text if source == path else original(source, **kwargs)
+            ),
+        ):
+            framework_contracts.check_framework_task_completion_contract(findings, root)
+        assert findings.checks == 6
+        return findings.errors
+
+    assert not check(contract)
+    for section, boundary in (
+        ("common-transitions", "Suspension reason"),
+        ("common-transitions", "--resume"),
+        ("common-transitions", "--complete"),
+        ("task-registration", "running"),
+    ):
+        original = sections[section]
+        assert boundary in original
+        misplaced = contract.replace(original, original.replace(boundary, ""), 1)
+        misplaced += f"\n## Unrelated section\n\n{boundary}\n"
+        assert f"Task transition safety boundary missing: {boundary}" in check(misplaced)
+    for section in ("common-transitions", "task-registration"):
+        assert check(contract.replace(sections[section], "", 1)), section
 
 
 def check_optional_alias_contract() -> None:

@@ -393,10 +393,15 @@ def check_framework_task_completion_contract(findings, root):
         cause_kind="input_invalid",
         source_path=root / "framework/rules/loop-engineering.md",
     )
-    transition = markdown_sections(contract).get("task-transition", "")
-    for boundary in ("Suspension reason", "--resume", "--complete", "running"):
+    sections = markdown_sections(contract)
+    for boundary, section in (
+        ("Suspension reason", "common-transitions"),
+        ("--resume", "common-transitions"),
+        ("--complete", "common-transitions"),
+        ("running", "task-registration"),
+    ):
         findings.check(
-            boundary in transition,
+            boundary in sections.get(section, ""),
             f"Task transition safety boundary missing: {boundary}",
             cause_kind="input_invalid",
             source_path=root / "framework/rules/task-contract.md",
