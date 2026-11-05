@@ -63,7 +63,31 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+def _task_diff_survives_base_rewrite():
+    with fixture() as root:
+        target, state = start(root, files=("file.txt", "added.txt"))
+        (target / "file.txt").unlink()
+        (target / "added.txt").write_text("task\n", encoding="utf-8")
+        git(target, "add", "-A")
+        git(target, "commit", "-qm", "task changes")
+        expected = {"file.txt", "added.txt"}
+        assert wt.committed_task_paths(target, state["task_file"]) == expected
+        git(root, "commit", "--amend", "--no-edit", "-qm", "rewritten base")
+        assert git(root, "rev-parse", "HEAD^{tree}") == git(
+            target, "rev-parse", state["start"] + "^{tree}"
+        )
+        assert wt.committed_task_paths(target, state["task_file"]) == expected
+        (root / "unrelated.txt").write_text("base\n", encoding="utf-8")
+        git(root, "add", "unrelated.txt")
+        git(root, "commit", "-qm", "advance base")
+        assert wt.committed_task_paths(target, state["task_file"]) == expected
+        git(target, "checkout", "--detach", state["start"])
+        with pytest.raises(wt.Blocked, match="switched"):
+            wt.committed_task_paths(target, state["task_file"])
+
+
 def check_implement_rebases_on_latest_base():
+    _task_diff_survives_base_rewrite()
     check = TestCase()
     with fixture() as root:
         target, state = start(root)

@@ -149,7 +149,7 @@ def paths(root, *args, runner=None):
 
 
 def task_start_commit(root, task_file):
-    """Return the Task's shared-base boundary, excluding inherited base commits."""
+    """Return the recorded Task diff boundary, independent of the current base."""
     _, _, primary = repository(root)
     path = state_path(primary, Path(task_file).stem)
     managed = root.resolve().parent == primary / ".worktrees"
@@ -169,29 +169,19 @@ def task_start_commit(root, task_file):
 
 
 def _task_history(root, task_file, state, *, merge_base):
-    start = output(
-        root,
-        "rev-parse",
-        "--verify",
-        state.get("validation_base", state["start"]) + "^{commit}",
-    )
-    text = (root / task_file).read_text(encoding="utf-8")
-    if "- Infrastructure phase: `implement`" in text.splitlines():
-        return start
+    boundary = state.get("validation_base", state["start"])
+    if state.get("integrationMode") == "pr":
+        boundary = state.get("prUpdate", {}).get(
+            "syncBase", state.get("prPublication", {}).get("baseCommit", boundary)
+        )
+    start = output(root, "rev-parse", "--verify", boundary + "^{commit}")
     if git(root, "merge-base", "--is-ancestor", start, "HEAD", check=False).returncode:
         raise Blocked("task lifecycle start is not an ancestor of HEAD")
-    if state.get("integrationMode") == "pr":
-        return start
-    base = output(
-        root, "rev-parse", "--verify", f"refs/heads/{state['base']}^{{commit}}"
-    )
-    if git(root, "merge-base", "--is-ancestor", start, base, check=False).returncode:
-        raise Blocked("base history was rewritten; task retained for review")
-    return output(root, "merge-base", base, "HEAD") if merge_base else start
+    return start
 
 
 def committed_task_paths(root, task_file):
-    """Committed Task changes relative to its shared base, including all paths."""
+    """Committed Task changes relative to its recorded boundary, including all paths."""
     start = task_start_commit(root, task_file)
     return (
         None

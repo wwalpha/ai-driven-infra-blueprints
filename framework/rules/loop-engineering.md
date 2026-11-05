@@ -476,8 +476,9 @@ scoped loop does not automatically select those tests. Only PASS can complete an
 merge the unchanged candidate; failure retains it and existing suspension/approval
 contracts. Other Task types retain their existing validation and completion order.
 
-Managed Task comparisons use the shared merge-base of the current local base and
-Task HEAD, after verifying lifecycle start/validation-base ancestry. Include every
+Managed Task comparisons use the Task creation or verified synchronization boundary,
+checking that boundary is an ancestor of Task HEAD independently of the current base.
+Include every
 committed Task path and working/index/untracked path in classification and scope
 checks; never filter changes by Modified files. This same boundary is used by
 integration preparation, Task validation and resume so inherited base commits do

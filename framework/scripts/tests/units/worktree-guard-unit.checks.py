@@ -1661,37 +1661,41 @@ def check_pr_progress_requires_matching_state(tmp_path, change):
             save.assert_called_once_with(path, state)
 
 
-@pytest.mark.parametrize("failure", ["none", "head", "base"])
+@pytest.mark.parametrize("failure", [False, True])
 def check_candidate_history_without_merge_base(tmp_path, failure):
     task = "tasks/example.md"
     task_path = tmp_path / task
     task_path.parent.mkdir()
     task_path.write_text("completed", encoding="utf-8")
-    state = {
-        "worktree": str(tmp_path),
-        "task_file": task,
-        "start": "old",
-        "validation_base": "start",
-        "base": "main",
-    }
-    results = [
-        subprocess.CompletedProcess([], int(failure == "head")),
-        subprocess.CompletedProcess([], int(failure == "base")),
-    ]
+    state = {"start": "old", "validation_base": "start", "base": "main"}
     with (
-        patch.object(worktree_state, "output", side_effect=["start", "base"]) as output,
-        patch.object(worktree_state, "git", side_effect=results) as git,
+        patch.object(worktree_state, "output", return_value="start") as output,
+        patch.object(
+            worktree_state,
+            "git",
+            return_value=subprocess.CompletedProcess([], int(failure)),
+        ) as git,
     ):
-        if failure == "none":
-            TestCase().assertEqual(
-                worktree_state._task_history(tmp_path, task, state, merge_base=False),
-                "start",
-            )
-            TestCase().assertEqual(output.call_count, 2)
-            TestCase().assertEqual(git.call_count, 2)
-        else:
-            with pytest.raises(wt.Blocked, match="ancestor|rewritten"):
+        if failure:
+            with pytest.raises(wt.Blocked, match="ancestor"):
                 worktree_state._task_history(tmp_path, task, state, merge_base=False)
+        else:
+            assert (
+                worktree_state._task_history(tmp_path, task, state, merge_base=False)
+                == "start"
+            )
+        output.assert_called_once()
+        git.assert_called_once()
+        if not failure:
+            state.update(
+                integrationMode="pr", prPublication={"baseCommit": "published"}
+            )
+            state["prUpdate"] = {"syncBase": "synced"}
+            output.reset_mock()
+            worktree_state._task_history(tmp_path, task, state, merge_base=False)
+            output.assert_called_once_with(
+                tmp_path, "rev-parse", "--verify", "synced^{commit}"
+            )
 
 
 def _commit_git(trace, where, *args, **kwargs):
