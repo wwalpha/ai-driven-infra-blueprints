@@ -21,7 +21,7 @@ if os.name == "nt":
 else:
     import fcntl
 
-PR_FIELDS = "number,url,state,baseRefName,headRefName,headRefOid,isCrossRepository,isDraft,mergeCommit"
+PR_FIELDS = "number,url,state,baseRefName,headRefName,headRefOid,isCrossRepository,isDraft,mergeCommit,mergeable"
 
 
 @contextmanager
@@ -66,6 +66,29 @@ def publication_lock(path):
     finally:
         # Keep the same inode; the OS releases ownership even after process death.
         os.close(descriptor)
+
+
+def select(where, task_id):
+    """Select explicit PR mode before Task validation without publishing."""
+    root, _, path, _ = wt.load(where, task_id)
+    with publication_lock(path), wt.lifecycle_lock(root):
+        root, _, path, state = wt.load(root, task_id)
+        target = wt.task_worktree(root, state)
+        text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
+        if (
+            state.get("deployIdentity")
+            or state.get("deployRepair")
+            or state["merged"]
+            or wt.cli_deploy.is_cli(text)
+            or state.get("integrationMode") not in (None, "pr")
+            or path.with_suffix(".setup-lock").exists()
+            or state.get("python_setup", {}).get("status") != "ready"
+        ):
+            raise wt.Blocked("PR selection requires a ready ordinary unmerged Task")
+        if state.get("integrationMode") != "pr":
+            state["integrationMode"] = "pr"
+            wt.save(path, state)
+        return state
 
 
 def finalize(where, task_id, approval, *, draft=False):
@@ -564,6 +587,7 @@ def publish(root, path, state, *, retry_create=False):
         number=pr["number"],
         prState=pr["state"],
         isDraft=pr.get("isDraft", False),
+        mergeable=pr.get("mergeable", "UNKNOWN"),
         publishedHead=publication["candidate"],
     )
     return state
@@ -759,10 +783,6 @@ def sync_base(where, task_id, expected_base):
         if current_base != base:
             raise wt.NeedsSync(current_base)
         baseline = (intent or {}).get("baselineBase", publication["baseCommit"])
-        if wt.git(
-            target, "merge-base", "--is-ancestor", baseline, base, check=False
-        ).returncode:
-            raise wt.Blocked("remote base history was rewritten; review required")
         with wt.lifecycle_lock(root):
             if wt.load(root, task_id)[3] != state:
                 raise wt.Blocked("PR lifecycle changed before base sync")
@@ -839,25 +859,9 @@ def sync_base(where, task_id, expected_base):
                 result = wt.git(
                     target, "merge-tree", "--write-tree", head, base, check=False
                 )
-                if result.returncode:
-                    raise wt.Blocked("remote base and PR candidate conflict; no push")
-                tree = result.stdout.splitlines()[0]
-                if not re.fullmatch(r"[0-9a-f]{40,64}", tree):
+                tree = result.stdout.splitlines()[0] if not result.returncode else None
+                if tree is not None and not re.fullmatch(r"[0-9a-f]{40,64}", tree):
                     raise wt.Blocked("cannot determine remote base merge tree")
-                changed = wt.paths(
-                    target, "diff", "--no-renames", "--name-only", "-z", base, tree
-                )
-                declared, allowed = (
-                    tasks.paths_in(text, "## Modified files"),
-                    tasks.paths_in(text, "## Allowed paths"),
-                )
-                if changed - declared or any(
-                    not any(tasks.matches(p, pattern) for pattern in allowed)
-                    for p in changed
-                ):
-                    raise wt.Blocked(
-                        "remote base merge is outside the exact Task contract"
-                    )
                 sync = state["prBaseSync"] = {
                     "head": head,
                     "base": base,
@@ -883,18 +887,30 @@ def sync_base(where, task_id, expected_base):
                 )
                 if result.returncode:
                     raise wt.Blocked(
-                        "remote base merge failed; retain candidate for review"
+                        "remote base merge needs conflict resolution; retain the merge, "
+                        "resolve and commit it, then retry pr-sync-base"
                     )
                 head = wt.output(target, "rev-parse", "HEAD")
             if (
                 wt.output(target, "show", "-s", "--format=%P", head).split()
                 != [sync["head"], base]
-                or wt.output(target, "rev-parse", head + "^{tree}") != sync["tree"]
+                or sync["tree"] is not None
+                and wt.output(target, "rev-parse", head + "^{tree}") != sync["tree"]
                 or wt.changed_paths(target)
                 or tasks.read_task_snapshot(target, state["task_file"], live=True).text
                 != text
             ):
                 raise wt.Blocked("remote base merge differs from recorded intent")
+            changed = wt.paths(
+                target, "diff", "--no-renames", "--name-only", "-z", base, head
+            )
+            declared = tasks.paths_in(text, "## Modified files")
+            allowed = tasks.paths_in(text, "## Allowed paths")
+            if changed - declared or any(
+                not any(tasks.matches(p, pattern) for pattern in allowed)
+                for p in changed
+            ):
+                raise wt.Blocked("remote base merge is outside the exact Task contract")
             state.update(tip=head, commit=head, verified=True)
             intent.update(
                 status="PREPARED",
@@ -1123,7 +1139,7 @@ def update(where, task_id):
         )
         if head != intent["candidate"]:
             raise wt.Blocked("remote HEAD differs after push; retain intent")
-        existing_pr(target, publication, heads={intent["candidate"]})
+        pr = existing_pr(target, publication, heads={intent["candidate"]})
         with wt.lifecycle_lock(root):
             if wt.load(root, task_id)[3] != state:
                 raise wt.Blocked("PR lifecycle changed after push")
@@ -1132,6 +1148,7 @@ def update(where, task_id):
                 publishedHead=head,
                 taskHash=intent["taskHash"],
                 baseCommit=intent["baseCommit"],
+                mergeable=pr.get("mergeable", "UNKNOWN"),
             )
             state.pop("prUpdate")
             wt.save(path, state)
@@ -1200,6 +1217,7 @@ def operate(where, task_id, action, *, method="merge"):
                 status=pr["state"],
                 prState=pr["state"],
                 isDraft=pr.get("isDraft", False),
+                mergeable=pr.get("mergeable", "UNKNOWN"),
             )
             if pr["state"] == "MERGED":
                 merged = (pr.get("mergeCommit") or {}).get("oid")

@@ -54,6 +54,8 @@ from support.worktree_task_fixtures import (
 from utils import sealed_evidence
 from utils.aws_mappings import mapping_alias
 from validation import loop
+from validation.findings import Findings
+from validation.task import TaskValidation
 
 from model import prepare_edit, publish_edit
 
@@ -61,86 +63,6 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
-def _check_unpublished_prepared_pr_base_recovery():
-    with fixture() as root:
-        target, initial = start(root)
-        (target / "file.txt").write_text("task change\n", encoding="utf-8")
-        finish_contract(target, initial)
-        _, _, path, state = wt.load(root, "example")
-        wt._prepare_commit(root, path, state, target, None, prepare_only=True)
-        state["integrationMode"] = "pr"
-        wt.save(path, state)
-        old = state["tip"]
-        pr.prepare(root, path, state, state["start"], old)
-        identity = dict(
-            remote="origin",
-            remoteUrl="https://github.com/fixture/repository.git",
-            repository="fixture/repository",
-            host="github.com",
-        )
-        state["prPublication"].update(identity)
-        wt.save(path, state)
-        (root / "upstream.txt").write_text("base\n", encoding="utf-8")
-        git(root, "add", "upstream.txt")
-        git(root, "commit", "-qm", "advance base")
-        latest = git(root, "rev-parse", "HEAD")
-        refs = {"refs/heads/main": latest}
-        with (
-            patch.object(pr, "remote_identity", return_value=identity),
-            patch.object(pr, "remote_heads", return_value=refs),
-            patch.object(
-                pr, "gh", return_value=json.dumps({"commit": {"sha": latest}})
-            ),
-            patch.object(pr, "existing_pr", return_value=None),
-        ):
-            with pytest.raises(wt.Blocked, match="ordinary"):
-                wt.sync_latest_base(root, "example", latest)
-            refs["refs/heads/" + state["branch"]] = old
-            with pytest.raises(wt.Blocked, match="head exists"):
-                wt.sync_latest_base(
-                    root,
-                    "example",
-                    latest,
-                    recover_prepared_pr=True,
-                    expected_commit=old,
-                )
-            del refs["refs/heads/" + state["branch"]]
-            state["prPublication"]["pushIntent"] = True
-            wt.save(path, state)
-            with pytest.raises(wt.Blocked, match="not safely recoverable"):
-                wt.sync_latest_base(
-                    root,
-                    "example",
-                    latest,
-                    recover_prepared_pr=True,
-                    expected_commit=old,
-                )
-            del state["prPublication"]["pushIntent"]
-            wt.save(path, state)
-            original = wt.git
-            with patch.object(
-                wt,
-                "git",
-                side_effect=_bind_framework_callback(_interrupt_after_rebase, original),
-            ):
-                with pytest.raises(RuntimeError, match="simulated interruption"):
-                    wt.sync_latest_base(
-                        root,
-                        "example",
-                        latest,
-                        recover_prepared_pr=True,
-                        expected_commit=old,
-                    )
-            result = wt.sync_latest_base(
-                root, "example", latest, recover_prepared_pr=True, expected_commit=old
-            )
-            assert result["status"] == "needs_validation"
-            assert result["integrationMode"] == "pr" and "prPublication" not in result
-            assert git(target, "rev-parse", "HEAD^1") == latest
-            assert (target / "file.txt").read_text() == "task change\n"
-
-
-@it_case
 def check_implement_rebases_on_latest_base():
     check = TestCase()
     with fixture() as root:
@@ -220,7 +142,6 @@ def _fail_rebase(original, target, *args, **kwargs):
 
 @it_case
 def check_latest_base_linear_repeated_and_recovery():
-    _check_unpublished_prepared_pr_base_recovery()
     check = TestCase()
     with fixture() as root:
         target, state = start(root)
@@ -1313,19 +1234,69 @@ def _push_with_base_advance(advance, scenario, original_push, target, publicatio
 
 
 def _check_pr_creation_with_advancing_base():
-    for advance in ("local", "remote", "during", "conflict"):
+    for advance in (
+        "local",
+        "remote",
+        "during",
+        "conflict",
+        "rewritten",
+        "same-file",
+        "same-change",
+        "different-lines",
+    ):
         with fixture() as root:
-            relative = "framework/scripts/candidate.txt"
+            relative = (
+                "file.txt"
+                if advance in {"same-change", "different-lines"}
+                else "framework/scripts/candidate.txt"
+            )
             target, state = start(root, files=(relative,))
             source = target / relative
             source.parent.mkdir(parents=True, exist_ok=True)
-            source.write_text("candidate\n", encoding="utf-8")
+            content = (
+                "original\ntask\n" if advance == "different-lines" else "candidate\n"
+            )
+            source.write_text(content, encoding="utf-8")
+            if advance in {"same-change", "different-lines"}:
+                finish_contract(target, state)
             remote = PRGitHub(root, state)
             scenario = PRUpdateScenario(root, state, remote, "creation")
+            if advance == "rewritten":
+                selected = pr.select(root, "example")
+                assert selected["integrationMode"] == "pr"
             if advance == "local":
                 (root / "base.txt").write_text("local\n", encoding="utf-8")
                 git(root, "add", "base.txt")
                 git(root, "commit", "-qm", "local advance")
+            elif advance == "rewritten":
+                git(
+                    root,
+                    "commit",
+                    "--amend",
+                    "--no-edit",
+                    "--allow-empty",
+                    "-qm",
+                    "rewritten base",
+                )
+                assert (
+                    wt.task_start_commit(target, state["task_file"]) == state["start"]
+                )
+                validation = TaskValidation(
+                    target, Findings(target), contract_file=state["task_file"]
+                )
+                assert validation.final_paths() == {relative}
+            elif advance in {"same-change", "different-lines"}:
+                (root / relative).write_text(
+                    content if advance == "same-change" else "base\noriginal\n",
+                    encoding="utf-8",
+                )
+                git(root, "add", relative)
+                git(root, "commit", "-qm", "base change")
+            elif advance == "same-file":
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                (root / relative).write_text("base version\n", encoding="utf-8")
+                git(root, "add", relative)
+                git(root, "commit", "-qm", "conflicting base")
             elif advance in {"remote", "conflict"}:
                 scenario.advance(
                     relative if advance == "conflict" else "base.txt", "base\n"
@@ -1333,6 +1304,11 @@ def _check_pr_creation_with_advancing_base():
             with (
                 patch.object(wt, "git", side_effect=remote.git),
                 patch.object(pr, "gh", side_effect=remote.gh),
+                patch.object(
+                    wt,
+                    "base_worktree",
+                    side_effect=AssertionError("PR must not inspect base worktree"),
+                ),
                 patch.object(
                     wt.python_env,
                     "runtime",
@@ -1655,6 +1631,8 @@ def check_pr_update_and_operations():
                 )
 
     _check_pr_update_recovery_and_base()
+    _check_pr_conflict_resolution_update(outside=False)
+    _check_pr_conflict_resolution_update(outside=True)
 
 
 def _check_pr_update_recovery_and_base():
@@ -1907,6 +1885,76 @@ def check_pr_remote_base_only_sync():
                 synced["candidate"],
             )
             TestCase().assertFalse(target.exists())
+
+
+def _check_pr_conflict_resolution_update(*, outside):
+    with fixture() as root:
+        relative = "framework/scripts/candidate.txt"
+        target, state = start(root, files=(relative,))
+        source = target / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("published\n", encoding="utf-8")
+        remote = PRGitHub(root, state)
+        scenario = PRUpdateScenario(root, state, remote, "remote")
+        with (
+            patch.object(wt, "git", side_effect=remote.git),
+            patch.object(pr, "gh", side_effect=remote.gh),
+            patch.object(
+                wt.python_env,
+                "runtime",
+                return_value=(
+                    Path(sys.executable),
+                    wt.python_env.environment(Path(sys.prefix)),
+                ),
+            ),
+            patch.object(subprocess, "run", side_effect=remote.child),
+            patch.object(loop, "run_loop", side_effect=remote.validate),
+            patch.object(pr, "validate_snapshot", side_effect=scenario.validate),
+        ):
+            published = wt.finalize(root, "example", create_pr=True)
+            old = published["tip"]
+            scenario.advance(relative, "conflicting base\n")
+            scenario.advance("base-only.txt", "inherited\n")
+            base = git(root, "rev-parse", "HEAD")
+            remote.pr["mergeable"] = "CONFLICTING"
+            assert (
+                pr.operate(root, "example", "pr-status")["prPublication"]["mergeable"]
+                == "CONFLICTING"
+            )
+            with pytest.raises(wt.Blocked, match="needs conflict resolution"):
+                pr.sync_base(root, "example", base)
+            source.write_text("resolved\n", encoding="utf-8")
+            git(target, "add", relative)
+            if outside:
+                (target / "base-only.txt").write_text(
+                    "unauthorized change\n", encoding="utf-8"
+                )
+                git(target, "add", "base-only.txt")
+            git(target, "commit", "-qm", "resolve published conflict")
+            merged = git(target, "rev-parse", "HEAD")
+            assert git(target, "show", "-s", "--format=%P", merged).split() == [
+                old,
+                base,
+            ]
+            if outside:
+                with pytest.raises(wt.Blocked, match="outside the exact Task contract"):
+                    pr.sync_base(root, "example", base)
+                assert (
+                    git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
+                    == old
+                )
+                return
+            synced = pr.sync_base(root, "example", base)
+            assert synced["status"] == "needs_validation"
+            remote.pr["mergeable"] = "MERGEABLE"
+            updated = pr.update(root, "example")
+            assert updated["prPublication"]["mergeable"] == "MERGEABLE"
+            assert updated["prPublication"]["candidate"] == merged
+            assert updated["prPublication"]["number"] == 7 and remote.created == 1
+            assert (
+                git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
+                == merged
+            )
 
 
 @it_case

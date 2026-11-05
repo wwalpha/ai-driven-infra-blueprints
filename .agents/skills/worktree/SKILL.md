@@ -154,10 +154,10 @@ Use this option only after actual human approval of this task's failures; a gene
 
 Outside the Model-only/Framework final-candidate branch, `finalize` reads the existing completed status (or the explicitly approved suspended status), rejects unresolved Git operations and unexpected branch commits, and stages only exact non-ignored task paths (including newly added files). It never force-adds `tasks/**`. Normal commit messages use `task(<task-id>): completed task`; approved failures use `task(<task-id>): human-approved validation failure`; zero changes create no empty commit.
 
-Task differences combine all committed changes from the shared Git merge-base of the
-current local base and Task HEAD with all staged/unstaged/untracked changes. Lifecycle
-start/validation-base ancestry remains mandatory. Inherited base changes are excluded
-after synchronization; undeclared Task changes are never filtered through Modified files.
+Task differences include all committed changes and staged/unstaged/untracked changes.
+For PR mode the recorded Task validation baseline identifies the Task diff independently
+of the current base; direct integration retains its base ancestry and synchronization checks.
+Undeclared Task changes are never filtered through Modified files.
 
 Ordinary integration runs the shared candidate Model guard before commit and after synchronization
 in the target worktree’s registered Python,
@@ -181,28 +181,18 @@ python3 -B framework/scripts/worktree_task.py sync-latest-base --task-id <task-i
 python3 -B framework/scripts/worktree_task.py pr-sync-base --task-id <task-id> --expected-base <reviewed-remote-base-sha>
 ```
 
-The local operation is for ordinary running/completed Tasks; the PR operation is for the same published PR and Worktree. The local operation replays a proven linear Task history on the reviewed local base, changing its commit SHAs; unsafe legacy merge histories stop for review. The PR operation retains history with a Git merge. Both return `needs_validation` after a new candidate is prepared. An unchanged local base returns `ok` without a new candidate. A failed or unfinished rebase, an unknown outcome, or a changed Task or HEAD retains the Worktree for review; never automatically abort or reset it. An interrupted successful rebase resumes only when its recorded intent and Git history match. The PR operation checks GitHub and Git refs, published HEAD and intent; it fetches the target base without changing local master or pushing. Reconcile an uncertain push through `pr-update` before synchronization when required. A conflict, rewritten history, unexpected HEAD or inconsistent state stops for review; do not resolve, reset, force push or edit lifecycle metadata automatically.
+The local operation is for ordinary running/completed Tasks; the PR operation is for the same published PR and Worktree. The local operation replays a proven linear Task history on the reviewed local base, changing its commit SHAs; unsafe legacy merge histories stop for review. The PR operation retains history with a Git merge. Both return `needs_validation` after a new candidate is prepared. An unchanged local base returns `ok` without a new candidate. A failed or unfinished rebase, an unknown outcome, or a changed Task or HEAD retains the Worktree for review; never automatically abort or reset it. An interrupted successful rebase resumes only when its recorded intent and Git history match. The PR operation checks GitHub and Git refs, published HEAD and intent; it fetches the target base without changing local master or pushing. Reconcile an uncertain push through `pr-update` before synchronization when required. For a published PR whose GitHub conflict requires resolution, explicitly select `pr-sync-base` for the reviewed remote base. If its merge conflicts, retain the recorded merge, resolve and commit the conflict in the same worktree, then retry the same command. The helper verifies both merge parents and the Task scope against that base, then requires validation before `pr-update`. Unexpected HEAD or inconsistent state stops for review; do not reset, force push or edit lifecycle metadata.
 
 After synchronization, the LLM reviews the inherited changes and selects and runs the relevant UT/IT and other checks under Validation policy. Confirm their results, then resume the same `finalize` or `pr-update`; the existing final-candidate guard and Validation remain separate mandatory checks. The Python helper does not select or run UT/IT or record their PASS. If an ordinary local integration base advances again, repeat synchronization and reassess the tests; stop and report persistent churn or an actual failure instead of an unlimited automatic retry. Do not switch to a new PR or alter Deploy checkpoint/repair lifecycles.
 
-### Prepared PR before any push
-
-When initial PR publication is `PREPARED` and its base advanced before any push,
-explicitly review the exact Task, candidate, latest local and remote base, remote
-head and PR state. If no push or creation intent exists, use the same Task:
-
-```console
-python3 -B framework/scripts/worktree_task.py sync-latest-base --task-id <task-id> --expected-base <reviewed-local-and-remote-base-sha> --expected-commit <reviewed-candidate-sha> --recover-prepared-pr
-```
-
-The helper verifies the recorded candidate, Task hash, remote identity, matching
-GitHub/Git base, absence of the remote head and any PR, and rejects any push or
-creation intent. It retains the existing interrupted-rebase intent and its checks.
-After `needs_validation`, rerun dependency-selected checks and retry the same
-`finalize --create-pr`; its final-candidate validation and remote checks still apply.
-Never clear metadata manually or use this for uncertain push/create outcomes.
-
 ## Explicit PR publication
+
+When the Human explicitly requests a Pull Request, select its mode after Task registration
+and before Task validation with `python3 -B framework/scripts/worktree_task.py pr-select --task-id <task-id>`.
+This records the existing PR mode without checking or synchronizing the base, committing,
+or publishing. It lets Task validation use its recorded Task baseline even if the base
+history changes before finalize. It does not select PR mode for a task that merely changes
+PR support. For a Task already selected as PR, retrying selection is idempotent.
 
 Use `python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id> --create-pr`
 only when the Human explicitly requests a Pull Request. A feature implementation request
@@ -282,7 +272,9 @@ or cleans up the Worktree.
 
 Draft/Ready transitions are explicit. `pr-merge` supports `squash` (default), `merge` and
 `rebase`, matching the published HEAD before requesting GitHub merge. `pr-status` explicitly
-reconciles external or uncertain merges. Both clean up automatically only after GitHub
+reconciles external or uncertain merges and reports GitHub's `mergeable` result; `UNKNOWN`
+means GitHub has not determined mergeability. Use that result to decide whether conflict
+resolution is needed. Both clean up automatically only after GitHub
 confirms MERGED with the same repository, number/URL, base/head and published HEAD, and a
 known merge commit. Squash/Rebase do not require that original HEAD be a local-base ancestor.
 Merge failure/unknown result retains lifecycle state for reconciliation. Automatic cleanup

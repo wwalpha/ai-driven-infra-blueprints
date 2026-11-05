@@ -903,13 +903,14 @@ def _prepare_commit(
             raise Blocked(
                 f"cannot reconstruct a linear Task candidate: HEAD {head}, base {base}"
             )
-    if not pr_update:
+    if not pr_update and state.get("integrationMode") != "pr":
         base_worktree(root, state)
     implement = "- Infrastructure phase: `implement`" in tasks.section(
         contract, "## Task contract"
     )
     if (
         not pr_update
+        and state.get("integrationMode") != "pr"
         and not implement
         and not task_base
         and not ancestor(
@@ -1500,7 +1501,6 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
         )
         integration_task(target, state, approval)
         latest = _prepare_commit(root, path, state, target, approval)
-        base = base_worktree(root, state)
         expected = output(target, "rev-parse", "HEAD")
         model_paths = paths(
             target, "diff", "--name-only", "--no-renames", "-z", latest, expected
@@ -1529,15 +1529,16 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
                 raise Blocked(
                     "validated candidate, Task or base changed before merge; retain worktree"
                 )
-        current_base = output(base, "rev-parse", "HEAD")
-        if current_base != latest and state.get("integrationMode") != "pr":
-            if not ancestor(root, latest, state["base"]):
-                raise Blocked("base history was rewritten; task retained for review")
-            raise NeedsSync(current_base)
         if state.get("integrationMode") == "pr":
             return module("worktree_pr.py", "worktree_pr").prepare(
                 root, path, state, latest, expected
             )
+        base = base_worktree(root, state)
+        current_base = output(base, "rev-parse", "HEAD")
+        if current_base != latest:
+            if not ancestor(root, latest, state["base"]):
+                raise Blocked("base history was rewritten; task retained for review")
+            raise NeedsSync(current_base)
         git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
         if output(base, "rev-parse", "HEAD") != expected or not ancestor(
             root, expected, state["base"]
@@ -1590,21 +1591,22 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
     with lifecycle_lock(root):
         root, _, path, state = load(candidate.root, Path(candidate.task_file).stem)
         target = task_worktree(root, state)
-        base = base_worktree(root, state)
         if (
             target != candidate.root
             or changed_paths(target)
             or output(target, "rev-parse", "HEAD") != candidate.candidate_head
         ):
             raise Blocked("validated candidate/base changed; no merge")
-        current_base = output(base, "rev-parse", "HEAD")
+        base = (
+            None if state.get("integrationMode") == "pr" else base_worktree(root, state)
+        )
         if (
-            current_base != candidate.base_commit
-            and state.get("integrationMode") != "pr"
+            base is not None
+            and output(base, "rev-parse", "HEAD") != candidate.base_commit
         ):
             if not ancestor(root, candidate.base_commit, state["base"]):
                 raise Blocked("base history was rewritten; task retained for review")
-            raise NeedsSync(current_base)
+            raise NeedsSync(output(base, "rev-parse", "HEAD"))
         if paths(target, "ls-files", "-z", "tasks"):
             raise Blocked("contracts must remain ignored; no status commit")
         task_path = target / candidate.task_file
@@ -1625,14 +1627,13 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
             or output(target, "rev-parse", "HEAD") != candidate.candidate_head
         ):
             raise Blocked("validated state changed during task completion; no merge")
-        current_base = output(base, "rev-parse", "HEAD")
         if (
-            current_base != candidate.base_commit
-            and state.get("integrationMode") != "pr"
+            base is not None
+            and output(base, "rev-parse", "HEAD") != candidate.base_commit
         ):
             if not ancestor(root, candidate.base_commit, state["base"]):
                 raise Blocked("base history was rewritten; task retained for review")
-            raise NeedsSync(current_base)
+            raise NeedsSync(output(base, "rev-parse", "HEAD"))
         if state.get("integrationMode") == "pr":
             return module("worktree_pr.py", "worktree_pr").prepare(
                 root, path, state, candidate.base_commit, candidate.candidate_head
@@ -1773,80 +1774,16 @@ def verify_rebase_commits(target, old_commits, new_commits, old_parent, new_pare
     return old_parent, new_parent
 
 
-def sync_latest_base(
-    where, task_id, expected_base, *, recover_prepared_pr=False, expected_commit=None
-):
+def sync_latest_base(where, task_id, expected_base):
     """Replay a reviewed local task history onto the latest base without validation."""
     root, _, path, _ = load(where, task_id)
     publication = module("worktree_pr.py", "worktree_pr")
     with publication.publication_lock(path):
-        checked_state = None
-        if recover_prepared_pr:
-            checked_state = load(root, task_id)[3]
-            prepared = checked_state.get("prPublication", {})
-            target = task_worktree(root, checked_state)
-            text = tasks.read_task_snapshot(
-                target, checked_state["task_file"], live=True
-            ).text
-            if (
-                checked_state.get("integrationMode") != "pr"
-                or prepared.get("status") != "PREPARED"
-                or any(
-                    key in prepared
-                    for key in ("pushIntent", "createIntent", "number", "url")
-                )
-                or checked_state.get("prUpdate")
-                or checked_state.get("validation_failure_approval")
-                or not checked_state.get("verified")
-                or expected_commit != checked_state.get("tip")
-                or expected_commit != checked_state.get("commit")
-                or expected_commit != prepared.get("candidate")
-                or prepared.get("base") != checked_state.get("base")
-                or prepared.get("head") != checked_state.get("branch")
-                or prepared.get("baseCommit")
-                != checked_state.get("validation_base", checked_state["start"])
-                or prepared.get("taskHash")
-                != hashlib.sha256(text.encode("utf-8")).hexdigest()
-                or changed_paths(target)
-                or not checked_state.get("latestBaseSync")
-                and output(target, "rev-parse", "HEAD") != expected_commit
-            ):
-                raise Blocked("prepared PR candidate is not safely recoverable")
-            identity = publication.remote_identity(target)
-            if any(prepared.get(key) != value for key, value in identity.items()):
-                raise Blocked("prepared PR remote identity changed")
-            refs = publication.remote_heads(target, prepared)
-            branch = publication.quote(prepared["base"], safe="")
-            remote_base = json.loads(
-                publication.gh(
-                    target,
-                    prepared["host"],
-                    "api",
-                    "--hostname",
-                    prepared["host"],
-                    f"repos/{prepared['repository']}/branches/{branch}",
-                )
-            )["commit"]["sha"]
-            if (
-                refs.get(f"refs/heads/{prepared['base']}") != expected_base
-                or remote_base != expected_base
-                or refs.get(f"refs/heads/{prepared['head']}") is not None
-            ):
-                raise Blocked("prepared PR remote base changed or head exists")
-            if (
-                publication.existing_pr(
-                    target, prepared, states=("OPEN", "CLOSED", "MERGED")
-                )
-                is not None
-            ):
-                raise Blocked("prepared PR already exists; review required")
         with lifecycle_lock(root):
             root, _, path, state = load(root, task_id)
-            if checked_state is not None and state != checked_state:
-                raise Blocked("prepared PR state changed during remote checks")
             if (
-                (state.get("prPublication") or state.get("integrationMode") == "pr")
-                and not recover_prepared_pr
+                state.get("prPublication")
+                or state.get("integrationMode") == "pr"
                 or state.get("deployIdentity")
                 or state.get("deployRepair")
                 or state["merged"]
@@ -1878,8 +1815,7 @@ def sync_latest_base(
             if intent is None:
                 if latest == state.get("validation_base", state["start"]):
                     ordinary_model = (
-                        not recover_prepared_pr
-                        and tasks.final_model_task(
+                        tasks.final_model_task(
                             text, integration_changed_paths(target, state["task_file"])
                         )
                         and tasks.model_operation(text) is None
@@ -2055,8 +1991,6 @@ def sync_latest_base(
                 tip=head, commit=head, verified=True, validation_base=sync_base
             )
             del state["latestBaseSync"]
-            if recover_prepared_pr:
-                del state["prPublication"]
             save(path, state)
             if current_base != sync_base:
                 return needs_sync(current_base)
@@ -2448,6 +2382,7 @@ def main():
             "cleanup",
             "branches",
             "branch-delete",
+            "pr-select",
             "pr-update",
             "pr-retry-create",
             "pr-sync-base",
@@ -2496,11 +2431,6 @@ def main():
     parser.add_argument("--expected-commit")
     parser.add_argument("--expected-base")
     parser.add_argument(
-        "--recover-prepared-pr",
-        action="store_true",
-        help="Reconcile an unpushed prepared PR before syncing its base",
-    )
-    parser.add_argument(
         "--expected-task-base",
         help="Reviewed recorded validation base for clean governance recovery across rewritten history",
     )
@@ -2541,14 +2471,6 @@ def main():
         or args.repin_recovery
     ):
         parser.error("pr-retry-create requires only --expected-commit")
-    if args.recover_prepared_pr and (
-        args.command != "sync-latest-base"
-        or not args.expected_commit
-        or not args.expected_base
-    ):
-        parser.error(
-            "--recover-prepared-pr requires sync-latest-base, --expected-commit and --expected-base"
-        )
     if args.pr and args.command != "pr-close":
         parser.error("--pr requires pr-close")
     if args.merge_method and args.command != "pr-merge":
@@ -2597,6 +2519,8 @@ def main():
             publication = module("worktree_pr.py", "worktree_pr")
             if args.pr:
                 state = publication.close_existing(where, args.pr)
+            elif args.command == "pr-select":
+                state = publication.select(where, args.task_id)
             elif args.command == "pr-update":
                 state = publication.update(where, args.task_id)
             elif args.command == "pr-retry-create":
@@ -2625,13 +2549,7 @@ def main():
         elif args.command == "sync-base":
             state = sync_base(where, args.task_id, args.expected_base)
         elif args.command == "sync-latest-base":
-            state = sync_latest_base(
-                where,
-                args.task_id,
-                args.expected_base,
-                recover_prepared_pr=args.recover_prepared_pr,
-                expected_commit=args.expected_commit,
-            )
+            state = sync_latest_base(where, args.task_id, args.expected_base)
         elif args.command == "rewrite-base":
             state = rewrite_base(
                 where, args.task_id, args.expected_commit, args.expected_base

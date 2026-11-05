@@ -113,6 +113,8 @@ publication. The verified candidate is published without local-base merge or cle
 PR number/URL, GitHub state and separate Draft state. Retry the same operation and saved
 intent; plain finalize never falls back to merge or implicitly changes Draft status.
 
+For an explicitly requested PR, select PR mode before Task validation using the existing
+Worktree lifecycle; selection records intent without inspecting or synchronizing the base.
 PR creation and updates do not require the base to match the validated baseline; GitHub
 handles conflicts and merge conditions. The same Task/Worktree may explicitly `pr-update`:
 validate a new descendant candidate,
@@ -138,14 +140,6 @@ orphan `codex/worktree/*` local branch without Task state or any Worktree regist
 
 Deploy and repair-child PR publication remain separate and reject PR mode before their
 existing operations. See [Worktree PR publication](../../.agents/skills/worktree/SKILL.md#explicit-pr-publication).
-
-## Prepared PR base recovery
-
-For a verified PR creation candidate blocked by a newer base before any recorded
-push or creation intent, follow [Prepared PR before any push](../../.agents/skills/worktree/SKILL.md#prepared-pr-before-any-push).
-Retain the Task and PR mode, reconcile the remote, synchronize the reviewed base,
-rerun selected checks and final candidate validation, and retry the same PR publication.
-Any remote head, existing PR, recorded push/create intent or inconsistent state stops.
 
 ## Reviewed PR creation retry
 

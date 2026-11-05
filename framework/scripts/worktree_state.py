@@ -180,6 +180,8 @@ def _task_history(root, task_file, state, *, merge_base):
         return start
     if git(root, "merge-base", "--is-ancestor", start, "HEAD", check=False).returncode:
         raise Blocked("task lifecycle start is not an ancestor of HEAD")
+    if state.get("integrationMode") == "pr":
+        return start
     base = output(
         root, "rev-parse", "--verify", f"refs/heads/{state['base']}^{{commit}}"
     )
