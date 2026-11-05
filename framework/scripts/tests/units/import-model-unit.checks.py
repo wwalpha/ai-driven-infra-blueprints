@@ -41,6 +41,7 @@ from model.format import owner, serialize
 from model.identity import COUNTERS
 from model.importing import cli as m
 from model.importing import inventory as import_inventory
+from model.importing import scope as import_scope
 from model.importing.evidence import FORMAT_FIELDS
 from model.importing.inventory import (
     ImportInventory,
@@ -804,6 +805,11 @@ def check_cli_never_falls_back(args):
     ):
         m.main()
     assert failure.value.code == 2
+
+
+def test_cli_does_not_export_scope_selected():
+    assert not hasattr(m, "selected")
+    assert callable(import_scope.selected)
 
 
 def check_cli_phase_dispatch(tmp_path):

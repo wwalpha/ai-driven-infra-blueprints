@@ -48,7 +48,6 @@ from validation_scope import active_scope
 
 import model.importing.references as _imports_model_importing_references
 import model.importing.repository as repository
-import model.importing.scope as _exports_model_importing_scope
 import model.importing.scope as _imports_model_importing_scope
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
@@ -97,10 +96,6 @@ from model.sources import (
     safe,
 )
 from model.sources import candidate_base as before_model
-
-# Preserve shared fixtures and compatibility exports under their historical names.
-selected = _exports_model_importing_scope.selected
-
 
 ROOT = Path(__file__).resolve().parents[4]
 
