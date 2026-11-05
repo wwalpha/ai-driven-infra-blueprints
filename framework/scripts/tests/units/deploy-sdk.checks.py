@@ -11,10 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import copy
 import json
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
+from botocore.exceptions import ClientError
 from deploy import change_sets as change_sets
+from deploy import controller as controller
 from deploy import guards
 from deploy import observed as observed
 from deploy.recovery import reset_after_cleanup
@@ -628,3 +630,37 @@ def check_deletion_event_identity(tmp_path, mismatch):
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+def check_codebuild_controller_normalizes_error_and_records_timing(tmp_path):
+    root = tmp_path / "repository"
+    root.mkdir()
+    timing_path = tmp_path / "timing.jsonl"
+    runtime = SimpleNamespace(
+        root=root,
+        connection=(None, "ap-northeast-1", "123456789012"),
+        timing=Timing(root, timing_path),
+    )
+    client = SimpleNamespace(
+        batch_get_projects=Mock(
+            side_effect=ClientError(
+                {"Error": {"Code": "AccessDeniedException", "Message": "secret"}},
+                "BatchGetProjects",
+            )
+        )
+    )
+    with patch("utils.aws.client.client", return_value=client) as factory:
+        with pytest.raises(AwsError) as failure:
+            controller.aws(
+                runtime, "batch_get_projects", service="codebuild", names=["project"]
+            )
+    factory.assert_called_once_with(runtime.connection, "codebuild")
+    client.batch_get_projects.assert_called_once_with(names=["project"])
+    assert failure.value.code == "AccessDeniedException"
+    assert "secret" not in str(failure.value)
+    event = json.loads(timing_path.read_text(encoding="utf-8"))
+    assert (event["service"], event["operation"], event["result"]) == (
+        "codebuild",
+        "batch-get-projects",
+        "FAIL",
+    )

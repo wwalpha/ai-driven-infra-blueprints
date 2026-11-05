@@ -1885,6 +1885,12 @@ def test_evidence_if_uses_only_confirmed_branch(project_workspace):
     "case,old,expected,status",
     [
         ("no-output", "old", "`project`", "UPDATED"),
+        ("omitted", "old", "`project`", "UPDATED"),
+        ("not-found", "old", None, "UNCONFIRMED"),
+        ("not-found-invalid", "old", None, "UNCONFIRMED"),
+        ("multiple", "old", None, "UNCONFIRMED"),
+        ("missing-projects", "old", None, "UNCONFIRMED"),
+        ("invalid-project", "old", None, "UNCONFIRMED"),
         ("output", "old", "`project`", "UPDATED"),
         ("output", "project", "`project`", "MATCHED"),
         ("output-mismatch", "old", None, "UNCONFIRMED"),
@@ -2004,13 +2010,29 @@ def _codebuild_sync_aws(document, case, operation, **kwargs):
             return {"projects": [], "projectsNotFound": ["project"]}
         if case == "incomplete":
             return {"projects": [{"name": "project"}], "projectsNotFound": []}
+        if case == "missing-projects":
+            return {"projectsNotFound": []}
+        if case == "invalid-project":
+            return {"projects": ["project"], "projectsNotFound": []}
         name = "other" if case == "physical-mismatch" else "project"
         arn = "arn:aws:codebuild:ap-northeast-1:123456789012:project/" + name
         if case == "arn-account":
             arn = arn.replace("123456789012", "999999999999")
         if case == "arn-region":
             arn = arn.replace("ap-northeast-1", "us-east-1")
-        return {"projects": [{"name": name, "arn": arn}], "projectsNotFound": []}
+        projects = [{"name": name, "arn": arn}]
+        if case == "multiple":
+            projects.append(projects[0])
+        response = {"projects": projects}
+        if case != "omitted":
+            response["projectsNotFound"] = (
+                ["project"]
+                if case == "not-found"
+                else "invalid"
+                if case == "not-found-invalid"
+                else []
+            )
+        return response
     raise AssertionError(operation)
 
 

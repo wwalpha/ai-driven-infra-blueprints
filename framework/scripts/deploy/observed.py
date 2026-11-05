@@ -624,7 +624,7 @@ def codebuild_observation(
             not isinstance(projects, list)
             or len(projects) != 1
             or not isinstance(projects[0], dict)
-            or response.get("projectsNotFound") != []
+            or response.get("projectsNotFound", []) != []
         ):
             return None, "CodeBuild project missing or response incomplete"
         project_data = projects[0]

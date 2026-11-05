@@ -6,6 +6,7 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 from unittest import TestCase
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -14,6 +15,7 @@ import model.files as _imports_model_files
 import model.format as _imports_model_format
 import model.sources as model_sources
 import support.repository_fixtures as _fixture_publication_workspace
+from deploy import controller as deploy_controller
 from deploy import git_publication as scope_publication
 from deploy import observed as deploy_observed
 from deploy import preparation as offline_preparation
@@ -21,6 +23,7 @@ from deploy import scope as execution_scope
 from deploy.model_cache import RunModels
 from deploy.observed import removed_resources
 from deploy.preparation import candidate
+from deploy.timing import Timing
 from model.adapters.observed import (
     mappings,
     preflight,
@@ -1823,9 +1826,30 @@ def check_codebuild_observation_publication_and_resync(project_workspace, monkey
         directory="team",
         target=TARGET,
         templates={"producer": (document, {})},
-        aws=_bind_framework_callback(_codebuild_sync_aws, stack, actual, document),
+        connection=(None, "ap-northeast-1", "123456789012"),
+        timing=Timing(root),
         run_context={},
     )
+    backend.aws = _bind_framework_callback(deploy_controller.aws, backend)
+    response = _bind_framework_callback(_codebuild_sync_aws, stack, actual, document)
+    codebuild = SimpleNamespace(
+        batch_get_projects=Mock(
+            side_effect=_bind_framework_callback(response, "batch_get_projects")
+        )
+    )
+    cloudformation = SimpleNamespace(
+        **{
+            operation: Mock(side_effect=_bind_framework_callback(response, operation))
+            for operation in ("describe_stacks", "list_stack_resources", "get_template")
+        }
+    )
+    client = Mock(
+        side_effect=lambda context, service, **kwargs: {
+            "codebuild": codebuild,
+            "cloudformation": cloudformation,
+        }[service]
+    )
+    monkeypatch.setattr("utils.aws.client.client", client)
     unit = {"name": "producer"}
     monkeypatch.setattr(
         deploy_observed.execution_scope, "check_fixed_resources", lambda *a, **k: None
@@ -1842,6 +1866,12 @@ def check_codebuild_observation_publication_and_resync(project_workspace, monkey
         assert (
             state["producer"]["observedCoverage"]["Resource001"]["status"] == expected
         )
+    assert codebuild.batch_get_projects.call_count == 2
+    codebuild.batch_get_projects.assert_called_with(names=["project"])
+    assert any(call.args[1] == "codebuild" for call in client.call_args_list)
+    assert cloudformation.get_template.call_count == 2
+    with pytest.raises(KeyError):
+        backend.aws("delete_project", service="codebuild", name="project")
 
 
 def _codebuild_sync_aws(stack, actual, document, operation, **kwargs):
@@ -1859,6 +1889,5 @@ def _codebuild_sync_aws(stack, actual, document, operation, **kwargs):
                     "arn": "arn:aws:codebuild:ap-northeast-1:123456789012:project/project",
                 }
             ],
-            "projectsNotFound": [],
         }
     raise AssertionError(operation)
