@@ -58,7 +58,13 @@ def _permission_test_aws(document, fault, arn, statement, stack, operation, **kw
     if operation == "get_template":
         return {"TemplateBody": document}
     if operation == "describe_rule":
-        bus = "aws.partner/vendor/bus" if fault == "partner" else "custom"
+        bus = (
+            "aws.partner/vendor/bus"
+            if fault == "partner"
+            else "default"
+            if fault == "rule-bus-omitted"
+            else "custom"
+        )
         assert kwargs == {"service": "events", "Name": "my-rule", "EventBusName": bus}
         return {
             "Name": "other" if fault == "name" else "my-rule",
@@ -1597,6 +1603,12 @@ def test_incomplete_stack_observation_is_rejected():
         "no-value-account",
         "no-value-account-mismatch",
         "bus-type",
+        "rule-bus-omitted",
+        "rule-name-omitted",
+        "rule-bus-custom",
+        "rule-condition-unknown",
+        "rule-unused-secret",
+        "rule-unused-resource",
     ],
 )
 def test_permission_event_rule_arn_identity(project_workspace, sub, fault):
@@ -1691,6 +1703,36 @@ def test_permission_event_rule_arn_identity(project_workspace, sub, fault):
                 expression if fault == "if-secret" else unused,
             ]
         }
+    if fault and fault.startswith("rule-"):
+        document["Conditions"] = {"Selected": {"Fn::Equals": ["yes", "yes"]}}
+        if fault == "rule-bus-omitted":
+            bus_props["EventBusName"] = {
+                "Fn::If": ["Selected", {"Ref": "AWS::NoValue"}, "custom"]
+            }
+            arn = "arn:aws:events:ap-northeast-1:123456789012:rule/my-rule"
+        elif fault == "rule-name-omitted":
+            bus_props["Name"] = {
+                "Fn::If": ["Selected", {"Ref": "AWS::NoValue"}, "other"]
+            }
+        elif fault == "rule-bus-custom":
+            bus_props["EventBusName"] = {
+                "Fn::If": ["Selected", "custom", {"Ref": "AWS::NoValue"}]
+            }
+        elif fault == "rule-condition-unknown":
+            bus_props["EventBusName"] = {
+                "Fn::If": ["Unknown", "custom", {"Ref": "AWS::NoValue"}]
+            }
+        elif fault == "rule-unused-secret":
+            document["Parameters"] = {"Secret": {"Type": "String", "NoEcho": True}}
+            stack["Parameters"] = [{"ParameterKey": "Secret", "ParameterValue": "****"}]
+            params = {"Secret": "private"}
+            bus_props["EventBusName"] = {
+                "Fn::If": ["Selected", "custom", {"Ref": "Secret"}]
+            }
+        else:
+            bus_props["Name"] = {
+                "Fn::If": ["Selected", "my-rule", {"Fn::GetAtt": ["Missing", "Arn"]}]
+            }
     resource = {
         "resourceType": "Lambda.Permission",
         "parentReference": json.dumps(
@@ -1785,6 +1827,11 @@ def test_permission_event_rule_arn_identity(project_workspace, sub, fault):
             "partner",
             "no-value",
             "no-value-account",
+            "rule-bus-omitted",
+            "rule-name-omitted",
+            "rule-bus-custom",
+            "rule-unused-secret",
+            "rule-unused-resource",
         }
         else (value is None and reason)
     ), reason

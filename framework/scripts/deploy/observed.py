@@ -194,6 +194,10 @@ def _permission_attribute(
             document, parameters, stack, evidence, pseudo
         ):
             raise Blocked("rule identity parameters unavailable")
+        selected = {
+            key: _imports_cfn_inputs.output_value(document, parameters, pseudo, value)
+            for key, value in evidence.items()
+        }
         resolved = {
             key: _imports_cfn_inputs.resolve_value(
                 permission_expression(
@@ -203,7 +207,8 @@ def _permission_attribute(
                 pseudo,
                 conditions=document.get("Conditions"),
             )
-            for key, val in evidence.items()
+            for key, val in selected.items()
+            if val != {"Ref": "AWS::NoValue"}
         }
         rule_name = resolved.get("Name", physical)
         bus = resolved.get("EventBusName", "default")
