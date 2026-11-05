@@ -1879,3 +1879,139 @@ def test_evidence_if_uses_only_confirmed_branch(project_workspace):
             {},
             stack,
         )
+
+
+@pytest.mark.parametrize(
+    "case,old,expected,status",
+    [
+        ("no-output", "old", "`project`", "UPDATED"),
+        ("output", "old", "`project`", "UPDATED"),
+        ("output", "project", "`project`", "MATCHED"),
+        ("output-mismatch", "old", None, "UNCONFIRMED"),
+        ("physical-mismatch", "old", None, "UNCONFIRMED"),
+        ("missing", "old", None, "UNCONFIRMED"),
+        ("incomplete", "old", None, "UNCONFIRMED"),
+        ("denied", "old", None, "UNCONFIRMED"),
+        ("output-denied", "old", "`project`", "UPDATED"),
+        ("changed", "old", None, "UNCONFIRMED"),
+        ("account", "old", None, "UNCONFIRMED"),
+        ("region", "old", None, "UNCONFIRMED"),
+        ("wrong-stack", "old", None, "UNCONFIRMED"),
+        ("arn-account", "old", None, "UNCONFIRMED"),
+        ("arn-region", "old", None, "UNCONFIRMED"),
+    ],
+)
+def test_codebuild_id_from_api_without_output(
+    project_workspace, monkeypatch, case, old, expected, status
+):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root, "codebuild", "CodeBuild.Project", attribute="Id", observed=old
+    )
+    model_reference_fixtures.write(scope, values)
+    document = {"Resources": {"Resource001": {"Type": "AWS::CodeBuild::Project"}}}
+    if case in {"output", "output-mismatch", "output-denied"}:
+        document["Outputs"] = {"Project": {"Value": {"Ref": "Resource001"}}}
+    unit = {"name": "producer"}
+    _, mapped = resolve_resources(
+        root,
+        "qa",
+        "team",
+        {"producer": (document, {})},
+        [unit],
+        {"producer": {"Resource001"}},
+        target=TARGET,
+        check_scope=False,
+    )
+    stack = {
+        "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique",
+        "StackStatus": "CREATE_COMPLETE",
+        "Outputs": (
+            [
+                {
+                    "OutputKey": "Project",
+                    "OutputValue": "other" if case == "output-mismatch" else "project",
+                }
+            ]
+            if "Outputs" in document
+            else []
+        ),
+    }
+    if case == "account":
+        stack["StackId"] = stack["StackId"].replace("123456789012", "999999999999")
+    if case == "region":
+        stack["StackId"] = stack["StackId"].replace("ap-northeast-1", "us-east-1")
+    if case == "wrong-stack":
+        stack["StackId"] = stack["StackId"].replace("/producer/", "/other/")
+
+    def aws(operation, **kwargs):
+        if operation == "get_template":
+            return {"TemplateBody": document}
+        if operation == "batch_get_projects":
+            assert kwargs == {"service": "codebuild", "names": ["project"]}
+            if case in {"denied", "output-denied"}:
+                raise AwsError("codebuild", operation, "AccessDeniedException")
+            if case == "missing":
+                return {"projects": [], "projectsNotFound": ["project"]}
+            if case == "incomplete":
+                return {"projects": [{"name": "project"}], "projectsNotFound": []}
+            name = "other" if case == "physical-mismatch" else "project"
+            arn = "arn:aws:codebuild:ap-northeast-1:123456789012:project/" + name
+            if case == "arn-account":
+                arn = arn.replace("123456789012", "999999999999")
+            if case == "arn-region":
+                arn = arn.replace("ap-northeast-1", "us-east-1")
+            return {"projects": [{"name": name, "arn": arn}], "projectsNotFound": []}
+        raise AssertionError(operation)
+
+    backend = SimpleNamespace(
+        root=root,
+        environment="qa",
+        directory="team",
+        target=TARGET,
+        templates={"producer": (document, {})},
+        aws=aws,
+        run_context={},
+    )
+    monkeypatch.setattr(
+        deploy_observed,
+        "resolve_resources",
+        lambda *a, **k: ({scope.path: values}, mapped),
+    )
+    monkeypatch.setattr(
+        deploy_observed.execution_scope, "check_fixed_resources", lambda *a, **k: None
+    )
+    reads = []
+
+    def read(*args):
+        reads.append(None)
+        return (
+            dict(stack, StackStatus="UPDATE_IN_PROGRESS")
+            if case == "changed" and len(reads) > 2
+            else stack
+        )
+
+    monkeypatch.setattr(deploy_observed.current_state, "read", read)
+    monkeypatch.setattr(
+        deploy_observed.current_state,
+        "pages",
+        lambda *a, **k: [
+            {
+                "LogicalResourceId": "Resource001",
+                "ResourceType": "AWS::CodeBuild::Project",
+                "ResourceStatus": "CREATE_COMPLETE",
+                "PhysicalResourceId": "project",
+            }
+        ],
+    )
+    captured = {}
+    monkeypatch.setattr(
+        deploy_observed,
+        "observed_destinations",
+        _bind_framework_callback(_capture_destinations, captured),
+    )
+    states = {"producer": {}}
+    deploy_observed.collect_successful(backend, [unit], states)
+    assert captured[scope.path]["observed.row.001-001.value"] == expected
+    assert states["producer"]["observedCoverage"]["Resource001"]["status"] == status

@@ -31,6 +31,7 @@ from model.format import parse
 from model.format import patch as patch_properties
 from model.sources import load_model, model_parts
 from support import deploy_controller_fixtures as controller_fixtures
+from support import model_reference_fixtures
 from support import rotation_schedule_fixtures as rotation
 from support.cloudformation_deploy_fixtures import (
     TARGET,
@@ -1789,3 +1790,74 @@ def test_range_preparation_controller_save_and_resume(tmp_path, monkeypatch):
         ),
         0,
     )
+
+
+def check_codebuild_observation_publication_and_resync(project_workspace, monkeypatch):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root, "codebuild", "CodeBuild.Project", attribute="Id", observed="old"
+    )
+    model_reference_fixtures.write(scope, values)
+    task = root / "tasks/observation-fixture.md"
+    task.parent.mkdir(exist_ok=True)
+    text = observation_contract(root, ("codebuild",))
+    task.write_text(text.replace("dev/123456789012/", "qa/team/"), encoding="utf-8")
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/observation-fixture.md")
+    document = {"Resources": {"Resource001": {"Type": "AWS::CodeBuild::Project"}}}
+    stack = {
+        "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique",
+        "StackStatus": "CREATE_COMPLETE",
+        "Outputs": [],
+    }
+    actual = {
+        "LogicalResourceId": "Resource001",
+        "ResourceType": "AWS::CodeBuild::Project",
+        "ResourceStatus": "CREATE_COMPLETE",
+        "PhysicalResourceId": "project",
+    }
+
+    def aws(operation, **kwargs):
+        if operation == "describe_stacks":
+            return {"Stacks": [stack]}
+        if operation == "list_stack_resources":
+            return {"StackResourceSummaries": [actual]}
+        if operation == "get_template":
+            return {"TemplateBody": document}
+        if operation == "batch_get_projects":
+            return {
+                "projects": [
+                    {
+                        "name": "project",
+                        "arn": "arn:aws:codebuild:ap-northeast-1:123456789012:project/project",
+                    }
+                ],
+                "projectsNotFound": [],
+            }
+        raise AssertionError(operation)
+
+    backend = SimpleNamespace(
+        root=root,
+        environment="qa",
+        directory="team",
+        target=TARGET,
+        templates={"producer": (document, {})},
+        aws=aws,
+        run_context={},
+    )
+    unit = {"name": "producer"}
+    monkeypatch.setattr(
+        deploy_observed.execution_scope, "check_fixed_resources", lambda *a, **k: None
+    )
+    monkeypatch.setattr(deploy_observed, "propagate_references", lambda *a, **k: None)
+    for expected in ("UPDATED", "MATCHED"):
+        state = {"producer": {}}
+        outputs, _, _ = deploy_observed.collect_successful(backend, [unit], state)
+        publish_observed(root, outputs)
+        assert (
+            properties(read_model(scope.path))["observed.row.001-001.value"]
+            == "`project`"
+        )
+        assert (
+            state["producer"]["observedCoverage"]["Resource001"]["status"] == expected
+        )
