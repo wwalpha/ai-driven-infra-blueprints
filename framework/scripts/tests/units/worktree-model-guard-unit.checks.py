@@ -100,9 +100,9 @@ def check_model_finalize_cannot_bypass_candidate(tmp_path, action):
 @pytest.mark.parametrize(
     ("workflow", "model", "status", "expected", "backslash"),
     [
-        (None, True, "running", "current: missing", False),
+        (None, True, "running", "Expected: - Workflow", False),
         ("import", True, "running", "current: import", False),
-        (None, True, "running", "current: missing", True),
+        (None, True, "running", "Expected: - Workflow", True),
         ("update", True, "running", "model path", True),
         (None, False, "running", "ordinary path", False),
         (None, False, "completed", "ordinary path", False),
@@ -112,6 +112,10 @@ def check_model_finalize_cannot_bypass_candidate(tmp_path, action):
 def check_finalize_workflow_diagnostic(
     tmp_path, workflow, model, status, expected, backslash
 ):
+    if workflow is None and model is True and not backslash:
+        extra = tmp_path / "invalid"
+        extra.mkdir()
+        _check_invalid_model_contract_blocks_finalize_and_prepare(extra)
     source = (
         "framework/scripts/example.py"
         if model == "framework"
@@ -157,6 +161,50 @@ def check_finalize_workflow_diagnostic(
             assert "retry" in message
             assert "keep task status running" in message
             assert "\n" not in message
+
+
+def _check_invalid_model_contract_blocks_finalize_and_prepare(tmp_path):
+    source = "model/dev/team/iam.properties"
+    name = "tasks/example.md"
+    text = repository_contract("example", [source]).replace("`governance`", "`design`")
+    text = text.replace(
+        "- Task status:",
+        "- Workflow: `update`\n- AWS API execution: `forbidden`\n- Deploy/apply: `forbidden`\n- Task status:",
+    )
+    (tmp_path / "tasks").mkdir()
+    task = tmp_path / name
+    task.write_text(text)
+    state = {
+        "task_file": name,
+        "task_id": "example",
+        "merged": None,
+        "python_setup": {"status": "ready"},
+    }
+    with (
+        patch.object(
+            wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", state)
+        ),
+        patch.object(wt, "task_worktree", return_value=tmp_path),
+        patch.object(wt, "integration_changed_paths", return_value={source}),
+        patch.object(wt, "changed_paths", return_value={source}),
+        patch.object(
+            wt, "integration_task", side_effect=AssertionError("must not integrate")
+        ),
+    ):
+        for call in (
+            lambda: wt._finalize(tmp_path, "example"),
+            lambda: wt._prepare_commit(
+                tmp_path, tmp_path / "state.json", state, tmp_path, None
+            ),
+        ):
+            with pytest.raises(
+                wt.Blocked, match="Model-only Task contract invalid"
+            ) as error:
+                call()
+            assert "Expected: - deploy/apply: `forbidden`" in str(error.value)
+            assert "Found:    - Deploy/apply: `forbidden`" in str(error.value)
+            assert "retry finalize" in str(error.value)
+            assert task.read_text() == text and state["merged"] is None
 
 
 def _callback_check_git_baseline_fail_closed_task(tmp_path, /):

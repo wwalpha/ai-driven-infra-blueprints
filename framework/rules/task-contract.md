@@ -274,6 +274,11 @@ raw registered paths, scope, syntax and input bytes/file sets without requiring 
 or complete transfer/deletion. Each context is one-use; each leaf takes a new snapshot.
 Final validation, independent completion and integration still prove the entire operation
 against versioned before. Rebase integration uses latest base→candidate, not creation start.
+A normal Model-only `/update` declares exactly ``- Task type: `design` ``,
+``- Workflow: `update` ``, ``- AWS API execution: `forbidden` ``, and
+``- deploy/apply: `forbidden` `` (including case and backticks), once each.
+If an existing Task has an invalid declaration, correct its contract in the same
+worktree, refresh and validate it, then retry finalize while keeping it running.
 The normal Model-only finalize accepts running/completed tasks, validates after private
 commit/rebase, then completes only running tasks and merges the exact validated HEAD.
 No persistent PASS receipt, public skip flag, automatic repair or workflow rollback exists.

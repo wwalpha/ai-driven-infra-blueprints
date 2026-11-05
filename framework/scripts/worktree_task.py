@@ -810,6 +810,17 @@ def integration_changed_paths(target, task_file):
     return changed_paths(target) | (committed_task_paths(target, task_file) or set())
 
 
+def _block_invalid_model_contract(text, name):
+    errors = tasks.model_only_declaration_errors(text, name)
+    if errors:
+        raise Blocked(
+            "Model-only Task contract invalid.\n\n"
+            + "\n".join(errors)
+            + "\n\nCorrect the existing Task contract and retry finalize. "
+            "Keep the Task running and retain its worktree."
+        )
+
+
 def _prepare_commit(
     root,
     path,
@@ -835,6 +846,7 @@ def _prepare_commit(
         else integration_changed_paths(target, state["task_file"])
     )
     contract = tasks.read_task_snapshot(target, state["task_file"], live=True).text
+    _block_invalid_model_contract(contract, state["task_file"])
     operation = tasks.final_model_task(contract, model_changes)
     parsed_operation = tasks.model_operation(contract)
     if approval and (
@@ -1363,13 +1375,15 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
         raise Blocked("finish rewritten base recovery before finalize")
     if state.get("recovery"):
         raise Blocked("finish reviewed recovery and rerun validation before finalize")
+    if not state["merged"]:
+        target = task_worktree(root, state)
+        text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
+        _block_invalid_model_contract(text, state["task_file"])
     if (
         not state["merged"]
         and human_approved_validation_failure is None
         and not state.get("validation_failure_approval")
     ):
-        target = task_worktree(root, state)
-        text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
         if tasks.final_model_task(
             text,
             partial(integration_changed_paths, target, state["task_file"]),

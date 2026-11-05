@@ -959,9 +959,22 @@ def _check_normal_model_final_candidate():
             )
             .replace("- `framework`", "- `stg/cde/service-a`\n- `stg/cde/service-b`")
         )
-        task.write_text(text)
+        invalid = text.replace("- deploy/apply:", "- Deploy/apply:")
+        task.write_text(invalid)
         source = target / relative
         source.write_text(source.read_text() + "\n# ordinary correction\n")
+        base_head = git(root, "rev-parse", "HEAD")
+        task_head = git(target, "rev-parse", "HEAD")
+        with TestCase().assertRaisesRegex(
+            wt.Blocked, "Model-only Task contract invalid"
+        ):
+            wt._finalize(root, "example")
+        assert git(root, "rev-parse", "HEAD") == base_head
+        assert git(target, "rev-parse", "HEAD") == task_head
+        assert task.read_text() == invalid and tasks.status(invalid) == "running"
+        assert target.is_dir()
+        task.write_text(text)
+        task_contract_runtime.refresh(target, state["task_file"])
         (root / "upstream.txt").write_text("latest\n")
         git(root, "add", "upstream.txt")
         git(root, "commit", "-qm", "advance base")
@@ -1332,9 +1345,11 @@ def _check_reviewed_pr_creation_retry():
             with (
                 patch.object(wt, "git", side_effect=remote.git),
                 patch.object(
-                    pr, "gh", side_effect=_bind_framework_callback(
+                    pr,
+                    "gh",
+                    side_effect=_bind_framework_callback(
                         _checked_pr_create, attempts, retry_fails, remote
-                    )
+                    ),
                 ),
             ):
                 with pytest.raises(wt.Blocked, match="simulated create failure"):
