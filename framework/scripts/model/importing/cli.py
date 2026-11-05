@@ -513,6 +513,20 @@ def _normalize_records(ctx, service, records):
                     response, value = mapping_value(
                         ctx, proxy, mapping, properties[prop], prop
                     )
+                    getter = mapping.getters.get(field.getter, {})
+                    if (
+                        kind == "QuickSight.Group"
+                        and getter.get("kind") == "sdk"
+                        and (
+                            not sdk_inventory.verified_detail(
+                                ctx, proxy, record, getter, response
+                            )
+                            or not limitations.sdk_response(ctx.root, getter, response)
+                        )
+                    ):
+                        raise ValueError(
+                            "SDK detail Identity or request evidence is invalid"
+                        )
                 else:
                     value = m.select(ctx.fetch(proxy, field.getter), field.path)
                 if value == m.MISSING:

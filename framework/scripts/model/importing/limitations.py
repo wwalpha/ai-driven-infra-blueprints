@@ -132,20 +132,37 @@ def sdk_shapes(root: Path, getter: Any, path: str) -> tuple[Any, Any] | None:
     return output, result
 
 
-def sdk_omission(root: Path, getter: Any, response: Any, path: str) -> bool:
-    """Validate the whole SDK response before accepting an absent optional leaf."""
-    shapes = sdk_shapes(root, getter, path)
-    if shapes is None or not isinstance(response, dict):
+def sdk_response(root: Path, getter: Any, response: Any) -> bool:
+    """Validate SDK output and transport status using the operation's output shape."""
+    if not isinstance(response, dict):
         return False
-    if "ResponseMetadata" in response and not isinstance(
-        response["ResponseMetadata"], dict
-    ):
+    model = sdk_for(root).service_model(getter["service"])
+    name = aws_runtime().operation_name(model, getter["operation"])
+    if name is None:
         return False
-    output, _ = shapes
+    output = model.operation_model(name).output_shape
+    metadata = response.get("ResponseMetadata", {})
+    if not isinstance(metadata, dict):
+        return False
+    statuses = [
+        response[key]
+        for key, shape in output.members.items()
+        if shape.serialization.get("location") == "statusCode" and key in response
+    ]
+    if "HTTPStatusCode" in metadata:
+        statuses.append(metadata["HTTPStatusCode"])
+    if any(type(status) is not int or not 200 <= status < 300 for status in statuses):
+        return False
     payload = {
         key: value for key, value in response.items() if key != "ResponseMetadata"
     }
-    if aws_runtime().ParamValidator().validate(payload, output).has_errors():
+    return not aws_runtime().ParamValidator().validate(payload, output).has_errors()
+
+
+def sdk_omission(root: Path, getter: Any, response: Any, path: str) -> bool:
+    """Validate the whole SDK response before accepting an absent optional leaf."""
+    shapes = sdk_shapes(root, getter, path)
+    if shapes is None or not sdk_response(root, getter, response):
         return False
     result = response
     if getter["result"] != "$":

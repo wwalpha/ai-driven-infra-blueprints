@@ -1502,7 +1502,16 @@ def test_quicksight_other_getters_unchanged(tmp_path):
         "Namespace": "default",
         "GroupName": "readers",
     }[prop]
-    with patch.object(ctx, "call", return_value={"Group": {}}) as call:
+    with patch.object(
+        ctx,
+        "call",
+        return_value={
+            "Group": {
+                "GroupName": "readers",
+                "Arn": f"arn:aws:quicksight:ap-northeast-1:{ACCOUNT}:group/default/readers",
+            }
+        },
+    ) as call:
         module.fetch_sdk(ctx, resource, "describe_group")
         call.assert_called_once_with(
             "quicksight",
@@ -1528,7 +1537,16 @@ def test_quicksight_group_execution_account(tmp_path, configured, allowed):
         "Namespace": "default",
         "GroupName": "readers",
     }[prop]
-    with patch.object(ctx, "call", return_value={"Group": {}}) as call:
+    with patch.object(
+        ctx,
+        "call",
+        return_value={
+            "Group": {
+                "GroupName": "readers",
+                "Arn": f"arn:aws:quicksight:ap-northeast-1:{ACCOUNT}:group/default/readers",
+            }
+        },
+    ) as call:
         if allowed:
             m.service_module("quicksight").fetch_sdk(ctx, resource, "describe_group")
             assert call.call_args.kwargs["AwsAccountId"] == ACCOUNT
@@ -1737,7 +1755,7 @@ def test_quicksight_split_operation_accounts(tmp_path, kind, getter, account, al
         "DataSource": {"Type": "ATHENA"},
         "Permissions": [],
         "VPCConnection": {},
-        "Group": {"Arn": arn},
+        "Group": {"Arn": arn, "GroupName": "readers"},
     }
     module = m.service_module("quicksight")
     with (
@@ -1753,6 +1771,7 @@ def test_quicksight_split_operation_accounts(tmp_path, kind, getter, account, al
             call.assert_not_called()
             fetch.assert_not_called()
         elif getter == "group":
+            call.return_value = {"Group": response["Group"]}
             module.fetch_sdk(ctx, resource, "describe_group")
             check(call.call_args.kwargs["AwsAccountId"] == owner, "group account")
         elif getter == "group-namespace":
@@ -1865,7 +1884,8 @@ def test_quicksight_group_namespace_comparison_split_accounts(tmp_path):
     )
     response = {
         "Group": {
-            "Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:group/default/readers"
+            "GroupName": "readers",
+            "Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:group/default/readers",
         }
     }
     with patch.object(ctx, "call", return_value=response):

@@ -541,7 +541,10 @@ def group_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str, 
         "Description": "fixture",
         "PrincipalId": "principal",
     }
-    ctx, fake = fixture_context(root, "quicksight", QuickSightCalls, expected)
+    payload = dict(
+        expected, Arn=f"arn:aws:quicksight:ap-northeast-1:{ACCOUNT}:group/default/group"
+    )
+    ctx, fake = fixture_context(root, "quicksight", QuickSightCalls, payload)
     plan = resolve(mapping, mapping.properties, "QuickSight.Group")
     if plan.mode != "scoped_sdk":
         raise ValueError("Unexpected discovery plan")
@@ -566,7 +569,9 @@ def group_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str, 
         )
     ]:
         raise ValueError("SDK adapter request differs from fixture")
-    missing_values(ctx, fake, resource, mapping, items, expected)
+    missing_values(
+        ctx, fake, resource, mapping, items, payload, required=("GroupName",)
+    )
     failure_branches(
         ctx,
         fake,

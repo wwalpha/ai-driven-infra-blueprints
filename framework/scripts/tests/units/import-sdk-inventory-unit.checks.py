@@ -230,7 +230,7 @@ def test_sdk_group_omission_requires_real_request_and_independent_identity(
 def test_sdk_group_unproven_identity_cannot_retain(group):
     _, _, result = normalize_group({"Group": group})
     assert (
-        result["properties"]["QuickSight.Group.Description"]["status"] != "not_returned"
+        result["properties"]["QuickSight.Group.Description"]["status"] == "unavailable"
     )
 
 
@@ -253,7 +253,7 @@ def test_sdk_group_response_schema_must_be_intact(change):
     change(response)
     _, _, result = normalize_group(response)
     assert (
-        result["properties"]["QuickSight.Group.Description"]["status"] != "not_returned"
+        result["properties"]["QuickSight.Group.Description"]["status"] == "unavailable"
     )
 
 
@@ -290,7 +290,7 @@ def test_sdk_group_inventory_evidence_is_required(key):
         ),
     )
     assert (
-        result["properties"]["QuickSight.Group.Description"]["status"] != "not_returned"
+        result["properties"]["QuickSight.Group.Description"]["status"] == "unavailable"
     )
 
 
@@ -307,7 +307,9 @@ def test_sdk_cached_payload_without_request_evidence_cannot_retain():
             {"sdk-quicksight-group": response}
         ),
     )
-    assert result["properties"]["QuickSight.Group.Description"]["status"] == "missing"
+    assert (
+        result["properties"]["QuickSight.Group.Description"]["status"] == "unavailable"
+    )
     assert not sdk_inventory.verified_detail(
         SimpleNamespace(), None, {"kind": "Glue.Table"}, {}, {}
     )
@@ -762,10 +764,15 @@ def test_scoped_records_normalize_through_existing_mapping(
     ctx.verified = True
     normalized = cli.normalize_records(ctx, service, [raw])[0]
     assert normalized["identityStatus"] == "known"
-    assert all(
-        capture["status"] != "unavailable"
-        for capture in normalized["properties"].values()
-    )
+    if kind == "QuickSight.Group":
+        assert (
+            normalized["properties"][kind + ".Description"]["status"] == "unavailable"
+        )
+    else:
+        assert all(
+            capture["status"] != "unavailable"
+            for capture in normalized["properties"].values()
+        )
     for prop in selectors:
         assert (
             normalized["properties"][kind + "." + prop]["source"] == "verified_selector"
@@ -1197,6 +1204,86 @@ def test_route53_ttl_projection_and_simple_alias():
     ctx.call.return_value["ResourceRecordSets"].append(dict(item))
     with pytest.raises(cli.comparator().Unresolved, match="ambiguous"):
         adapter.fetch(ctx, resource, "record")
+
+
+@pytest.mark.parametrize("description", [None, "observed description"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "name",
+        "namespace",
+        "group",
+        "account",
+        "region",
+        "partition",
+        "arn-missing",
+        "arn-invalid",
+        "parent-null",
+        "parent-type",
+        "parent-missing",
+        "schema",
+        "status",
+        "http",
+        "getter",
+        "denied",
+    ],
+)
+def test_invalid_group_detail_fails_inventory_even_with_description(
+    description, failure
+):
+    response = {
+        "Group": {
+            "GroupName": "group",
+            "Arn": f"arn:aws:quicksight:{REGION}:{ACCOUNT}:group/default/group",
+        }
+    }
+    if description is not None:
+        response["Group"]["Description"] = description
+    replacements = {
+        "namespace": ("/default/", "/other/"),
+        "group": ("/group", "/other"),
+        "account": (ACCOUNT, "210987654321"),
+        "region": (REGION, "us-east-1"),
+        "partition": ("arn:aws:", "arn:aws-cn:"),
+    }
+    if failure in replacements:
+        response["Group"]["Arn"] = response["Group"]["Arn"].replace(
+            *replacements[failure]
+        )
+    elif failure == "name":
+        response["Group"]["GroupName"] = "other"
+    elif failure == "arn-missing":
+        del response["Group"]["Arn"]
+    elif failure == "arn-invalid":
+        response["Group"]["Arn"] = "invalid"
+    elif failure == "parent-null":
+        response["Group"] = None
+    elif failure == "parent-type":
+        response["Group"] = []
+    elif failure == "parent-missing":
+        del response["Group"]
+    elif failure == "schema":
+        response["Group"]["PrincipalId"] = []
+    elif failure == "status":
+        response["Status"] = 500
+    elif failure == "http":
+        response["ResponseMetadata"] = {"HTTPStatusCode": 403}
+    else:
+        response = cli.comparator().AcquisitionError(
+            "quicksight.describe_group",
+            "AccessDeniedException" if failure == "denied" else "InternalFailure",
+        )
+    ctx, raw, normalized = normalize_group(response)
+    reader = inventory.inventory_for(ctx)
+    reader.normalize("quicksight", raw, lambda *_: [normalized])
+    assert reader.statuses["QuickSight.Group"]["status"] in {
+        "failed",
+        "permission_denied",
+    }
+    assert (
+        normalized["properties"]["QuickSight.Group.Description"]["status"]
+        == "unavailable"
+    )
 
 
 if __name__ == "__main__":

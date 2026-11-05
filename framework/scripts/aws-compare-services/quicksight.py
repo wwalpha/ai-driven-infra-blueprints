@@ -10,6 +10,8 @@ from model.adapters.aws import (
     Unresolved,
     execution_account,
 )
+from model.importing.limitations import sdk_response
+from utils.aws_sdk import sdk_for
 
 APIS = {
     ("quicksight", "describe_group"),
@@ -166,7 +168,27 @@ def fetch_sdk(ctx: Any, r: Any, operation: str) -> dict[str, Any]:
         Namespace=r.value("Namespace"),
         GroupName=r.value("GroupName"),
     )
-    if not isinstance(result, dict) or not isinstance(result.get("Group"), dict):
-        raise Unresolved("QuickSight DescribeGroup response structure is invalid")
-    verify_owner(result["Group"], account)
+    getter = {"service": "quicksight", "operation": operation}
+    if not sdk_response(ctx.root, getter, result) or not isinstance(
+        result.get("Group"), dict
+    ):
+        raise Unresolved(
+            "QuickSight DescribeGroup response structure or status is invalid"
+        )
+    group = result["Group"]
+    region = ctx.target[AWS_REGION_KEY]
+    partition = sdk_for(ctx.root).session().get_partition_for_region(region)
+    expected_arn = (
+        f"arn:{partition}:quicksight:{region}:{account}:group/"
+        + r.value("Namespace")
+        + "/"
+        + r.value("GroupName")
+    )
+    if (
+        group.get("GroupName") != r.value("GroupName")
+        or group.get("Arn") != expected_arn
+    ):
+        raise Unresolved(
+            "QuickSight DescribeGroup Identity conflicts with requested Group"
+        )
     return result

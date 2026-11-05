@@ -1075,5 +1075,28 @@ def test_legacy_review_and_receipt_versions_require_new_review():
         approval.verify_review(result, result)
 
 
+@pytest.mark.parametrize(
+    "response,expected",
+    [
+        (
+            {"Status": 200, "ResponseMetadata": {"HTTPStatusCode": 200}, "Group": {}},
+            True,
+        ),
+        ({"Status": 500, "Group": {}}, False),
+        ({"Status": 403, "Group": {}}, False),
+        ({"ResponseMetadata": {"HTTPStatusCode": 500}, "Group": {}}, False),
+        ({"ResponseMetadata": {"HTTPStatusCode": "200"}, "Group": {}}, False),
+    ],
+)
+def test_sdk_omission_rejects_non_success_transport_status(response, expected):
+    getter = {"service": "quicksight", "operation": "describe_group", "result": "Group"}
+    assert limitations.sdk_omission(ROOT, getter, response, "Description") is expected
+
+
+def test_sdk_business_status_is_not_an_http_status():
+    getter = {"service": "s3", "operation": "get_bucket_versioning", "result": "$"}
+    assert limitations.sdk_response(ROOT, getter, {"Status": "Enabled"})
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

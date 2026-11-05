@@ -1368,7 +1368,16 @@ def check_limited_acquisition_preserves_values_and_completes(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "route", ["cloudcontrol", "sdk", "sdk-evidence-tamper", "sdk-review-tamper"]
+    "route",
+    [
+        "cloudcontrol",
+        "sdk",
+        "sdk-evidence-tamper",
+        "sdk-review-tamper",
+        "sdk-invalid-no-description",
+        "sdk-invalid-present-description",
+        "sdk-invalid-omitted-description",
+    ],
 )
 def check_optional_provider_retention_completes(tmp_path, route):
     root = tmp_path / "limited"
@@ -1407,6 +1416,10 @@ def check_optional_provider_retention_completes(tmp_path, route):
             ],
         ),
     }
+    if route == "sdk-invalid-no-description":
+        values = {
+            key: value for key, value in values.items() if ".row.001-002." not in key
+        }
     write_model(path, values)
     checkpoint(root)
     source = path.relative_to(root).as_posix()
@@ -1466,9 +1479,24 @@ def check_optional_provider_retention_completes(tmp_path, route):
                 },
             }
         )
+    if route.startswith("sdk-invalid"):
+        detail = cli.responses[("quicksight", "describe-group")]["Group"]
+        detail["Arn"] = detail["Arn"].replace("/default/group", "/default/other")
+        if route == "sdk-invalid-present-description":
+            detail["Description"] = "wrong resource description"
+    before_acquisition = path.read_bytes()
     acquired = m.acquire(
         root, "dev", service, ACCOUNT, cli_runner=cli, resource_types=[kind]
     )
+    if route.startswith("sdk-invalid"):
+        assert acquired["inventory"][kind]["status"] == "failed"
+        assert acquired["status"] == "incomplete"
+        if route == "sdk-invalid-no-description":
+            assert kind + ".Description" not in values.values()
+        with pytest.raises(ValueError, match="complete acquisition"):
+            m.publish_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
+        assert path.read_bytes() == before_acquisition
+        return
     assert acquired["inventory"][kind]["status"] == "limited"
     assert (
         acquired["records"][0]["properties"][kind + ".Description"]["status"]
