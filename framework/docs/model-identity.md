@@ -13,11 +13,26 @@ ResourceType prefix collisions, duplicate IDs, missing counters and decreasing c
 
 ## Ordinary CREATE and IMPORT additions
 
-Use `model.identity.allocate(candidate_values, selected_new_entry_numbers)` once after the
-Human-selected Resource correspondence is known. The selected order is explicit; do not derive
-it from AWS enumeration, names or physical identifiers. This returns the candidate fields,
-including IDs and counters, without writing. Publish both through the existing source API
-or IMPORT Review/publication. IMPORT refresh/replace/bind keep the existing ID. The dedicated IMPORT/operation
+Once the Human-selected Resource correspondence is known, use the Model CLI with
+a complete external properties candidate. Repeat `--resource` in the desired
+allocation order. Use confirmed entry numbers independently of AWS enumeration,
+names and physical identifiers.
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py allocate \
+  model/<environment>/<target>/<service>.properties \
+  --candidate <absolute-external-candidate-directory> --resource 001 --resource 002
+```
+
+Use the candidate directory's resolved absolute path. The default preview returns
+ordered `allocations`, the resulting `lastAllocated` and affected candidate `paths`
+in JSON. Add `--write-candidate` to update only the owning files. Use the existing
+[`edit` CLI](model-helper-integration.md#保存権限) to save an ordinary candidate
+under the selected Task. IMPORT retains its own Review and publication workflow.
+
+The CLI uses the public `model.identity.allocate(candidate_values, selected_new_entry_numbers)`
+API, which returns an updated map for Python callers without writing. IMPORT
+refresh/replace/bind keep the existing ID. The dedicated IMPORT/operation
 `preserve_allocation` guard rejects renumbering, reuse and inconsistent counters. Ordinary
 Human-authorized corrections validate the final IDs and counters without requiring the old
 allocation to be valid or unchanged. Concurrent

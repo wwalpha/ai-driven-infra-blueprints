@@ -41,6 +41,9 @@ Modified files／Allowed paths を照合し、context を発行します。
 設計全体の検証を追加しません。retarget の保存前検査は維持します。
 生成候補や人間の編集を直接 write_text で正本へ保存する helper は接続し直してください。
 通常の Model 編集には、外部の完全な properties 候補と Task を指定する既存 CLI も使えます。
+LLM が新規 Resource ID を発行する場合は [`allocate` CLI](model-identity.md#ordinary-create-and-import-additions)
+を使います。採番に `python -c`、ヒアドキュメント、一時 Python helper、`PYTHONPATH` の調整は不要です。
+`--write-candidate` で外部候補を更新した後、通常編集の正本保存には次の `edit` を使います。
 
 ```text
 /tmp/model-candidate/
