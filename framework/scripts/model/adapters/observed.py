@@ -53,7 +53,11 @@ import model.observed as _imports_model_observed
 import model.projection as _imports_model_projection
 import model.sources as source_models
 from model import projection as model_projection
-from model.adapters.observation_sources import cloudcontrol_source, permission_source
+from model.adapters.observation_sources import (
+    cloudcontrol_source,
+    permission_source,
+    physical_identifier_source,
+)
 from model.core import entries, properties, stack_model
 from model.files import read_model, resource_row_index
 from model.identity import Resolver
@@ -601,6 +605,7 @@ def _mappings(
                         and not primary
                         and not keys
                         and not cloudcontrol_source(root, catalog, resource, prop)
+                        and not physical_identifier_source(resource, prop)
                         and not permission_source(root, resource, prop)
                     ):
                         warnings.warn(

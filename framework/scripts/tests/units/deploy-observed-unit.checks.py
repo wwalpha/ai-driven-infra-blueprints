@@ -18,6 +18,7 @@ from deploy import deferred
 from deploy.observed import security_group_rule_id
 from design.catalog import DesignSchemaCatalog
 from model.adapters.aws import Unresolved, service_module
+from model.adapters.observation_sources import physical_identifier_source
 from model.adapters.observed import (
     propagate_references,
     resolve_resources,
@@ -43,6 +44,10 @@ def _config_rule_evidence_aws(document, fault, description, stack, operation, **
         }
         if fault == "denied":
             raise AwsError("cloudcontrol", "get_resource", "AccessDeniedException")
+        if fault == "no-description":
+            return {}
+        if fault == "invalid-description":
+            return {"ResourceDescription": []}
         return {"ResourceDescription": description}
     if operation == "describe_stacks":
         return {
@@ -75,6 +80,49 @@ def _permission_evidence_aws(
 ):
     if operation == "get_template":
         return {"TemplateBody": document}
+    if operation == "get_resource" and fault in {
+        "getatt",
+        "getatt-sub",
+        "source-mismatch",
+    }:
+        return {
+            "ResourceDescription": {
+                "Identifier": "my-bucket",
+                "Properties": json.dumps(
+                    {"BucketName": "my-bucket", "Arn": "arn:aws:s3:::my-bucket"}
+                ),
+            }
+        }
+    if operation == "list_exports" and fault == "import":
+        return {
+            "Exports": [
+                {
+                    "Name": "BucketName",
+                    "Value": "my-bucket",
+                    "ExportingStackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/bucket/unique",
+                }
+            ]
+        }
+    if (
+        operation == "describe_stacks"
+        and fault == "import"
+        and kwargs.get("StackName", "").endswith("stack/bucket/unique")
+    ):
+        return {
+            "Stacks": [
+                {
+                    "StackId": kwargs["StackName"],
+                    "StackStatus": "CREATE_COMPLETE",
+                    "Outputs": [
+                        {
+                            "OutputKey": "Bucket",
+                            "OutputValue": "my-bucket",
+                            "ExportName": "BucketName",
+                        }
+                    ],
+                }
+            ]
+        }
     if operation == "get_policy":
         assert kwargs == {"service": "lambda", "FunctionName": function_name}
         if fault == "denied":
@@ -774,7 +822,19 @@ def test_config_rule_identifier_mapping_does_not_require_output(project_workspac
 
 
 @pytest.mark.parametrize(
-    "fault", [None, "identifier", "name", "missing", "denied", "changed"]
+    "fault",
+    [
+        None,
+        "identifier",
+        "name",
+        "missing",
+        "denied",
+        "changed",
+        "no-description",
+        "invalid-description",
+        "unrelated-noecho",
+        "required-noecho",
+    ],
 )
 def test_cloudcontrol_config_rule_evidence(project_workspace, fault):
     root = project_workspace
@@ -784,6 +844,14 @@ def test_cloudcontrol_config_rule_evidence(project_workspace, fault):
     stack = {"StackId": stack_id, "StackStatus": "CREATE_COMPLETE", "Outputs": []}
     document = {"Resources": {"Resource001": {"Type": "AWS::Config::ConfigRule"}}}
     actual = {"ResourceStatus": "CREATE_COMPLETE", "PhysicalResourceId": "rule-name"}
+    if fault in {"unrelated-noecho", "required-noecho"}:
+        document["Parameters"] = {"Secret": {"Type": "String", "NoEcho": True}}
+        stack["Parameters"] = [{"ParameterKey": "Secret", "ParameterValue": "****"}]
+        if fault == "required-noecho":
+            document["Conditions"] = {
+                "Enabled": {"Fn::Equals": [{"Ref": "Secret"}, "x"]}
+            }
+            document["Resources"]["Resource001"]["Condition"] = "Enabled"
     payload = {
         "ConfigRuleName": "other" if fault == "name" else "rule-name",
         "ConfigRuleId": "rule-id",
@@ -810,7 +878,7 @@ def test_cloudcontrol_config_rule_evidence(project_workspace, fault):
         "Config.ConfigRule.ConfigRuleId",
         DesignSchemaCatalog(root),
     )
-    if fault is None:
+    if fault in {None, "unrelated-noecho"}:
         assert (value, reason) == ("rule-id", None)
     else:
         assert value is None and reason
@@ -819,15 +887,16 @@ def test_cloudcontrol_config_rule_evidence(project_workspace, fault):
 
 
 @pytest.mark.parametrize(
-    "previous,output,expected",
+    "previous,output,expected,denied",
     [
-        (None, None, "UPDATED"),
-        ("rule-id", None, "MATCHED"),
-        (None, "different", "UNCONFIRMED"),
+        (None, None, "UPDATED", False),
+        ("rule-id", None, "MATCHED", False),
+        (None, "different", "UNCONFIRMED", False),
+        ("rule-id", "rule-id", "MATCHED", True),
     ],
 )
 def test_config_rule_collects_checked_api_value(
-    project_workspace, monkeypatch, previous, output, expected
+    project_workspace, monkeypatch, previous, output, expected, denied
 ):
     root = project_workspace
     model_reference_fixtures.project_configuration(root)
@@ -862,6 +931,12 @@ def test_config_rule_collects_checked_api_value(
     }
 
     aws = _bind_framework_callback(_config_rule_sync_aws, document)
+    if denied:
+
+        def aws(operation, **kwargs):
+            if operation == "get_resource":
+                raise AwsError("cloudcontrol", "get_resource", "AccessDeniedException")
+            return _config_rule_sync_aws(document, operation, **kwargs)
 
     backend = SimpleNamespace(
         root=root,
@@ -899,13 +974,29 @@ def test_config_rule_collects_checked_api_value(
     deploy_observed.collect_successful(backend, [unit], states)
     assert states["producer"]["observedCoverage"]["Resource001"]["status"] == expected
     assert captured[scope.path]["observed.row.001-001.value"] == (
-        None if output else "`rule-id`"
+        None if output == "different" else "`rule-id`"
     )
 
 
 @pytest.mark.parametrize(
     "fault",
-    [None, "sid", "function", "parent", "action", "denied", "qualifier", "duplicate"],
+    [
+        None,
+        "sid",
+        "function",
+        "parent",
+        "action",
+        "denied",
+        "qualifier",
+        "duplicate",
+        "getatt",
+        "getatt-sub",
+        "import",
+        "source-mismatch",
+        "principal",
+        "arn",
+        "other-function-sid",
+    ],
 )
 def test_lambda_permission_policy_identity(project_workspace, fault):
     root = project_workspace
@@ -930,7 +1021,31 @@ def test_lambda_permission_policy_identity(project_workspace, fault):
         document["Resources"]["Permission"]["Properties"]["FunctionName"] = {
             "Fn::Sub": "${Function}:live"
         }
-    function_name = "my-function:live" if fault == "qualifier" else "my-function"
+    if fault == "arn":
+        document["Resources"]["Permission"]["Properties"]["FunctionName"] = (
+            "arn:aws:lambda:ap-northeast-1:123456789012:function:my-function:live"
+        )
+    if fault == "import":
+        document["Resources"]["Permission"]["Properties"]["SourceArn"] = {
+            "Fn::Sub": [
+                "arn:${AWS::Partition}:s3:::${BucketName}",
+                {"BucketName": {"Fn::ImportValue": "BucketName"}},
+            ]
+        }
+    if fault in {"getatt", "getatt-sub", "source-mismatch"}:
+        document["Resources"]["Bucket"] = {"Type": "AWS::S3::Bucket"}
+        document["Resources"]["Permission"]["Properties"]["SourceArn"] = (
+            {"Fn::GetAtt": ["Bucket", "Arn"]}
+            if fault != "getatt-sub"
+            else {"Fn::Sub": "${Bucket.Arn}"}
+        )
+    function_name = (
+        "arn:aws:lambda:ap-northeast-1:123456789012:function:my-function:live"
+        if fault == "arn"
+        else "my-function:live"
+        if fault == "qualifier"
+        else "my-function"
+    )
     resource = {
         "resourceType": "Lambda.Permission",
         "parentReference": json.dumps(
@@ -949,6 +1064,28 @@ def test_lambda_permission_policy_identity(project_workspace, fault):
         )
     }
     mapped["Permission"] = (None, None, resource, [], set())
+    if fault == "other-function-sid":
+        mapped["OtherPermission"] = (
+            None,
+            None,
+            {
+                "resourceType": "Lambda.Permission",
+                "parentReference": json.dumps(
+                    model_reference_fixtures.reference("Other_Function", "FunctionName")
+                ),
+            },
+            [],
+            set(),
+        )
+        mapped["OtherFunction"] = (
+            None,
+            None,
+            {"resourceType": "Lambda.Function", "logicalId": "Other_Function"},
+            [],
+            set(),
+        )
+    if fault in {"getatt", "getatt-sub", "source-mismatch"}:
+        mapped["Bucket"] = (None, None, {"resourceType": "S3.Bucket"}, [], set())
     parent = {
         "LogicalResourceId": "Function",
         "ResourceType": "AWS::Lambda::Function",
@@ -964,10 +1101,29 @@ def test_lambda_permission_policy_identity(project_workspace, fault):
     statement = {
         "Sid": "wrong" if fault == "sid" else "sid-1",
         "Action": "wrong" if fault == "action" else "lambda:InvokeFunction",
-        "Principal": {"Service": "events.amazonaws.com"},
+        "Principal": {
+            "Service": "wrong.amazonaws.com"
+            if fault == "principal"
+            else "events.amazonaws.com"
+        },
         "Resource": "arn:aws:lambda:ap-northeast-1:123456789012:function:"
-        + ("other" if fault == "function" else function_name),
+        + (
+            "other"
+            if fault == "function"
+            else "my-function:live"
+            if fault == "arn"
+            else function_name
+        ),
     }
+
+    if fault in {"getatt", "getatt-sub", "import", "source-mismatch"}:
+        statement["Condition"] = {
+            "ArnLike": {
+                "AWS:SourceArn": "arn:aws:s3:::other"
+                if fault == "source-mismatch"
+                else "arn:aws:s3:::my-bucket"
+            }
+        }
 
     aws = _bind_framework_callback(
         _permission_evidence_aws, document, fault, function_name, statement, stack
@@ -982,8 +1138,31 @@ def test_lambda_permission_policy_identity(project_workspace, fault):
         {},
         [parent, actual]
         + (
+            [
+                dict(
+                    parent,
+                    LogicalResourceId="OtherFunction",
+                    PhysicalResourceId="another-function",
+                )
+            ]
+            if fault == "other-function-sid"
+            else []
+        )
+        + (
+            [
+                {
+                    "LogicalResourceId": "Bucket",
+                    "ResourceType": "AWS::S3::Bucket",
+                    "ResourceStatus": "CREATE_COMPLETE",
+                    "PhysicalResourceId": "my-bucket",
+                }
+            ]
+            if fault in {"getatt", "getatt-sub", "source-mismatch"}
+            else []
+        )
+        + (
             [dict(actual, LogicalResourceId="OtherPermission")]
-            if fault == "duplicate"
+            if fault in {"duplicate", "other-function-sid"}
             else []
         ),
         mapped,
@@ -991,8 +1170,16 @@ def test_lambda_permission_policy_identity(project_workspace, fault):
         actual,
         resource,
     )
-    if fault in {None, "qualifier"}:
-        assert (value, reason) == ("sid-1", None)
+    if fault in {
+        None,
+        "qualifier",
+        "getatt",
+        "getatt-sub",
+        "import",
+        "arn",
+        "other-function-sid",
+    }:
+        assert (value, reason) == ("sid-1", None), reason
     else:
         assert value is None and reason
         if fault == "denied":
@@ -1173,4 +1360,187 @@ def test_unsupported_observation_reports_and_remains_unconfirmed(
     assert coverage["status"] == "UNCONFIRMED"
     assert (
         "supported API getter" in coverage["reasons"]["Config.ConfigRule.ConfigRuleId"]
+    )
+
+
+def test_evidence_parameters_ignore_unrelated_noecho():
+    document = {
+        "Parameters": {
+            "Secret": {"Type": "String", "NoEcho": True},
+            "Name": {"Type": "String"},
+        },
+        "Conditions": {"Selected": {"Fn::Equals": [{"Ref": "Name"}, "yes"]}},
+    }
+    stack = {
+        "Parameters": [
+            {"ParameterKey": "Secret", "ParameterValue": "****"},
+            {"ParameterKey": "Name", "ParameterValue": "yes"},
+        ]
+    }
+    assert deploy_observed.checked_evidence_parameters(
+        document, {"Name": "yes", "Secret": "private"}, stack, {"Condition": "Selected"}
+    )
+    assert not deploy_observed.checked_evidence_parameters(
+        document, {"Name": "no", "Secret": "private"}, stack, {"Condition": "Selected"}
+    )
+    assert not deploy_observed.checked_evidence_parameters(
+        document, {"Secret": "private"}, stack, {"Ref": "Secret"}
+    )
+
+
+def test_security_group_physical_id_contract():
+    resource = {"resourceType": "EC2.SecurityGroup"}
+    assert physical_identifier_source(resource, "EC2.SecurityGroup.Id", "sg-0123abcd")
+    assert not physical_identifier_source(
+        resource, "EC2.SecurityGroup.Id", "group-name"
+    )
+    assert not physical_identifier_source(
+        {"resourceType": "WAFv2.WebACL"}, "WAFv2.WebACL.Id", "name|id|scope"
+    )
+
+
+def test_security_group_physical_fallback_collects_without_output(
+    project_workspace, monkeypatch
+):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root, "security-group", "EC2.SecurityGroup", attribute="Id"
+    )
+    model_reference_fixtures.write(scope, values)
+    document = {"Resources": {"Resource001": {"Type": "AWS::EC2::SecurityGroup"}}}
+    unit = {"name": "producer"}
+    _, mapped = resolve_resources(
+        root,
+        "qa",
+        "team",
+        {"producer": (document, {})},
+        [unit],
+        {"producer": {"Resource001"}},
+        target=TARGET,
+        check_scope=False,
+    )
+    stack = {
+        "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique",
+        "StackStatus": "CREATE_COMPLETE",
+        "Outputs": [],
+    }
+    backend = SimpleNamespace(
+        root=root,
+        environment="qa",
+        directory="team",
+        target=TARGET,
+        templates={"producer": (document, {})},
+        aws=Mock(),
+        run_context={},
+    )
+    monkeypatch.setattr(
+        deploy_observed,
+        "resolve_resources",
+        lambda *a, **k: ({scope.path: values}, mapped),
+    )
+    monkeypatch.setattr(
+        deploy_observed.execution_scope, "check_fixed_resources", lambda *a, **k: None
+    )
+    monkeypatch.setattr(deploy_observed.current_state, "read", lambda *a: stack)
+    monkeypatch.setattr(
+        deploy_observed.current_state,
+        "pages",
+        lambda *a, **k: [
+            {
+                "LogicalResourceId": "Resource001",
+                "ResourceType": "AWS::EC2::SecurityGroup",
+                "ResourceStatus": "CREATE_COMPLETE",
+                "PhysicalResourceId": "sg-0123abcd",
+            }
+        ],
+    )
+    captured = {}
+    monkeypatch.setattr(
+        deploy_observed,
+        "observed_destinations",
+        _bind_framework_callback(_capture_destinations, captured),
+    )
+    states = {"producer": {}}
+    deploy_observed.collect_successful(backend, [unit], states)
+    assert states["producer"]["observedCoverage"]["Resource001"]["status"] == "UPDATED"
+    assert captured[scope.path]["observed.row.001-001.value"] == "`sg-0123abcd`"
+
+
+@pytest.mark.parametrize(
+    "kind,attribute,physical",
+    [
+        ("Route53Resolver.ResolverEndpoint", "ResolverEndpointId", "rslvr-in-0123"),
+        ("CloudFront.OriginAccessControl", "Id", "E123456789"),
+    ],
+)
+def test_provider_confirms_single_identifier_without_output(
+    project_workspace, kind, attribute, physical
+):
+    stack = {
+        "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique",
+        "StackStatus": "CREATE_COMPLETE",
+        "Outputs": [],
+    }
+    document = {
+        "Resources": {
+            "Resource001": {
+                "Type": DesignSchemaCatalog(project_workspace).cloudformation_type(kind)
+            }
+        }
+    }
+    actual = {
+        "LogicalResourceId": "Resource001",
+        "ResourceStatus": "CREATE_COMPLETE",
+        "PhysicalResourceId": physical,
+    }
+
+    def aws(operation, **kwargs):
+        if operation == "get_template":
+            return {"TemplateBody": document}
+        if operation == "get_resource":
+            return {
+                "ResourceDescription": {
+                    "Identifier": physical,
+                    "Properties": json.dumps({attribute: physical}),
+                }
+            }
+        if operation == "describe_stacks":
+            return {"Stacks": [stack]}
+        raise AssertionError(operation)
+
+    backend = SimpleNamespace(root=project_workspace, target=TARGET, aws=aws)
+    assert deploy_observed.cloudcontrol_observation(
+        backend,
+        stack,
+        document,
+        {},
+        actual,
+        {"resourceType": kind},
+        kind + "." + attribute,
+        DesignSchemaCatalog(project_workspace),
+    ) == (physical, None)
+
+
+def test_incomplete_stack_observation_is_rejected():
+    good = {
+        "LogicalResourceId": "Thing",
+        "ResourceType": "AWS::S3::Bucket",
+        "ResourceStatus": "CREATE_COMPLETE",
+    }
+    assert deploy_observed.complete_stack_observation({"Outputs": []}, [good])
+    assert not deploy_observed.complete_stack_observation(
+        {"Outputs": [{"OutputKey": "Id"}]}, [good]
+    )
+    assert not deploy_observed.complete_stack_observation(
+        {"Outputs": []}, [{"ResourceType": "AWS::S3::Bucket"}]
+    )
+    assert not deploy_observed.complete_stack_observation(
+        {
+            "Outputs": [
+                {"OutputKey": "Id", "OutputValue": "one"},
+                {"OutputKey": "Id", "OutputValue": "two"},
+            ]
+        },
+        [good],
     )
