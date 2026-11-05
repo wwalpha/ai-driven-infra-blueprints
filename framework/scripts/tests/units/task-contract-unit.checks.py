@@ -598,6 +598,33 @@ def check_model_only_other_required_declarations(tmp_path, field):
     assert not (tmp_path / "tasks").exists()
 
 
+@pytest.mark.parametrize(
+    "workflow",
+    ["", "- Workflow: `updte`", "- Workflow: update", "- workflow: `update`"],
+)
+def check_model_only_invalid_workflow_registration(tmp_path, workflow):
+    name = "tasks/example.md"
+    model = "model/dev/team/iam.properties"
+    text = transition_contract(name, [model], kind="design", scope="dev/team/iam")
+    text = text.replace(
+        "- Task status:",
+        f"{workflow}\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n- Task status:",
+    )
+    assert any(
+        "Expected: - Workflow: `update`" in error
+        for error in tasks.parse_declarations(text, name).errors
+    )
+    with pytest.raises(ValueError, match="Expected: - Workflow"):
+        tasks.start(tmp_path, name, text)
+    assert not (tmp_path / "tasks").exists()
+    imported = transition_contract(name, [model], kind="design", scope="dev/team/iam")
+    imported = imported.replace(
+        "- Task status:", "- Workflow: `import`\n- Task status:"
+    )
+    assert tasks.model_only_declaration_errors(imported, name) is None
+    tasks.start(tmp_path, name, imported)
+
+
 def check_framework_final_classification():
     source = "framework/scripts/worktree_task.py"
     text = (
@@ -657,6 +684,10 @@ def check_final_candidate_runs_model_guard(tmp_path):
         contract("example", [model])
         .replace("`governance`", "`design`")
         .replace("`framework`", "`dev/team/iam`")
+        .replace(
+            "- Task status:",
+            "- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n- Task status:",
+        )
     )
     tasks.start(tmp_path, name, text)
     candidate = SimpleNamespace(base_commit="base", changed_paths={model})

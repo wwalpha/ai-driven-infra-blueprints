@@ -1032,8 +1032,13 @@ def check_real_final_candidate_guard_never_calls_full(project_workspace, workflo
         name,
         "## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `"
         + workflow
-        + "`\n- AWS API execution: `forbidden`\n- AWS mutation: `forbidden`\n- Deploy/apply: `forbidden`\n"
-        "## Required changes\n- [R1] Correct the LogGroup name without Full validation\n"
+        + "`\n- AWS API execution: `forbidden`\n- AWS mutation: `forbidden`\n"
+        + (
+            "- deploy/apply: `forbidden`\n"
+            if workflow == "update"
+            else "- Deploy/apply: `forbidden`\n"
+        )
+        + "## Required changes\n- [R1] Correct the LogGroup name without Full validation\n"
         "## Acceptance checks\n- [R1] `changed:"
         + relative
         + "`\n## Validation scope\n- `preview/team/logs`\n## Modified files\n"
@@ -1424,7 +1429,7 @@ def check_pending_artifact_does_not_gate_model_save(project_workspace):
         root,
         name,
         "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
-        "- Workflow: `update`\n## Validation scope\n- `preview/team/iam`\n"
+        "- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n## Validation scope\n- `preview/team/iam`\n"
         "## Required changes\n- [R1] 合成保存\n## Acceptance checks\n"
         "- [R1] `exists:project.json`\n## Modified files\n"
         + listed
@@ -1523,8 +1528,15 @@ def check_save_preparation_uses_change_validation(
         root,
         name,
         "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
-        "- Workflow: `" + ("import" if action == "import" else "update") + "`\n"
-        "## Required changes\n- [R1] 合成保存\n## Acceptance checks\n"
+        "- Workflow: `"
+        + ("import" if action == "import" else "update")
+        + "`\n"
+        + (
+            ""
+            if action == "import"
+            else "- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n"
+        )
+        + "## Required changes\n- [R1] 合成保存\n## Acceptance checks\n"
         "- [R1] `exists:project.json`\n## Validation scope\n- `preview/team/logs`\n"
         "## Modified files\n" + listed + "\n## Allowed paths\n" + listed + "\n",
     )
@@ -2125,6 +2137,7 @@ def check_broken_unrelated_model_save(project_workspace, defect, index_state):
         root,
         name,
         "## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `update`\n"
+        "- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n"
         "## Required changes\n- [R1] 合成保存\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         "## Validation scope\n- `preview/team/logs`\n## Modified files\n"
         + listed

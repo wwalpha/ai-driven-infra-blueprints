@@ -415,17 +415,15 @@ def model_only_declaration_errors(text: str, name: str) -> tuple[str, ...] | Non
     """Check ordinary Model-only declarations without consulting the Git diff."""
     lines = section(text, "## Task contract")
 
-    def has_value(field, value):
-        return any(
-            re.fullmatch(
-                r"-\s*" + re.escape(field) + r"\s*:\s*`?" + value + r"`?\s*",
-                line,
-                re.IGNORECASE,
-            )
-            for line in lines
-        )
-
-    if not (has_value("Task type", "design") and has_value("Workflow", "update")):
+    if not any(
+        re.fullmatch(r"-\s*Task type\s*:\s*`?design`?\s*", line, re.IGNORECASE)
+        for line in lines
+    ):
+        return None
+    workflows = [
+        line for line in lines if re.match(r"-\s*Workflow\s*:", line, re.IGNORECASE)
+    ]
+    if workflows == ["- Workflow: `import`"]:
         return None
     declared = paths_in(text, "## Modified files")
     if not any(p.startswith("model/") and p.endswith(".properties") for p in declared):

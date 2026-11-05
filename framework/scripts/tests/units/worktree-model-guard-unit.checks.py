@@ -100,9 +100,9 @@ def check_model_finalize_cannot_bypass_candidate(tmp_path, action):
 @pytest.mark.parametrize(
     ("workflow", "model", "status", "expected", "backslash"),
     [
-        (None, True, "running", "current: missing", False),
+        (None, True, "running", "Expected: - Workflow", False),
         ("import", True, "running", "current: import", False),
-        (None, True, "running", "current: missing", True),
+        (None, True, "running", "Expected: - Workflow", True),
         ("update", True, "running", "model path", True),
         (None, False, "running", "ordinary path", False),
         (None, False, "completed", "ordinary path", False),

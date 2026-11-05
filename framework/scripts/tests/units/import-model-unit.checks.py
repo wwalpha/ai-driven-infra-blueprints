@@ -3842,7 +3842,8 @@ def check_repair_invalid_model(
         .replace("- `framework`", "- `stg/cde/service-a`\n- `stg/cde/service-b`")
     )
     task = task.replace(
-        "## Task contract\n", "## Task contract\n- Workflow: `update`\n"
+        "## Task contract\n",
+        "## Task contract\n- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n",
     )
     if failure == "allowed":
         task = task.replace(
@@ -3938,7 +3939,7 @@ def generation_model_guard(tmp_path, monkeypatch):
     listed = "".join(f"- `{p}`\n" for p in sorted(sources | {name}))
     text = (
         "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
-        "- Workflow: `update`\n"
+        "- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n"
         "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         "## Validation scope\n"
         "- `stg/cde/service-a`\n- `stg/cde/service-b`\n"
