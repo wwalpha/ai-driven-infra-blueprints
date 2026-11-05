@@ -519,7 +519,7 @@ def test_pipeline_preserves_sensitive_contracts():
         for getter in result.values()
         for key, value in getter["properties"].items()
     }
-    assert sum(item["status"] == "verified" for item in properties.values()) == 20
+    assert sum(item["status"] == "verified" for item in properties.values()) == 21
     assert (
         sum(
             item["reason"] == "Sensitive or explicitly unobservable Property"

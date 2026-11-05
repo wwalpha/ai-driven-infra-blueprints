@@ -38,6 +38,7 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
                 "actions": [
                     {
                         "name": "Source",
+                        "namespace": "SourceVariables",
                         "actionTypeId": {
                             "category": "Source",
                             "owner": "AWS",
@@ -101,6 +102,9 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
                 "stages[].actions[].name",
                 "typed",
                 [["Source"]],
+            ),
+            "Stages[].Actions[].Namespace": (
+                "stages[].actions[].namespace", "typed", [["SourceVariables"]],
             ),
             "Stages[].Actions[].RunOrder": (
                 "stages[].actions[].runOrder",

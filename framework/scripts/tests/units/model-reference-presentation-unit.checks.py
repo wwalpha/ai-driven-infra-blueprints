@@ -1632,6 +1632,8 @@ def test_indexed_model_reference_tables(models, service, kind, attribute, fields
     values["desired.row.001-001.value"] = "`example`"
     for number, field in enumerate(fields, 2):
         add(values, kind, field, "value-" + str(number), number=number)
+    if kind == "CodePipeline.Pipeline" and ".Actions" in fields[0]:
+        add(values, kind, "Stages[1].Name", "stage", number=99)
     write(scope, values)
     path = models / "docs/designs/qa/team" / (service + ".md")
     tables = []

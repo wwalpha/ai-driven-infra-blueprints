@@ -772,9 +772,10 @@ def expanded_display_rows(
                 )
                 cloudtrail_count = counts["data"]
                 if resource_type == "CodePipeline.Pipeline":
-                    expected = _imports_array_display.indexed_rows(
-                        expected, resource_type, root
-                    )
+                    if not _verified_reference:
+                        expected = _imports_array_display.indexed_rows(
+                            expected, resource_type, root
+                        )
                     expected[0][3] = expected[0][3].strip()
                 actual = [
                     [cell.strip() for cell in line.strip("|").split("|")]
