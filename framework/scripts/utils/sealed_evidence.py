@@ -32,8 +32,8 @@ def evidence_store(root, *, create=True):
     return directory
 
 
-def seal_key(root):
-    path = evidence_store(root) / "seal.key"
+def seal_key(root, *, directory=None):
+    path = (evidence_store(root) if directory is None else directory) / "seal.key"
     try:
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
@@ -56,14 +56,20 @@ def seal_key(root):
     return value
 
 
-def sealed(root, value):
+def sealed(root, value, *, directory=None):
     payload = json_text(value)
     return (
         json_text(
             {
                 "payload": value,
                 "signature": hmac.new(
-                    seal_key(root), payload.encode("utf-8"), "sha256"
+                    (
+                        seal_key(root)
+                        if directory is None
+                        else seal_key(root, directory=directory)
+                    ),
+                    payload.encode("utf-8"),
+                    "sha256",
                 ).hexdigest(),
             }
         )
@@ -71,7 +77,7 @@ def sealed(root, value):
     )
 
 
-def read_sealed(root, file):
+def read_sealed(root, file, *, directory=None):
     if file.is_symlink():
         raise ValueError("IMPORT symlink evidence is forbidden")
     envelope = json.loads(file.read_text(encoding="utf-8"))
@@ -82,14 +88,18 @@ def read_sealed(root, file):
     ):
         raise ValueError("IMPORT invalid sealed evidence")
     expected = hmac.new(
-        seal_key(root), json_text(envelope["payload"]).encode("utf-8"), "sha256"
+        (seal_key(root) if directory is None else seal_key(root, directory=directory)),
+        json_text(envelope["payload"]).encode("utf-8"),
+        "sha256",
     ).hexdigest()
     if not hmac.compare_digest(expected, envelope["signature"]):
         raise ValueError("IMPORT acquisition evidence was modified")
     return envelope["payload"]
 
 
-def write_sealed(root, file, value):
+def write_sealed(root, file, value, *, directory=None):
     if file.is_symlink():
         raise ValueError("IMPORT symlink evidence is forbidden")
-    atomic_files({file: sealed(root, value)}, staging_directory=file.parent)
+    atomic_files(
+        {file: sealed(root, value, directory=directory)}, staging_directory=file.parent
+    )

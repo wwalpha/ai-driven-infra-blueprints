@@ -3,6 +3,8 @@
 import copy
 import hashlib
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 from functools import partial
@@ -161,7 +163,7 @@ def check_combined_checkpoint_after_peer_completion(tmp_path, monkeypatch):
 
 def check_update_receipt_rewritten_base():
     scenarios = (
-        "normal", "advance", "rewrite", "rebase", "same-tree", "other-model", "other-view", "model", "view", "missing", "task", "stack",
+        "normal", "restart", "legacy-migration", "legacy-missing", "advance", "rewrite", "rebase", "same-tree", "other-model", "other-view", "model", "view", "missing", "task", "stack",
         "input", "unit", "commit", "other-task", "zero", "zero-other-model",
         "zero-unverifiable", "zero-no-parent", "forged-evidence", "forged-empty",
         "forged-other-task", "forged-empty-loss", "zero-reused", "missing-intent",
@@ -210,6 +212,28 @@ def check_update_receipt_rewritten_base():
                 receipt = checkpoints.update_checkpoint(backend, ["A"])["A"]
                 assert checkpoints.update_checkpoint(backend, ["A"])["A"] == receipt
                 _, _, path, state = wt.load(root, "example")
+                if scenario in {"restart", "legacy-migration", "legacy-missing"}:
+                    directory = checkpoints.update_receipt_store(target)
+                    if scenario != "restart":
+                        legacy = checkpoints.sealed_evidence.evidence_store(target) / "update-checkpoints.json"
+                        checkpoints.sealed_evidence.write_sealed(target, legacy, checkpoints.read_update_receipt_proof(target))
+                        shutil.rmtree(directory)
+                        if scenario == "legacy-missing":
+                            legacy.unlink()
+                    if scenario == "legacy-missing":
+                        with pytest.raises(ValueError, match="Human review"):
+                            checkpoints.update_checkpoint(backend, ["A"])
+                        continue
+                    # Fresh interpreter, then loss of the legacy temporary evidence/key.
+                    script = ("import sys; from pathlib import Path; "
+                              f"sys.path.insert(0, {str(Path(checkpoints.__file__).parent)!r}); "
+                              "import worktree_checkpoint as c; "
+                              "c.read_update_receipt_proof(Path(sys.argv[1]))")
+                    subprocess.run([sys.executable, "-B", "-c", script, str(target)], check=True)
+                    legacy_directory = checkpoints.sealed_evidence.evidence_store(target, create=False)
+                    if legacy_directory.exists():
+                        shutil.rmtree(legacy_directory)
+                    assert checkpoints.update_checkpoint(backend, ["A"])["A"] == receipt
                 if scenario in {"rewrite", "same-tree"}:
                     git(root, "commit", "--amend", "-qm", "rewritten checkpoint")
                 if scenario == "rebase":
@@ -260,8 +284,8 @@ def check_update_receipt_rewritten_base():
                     )
                     checkpoints.update_checkpoint(other_backend, ["A"])
                     if scenario == "other-task-proof":
-                        proof = checkpoints.sealed_evidence.evidence_store(target) / "update-checkpoints.json"
-                        other_proof = checkpoints.sealed_evidence.evidence_store(other) / proof.name
+                        proof = checkpoints.update_receipt_store(target) / "update-checkpoints.json"
+                        other_proof = checkpoints.update_receipt_store(other) / proof.name
                         proof.write_bytes(other_proof.read_bytes())
                 if scenario == "zero-reused":
                     context["stepUnits"].append({"name": "B"})
@@ -300,7 +324,7 @@ def check_update_receipt_rewritten_base():
                         assert retained["changed"] == evidence["changed"]
                     wt.save(path, state)
                 if scenario in {"missing-proof", "tampered-proof"}:
-                    proof = checkpoints.sealed_evidence.evidence_store(target) / "update-checkpoints.json"
+                    proof = checkpoints.update_receipt_store(target) / "update-checkpoints.json"
                     if scenario == "missing-proof":
                         proof.unlink()
                     else:

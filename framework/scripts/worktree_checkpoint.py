@@ -20,6 +20,7 @@ from model.observed import verify_observed_outputs
 from model.sources import source_scope
 from utils import sealed_evidence
 from utils.aws_mappings import definition_root
+from utils.local_evidence import private
 from validation.findings import Findings
 from validation.runner import Validator
 from validation.task import TaskValidation
@@ -210,7 +211,7 @@ def update_receipt_digest(receipt, paths):
 
 
 def update_zero_content_paths(target, receipt, text):
-    """An authenticated no-delta receipt still protects its declared service content."""
+    """A verified no-delta receipt still protects its declared service content."""
     services = set(receipt.get("services", []))
     paths = []
     for relative in tasks.paths_in(text, "## Modified files"):
@@ -240,14 +241,40 @@ def update_receipt_proof(state, receipts):
     }
 
 
+def update_receipt_store(target, *, create=False):
+    """Use the existing per-worktree Git administration lifetime, including cleanup.
+
+    Local HMAC detects corruption, not a malicious owner: the same user can read
+    the key and rewrite Git, Task provenance, lifecycle state and this proof.
+    No existing local evidence supplies an independent trust root against that user.
+    """
+    directory = Path(wt.output(target, "rev-parse", "--path-format=absolute", "--git-path", "blueprint-update-checkpoints"))
+    if directory.is_symlink():
+        raise DeployStepBlocked("checkpoint receipt evidence directory is redirected")
+    if create:
+        directory.mkdir(mode=0o700, exist_ok=True)
+    if directory.exists():
+        private(directory, directory=True)
+    return directory
+
+
 def read_update_receipt_proof(target):
     try:
-        file = sealed_evidence.evidence_store(target, create=False) / "update-checkpoints.json"
-        return sealed_evidence.read_sealed(target, file)
+        directory = update_receipt_store(target)
+        file = directory / "update-checkpoints.json"
+        if file.exists() or file.is_symlink():
+            # A corrupt durable record must never fall back to a stale legacy copy.
+            return sealed_evidence.read_sealed(target, file, directory=directory)
+        legacy = sealed_evidence.evidence_store(target, create=False) / file.name
+        proof = sealed_evidence.read_sealed(target, legacy)
+        # Migrate only a verified old seal; missing proof/key requires Human review.
+        directory = update_receipt_store(target, create=True)
+        sealed_evidence.write_sealed(target, file, proof, directory=directory)
+        return proof
     except (OSError, ValueError) as error:
         raise DeployStepBlocked(
-            "checkpoint receipt independent issuance evidence is unavailable or invalid; "
-            "retain Task for review: " + str(error)
+            "checkpoint receipt issuance evidence is unavailable or invalid; "
+            "retain Task for Human review (do not reconstruct proof from receipts): " + str(error)
         ) from error
 
 
@@ -255,14 +282,16 @@ def verify_update_receipt_proof(target, state):
     if read_update_receipt_proof(target) != update_receipt_proof(
         state, state.get("deployCheckpoints", {})
     ):
-        raise DeployStepBlocked("checkpoint receipt differs from independent issuance evidence")
+        raise DeployStepBlocked("checkpoint receipt differs from retained issuance evidence")
 
 
 def save_update_receipt_proof(target, state, previous):
     """Seal only validated issuance; reconcile a crash before the lifecycle save."""
-    file = sealed_evidence.evidence_store(target) / "update-checkpoints.json"
+    directory = update_receipt_store(target, create=True)
+    file = directory / "update-checkpoints.json"
+    legacy = sealed_evidence.evidence_store(target, create=False) / file.name
     proof = update_receipt_proof(state, state["deployCheckpoints"])
-    if file.exists() or file.is_symlink():
+    if file.exists() or file.is_symlink() or legacy.exists() or legacy.is_symlink():
         retained = read_update_receipt_proof(target)
         if retained == proof:
             return
@@ -271,13 +300,14 @@ def save_update_receipt_proof(target, state, previous):
     elif previous:
         # Legacy receipts cannot authenticate themselves, even when all state values agree.
         raise DeployStepBlocked("checkpoint receipt has no independent issuance evidence")
-    sealed_evidence.write_sealed(target, file, proof)
+    sealed_evidence.write_sealed(target, file, proof, directory=directory)
 
 
 def recover_update_receipt_proof(root, target, path, state, context, names, text, states):
-    """A sealed issuance proves publication finished before a lost lifecycle save."""
-    file = sealed_evidence.evidence_store(target, create=False) / "update-checkpoints.json"
-    if not file.exists() and not file.is_symlink():
+    """A retained issuance records publication finished before a lost lifecycle save."""
+    file = update_receipt_store(target) / "update-checkpoints.json"
+    legacy = sealed_evidence.evidence_store(target, create=False) / file.name
+    if not any(p.exists() or p.is_symlink() for p in (file, legacy)):
         if state.get("deployCheckpoints"):
             verify_update_receipt_proof(target, state)
         return False

@@ -50,6 +50,7 @@ def check_update_zero_content_subject(tmp_path, services):
 @pytest.mark.parametrize("damage", ["receipt", "task", "missing", "payload", "signature", "symlink"])
 def check_update_receipt_independent_proof(tmp_path, monkeypatch, damage):
     monkeypatch.setattr(checkpoints.sealed_evidence.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(checkpoints.wt, "output", Mock(return_value=str(tmp_path / "durable")))
     state = {
         "primary": str(tmp_path), "worktree": str(tmp_path / "task"),
         "task_id": "update", "task_file": "tasks/update.md", "start": "original",
@@ -58,7 +59,7 @@ def check_update_receipt_independent_proof(tmp_path, monkeypatch, damage):
     target = tmp_path / "task"
     checkpoints.save_update_receipt_proof(target, state, {})
     checkpoints.verify_update_receipt_proof(target, state)
-    file = checkpoints.sealed_evidence.evidence_store(target) / "update-checkpoints.json"
+    file = checkpoints.update_receipt_store(target) / "update-checkpoints.json"
     original = file.read_bytes()
     if damage == "receipt":
         state["deployCheckpoints"]["A"]["checkpointEvidence"]["changed"] = []
@@ -89,6 +90,7 @@ def check_update_receipt_independent_proof(tmp_path, monkeypatch, damage):
 
 def check_update_receipt_proof_recovery(tmp_path, monkeypatch):
     monkeypatch.setattr(checkpoints.sealed_evidence.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(checkpoints.wt, "output", Mock(return_value=str(tmp_path / "durable")))
     state = {
         "primary": str(tmp_path), "worktree": str(tmp_path / "task"),
         "task_id": "update", "task_file": "tasks/update.md", "start": "original",
@@ -99,7 +101,7 @@ def check_update_receipt_proof_recovery(tmp_path, monkeypatch):
     previous = copy.deepcopy(state["deployCheckpoints"])
     state["deployCheckpoints"]["B"] = {"commit": "second"}
     checkpoints.save_update_receipt_proof(target, state, previous)
-    file = checkpoints.sealed_evidence.evidence_store(target) / "update-checkpoints.json"
+    file = checkpoints.update_receipt_store(target) / "update-checkpoints.json"
     original = file.read_bytes()
     # Retrying after sealing but before the lifecycle save neither reseals nor loses peer receipts.
     checkpoints.save_update_receipt_proof(target, state, previous)
@@ -110,6 +112,54 @@ def check_update_receipt_proof_recovery(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="replace unverified"):
         checkpoints.save_update_receipt_proof(target, state, previous)
     assert file.read_bytes() == original
+
+
+@pytest.mark.parametrize("damage", [None, "payload", "signature", "key", "missing"])
+def check_update_legacy_migration(tmp_path, monkeypatch, damage):
+    monkeypatch.setattr(checkpoints.sealed_evidence.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(checkpoints.wt, "output", Mock(return_value=str(tmp_path / "durable")))
+    target = tmp_path / "task"
+    state = {"primary": str(tmp_path), "worktree": str(target), "task_id": "update",
+             "task_file": "tasks/update.md", "start": "start", "deployCheckpoints": {"A": {"commit": "issued"}}}
+    legacy = checkpoints.sealed_evidence.evidence_store(target) / "update-checkpoints.json"
+    proof = checkpoints.update_receipt_proof(state, state["deployCheckpoints"])
+    checkpoints.sealed_evidence.write_sealed(target, legacy, proof)
+    if damage == "key":
+        (legacy.parent / "seal.key").unlink()
+    elif damage == "missing":
+        legacy.unlink()
+    elif damage:
+        envelope = json.loads(legacy.read_text())
+        if damage == "signature":
+            envelope["signature"] = "0" * 64
+        else:
+            envelope["payload"]["receipts"]["A"]["commit"] = "modified"
+        legacy.write_text(json.dumps(envelope))
+    if damage:
+        with pytest.raises(ValueError, match="Human review"):
+            checkpoints.verify_update_receipt_proof(target, state)
+        assert not (tmp_path / "durable" / legacy.name).exists()
+        return
+    checkpoints.verify_update_receipt_proof(target, state)
+    durable = checkpoints.update_receipt_store(target) / legacy.name
+    original = durable.read_bytes()
+    envelope = json.loads(original)
+    envelope["signature"] = "0" * 64
+    durable.write_text(json.dumps(envelope))
+    with pytest.raises(ValueError, match="Human review"):
+        checkpoints.verify_update_receipt_proof(target, state)
+    durable.write_bytes(original)
+    legacy.unlink()
+    (legacy.parent / "seal.key").unlink()
+    checkpoints.verify_update_receipt_proof(target, state)
+    # An owner can re-sign coherent changes. This explicitly bounds the guarantee.
+    state["deployCheckpoints"]["A"]["commit"] = "owner-rewritten"
+    directory = checkpoints.update_receipt_store(target)
+    checkpoints.sealed_evidence.write_sealed(
+        target, directory / legacy.name,
+        checkpoints.update_receipt_proof(state, state["deployCheckpoints"]), directory=directory,
+    )
+    checkpoints.verify_update_receipt_proof(target, state)
 
 
 def check_source_scope_shares_deploy_baseline(tmp_path, monkeypatch):
