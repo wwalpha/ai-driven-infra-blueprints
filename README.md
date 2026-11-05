@@ -128,9 +128,9 @@ not automatically reconstruct Models or assign public names. CREATE and existing
 IDs/references remain protected. Environment/service are mandatory; target may be omitted
 only when unambiguous. AWS/IaC remain unchanged.
 
-The internal CLI requires `--phase acquire`, then `--phase publish --evidence <returned path>`
-with agent edits between them; [08_import](framework/prompts/codex/08_import.md) is the
-single workflow authority. Both phases take `--dry-run` for a temporary candidate diff.
+The internal CLI uses `import acquire`, then `import review` and `import publish --evidence <returned path>`
+with agent selection, candidate edits and explicit Human consent between them; [08_import](framework/prompts/codex/08_import.md) is the
+single workflow authority. Append `--dry-run` consistently for a read-only candidate diff.
 Normal import uses a design Task
 with Workflow `import` in the Human-selected worktree. Reuse an existing Definition
 unchanged, or add a reusable new Definition with new-instance inputs/bindings only in
@@ -141,17 +141,17 @@ for candidate selection. Only the selected service's displays are generated in a
 transaction.
 
 [IMPORT configuration authority](framework/rules/model-information.md#import-configuration-authority)
-is enforced at saving, generation, Task completion and Worktree integration. Temporary
-acquisition/candidate contents stay outside Git and are cleaned after publication;
-`evidence_store(root)/<task-name>.json` keeps a small sealed completion receipt outside
-the repository. No repository-root `.blueprint` is created. Normal reads use only the current external
-store and reject invalid, expired or incompatible receipts. Reacquisition requires the explicitly authorized
-[/import](.agents/skills/import/SKILL.md) workflow. Receipts expire after seven days.
-aws-check only compares. [Model-only update](framework/prompts/codex/05_update.md#model-only-import-merge-or-deletion)
+is enforced at saving, generation, Task completion and Worktree integration. Acquisition,
+Selection and Review are temporary inputs outside Git for publication; no Import completion
+receipt is retained. Keep the acquisition and session until display recovery is complete when
+display publication is incomplete. Temporary records use private file and directory checks and
+atomic writes. Review Binding compares the Review and candidate contents with the acquisition
+and source baseline; publication also checks acquired data against the candidate. These checks
+neither authenticate Human consent nor independently prove later direct Model edits.
+Reacquisition requires the explicitly authorized [/import](.agents/skills/import/SKILL.md)
+workflow. aws-check only compares. [Model-only update](framework/prompts/codex/05_update.md#model-only-import-merge-or-deletion)
 permits explicit IMPORT merge/delete with exact IDs, complete transfer and preservation
-checks; other existing IMPORT updates remain forbidden. No AWS or IaC is changed.
-A local integrity seal detects accidental/tampered evidence through these entrypoints;
-direct Git/filesystem manipulation can bypass checks that are not executed.
+checks. No AWS or IaC is changed.
 
 ### PDF dependencies
 

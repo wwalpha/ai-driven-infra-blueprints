@@ -94,7 +94,7 @@ parts 集合、読取依存、Task、HEAD を照合します。通常の保存�
 ## Import と独自取得 helper
 
 取得は `model.importing.inventory` と既存 AWS adapter、候補照合は importing.sources、
-全件 Review と binding は importing.approval、外部 acquisition／receipt は importing.evidence です。
+全件 Review と binding は importing.approval、外部 acquisition の管理は importing.evidence です。Import 完了 Receipt はありません。
 CLI の `import acquire|review|publish|resume|recover-display` は単一サービスの原子的入口です。
 複数サービスの反復、照合判断、質問、対応選択、Review 提示、最終保存同意は LLM が担当します。
 
@@ -113,7 +113,8 @@ Host approval、署名サービス、特定 IDE の SDK は追加しません。
 
 Model 保存と表示保存は別 transaction です。表示だけ失敗した場合は Model を保持し、
 `import recover-display` で再取得・再 Import なしに回復します。
-acquisition／Review／checkpoint／receipt／Deploy session の形式・意味・snapshot 版が一致しなければ、その不一致を示して拒否します。
+acquisition／Review／checkpoint／Deploy session の形式・意味・snapshot 版が一致しなければ、その不一致を示して拒否します。
+Review Binding は内容の整合性確認であり、人間の承認の認証ではありません。Publish 後の直接 Model 編集を独立して証明することはできません。
 
 ## Deploy・観測 helper
 
@@ -129,15 +130,14 @@ Deploy 設計 digest は observed を除く全正本を含みます。
 AWS 実行直前の target、Task、設計、IaC、入力と検証依存の再確認は既存 controller の責務です。
 
 
-Interrupted Import source/display transactions are restored through the same journal,
-including the external receipt. Read-only analysis never performs this recovery.
+Interrupted Import source/display transactions are restored through the same journal. Read-only analysis never performs this recovery.
 Use the matching running managed Task and original acquisition/HEAD:
 
 ```console
 python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py import recover-transaction --environment <environment> --target <target> --service <service> --evidence <original-acquisition.json> --task-file tasks/<task-name>.md
 ```
 
-Recovery verifies the receipt's Task and every journal output against the selected scope
+Recovery verifies the journal Task and every journal output against the selected scope
 and registered paths. It contacts no AWS API and grants no new edit rights. After source
 rollback the unchanged acquisition/Review can be retried; after display rollback keep
 the saved Model and use recover-display. A different Task, HEAD or acquisition stops.

@@ -225,8 +225,9 @@ The LLM owns final consent. No approved=true permission flag or Host approval in
 is needed. model.importing.approval.review_binding binds Task/worktree/scope, acquisition,
 source snapshot, dispositions, Selection limitations, typed candidate values, reference meaning, incoming impact,
 Review digest and expiry. Python recomputes it from the actual candidate inside the
-publication lock. Local integrity seals/digests detect corruption and bind exact content;
-they do not prove Human identity, actual presentation or consent.
+publication lock. Digests compare the bound content; temporary evidence uses private file
+and directory checks and atomic writes. These do not authenticate Human identity, actual
+presentation or consent.
 Direct CLI execution can bypass that conversational step; this remains an operating risk,
 not a Human authentication guarantee. Do not add an issuer/token/SDK to hide that boundary.
 A regenerated Review never proves consent: the LLM must present changed content again.

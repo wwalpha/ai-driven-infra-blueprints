@@ -96,8 +96,8 @@ pytest/direct/module completionとrunner receiptの契約は維持する。
 
 ## Importの責務
 
-`import-model` ITは29登録関数・37 pytest条件（変更前47関数・104条件）。Acquire→Review→Publishの保存/再読込、
-bind/replace、参照、Atomicity、部分失敗Rollback、Receipt整合性、実Recovery、非選択Resource・他サービス/環境の不変を検証する。
+`import-model` ITは30登録関数・46 pytest条件。Acquire→Review→Publishの保存/再読込、
+bind/replace、参照、Atomicity、部分失敗Rollback、取得データと候補の照合、実Recovery、非選択Resource・他サービス/環境の不変を検証する。
 Identity/Scope、Review/Approval、候補差分、参照診断の入力組合せは既存Import UTの直接関数呼出に集約する。
 
 UTからITのPublication helperやFull fixtureを実行しない。
@@ -116,7 +116,7 @@ CI実測前に高速化達成と報告しない。Fixtureのコピー削減だ�
 `import-sdk-inventory-unit` は親Scope・複合Identity・全ページ・途中失敗・9型のCoverage到達性、
 `import-limitations-unit` はMapping/SDKに基づく取得不能分類、Treatment、秘匿、Bindingと未完了判定を検証する。
 `import-model` の `check_limited_acquisition_preserves_values_and_completes` は取得不能項目を含む
-Acquire→Review→未承認拒否→既存値保持の提案→再開→Publish→Receipt→Task完了を検証する。
+Acquire→Review→未承認拒否→既存値保持の提案→再開→Publish→Task完了を検証する。
 承認は会話上の運用境界で、テストのBindingやFixtureは人間の認証を証明しない。
 
 Framework実装を明示検証する際は既存の公式IT runnerで、関連するImport業務ITとCLI ITを実行する。
