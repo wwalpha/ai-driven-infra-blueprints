@@ -6,6 +6,7 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 from unittest import TestCase
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -14,6 +15,7 @@ import model.files as _imports_model_files
 import model.format as _imports_model_format
 import model.sources as model_sources
 import support.repository_fixtures as _fixture_publication_workspace
+from deploy import controller as deploy_controller
 from deploy import git_publication as scope_publication
 from deploy import observed as deploy_observed
 from deploy import preparation as offline_preparation
@@ -21,6 +23,7 @@ from deploy import scope as execution_scope
 from deploy.model_cache import RunModels
 from deploy.observed import removed_resources
 from deploy.preparation import candidate
+from deploy.timing import Timing
 from model.adapters.observed import (
     mappings,
     preflight,
@@ -31,6 +34,7 @@ from model.format import parse
 from model.format import patch as patch_properties
 from model.sources import load_model, model_parts
 from support import deploy_controller_fixtures as controller_fixtures
+from support import model_reference_fixtures
 from support import rotation_schedule_fixtures as rotation
 from support.cloudformation_deploy_fixtures import (
     TARGET,
@@ -1789,3 +1793,101 @@ def test_range_preparation_controller_save_and_resume(tmp_path, monkeypatch):
         ),
         0,
     )
+
+
+def check_codebuild_observation_publication_and_resync(project_workspace, monkeypatch):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root, "codebuild", "CodeBuild.Project", attribute="Id", observed="old"
+    )
+    model_reference_fixtures.write(scope, values)
+    task = root / "tasks/observation-fixture.md"
+    task.parent.mkdir(exist_ok=True)
+    text = observation_contract(root, ("codebuild",))
+    task.write_text(text.replace("dev/123456789012/", "qa/team/"), encoding="utf-8")
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/observation-fixture.md")
+    document = {"Resources": {"Resource001": {"Type": "AWS::CodeBuild::Project"}}}
+    stack = {
+        "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique",
+        "StackStatus": "CREATE_COMPLETE",
+        "Outputs": [],
+    }
+    actual = {
+        "LogicalResourceId": "Resource001",
+        "ResourceType": "AWS::CodeBuild::Project",
+        "ResourceStatus": "CREATE_COMPLETE",
+        "PhysicalResourceId": "project",
+    }
+
+    backend = SimpleNamespace(
+        root=root,
+        environment="qa",
+        directory="team",
+        target=TARGET,
+        templates={"producer": (document, {})},
+        connection=(None, "ap-northeast-1", "123456789012"),
+        timing=Timing(root),
+        run_context={},
+    )
+    backend.aws = _bind_framework_callback(deploy_controller.aws, backend)
+    response = _bind_framework_callback(_codebuild_sync_aws, stack, actual, document)
+    codebuild = SimpleNamespace(
+        batch_get_projects=Mock(
+            side_effect=_bind_framework_callback(response, "batch_get_projects")
+        )
+    )
+    cloudformation = SimpleNamespace(
+        **{
+            operation: Mock(side_effect=_bind_framework_callback(response, operation))
+            for operation in ("describe_stacks", "list_stack_resources", "get_template")
+        }
+    )
+    client = Mock(
+        side_effect=lambda context, service, **kwargs: {
+            "codebuild": codebuild,
+            "cloudformation": cloudformation,
+        }[service]
+    )
+    monkeypatch.setattr("utils.aws.client.client", client)
+    unit = {"name": "producer"}
+    monkeypatch.setattr(
+        deploy_observed.execution_scope, "check_fixed_resources", lambda *a, **k: None
+    )
+    monkeypatch.setattr(deploy_observed, "propagate_references", lambda *a, **k: None)
+    for expected in ("UPDATED", "MATCHED"):
+        state = {"producer": {}}
+        outputs, _, _ = deploy_observed.collect_successful(backend, [unit], state)
+        publish_observed(root, outputs)
+        assert (
+            properties(read_model(scope.path))["observed.row.001-001.value"]
+            == "`project`"
+        )
+        assert (
+            state["producer"]["observedCoverage"]["Resource001"]["status"] == expected
+        )
+    assert codebuild.batch_get_projects.call_count == 2
+    codebuild.batch_get_projects.assert_called_with(names=["project"])
+    assert any(call.args[1] == "codebuild" for call in client.call_args_list)
+    assert cloudformation.get_template.call_count == 2
+    with pytest.raises(KeyError):
+        backend.aws("delete_project", service="codebuild", name="project")
+
+
+def _codebuild_sync_aws(stack, actual, document, operation, **kwargs):
+    if operation == "describe_stacks":
+        return {"Stacks": [stack]}
+    if operation == "list_stack_resources":
+        return {"StackResourceSummaries": [actual]}
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    if operation == "batch_get_projects":
+        return {
+            "projects": [
+                {
+                    "name": "project",
+                    "arn": "arn:aws:codebuild:ap-northeast-1:123456789012:project/project",
+                }
+            ],
+        }
+    raise AssertionError(operation)

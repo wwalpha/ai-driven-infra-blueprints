@@ -301,6 +301,13 @@ def prepare_edit(
     candidate: Mapping[Path, str | None],
     policy: _dependency_model_sources.SourceWriteContext,
 ) -> EditPlan:
+    if (
+        not isinstance(policy, _dependency_model_sources.SourceWriteContext)
+        or policy.closed
+    ):
+        raise ValueError(
+            "Model edit requires an open authorized source context; names and flags grant no rights"
+        )
     if isinstance(snapshot, Path):
         edit_base = _imports_model_sources.edit_base
         raw_model = _imports_model_sources.raw_model

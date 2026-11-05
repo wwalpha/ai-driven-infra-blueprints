@@ -29,6 +29,7 @@ def call(runtime, service, operation, arguments):
             runtime.guard()
     if (service, operation) in {
         ("cloudcontrol", "get_resource"),
+        ("codebuild", "batch_get_projects"),
         ("lambda", "get_policy"),
     }:
         with runtime.timing.phase(

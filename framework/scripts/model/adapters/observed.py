@@ -55,6 +55,7 @@ import model.sources as source_models
 from model import projection as model_projection
 from model.adapters.observation_sources import (
     cloudcontrol_source,
+    codebuild_source,
     permission_source,
     physical_identifier_source,
 )
@@ -198,7 +199,10 @@ def identifier_source(catalog, resource, outputs, logical, prop, values):
         getatt = value.get("Fn::GetAtt") if isinstance(value, dict) else None
         if isinstance(getatt, str):
             getatt = getatt.split(".", 1)
-        if (value == {"Ref": logical} and primary) or getatt == [logical, attribute]:
+        if (
+            value == {"Ref": logical}
+            and (primary or codebuild_source(catalog.root, resource, prop))
+        ) or getatt == [logical, attribute]:
             keys.append(key)
     return primary, keys
 
@@ -605,6 +609,7 @@ def _mappings(
                         and not primary
                         and not keys
                         and not cloudcontrol_source(root, catalog, resource, prop)
+                        and not codebuild_source(root, resource, prop)
                         and not physical_identifier_source(resource, prop)
                         and not permission_source(root, resource, prop)
                     ):

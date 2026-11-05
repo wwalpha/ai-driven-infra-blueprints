@@ -17,6 +17,7 @@ from design.catalog import DesignSchemaCatalog
 from model.adapters.aws import MISSING, AcquisitionError, Unresolved, service_module
 from model.adapters.observation_sources import (
     cloudcontrol_source,
+    codebuild_source,
     permission_source,
     physical_identifier_source,
 )
@@ -560,6 +561,98 @@ def cloudcontrol_observation(
         return None, "CloudFormation evidence API: " + str(error.code)
     except (AttributeError, Blocked, Unresolved, KeyError, TypeError, ValueError):
         return None, "Cloud Control response or deployed evidence unavailable"
+
+
+def codebuild_observation(
+    backend, stack, document, parameters, actual, resource, prop, stack_name
+):
+    item = codebuild_source(backend.root, resource, prop)
+    if item is None:
+        return None, "unsupported acquisition contract"
+    account = backend.target.get(
+        AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
+    )
+    region = backend.target[AWS_REGION_KEY]
+    stack_id = stack.get("StackId", "")
+    physical = actual.get("PhysicalResourceId")
+    logical = actual.get("LogicalResourceId")
+    definition = document.get("Resources", {}).get(logical, {})
+    if (
+        not stack_id.startswith(
+            f"arn:aws:cloudformation:{region}:{account}:stack/{stack_name}/"
+        )
+        or not stack_id.removeprefix(
+            f"arn:aws:cloudformation:{region}:{account}:stack/{stack_name}/"
+        )
+        or definition.get("Type") != "AWS::CodeBuild::Project"
+        or actual.get("ResourceType") != "AWS::CodeBuild::Project"
+        or not isinstance(physical, str)
+        or not physical
+        or current_state.category(stack) != "SUCCESS"
+        or actual.get("ResourceStatus")
+        not in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
+    ):
+        return None, "stack or resource identity unconfirmed"
+    try:
+        deployed = backend.aws("get_template", StackName=stack_id).get("TemplateBody")
+        if isinstance(deployed, str):
+            deployed, errors = _imports_cfn_format.decode(deployed)
+            if errors:
+                return None, "deployed template unavailable"
+        if deployed != document or document.get("Transform"):
+            return None, "deployed template mismatch"
+        expressions = (
+            [{"Condition": definition["Condition"]}]
+            if "Condition" in definition
+            else []
+        )
+        if not checked_evidence_parameters(document, parameters, stack, expressions):
+            return None, "required deployed parameters unavailable or mismatch"
+        try:
+            response = backend.aws(
+                "batch_get_projects", service="codebuild", names=[physical]
+            )
+        except AwsError as error:
+            after = current_state.read(backend.aws, stack_id)
+            if current_state.identity(stack) != current_state.identity(
+                after
+            ) or stack.get("Outputs", []) != after.get("Outputs", []):
+                return None, "stack changed during acquisition"
+            return None, "codebuild.batch_get_projects: " + str(error.code)
+        projects = response.get("projects")
+        if (
+            not isinstance(projects, list)
+            or len(projects) != 1
+            or not isinstance(projects[0], dict)
+            or response.get("projectsNotFound", []) != []
+        ):
+            return None, "CodeBuild project missing or response incomplete"
+        project_data = projects[0]
+        value = project(item, project_data)
+        if (
+            value != physical
+            or project_data.get("arn")
+            != f"arn:aws:codebuild:{region}:{account}:project/{physical}"
+        ):
+            return None, "CodeBuild project identity mismatch"
+        after = current_state.read(backend.aws, stack_id)
+        if current_state.identity(stack) != current_state.identity(after) or stack.get(
+            "Outputs", []
+        ) != after.get("Outputs", []):
+            return None, "stack changed during acquisition"
+        return value, None
+    except AwsError as error:
+        return None, "evidence API: " + str(error.code)
+    except (
+        AttributeError,
+        Blocked,
+        Unresolved,
+        KeyError,
+        TypeError,
+        ValueError,
+        OSError,
+    ):
+        return None, "CodeBuild or deployed evidence unavailable"
 
 
 class PermissionContext:
@@ -1386,6 +1479,50 @@ def collect_successful(backend, units, states, *, generated_views=None):
                             reasons[prop] = (
                                 "Output or physical identifier disagrees with Cloud Control"
                             )
+                        else:
+                            value = api_value
+                    elif (
+                        resource[RESOURCE_TYPE_KEY] == "CodeBuild.Project"
+                        and prop == "CodeBuild.Project.Id"
+                    ):
+                        api_value, reason = codebuild_observation(
+                            backend,
+                            stack,
+                            document,
+                            parameters,
+                            actual,
+                            resource,
+                            prop,
+                            name,
+                        )
+                        if reason:
+                            unavailable = reason.startswith(
+                                "codebuild.batch_get_projects: "
+                            ) and any(
+                                word in reason.lower()
+                                for word in (
+                                    "accessdenied",
+                                    "unauthorized",
+                                    "timeout",
+                                    "timedout",
+                                    "deadlineexceeded",
+                                )
+                            )
+                            if not (
+                                unavailable
+                                and values
+                                and len(values) == len(keys)
+                                and value is not None
+                                and value == actual.get("PhysicalResourceId")
+                            ):
+                                value = None
+                                reasons[prop] = reason
+                        elif values and (
+                            len(values) != len(keys)
+                            or any(candidate != api_value for candidate in values)
+                        ):
+                            value = None
+                            reasons[prop] = "Output disagrees with CodeBuild"
                         else:
                             value = api_value
                     elif permission_source(backend.root, resource, prop):

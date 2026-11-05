@@ -66,3 +66,36 @@ def physical_identifier_source(resource, prop, physical=None):
         and prop == "EC2.SecurityGroup.Id"
         and (physical is None or re.fullmatch(r"sg-[0-9a-f]+", physical) is not None)
     )
+
+
+def codebuild_source(root, resource, prop):
+    if (
+        resource[RESOURCE_TYPE_KEY] != "CodeBuild.Project"
+        or prop != "CodeBuild.Project.Id"
+    ):
+        return None
+    mapping = registry(root, "codebuild")
+    item = mapping.properties.get(prop)
+    identity = mapping.identities.get("CodeBuild.Project")
+    base = mapping.getters.get("base", {})
+    sdk = mapping.getters.get("sdk-codebuild-project", {})
+    if (
+        item is None
+        or item.field.getter != "base"
+        or item.field.path != "name"
+        or item.transform != "identity"
+        or identity is None
+        or identity.getter != "base"
+        or identity.id_path != "name"
+        or identity.arn_path != "arn"
+        or identity.name_property != "Name"
+        or base.get("kind") != "adapter"
+        or "CodeBuild.Project" not in base.get("resources", ())
+        or sdk.get("kind") != "sdk"
+        or sdk.get("service") != "codebuild"
+        or sdk.get("operation") != "batch_get_projects"
+        or sdk.get("result") != "projects[]"
+        or sdk.get("resourceType") != "CodeBuild.Project"
+    ):
+        return None
+    return item
