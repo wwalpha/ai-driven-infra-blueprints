@@ -63,6 +63,19 @@ SECRETS_MANAGER_REFERENCE = re.compile(
 )
 
 
+def object_property_schemas(node: dict, key: str) -> list:
+    """Named and matching pattern schemas all apply; only other keys are additional."""
+    children = []
+    if key in node.get("properties", {}):
+        children.append(node["properties"][key])
+    children.extend(
+        child
+        for pattern, child in node.get("patternProperties", {}).items()
+        if re.search(pattern, key) is not None
+    )
+    return children or [node.get("additionalProperties", True)]
+
+
 def aws_type(material: Path) -> str:
     return "AWS::" + material.stem.replace("_", "::", 1)
 
@@ -410,21 +423,19 @@ class CloudFormationSchemaCatalog:
                 if key not in value:
                     errors.append(f"{property_path}.{key}: required property missing")
             for key, item in value.items():
-                child = node.get("properties", {}).get(
-                    key, node.get("additionalProperties", True)
-                )
                 child_path = property_path + "." + key
-                if child is False:
-                    errors.append(f"{child_path}: unknown property")
-                elif isinstance(child, dict):
-                    if resource_type is not None:
-                        child = self._resolve(self.schema(resource_type), child)
-                    errors.extend(
-                        f"{child_path}: {error}"
-                        for error in self._item_errors(
-                            child, item, resource_type, child_path
+                for child in object_property_schemas(node, key):
+                    if child is False:
+                        errors.append(f"{child_path}: unknown property")
+                    elif isinstance(child, dict):
+                        if resource_type is not None:
+                            child = self._resolve(self.schema(resource_type), child)
+                        errors.extend(
+                            f"{child_path}: {error}"
+                            for error in self._item_errors(
+                                child, item, resource_type, child_path
+                            )
                         )
-                    )
         return errors
 
     def _item_errors(self, node, value, resource_type, property_path):

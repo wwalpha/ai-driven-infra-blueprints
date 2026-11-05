@@ -13,7 +13,10 @@ import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.aws_schemas as _imports_utils_aws_schemas
 import utils.cloudformation.schema as _dependency_cloudformation_schema
 from model.reference_nodes import is_reference, parse
-from utils.cloudformation.schema import CloudFormationSchemaCatalog
+from utils.cloudformation.schema import (
+    CloudFormationSchemaCatalog,
+    object_property_schemas,
+)
 from utils.input_cache import input_select, input_text, memoized
 from utils.json_format import strict_json
 from utils.property_path import definition_path
@@ -198,17 +201,15 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
                             resource_type, node["propertyNames"], key, f"{path} key"
                         )
                     )
-                child = node.get("properties", {}).get(
-                    key, node.get("additionalProperties", True)
-                )
-                if child is False:
-                    errors.append(f"{path}.{key}: unknown property")
-                elif isinstance(child, dict):
-                    errors.extend(
-                        self.api_value_errors(
-                            resource_type, child, item, f"{path}.{key}"
+                for child in object_property_schemas(node, key):
+                    if child is False:
+                        errors.append(f"{path}.{key}: unknown property")
+                    elif isinstance(child, dict):
+                        errors.extend(
+                            self.api_value_errors(
+                                resource_type, child, item, f"{path}.{key}"
+                            )
                         )
-                    )
         else:
             bounds = ("minimum", "maximum", value)
         lower, upper, size = bounds

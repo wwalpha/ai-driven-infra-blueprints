@@ -23,6 +23,58 @@ def main() -> None:
     root = Path(__file__).resolve().parents[4]
     assert snapshot_errors(root) == []
     catalog = CloudFormationSchemaCatalog(root)
+    # EventBridge map keys are defined by patternProperties, not properties.
+    map_path = "Targets[].InputTransformer.InputPathsMap"
+    event_map = {"key": "$.detail.object.key", "version": "$.detail.object.version-id"}
+    for schemas in (catalog, DesignSchemaCatalog(root)):
+        node = schemas.property_schema("Events.Rule", map_path)
+        validators = [
+            lambda value, schemas=schemas: schemas.typed_literal_errors(
+                "Events.Rule", map_path, value
+            )
+        ]
+        if isinstance(schemas, DesignSchemaCatalog):
+            validators.append(
+                lambda value, schemas=schemas, node=node: schemas.api_value_errors(
+                    "Events.Rule", node, value, map_path
+                )
+            )
+        for validate in validators:
+            assert not validate(event_map)
+            assert validate({"---": "$.id"})
+            assert validate({"key": 42})
+
+    # All overlapping schemas apply, regexes are unanchored, and only unmatched
+    # keys fall back to additionalProperties.
+    map_node = {
+        "type": "object",
+        "properties": {"fixed": {"type": "string", "minLength": 2}},
+        "patternProperties": {
+            "fix": {"type": "string", "pattern": "^ok$"},
+            "xed": {"type": "string", "maxLength": 2},
+        },
+        "additionalProperties": False,
+    }
+    api_catalog = DesignSchemaCatalog(root)
+    validators = [
+        lambda value: catalog._item_errors(map_node, value, None, "Map"),
+        lambda value: api_catalog.api_value_errors(
+            "Events.Rule", map_node, value, "Map"
+        ),
+    ]
+    for validate in validators:
+        assert not validate({"fixed": "ok", "prefix": "ok"})
+        assert validate({"fixed": "x"})
+        assert validate({"fixed": "bad"})
+        assert validate({"unmatched": "ok"})
+    for additional in (True, {"type": "integer"}):
+        map_node["additionalProperties"] = additional
+        for validate in validators:
+            assert not validate({"unmatched": 3})
+            if isinstance(additional, dict):
+                assert validate({"unmatched": "wrong"})
+            assert validate({"fixed": "bad"})
+
     group = catalog.schema("QuickSight.Group")
     assert group["typeName"] == "AWS::QuickSight::Group"
     assert catalog.required_properties("QuickSight.Group") == {"GroupName", "Namespace"}
