@@ -625,15 +625,166 @@ def check_batch_size_bytes_and_oversize_item(tmp_path):
     size = len(encoded(first).encode("utf-8"))
     batch = review.next_batch(limit=20, max_bytes=size)
     assert len(batch["items"]) == 1 and len(encoded(batch).encode("utf-8")) <= size
-    before = review.path.read_bytes()
-    blocked = review.next_batch(max_bytes=size - 1)
-    assert (
-        blocked["blocked"]
-        and blocked["id"] == "name-0"
-        and blocked["required_bytes"] == size
-    )
-    assert review.path.read_bytes() == before
+    paged = review.next_batch(max_bytes=size - 1)
+    assert paged["id"] == "name-0"
+    assert paged["page_count"] >= 1
     assert review.status()["sections"]["naming"]["reviewed"] == 0
+
+
+def check_large_pages_resume_confirmation_and_complete(tmp_path):
+    data = named_artifact(tmp_path, 1)
+    data["naming_context"]["review_policy"] = "日本語🙂" * 18000
+    data["naming_context"]["notes"] = ["注記" + str(i) + "x" * 500 for i in range(142)]
+    stamp_naming_scan(data)
+    review = controller(tmp_path, data)
+    review.initialize()
+    batch = review.next_batch()
+    assert batch["page_count"] > 1
+    with pytest.raises(ValueError, match="incomplete Review"):
+        review.export(tmp_path / "incomplete.json")
+    base = dict(section=batch["section"], key=batch["id"], batch_id=batch["batch_id"])
+    fragments = [review.page(**base, page_index=i) for i in range(batch["page_count"])]
+    assert all(len(encoded(page).encode("utf-8")) <= 32768 for page in fragments)
+    assert all(
+        fragments[i]["position"]["end"] == fragments[i + 1]["position"]["start"]
+        for i in range(len(fragments) - 1)
+    )
+    original = json.loads("".join(page["content"] for page in fragments))
+    assert (
+        original["items"][0]["item"]["context"]["review_policy"]
+        == data["naming_context"]["review_policy"]
+    )
+    assert (
+        original["items"][0]["item"]["context"]["notes"]
+        == data["naming_context"]["notes"]
+    )
+    result = submission(original)
+    for validate in (True, False):
+        with pytest.raises(ValueError, match="unconfirmed"):
+            review.submit(result, validate_only=validate)
+    first = fragments[0]
+    with pytest.raises(ValueError, match="digest"):
+        review.page(
+            **base,
+            page_index=0,
+            confirm=True,
+            material_digest="bad",
+            page_digest=first["page_digest"],
+        )
+    with pytest.raises(ValueError, match="unknown"):
+        review.page(**base, page_index=len(fragments))
+    with pytest.raises(ValueError, match="mismatch"):
+        review.page(**dict(base, batch_id="stale"), page_index=0)
+
+    def confirm(page):
+        return review.page(
+            **base,
+            page_index=page["page_index"],
+            confirm=True,
+            material_digest=page["material_digest"],
+            page_digest=page["page_digest"],
+        )
+
+    confirm(first)
+    confirm(first)
+    assert review.status()["paging"]["confirmed_pages"] == 1
+    resumed = ReviewController(review.root, review.artifact_path, review.path)
+    assert resumed.next_batch()["confirmed_pages"] == 1
+    assert resumed.next_batch(max_bytes=65536)["batch_id"] == batch["batch_id"]
+    for page in fragments[1:]:
+        confirm(page)
+    assert review.submit(result, validate_only=True)["valid"]
+    review.submit(result)
+    assert "paging" not in review.status()
+    while not review.status()["complete"]:
+        next_batch = review.next_batch()
+        if "page_count" in next_batch:
+            target = dict(
+                section=next_batch["section"],
+                key=next_batch["id"],
+                batch_id=next_batch["batch_id"],
+            )
+            remaining_pages = [
+                review.page(**target, page_index=i)
+                for i in range(next_batch["page_count"])
+            ]
+            for page in remaining_pages:
+                review.page(
+                    **target,
+                    page_index=page["page_index"],
+                    confirm=True,
+                    material_digest=page["material_digest"],
+                    page_digest=page["page_digest"],
+                )
+            next_batch = json.loads(
+                "".join(page["content"] for page in remaining_pages)
+            )
+        review.submit(submission(next_batch))
+    review.export(tmp_path / "complete.json")
+
+
+def check_142_human_notes_page_as_one_judgment(tmp_path):
+    data = snapshot_artifact(tmp_path / "repository")
+    notes = ["注記 " + str(i) + "x" * 500 for i in range(142)]
+    data["judgments"] = [
+        dict(
+            id="notes",
+            service="s3",
+            kind="human-components/exceptions",
+            materials=notes,
+        )
+    ]
+    review = controller(tmp_path, data)
+    review.initialize()
+    while review.status()["next_section"] != "judgments":
+        review.submit(submission(review.next_batch()))
+    batch = review.next_batch()
+    assert batch["expected_ids"] == ["notes"]
+    args = dict(section="judgments", key="notes", batch_id=batch["batch_id"])
+    parts = [review.page(**args, page_index=i) for i in range(batch["page_count"])]
+    reconstructed = json.loads("".join(part["content"] for part in parts))
+    assert reconstructed["items"][0]["item"]["materials"] == notes
+    assert all(len(encoded(part).encode("utf-8")) <= 32768 for part in parts)
+    for part in parts:
+        review.page(
+            **args,
+            page_index=part["page_index"],
+            confirm=True,
+            material_digest=part["material_digest"],
+            page_digest=part["page_digest"],
+        )
+    review.submit(submission(reconstructed))
+    assert review.status()["sections"]["judgments"]["reviewed"] == 1
+
+
+def check_paged_progress_survives_unrelated_revision_and_rejects_corruption(tmp_path):
+    data = named_artifact(tmp_path, 1)
+    data["naming_context"]["rules"] = {"S3": [{"path": "rule", "text": "大" * 30000}]}
+    stamp_naming_scan(data)
+    review = controller(tmp_path, data)
+    review.initialize()
+    first = review.next_batch(limit=1)
+    review.submit(submission(first))
+    batch = review.next_batch()
+    base = dict(section=batch["section"], key=batch["id"], batch_id=batch["batch_id"])
+    page = review.page(**base, page_index=0)
+    review.page(
+        **base,
+        page_index=0,
+        confirm=True,
+        material_digest=page["material_digest"],
+        page_digest=page["page_digest"],
+    )
+    review.revise(revision_for(review, "naming_context", first["expected_ids"][0]))
+    assert review.next_batch()["confirmed_pages"] == 1
+    envelope = json.loads(review.path.read_text(encoding="utf-8"))
+    envelope["state"]["pending"]["paging"]["confirmed"]["0"] = "wrong"
+    envelope["digest"] = fingerprint(envelope["state"])
+    review.path.write_text(encoded(envelope), encoding="utf-8")
+    before = review.path.read_bytes()
+    with pytest.raises(ValueError, match="corrupt Review page confirmation"):
+        review.status()
+    assert review.path.read_bytes() == before
 
 
 @pytest.mark.parametrize(

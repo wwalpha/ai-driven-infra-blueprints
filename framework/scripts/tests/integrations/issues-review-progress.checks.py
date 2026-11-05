@@ -443,5 +443,49 @@ def check_100_automatic_names_excluded_from_review_payload(tmp_path):
     )
 
 
+def check_paged_review_cli_roundtrip(tmp_path):
+    data = snapshot_artifact(tmp_path / "repository")
+    data["naming_context"]["review_policy"] = "確認🙂" * 12000
+    stamp_naming_scan(data)
+    review = controller(tmp_path, data)
+    review.initialize()
+    result = cli(review, "next")
+    assert result.returncode == 0, result.stderr
+    batch = json.loads(result.stdout)
+    common = (
+        "--section",
+        batch["section"],
+        "--id",
+        batch["id"],
+        "--batch-id",
+        batch["batch_id"],
+    )
+    pieces = []
+    for index in range(batch["page_count"]):
+        result = cli(review, "page", *common, "--page-index", str(index))
+        assert result.returncode == 0, result.stderr
+        assert len(result.stdout.encode("utf-8")) <= 32768
+        page = json.loads(result.stdout)
+        pieces.append(page["content"])
+        result = cli(
+            review,
+            "confirm-page",
+            *common,
+            "--page-index",
+            str(index),
+            "--material-digest",
+            page["material_digest"],
+            "--page-digest",
+            page["page_digest"],
+        )
+        assert result.returncode == 0, result.stderr
+    candidate = json.loads("".join(pieces))
+    path = tmp_path / "submission.json"
+    path.write_text(json.dumps(submission(candidate)), encoding="utf-8")
+    for operation in ("validate", "submit"):
+        result = cli(review, operation, "--submission", str(path))
+        assert result.returncode == 0, result.stderr
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

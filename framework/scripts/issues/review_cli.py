@@ -89,6 +89,8 @@ def parser():
     for operation in (
         "init",
         "next",
+        "page",
+        "confirm-page",
         "submit",
         "validate",
         "status",
@@ -102,6 +104,14 @@ def parser():
         if operation == "next":
             command.add_argument("--limit", type=int, default=20)
             command.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
+        elif operation in {"page", "confirm-page"}:
+            command.add_argument("--section", choices=SECTIONS, required=True)
+            command.add_argument("--id", required=True)
+            command.add_argument("--batch-id", required=True)
+            command.add_argument("--page-index", type=int, required=True)
+            if operation == "confirm-page":
+                command.add_argument("--material-digest", required=True)
+                command.add_argument("--page-digest", required=True)
         elif operation in {"submit", "validate"}:
             command.add_argument("--submission", type=Path, required=True)
         elif operation == "inspect":
@@ -122,6 +132,16 @@ def run_review(args, root):
         output = controller.status()
     elif args.review_command == "next":
         output = controller.next_batch(args.limit, args.max_bytes)
+    elif args.review_command in {"page", "confirm-page"}:
+        output = controller.page(
+            args.section,
+            args.id,
+            args.batch_id,
+            args.page_index,
+            confirm=args.review_command == "confirm-page",
+            material_digest=getattr(args, "material_digest", None),
+            page_digest=getattr(args, "page_digest", None),
+        )
     elif args.review_command in {"submit", "validate"}:
         submission = strict_json(outside(root, args.submission).read_bytes())
         output = controller.submit(

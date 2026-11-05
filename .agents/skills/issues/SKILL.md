@@ -137,7 +137,7 @@ external paths; use `scan --progress <progress>` and `scan-status --progress <pr
 to inspect execution. Heartbeats report process liveness, not forward progress. Use
 `prepare --workspace <existing-external-directory>` to recover the same paths without changing
 its checkpoint. On resume reuse the Scan and checkpoint and start with `review status`.
-Use `issues_scan.py review init|next|validate|submit|status|inspect|revise|export` with the same external
+Use `issues_scan.py review init|next|page|confirm-page|validate|submit|status|inspect|revise|export` with the same external
 `--artifact` and `--state` paths. See [commands and batch format](../../../framework/rules/issues-investigation.md#review-controller).
 
 - A valid Scan artifact allows Review even when Scan returns diagnostic FAIL/exit 1
@@ -158,11 +158,8 @@ Use `issues_scan.py review init|next|validate|submit|status|inspect|revise|expor
   and check applicability within that batch, including mixed Resource Types. Earlier
   context Review or retrieval alone does not establish that an item was reviewed;
   judge it from the complete current batch, without relying on session memory.
-- Output is bounded in UTF-8 bytes (`--max-bytes`, default 32768) and shrinks by whole
-  items. Platform/page output omission is not evidence that Review is impossible:
-  reduce `--limit` and retrieve again. Never submit unseen/truncated IDs. A single
-  oversized item returns its ID/reason and remains pending; use a supported larger
-  byte budget if the complete item can be read. Never treat truncation as success.
+- Output is bounded in UTF-8 bytes. Normal items follow Next → Review → Validate → Submit. An oversized single item is issued alone with `page_count` and `material_digest`; retrieve each zero-based page with `review page --section <section> --id <id> --batch-id <batch_id> --page-index <index>`. Read each complete page, then explicitly run `review confirm-page` with those arguments and its `--material-digest` and `--page-digest`. Retrieval alone does not confirm it. Pages are JSON text fragments; concatenate in order and decode JSON to reconstruct the complete original Batch, including shared Naming Context. Validate and Submit reject any unconfirmed page.
+- Resume with the same Scan/checkpoint: `status` shows missing pages, and `next` reissues the same paged Batch without losing confirmations. A stale Batch or digest mismatch is rejected: inspect Status and reacquire the current Batch/page; never reuse old confirmations. Preserve the checkpoint and Scan.
 - Explicitly judge every expected ID with reason/evidence and current Issues or
   Unverified information. Submit each complete batch immediately to checkpoint it.
   Run `review validate --artifact <scan> --state <checkpoint> --submission <submission>` before every Submit. Fix only the indicated submission errors; retain the checkpoint. A rejected/incomplete batch advances no IDs. Reacquiring a smaller batch replaces

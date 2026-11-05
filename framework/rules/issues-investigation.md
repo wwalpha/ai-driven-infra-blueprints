@@ -210,8 +210,7 @@ and describe the actual incomplete check in reason. Do not claim unexecuted chec
 `detail --offset --limit`, diagnostic/naming/Human semantics, whole-target Task
 checks and report publication remain unchanged. `review init` validates the saved
 artifact and indexes all required IDs, excluding recomputed AUTO_PASS names; its bounded response reports section counts and the automatic count. AUTO_PASS names remain in paged Scan detail and never enter individual Naming batches or checkpoint acknowledgements.
-Naming Context is partitioned into its target/policy and complete individual rule
-materials, without slicing text. The existing `reviewed_naming_context_id` is emitted
+Naming Context is partitioned into its target/policy and individual rule materials; oversized materials are losslessly paged. The existing `reviewed_naming_context_id` is emitted
 only after every such ID has been explicitly reviewed.
 
 All Review commands require external `--artifact` and `--state` files. A schema-1
@@ -225,6 +224,8 @@ Dependent final findings may remain as an unconfirmed draft during re-review.
 
 `next --limit 20 --max-bytes 32768` returns `scan_id`, `section`, `batch_id`,
 `expected_ids`, complete `items` and the submission contract within the byte limit. It records issuance, never confirmation. Validate every submission before Submit; validation is read-only and Submit reloads and revalidates the checkpoint. Correct only submission errors and preserve accepted results. Resume with Status using the same Scan and checkpoint.
+When one complete item exceeds the safe limit, Next issues it alone with page count and material digest. Use `review page --section <section> --id <id> --batch-id <batch-id> --page-index <zero-based-index>` with the same artifact and checkpoint. Read each page, then use `review confirm-page` with the same arguments plus `--material-digest <digest> --page-digest <digest>` from that page. Fetching alone does not confirm. Concatenate the `content` strings in index order and decode JSON to reconstruct the complete Batch and its shared Naming Context. Validate and Submit reject any missing confirmation. Status shows missing pages; after interruption, reuse the same Scan and checkpoint and run Next to retain progress. A stale Batch or mismatched digest is rejected: inspect Status and reacquire the current Batch and page before confirming.
+
 Items carry original masked Scan material, explicit matching Human facts and reference access to other
 previously reviewed Human facts. Judgments retain diagnostic ownership evidence and
 selected services. No machine IaC record set is added to LLM work.

@@ -25,6 +25,7 @@ from .review import (
     validate_review,
     validate_review_unverified,
 )
+from .review_paging import PAGE_TARGET, pages
 
 SECTIONS = (
     "naming_context",
@@ -275,7 +276,16 @@ class ReviewController:
             raise ValueError("corrupt Review completion state")
         pending = state["pending"]
         if pending is not None:
-            exact(pending, {"batch_id", "section", "ids"}, "pending batch")
+            exact(
+                pending,
+                {
+                    "batch_id",
+                    "section",
+                    "ids",
+                    *(["paging"] if "paging" in pending else []),
+                },
+                "pending batch",
+            )
             section, ids = pending["section"], pending["ids"]
             if (
                 section != self._next_section(state, sections)
@@ -289,6 +299,8 @@ class ReviewController:
                 section, ids
             ):
                 raise ValueError("corrupt pending Review batch IDs")
+            if "paging" in pending:
+                self._paging_pages(state, sections)
         return state
 
     def _write(self, state: Json, sections=None) -> None:
@@ -332,6 +344,11 @@ class ReviewController:
             complete=next_section is None and error is None,
             exportable=next_section is None and error is None,
             **({"validation_error": error} if error else {}),
+            **(
+                {"paging": self._paging_status(state["pending"])}
+                if state["pending"] and "paging" in state["pending"]
+                else {}
+            ),
         )
 
     def initialize(self) -> Json:
@@ -386,6 +403,151 @@ class ReviewController:
             material["selected_services"] = a["services"]
         return material
 
+    def _candidate(self, section, candidate_ids, items):
+        candidate = dict(
+            scan_id=self._identity["scan_id"],
+            section=section,
+            batch_id=self._batch_id(section, candidate_ids),
+            expected_ids=candidate_ids,
+            items=items,
+            submission_contract={
+                "top_level": ["batch_id", "section", "results"],
+                "result_fields": [
+                    "id",
+                    "reviewed",
+                    "reason",
+                    "evidence",
+                    "issues",
+                    "unverified",
+                ],
+                "reviewed": "must be true",
+                "reason_and_evidence": "non-empty text",
+                "ids": "exactly expected_ids, once each",
+                "assignment": "required for judgments items with message",
+                "decision": "required for diagnostics",
+            },
+        )
+        if section == "naming":
+            kinds = {ref for m in candidate["items"] for ref in m["naming_rule_refs"]}
+            context = self._artifact["naming_context"]
+            candidate["naming_context"] = {
+                **context,
+                "rules": {
+                    k: v for k, v in context.get("rules", {}).items() if k in kinds
+                },
+            }
+        return candidate
+
+    def _single_candidate(self, state, sections, section, key):
+        material = self._material(section, sections[section][key])
+        if section == "additions" and key in state["results"][section]:
+            material["previous_result"] = state["results"][section][key]
+        return self._candidate(section, [key], [material])
+
+    def _paging_pages(self, state, sections):
+        pending = state["pending"]
+        paging = pending["paging"]
+        exact(
+            paging,
+            {"id", "material_digest", "page_target", "page_count", "confirmed"},
+            "Review paging",
+        )
+        if (
+            len(pending["ids"]) != 1
+            or paging["id"] != pending["ids"][0]
+            or type(paging["page_target"]) is not int
+            or paging["page_target"] != PAGE_TARGET
+        ):
+            raise ValueError("corrupt Review paging identity/conditions")
+        candidate = self._single_candidate(
+            state, sections, pending["section"], paging["id"]
+        )
+        result = pages(candidate)
+        if (
+            type(paging["page_count"]) is not int
+            or paging["page_count"] != len(result)
+            or paging["material_digest"] != result[0]["material_digest"]
+            or not isinstance(paging["confirmed"], dict)
+        ):
+            raise ValueError("corrupt Review paging material")
+        for index, digest in paging["confirmed"].items():
+            if (
+                not isinstance(index, str)
+                or not index.isascii()
+                or not index.isdecimal()
+                or str(int(index)) != index
+                or int(index) >= len(result)
+                or digest != result[int(index)]["page_digest"]
+            ):
+                raise ValueError("corrupt Review page confirmation")
+        return result
+
+    def _paging_status(self, pending):
+        paging = pending["paging"]
+        missing = [
+            i for i in range(paging["page_count"]) if str(i) not in paging["confirmed"]
+        ]
+        return dict(
+            id=paging["id"],
+            page_count=paging["page_count"],
+            confirmed_pages=len(paging["confirmed"]),
+            unconfirmed_pages=missing,
+            submittable=not missing,
+        )
+
+    def _paging_next(self, pending, max_bytes):
+        paging = pending["paging"]
+        output = dict(
+            section=pending["section"],
+            batch_id=pending["batch_id"],
+            expected_ids=pending["ids"],
+            id=paging["id"],
+            page_count=paging["page_count"],
+            confirmed_pages=len(paging["confirmed"]),
+            material_digest=paging["material_digest"],
+            page_command="review page --section <section> --id <id> --batch-id <batch_id> --page-index <index>",
+        )
+        if len(encoded(output).encode("utf-8")) > min(max_bytes, DEFAULT_MAX_BYTES):
+            raise ValueError("Review paging metadata exceeds output limit")
+        return output
+
+    def page(
+        self,
+        section,
+        key,
+        batch_id,
+        page_index,
+        *,
+        confirm=False,
+        material_digest=None,
+        page_digest=None,
+    ):
+        with publication_lock(self.path, read_only=True):
+            state = self._load()
+            pending = state["pending"]
+            if (
+                not pending
+                or "paging" not in pending
+                or pending["section"] != section
+                or pending["batch_id"] != batch_id
+                or pending["ids"] != [key]
+            ):
+                raise ValueError("Review page batch/section/ID mismatch")
+            result = self._paging_pages(state, self._sections(state))
+            if type(page_index) is not int or not 0 <= page_index < len(result):
+                raise ValueError("unknown Review page")
+            page = result[page_index]
+            if confirm:
+                if (
+                    material_digest != page["material_digest"]
+                    or page_digest != page["page_digest"]
+                ):
+                    raise ValueError("Review page digest mismatch")
+                pending["paging"]["confirmed"][str(page_index)] = page_digest
+                self._write(state)
+                return self._paging_status(pending)
+            return deepcopy(page)
+
     def next_batch(self, limit: int = 20, max_bytes: int = DEFAULT_MAX_BYTES) -> Json:
         if limit < 1 or max_bytes < 256:
             raise ValueError("Review limit must be positive and max_bytes at least 256")
@@ -395,6 +557,8 @@ class ReviewController:
             section = self._next_section(state, sections)
             if section is None:
                 return self._status(state)
+            if state["pending"] and "paging" in state["pending"]:
+                return self._paging_next(state["pending"], max_bytes)
             accepted = accepted_results(state, section)
             remaining = [key for key in sections[section] if key not in accepted]
             items: list[Json] = []
@@ -404,54 +568,32 @@ class ReviewController:
                 material = self._material(section, sections[section][key])
                 if section == "additions" and key in state["results"][section]:
                     material["previous_result"] = state["results"][section][key]
+                if items and len(
+                    encoded(self._candidate(section, [key], [material])).encode("utf-8")
+                ) > min(max_bytes, DEFAULT_MAX_BYTES):
+                    break
                 candidate_ids = [*ids, key]
-                candidate = dict(
-                    scan_id=self._identity["scan_id"],
-                    section=section,
-                    batch_id=self._batch_id(section, candidate_ids),
-                    expected_ids=candidate_ids,
-                    items=[*items, material],
-                    submission_contract={
-                        "top_level": ["batch_id", "section", "results"],
-                        "result_fields": [
-                            "id",
-                            "reviewed",
-                            "reason",
-                            "evidence",
-                            "issues",
-                            "unverified",
-                        ],
-                        "reviewed": "must be true",
-                        "reason_and_evidence": "non-empty text",
-                        "ids": "exactly expected_ids, once each",
-                        "assignment": "required for judgments items with message",
-                        "decision": "required for diagnostics",
-                    },
-                )
-                if section == "naming":
-                    kinds = {
-                        ref for m in candidate["items"] for ref in m["naming_rule_refs"]
-                    }
-                    context = self._artifact["naming_context"]
-                    candidate["naming_context"] = {
-                        **context,
-                        "rules": {
-                            k: v
-                            for k, v in context.get("rules", {}).items()
-                            if k in kinds
-                        },
-                    }
+                candidate = self._candidate(section, candidate_ids, [*items, material])
                 size = len(encoded(candidate).encode("utf-8"))
-                if size > max_bytes:
+                if size > (max_bytes if items else min(max_bytes, DEFAULT_MAX_BYTES)):
                     if not items:
-                        return dict(
-                            blocked=True,
+                        material_pages = pages(candidate)
+                        pending = dict(
+                            batch_id=candidate["batch_id"],
                             section=section,
-                            id=key,
-                            reason="one complete Review item exceeds max_bytes; remains unreviewed",
-                            required_bytes=size,
-                            max_bytes=max_bytes,
+                            ids=[key],
+                            paging=dict(
+                                id=key,
+                                material_digest=material_pages[0]["material_digest"],
+                                page_target=PAGE_TARGET,
+                                page_count=len(material_pages),
+                                confirmed={},
+                            ),
                         )
+                        output = self._paging_next(pending, max_bytes)
+                        state["pending"] = pending
+                        self._write(state, sections)
+                        return output
                     break
                 ids, items, output = candidate_ids, candidate["items"], candidate
             state["pending"] = dict(
@@ -493,6 +635,10 @@ class ReviewController:
                 or set(pending["ids"]) != set(ids)
             ):
                 raise ValueError("Review Batch not issued or incomplete/stale IDs")
+            if "paging" in pending:
+                self._paging_pages(state, self._sections(state))
+                if not self._paging_status(pending)["submittable"]:
+                    raise ValueError("Review pages remain unconfirmed")
             results = {key: results[key] for key in pending["ids"]}
             sections = self._sections(state)
             for key, result in results.items():
@@ -586,8 +732,20 @@ class ReviewController:
                     del candidate["results"]["diagnostics"][diagnostic_id]
             if section != "additions" and candidate["results"]["additions"]:
                 candidate["results"]["additions"]["final"]["reviewed"] = False
+            pending = candidate["pending"]
             candidate["pending"] = None
             sections = self._sections(candidate)
+            if (
+                pending
+                and "paging" in pending
+                and self._next_section(candidate, sections) == pending["section"]
+                and pending["ids"][0] in sections[pending["section"]]
+            ):
+                material = self._single_candidate(
+                    candidate, sections, pending["section"], pending["ids"][0]
+                )
+                if fingerprint(material) == pending["paging"]["material_digest"]:
+                    candidate["pending"] = pending
             for name in SECTIONS:
                 for result_id, retained in candidate["results"][name].items():
                     self._validate_result(
