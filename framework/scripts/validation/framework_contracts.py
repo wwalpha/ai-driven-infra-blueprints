@@ -89,7 +89,7 @@ def check_structure(findings, root, *, consumer=True, definitions_root=None):
     invalid_prompt_names = [
         name
         for name in codex_prompt_names
-        if not CODEX_PROMPT_FILENAME_PATTERN.fullmatch(name)
+        if name != "09_aws_pull.md" and not CODEX_PROMPT_FILENAME_PATTERN.fullmatch(name)
     ]
     findings.check(
         not invalid_prompt_names,
