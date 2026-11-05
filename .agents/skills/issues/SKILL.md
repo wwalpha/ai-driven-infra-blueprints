@@ -87,7 +87,7 @@ For local investigation, read [aws-resource-naming](../../../framework/rules/aws
 
 - Use Python's bounded cause/action summary; do not reread/reaggregate all records or paste the whole `iac-issues.md` into chat. Use the Review Controller below to review every required ID before saving; `detail --offset --limit` remains available for supporting evidence.
 - Both Markdown files are generated anew from the same reviewed whole-target Snapshot; no previous results, Human prose or service blocks are carried forward.
-- See [IaC report grouping and publication](../../../framework/rules/issues-investigation.md#iac-report-grouping-and-publication) for limits, omission counts, temporary artifact detail, masking and publication safety. No legacy state migration or deletion is part of saving.
+- See [IaC report grouping and publication](../../../framework/rules/issues-investigation.md#iac-report-grouping-and-publication) for limits, omission counts, temporary artifact detail, masking and publication safety. Saving leaves `iac-issues.state.json` unchanged.
 
 Output example (`issues/dev/cde/issues.md`):
 

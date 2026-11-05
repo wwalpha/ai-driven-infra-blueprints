@@ -572,7 +572,7 @@ A settled current request may leave its attempt outcome UNKNOWN while the curren
 The suspended same-Task operation in [Self recovery](task-contract.md#self-recovery)
 permits monotone additions only to Validation scope, Modified files and Allowed paths.
 Missing owner services must match fixed Execution scope and unique Model ownership of
-the saved execution inputs. A legacy Task without fixed Resource evidence is BLOCKED;
+the saved execution inputs. A Task without fixed Resource evidence is BLOCKED;
 no Execution scope is inferred or added. Exact entrances, necessary parts and generated
 Markdown/JSON are derived from Model sources, never directory-wide permissions. Existing
 observation writers still permit only observed fields; additions grant no Desired or IaC
@@ -644,7 +644,7 @@ Use current Task/target/account/Region/profile/scope/input guards before each mu
 
 Use only `framework/prompts/codex/07_destroy.md` and independent `cloudformation-destroy.py` in infrastructure phase `destroy`. Explicit human StackNames are authorized after safety checks; no duplicate confirmation. Do not route through deploy options, deploy preparation, repair, change sets or deploy mutation guards. No Terraform/resource/retained-resource/force deletion.
 
-Resolve local units, DeployOrder, MaxConcurrentStacks, resource ownership, identifier outputs/incoming references and exact observed/model/view paths before AWS calls. Use existing deterministic model readers and explicit cfn-logicalId; legacy name inference and template/parameter body reading are prohibited. Reject out-of-target references under existing scope policy before deletion. No desired/IaC changes.
+Resolve local units, DeployOrder, MaxConcurrentStacks, resource ownership, identifier outputs/incoming references and exact observed/model/view paths before AWS calls. Use existing deterministic model readers and explicit cfn-logicalId; name-based ownership inference and template/parameter body reading are prohibited. Reject out-of-target references under existing scope policy before deletion. No desired/IaC changes.
 
 Authenticate once per invocation through the existing `deploy/context.py` read-only target/account and STS logic (no IaC command requirement). Destroy uses the existing SDK, not an AWS CLI subprocess: DescribeStacks, ListImports and DeleteStack use `utils/aws/cloudformation.py`; DescribeStackEvents uses the common `utils/aws/client.py` request per page. Pin execution account, region, profile and each described StackId; all deletes address StackId. Confirm StackName/StackStatus/EnableTerminationProtection/ParentId/RootId. Block termination protection or direct nested targets without changing protection or scope. Use the destroy controller's existing lock.
 

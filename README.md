@@ -93,7 +93,7 @@ py -3 -B framework/scripts/worktree_task.py setup --task-id <task-id>
 
 The setup command uses the helper from the invoking checkout and the canonical dependencies from the primary checkout, checking compatibility with the retained worktree. A previously created worktree may still contain the old helper, so update its code through the normal Git workflow before invoking setup from that worktree. Setup does not propagate code changes to other worktrees.
 
-In each worktree, use `python3 -B framework/scripts/run-python.py <Python arguments>` for task commands, tests and local loops,. The wrapper chooses that worktree's Interpreter and PATH in every shell, including subprocesses using `sys.executable`; activation is unnecessary. Outside managed worktrees it uses the current Python. The wrapper uses shared Python directly, sets child-only `VIRTUAL_ENV`/PATH and removes `PYTHONHOME`/`PYTHONPATH`; no shell activation/export is needed. Cleanup never deletes the shared environment or changes another Task's setup state. Normal runtime rejects old `global`/`venv` registrations; explicit setup updates the registration to `shared`. Legacy Task-local `.venv` directories and other ignored artifacts require preservation before cleanup, which stops rather than deleting them. Symlinks and unknown directories remain protected. MWAA requirements remain separate. PDF export still needs Pandoc and WeasyPrint's native OS libraries; AWS CLI/Terraform are external prerequisites.
+In each worktree, use `python3 -B framework/scripts/run-python.py <Python arguments>` for task commands, tests and local loops,. The wrapper chooses that worktree's Interpreter and PATH in every shell, including subprocesses using `sys.executable`; activation is unnecessary. Outside managed worktrees it uses the current Python. The wrapper uses shared Python directly, sets child-only `VIRTUAL_ENV`/PATH and removes `PYTHONHOME`/`PYTHONPATH`; no shell activation/export is needed. Cleanup never deletes the shared environment or changes another Task's setup state. Normal runtime requires `shared` registration; use explicit setup to update the registration. Ignored artifacts require preservation before cleanup, which stops rather than deleting them. Symlinks and unknown directories remain protected. MWAA requirements remain separate. PDF export still needs Pandoc and WeasyPrint's native OS libraries; AWS CLI/Terraform are external prerequisites.
 
 Only an explicit Human request to publish a PR selects `finalize --task-id <task-id> --create-pr`.
 It uses the existing commit/rebase/validation path, pushes the verified candidate and creates
@@ -131,7 +131,7 @@ only when unambiguous. AWS/IaC remain unchanged.
 The internal CLI requires `--phase acquire`, then `--phase publish --evidence <returned path>`
 with agent edits between them; [08_import](framework/prompts/codex/08_import.md) is the
 single workflow authority. Both phases take `--dry-run` for a temporary candidate diff.
-No legacy automatic-reconstruction fallback exists. Normal import uses a design Task
+Normal import uses a design Task
 with Workflow `import` in the Human-selected worktree. Reuse an existing Definition
 unchanged, or add a reusable new Definition with new-instance inputs/bindings only in
 the selected environment. Preserve existing Definitions and consumers; do not require
@@ -145,8 +145,7 @@ is enforced at saving, generation, Task completion and Worktree integration. Tem
 acquisition/candidate contents stay outside Git and are cleaned after publication;
 `evidence_store(root)/<task-name>.json` keeps a small sealed completion receipt outside
 the repository. No repository-root `.blueprint` is created. Normal reads use only the current external
-store and reject invalid, expired or incompatible receipts; they do not migrate old
-receipts or search an old store. Reacquisition requires the explicitly authorized
+store and reject invalid, expired or incompatible receipts. Reacquisition requires the explicitly authorized
 [/import](.agents/skills/import/SKILL.md) workflow. Receipts expire after seven days.
 aws-check only compares. [Model-only update](framework/prompts/codex/05_update.md#model-only-import-merge-or-deletion)
 permits explicit IMPORT merge/delete with exact IDs, complete transfer and preservation

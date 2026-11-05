@@ -113,7 +113,7 @@ Host approval、署名サービス、特定 IDE の SDK は追加しません。
 
 Model 保存と表示保存は別 transaction です。表示だけ失敗した場合は Model を保持し、
 `import recover-display` で再取得・再 Import なしに回復します。
-旧 acquisition／Review／checkpoint／receipt／Deploy session は形式・意味・snapshot 版の不一致を示して拒否します。
+acquisition／Review／checkpoint／receipt／Deploy session の形式・意味・snapshot 版が一致しなければ、その不一致を示して拒否します。
 
 ## Deploy・観測 helper
 

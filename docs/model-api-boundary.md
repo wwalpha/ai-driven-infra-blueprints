@@ -12,7 +12,7 @@ This is an API ownership reference, not a Guard exception list. A listed depende
 
 No external ModelSnapshot `_replace`, reconstruction or authoritative-state mutation remains in Runtime consumers. Comparison's own memo dictionaries and CloudFormation YAML source locations are not ModelSnapshot state. `utils/iac_values.py` splits a CloudFormation stack/logical address, not a Model Row ID. Property paths and rendered Markdown syntax remain display/business parsing. Key literals used to name a diagnostic, read a specific business property or identify an authorized output remain legitimate scalar lookups.
 
-The prior structural `entries` compatibility export in validation/design_tables was unused and has been removed. Design's selection of service notes and grouped tables remains rendering policy; it uses ModelView for ownership and grouping. Existing explicit re-exports listed below are retained for API compatibility.
+Design's selection of service notes and grouped tables remains rendering policy; it uses ModelView for ownership and grouping. Existing explicit re-exports listed below are retained for API compatibility.
 
 ## Inventory method and coverage
 
@@ -1137,7 +1137,7 @@ These existing lazy loads preserve initialization order. AWS adapter Model is an
 
 `framework/scripts/tests/units/model-encapsulation-unit.checks.py` runs automatically through the existing Framework UT discovery. Its standard-library AST helper is `tests/support/model_encapsulation.py`; it imports no Model code and executes no scanned source. The inventory above records the Phase 4 review, not a permanent exception list or a line-number-based allowlist.
 
-The gate rejects private qualified Model symbols (including aliases and literal script-loader references), legacy structural enumeration/index entrypoints, ModelSnapshot construction and `dataclasses.replace`/`copy.replace` of recognized snapshots, external `_replace` access, ModelView private state, assignment/deletion/augmented assignment and mutating methods on recognized Snapshot state and its aliases. Literal `getattr`/`setattr` access is included. Type imports alone remain allowed.
+The gate rejects private qualified Model symbols (including aliases and literal script-loader references), direct structural enumeration/index entrypoints, ModelSnapshot construction and `dataclasses.replace`/`copy.replace` of recognized snapshots, external `_replace` access, ModelView private state, assignment/deletion/augmented assignment and mutating methods on recognized Snapshot state and its aliases. Literal `getattr`/`setattr` access is included. Type imports alone remain allowed.
 
 Known structural parser patterns are also rejected: Key-variable splitting on `.`, Row identity extraction using `rpartition('-')`, structural-prefix tests on Model Key expressions and capturing regexes that extract Model Row/Resource/Reference identities. Noncapturing regular expressions used only to restrict permitted Task/Deferred fields are business authorization policy and remain allowed; they neither resolve ownership nor reconstruct Model structure. Display strings, literal business-property lookups, property-path parsing, unrelated dataclass replacement and independent copies of values remain allowed.
 

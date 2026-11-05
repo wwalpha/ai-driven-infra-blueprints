@@ -118,7 +118,7 @@ Review は保存値・形式・取得値を保持します。観測値も同じ 
 既存の列形式の Row は、取得記録または明示した構築元から projection と確認した場合に限り、
 保存値を変えず `valueShape=projection` を追加します。leaf は移行不要です。
 意味を断定できない Row は未確認として個別に確認し、再取得は `/import` の権限と同意に従います。
-reader・検証・保存による自動移行や legacy fallback はありません。
+reader・検証・保存は `valueShape` を推測・補完しません。
 
 ## 参照宣言
 
@@ -146,7 +146,7 @@ KMS Key と子 Alias の grouped display は raw name 参照へ流用しませ�
 Pointer は object key 名、配列の追加位置、非文字列値を指せません。
 
 Resource 参照は `$modelRef` の `logicalId` と `attribute` から共通 Resolver で解決します。
-Model 入力としての Markdown Resource リンク、旧リンクの解析・変換・fallback は受け付けません。
+Markdown Resource リンクは Model 入力として受け付けません。
 生成 Markdown の一般リンク・JSON Artifact・Anchor の検証は引き続き行います。
 
 ### Endpoint DNS の選択
@@ -158,7 +158,7 @@ Interface Endpoint の DNS 名を選択します。選択位置は式に明示�
 [{"Fn::Select":[1,{"Fn::Split":[":",{"Fn::Select":[0,{"$modelRef":{"logicalId":"EC2_VPCEndpoint_001","attribute":"DnsEntries"}}]}]}]}]
 ```
 
-旧リンク用 `valueSelector` 宣言は使用しません。比較には Model／IaC の CNAME・Interface 型、
+比較には Model／IaC の CNAME・Interface 型、
 同じ Producer、同一 scope の一意な Export と抽出構造の証明が必要です。
 証明が不足すれば未比較とし、構造が一致しても実行時の選択範囲や現在の AWS 値の検証済みを意味しません。
 DNS 名・生成 ARN・Markdown 表示値を Model 正本へ保存しません。

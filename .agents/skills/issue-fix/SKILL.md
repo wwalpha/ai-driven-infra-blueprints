@@ -144,4 +144,4 @@ View-only 契約・生成・保存が拒否されたら、その理由と未対�
 
 ## 禁止事項
 
-`framework/**` と IaC の変更、Model/IaC 差分の修正、AWS API 実行・更新・Deploy/Apply、未承認値・識別子・参照先・observed の推測補完、Resource 削除・統合・置換の自動実行、生成 Markdown/JSON の直接編集、Issue 報告の手修正、既存契約・検証ガードの迂回、重複する Python/CLI 修正エンジン、Legacy 互換処理の追加を禁止する。既存機能で実現できなければ代替実装を追加せず、制約と未対応範囲を報告する。
+`framework/**` と IaC の変更、Model/IaC 差分の修正、AWS API 実行・更新・Deploy/Apply、未承認値・識別子・参照先・observed の推測補完、Resource 削除・統合・置換の自動実行、生成 Markdown/JSON の直接編集、Issue 報告の手修正、既存契約・検証ガードの迂回、重複する Python/CLI 修正エンジンの追加を禁止する。既存機能で実現できなければ代替実装を追加せず、制約と未対応範囲を報告する。

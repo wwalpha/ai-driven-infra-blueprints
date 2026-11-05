@@ -466,7 +466,7 @@ retain the current suspended status/reason. A live contract already containing o
 same additions is also accepted. See [Deploy correction conditions](cloudformation.md#managed-deploy-contract-correction)
 for progress, locks and interruption handling. Success keeps the Task suspended, retains
 execution evidence and verified pending save candidates, and requires Snapshot validation
-again. Missing fixed Resource evidence on legacy Tasks, unknown manifests, active requests
+again. Missing fixed Resource evidence, unknown manifests, active requests
 and unresolved Git/failure evidence stop without erasing progress. Then use the ordinary
 `--check-resume-scope` and, only under Self recovery above, `--resume`; rerun failed checks,
 final validation and Acceptance. Correction never runs AWS, clears progress or completes a Task.
