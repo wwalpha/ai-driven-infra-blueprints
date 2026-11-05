@@ -43,6 +43,21 @@ CONDITIONAL_CODE = {
 }
 
 
+def missing_leaf(response: Any, path: str) -> bool:
+    """Prove a scalar leaf is absent under an intact object path."""
+    parts = path.split(".")
+    if not path or any(
+        not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part) for part in parts
+    ):
+        return False
+    parent = response
+    for part in parts[:-1]:
+        if not isinstance(parent, dict) or part not in parent:
+            return False
+        parent = parent[part]
+    return isinstance(parent, dict) and parts[-1] not in parent
+
+
 def sensitive(resource: Any, prop: str) -> bool:
     return resource.module.sensitive(prop or "") or bool(
         re.search(
@@ -51,6 +66,36 @@ def sensitive(resource: Any, prop: str) -> bool:
             re.I,
         )
     )
+
+
+def response_structure(value: Any, schema: dict[str, Any]) -> bool:
+    """Accept only structures fully described by an unambiguous provider schema."""
+    if any(key in schema for key in ("$ref", "oneOf", "anyOf", "allOf")):
+        return False
+    kind = schema.get("type", "object" if "properties" in schema else None)
+    if kind == "object":
+        fields = schema.get("properties", {})
+        return (
+            isinstance(value, dict)
+            and set(schema.get("required", ())) <= value.keys()
+            and all(
+                key in fields and response_structure(item, fields[key])
+                for key, item in value.items()
+            )
+        )
+    if kind == "array":
+        return (
+            isinstance(value, list)
+            and bool(schema.get("items"))
+            and all(response_structure(item, schema["items"]) for item in value)
+        )
+    types = {
+        "string": (str,),
+        "boolean": (bool,),
+        "integer": (int,),
+        "number": (int, float),
+    }
+    return type(value) in types.get(kind, ())
 
 
 def contract(root: Path, prop: str, status: str) -> dict[str, Any] | None:
@@ -63,6 +108,30 @@ def contract(root: Path, prop: str, status: str) -> dict[str, Any] | None:
     if mapped is None or not mapped.include:
         return None
     reference = "framework/mappings/aws/" + service + ".yaml#" + prop
+    if status == "not_returned":
+        getter = mapping.getters.get(mapped.field.getter, {})
+        if (
+            mapped.source != "aws"
+            or mapped.field.classification != "supported"
+            or getter.get("kind") != "cloudcontrol"
+            or mapped.transform != "identity"
+            or required(root, kind, prop)
+            or not missing_leaf({}, mapped.field.path)
+            or sensitive(
+                SimpleNamespace(module=SimpleNamespace(sensitive=lambda _: False)), prop
+            )
+        ):
+            return None
+        return {
+            "status": status,
+            "reasonCode": "OPTIONAL_PROPERTY_NOT_RETURNED",
+            "reason": "Successful identified Get omitted an optional Property; existing values are not AWS verified",
+            "evidence": {
+                "mapping": reference,
+                "getter": mapped.field.getter,
+                "path": mapped.field.path,
+            },
+        }
     if status == "unobservable" and prop in CONDITIONAL_CODE:
         path = CONDITIONAL_CODE[prop]
         getter = mapping.getters.get(mapped.field.getter, {})
@@ -199,6 +268,12 @@ def conditional_code_capture(
 def valid_capture(
     root: Path, prop: str, capture: dict[str, Any], record: dict[str, Any]
 ) -> bool:
+    if capture.get("status") == "not_returned":
+        expected = contract(root, prop, "not_returned")
+        if expected is None:
+            return False
+        expected["evidence"]["identity"] = record.get("identity")
+        return capture == expected and bool(record.get("identity"))
     if prop not in CONDITIONAL_CODE:
         return contract(root, prop, capture.get("status", "")) == capture
     evidence = capture.get("evidence", {})

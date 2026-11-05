@@ -511,6 +511,15 @@ def _normalize_records(ctx, service, records):
                 else:
                     value = m.select(ctx.fetch(proxy, field.getter), field.path)
                 if value == m.MISSING:
+                    omitted = limitations.contract(ctx.root, prop, "not_returned")
+                    if (
+                        omitted is not None
+                        and field.getter in record.get("verifiedDetailGetters", ())
+                        and limitations.missing_leaf(response, field.path)
+                    ):
+                        omitted["evidence"]["identity"] = record["identity"]
+                        captured[prop] = omitted
+                        continue
                     conditional_restriction = (
                         limitations.conditional_code_capture(
                             ctx.root, prop, response, record["identity"]

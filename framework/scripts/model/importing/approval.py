@@ -469,7 +469,7 @@ def build_review(
         if rid is None and len(existing) == 1:
             rid = existing[0]
         for prop, capture in sorted(record["properties"].items()):
-            if capture["status"] not in {"unobservable", "withheld"}:
+            if capture["status"] not in {"unobservable", "withheld", "not_returned"}:
                 continue
             item = treatments.get((record["record"], prop), {})
             limitation_report.append(

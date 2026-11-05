@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Limitations are validated proposals; integrity bindings never authenticate a Human."""
 
+import json
 import sys
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from model.importing import (
     approval,
     cli,
     evidence,
+    inventory,
     limitations,
     sources,
 )
@@ -32,6 +34,147 @@ if not __debug__:
 ROOT = cli.ROOT
 ARN = "arn:aws:s3:::fixture"
 PROP = "LakeFormation.Resource.UseServiceLinkedRole"
+
+
+@pytest.mark.parametrize(
+    ("response", "path", "expected"),
+    [
+        ({"Parent": {}}, "Parent.Optional", True),
+        ({}, "Parent.Optional", False),
+        ({"Parent": None}, "Parent.Optional", False),
+        ({"Parent": "wrong"}, "Parent.Optional", False),
+        ({"Parent": []}, "Parent.Optional", False),
+        ({"Parent": {"Optional": None}}, "Parent.Optional", False),
+        ({"Items": [{}]}, "Items[].Optional", False),
+        ({"Parent": {}}, "Parent..Optional", False),
+    ],
+)
+def test_missing_leaf_requires_intact_object_path(response, path, expected):
+    assert limitations.missing_leaf(response, path) is expected
+
+
+@pytest.mark.parametrize(
+    "service,kind,identity,identity_key,prop",
+    [
+        ("ec2", "EC2.TransitGateway", "tgw-test", "Id", "Description"),
+        (
+            "ecs",
+            "ECS.TaskDefinition",
+            "arn:aws:ecs:ap-northeast-1:123456789012:task-definition/test:1",
+            "TaskDefinitionArn",
+            "ContainerDefinitions",
+        ),
+    ],
+)
+def test_provider_missing_capture_requires_verified_detail(
+    service, kind, identity, identity_key, prop
+):
+    ctx = cli.import_context(ROOT, core.TARGET, service=service, no_profile=True)
+    ctx.verified = True
+    inv = inventory.inventory_for(ctx)
+    mapping, mapped = inv.mapping(service)
+    ctx.call = Mock(
+        return_value={
+            "ResourceDescription": {
+                "Identifier": identity,
+                "Properties": json.dumps({identity_key: identity}),
+            }
+        }
+    )
+    raw = inv.cloud_record(
+        service, kind, {"Identifier": identity}, inv.schema(kind), mapping, mapped
+    )
+    record = cli.normalize_records(ctx, service, [raw])[0]
+    capture = record["properties"][kind + "." + prop]
+    assert capture["status"] == "not_returned"
+    assert limitations.valid_capture(ROOT, kind + "." + prop, capture, record)
+    changed = deepcopy(capture)
+    changed["evidence"]["identity"] = "other"
+    assert not limitations.valid_capture(ROOT, kind + "." + prop, changed, record)
+    record["_action"] = "refresh"
+    old = resource_values("001", kind, "existing", "IMPORT", [(prop, "`retained`")])
+    old.update(
+        {
+            "observed.row.001-001.value": "`previous observation`",
+            "display.row.001-001.show": "false",
+            "desired.reference.001.consumerKey": "desired.row.001-001.value",
+            "desired.reference.001.sourceResourceId": "002",
+        }
+    )
+    selection = {
+        "limitations": [
+            {
+                "record": record["record"],
+                "property": kind + "." + prop,
+                "reasonCode": capture["reasonCode"],
+                "treatment": "retain_existing",
+                "reason": "Human approved unchanged existing state",
+            }
+        ]
+    }
+    assert limitations.validate(selection, {"001": record}, old, dict(old), ROOT)
+    for key in old:
+        if key.startswith(
+            ("desired.row.", "observed.row.", "display.row.", "desired.reference.")
+        ):
+            with pytest.raises(ValueError):
+                limitations.validate(
+                    selection, {"001": record}, old, {**old, key: "changed"}, ROOT
+                )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"Id": "different"},
+        {"Id": None},
+        {"Id": "tgw-test", "Tags": None},
+        {"Id": "tgw-test", "Tags": {}},
+        {"Id": "tgw-test", "Unexpected": True},
+    ],
+)
+def test_provider_malformed_response_cannot_authorize_retention(payload):
+    ctx = cli.import_context(ROOT, core.TARGET, service="ec2", no_profile=True)
+    ctx.verified = True
+    inv = inventory.inventory_for(ctx)
+    mapping, mapped = inv.mapping("ec2")
+    ctx.call = Mock(
+        return_value={
+            "ResourceDescription": {
+                "Identifier": "tgw-test",
+                "Properties": json.dumps(payload),
+            }
+        }
+    )
+    if "Tags" in payload:
+        with pytest.raises(cli.comparator().Unresolved, match="invalid array type"):
+            inv.cloud_record(
+                "ec2",
+                "EC2.TransitGateway",
+                {"Identifier": "tgw-test"},
+                inv.schema("EC2.TransitGateway"),
+                mapping,
+                mapped,
+            )
+    else:
+        raw = inv.cloud_record(
+            "ec2",
+            "EC2.TransitGateway",
+            {"Identifier": "tgw-test"},
+            inv.schema("EC2.TransitGateway"),
+            mapping,
+            mapped,
+        )
+        assert not raw["verifiedDetailGetters"]
+
+
+def test_provider_required_and_sdk_properties_cannot_be_waived():
+    for prop in (
+        "Logs.MetricFilter.FilterName",
+        "QuickSight.Group.Description",
+        "EC2.TransitGateway.NoSuchProperty",
+    ):
+        assert limitations.contract(ROOT, prop, "not_returned") is None
 
 
 def schema(prop):

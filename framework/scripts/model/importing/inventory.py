@@ -21,6 +21,7 @@ from utils.script_loader import module
 
 import model.importing.sdk_inventory as sdk_inventory
 import model.projection as _imports_model_projection
+from model.importing import limitations
 from model.importing.discovery import (
     ADAPTER_INVENTORIES,
     adapter_detail,
@@ -54,6 +55,28 @@ def pointer_value(properties, pointer):
             return None
         result = result[part]
     return result
+
+
+def cloud_identity_matches(
+    list_identifier, request_identifier, detail_identifier, properties, pointers
+):
+    """Confirm List, request, Get and all primary identifier components agree."""
+    if not isinstance(pointers, (list, tuple)) or not pointers:
+        return False
+    try:
+        values = [pointer_value(properties, pointer) for pointer in pointers]
+    except (TypeError, ValueError, AttributeError):
+        return False
+    if any(not isinstance(value, str) or not value or "|" in value for value in values):
+        return False
+    return (
+        isinstance(list_identifier, str)
+        and bool(list_identifier)
+        and list_identifier
+        == request_identifier
+        == detail_identifier
+        == "|".join(values)
+    )
 
 
 def cloudcontrol_value(ctx, resource, getter):
@@ -240,7 +263,7 @@ def _callback_ImportInventory_normalize_run(normalize, record, self, service, /)
         gaps = [
             {"record": result["record"], "property": prop, "status": capture["status"]}
             for prop, capture in result["properties"].items()
-            if capture["status"] in {"unobservable", "withheld"}
+            if capture["status"] in {"unobservable", "withheld", "not_returned"}
         ]
         if gaps:
             self.status(record["kind"], "limited", limitations=gaps)
@@ -579,6 +602,7 @@ class ImportInventory:
             if "Properties" in description
             else {}
         )
+        verified_detail = False
         needed = [
             prop
             for key, prop in mapped.items()
@@ -607,6 +631,13 @@ class ImportInventory:
             if detail["ResourceDescription"].get("Identifier") != identifier:
                 raise ValueError("Cloud Control detail identifier mismatch")
             props = properties_json(detail["ResourceDescription"]["Properties"])
+            verified_detail = cloud_identity_matches(
+                identifier,
+                identifier,
+                detail["ResourceDescription"].get("Identifier"),
+                props,
+                schema.get("primaryIdentifier", ()),
+            ) and limitations.response_structure(props, schema)
         getters = {
             name: props
             for name, definition in mapping.getters.items()
@@ -629,6 +660,7 @@ class ImportInventory:
             "getters": getters,
             "cloudProperties": props,
             "seedProperties": seeds,
+            "verifiedDetailGetters": list(getters) if verified_detail else [],
         }
         return record
 

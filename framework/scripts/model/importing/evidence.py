@@ -400,7 +400,7 @@ def validate_inventory(value):
             ):
                 raise ValueError("IMPORT limited inventory has unresolved acquisition")
             for prop, capture in record["properties"].items():
-                if capture["status"] in {"unobservable", "withheld"}:
+                if capture["status"] in {"unobservable", "withheld", "not_returned"}:
                     if not limitations.valid_capture(
                         Path(__file__).resolve().parents[4], prop, capture, record
                     ):
@@ -444,7 +444,7 @@ def acquisition_complete(value):
         ):
             return False
         allowed = (
-            {"captured", "missing", "unobservable", "withheld"}
+            {"captured", "missing", "unobservable", "withheld", "not_returned"}
             if status == "limited"
             else {"captured", "missing"}
         )

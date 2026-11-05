@@ -32,6 +32,37 @@ TARGET = {
 SDK = aws_runtime().sdk_session()
 
 
+@pytest.mark.parametrize(
+    ("listed", "requested", "returned", "properties", "pointers", "expected"),
+    [
+        (
+            "a|b",
+            "a|b",
+            "a|b",
+            {"Name": "a", "Parent": {"Id": "b"}},
+            ["/properties/Name", "/properties/Parent/Id"],
+            True,
+        ),
+        ("a", "b", "a", {"Name": "a"}, ["/properties/Name"], False),
+        ("a", "a", "b", {"Name": "a"}, ["/properties/Name"], False),
+        ("a", "a", "a", {"Name": "b"}, ["/properties/Name"], False),
+        ("a", "a", "a", {}, ["/properties/Name"], False),
+        ("a", "a", "a", {"Name": None}, ["/properties/Name"], False),
+        ("a", "a", "a", {"Name": "a"}, [], False),
+        ("a", "a", "a", {"Name": "a"}, ["/Name"], False),
+    ],
+)
+def test_cloud_identity_requires_independent_matching_identifiers(
+    listed, requested, returned, properties, pointers, expected
+):
+    assert (
+        inventory.cloud_identity_matches(
+            listed, requested, returned, properties, pointers
+        )
+        is expected
+    )
+
+
 def validate_input(api, operation, inputs):
     model = SDK.get_service_model(api)
     name = aws_runtime().operation_name(model, operation)

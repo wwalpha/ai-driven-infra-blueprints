@@ -119,14 +119,24 @@ have no action field. Explicitly retain Property omissions and unavailable value
 Unresolved whole records can appear diagnostically but cannot authorize publication.
 
 Selection may also contain `limitations`, an explicit list of objects with exactly
-record, property, reasonCode, treatment and reason. Present every unobservable/withheld
+record, property, reasonCode, treatment and reason. Present every unobservable/withheld/not_returned
 Property, Mapping/API evidence, existing-value presence, proposed treatment, Before/After
 handling and residual risk in the same full Review. `retain_existing` is only for unchanged
 Rows of an existing IMPORT Resource; it never creates an AWS observation.
 `omit_unobserved` is only for an absent optional Property of a new Resource. Required
-Properties, existing Rows and Identity cannot be waived. Only confirmed unobservable or
-withheld capture contracts qualify; local_metadata alone, AccessDenied and missing Getters
+Properties, existing Rows and Identity cannot be waived. Only confirmed unobservable, withheld or not_returned capture contracts qualify; local_metadata alone, AccessDenied and missing Getters
 never qualify. Python rechecks each proposal against acquisition, Model and Mapping.
+
+`not_returned` requires a successful Cloud Control Get whose Identifier agrees with
+List/request and whose Properties primary identifier independently agrees. The entire
+returned structure must match the supported provider schema, and only a final optional
+Property may be absent. The Mapping/getter/path/identity proof is part of the sealed
+acquisition; Selection cannot create it. Current support covers direct root Properties
+without transforms. SDK/Adapter Getters, nested/array Paths, and ambiguous/unresolved
+provider schema structures fail closed for retention. Identity, required Properties,
+AccessDenied, failed retrieval and Mapping errors never qualify. Explicit Human consent
+to the full bound Review remains required. Approved retention permits completion while
+allPropertiesObserved and receipt observationComplete remain false.
 
 A limited inventory means complete enumeration/Identity with only evidenced property
 limitations; it does not mean all values were observed. Failed, permission_denied,

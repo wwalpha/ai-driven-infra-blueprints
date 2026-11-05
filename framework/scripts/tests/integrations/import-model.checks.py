@@ -1365,6 +1365,147 @@ def check_limited_acquisition_preserves_values_and_completes(tmp_path):
     assert "Task status: `completed`" in (root / "tasks/import-fixture.md").read_text()
 
 
+def check_optional_provider_retention_completes(tmp_path):
+    root = tmp_path / "limited"
+    root.mkdir()
+    project_fixture(root)
+    service, kind = "ec2", "EC2.TransitGateway"
+    path = root / "model/dev" / ACCOUNT / (service + ".properties")
+    arn = "tgw-1234567890abcdef0"
+    values = {
+        **service_values(service, [kind]),
+        **resource_values(
+            "001",
+            kind,
+            "registered-data",
+            "IMPORT",
+            [
+                ("Id", m.model_literal(arn)),
+                ("Description", "`retained description`"),
+                ("AmazonSideAsn", "`64512`"),
+                ("DnsSupport", "`disable`"),
+                ("VpnEcmpSupport", "`enable`"),
+                ("AutoAcceptSharedAttachments", "`disable`"),
+                ("DefaultRouteTableAssociation", "`enable`"),
+                ("DefaultRouteTablePropagation", "`enable`"),
+            ],
+        ),
+    }
+    write_model(path, values)
+    checkpoint(root)
+    source = path.relative_to(root).as_posix()
+    document = "docs/designs/dev/" + ACCOUNT + "/" + service + ".md"
+    files = ["tasks/import-fixture.md", source, document]
+    listing = "\n".join("- `" + name + "`" for name in files)
+    contract = (
+        "# Limited Import fixture\n## Task contract\n- Task type: `design`\n- Workflow: `import`\n- Task status: `running`\n- IMPORT target: `dev/"
+        + ACCOUNT
+        + "/"
+        + service
+        + "`\n## Goal\nReflect acquired values with explicit retained input\n## Required changes\n- [R1] Reflect selected resource\n## Validation scope\n- `dev/"
+        + ACCOUNT
+        + "/"
+        + service
+        + "`\n## Modified files\n"
+        + listing
+        + "\n## Allowed paths\n"
+        + listing
+        + "\n## Acceptance checks\n- [R1] `exists:"
+        + document
+        + "`\n"
+    )
+    start(root, "tasks/import-fixture.md", contract)
+    cli = CloudControlCli(
+        {
+            kind: [
+                {
+                    "identifier": arn,
+                    "properties": {
+                        "Id": arn,
+                        "AmazonSideAsn": 64512,
+                        "DnsSupport": "enable",
+                        "VpnEcmpSupport": "enable",
+                        "AutoAcceptSharedAttachments": "disable",
+                        "DefaultRouteTableAssociation": "enable",
+                        "DefaultRouteTablePropagation": "enable",
+                    },
+                }
+            ]
+        }
+    )
+    acquired = m.acquire(
+        root, "dev", service, ACCOUNT, cli_runner=cli, resource_types=[kind]
+    )
+    assert acquired["inventory"][kind]["status"] == "limited"
+    assert (
+        acquired["records"][0]["properties"][kind + ".Description"]["status"]
+        == "not_returned"
+    )
+    proposed = {**values, "desired.row.001-004.value": "`enable`"}
+    selected = [
+        {
+            "record": acquired["records"][0]["record"],
+            "resource": "001",
+            "action": "refresh",
+            "reason": "Human-selected existing registration",
+            "basis": [],
+        }
+    ]
+    stage(root, acquired, {source: serialize(proposed)}, selected)
+    first = review_fixture(root, acquired, service)
+    assert not first["review"]["completion"]["propertiesResolved"]
+    assert first["review"]["limitations"][0]["treatment"] is None
+    selection_path = Path(acquired["selection"])
+    selection = json.loads(selection_path.read_text())
+    selection["limitations"] = [
+        {
+            "record": selected[0]["record"],
+            "property": kind + ".Description",
+            "reasonCode": "OPTIONAL_PROPERTY_NOT_RETURNED",
+            "treatment": "retain_existing",
+            "reason": "Explicitly retain the existing input without an AWS confirmation",
+        }
+    ]
+    selection_path.write_text(json_text(selection))
+    reviewed = review_fixture(root, acquired, service)
+    assert not reviewed["review"]["completion"]["allPropertiesObserved"]
+    binding = import_approval.review_binding(
+        reviewed["review"],
+        import_evidence.read_acquisition(
+            root, Path(acquired["evidence"]), ("dev", ACCOUNT, service), False
+        ),
+    )
+    count = len(cli.calls)
+    sealed = import_evidence.read_acquisition(
+        root, Path(acquired["evidence"]), ("dev", ACCOUNT, service), False
+    )
+    (Path(acquired["evidence"]).parent / "checkpoint.json").write_text(
+        json_text(import_approval.checkpoint(sealed, selected))
+    )
+    resumed = m.resume_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
+    assert resumed["status"] == "resumed" and resumed["answers"] == selected
+    # The fixture represents consent to this unchanged Review; Python checks integrity only.
+    result = m.publish_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
+    assert result["status"] == "complete" and len(cli.calls) == count, result
+    proof = import_evidence.read_proof(root)
+    assert proof["complete"] and proof["completion"] == {
+        "acquisition": True,
+        "properties": True,
+        "review": True,
+    }
+    assert proof["observationComplete"] is False and proof["reviewBinding"] == binding
+    after = load_model(path)
+    assert (
+        after.authoritative["desired.row.001-002.value"]
+        == values["desired.row.001-002.value"]
+    )
+    assert "observed.row.001-002.value" not in after.authoritative
+    import_guard.require_import_changes(root)
+    with patch.object(TaskValidation, "git_paths", _callback_limited_task_paths):
+        task_contract.complete(root, "tasks/import-fixture.md")
+    assert "Task status: `completed`" in (root / "tasks/import-fixture.md").read_text()
+
+
 def test_complete_checkpoint_resume_does_not_reacquire(tmp_path):
     root, acquired, cli = prepare(tmp_path, dry_run=True)
     evidence = Path(acquired["evidence"])
