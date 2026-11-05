@@ -476,6 +476,65 @@ def check_latest_base_sync_retains_conflict():
 
 
 @it_case
+def check_rewritten_base_replay_content():
+    for scenario in ("different-lines", "same-change", "conflict"):
+        with fixture() as root:
+            original = "first\nmiddle\nlast\n"
+            (root / "file.txt").write_text(original, encoding="utf-8")
+            (root / "delete.txt").write_text("delete\n", encoding="utf-8")
+            git(root, "add", ".")
+            git(root, "commit", "-qm", "old base")
+            target, state = start(root, files=("file.txt", "new.txt", "delete.txt"))
+            (target / "file.txt").write_text("task\nmiddle\nlast\n", encoding="utf-8")
+            (target / "new.txt").write_text("new\n", encoding="utf-8")
+            (target / "delete.txt").unlink()
+            finish_contract(target, state)
+            git(
+                root,
+                "commit",
+                "--amend",
+                "--no-edit",
+                "--allow-empty",
+                "-qm",
+                "rewrite",
+            )
+            base_content = {
+                "different-lines": "first\nmiddle\nbase\n",
+                "same-change": "task\nmiddle\nlast\n",
+                "conflict": "base\nmiddle\nlast\n",
+            }[scenario]
+            (root / "file.txt").write_text(base_content, encoding="utf-8")
+            git(root, "add", "file.txt")
+            git(root, "commit", "-qm", "base change")
+            latest = git(root, "rev-parse", "HEAD")
+            if scenario == "conflict":
+                with pytest.raises(wt.Blocked, match="conflict"):
+                    wt.sync_latest_base(root, "example", latest)
+                assert (target / "file.txt").read_text(
+                    encoding="utf-8"
+                ) == "task\nmiddle\nlast\n"
+                assert (target / "new.txt").read_text(encoding="utf-8") == "new\n"
+                assert not (target / "delete.txt").exists()
+                continue
+            result = wt.sync_latest_base(root, "example", latest)
+            assert result["status"] == "needs_validation"
+            expected = (
+                "task\nmiddle\nbase\n"
+                if scenario == "different-lines"
+                else base_content
+            )
+            assert (target / "file.txt").read_text(encoding="utf-8") == expected
+            assert (target / "new.txt").read_text(encoding="utf-8") == "new\n"
+            assert not (target / "delete.txt").exists()
+            assert git(target, "merge-base", "--is-ancestor", latest, "HEAD") == ""
+            assert git(target, "diff", "--name-only", latest, "HEAD").splitlines() == (
+                ["delete.txt", "file.txt", "new.txt"]
+                if scenario == "different-lines"
+                else ["delete.txt", "new.txt"]
+            )
+
+
+@it_case
 def check_ordinary_rewritten_base_sync():
     for empty, conflict in ((False, False), (True, False), (False, True)):
         with fixture() as root:
@@ -2218,6 +2277,7 @@ def main():
         check_implement_rebases_on_latest_base,
         check_latest_base_sync_retains_conflict,
         check_ordinary_rewritten_base_sync,
+        check_rewritten_base_replay_content,
         check_latest_base_linear_repeated_and_recovery,
         check_latest_base_rejects_old_merge_history,
         check_base_advance_after_validation,
