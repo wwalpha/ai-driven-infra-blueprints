@@ -18,6 +18,7 @@ from model.importing import cli, inventory, limitations
 from model.importing.adapter_contract_cases.fake_sdk import DirectCalls, EC2NetworkCalls
 from model.importing.contract_fixtures import InvalidFixture
 from model.importing.discovery import ADAPTER_INVENTORIES
+from model.literal_values import optional_projection_absence
 from model.reference_nodes import parse
 
 ACCOUNT = "123456789012"
@@ -89,7 +90,11 @@ def import_normalize(
     path = cli.schema_property(kind, key)
     extracted = cli.normalize(path, raw, shape)
     if any(
-        item == cli.comparator().MISSING or cli.unsafe(item)
+        (
+            item == cli.comparator().MISSING
+            and not optional_projection_absence(kind, path, item)
+        )
+        or cli.unsafe(item)
         for item in extracted.values
     ):
         raise UnverifiedFixture("Fixture contains sensitive or unresolved values")

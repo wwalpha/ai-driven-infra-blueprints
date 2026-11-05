@@ -1,13 +1,18 @@
 """Offline codepipeline adapter fixtures."""
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from aws_mapping_compare import value as mapping_value
 from model.importing.adapter_contract_cases.core import (
+    clear_fetch,
     direct_properties,
     direct_resource,
     failure_branches,
+    import_normalize,
 )
+from utils.comparison_rows import MISSING
 
 
 def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str, Any]:
@@ -104,7 +109,9 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
                 [["Source"]],
             ),
             "Stages[].Actions[].Namespace": (
-                "stages[].actions[].namespace", "typed", [["SourceVariables"]],
+                "stages[].actions[].namespace",
+                "typed",
+                [["SourceVariables"]],
             ),
             "Stages[].Actions[].RunOrder": (
                 "stages[].actions[].runOrder",
@@ -157,6 +164,26 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
     )
     if not fake.calls:
         return items
+    namespace = kind + ".Stages[].Actions[].Namespace"
+    if namespace in items and items[namespace]["status"] == "verified":
+        for values in (
+            [["QuarantineSource"], [MISSING], [MISSING], [MISSING]],
+            [[MISSING, "Second", MISSING]],
+            [[MISSING], [MISSING]],
+            [["Source"], ["Build"]],
+        ):
+            fake.payload = deepcopy(payload)
+            fake.payload["stages"] = namespace_stages(values)
+            clear_fetch(ctx)
+            _, raw = mapping_value(
+                ctx, resource, mapping, mapping.properties[namespace], namespace
+            )
+            if raw != values:
+                raise ValueError("Namespace projection lost Stage/Action membership")
+            import_normalize(ctx, kind, namespace, raw)
+        items[namespace]["branches"].append("partial-optional-namespace")
+        fake.payload = payload
+        clear_fetch(ctx)
     failure_branches(
         ctx, fake, resource, mapping, properties[0], api + "." + operation, selector
     )
@@ -177,3 +204,28 @@ CONTRACTS = (
         ("Name",),
     ),
 )
+
+
+def namespace_stages(values):
+    """Build valid named actions while omitting only the selected optional leaves."""
+    return [
+        {
+            "name": f"stage-{i}",
+            "actions": [
+                {
+                    "name": f"action-{i}-{j}",
+                    "actionTypeId": {
+                        "category": "Source",
+                        "owner": "AWS",
+                        "provider": "CodeCommit",
+                        "version": "1",
+                    },
+                    "runOrder": 1,
+                    "configuration": {"RepositoryName": "fixture"},
+                    **({"namespace": value} if value != MISSING else {}),
+                }
+                for j, value in enumerate(actions)
+            ],
+        }
+        for i, actions in enumerate(values)
+    ]

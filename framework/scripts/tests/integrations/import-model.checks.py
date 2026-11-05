@@ -1661,3 +1661,63 @@ if __name__ == "__main__":
     from support.pytest_cli import run
 
     raise SystemExit(run(__file__))
+
+
+def test_namespace_four_stage_packed_display_preserves_positions():
+    kind = "CodePipeline.Pipeline"
+    resource = {"resourceType": kind, "resourceMode": "IMPORT", "logicalId": "Pipeline"}
+    values = {
+        "Stages[].Actions[].Commands": [
+            [["hidden"]],
+            [["hidden"], ["hidden"]],
+            [["hidden"]],
+            [["hidden"]],
+        ],
+        "Stages[].Actions[].Name": [
+            ["source"],
+            ["approve", "check"],
+            ["sign"],
+            ["publish"],
+        ],
+        "Stages[].Actions[].Namespace": [
+            ["QuarantineSource"],
+            [{"absent": True}, "Checks"],
+            [{"absent": True}],
+            [{"absent": True}],
+        ],
+        "Stages[].Name": [
+            "source",
+            "quarantine",
+            "quarantine-approval",
+            "quarantine-sign",
+        ],
+    }
+    rows = [
+        [
+            f"001-{i:03}",
+            kind + "." + prop,
+            "`" + json.dumps(value, separators=(",", ":")) + "`",
+            "",
+        ]
+        for i, (prop, value) in enumerate(values.items(), 1)
+    ]
+    text = "\n".join(resource_table_lines(resource, "fixture", rows, [], m.ROOT))
+    assert "hidden" not in text
+    assert "Stages[4].Actions[1].Name" in text, text
+    assert "Stages[2].Actions[2].Namespace" in text and "Checks" in text
+    assert "QuarantineSource" in text
+    assert text.count(".Name |") == 9
+    assert "Stages[2].Actions[1].Name" in text and "Stages[2].Actions[2].Name" in text
+    restored = "\n".join(
+        expanded_display_rows(
+            [
+                '<a id="pipeline"></a>',
+                "### CodePipeline.Pipeline: fixture",
+                *text.splitlines(),
+            ],
+            m.ROOT,
+            modes={"pipeline": "IMPORT"},
+        )
+    )
+    for row in rows[1:]:
+        assert row[1] in restored and row[2] in restored

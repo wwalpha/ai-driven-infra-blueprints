@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from itertools import combinations
 
 from utils.cloudformation.format import boolean_literal
+from utils.comparison_rows import MISSING
 from utils.json_format import strict_json
 from utils.property_path import definition_path
 
@@ -140,6 +141,16 @@ def literal_errors(catalog, kind, field, raw, shape="leaf"):
     return validation_errors(catalog, kind, field, normalized)
 
 
+def optional_projection_absence(kind, field, value):
+    """Namespace uses the existing positional absence marker, never a string value."""
+    return (
+        kind == "CodePipeline.Pipeline"
+        and definition_path(field) == "Stages[].Actions[].Namespace"
+        and value == MISSING
+        and value["absent"] is True
+    )
+
+
 def validation_errors(catalog, kind, field, normalized):
     # Even an empty parent must resolve the complete schema path.
     schema_field = definition_path(field)
@@ -151,5 +162,7 @@ def validation_errors(catalog, kind, field, normalized):
             for error in catalog.array_errors(kind, definition_path(path), array)
         )
     for value in normalized.values:
+        if normalized.arrays and optional_projection_absence(kind, field, value):
+            continue
         errors.extend(catalog.typed_literal_errors(kind, schema_field, value))
     return errors

@@ -79,7 +79,12 @@ from model.importing.sources import (
     selection_records,
     verify_values,
 )
-from model.literal_values import array_paths, normalize, validation_errors
+from model.literal_values import (
+    array_paths,
+    normalize,
+    optional_projection_absence,
+    validation_errors,
+)
 from model.operations import prepare_edit, publish_edit
 from model.render import owned_artifacts, view_plan
 from model.sources import (
@@ -551,7 +556,12 @@ def _normalize_records(ctx, service, records):
                 field_path = schema_property(property_kind, prop)
                 extracted = normalize(field_path, value, shape)
                 for item in extracted.values:
-                    if item == m.MISSING or unsafe(item):
+                    if (
+                        item == m.MISSING
+                        and not optional_projection_absence(
+                            property_kind, field_path, item
+                        )
+                    ) or unsafe(item):
                         raise ValueError("sensitive or unresolved AWS value")
                 errors = validation_errors(
                     property_catalog(), property_kind, field_path, extracted

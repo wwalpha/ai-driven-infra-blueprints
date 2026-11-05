@@ -117,4 +117,23 @@ def value(ctx, resource, mapping, prop, key):
             return response, [project(prop, item) for item in payload]
         return response, project(prop, payload)
     response = ctx.fetch(resource, field.getter)
+    if (
+        key == "CodePipeline.Pipeline.Stages[].Actions[].Namespace"
+        and "stages" in response
+    ):
+        # Validate the source structure before treating an omitted leaf as optional.
+        stages = response.get("stages")
+        if not isinstance(stages, list) or not stages:
+            raise ValueError("GetPipeline stages must be a nonempty array")
+        for stage in stages:
+            actions = stage.get("actions") if isinstance(stage, dict) else None
+            if not isinstance(actions, list) or not actions:
+                raise ValueError("GetPipeline actions must be a nonempty array")
+            for action in actions:
+                if not isinstance(action, dict) or (
+                    "namespace" in action and not isinstance(action["namespace"], str)
+                ):
+                    raise ValueError(
+                        "GetPipeline namespace must be a string when present"
+                    )
     return response, project(prop, response)

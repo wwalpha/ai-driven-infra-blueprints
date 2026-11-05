@@ -26,9 +26,15 @@ from model.importing import (
 )
 from model.importing.adapter_contract_cases import core, fake_sdk, registry
 from model.importing.adapter_contract_cases.core import fixture_context
-from model.importing.adapter_contract_cases.services import lambda_, quicksight, sqs
+from model.importing.adapter_contract_cases.services import (
+    codepipeline,
+    lambda_,
+    quicksight,
+    sqs,
+)
 from model.importing.adapter_contract_cases.services.ec2 import InstanceCalls
 from model.importing.discovery import ADAPTER_INVENTORIES
+from model.literal_values import literal_errors
 from model.render import markdown_for
 from support.aws_mapping_display_fixtures import fixture as display_fixture
 from support.check_model_aws_fixtures import SchemaOffline
@@ -1191,3 +1197,186 @@ def test_sdk_fixture_request_shape_is_validation_error():
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        [
+            ["QuarantineSource"],
+            [{"absent": True}],
+            [{"absent": True}],
+            [{"absent": True}],
+        ],
+        [[{"absent": True}, "Second", {"absent": True}]],
+        [[{"absent": True}], [{"absent": True}]],
+        [["Source"], ["Build"]],
+    ],
+)
+def test_namespace_import_membership_and_comparison(values):
+    kind = "CodePipeline.Pipeline"
+    key = kind + ".Stages[].Actions[].Namespace"
+    mapping = runtime_registry(ROOT, "codepipeline")
+    payload = {
+        "name": "fixture",
+        "roleArn": "arn:aws:iam::123456789012:role/fixture",
+        "artifactStore": {"type": "S3", "location": "fixture-artifacts"},
+        "stages": codepipeline.namespace_stages(values),
+    }
+    ctx, fake, resource = core.direct_resource(
+        ROOT,
+        mapping,
+        kind,
+        "codepipeline",
+        "get_pipeline",
+        {"name": "fixture"},
+        "pipeline",
+        {"Name": "fixture"},
+        payload,
+    )
+    source = inventory.inventory_for(ctx)
+    _, mapped = source.mapping("codepipeline")
+    record = source.cloud_record(
+        "codepipeline",
+        kind,
+        {"Identifier": "fixture", "Properties": json.dumps({"Name": "fixture"})},
+        source.schema(kind),
+        mapping,
+        mapped,
+    )
+    captured = cli.normalize_records(ctx, "codepipeline", [record])[0]["properties"]
+    assert captured[key]["status"] == "captured", captured[key]
+    assert captured[key]["value"] == values
+    assert captured[key]["valueShape"] == "projection"
+    assert captured[kind + ".Stages[].Name"]["value"] == [
+        s["name"] for s in payload["stages"]
+    ]
+    assert captured[kind + ".Stages[].Actions[].Name"]["value"] == [
+        [a["name"] for a in s["actions"]] for s in payload["stages"]
+    ]
+    resource.rows = [
+        (
+            "001-001",
+            {
+                "property": key,
+                "value": "`" + json.dumps(values) + "`",
+                "valueShape": "projection",
+            },
+        )
+    ]
+    resource.rows.append(
+        ("001-002", {"property": kind + ".Name", "value": "`fixture`"})
+    )
+    resource.model.locations = {}
+    result = cli.comparator().compare_resource(ctx, resource)
+    assert result[0]["status"] == "match", result
+    changed = json.loads(json.dumps(values))
+    changed[0][0] = "Different"
+    resource.rows[0][1]["value"] = "`" + json.dumps(changed) + "`"
+    assert cli.comparator().compare_resource(ctx, resource)[0]["status"] == "difference"
+
+
+@pytest.mark.parametrize("invalid", [None, 42, {}, [], {"absent": True}])
+def test_namespace_invalid_sdk_type_is_rejected(invalid):
+    kind = "CodePipeline.Pipeline"
+    key = kind + ".Stages[].Actions[].Namespace"
+    mapping = runtime_registry(ROOT, "codepipeline")
+    payload = {
+        "name": "fixture",
+        "roleArn": "arn:aws:iam::123456789012:role/fixture",
+        "stages": codepipeline.namespace_stages([["Source"]]),
+    }
+    payload["stages"][0]["actions"][0]["namespace"] = invalid
+    ctx, fake, resource = core.direct_resource(
+        ROOT,
+        mapping,
+        kind,
+        "codepipeline",
+        "get_pipeline",
+        {"name": "fixture"},
+        "pipeline",
+        {"Name": "fixture"},
+        payload,
+    )
+    ctx.fetch_cache[resource.model.path, resource.number, "base"] = payload
+    ctx.fetch_trace[resource.model.path, resource.number, "base"] = []
+    with pytest.raises(ValueError, match="namespace must be a string"):
+        mapping_value(ctx, resource, mapping, mapping.properties[key], key)
+
+
+def test_namespace_executable_partial_contract():
+    result = adapter_contracts.run(
+        ROOT, runtime_registry(ROOT, "codepipeline"), "CodePipeline.Pipeline"
+    )
+    item = result["base"]["properties"][
+        "CodePipeline.Pipeline.Stages[].Actions[].Namespace"
+    ]
+    assert item["status"] == "verified"
+    assert "partial-optional-namespace" in item["branches"]
+
+
+def test_namespace_absence_does_not_relax_other_model_types():
+    # The schema catalog used by Import validates positional absence only here.
+    catalog = cli.property_catalog()
+    assert not literal_errors(
+        catalog,
+        "CodePipeline.Pipeline",
+        "Stages[].Actions[].Namespace",
+        '[[{"absent":true}]]',
+        "projection",
+    )
+    assert literal_errors(
+        catalog,
+        "CodePipeline.Pipeline",
+        "Stages[].Actions[].Name",
+        '[[{"absent":true}]]',
+        "projection",
+    )
+    assert literal_errors(
+        catalog,
+        "CodePipeline.Pipeline",
+        "Stages[].Actions[].Namespace",
+        "[[null]]",
+        "projection",
+    )
+    field = "Stages[].Actions[].Namespace"
+    assert cli.validation_errors(
+        catalog,
+        "CodePipeline.Pipeline",
+        field,
+        cli.normalize(field, {"absent": True}, "leaf"),
+    )
+
+
+@pytest.mark.parametrize(
+    "stages",
+    [
+        None,
+        {},
+        [],
+        [None],
+        [{"actions": None}],
+        [{"actions": []}],
+        [{"actions": [None]}],
+    ],
+)
+def test_namespace_invalid_parent_structure_is_rejected(stages):
+    kind = "CodePipeline.Pipeline"
+    key = kind + ".Stages[].Actions[].Namespace"
+    mapping = runtime_registry(ROOT, "codepipeline")
+    payload = {"name": "fixture", "stages": stages}
+    ctx, fake, resource = core.direct_resource(
+        ROOT,
+        mapping,
+        kind,
+        "codepipeline",
+        "get_pipeline",
+        {"name": "fixture"},
+        "pipeline",
+        {"Name": "fixture"},
+        payload,
+    )
+    ctx.fetch_cache[resource.model.path, resource.number, "base"] = payload
+    ctx.fetch_trace[resource.model.path, resource.number, "base"] = []
+    with pytest.raises(ValueError, match="GetPipeline"):
+        mapping_value(ctx, resource, mapping, mapping.properties[key], key)
