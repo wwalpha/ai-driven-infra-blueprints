@@ -860,9 +860,23 @@ def check_design_links(
         document = design_index.get(source)
         observed_references = set()
         automatic_references = set()
+        s3_kms_references = {}
         values = source_values[source] or {}
         presentation = Presentation(values, source, root)
         for position, reference in presentation.references.items():
+            identity = row_resource(position.row_id)
+            prop = values[f"desired.row.{position.row_id}.property"]
+            if receiving_property(prop, position.pointer) == S3_KMS_MASTER_KEY_ID:
+                anchor = values.get(f"desired.resource.{identity}.anchor")
+                row_ids = [
+                    rid
+                    for rid, row in _model_api.ModelView(values)
+                    .row_index()
+                    .get(identity, ())
+                    if row["property"] == prop
+                ]
+                index = row_ids.index(position.row_id) + 1
+                s3_kms_references[anchor, index] = reference.link
             link = LINK.fullmatch(reference.link or "")
             if not link:
                 continue
@@ -1025,10 +1039,17 @@ def check_design_links(
             if anchor := ANCHOR_PATTERN.fullmatch(line):
                 source_anchor = anchor.group(1)
             cells = [cell.strip() for cell in line.strip("|").split("|")]
+            s3_kms_index = 1
             if len(cells) == 4:
                 try:
+                    display_property = cells[1]
+                    if reference_kind == "S3.Bucket" and re.fullmatch(
+                        r"BucketEncryption\[\d+\]\.KMSMasterKeyID", display_property
+                    ):
+                        s3_kms_index = int(re.search(r"\[(\d+)\]", display_property)[1])
+                        display_property = re.sub(r"\[\d+\]", "[]", display_property)
                     cells[1] = formal_property(
-                        cells[1], reference_kind, definitions_root
+                        display_property, reference_kind, definitions_root
                     )
                 except ValueError as error:
                     findings.check(
@@ -1108,6 +1129,12 @@ def check_design_links(
                     f"Security Group VpcId must link to a VPC in the same target: {findings.relative(source)}: {label}",
                 )
             if cells[1] == S3_KMS_MASTER_KEY_ID:
+                if (source_anchor, s3_kms_index) in s3_kms_references:
+                    findings.warn(
+                        cells[2] == s3_kms_references[source_anchor, s3_kms_index],
+                        f"S3 KMSMasterKeyID must match its Model reference: {findings.relative(source)}: {label}",
+                    )
+                    continue
                 alias_name = (
                     resource[1].get("KMS.Alias.AliasName") if resource else None
                 )

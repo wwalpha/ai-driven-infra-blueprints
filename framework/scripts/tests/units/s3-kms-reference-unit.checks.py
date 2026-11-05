@@ -207,7 +207,7 @@ def check_authority_display_and_references(project_workspace):
         displayed = reference_display(bucket, scope.path, scope.root)
         files = designs(scope, bucket, kms)
     view = scope.root / "docs/designs/fixture/team/s3.md"
-    expected = "[PENDING_DEPLOY](kms.md#alias-one)"
+    expected = "[alias/fixture-key](kms.md#alias-one)"
     assert expected in files[view] and "$resource" not in files[view]
     TestCase().assertNotIn("$modelRef", displayed[ROW])
     TestCase().assertEqual(bucket[ROW], snapshot.authoritative[ROW])
@@ -268,49 +268,142 @@ def check_authority_display_and_references(project_workspace):
 
 
 @pytest.mark.parametrize(
-    "logical,anchor", [("KMS_Key_001", "key-one"), ("KMS_Alias_001", "alias-one")]
+    "logical,attribute,anchor",
+    [
+        ("KMS_Key_001", "KeyId", "key-one"),
+        ("KMS_Key_001", "Arn", "key-one"),
+        ("KMS_Alias_001", "AliasName", "alias-one"),
+        ("KMS_Alias_001", "Arn", "alias-one"),
+    ],
 )
 @pytest.mark.parametrize(
-    "key_id,observed,label,state",
+    "key_id,observed",
     [
-        ("12345678-1234-1234-1234-123456789abc", None, "PENDING_DEPLOY", "unobserved"),
-        ("PENDING_DEPLOY", None, "PENDING_DEPLOY", "unobserved"),
+        ("12345678-1234-1234-1234-123456789abc", None),
+        ("PENDING_DEPLOY", None),
         (
             "12345678-1234-1234-1234-123456789abc",
             "12345678-1234-1234-1234-123456789abc",
-            "12345678-1234-1234-1234-123456789abc",
-            "match",
         ),
         (
             "12345678-1234-1234-1234-123456789abc",
             "87654321-1234-1234-1234-123456789abc",
-            "87654321-1234-1234-1234-123456789abc",
-            "mismatch",
         ),
     ],
 )
 def check_s3_kms_markdown_observation(
-    project_workspace, logical, anchor, key_id, observed, label, state
+    project_workspace, logical, attribute, anchor, key_id, observed
 ):
     scope, bucket, kms_values = fixture(project_workspace)
-    bucket[ROW] = "`" + json.dumps(reference(logical, "Arn")) + "`"
+    bucket[ROW] = "`" + json.dumps(reference(logical, attribute)) + "`"
     kms_values["observed.row.001-001.value"] = "`" + key_id + "`"
     if observed is not None:
         bucket["observed.row.001-003.value"] = "`" + observed + "`"
     write_model(scope.path, bucket)
     write_model(Scope(scope.root, "fixture", "team", "kms").path, kms_values)
     path = scope.root / "docs/designs/fixture/team/s3.md"
-    resolver = reference_resolver(bucket, scope, scope.root)
-    assert kms_observation(
-        bucket, "001-003", parse_reference(reference(logical, "Arn")), scope, resolver
-    ) == (state, observed)
+    if logical.startswith("KMS_Alias"):
+        label = "alias/fixture-key"
+    elif key_id == "PENDING_DEPLOY" or attribute == "KeyId":
+        label = key_id
+    else:
+        label = "arn:aws:kms:ap-northeast-1:123456789012:key/" + key_id
     before = scope.path.read_bytes()
     with catalog_display():
         markdown = generate_markdown(path, bucket, FRAMEWORK)
     assert f"[{label}](kms.md#{anchor})" in markdown
     assert scope.path.read_bytes() == before
-    if observed is None:
-        assert "observed.row.001-003.value" not in bucket
+    assert load_model(scope, FileReads()).authoritative == bucket
+    if observed and attribute in {"Arn", "KeyId"} and key_id != "PENDING_DEPLOY":
+        diagnostics, _ = diagnose(load_model(scope))
+        mismatch = any(
+            d["code"] == "reference.mismatch" and d.get("consumerKey") == ROW
+            for d in diagnostics
+        )
+        assert mismatch == (observed != key_id)
+
+
+@pytest.mark.parametrize(
+    "logical,attribute,anchor",
+    [
+        ("KMS_Key_001", "KeyId", "key-one"),
+        ("KMS_Key_001", "Arn", "key-one"),
+        ("KMS_Alias_001", "AliasName", "alias-one"),
+        ("KMS_Alias_001", "Arn", "alias-one"),
+    ],
+)
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
+def check_s3_key_link_validation(project_workspace, logical, attribute, anchor, mode):
+    scope, bucket, kms_values = fixture(project_workspace)
+    bucket["desired.resource.001.resourceMode"] = mode
+    bucket[ROW] = "`" + json.dumps(reference(logical, attribute)) + "`"
+    write_model(scope.path, bucket)
+    files = designs(scope, bucket, kms_values)
+    view = scope.root / "docs/designs/fixture/team/s3.md"
+    expected = (
+        "alias/fixture-key"
+        if logical == "KMS_Alias_001"
+        else "12345678-1234-1234-1234-123456789abc"
+        if attribute == "KeyId"
+        else "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789abc"
+    )
+    valid = files[view]
+    assert "BucketEncryption[1].KMSMasterKeyID" in valid
+    for replacement, should_pass in [
+        (f"[{expected}](kms.md#{anchor})", True),
+        (f"[{expected}](kms.md#key-two)", False),
+        (f"[wrong](kms.md#{anchor})", False),
+        (f"[{expected}](kms.md#missing)", False),
+    ]:
+        candidate = valid.replace(f"[{expected}](kms.md#{anchor})", replacement)
+        assert f"[{expected}](kms.md#{anchor})" in valid
+        view.write_text(candidate, encoding="utf-8")
+        findings = Findings(scope.root)
+        validate_links(
+            {},
+            [view],
+            design_sources={view: bucket},
+            findings=findings,
+            root=scope.root,
+            scope=None,
+            definitions_root=FRAMEWORK,
+            check_display=False,
+        )
+        assert (not findings.errors and not findings.warnings) == should_pass, (
+            findings.errors,
+            findings.warnings,
+        )
+
+
+def check_s3_multiple_key_links_cannot_be_swapped(project_workspace):
+    scope, bucket, kms_values = fixture(project_workspace)
+    bucket["desired.resource.001.resourceMode"] = "CREATE"
+    bucket[ROW] = "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`"
+    for suffix, value in {
+        "property": PROP,
+        "value": "`" + json.dumps(reference("KMS_Key_002", "KeyId")) + "`",
+        "comment": "別のキー",
+    }.items():
+        bucket[f"desired.row.001-005.{suffix}"] = value
+    write_model(scope.path, bucket)
+    files = designs(scope, bucket, kms_values)
+    view = scope.root / "docs/designs/fixture/team/s3.md"
+    original = "[12345678-1234-1234-1234-123456789abc](kms.md#key-one)"
+    other = "[87654321-1234-1234-1234-123456789abc](kms.md#key-two)"
+    assert original in files[view] and other in files[view]
+    view.write_text(files[view].replace(original, other), encoding="utf-8")
+    findings = Findings(scope.root)
+    validate_links(
+        {},
+        [view],
+        design_sources={view: bucket},
+        findings=findings,
+        root=scope.root,
+        scope=None,
+        definitions_root=FRAMEWORK,
+        check_display=False,
+    )
+    assert findings.errors or findings.warnings
 
 
 def check_iac_matrix(project_workspace):
@@ -428,6 +521,13 @@ def check_iac_matrix(project_workspace):
             PROP.removeprefix("S3.Bucket."),
         )
         is True
+    )
+    other = comparison.evaluate("fixture", {"Fn::GetAtt": ["OtherKey", "Arn"]})
+    assert (
+        comparison.reference_same(
+            plain, other, "S3.Bucket", PROP.removeprefix("S3.Bucket.")
+        )
+        is False
     )
     assert "arn:" not in scope.path.read_text(encoding="utf-8")
 
