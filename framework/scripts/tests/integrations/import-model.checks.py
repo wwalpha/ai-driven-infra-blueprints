@@ -334,7 +334,9 @@ def check_explicit_no_profile(tmp_path):
         pytest.param("210987654321", ACCOUNT, id="sts-mismatch"),
     ],
 )
-def check_quicksight_group_execution_account(tmp_path, execution_account, caller_account):
+def check_quicksight_group_execution_account(
+    tmp_path, execution_account, caller_account
+):
     root = tmp_path / "case"
     fixture(root, "quicksight", register=False, focused=True)
     project_path = root / "project.json"
@@ -359,7 +361,9 @@ def check_quicksight_group_execution_account(tmp_path, execution_account, caller
     kind = "QuickSight.Group"
     if caller_account != execution_account:
         with pytest.raises(ValueError, match="AWS account mismatch"):
-            m.acquire(root, "dev", "quicksight", TARGET, True, cli, resource_types=[kind])
+            m.acquire(
+                root, "dev", "quicksight", TARGET, True, cli, resource_types=[kind]
+            )
         assert cli.calls == [("sts", "get-caller-identity", {})]
         return
 
@@ -1351,6 +1355,65 @@ def check_limited_acquisition_preserves_values_and_completes(tmp_path):
     with patch.object(TaskValidation, "git_paths", _callback_limited_task_paths):
         task_contract.complete(root, "tasks/import-fixture.md")
     assert "Task status: `completed`" in (root / "tasks/import-fixture.md").read_text()
+
+
+def test_complete_checkpoint_resume_does_not_reacquire(tmp_path):
+    root, acquired, cli = prepare(tmp_path, dry_run=True)
+    evidence = Path(acquired["evidence"])
+    value = import_evidence.read_acquisition(
+        root, evidence, ("dev", TARGET, "cloudwatch-logs"), True
+    )
+    (evidence.parent / "checkpoint.json").write_text(
+        json_text(import_approval.checkpoint(value, [])), encoding="utf-8"
+    )
+    count = len(cli.calls)
+    resumed = m.resume_acquisition(
+        root, "dev", "cloudwatch-logs", evidence, TARGET, True
+    )
+    assert resumed["status"] == "resumed" and resumed["answers"] == []
+    assert len(cli.calls) == count
+
+
+def test_incomplete_evidence_cannot_publish(tmp_path):
+    root = tmp_path / "case"
+    fixture(root, register=False, focused=True)
+    cli = aws()
+
+    def runner(command, **kwargs):
+        if command[1:3] == ["logs", "describe-log-groups"]:
+            return subprocess.CompletedProcess(
+                command, 1, "", "Could not connect to the endpoint URL: private-token"
+            )
+        return cli(command, **kwargs)
+
+    before = source_files(root)
+    result = m.acquire(
+        root,
+        "dev",
+        "cloudwatch-logs",
+        TARGET,
+        True,
+        runner,
+        resource_types=["Logs.LogGroup"],
+    )
+    assert result["status"] == "incomplete"
+    evidence = Path(result["evidence"])
+    value = import_evidence.read_acquisition(
+        root, evidence, ("dev", TARGET, "cloudwatch-logs"), True
+    )
+    (evidence.parent / "checkpoint.json").write_text(
+        json_text(import_approval.checkpoint(value, [])), encoding="utf-8"
+    )
+    assert (
+        m.resume_acquisition(root, "dev", "cloudwatch-logs", evidence, TARGET, True)[
+            "status"
+        ]
+        == "incomplete"
+    )
+    with pytest.raises(ValueError, match="complete acquisition"):
+        m.publish_acquisition(root, "dev", "cloudwatch-logs", evidence, TARGET, True)
+    assert source_files(root) == before and evidence.exists()
+    assert "private-token" not in evidence.read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

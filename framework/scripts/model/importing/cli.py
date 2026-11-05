@@ -2,7 +2,9 @@
 
 import argparse
 import hashlib
+import json
 import re
+import tempfile
 from dataclasses import asdict
 from functools import partial as _bind_framework_callback
 from pathlib import Path, PurePosixPath
@@ -35,7 +37,7 @@ from task_contract_core import (
     task_reads,
     task_snapshot,
 )
-from utils.aws.identity import import_profile
+from utils.aws.identity import IdentityError, import_profile
 from utils.file_operations import atomic_files
 from utils.input_cache import input_context, input_scope, memoized, recording_inputs
 from utils.json_format import json_text
@@ -56,6 +58,7 @@ from model.importing import limitations
 from model.importing.evidence import (
     acquired,
     acquisition_complete,
+    evidence_store,
     finish_import,
     read_acquisition,
     read_proof,
@@ -616,13 +619,14 @@ def resume_acquisition(
         acquisition = read_acquisition(root, evidence, identity, dry_run)
         unchanged(root, acquisition["sources"])
         unchanged_sets(root, acquisition["sourceSets"])
+        complete = acquisition_complete(acquisition)
         file = evidence.parent / "checkpoint.json"
         safe(evidence.parent, file)
         answers = import_approval.verify_checkpoint(
             acquisition, json_read(file.read_text(encoding="utf-8"))
         )
     return {
-        "status": "resumed",
+        "status": "resumed" if complete else "incomplete",
         "answers": answers,
         "model": "unchanged",
         "markdown": "not-run",
@@ -723,6 +727,43 @@ def replacement_inputs(before, selected_records, reads):
     return {"inputs": files, "fileSets": sets, "warnings": warnings}
 
 
+class ImportStageError(ValueError):
+    def __init__(self, phase, code, category="unknown", source="unknown", api=None):
+        self.phase, self.code = phase, code
+        self.category, self.source, self.api = category, source, api
+        super().__init__("AWS account mismatch" if code == "AccountMismatch" else code)
+
+
+def check_evidence_store(root):
+    operation = "access"
+    path = None
+    try:
+        directory = evidence_store(root)
+        operation = "create"
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=directory, delete=False
+        ) as stream:
+            path = Path(stream.name)
+            operation = "write"
+            stream.write("Import UTF-8: 日本語")
+        operation = "read"
+        if path.read_text(encoding="utf-8") != "Import UTF-8: 日本語":
+            raise ValueError("UTF-8 mismatch")
+        operation = "delete"
+        path.unlink()
+        path = None
+    except (OSError, ValueError, UnicodeError) as error:
+        raise ImportStageError(
+            "temporary_storage", operation, "unknown", "local_check"
+        ) from error
+    finally:
+        if path is not None and operation != "delete":
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 @input_scope
 @task_read_scope
 def acquire(
@@ -752,13 +793,42 @@ def acquire(
                 )
             require_import_changes(root, generation=True)
         inputs = GenerationInputs(root)
+        verified = False
         try:
             with task_reads(root), recording_inputs(inputs):
                 before = before_model(model_path(root, identity), inputs)
                 ctx = import_context(
                     root, target, cli_runner, service, no_profile=no_profile
                 )
-                ctx.verify()
+                check_evidence_store(root)
+                try:
+                    ctx.verify()
+                except comparator().AcquisitionError as error:
+                    raise ImportStageError(
+                        "sts",
+                        error.code,
+                        error.failure_category,
+                        error.classification_source,
+                        error.api,
+                    ) from error
+                except IdentityError as error:
+                    category = (
+                        "account_mismatch"
+                        if error.code == "AccountMismatch"
+                        else "unknown"
+                    )
+                    raise ImportStageError(
+                        "sts",
+                        error.code,
+                        category,
+                        "account_validation",
+                        "sts.get_caller_identity",
+                    ) from error
+                except Exception as error:
+                    raise ImportStageError(
+                        "sts", type(error).__name__, api="sts.get_caller_identity"
+                    ) from error
+                verified = True
                 records = normalize_records(
                     ctx, service, inventory(ctx, service, resource_types)
                 )
@@ -790,6 +860,24 @@ def acquire(
                 "designValidation": "not-run",
                 "dryRun": dry_run,
             }
+        except Exception as error:
+            if not verified or isinstance(error, ImportStageError):
+                raise
+            if isinstance(error, comparator().AcquisitionError):
+                failure = ImportStageError(
+                    "acquisition",
+                    error.code,
+                    error.failure_category,
+                    error.classification_source,
+                    error.api,
+                )
+            else:
+                failure = ImportStageError("acquisition", type(error).__name__)
+            failure.cleanup_failed = (
+                "IMPORT incomplete evidence cleanup failed"
+                in getattr(error, "__notes__", [])
+            )
+            raise failure from error
         finally:
             inputs.close()
 
@@ -1047,6 +1135,8 @@ def publish_acquisition(
         publication_lock(root),
     ):
         acquisition = read_acquisition(root, evidence, identity, dry_run)
+        if not acquisition_complete(acquisition):
+            raise ValueError("IMPORT publication requires complete acquisition")
         review_file = evidence.parent / "review.json"
         safe(evidence.parent, review_file)
         if not review_file.is_file():
@@ -1348,7 +1438,11 @@ def main(argv=None):
             result = functions[args.action](
                 args.repository_root, args.environment, args.service, **kwargs
             )
-        print(json_text(result))
+        print(
+            json.dumps(
+                result, ensure_ascii=True, allow_nan=False, separators=(",", ":")
+            )
+        )
         return (
             3
             if result.get("status") == "display-failed"
@@ -1356,6 +1450,28 @@ def main(argv=None):
             if result.get("status") == "incomplete"
             else 0
         )
+    except ImportStageError as error:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "phase": error.phase,
+                    "api": error.api,
+                    "code": error.code,
+                    "failureCategory": error.category,
+                    "classificationSource": error.source,
+                    "evidence": None,
+                    "model": "unchanged",
+                    **(
+                        {"cleanup": "failed"}
+                        if getattr(error, "cleanup_failed", False)
+                        else {}
+                    ),
+                },
+                ensure_ascii=True,
+            )
+        )
+        return 1
     except (OSError, ValueError, KeyError, TypeError) as error:
-        print(json_text({"status": "failed", "reason": str(error)}))
+        print(json.dumps({"status": "failed", "reason": str(error)}, ensure_ascii=True))
         return 1

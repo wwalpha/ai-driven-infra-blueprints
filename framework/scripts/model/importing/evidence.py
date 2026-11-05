@@ -306,8 +306,11 @@ def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, sourc
             encoding="utf-8",
         )
         return directory / "acquisition.json", value
-    except Exception:
-        shutil.rmtree(directory)
+    except Exception as error:
+        try:
+            shutil.rmtree(directory)
+        except OSError:
+            error.add_note("IMPORT incomplete evidence cleanup failed")
         raise
 
 

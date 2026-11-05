@@ -57,6 +57,8 @@ Do not create initial empty authority. For explicitly requested creation, prepar
 complete external candidate and let the shared atomic save create it after review/consent.
 Target registration alone never creates a Model.
 
+Before acquisition, verify the actual temporary evidence directory supports UTF-8 file creation, reading and deletion, including on Windows. If AWS connectivity is restricted, check the required execution permissions. Never change the configured Profile, Account or Region automatically. Do not assume `AwsCliError` means authentication failure; when needed, check STS read access in the same authentication context. Distinguish STS failure from incomplete resource acquisition. Retain and reuse valid acquired evidence and checkpoints; do not publish an incomplete acquisition. Do not automatically retry or reacquire unconditionally.
+
 Acquire exactly once per selected service:
 
 ```console

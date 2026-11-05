@@ -3,16 +3,24 @@ empty:
     status: empty
 invalid:
 - Logs.LogGroup:
+    classificationSource: unknown
+    failureCategory: unknown
     reason: InvalidInventoryResponse
     status: failed
 - Logs.LogGroup:
+    classificationSource: unknown
+    failureCategory: unknown
     reason: InvalidInventoryResponse
     status: failed
 - Logs.LogGroup:
+    classificationSource: unknown
+    failureCategory: unknown
     reason: InvalidInventoryResponse
     status: failed
 partial:
   DataZone.Domain:
+    classificationSource: structured_error
+    failureCategory: access_denied
     reason: AccessDeniedException
     status: permission_denied
 records:

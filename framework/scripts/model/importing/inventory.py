@@ -404,7 +404,7 @@ class ImportInventory:
             and record["kind"] != "EC2.SubnetRouteTableAssociation"
         ]
 
-    def status(self, kind, status, reason=None, *, limitations=None):
+    def status(self, kind, status, reason=None, *, limitations=None, diagnostic=None):
         with self._lock:
             current = self._statuses.get(kind, {}).get("status")
             if current in {
@@ -418,6 +418,7 @@ class ImportInventory:
             self._statuses[kind] = {
                 "status": status,
                 **({"reason": reason} if reason else {}),
+                **(diagnostic or {}),
                 **(
                     {
                         "enumerationComplete": True,
@@ -450,7 +451,15 @@ class ImportInventory:
                 if error.status in {"requires_filter", "unsupported"}
                 else "failed"
             )
-            self.status(kind, status, error.code)
+            self.status(
+                kind,
+                status,
+                error.code,
+                diagnostic={
+                    "failureCategory": error.failure_category,
+                    "classificationSource": error.classification_source,
+                },
+            )
         else:
             self.status(kind, "failed", type(error).__name__)
 

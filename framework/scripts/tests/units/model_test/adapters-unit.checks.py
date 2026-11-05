@@ -145,6 +145,46 @@ def test_sdk_error_secret_failure_before_snapshot(monkeypatch):
     TestCase().assertNotIn(secret, str(caught.value))
 
 
+@pytest.mark.parametrize(
+    "stderr,code,category,source",
+    [
+        (
+            '{"Code":"ExpiredToken","Message":"secret-token"}',
+            "ExpiredToken",
+            "authentication",
+            "structured_error",
+        ),
+        (
+            '{"Code":"AccessDenied","Message":"secret-token"}',
+            "AccessDenied",
+            "access_denied",
+            "structured_error",
+        ),
+        (
+            "Could not connect to the endpoint URL: secret-token",
+            "AwsCliError",
+            "endpoint_unreachable",
+            "diagnostic_hint",
+        ),
+        ("arbitrary secret-token", "AwsCliError", "unknown", "unknown"),
+    ],
+)
+def test_import_safe_error_diagnostics(stderr, code, category, source):
+    error = subprocess.CalledProcessError(1, ["aws"], stderr=stderr)
+    result = sdk_error("sts.get_caller_identity", error, ())
+    assert (result.code, result.failure_category, result.classification_source) == (
+        code,
+        category,
+        source,
+    )
+    assert "secret-token" not in str(result)
+    repeated = sdk_error(result.api, result, ("cached",))
+    assert (repeated.failure_category, repeated.classification_source) == (
+        category,
+        source,
+    )
+
+
 def test_role_inline_outcomes(subtests):
     adapter = service_module("iam")
     resource = SimpleNamespace(kind="IAM.Role", value=lambda key: "role")

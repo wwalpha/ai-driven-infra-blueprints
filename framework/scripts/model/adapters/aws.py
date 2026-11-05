@@ -123,12 +123,32 @@ class Field:
 
 
 class AcquisitionError(Exception):
-    def __init__(self, api, code, status="acquisition_failed", request=None):
+    def __init__(
+        self,
+        api,
+        code,
+        status="acquisition_failed",
+        request=None,
+        *,
+        failure_category="unknown",
+        classification_source="unknown",
+    ):
         self.api, self.code, self.status, self.request = api, code, status, request
+        self.failure_category = failure_category
+        self.classification_source = classification_source
         super().__init__(code)  # Never include SDK error messages or credentials.
 
 
 def sdk_error(api, error, request):
+    if isinstance(error, AcquisitionError):
+        return AcquisitionError(
+            api,
+            error.code,
+            error.status,
+            request,
+            failure_category=error.failure_category,
+            classification_source=error.classification_source,
+        )
     detail = getattr(error, "response", {}).get("Error", {})
     code = (
         "AwsCliError"
@@ -149,6 +169,55 @@ def sdk_error(api, error, request):
             and len(candidate) <= 128
         ):
             code = candidate
+    category = "unknown"
+    source = "unknown"
+    codes = {
+        "authentication": {
+            "ExpiredToken",
+            "ExpiredTokenException",
+            "InvalidClientTokenId",
+            "UnrecognizedClientException",
+            "InvalidAccessKeyId",
+            "SignatureDoesNotMatch",
+            "NoCredentialsError",
+            "PartialCredentialsError",
+        },
+        "access_denied": {
+            "AccessDenied",
+            "AccessDeniedException",
+            "UnauthorizedOperation",
+            "UnauthorizedException",
+        },
+        "endpoint_unreachable": {
+            "EndpointConnectionError",
+            "ConnectTimeoutError",
+            "ReadTimeoutError",
+        },
+    }
+    for name, members in codes.items():
+        if code in members:
+            category, source = name, "structured_error"
+            break
+    if isinstance(error, subprocess.CalledProcessError) and code == "AwsCliError":
+        stderr = error.stderr if isinstance(error.stderr, str) else ""
+        hints = {
+            "endpoint_unreachable": (
+                "Could not connect to the endpoint URL:",
+                "Connect timeout on endpoint URL:",
+            ),
+            "authentication": (
+                "Unable to locate credentials",
+                "The security token included in the request is expired",
+            ),
+            "access_denied": (
+                "An error occurred (AccessDenied)",
+                "An error occurred (AccessDeniedException)",
+            ),
+        }
+        for name, patterns in hints.items():
+            if any(pattern in stderr for pattern in patterns):
+                category, source = name, "diagnostic_hint"
+                break
     missing = code in {
         "ResourceNotFoundException",
         "ResourceNotFound",
@@ -168,7 +237,12 @@ def sdk_error(api, error, request):
         "RepositoryDoesNotExistException",
     }
     return AcquisitionError(
-        api, code, "resource_missing" if missing else "acquisition_failed", request
+        api,
+        code,
+        "resource_missing" if missing else "acquisition_failed",
+        request,
+        failure_category=category,
+        classification_source=source,
     )
 
 

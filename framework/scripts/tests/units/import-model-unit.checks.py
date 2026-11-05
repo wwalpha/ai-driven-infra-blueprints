@@ -3,6 +3,7 @@
 
 import hashlib
 import shutil
+import subprocess
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -1909,7 +1910,12 @@ def inventory_status_and_partial_retention_case(case):
         )
         TestCase().assertTrue(
             inventory_for(ctx).statuses["Logs.LogGroup"]
-            == {"status": "failed", "reason": "InvalidInventoryResponse"}
+            == {
+                "status": "failed",
+                "reason": "InvalidInventoryResponse",
+                "failureCategory": "unknown",
+                "classificationSource": "unknown",
+            }
         )
         TestCase().assertTrue(
             not import_evidence.acquisition_complete(
@@ -4236,6 +4242,155 @@ def check_cli_fixture_request_faults(fault):
 def check_cli_fixture_schema_faults(step):
     with pytest.raises(ValueError, match="fixture step"):
         AwsCli(steps=[step])
+
+
+def test_import_acquisition_failure_preserves_session(tmp_path):
+    _imports_support_import_model_fixtures.fixture(tmp_path)
+    _imports_support_repository_fixtures.git(tmp_path, "init", "-q")
+    cli = aws()
+    original = cli.__call__
+
+    def fail_inventory(command, **kwargs):
+        if command[1:3] == ["logs", "describe-log-groups"]:
+            return subprocess.CompletedProcess(
+                command, 1, "", "Could not connect to the endpoint URL: secret-token"
+            )
+        return original(command, **kwargs)
+
+    result = m.acquire(
+        tmp_path,
+        "dev",
+        "cloudwatch-logs",
+        "cde",
+        dry_run=True,
+        cli_runner=fail_inventory,
+        resource_types=["Logs.LogGroup"],
+    )
+    assert result["status"] == "incomplete"
+    assert (
+        result["inventory"]["Logs.LogGroup"]["failureCategory"]
+        == "endpoint_unreachable"
+    )
+    evidence = Path(result["evidence"])
+    payload = import_evidence.read_acquisition(
+        tmp_path, evidence, ("dev", "cde", "cloudwatch-logs"), True
+    )
+    assert "secret-token" not in evidence.read_text(encoding="utf-8")
+    checkpoint = m.import_approval.checkpoint(payload, [])
+    (evidence.parent / "checkpoint.json").write_text(
+        json.dumps(checkpoint), encoding="utf-8"
+    )
+    calls = len(cli.calls)
+    resumed = m.resume_acquisition(
+        tmp_path, "dev", "cloudwatch-logs", evidence, "cde", True
+    )
+    assert resumed["status"] == "incomplete" and resumed["answers"] == []
+    with pytest.raises(ValueError, match="complete acquisition"):
+        m.publish_acquisition(tmp_path, "dev", "cloudwatch-logs", evidence, "cde", True)
+    assert len(cli.calls) == calls and evidence.is_file()
+    (evidence.parent / "checkpoint.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError):
+        m.resume_acquisition(tmp_path, "dev", "cloudwatch-logs", evidence, "cde", True)
+
+
+def test_import_sts_failure_and_unicode_cli(tmp_path, capsys):
+    _imports_support_import_model_fixtures.fixture(tmp_path)
+    cli = AwsCli(fail="Could not connect to the endpoint URL: secret-token")
+    with pytest.raises(m.ImportStageError) as caught:
+        m.acquire(tmp_path, "dev", "cloudwatch-logs", "cde", True, cli)
+    assert caught.value.phase == "sts"
+    assert caught.value.category == "endpoint_unreachable"
+    with patch.object(m, "acquire", side_effect=caught.value):
+        assert (
+            m.main(
+                [
+                    "acquire",
+                    "--repository-root",
+                    str(tmp_path),
+                    "--environment",
+                    "dev",
+                    "--service",
+                    "cloudwatch-logs",
+                ]
+            )
+            == 1
+        )
+    output = capsys.readouterr().out
+    assert "secret-token" not in output and json.loads(output)["evidence"] is None
+    with patch.object(
+        m, "acquire", return_value={"status": "acquired", "name": "日本語"}
+    ):
+        assert (
+            m.main(
+                [
+                    "acquire",
+                    "--repository-root",
+                    str(tmp_path),
+                    "--environment",
+                    "dev",
+                    "--service",
+                    "cloudwatch-logs",
+                ]
+            )
+            == 0
+        )
+    assert json.loads(capsys.readouterr().out)["name"] == "日本語"
+
+
+def test_import_sts_account_mismatch(tmp_path):
+    _imports_support_import_model_fixtures.fixture(tmp_path)
+    cli = AwsCli(account="999999999999")
+    with pytest.raises(m.ImportStageError) as caught:
+        m.acquire(tmp_path, "dev", "cloudwatch-logs", "cde", True, cli)
+    assert caught.value.phase == "sts"
+    assert caught.value.category == "account_mismatch"
+    assert caught.value.code == "AccountMismatch"
+    assert len(cli.calls) == 1
+
+
+def test_import_temp_failures_do_not_call_aws(tmp_path):
+    _imports_support_import_model_fixtures.fixture(tmp_path)
+    cli = aws()
+    with patch.object(
+        m.tempfile, "NamedTemporaryFile", side_effect=PermissionError("secret")
+    ):
+        with pytest.raises(m.ImportStageError) as caught:
+            m.acquire(tmp_path, "dev", "cloudwatch-logs", "cde", True, cli)
+    assert caught.value.code == "create" and not cli.calls
+    with patch.object(Path, "unlink", side_effect=PermissionError("secret")):
+        with pytest.raises(m.ImportStageError) as caught:
+            m.check_evidence_store(tmp_path)
+    assert caught.value.code == "delete" and "secret" not in str(caught.value)
+
+
+def test_acquired_cleanup_retains_original_error(tmp_path):
+    _imports_support_repository_fixtures.git(tmp_path, "init", "-q")
+    ctx = SimpleNamespace(
+        verified=True,
+        services=("cloudwatch-logs",),
+        trace=["sts"],
+        target={"awsAccountId": ACCOUNT},
+        metrics={},
+    )
+    with (
+        patch.object(
+            import_inventory, "inventory_for", return_value=SimpleNamespace(statuses={})
+        ),
+        patch.object(import_evidence, "write_sealed", side_effect=ValueError("first")),
+        patch.object(import_evidence.shutil, "rmtree", side_effect=OSError("secret")),
+    ):
+        with pytest.raises(ValueError, match="first") as caught:
+            import_evidence.acquired(
+                tmp_path,
+                ("dev", "cde", "cloudwatch-logs"),
+                ctx,
+                [],
+                {},
+                set(),
+                True,
+                source_sets=[],
+            )
+    assert caught.value.__notes__ == ["IMPORT incomplete evidence cleanup failed"]
 
 
 if __name__ == "__main__":
