@@ -196,16 +196,42 @@ def _permission_attribute(
             raise Blocked("rule identity parameters unavailable")
         resolved = {
             key: _imports_cfn_inputs.resolve_value(
-                val, parameters, pseudo, conditions=document.get("Conditions")
+                permission_expression(
+                    val, backend, actuals, mapped, document, parameters, pseudo, stack
+                ),
+                parameters,
+                pseudo,
+                conditions=document.get("Conditions"),
             )
             for key, val in evidence.items()
         }
         rule_name = resolved.get("Name", physical)
         bus = resolved.get("EventBusName", "default")
+        bus_expression = _imports_cfn_inputs.output_value(
+            document, parameters, pseudo, props.get("EventBusName", "default")
+        )
+        if isinstance(bus_expression, dict) and set(bus_expression) == {"Ref"}:
+            bus_logical = bus_expression["Ref"]
+            if bus_logical in document.get("Resources", {}) and (
+                document["Resources"][bus_logical].get("Type")
+                != "AWS::Events::EventBus"
+                or bus_logical not in mapped
+                or mapped[bus_logical][2][RESOURCE_TYPE_KEY] != "Events.EventBus"
+            ):
+                raise Blocked("event bus resource type mismatch")
+        partition = stack["StackId"].split(":")[1]
+        account = backend.target.get(
+            AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
+        )
+        if isinstance(bus, str) and bus.startswith("arn:"):
+            prefix = f"arn:{partition}:events:{backend.target[AWS_REGION_KEY]}:{account}:event-bus/"
+            if not bus.startswith(prefix):
+                raise Blocked("event bus ARN identity mismatch")
+            bus = bus[len(prefix) :]
         if (
             rule_name != physical
             or not isinstance(bus, str)
-            or not re.fullmatch(r"[A-Za-z0-9_.-]+", bus)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", bus)
         ):
             raise Blocked("rule identity ambiguous")
         response = service_module("eventbridge").fetch(
@@ -214,10 +240,6 @@ def _permission_attribute(
                 rule_name, {"Name": rule_name, "EventBusName": bus}, physical
             ),
             "base",
-        )
-        partition = stack["StackId"].split(":")[1]
-        account = backend.target.get(
-            AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
         )
         prefix = (
             f"arn:{partition}:events:{backend.target[AWS_REGION_KEY]}:{account}:rule/"
@@ -418,7 +440,18 @@ def checked_evidence_parameters(
         raise ValueError("parameter or condition declarations invalid")
     needed, seen = set(), set()
 
-    visit = _bind_framework_callback(_visit_evidence, document, parameters, stack, pseudo, _condition_stack, definitions, conditions, needed, seen)
+    visit = _bind_framework_callback(
+        _visit_evidence,
+        document,
+        parameters,
+        stack,
+        pseudo,
+        _condition_stack,
+        definitions,
+        conditions,
+        needed,
+        seen,
+    )
 
     visit(expressions)
     actual = stack.get("Parameters", [])
@@ -558,7 +591,16 @@ def permission_expression(
 ):
     """Resolve GetAtt only from a uniquely mapped, identity-checked provider read."""
 
-    attribute = _bind_framework_callback(_permission_attribute, backend, actuals, mapped, document, parameters, pseudo, stack)
+    attribute = _bind_framework_callback(
+        _permission_attribute,
+        backend,
+        actuals,
+        mapped,
+        document,
+        parameters,
+        pseudo,
+        stack,
+    )
 
     if isinstance(value, list):
         return [
@@ -804,19 +846,31 @@ def permission_observation(
                 return None, "permission Sid ownership unavailable"
             if other_actuals[0]["PhysicalResourceId"] == parent_name:
                 return None, "permission Sid is shared by the same function"
-        expected = {
-            key: _imports_cfn_inputs.resolve_value(
+        expected = {}
+        for key, value in props.items():
+            if key == "FunctionName":
+                continue
+            selected = _imports_cfn_inputs.output_value(
+                document, parameters, pseudo, value
+            )
+            if selected == {"Ref": "AWS::NoValue"}:
+                continue
+            expected[key] = _imports_cfn_inputs.resolve_value(
                 permission_expression(
-                    value, backend, actuals, mapped, document, parameters, pseudo, stack
+                    selected,
+                    backend,
+                    actuals,
+                    mapped,
+                    document,
+                    parameters,
+                    pseudo,
+                    stack,
                 ),
                 parameters,
                 pseudo,
                 exports=exports,
                 conditions=document.get("Conditions"),
             )
-            for key, value in props.items()
-            if key != "FunctionName"
-        }
         if not {"Action", "Principal"} <= expected.keys():
             return None, "permission attributes unavailable"
 

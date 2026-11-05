@@ -58,14 +58,11 @@ def _permission_test_aws(document, fault, arn, statement, stack, operation, **kw
     if operation == "get_template":
         return {"TemplateBody": document}
     if operation == "describe_rule":
-        assert kwargs == {
-            "service": "events",
-            "Name": "my-rule",
-            "EventBusName": "custom",
-        }
+        bus = "aws.partner/vendor/bus" if fault == "partner" else "custom"
+        assert kwargs == {"service": "events", "Name": "my-rule", "EventBusName": bus}
         return {
             "Name": "other" if fault == "name" else "my-rule",
-            "EventBusName": "other" if fault == "bus" else "custom",
+            "EventBusName": "other" if fault == "bus" else bus,
             "Arn": arn + "-other" if fault == "arn" else arn,
         }
     if operation == "get_policy":
@@ -975,7 +972,6 @@ def test_config_rule_collects_checked_api_value(
 
     aws = _bind_framework_callback(_config_rule_sync_aws, document)
     if denied:
-
         aws = _bind_framework_callback(_config_rule_denied_aws, document, denied)
 
     backend = SimpleNamespace(
@@ -1535,7 +1531,9 @@ def test_provider_confirms_single_identifier_without_output(
         "PhysicalResourceId": physical,
     }
 
-    aws = _bind_framework_callback(_cloudcontrol_test_aws, document, physical, attribute, stack)
+    aws = _bind_framework_callback(
+        _cloudcontrol_test_aws, document, physical, attribute, stack
+    )
 
     backend = SimpleNamespace(root=project_workspace, target=TARGET, aws=aws)
     assert deploy_observed.cloudcontrol_observation(
@@ -1577,7 +1575,29 @@ def test_incomplete_stack_observation_is_rejected():
 @pytest.mark.parametrize("sub", [False, True])
 @pytest.mark.parametrize(
     "fault",
-    [None, "name", "bus", "arn", "physical", "if-inactive", "if-secret", "if-missing"],
+    [
+        None,
+        "name",
+        "bus",
+        "arn",
+        "physical",
+        "if-inactive",
+        "if-secret",
+        "if-missing",
+        "bus-ref",
+        "bus-arn",
+        "partner",
+        "bus-account",
+        "bus-region",
+        "bus-ambiguous",
+        "no-value",
+        "no-value-mismatch",
+        "no-value-required",
+        "if-noecho-inactive",
+        "no-value-account",
+        "no-value-account-mismatch",
+        "bus-type",
+    ],
 )
 def test_permission_event_rule_arn_identity(project_workspace, sub, fault):
     root = project_workspace
@@ -1608,7 +1628,44 @@ def test_permission_event_rule_arn_identity(project_workspace, sub, fault):
         }
     }
     params = {}
-    if fault.startswith("if-") if fault else False:
+    bus_props = document["Resources"]["EventRule"]["Properties"]
+    if fault in {"bus-ref", "bus-ambiguous", "bus-type"}:
+        document["Resources"]["Bus"] = {"Type": "AWS::Events::EventBus"}
+        bus_props["EventBusName"] = {"Ref": "Bus"}
+    elif fault in {"bus-arn", "bus-account", "bus-region"}:
+        account = "999999999999" if fault == "bus-account" else "123456789012"
+        region = "us-east-1" if fault == "bus-region" else "ap-northeast-1"
+        bus_props["EventBusName"] = (
+            f"arn:aws:events:{region}:{account}:event-bus/custom"
+        )
+    elif fault == "partner":
+        bus_props["EventBusName"] = "aws.partner/vendor/bus"
+        arn = "arn:aws:events:ap-northeast-1:123456789012:rule/aws.partner/vendor/bus/my-rule"
+    if fault in {
+        "no-value",
+        "no-value-mismatch",
+        "no-value-required",
+        "if-noecho-inactive",
+        "no-value-account",
+        "no-value-account-mismatch",
+    }:
+        document["Parameters"] = {"Secret": {"Type": "String", "NoEcho": True}}
+        document["Conditions"] = {"Selected": {"Fn::Equals": ["yes", "yes"]}}
+        stack["Parameters"] = [{"ParameterKey": "Secret", "ParameterValue": "****"}]
+        params = {"Secret": "private"}
+        props = document["Resources"]["Permission"]["Properties"]
+        if fault == "if-noecho-inactive":
+            props["SourceArn"] = {"Fn::If": ["Selected", expression, {"Ref": "Secret"}]}
+        else:
+            key = (
+                "Action"
+                if fault == "no-value-required"
+                else "SourceAccount"
+                if fault in {"no-value-account", "no-value-account-mismatch"}
+                else "SourceArn"
+            )
+            props[key] = {"Fn::If": ["Selected", {"Ref": "AWS::NoValue"}, expression]}
+    if fault.startswith("if-") and fault != "if-noecho-inactive" if fault else False:
         document["Parameters"] = {
             "Choice": {"Type": "String"},
             "Secret": {"Type": "String", "NoEcho": True},
@@ -1651,6 +1708,14 @@ def test_permission_event_rule_arn_identity(project_workspace, sub, fault):
         "EventRule": (None, None, {"resourceType": "Events.Rule"}, [], set()),
         "Permission": (None, None, resource, [], set()),
     }
+    if fault in {"bus-ref", "bus-ambiguous", "bus-type"}:
+        mapped["Bus"] = (
+            None,
+            None,
+            {"resourceType": "S3.Bucket" if fault == "bus-type" else "Events.EventBus"},
+            [],
+            set(),
+        )
     actuals = [
         {
             "LogicalResourceId": logical,
@@ -1668,6 +1733,17 @@ def test_permission_event_rule_arn_identity(project_workspace, sub, fault):
             ("Permission", "AWS::Lambda::Permission", "sid-1"),
         ]
     ]
+    permission_actual = actuals[-1]
+    if fault in {"bus-ref", "bus-ambiguous", "bus-type"}:
+        bus_actual = {
+            "LogicalResourceId": "Bus",
+            "ResourceType": "AWS::Events::EventBus",
+            "ResourceStatus": "CREATE_COMPLETE",
+            "PhysicalResourceId": "custom",
+        }
+        actuals.append(bus_actual)
+        if fault == "bus-ambiguous":
+            actuals.append(dict(bus_actual))
     statement = {
         "Sid": "sid-1",
         "Action": "lambda:InvokeFunction",
@@ -1675,8 +1751,14 @@ def test_permission_event_rule_arn_identity(project_workspace, sub, fault):
         "Resource": "arn:aws:lambda:ap-northeast-1:123456789012:function:my-function",
         "Condition": {"ArnLike": {"AWS:SourceArn": arn}},
     }
+    if fault == "no-value":
+        statement.pop("Condition")
+    if fault == "no-value-account-mismatch":
+        statement["Condition"]["StringEquals"] = {"AWS:SourceAccount": "123456789012"}
 
-    aws = _bind_framework_callback(_permission_test_aws, document, fault, arn, statement, stack)
+    aws = _bind_framework_callback(
+        _permission_test_aws, document, fault, arn, statement, stack
+    )
 
     backend = SimpleNamespace(root=root, target=TARGET, aws=aws)
     value, reason = deploy_observed.permission_observation(
@@ -1688,12 +1770,22 @@ def test_permission_event_rule_arn_identity(project_workspace, sub, fault):
         actuals,
         mapped,
         "Permission",
-        actuals[-1],
+        permission_actual,
         resource,
     )
     assert (
         (value == "sid-1" and reason is None)
-        if fault in {None, "if-inactive"}
+        if fault
+        in {
+            None,
+            "if-inactive",
+            "if-noecho-inactive",
+            "bus-ref",
+            "bus-arn",
+            "partner",
+            "no-value",
+            "no-value-account",
+        }
         else (value is None and reason)
     ), reason
 
