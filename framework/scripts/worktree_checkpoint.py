@@ -133,15 +133,28 @@ def verify_update_receipts(root, target, state, context, names, receipts, text, 
         parents = wt.git(target, "show", "-s", "--format=%P", commit, check=False)
         if parents.returncode:
             raise DeployStepBlocked("checkpoint receipt has no valid commit")
+        evidence = receipt.get("checkpointEvidence")
+        if not isinstance(evidence, dict):
+            raise DeployStepBlocked("checkpoint receipt has no content evidence")
+        paths = evidence.get("changed")
         parent_list = parents.stdout.split()
-        paths = (
-            wt.paths(
-                target, "diff", "--no-renames", "--name-only", "-z",
-                parent_list[0], commit, "--", "model/", "docs/designs/",
+        if (
+            len(parent_list) != 1
+            or wt.git(target, "cat-file", "-e", parent_list[0] + "^{commit}", check=False).returncode
+            or not isinstance(paths, list)
+            or any(
+                not isinstance(p, str)
+                or not p.startswith(("model/", "docs/designs/"))
+                for p in paths
             )
-            if len(parent_list) == 1
-            else set()
-        )
+            or paths != sorted(set(paths))
+            or evidence.get("digest") != update_receipt_digest(receipt, paths)
+            or evidence.get("tree")
+            != wt.output(target, "rev-parse", commit + "^{tree}")
+        ):
+            raise DeployStepBlocked("checkpoint receipt content evidence differs")
+        if not paths:
+            continue
         for revision in (latest, head):
             result = wt.git(
                 target,
@@ -151,10 +164,7 @@ def verify_update_receipts(root, target, state, context, names, receipts, text, 
                 commit,
                 revision,
                 "--",
-                *(
-                    [f":(top,literal){p}" for p in sorted(paths)]
-                    if paths else ("model/", "docs/designs/")
-                ),
+                *[f":(top,literal){p}" for p in paths],
                 check=False,
             )
             if result.returncode:
@@ -168,6 +178,20 @@ def verify_update_receipts(root, target, state, context, names, receipts, text, 
         raise DeployStepBlocked(
             "checkpoint base or Task changed during receipt verification"
         )
+
+
+def update_receipt_digest(receipt, paths):
+    evidence = {
+        key: receipt.get(key)
+        for key in (
+            "commit", "taskDigest", "taskBase", "taskHead", "inputDigest", "unit",
+            "stackId", "stackStatus", "deployStatus", "coverage", "services",
+        )
+    }
+    evidence.update(changed=paths, tree=receipt["checkpointEvidence"].get("tree"))
+    return hashlib.sha256(
+        json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def update_task_iac_paths(target, state, task, context):
@@ -720,7 +744,14 @@ def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
                     backend.states[name].get("observedCoverage", {})
                 ),
                 "services": backend.states[name].get("observedServices", []),
+                "checkpointEvidence": {
+                    "tree": wt.output(target, "rev-parse", commit + "^{tree}"),
+                    "changed": intent["changed"],
+                },
             }
+            receipts[name]["checkpointEvidence"]["digest"] = update_receipt_digest(
+                receipts[name], intent["changed"]
+            )
         state["tip"] = commit
         if intent.get("sync"):
             state["validation_base"] = intent["base"]

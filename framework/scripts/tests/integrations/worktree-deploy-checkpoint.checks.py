@@ -159,98 +159,116 @@ def check_combined_checkpoint_after_peer_completion(tmp_path, monkeypatch):
 
 
 def check_update_receipt_rewritten_base():
-    for scenario in (
-        "advance",
-        "rewrite",
-        "same-tree",
-        "other-model",
-        "model",
-        "view",
-        "task",
-        "stack",
-        "input",
-        "unit",
-        "commit",
-    ):
+    scenarios = (
+        "normal", "advance", "rewrite", "same-tree", "other-model", "model", "view", "missing", "task", "stack",
+        "input", "unit", "commit", "other-task", "zero", "zero-other-model",
+        "zero-unverifiable", "zero-no-parent",
+    )
+    for scenario in scenarios:
         with task_fixture(branch="master") as root:
-            for relative in (
-                "model/dev/team/test.properties",
-                "docs/designs/dev/team/test.md",
-            ):
+            model = "model/dev/team/test.properties"
+            view = "docs/designs/dev/team/test.md"
+            for relative in (model, view):
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("saved\n", encoding="utf-8")
+                path.write_text("before\n", encoding="utf-8")
             git(root, "add", "model", "docs")
             git(root, "commit", "-qm", "model and view")
+            unrelated = git(root, "rev-parse", "HEAD").strip()
             with patch("support.worktree_task_fixtures.dependency_index.rebuild"):
-                target, state = start_task(
-                    root, files=("model/dev/team/test.properties",)
-                )
+                target, state = start_task(root, files=(model, view))
             text = (target / state["task_file"]).read_text(encoding="utf-8")
-            unit = {"name": "A"}
-            receipt = {
-                "commit": state["start"],
-                "taskDigest": task_digest(text),
-                "inputDigest": "input",
-                "unit": unit,
-                "stackId": "stack-id",
-                "stackStatus": "COMPLETE",
-                "deployStatus": "SUCCESS",
-                "coverage": {},
-                "services": [],
-            }
-            _, _, path, state = wt.load(root, "example")
-            state["deployCheckpoints"] = {"A": receipt}
-            wt.save(path, state)
+            before = checkpoints.contracts.validation_snapshot(target)
+            if not scenario.startswith("zero"):
+                for relative in (model, view):
+                    (target / relative).write_text("checkpoint\n", encoding="utf-8")
             context = {
+                "checkpointPending": {
+                    "stacks": ["A"], "before": before,
+                    "after": checkpoints.contracts.validation_snapshot(target),
+                },
                 "taskDigest": task_digest(text),
                 "inputDigests": {"A": "input"},
-                "stepUnits": [unit],
+                "stepUnits": [{"name": "A"}],
+                "consumedInputs": {},
             }
             backend = SimpleNamespace(
-                root=target,
-                phase="update",
-                run_context=context,
-                guard=lambda: None,
-                states={
-                    "A": {
-                        "stackId": "stack-id",
-                        "stackStatus": "COMPLETE",
-                        "status": "SUCCESS",
-                    }
-                },
+                root=target, phase="update", run_context=context,
+                guard=lambda: None, save=lambda: None,
+                states={"A": {
+                    "observedSynced": True, "stackId": "stack-id",
+                    "stackStatus": "COMPLETE", "status": "SUCCESS",
+                }},
             )
-            if scenario in {"rewrite", "same-tree"}:
-                git(root, "commit", "--amend", "-qm", "rewritten baseline")
-            if scenario in {"advance", "rewrite", "other-model", "model", "view"}:
-                relative = {
-                    "other-model": "model/dev/team/other.properties",
-                    "model": "model/dev/team/test.properties",
-                    "view": "docs/designs/dev/team/test.md",
-                }.get(scenario, "upstream.txt")
-                (root / relative).write_text("changed\n", encoding="utf-8")
-                git(root, "add", relative)
-                git(root, "commit", "-qm", "advance")
-                if scenario == "other-model":
-                    git(target, "merge", "--ff-only", git(root, "rev-parse", "HEAD").strip())
-            if scenario in {"task", "stack", "input", "unit", "commit"}:
-                receipt[
-                    {
-                        "task": "taskDigest",
-                        "stack": "stackId",
-                        "input": "inputDigest",
-                        "unit": "unit",
-                        "commit": "commit",
+            with patch.object(checkpoints, "validate"):
+                receipt = checkpoints.update_checkpoint(backend, ["A"])["A"]
+                assert checkpoints.update_checkpoint(backend, ["A"])["A"] == receipt
+                _, _, path, state = wt.load(root, "example")
+                if scenario in {"rewrite", "same-tree"}:
+                    git(root, "commit", "--amend", "-qm", "rewritten checkpoint")
+                if scenario in {"advance", "other-model", "zero-other-model", "model", "view", "missing"}:
+                    relative = {
+                        "model": model, "view": view, "missing": model,
+                        "advance": "unrelated.txt",
+                    }.get(scenario, "model/dev/team/other.properties")
+                    if scenario == "missing":
+                        (root / relative).unlink()
+                    else:
+                        (root / relative).write_text("other\n", encoding="utf-8")
+                    git(root, "add", "-A", relative)
+                    git(root, "commit", "-qm", "task(other): deploy checkpoint A")
+                    if scenario in {"other-model", "zero-other-model"}:
+                        git(target, "merge", "--ff-only", git(root, "rev-parse", "HEAD").strip())
+                if scenario == "other-task":
+                    other_model = "model/dev/team/other.properties"
+                    with patch("support.worktree_task_fixtures.dependency_index.rebuild"):
+                        other, other_state = start_task(root, task_id="other", files=(other_model,))
+                    other_before = checkpoints.contracts.validation_snapshot(other)
+                    (other / other_model).write_text("other task\n", encoding="utf-8")
+                    other_text = (other / other_state["task_file"]).read_text(encoding="utf-8")
+                    other_context = {
+                        "checkpointPending": {
+                            "stacks": ["A"], "before": other_before,
+                            "after": checkpoints.contracts.validation_snapshot(other),
+                        },
+                        "taskDigest": task_digest(other_text),
+                        "inputDigests": {"A": "input"},
+                        "stepUnits": [{"name": "A"}], "consumedInputs": {},
+                    }
+                    other_backend = SimpleNamespace(
+                        root=other, phase="update", run_context=other_context,
+                        guard=lambda: None, save=lambda: None,
+                        states={"A": dict(backend.states["A"])},
+                    )
+                    checkpoints.update_checkpoint(other_backend, ["A"])
+                if scenario == "zero-no-parent":
+                    receipt["commit"] = git(root, "rev-list", "--max-parents=0", "HEAD").strip()
+                    receipt["checkpointEvidence"]["tree"] = git(
+                        root, "rev-parse", receipt["commit"] + "^{tree}"
+                    ).strip()
+                    receipt["checkpointEvidence"]["digest"] = checkpoints.update_receipt_digest(receipt, [])
+                    state["deployCheckpoints"]["A"] = receipt
+                    wt.save(path, state)
+                if scenario in {"task", "stack", "input", "unit", "commit", "other-task", "zero-unverifiable"}:
+                    key = {
+                        "task": "taskDigest", "stack": "stackId", "input": "inputDigest",
+                        "unit": "unit", "commit": "commit", "other-task": "commit",
+                        "zero-unverifiable": "checkpointEvidence",
                     }[scenario]
-                ] = "tampered"
-                state["deployCheckpoints"]["A"] = receipt
-                wt.save(path, state)
-            if scenario in {"model", "view", "task", "stack", "input", "unit", "commit"}:
-                with pytest.raises(ValueError, match="receipt|content"):
-                    checkpoints.update_checkpoint(backend, ["A"])
-            else:
-                assert checkpoints.update_checkpoint(backend, ["A"]) == {"A": receipt}
-                assert checkpoints.update_checkpoint(backend, ["A"]) == {"A": receipt}
+                    receipt[key] = (
+                        unrelated if scenario == "commit"
+                        else git(root, "rev-parse", "HEAD").strip() if scenario == "other-task"
+                        else {} if scenario == "zero-unverifiable"
+                        else "tampered"
+                    )
+                    state["deployCheckpoints"]["A"] = receipt
+                    wt.save(path, state)
+                if scenario in {"model", "view", "missing", "task", "stack", "input", "unit", "commit", "other-task", "zero-unverifiable", "zero-no-parent"}:
+                    with pytest.raises(ValueError, match="receipt|content"):
+                        checkpoints.update_checkpoint(backend, ["A"])
+                else:
+                    assert checkpoints.update_checkpoint(backend, ["A"]) == {"A": receipt}
+                    assert checkpoints.update_checkpoint(backend, ["A"]) == {"A": receipt}
 
 
 def _update_candidate_validate(root, tree, base, task, context):
