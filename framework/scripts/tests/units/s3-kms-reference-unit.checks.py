@@ -207,7 +207,7 @@ def check_authority_display_and_references(project_workspace):
         displayed = reference_display(bucket, scope.path, scope.root)
         files = designs(scope, bucket, kms)
     view = scope.root / "docs/designs/fixture/team/s3.md"
-    expected = "[未観測](kms.md#alias-one)"
+    expected = "[PENDING_DEPLOY](kms.md#alias-one)"
     assert expected in files[view] and "$resource" not in files[view]
     TestCase().assertNotIn("$modelRef", displayed[ROW])
     TestCase().assertEqual(bucket[ROW], snapshot.authoritative[ROW])
@@ -265,6 +265,52 @@ def check_authority_display_and_references(project_workspace):
     )
     _compare_generation(plan)
     assert not plan.failure_records and view in plan.saved
+
+
+@pytest.mark.parametrize(
+    "logical,anchor", [("KMS_Key_001", "key-one"), ("KMS_Alias_001", "alias-one")]
+)
+@pytest.mark.parametrize(
+    "key_id,observed,label,state",
+    [
+        ("12345678-1234-1234-1234-123456789abc", None, "PENDING_DEPLOY", "unobserved"),
+        ("PENDING_DEPLOY", None, "PENDING_DEPLOY", "unobserved"),
+        (
+            "12345678-1234-1234-1234-123456789abc",
+            "12345678-1234-1234-1234-123456789abc",
+            "12345678-1234-1234-1234-123456789abc",
+            "match",
+        ),
+        (
+            "12345678-1234-1234-1234-123456789abc",
+            "87654321-1234-1234-1234-123456789abc",
+            "87654321-1234-1234-1234-123456789abc",
+            "mismatch",
+        ),
+    ],
+)
+def check_s3_kms_markdown_observation(
+    project_workspace, logical, anchor, key_id, observed, label, state
+):
+    scope, bucket, kms_values = fixture(project_workspace)
+    bucket[ROW] = "`" + json.dumps(reference(logical, "Arn")) + "`"
+    kms_values["observed.row.001-001.value"] = "`" + key_id + "`"
+    if observed is not None:
+        bucket["observed.row.001-003.value"] = "`" + observed + "`"
+    write_model(scope.path, bucket)
+    write_model(Scope(scope.root, "fixture", "team", "kms").path, kms_values)
+    path = scope.root / "docs/designs/fixture/team/s3.md"
+    resolver = reference_resolver(bucket, scope, scope.root)
+    assert kms_observation(
+        bucket, "001-003", parse_reference(reference(logical, "Arn")), scope, resolver
+    ) == (state, observed)
+    before = scope.path.read_bytes()
+    with catalog_display():
+        markdown = generate_markdown(path, bucket, FRAMEWORK)
+    assert f"[{label}](kms.md#{anchor})" in markdown
+    assert scope.path.read_bytes() == before
+    if observed is None:
+        assert "observed.row.001-003.value" not in bucket
 
 
 def check_iac_matrix(project_workspace):

@@ -2,6 +2,7 @@
 
 import model.references as references
 from contracts.model import MODEL_PENDING_DEPLOY, RESOURCE_TYPE_KEY
+from utils.reference_contracts import S3_KMS_MASTER_KEY_ID
 
 import model as _model_api
 
@@ -49,8 +50,11 @@ def reference_label(
     if observation is None:
         return name
     state, observed = observation
-    if state == "unobserved" and displayed == MODEL_PENDING_DEPLOY:
-        return displayed
+    if state == "unobserved" and (
+        displayed == MODEL_PENDING_DEPLOY
+        or values.get(f"desired.row.{position.row_id}.property") == S3_KMS_MASTER_KEY_ID
+    ):
+        return MODEL_PENDING_DEPLOY
     return {
         "match": observed,
         "mismatch": observed,
