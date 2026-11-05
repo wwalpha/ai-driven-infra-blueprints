@@ -25,6 +25,7 @@ from aws_mapping_catalog import catalog_properties, project
 from aws_mapping_display import MODEL_ONLY, display_name, formal_name
 from botocore.session import get_session
 from design.catalog import design_material_files
+from utils.aws_catalogs import catalogs_for
 from utils.aws_mappings import owners
 from utils.aws_sdk import Sdk, aws_runtime
 from utils.input_cache import input_scope
@@ -45,7 +46,8 @@ def coverage():
         for line in p.read_text(encoding="utf-8").splitlines()
         if "=" in line and not line.startswith("#")
     }
-    catalog.remove("EC2.Instance.AvailabilityZone")
+    assert "EC2.Instance.AvailabilityZone" not in catalog
+    assert "AvailabilityZone" not in catalogs_for(ROOT).selected("EC2.Instance")
     properties, types, sources, summaries = {}, set(), Counter(), []
     expected_owners = {}
     for path in sorted((ROOT / "framework/mappings/aws").glob("*.yaml")):
