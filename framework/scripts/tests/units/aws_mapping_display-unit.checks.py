@@ -131,24 +131,41 @@ def check_indexed_mapping():
             raise AssertionError(field)
 
 
+def _add_pipeline_row(rows, kind, resource, field, value):
+    rows.append(
+        [f"{resource}-{len(rows) + 1:03}", kind + "." + field, f"`{value}`", ""]
+    )
+
+
 def test_pipeline_hidden_fields_keep_membership():
     kind = "CodePipeline.Pipeline"
     rows = []
 
-    def add(resource, field, value):
-        rows.append(
-            [f"{resource}-{len(rows) + 1:03}", kind + "." + field, f"`{value}`", ""]
-        )
-
     for resource in ("001", "002"):
         for stage in range(4):
             for action in range(2 if stage == 1 else 1):
-                add(resource, "Stages[].Actions[].Name", f"action-{stage}-{action}")
-                add(resource, "Stages[].Actions[].RunOrder", str(action + 1))
+                _add_pipeline_row(
+                    rows,
+                    kind,
+                    resource,
+                    "Stages[].Actions[].Name",
+                    f"action-{stage}-{action}",
+                )
+                _add_pipeline_row(
+                    rows, kind, resource, "Stages[].Actions[].RunOrder", str(action + 1)
+                )
                 if stage == 0:
-                    add(resource, "Stages[].Actions[].Namespace", "QuarantineSource")
-                    add(resource, "Stages[].Actions[].RoleArn", "hidden")
-            add(resource, "Stages[].Name", f"stage-{stage}")
+                    _add_pipeline_row(
+                        rows,
+                        kind,
+                        resource,
+                        "Stages[].Actions[].Namespace",
+                        "QuarantineSource",
+                    )
+                    _add_pipeline_row(
+                        rows, kind, resource, "Stages[].Actions[].RoleArn", "hidden"
+                    )
+            _add_pipeline_row(rows, kind, resource, "Stages[].Name", f"stage-{stage}")
     for resource in ("001", "002"):
         source = [row for row in rows if row[0].startswith(resource)]
         without_namespace = [row for row in source if not row[1].endswith(".Namespace")]

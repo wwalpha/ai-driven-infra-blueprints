@@ -70,31 +70,33 @@ def pipeline_membership(rows: list[list[str]]) -> list[list[str]]:
     return result + trailing
 
 
+def _selection_membership(items):
+    formal = [
+        [row[0], row[1].removeprefix("CodePipeline.Pipeline."), *row[2:]]
+        for row in items
+    ]
+    result = {}
+    required = set()
+    for identity, field, value, _ in pipeline_membership(formal):
+        match = CODEPIPELINE_STAGE.fullmatch(field)
+        if not match:
+            continue
+        stage = int(match.group(1))
+        action = (
+            int(match.group(2) or 1)
+            if field.startswith(f"Stages[{stage}].Actions")
+            else 0
+        )
+        result[identity] = (stage, action, match.group(3), value)
+        if match.group(3) == "Name":
+            required.add((stage, action))
+    return result, required
+
+
 def validate_selection(rows: list[list[str]], selected: list[list[str]]) -> None:
     """Ensure filtering preserves each source stage/action and its membership."""
-    kind = "CodePipeline.Pipeline."
-
-    def membership(items):
-        formal = [[row[0], row[1].removeprefix(kind), *row[2:]] for row in items]
-        result = {}
-        required = set()
-        for identity, field, value, _ in pipeline_membership(formal):
-            match = CODEPIPELINE_STAGE.fullmatch(field)
-            if not match:
-                continue
-            stage = int(match.group(1))
-            action = (
-                int(match.group(2) or 1)
-                if field.startswith(f"Stages[{stage}].Actions")
-                else 0
-            )
-            result[identity] = (stage, action, match.group(3), value)
-            if match.group(3) == "Name":
-                required.add((stage, action))
-        return result, required
-
-    before, required = membership(rows)
-    after, retained = membership(selected)
+    before, required = _selection_membership(rows)
+    after, retained = _selection_membership(selected)
     groups = {(stage, action) for stage, action, _, _ in before.values()}
     groups.update((stage, 0) for stage, _ in list(groups))
     if (
