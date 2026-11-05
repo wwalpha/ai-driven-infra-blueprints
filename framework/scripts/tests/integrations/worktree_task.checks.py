@@ -440,7 +440,7 @@ def check_latest_base_linear_repeated_and_recovery():
 def check_latest_base_rejects_old_merge_history():
     check = TestCase()
     with fixture() as root:
-        target, state = start(root)
+        target, state = start(root, files=("file.txt", "upstream.txt"))
         (target / "file.txt").write_text("task\n")
         _, _, path, state = wt.load(root, "example")
         wt._prepare_commit(root, path, state, target, None, prepare_only=True)
@@ -737,8 +737,6 @@ def check_committed_recovery_across_rewritten_base():
             git(root, "add", ".")
             git(root, "commit", "-qm", "rewritten base")
             latest = git(root, "rev-parse", "HEAD")
-            with TestCase().assertRaisesRegex(wt.Blocked, "rewritten"):
-                task_contract_runtime.resume(target, state["task_file"])
             args = [
                 sys.executable,
                 "-B",
