@@ -794,6 +794,7 @@ def acquire(
             require_import_changes(root, generation=True)
         inputs = GenerationInputs(root)
         verified = False
+        phase = "unknown"
         try:
             with task_reads(root), recording_inputs(inputs):
                 before = before_model(model_path(root, identity), inputs)
@@ -829,11 +830,21 @@ def acquire(
                         "sts", type(error).__name__, api="sts.get_caller_identity"
                     ) from error
                 verified = True
-                records = normalize_records(
-                    ctx, service, inventory(ctx, service, resource_types)
-                )
-            inputs.verify()
+                phase = "acquisition"
+                raw_records = inventory(ctx, service, resource_types)
+                phase = "unknown"
+                records = normalize_records(ctx, service, raw_records)
+            phase = "input_validation"
+            try:
+                inputs.verify()
+            except ValueError as error:
+                raise ImportStageError(
+                    "input_validation", "InputValidationFailed"
+                ) from error
+            phase = "unknown"
             files, sets = source_state(root, inputs)
+            phase = "evidence"
+            ctx.cleanup_failed = False
             evidence, value = acquired(
                 root,
                 identity,
@@ -844,6 +855,7 @@ def acquire(
                 dry_run,
                 source_sets=sets,
             )
+            phase = "unknown"
             return {
                 "status": "acquired" if acquisition_complete(value) else "incomplete",
                 "scope": list(identity),
@@ -863,7 +875,9 @@ def acquire(
         except Exception as error:
             if not verified or isinstance(error, ImportStageError):
                 raise
-            if isinstance(error, comparator().AcquisitionError):
+            if phase == "acquisition" and isinstance(
+                error, comparator().AcquisitionError
+            ):
                 failure = ImportStageError(
                     "acquisition",
                     error.code,
@@ -872,11 +886,8 @@ def acquire(
                     error.api,
                 )
             else:
-                failure = ImportStageError("acquisition", type(error).__name__)
-            failure.cleanup_failed = (
-                "IMPORT incomplete evidence cleanup failed"
-                in getattr(error, "__notes__", [])
-            )
+                failure = ImportStageError(phase, "UnknownError")
+            failure.cleanup_failed = phase == "evidence" and ctx.cleanup_failed
             raise failure from error
         finally:
             inputs.close()

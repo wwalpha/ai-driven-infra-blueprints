@@ -4375,11 +4375,18 @@ def test_acquired_cleanup_retains_original_error(tmp_path):
         target={"awsAccountId": ACCOUNT},
         metrics={},
     )
+
+    class OldPythonError(ValueError):
+        add_note = None
+
+    cause = RuntimeError("original cause")
+    original = OldPythonError("first")
+    original.__cause__ = cause
     with (
         patch.object(
             import_inventory, "inventory_for", return_value=SimpleNamespace(statuses={})
         ),
-        patch.object(import_evidence, "write_sealed", side_effect=ValueError("first")),
+        patch.object(import_evidence, "write_sealed", side_effect=original),
         patch.object(import_evidence.shutil, "rmtree", side_effect=OSError("secret")),
     ):
         with pytest.raises(ValueError, match="first") as caught:
@@ -4393,7 +4400,87 @@ def test_acquired_cleanup_retains_original_error(tmp_path):
                 True,
                 source_sets=[],
             )
-    assert caught.value.__notes__ == ["IMPORT incomplete evidence cleanup failed"]
+    assert caught.value is original and caught.value.__cause__ is cause
+    assert ctx.cleanup_failed is True
+
+
+@pytest.mark.parametrize("failure", ["input", "evidence", "aws", "local"])
+def test_import_failure_stage_and_safe_cli(tmp_path, capsys, failure):
+    _imports_support_import_model_fixtures.fixture(tmp_path)
+    _imports_support_repository_fixtures.git(tmp_path, "init", "-q")
+    secret = "secret-token /sensitive/path"
+    aws_error = m.comparator().AcquisitionError(
+        "logs.describe_log_groups",
+        "AccessDenied",
+        failure_category="access_denied",
+        classification_source="aws_error_code",
+    )
+    target, name, error = {
+        "input": (GenerationInputs, "verify", ValueError(secret)),
+        "evidence": (import_evidence, "write_sealed", OSError(secret)),
+        "aws": (m, "inventory", aws_error),
+        "local": (m, "normalize_records", RuntimeError(secret)),
+    }[failure]
+    remove_tree = import_evidence.shutil.rmtree
+
+    def fail_session_cleanup(path, *args, **kwargs):
+        if Path(path).name.startswith("session-"):
+            raise OSError(secret)
+        return remove_tree(path, *args, **kwargs)
+
+    with (
+        patch.object(target, name, side_effect=error),
+        patch.object(
+            import_evidence.shutil, "rmtree", side_effect=fail_session_cleanup
+        ),
+    ):
+        with pytest.raises(m.ImportStageError) as caught:
+            m.acquire(
+                tmp_path,
+                "dev",
+                "cloudwatch-logs",
+                "cde",
+                True,
+                aws(),
+                resource_types=["Logs.LogGroup"],
+            )
+    report_error = caught.value
+    assert (
+        report_error.phase
+        == {
+            "input": "input_validation",
+            "evidence": "evidence",
+            "aws": "acquisition",
+            "local": "unknown",
+        }[failure]
+    )
+    if failure == "input":
+        assert report_error.code == "InputValidationFailed"
+    if failure == "aws":
+        assert (report_error.code, report_error.category, report_error.source) == (
+            "AccessDenied",
+            "access_denied",
+            "aws_error_code",
+        )
+    with patch.object(m, "acquire", side_effect=report_error):
+        assert (
+            m.main(
+                [
+                    "acquire",
+                    "--repository-root",
+                    str(tmp_path),
+                    "--environment",
+                    "dev",
+                    "--service",
+                    "cloudwatch-logs",
+                ]
+            )
+            == 1
+        )
+    output = capsys.readouterr().out
+    report = json.loads(output)
+    assert secret not in output and report["phase"] == report_error.phase
+    assert report.get("cleanup") == ("failed" if failure == "evidence" else None)
 
 
 if __name__ == "__main__":
