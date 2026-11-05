@@ -676,23 +676,26 @@ def check_large_pages_resume_confirmation_and_complete(tmp_path):
     with pytest.raises(ValueError, match="mismatch"):
         review.page(**dict(base, batch_id="stale"), page_index=0)
 
-    def confirm(page):
-        return review.page(
+    for page in (first, first):
+        review.page(
             **base,
             page_index=page["page_index"],
             confirm=True,
             material_digest=page["material_digest"],
             page_digest=page["page_digest"],
         )
-
-    confirm(first)
-    confirm(first)
     assert review.status()["paging"]["confirmed_pages"] == 1
     resumed = ReviewController(review.root, review.artifact_path, review.path)
     assert resumed.next_batch()["confirmed_pages"] == 1
     assert resumed.next_batch(max_bytes=65536)["batch_id"] == batch["batch_id"]
     for page in fragments[1:]:
-        confirm(page)
+        review.page(
+            **base,
+            page_index=page["page_index"],
+            confirm=True,
+            material_digest=page["material_digest"],
+            page_digest=page["page_digest"],
+        )
     assert review.submit(result, validate_only=True)["valid"]
     review.submit(result)
     assert "paging" not in review.status()

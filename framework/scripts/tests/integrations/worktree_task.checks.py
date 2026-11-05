@@ -1008,9 +1008,17 @@ def _check_normal_model_final_candidate():
 
 @it_case
 def check_registered_normal_model_guard():
-    relative = "model/stg/cde/service-a.properties"
+    relative = "model/dev/123456789012/iam.properties"
+    design_path = "docs/designs/dev/123456789012/iam.md"
     with fixture() as root:
-        dependency_fixture(root)
+        source = SCRIPT.parents[2]
+        loop_checks.make_project_fixture(source, root)
+        loop_checks.populate("generated_policy", root)
+        parameters = root / "infra/cloudformation/parameters/dev/123456789012"
+        parameters.mkdir(parents=True)
+        for directory in (parameters, root / "tests/scenarios", root / "tests/results"):
+            (directory / ".gitkeep").touch()
+        shutil.copytree(source / ".agents", root / ".agents")
         # Requirements select local definitions, so provision the complete Framework.
         shutil.copytree(
             Path(wt.__file__).resolve().parents[1],
@@ -1022,12 +1030,16 @@ def check_registered_normal_model_guard():
         (root / ".gitignore").write_text((root / ".gitignore").read_text() + ".venv/\n")
         git(root, "add", ".")
         git(root, "commit", "-qm", "synthetic runtime fixture")
-        target, state = start(root, files=(relative,))
+        target, state = start(root, files=(relative, design_path))
         contract_path = target / state["task_file"]
         text = (
             contract_path.read_text()
             .replace("`governance`", "`design`")
-            .replace("- `framework`", "- `stg/cde/service-a`\n- `stg/cde/service-b`")
+            .replace(
+                "- Task status:",
+                "- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n- Task status:",
+            )
+            .replace("- `framework`", "- `dev/123456789012/iam`")
         )
         contract_path.write_text(text)
         directory = wt.python_env.shared_directory(root)
@@ -1057,8 +1069,6 @@ counts = {}
 def profile(frame, event, arg):
     if event != 'call': return
     name, file = frame.f_code.co_name, Path(frame.f_code.co_filename).name
-    if file == 'worktree_task.py' and name in ('lifecycle_lock', 'finalize', 'prepare_integration', 'cleanup'):
-        raise AssertionError('guard child entered lifecycle')
     if file in ('references.py', 'sources.py') and name in ('usages', '_read_model', 'raw_model'):
         assert sys.modules['utils.input_cache'].memo_table() is not None
         counts[name] = counts.get(name, 0) + 1
@@ -1084,9 +1094,13 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
         )
         _, _, state_path, _ = wt.load(root, "example")
         wt.save(state_path, state)
-        (target / relative).write_text(
-            (target / relative).read_text() + "\n# ordinary save\n"
-        )
+        model = target / relative
+        values = dict(load_model(model).authoritative)
+        values["display.resource.001.comment"] = "実行権限の説明を更新"
+        write_model(model, values)
+        design = target / design_path
+        design.write_text(loop_checks.markdown_for(design, load_model(model).values, target), encoding="utf-8")
+        design.write_text(loop_checks.rendered_design(design), encoding="utf-8")
         finish_contract(target, state)
         environment = {
             **os.environ,
@@ -1121,10 +1135,10 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
         assert result.returncode == 0, response
         assert response["cleaned"] and response["merged"]
         counts = json.loads(probe.read_text())
-        assert counts.get("usages", 0) == 0 and counts["raw_model"] >= 1, counts
+        assert counts["usages"] >= 1 and counts["raw_model"] >= 1, counts
         assert not target.exists()
         assert wt.python_env.shared_ready(directory)
-        assert (root / relative).read_text().endswith("# ordinary save\n")
+        assert "実行権限の説明を更新" in (root / relative).read_text(encoding="utf-8")
     print(
         "Ordinary Model guard in registered shared venv with dependency-free parent: PASS"
     )

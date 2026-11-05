@@ -109,7 +109,7 @@ def _callback_generated_policy_register(model, root, /, outputs):
     tasks.start(
         root,
         name,
-        "# Test\n## Task contract\n- Task type: `design`\n"
+        "# Test\n## Task contract\n- Task type: `design`\n- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n"
         "- Task status: `running`\n## Validation scope\n- `dev/123456789012/iam`\n"
         "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         f"## Modified files\n{listed}\n## Allowed paths\n{listed}\n",
