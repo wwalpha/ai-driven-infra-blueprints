@@ -35,6 +35,83 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+@pytest.mark.parametrize("services", [[], ["test"], ["other"]])
+def check_update_zero_content_subject(tmp_path, services):
+    selected = [
+        "model/dev/team/test.properties", "model/dev/team/test/part-001.properties",
+        "docs/designs/dev/team/test.md", "docs/designs/dev/team/test/policy.json",
+    ]
+    others = ["model/dev/team/other.properties", "docs/designs/dev/team/other.md", "docs/designs/dev/team/other/test/policy.json"]
+    text = "## Modified files\n" + "\n".join(f"- `{p}`" for p in [*selected, *others, "infra/fixed.yaml"])
+    expected = selected if services == ["test"] else others if services else [*selected, *others]
+    assert checkpoints.update_zero_content_paths(tmp_path, {"services": services}, text) == sorted(expected)
+
+
+@pytest.mark.parametrize("damage", ["receipt", "task", "missing", "payload", "signature", "symlink"])
+def check_update_receipt_independent_proof(tmp_path, monkeypatch, damage):
+    monkeypatch.setattr(checkpoints.sealed_evidence.tempfile, "tempdir", str(tmp_path))
+    state = {
+        "primary": str(tmp_path), "worktree": str(tmp_path / "task"),
+        "task_id": "update", "task_file": "tasks/update.md", "start": "original",
+        "deployCheckpoints": {"A": {"commit": "issued", "checkpointEvidence": {"changed": ["model/a"]}}},
+    }
+    target = tmp_path / "task"
+    checkpoints.save_update_receipt_proof(target, state, {})
+    checkpoints.verify_update_receipt_proof(target, state)
+    file = checkpoints.sealed_evidence.evidence_store(target) / "update-checkpoints.json"
+    original = file.read_bytes()
+    if damage == "receipt":
+        state["deployCheckpoints"]["A"]["checkpointEvidence"]["changed"] = []
+    elif damage == "task":
+        state["start"] = "substituted"
+    elif damage == "missing":
+        file.unlink()
+    elif damage == "symlink":
+        replacement = tmp_path / "redirected.json"
+        replacement.write_bytes(original)
+        file.unlink()
+        file.symlink_to(replacement)
+    else:
+        envelope = json.loads(original)
+        if damage == "payload":
+            envelope["payload"]["receipts"]["A"]["checkpointEvidence"]["changed"] = []
+        else:
+            envelope["signature"] = "0" * 64
+        file.write_text(json.dumps(envelope), encoding="utf-8")
+    with pytest.raises(ValueError, match="receipt"):
+        checkpoints.verify_update_receipt_proof(target, state)
+    if damage == "missing":
+        # A legacy/missing proof cannot be created from self-consistent lifecycle state.
+        with pytest.raises(ValueError, match="no independent"):
+            checkpoints.save_update_receipt_proof(target, state, copy.deepcopy(state["deployCheckpoints"]))
+        assert not file.exists()
+
+
+def check_update_receipt_proof_recovery(tmp_path, monkeypatch):
+    monkeypatch.setattr(checkpoints.sealed_evidence.tempfile, "tempdir", str(tmp_path))
+    state = {
+        "primary": str(tmp_path), "worktree": str(tmp_path / "task"),
+        "task_id": "update", "task_file": "tasks/update.md", "start": "original",
+        "deployCheckpoints": {"A": {"commit": "first"}},
+    }
+    target = tmp_path / "task"
+    checkpoints.save_update_receipt_proof(target, state, {})
+    previous = copy.deepcopy(state["deployCheckpoints"])
+    state["deployCheckpoints"]["B"] = {"commit": "second"}
+    checkpoints.save_update_receipt_proof(target, state, previous)
+    file = checkpoints.sealed_evidence.evidence_store(target) / "update-checkpoints.json"
+    original = file.read_bytes()
+    # Retrying after sealing but before the lifecycle save neither reseals nor loses peer receipts.
+    checkpoints.save_update_receipt_proof(target, state, previous)
+    checkpoints.verify_update_receipt_proof(target, state)
+    assert file.read_bytes() == original
+    assert checkpoints.read_update_receipt_proof(target)["receipts"]["A"] == previous["A"]
+    state["deployCheckpoints"]["A"] = {"commit": "forged"}
+    with pytest.raises(ValueError, match="replace unverified"):
+        checkpoints.save_update_receipt_proof(target, state, previous)
+    assert file.read_bytes() == original
+
+
 def check_source_scope_shares_deploy_baseline(tmp_path, monkeypatch):
     start = Mock(return_value="start")
     observation = Mock()

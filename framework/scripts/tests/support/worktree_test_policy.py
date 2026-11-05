@@ -47,6 +47,9 @@ WORKTREE_CASES = {
         "check_desired_model_change_is_never_authorized",
     ),
     "units/deploy-worktree-unit.checks.py": (
+        "check_update_zero_content_subject",
+        "check_update_receipt_independent_proof",
+        "check_update_receipt_proof_recovery",
         "check_reviewed_conflict_tree_uses_private_index",
         "check_conflict_review_publishes_without_repeating_aws",
         "check_source_scope_shares_deploy_baseline",
