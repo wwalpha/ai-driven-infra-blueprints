@@ -185,11 +185,13 @@ WORKTREE_CASES = {
         "check_finalize_workflow_diagnostic",
         "check_git_baseline_fail_closed",
         "check_candidate_staleness",
+        "check_merge_failure_does_not_complete",
         "check_final_candidate_scope",
         "check_integration_detects_undeclared_paths",
     ),
     "integrations/worktree_task.checks.py": (
         "check_ordinary_rewritten_base_sync",
+        "check_rewritten_base_replay_content",
         "check_explicit_disposal_and_orphans",
         "check_pr_update_and_operations",
         "check_pr_remote_base_only_sync",

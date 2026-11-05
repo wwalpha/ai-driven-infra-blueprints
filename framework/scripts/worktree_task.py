@@ -1590,11 +1590,9 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
             if tasks.status(text) == "running"
             else text
         )
-        if text != completed:
-            tasks.atomic_files({task_path: completed}, staging_directory=target)
         if (
             tasks.read_task_snapshot(target, candidate.task_file, live=True).text
-            != completed
+            != text
             or changed_paths(target)
             or output(target, "rev-parse", "HEAD") != candidate.candidate_head
         ):
@@ -1605,6 +1603,8 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
         ):
             raise NeedsSync(output(base, "rev-parse", "HEAD"))
         if state.get("integrationMode") == "pr":
+            if text != completed:
+                tasks.atomic_files({task_path: completed}, staging_directory=target)
             return module("worktree_pr.py", "worktree_pr").prepare(
                 root, path, state, candidate.base_commit, candidate.candidate_head
             )
@@ -1617,6 +1617,8 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
             raise Blocked("merge result differs from validated candidate")
         state["merged"] = candidate.candidate_head
         save(path, state)
+        if text != completed:
+            tasks.atomic_files({task_path: completed}, staging_directory=target)
         return state
 
 

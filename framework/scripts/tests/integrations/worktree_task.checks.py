@@ -973,7 +973,8 @@ def check_human_approved_validation_failure():
 
 @it_case
 def check_normal_model_final_candidate():
-    _check_normal_model_final_candidate()
+    for base_change in ("advance", "rewrite", "same-tree"):
+        _check_normal_model_final_candidate(base_change)
 
 
 def _callback_normal_model_candidate(root, options, *, final_candidate):
@@ -985,7 +986,7 @@ def _callback_normal_model_candidate(root, options, *, final_candidate):
     return 0
 
 
-def _check_normal_model_final_candidate():
+def _check_normal_model_final_candidate(base_change="advance"):
     relative = "model/stg/cde/service-a.properties"
     with fixture() as root:
         dependency_fixture(root)
@@ -1036,9 +1037,12 @@ def _check_normal_model_final_candidate():
         git(target, "commit", "-qm", "additional Task correction")
         assert git(target, "rev-parse", "HEAD") != saved["tip"]
         source.write_text(source.read_text() + "# uncommitted correction\n")
-        (root / "upstream.txt").write_text("latest\n")
-        git(root, "add", "upstream.txt")
-        git(root, "commit", "-qm", "advance base")
+        if base_change != "advance":
+            git(root, "commit", "--amend", "-qm", "rewritten Model base")
+        if base_change != "same-tree":
+            (root / "upstream.txt").write_text("latest\n")
+            git(root, "add", "upstream.txt")
+            git(root, "commit", "-qm", "advance base")
         latest = git(root, "rev-parse", "HEAD")
         with mapping_alias(SCRIPT.parents[2], target):
             with TestCase().assertRaises(wt.NeedsSync):

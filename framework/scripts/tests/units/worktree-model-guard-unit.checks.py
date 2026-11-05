@@ -324,6 +324,39 @@ def check_candidate_staleness(tmp_path, change):
                 wt.merge_validated_candidate(result)
 
 
+def check_merge_failure_does_not_complete(tmp_path):
+    target = tmp_path / "task"
+    target.mkdir()
+    (target / "tasks").mkdir()
+    name = "tasks/example.md"
+    text = repository_contract("example", ["file.txt"])
+    (target / name).write_text(text)
+    candidate = wt.FinalCandidate(
+        target, target, name, text, "base", "head", frozenset({"file.txt"}), frozenset()
+    )
+    state = dict(task_file=name, branch="task", base="main", merged=None)
+    with (
+        patch.object(
+            wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", state)
+        ),
+        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(wt, "task_worktree", return_value=target),
+        patch.object(wt, "base_worktree", return_value=tmp_path),
+        patch.object(wt, "changed_paths", return_value=set()),
+        patch.object(wt, "paths", return_value=set()),
+        patch.object(
+            wt,
+            "output",
+            side_effect=lambda root, *args: "head" if root == target else "base",
+        ),
+        patch.object(wt, "git", side_effect=wt.Blocked("merge failed")),
+        pytest.raises(wt.Blocked, match="merge failed"),
+    ):
+        wt.merge_validated_candidate(wt._ValidatedCandidate(candidate, 0))
+    assert wt.tasks.status((target / name).read_text()) == "running"
+    assert state["merged"] is None
+
+
 @pytest.mark.parametrize("kind", ["framework", "model", "missing", "empty"])
 def check_final_candidate_scope(tmp_path, kind):
     name = "tasks/example.md"
