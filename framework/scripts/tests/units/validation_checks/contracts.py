@@ -450,6 +450,33 @@ def _callback_check_update_flow_prompt_validate(prompt):
         assert token in finish, token
 
 
+def _validate_cross_stack(implement, rules):
+    sections = _imports_utils_markdown_format.markdown_sections(rules)
+    units = implement.split("## Resolve implementation units\n", 1)[1].split("\n## ", 1)[0]
+    for token in (
+        "local reference and dependency conditions", "`!ImportValue` without requiring AWS Export confirmation",
+        "`PENDING_DEPLOY`", "never be embedded as a physical value",
+        "Stop if ownership or the local reference cannot be resolved",
+        "Do not execute AWS APIs, ChangeSets or deploy",
+    ):
+        assert token in units, token
+    cross_stack = sections["cross-stack-references"]
+    for token in (
+        "formal Model resource and attribute", "unique owning Producer Stack", "Output/Export",
+        "Consumer Export name locally", "dependencies and DeployOrder", "same account/region",
+        "Stop without guessing", "ambiguous or unresolved", "not an Implement prerequisite",
+        "Never embed `PENDING_DEPLOY` as a KeyId", "`!ImportValue`",
+        "before ChangeSet creation", "immediately before execution", "Producer StackId",
+        "successful status and Outputs", "Export name, value and owner",
+        "missing, changed, ambiguous or unavailable evidence is BLOCKED",
+        "do not create a Consumer ChangeSet before an in-scope Producer succeeds",
+    ):
+        assert token in cross_stack, token
+    kms = sections["kms-key-and-alias"]
+    for token in ("Model reference target and attribute", "Alias reference", "KeyId reference", "Key ARN", "S3 encryption", "Do not automatically convert among Alias, KeyId and ARN"):
+        assert token in kms, token
+
+
 def check_update_flow_prompt() -> None:
     text = (SCRIPT.parents[2] / "framework/prompts/codex/05_update.md").read_text(
         encoding="utf-8"
@@ -462,33 +489,7 @@ def check_update_flow_prompt() -> None:
     implement = (root / "framework/prompts/codex/03_implement.md").read_text(encoding="utf-8")
     rules = (root / "framework/rules/cloudformation.md").read_text(encoding="utf-8")
 
-    def validate_cross_stack(implement, rules):
-        sections = _imports_utils_markdown_format.markdown_sections(rules)
-        units = implement.split("## Resolve implementation units\n", 1)[1].split("\n## ", 1)[0]
-        for token in (
-            "local reference and dependency conditions", "`!ImportValue` without requiring AWS Export confirmation",
-            "`PENDING_DEPLOY`", "never be embedded as a physical value",
-            "Stop if ownership or the local reference cannot be resolved",
-            "Do not execute AWS APIs, ChangeSets or deploy",
-        ):
-            assert token in units, token
-        cross_stack = sections["cross-stack-references"]
-        for token in (
-            "formal Model resource and attribute", "unique owning Producer Stack", "Output/Export",
-            "Consumer Export name locally", "dependencies and DeployOrder", "same account/region",
-            "Stop without guessing", "ambiguous or unresolved", "not an Implement prerequisite",
-            "Never embed `PENDING_DEPLOY` as a KeyId", "`!ImportValue`",
-            "before ChangeSet creation", "immediately before execution", "Producer StackId",
-            "successful status and Outputs", "Export name, value and owner",
-            "missing, changed, ambiguous or unavailable evidence is BLOCKED",
-            "do not create a Consumer ChangeSet before an in-scope Producer succeeds",
-        ):
-            assert token in cross_stack, token
-        kms = sections["kms-key-and-alias"]
-        for token in ("Model reference target and attribute", "Alias reference", "KeyId reference", "Key ARN", "S3 encryption", "Do not automatically convert among Alias, KeyId and ARN"):
-            assert token in kms, token
-
-    validate_cross_stack(implement, rules)
+    _validate_cross_stack(implement, rules)
     # Check each safety boundary in its own section, even if the text appears elsewhere.
     for document, phrase in (
         (implement, "`!ImportValue` without requiring AWS Export confirmation"),
@@ -505,7 +506,7 @@ def check_update_flow_prompt() -> None:
         assert phrase in document
         altered = document.replace(phrase, "", 1) + "\n## Unrelated section\n" + phrase
         try:
-            validate_cross_stack(altered if document == implement else implement, altered if document == rules else rules)
+            _validate_cross_stack(altered if document == implement else implement, altered if document == rules else rules)
         except AssertionError:
             pass
         else:

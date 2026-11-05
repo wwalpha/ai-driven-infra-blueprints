@@ -4404,9 +4404,16 @@ def test_acquired_cleanup_retains_original_error(tmp_path):
     assert ctx.cleanup_failed is True
 
 
+def _fail_session_cleanup(remove_tree, secret, path, *args, **kwargs):
+    if Path(path).name.startswith("session-"):
+        raise OSError(secret)
+    return remove_tree(path, *args, **kwargs)
+
+
 @pytest.mark.parametrize("failure", ["input", "evidence", "aws", "local"])
 def test_import_failure_stage_and_safe_cli(tmp_path, capsys, failure):
     _imports_support_import_model_fixtures.fixture(tmp_path)
+    capsys.readouterr()
     _imports_support_repository_fixtures.git(tmp_path, "init", "-q")
     secret = "secret-token /sensitive/path"
     aws_error = m.comparator().AcquisitionError(
@@ -4423,15 +4430,12 @@ def test_import_failure_stage_and_safe_cli(tmp_path, capsys, failure):
     }[failure]
     remove_tree = import_evidence.shutil.rmtree
 
-    def fail_session_cleanup(path, *args, **kwargs):
-        if Path(path).name.startswith("session-"):
-            raise OSError(secret)
-        return remove_tree(path, *args, **kwargs)
-
     with (
         patch.object(target, name, side_effect=error),
         patch.object(
-            import_evidence.shutil, "rmtree", side_effect=fail_session_cleanup
+            import_evidence.shutil,
+            "rmtree",
+            side_effect=_bind_framework_callback(_fail_session_cleanup, remove_tree, secret),
         ),
     ):
         with pytest.raises(m.ImportStageError) as caught:
