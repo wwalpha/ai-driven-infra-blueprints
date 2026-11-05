@@ -86,6 +86,7 @@ def _task_diff_survives_base_rewrite():
             wt.committed_task_paths(target, state["task_file"])
 
 
+@it_case
 def check_implement_rebases_on_latest_base():
     _task_diff_survives_base_rewrite()
     check = TestCase()

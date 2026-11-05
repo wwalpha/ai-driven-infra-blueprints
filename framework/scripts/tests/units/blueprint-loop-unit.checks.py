@@ -2241,7 +2241,9 @@ def check_parallel_repair_selection(tmp_path):
     plugin.case_id = run_it.CHECKPOINT_CASES[1]
     plugin.pytest_collection_modifyitems(None, config, items)
     assert [item.nodeid for item in items] == [plugin.case_id]
-    assert len(config.hook.pytest_deselected.call_args.kwargs["items"]) == 1
+    assert len(config.hook.pytest_deselected.call_args.kwargs["items"]) == len(
+        run_it.CHECKPOINT_CASES
+    ) - 1
     with pytest.raises(ValueError, match="collection mismatch"):
         plugin.pytest_collection_modifyitems(None, config, items)
 

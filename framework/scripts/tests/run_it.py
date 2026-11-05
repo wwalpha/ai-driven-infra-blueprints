@@ -48,6 +48,10 @@ CHECKPOINT_SUITE = "integrations/worktree-deploy-checkpoint.checks.py"
 CHECKPOINT_CASES = tuple(
     CHECKPOINT_SUITE + "::" + name
     for name in (
+        "check_update_receipt_rewritten_base",
+        "check_update_checkpoint_latest_base",
+        "check_update_candidate_real_validation",
+        "check_update_repeated_checkpoint_validation",
         "check_parallel_checkpoint_and_restart",
         "check_combined_checkpoint_after_peer_completion",
     )
