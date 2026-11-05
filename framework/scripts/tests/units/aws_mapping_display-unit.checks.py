@@ -10,6 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import aws_mapping_display as display
 import sync_views
+from design.services.codepipeline import (
+    pipeline_display_rows,
+    pipeline_rows,
+    validate_selection,
+)
+from model.display import display_rows
 from support.aws_mapping_display_fixtures import (
     Path,
     patch,
@@ -123,6 +129,78 @@ def check_indexed_mapping():
             pass
         else:
             raise AssertionError(field)
+
+
+def test_pipeline_hidden_fields_keep_membership():
+    kind = "CodePipeline.Pipeline"
+    rows = []
+
+    def add(resource, field, value):
+        rows.append(
+            [f"{resource}-{len(rows) + 1:03}", kind + "." + field, f"`{value}`", ""]
+        )
+
+    for resource in ("001", "002"):
+        for stage in range(4):
+            for action in range(2 if stage == 1 else 1):
+                add(resource, "Stages[].Actions[].Name", f"action-{stage}-{action}")
+                add(resource, "Stages[].Actions[].RunOrder", str(action + 1))
+                if stage == 0:
+                    add(resource, "Stages[].Actions[].Namespace", "QuarantineSource")
+                    add(resource, "Stages[].Actions[].RoleArn", "hidden")
+            add(resource, "Stages[].Name", f"stage-{stage}")
+    for resource in ("001", "002"):
+        source = [row for row in rows if row[0].startswith(resource)]
+        without_namespace = [row for row in source if not row[1].endswith(".Namespace")]
+        validate_selection(without_namespace, display.selected_rows(without_namespace))
+        assert (
+            len(
+                [
+                    r
+                    for r in display_rows(kind, without_namespace)
+                    if r[1].endswith(".Name")
+                ]
+            )
+            == 9
+        )
+        selected = display.selected_rows(source)
+        validate_selection(source, selected)
+        assert len([row for row in selected if row[1].endswith(".Name")]) == 9
+        assert not any(row[1].endswith("RoleArn") for row in selected)
+        rendered = display_rows(kind, source)
+        assert any(
+            row[1] == "Stages[1].Actions.Namespace" and row[2] == "`QuarantineSource`"
+            for row in rendered
+        )
+        assert [
+            row[2]
+            for row in rendered
+            if row[1].startswith("Stages[2].Actions") and row[1].endswith("RunOrder")
+        ] == ["`1`", "`2`"]
+        restored = pipeline_display_rows(rendered)
+        assert [(row[1], row[2]) for row in restored] == [
+            (row[1], row[2]) for row in selected
+        ]
+        assert (
+            pipeline_rows(
+                [[r[0], r[1].removeprefix(kind + "."), *r[2:]] for r in restored]
+            )
+            == rendered
+        )
+        for removed in ("Stages[].Name", "Stages[].Actions[].Name"):
+            damaged = selected.copy()
+            damaged.pop(
+                next(
+                    i for i, row in enumerate(damaged) if row[1] == kind + "." + removed
+                )
+            )
+            try:
+                validate_selection(source, damaged)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("missing required row accepted")
+    validate_selection([], [])
 
 
 if __name__ == "__main__":

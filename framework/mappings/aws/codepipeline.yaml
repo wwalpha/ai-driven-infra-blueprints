@@ -158,10 +158,10 @@ resourceTypes:
         access: [read-write]
         aws: {getter: base, path: 'stages[].actions[].name', normalize: typed}
       Stages[].Actions[].Namespace:
-        model: {include: false}
-        display: {show: false, name: 'Stages[].Actions[].Namespace'}
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].Namespace'}
         access: [read-write]
-        aws: {getter: provider-codepipeline-pipeline, path: 'Stages[].Actions[].Namespace', normalize: typed}
+        aws: {getter: base, path: 'stages[].actions[].namespace', normalize: typed}
       Stages[].Actions[].OutputArtifacts[].Files:
         model: {include: false}
         display: {show: false, name: 'Stages[].Actions[].OutputArtifacts[].Files'}

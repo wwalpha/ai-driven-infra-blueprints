@@ -14,6 +14,7 @@ import design.layout as _dependency_design_layout
 import design.policy_tables as _dependency_policy_tables
 import design.policy_tables as _imports_policy_tables
 import design.services.cloudtrail as _cloudtrail_presentation
+import design.services.codepipeline as _codepipeline_presentation
 import design.services.ec2.security_groups as _ec2_security_groups
 from contracts.model import (
     MODEL_PENDING_DEPLOY,
@@ -404,9 +405,10 @@ def resource_table_lines(
             )
             for rid, child, child_name, child_rows in children
         ]
-    expected = Counter(
-        row[0] for row in _dependency_aws_mapping_display.selected_rows(rows, root)
-    )
+    selected = _dependency_aws_mapping_display.selected_rows(rows, root)
+    if resource[RESOURCE_TYPE_KEY] == "CodePipeline.Pipeline":
+        _codepipeline_presentation.validate_selection(rows, selected)
+    expected = Counter(row[0] for row in selected)
     for _, _, _, child_rows in children:
         expected.update(
             row[0]

@@ -674,6 +674,39 @@ def test_vpc_dns_resolvers_use_inventory_payload(value):
         assert capture["value"] == value
 
 
+def test_pipeline_namespace_is_acquired_from_sdk_response():
+    ctx = cli.import_context(
+        cli.ROOT,
+        TARGET,
+        Mock(side_effect=AssertionError("Unexpected AWS request")),
+        "codepipeline",
+        no_profile=True,
+    )
+    ctx.verified = True
+    payload = {
+        "name": "pipeline",
+        "stages": [
+            {
+                "name": "source",
+                "actions": [{"name": "source", "namespace": "QuarantineSource"}],
+            }
+        ],
+    }
+    record = {
+        "kind": "CodePipeline.Pipeline",
+        "identity": "pipeline",
+        "getters": {
+            "base": payload,
+            "sdk-codepipeline-pipeline": {"pipeline": payload},
+        },
+    }
+    capture = cli.normalize_records(ctx, "codepipeline", [record])[0]["properties"][
+        "CodePipeline.Pipeline.Stages[].Actions[].Namespace"
+    ]
+    assert capture["status"] == "captured"
+    assert capture["value"] == [["QuarantineSource"]]
+
+
 def test_empty_pipeline_environment_is_captured_without_withholding():
     ctx = cli.import_context(
         cli.ROOT,

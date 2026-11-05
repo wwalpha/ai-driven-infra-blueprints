@@ -70,6 +70,49 @@ def pipeline_membership(rows: list[list[str]]) -> list[list[str]]:
     return result + trailing
 
 
+def validate_selection(rows: list[list[str]], selected: list[list[str]]) -> None:
+    """Ensure filtering preserves each source stage/action and its membership."""
+    kind = "CodePipeline.Pipeline."
+
+    def membership(items):
+        formal = [[row[0], row[1].removeprefix(kind), *row[2:]] for row in items]
+        result = {}
+        required = set()
+        for identity, field, value, _ in pipeline_membership(formal):
+            match = CODEPIPELINE_STAGE.fullmatch(field)
+            if not match:
+                continue
+            stage = int(match.group(1))
+            action = (
+                int(match.group(2) or 1)
+                if field.startswith(f"Stages[{stage}].Actions")
+                else 0
+            )
+            result[identity] = (stage, action, match.group(3), value)
+            if match.group(3) == "Name":
+                required.add((stage, action))
+        return result, required
+
+    before, required = membership(rows)
+    after, retained = membership(selected)
+    groups = {(stage, action) for stage, action, _, _ in before.values()}
+    groups.update((stage, 0) for stage, _ in list(groups))
+    if (
+        groups != required
+        or required != retained
+        or any(
+            identity not in after or after[identity] != item
+            for identity, item in before.items()
+            if item[2] == "Name"
+        )
+        or any(
+            identity in after and after[identity][:2] != item[:2]
+            for identity, item in before.items()
+        )
+    ):
+        raise ValueError("CodePipeline stage/action display selection is incomplete")
+
+
 def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:
     result = []
     for identity, field, value, comment in pipeline_membership(rows):

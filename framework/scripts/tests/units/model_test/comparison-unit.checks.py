@@ -650,6 +650,22 @@ class PipelineMembershipTests(unittest.TestCase):
         ]
         self.assertTrue(all((r["status"] == "match" for r in selected)), selected)
 
+    def test_namespace_match_difference_and_missing(self):
+        snapshot, response, _ = self.build(varied=True)
+
+        def namespace():
+            return next(
+                r
+                for r in self.records(snapshot, response)
+                if r["propertiesKey"].endswith(".Namespace")
+            )
+
+        self.assertEqual(namespace()["status"], "match")
+        response[1]["actions"][1]["namespace"] = "different"
+        self.assertEqual(namespace()["status"], "difference")
+        del response[1]["actions"][1]["namespace"]
+        self.assertNotEqual(namespace()["status"], "match")
+
     def test_unsafe_boundaries(self):
         prefix = "CodePipeline.Pipeline.Stages[].Actions[]."
         stage = "CodePipeline.Pipeline.Stages[].Name"

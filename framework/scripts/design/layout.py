@@ -30,6 +30,7 @@ from utils.reference_contracts import LINKED_LIST_PROPERTIES as LINKED_LIST_PROP
 from utils.reference_contracts import SUBNET_LIST_PROPERTIES as SUBNET_LIST_PROPERTIES
 from validation.diagnostics import InputValidationError
 
+import design.array_display as _imports_array_display
 import design.catalog as _imports_design_catalog
 import design.services.codebuild
 import design.services.codepipeline
@@ -734,7 +735,15 @@ def expanded_display_rows(
             if len(cells) != 4:
                 raise ValueError("resource table row must have four cells")
             if "<!-- compact-source:" in cells[3]:
-                marker = COMPACT_SOURCE.match(cells[3])
+                marker = COMPACT_SOURCE.match(
+                    cells[3]
+                    + (
+                        " "
+                        if resource_type == "CodePipeline.Pipeline"
+                        and cells[3].endswith("-->")
+                        else ""
+                    )
+                )
                 if mode != RESOURCE_MODE_IMPORT or marker is None:
                     raise ValueError(
                         "packed compact source requires IMPORT and valid metadata"
@@ -762,6 +771,11 @@ def expanded_display_rows(
                     resource_type, original, root, mode=mode, _counts=counts
                 )
                 cloudtrail_count = counts["data"]
+                if resource_type == "CodePipeline.Pipeline":
+                    expected = _imports_array_display.indexed_rows(
+                        expected, resource_type, root
+                    )
+                    expected[0][3] = expected[0][3].strip()
                 actual = [
                     [cell.strip() for cell in line.strip("|").split("|")]
                     for line in lines[index : index + source[1]]

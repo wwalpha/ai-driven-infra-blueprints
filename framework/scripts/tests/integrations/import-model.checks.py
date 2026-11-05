@@ -23,6 +23,7 @@ import support.import_model_fixtures as _imports_support_import_model_fixtures
 import sync_files
 import sync_runtime
 import task_contract_runtime as task_contract
+from design.layout import expanded_display_rows
 from model.core import entries
 from model.format import parse, serialize
 from model.identity import COUNTERS, allocate
@@ -30,6 +31,7 @@ from model.importing import approval as import_approval
 from model.importing import repository
 from model.importing.scope import read_context
 from model.operations import operation_values
+from model.render import resource_table_lines
 from model.sources import json_text, load_model
 from support.import_model_fixtures import (
     ACCOUNT,
@@ -1504,6 +1506,38 @@ def check_optional_provider_retention_completes(tmp_path):
     with patch.object(TaskValidation, "git_paths", _callback_limited_task_paths):
         task_contract.complete(root, "tasks/import-fixture.md")
     assert "Task status: `completed`" in (root / "tasks/import-fixture.md").read_text()
+
+
+@pytest.mark.parametrize("comment", ["", "action name"])
+def test_codepipeline_packed_import_display_and_required_rows(comment):
+    kind = "CodePipeline.Pipeline"
+    resource = {"resourceType": kind, "resourceMode": "IMPORT", "logicalId": "Pipeline"}
+    rows = [
+        [
+            "001-001",
+            kind + ".Stages[].Actions[].Name",
+            '`[["source"],["build-a","build-b"]]`',
+            comment,
+        ],
+        ["001-002", kind + ".Stages[].Actions[].RunOrder", '`[["1"],["1","2"]]`', ""],
+        ["001-003", kind + ".Stages[].Name", '`["Source","Build"]`', ""],
+    ]
+    table = resource_table_lines(resource, "fixture", rows, [], m.ROOT)
+    text = "\n".join(table)
+    assert "Stages[1].Actions[1].Name" in text
+    assert "Stages[2].Actions[2].Name" in text
+    assert "compact-source" in text
+    restored = expanded_display_rows(
+        ['<a id="pipeline"></a>', "### CodePipeline.Pipeline: fixture", *table],
+        m.ROOT,
+        modes={"pipeline": "IMPORT"},
+    )
+    for row in rows:
+        assert row[1] in "\n".join(restored) and row[2] in "\n".join(restored)
+    with pytest.raises(
+        ValueError, match="stage/action display selection is incomplete"
+    ):
+        resource_table_lines(resource, "fixture", rows[:-1], [], m.ROOT)
 
 
 def test_complete_checkpoint_resume_does_not_reacquire(tmp_path):

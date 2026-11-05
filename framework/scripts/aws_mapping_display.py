@@ -178,7 +178,6 @@ def compact_group(prop):
         "CloudTrail.Trail.EventSelectors[].DataResources[].",
         "Glue.Job.DefaultArguments[].",
         "Glue.Job.NonOverridableArguments[].",
-        "CodePipeline.Pipeline.Stages[].",
         "EC2.Instance.BlockDeviceMappings[].",
         "EC2.SecurityGroup.Tags[].",
         "EC2.Instance.Tags[].",
