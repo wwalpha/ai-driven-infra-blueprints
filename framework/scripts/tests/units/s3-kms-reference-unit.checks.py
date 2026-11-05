@@ -207,7 +207,7 @@ def check_authority_display_and_references(project_workspace):
         displayed = reference_display(bucket, scope.path, scope.root)
         files = designs(scope, bucket, kms)
     view = scope.root / "docs/designs/fixture/team/s3.md"
-    expected = "[PENDING_DEPLOY](kms.md#alias-one)"
+    expected = "[alias/fixture-key](kms.md#alias-one)"
     assert expected in files[view] and "$resource" not in files[view]
     TestCase().assertNotIn("$modelRef", displayed[ROW])
     TestCase().assertEqual(bucket[ROW], snapshot.authoritative[ROW])
@@ -268,49 +268,97 @@ def check_authority_display_and_references(project_workspace):
 
 
 @pytest.mark.parametrize(
-    "logical,anchor", [("KMS_Key_001", "key-one"), ("KMS_Alias_001", "alias-one")]
+    "logical,attribute,anchor,label",
+    [
+        ("KMS_Key_001", "KeyId", "key-one", "12345678-1234-1234-1234-123456789abc"),
+        (
+            "KMS_Key_001",
+            "Arn",
+            "key-one",
+            "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789abc",
+        ),
+        ("KMS_Alias_001", "AliasName", "alias-one", "alias/fixture-key"),
+        ("KMS_Alias_001", "Arn", "alias-one", "alias/fixture-key"),
+    ],
 )
 @pytest.mark.parametrize(
-    "key_id,observed,label,state",
+    "observed",
     [
-        ("12345678-1234-1234-1234-123456789abc", None, "PENDING_DEPLOY", "unobserved"),
-        ("PENDING_DEPLOY", None, "PENDING_DEPLOY", "unobserved"),
-        (
-            "12345678-1234-1234-1234-123456789abc",
-            "12345678-1234-1234-1234-123456789abc",
-            "12345678-1234-1234-1234-123456789abc",
-            "match",
-        ),
-        (
-            "12345678-1234-1234-1234-123456789abc",
-            "87654321-1234-1234-1234-123456789abc",
-            "87654321-1234-1234-1234-123456789abc",
-            "mismatch",
-        ),
+        None,
+        "12345678-1234-1234-1234-123456789abc",
+        "87654321-1234-1234-1234-123456789abc",
     ],
 )
 def check_s3_kms_markdown_observation(
-    project_workspace, logical, anchor, key_id, observed, label, state
+    project_workspace, logical, attribute, anchor, label, observed
 ):
     scope, bucket, kms_values = fixture(project_workspace)
-    bucket[ROW] = "`" + json.dumps(reference(logical, "Arn")) + "`"
-    kms_values["observed.row.001-001.value"] = "`" + key_id + "`"
+    bucket[ROW] = "`" + json.dumps(reference(logical, attribute)) + "`"
     if observed is not None:
         bucket["observed.row.001-003.value"] = "`" + observed + "`"
     write_model(scope.path, bucket)
-    write_model(Scope(scope.root, "fixture", "team", "kms").path, kms_values)
     path = scope.root / "docs/designs/fixture/team/s3.md"
-    resolver = reference_resolver(bucket, scope, scope.root)
-    assert kms_observation(
-        bucket, "001-003", parse_reference(reference(logical, "Arn")), scope, resolver
-    ) == (state, observed)
     before = scope.path.read_bytes()
     with catalog_display():
         markdown = generate_markdown(path, bucket, FRAMEWORK)
     assert f"[{label}](kms.md#{anchor})" in markdown
     assert scope.path.read_bytes() == before
-    if observed is None:
-        assert "observed.row.001-003.value" not in bucket
+    assert load_model(scope, FileReads()).authoritative == bucket
+    if attribute != "AliasName":
+        diagnostics, _ = diagnose(load_model(scope))
+        mismatch = [
+            d
+            for d in diagnostics
+            if d.get("consumerKey") == ROW and d["code"] == "reference.mismatch"
+        ]
+        assert bool(mismatch) == (observed == "87654321-1234-1234-1234-123456789abc")
+
+
+def check_s3_pending_target(project_workspace):
+    scope, bucket, kms_values = fixture(project_workspace)
+    bucket[ROW] = "`" + json.dumps(reference("KMS_Key_001", "Arn")) + "`"
+    kms_values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
+    write_model(scope.path, bucket)
+    write_model(Scope(scope.root, "fixture", "team", "kms").path, kms_values)
+    path = scope.root / "docs/designs/fixture/team/s3.md"
+    with catalog_display():
+        assert "[PENDING_DEPLOY](kms.md#key-one)" in generate_markdown(
+            path, bucket, FRAMEWORK
+        )
+
+
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
+@pytest.mark.parametrize("attribute", ["KeyId", "Arn"])
+def check_s3_key_link_validation(project_workspace, attribute, mode):
+    scope, bucket, kms_values = fixture(project_workspace)
+    bucket["desired.resource.001.resourceMode"] = mode
+    bucket[ROW] = "`" + json.dumps(reference("KMS_Key_001", attribute)) + "`"
+    write_model(scope.path, bucket)
+    files = designs(scope, bucket, kms_values)
+    path = scope.root / "docs/designs/fixture/team/s3.md"
+    original = files[path]
+    for content, valid in [
+        (original, True),
+        (original.replace("#key-one", "#key-two"), False),
+        (original.replace("#key-one", "#missing"), False),
+        (original.replace("12345678-1234-1234-1234-123456789abc", "bad-value"), False),
+    ]:
+        path.write_text(content, encoding="utf-8")
+        findings = Findings(scope.root)
+        validate_links(
+            {},
+            [path],
+            design_sources={path: bucket},
+            findings=findings,
+            root=scope.root,
+            scope=None,
+            definitions_root=FRAMEWORK,
+        )
+        assert bool(findings.errors or findings.warnings) != valid, (
+            findings.errors,
+            findings.warnings,
+            content,
+        )
 
 
 def check_iac_matrix(project_workspace):
@@ -396,6 +444,16 @@ def check_iac_matrix(project_workspace):
         item for item in results if item["property"] == "S3.Bucket.BucketEncryption"
     ]
     assert len(encryption) == 1 and encryption[0]["category"] == "matched", results
+    bucket[ROW] = json.dumps(reference("KMS_Key_002", "KeyId"))
+    write_model(scope.path, bucket)
+    comparison = Comparison(
+        scope.root, "fixture", "team", ["s3"], catalog=DesignSchemaCatalog(FRAMEWORK)
+    )
+    results = comparison.run()
+    encryption = [
+        item for item in results if item["property"] == "S3.Bucket.BucketEncryption"
+    ]
+    assert len(encryption) == 1 and encryption[0]["category"] == "difference", results
     plain = comparison.desired_reference(
         "s3",
         reference("KMS_Key_001", "KeyId"),

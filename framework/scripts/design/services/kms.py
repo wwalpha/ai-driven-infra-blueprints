@@ -36,6 +36,8 @@ def reference_label(
     if resource[RESOURCE_TYPE_KEY] == "KMS.Alias" and attribute == "AliasName":
         if isinstance(displayed, str):
             name = displayed
+    if values.get(f"desired.row.{position.row_id}.property") == S3_KMS_MASTER_KEY_ID:
+        return name
     if position.source_field != "value" or position.pointer:
         return name
     raw, structured = _model_api.parse_reference_field(
@@ -50,10 +52,7 @@ def reference_label(
     if observation is None:
         return name
     state, observed = observation
-    if state == "unobserved" and (
-        displayed == MODEL_PENDING_DEPLOY
-        or values.get(f"desired.row.{position.row_id}.property") == S3_KMS_MASTER_KEY_ID
-    ):
+    if state == "unobserved" and displayed == MODEL_PENDING_DEPLOY:
         return MODEL_PENDING_DEPLOY
     return {
         "match": observed,

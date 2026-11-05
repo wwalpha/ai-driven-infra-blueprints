@@ -860,9 +860,18 @@ def check_design_links(
         document = design_index.get(source)
         observed_references = set()
         automatic_references = set()
+        model_reference_rows = set()
         values = source_values[source] or {}
         presentation = Presentation(values, source, root)
         for position, reference in presentation.references.items():
+            identity = row_resource(position.row_id)
+            prop = values[f"desired.row.{position.row_id}.property"]
+            model_reference_rows.add(
+                (
+                    values.get(f"desired.resource.{identity}.anchor"),
+                    receiving_property(prop, position.pointer),
+                )
+            )
             link = LINK.fullmatch(reference.link or "")
             if not link:
                 continue
@@ -1027,6 +1036,12 @@ def check_design_links(
             cells = [cell.strip() for cell in line.strip("|").split("|")]
             if len(cells) == 4:
                 try:
+                    if reference_kind == "S3.Bucket":
+                        cells[1] = re.sub(
+                            r"^(BucketEncryption)\[\d+\](?=\.KMSMasterKeyID$)",
+                            r"\1[]",
+                            cells[1],
+                        )
                     cells[1] = formal_property(
                         cells[1], reference_kind, definitions_root
                     )
@@ -1041,7 +1056,9 @@ def check_design_links(
                     continue
                 if cells[1] == CODEBUILD_FORMAL_VARIABLE + "Type":
                     variable_type = unquoted(cells[2])
-            if source_anchor in imported[source]:
+            if source_anchor in imported[source] and (
+                len(cells) != 4 or cells[1] != S3_KMS_MASTER_KEY_ID
+            ):
                 continue
             link = (
                 RESOURCE_LINK_PATTERN.fullmatch(cells[2]) if len(cells) == 4 else None
@@ -1111,8 +1128,15 @@ def check_design_links(
                 alias_name = (
                     resource[1].get("KMS.Alias.AliasName") if resource else None
                 )
+                model_links = {
+                    item
+                    for item in automatic_references
+                    if item[:2] == (source_anchor, cells[1])
+                }
                 findings.warn(
-                    bool(
+                    (source_anchor, cells[1], target, fragment, label) in model_links
+                    if (source_anchor, cells[1]) in model_reference_rows
+                    else bool(
                         resource
                         and resource[0] == "KMS.Alias"
                         and alias_name == label

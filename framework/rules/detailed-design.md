@@ -234,8 +234,8 @@ Read the headings selected by the Resource-detail table index in addition to the
 ### S3
 
 - For `S3.Bucket`, use one anchor, `### S3.Bucket: <BucketName>` heading, and table per bucket. Heading display names match `S3.Bucket.BucketName`; anchors retain their saved values. Place Property `BucketName` in the first table row and design-only `Region` in the second; Region Value is a human-confirmed AWS region ID per bucket. Do not automatically copy target `awsRegion` from `project.json`; permit other regions such as `us-east-1`. If corresponding `S3.BucketPolicy` is designed, place only `S3.BucketPolicy.PolicyDocument` after `S3.Bucket` rows in the same table. Identify target buckets implicitly from containing blocks; do not create `S3.BucketPolicy.Bucket` rows or independent anchors/headings/tables.
-- If general-purpose `S3.Bucket` uses SSE-KMS, `S3.Bucket.BucketEncryption[].KMSMasterKeyID` links to a same-target designed `KMS.Alias` anchor, displaying its `KMS.Alias.AliasName`. Display encryption methods as `BucketEncryption[].SSEAlgorithm`; restore both rows to formal properties in models.
-- For an S3 `BucketEncryption...KMSMasterKeyID` scalar KeyId/Arn reference without an S3 observation, display `PENDING_DEPLOY` in its link even when the referenced Key ID is confirmed. This is a display projection only; preserve the missing observation and comparison state. When an S3 observation exists, retain its existing display.
+- If general-purpose `S3.Bucket` uses SSE-KMS, an Alias reference in `S3.Bucket.BucketEncryption[].KMSMasterKeyID` links to the same-target designed `KMS.Alias` anchor, displaying its `KMS.Alias.AliasName`. Display encryption methods as `BucketEncryption[].SSEAlgorithm`; restore both rows to formal properties in models.
+- S3 `BucketEncryption...KMSMasterKeyID` displays the design value resolved from the Model reference target and attribute. The S3 observation does not change the design display.
 
 ## API-backed design resources
 
