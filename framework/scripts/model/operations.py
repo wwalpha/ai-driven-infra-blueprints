@@ -46,6 +46,7 @@ from model.configuration import _observed_index
 from model.configuration import resource_configuration as resource_configuration
 from model.core import entries as entries
 from model.format import owner
+from model.pull_review import MARKER, verify
 from model.reference_nodes import is_reference, parse
 
 
@@ -307,6 +308,10 @@ def prepare_edit(
         if policy.operation.action == "edit":
             reader = edit_base
         snapshot = reader(snapshot, policy.snapshot)
+
+    task_file, task_text = policy.snapshot.expected_task
+    if MARKER in (task_text or ""):
+        snapshot = _imports_model_sources.raw_model(snapshot.scope, policy.snapshot)
     _context(snapshot, policy)
     output = {}
     entry = snapshot.scope.path
@@ -335,6 +340,7 @@ def prepare_edit(
         after = after._replace(
             values=_imports_model_sources.projected_values(after.authoritative)
         )
+        verify(snapshot, after, task_file, task_text or "")
         warnings = change_validation.validate_save(snapshot, after, reads)
         after = after._replace(warnings=tuple(warnings))
     if policy.operation.action == "observed":

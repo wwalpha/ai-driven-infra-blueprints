@@ -1539,7 +1539,7 @@ def summarize(results):
 
 @task_read_scope
 @input_scope
-def run(root, items, profile=None, session_factory=None):
+def run(root, items, profile=None, session_factory=None, *, create_only=False):
     # Reject every configured-profile conflict before any AWS retrieval.
     selected_profiles = [select_profile(target, profile) for target, _ in items]
     for target, _ in items:
@@ -1609,6 +1609,7 @@ def run(root, items, profile=None, session_factory=None):
                 else [
                     item
                     for resource in model.resources
+                    if not create_only or resource.spec.get("resourceMode", "CREATE") == "CREATE"
                     for item in compare_resource(ctx, resource)
                 ]
             )
@@ -1646,6 +1647,7 @@ def main(argv=None):
     )
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--profile")
+    parser.add_argument("--create-only", action="store_true", help="compare existing CREATE Resources only")
     parser.add_argument(
         "--coverage",
         action="store_true",
@@ -1668,8 +1670,10 @@ def main(argv=None):
         items = inventory(
             root, targets(root, args.environment, args.target, args.all), args.service
         )
+        if args.create_only and any(path.stem == "cloudformation-stacks" for _, path in items):
+            raise ValueError("CREATE-only pull does not support cloudformation-stacks")
         result = (
-            coverage(root, items) if args.coverage else run(root, items, args.profile)
+            coverage(root, items) if args.coverage else run(root, items, args.profile, create_only=args.create_only)
         )
         code = (2 if result["problems"] else 0) if args.coverage else result["exitCode"]
     except Exception as error:

@@ -1,5 +1,5 @@
 # Task Contract Rules
-Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. AWS acquisition remains exclusive to `/import`; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
+Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. IMPORT acquisition/registration remains exclusive to `/import`; `/aws-pull` additionally permits read-only comparison of existing CREATE Resources before its approved Model-only Task; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 
 ## Dedicated import boundary
 
@@ -172,7 +172,7 @@ Follow [Complete and integrate](../../.agents/skills/worktree/SKILL.md#complete-
 
 - `design`: Edit explicit environment/service properties candidates and generate
   docs/designs through the shared guarded APIs, then finish after classified validation.
-  AWS acquisition and acquired add/refresh/bind/replace remain exclusive to /import; explicit ordinary IMPORT corrections use the guarded Model edit API.
+  IMPORT acquisition and acquired add/refresh/bind/replace remain exclusive to /import; /aws-pull may perform read-only CREATE comparison before its approved Model-only Task; explicit ordinary IMPORT corrections use the guarded Model edit API.
   Do not proceed to IaC, AWS mutation or scenarios.
 - `infrastructure`: Read the approved design, perform only explicitly authorized IaC,
   checks and deploy/apply. CloudFormation Deploy synchronizes current permitted observations/generated views regardless of attempt success; other phases retain their success rules. Independent destroy changes only explicit designed Stacks, post-success

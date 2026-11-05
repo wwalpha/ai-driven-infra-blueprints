@@ -18,6 +18,7 @@ import utils.sealed_evidence as _sealed_evidence
 import validation_scope as _imports_validation_scope
 from contracts.repository import PROJECT_FILENAME
 from model.change_scope import index_stage
+from model.pull_review import read_review, verify
 from sync_files import save_files
 from task_contract_core import (
     contract_path,
@@ -320,6 +321,26 @@ def require_import_changes(
             root, base, output or {}, detached=contract_file is not None
         ) as (before, after):
             warnings = verify_model_refactor(before, after, refactor, sources, scope)
+    elif "- Model source: `aws-pull`" in section(text, "## Task contract"):
+        review = read_review(text)
+        if sources - review["sources"].keys():
+            raise ValueError("AWS pull changed an unreviewed Model source")
+        base = (
+            final_candidate.base_commit if final_candidate is not None
+            else base_revision(root, contract_file=contract_file)
+        )
+        if base is None:
+            raise ValueError("AWS pull requires a versioned baseline")
+        relative = Path("model", *review["scope"][:2], review["scope"][2] + ".properties")
+        with snapshots(
+            root, base, output or {}, detached=contract_file is not None
+        ) as (before, after):
+            verify(
+                _dependency_model_sources.raw_model(before / relative),
+                _dependency_model_sources.raw_model(after / relative),
+                snapshot.name, text, worktree=root,
+            )
+        warnings = []
     elif "- Workflow: `import`" in section(text, "## Task contract"):
         if not sources and generation:
             return

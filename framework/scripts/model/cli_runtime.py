@@ -16,6 +16,7 @@ from model import prepare_edit, publish_edit, render_model
 from model.files import find_model, read_resources, trace_model
 from model.format import owner, patch, validate_blocks
 from model.identity import COUNTERS, allocate, preserve_allocation
+from model.pull_review import build
 from model.references import incoming as reference_incoming
 from model.sources import (
     candidate_sources,
@@ -112,6 +113,11 @@ def execute(args):
                     "files": [str(path) for path in snapshot.files],
                     "warnings": list(snapshot.warnings),
                 }
+            elif args.command == "pull-review":
+                snapshot = raw_model(args.model)
+                _, candidate = candidate_sources(snapshot.scope.root, args.candidate, snapshot)
+                result = build(snapshot, candidate, args.task_file,
+                               json.loads(args.evidence.read_text(encoding="utf-8")))
             elif args.command == "allocate":
                 result = allocate_candidate(args)
             elif args.command == "edit":

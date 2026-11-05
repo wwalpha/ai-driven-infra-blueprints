@@ -62,6 +62,11 @@ def main(argv=None):
         help="external directory containing the repository-relative model hierarchy; not a single properties file",
     )
     edit.add_argument("--task-file", required=True)
+    review = commands.add_parser("pull-review", help="build an offline AWS pull Review; never save Model")
+    review.add_argument("model", type=Path)
+    review.add_argument("--candidate", type=Path, required=True)
+    review.add_argument("--task-file", required=True)
+    review.add_argument("--evidence", type=Path, required=True)
     allocate = commands.add_parser(
         "allocate", help="allocate Resource IDs in a complete external candidate"
     )
