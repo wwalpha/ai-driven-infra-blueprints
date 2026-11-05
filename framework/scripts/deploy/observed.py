@@ -294,6 +294,35 @@ def cloudcontrol_observation(
         return None, "Cloud Control response or deployed evidence unavailable"
 
 
+class PermissionContext:
+    def __init__(self, backend):
+        self.backend = backend
+
+    def call(self, service, operation, **kwargs):
+        return self.backend.aws(operation, service=service, **kwargs)
+
+
+class PermissionResource:
+    kind = "Lambda.Permission"
+
+    def __init__(self, function, expected, physical):
+        self.function = function
+        self.expected = expected
+        self.physical = physical
+
+    def parent(self):
+        return self
+
+    def value(self, name, *args):
+        return self.function if name == "FunctionName" else self.expected[name]
+
+    def current(self, name):
+        return self.physical
+
+    def optional(self, name, **kwargs):
+        return self.expected.get(name)
+
+
 def permission_observation(
     backend,
     stack,
@@ -424,26 +453,11 @@ def permission_observation(
         if not {"Action", "Principal"} <= expected.keys():
             return None, "permission attributes unavailable"
 
-        class Context:
-            def call(self, service, operation, **kwargs):
-                return backend.aws(operation, service=service, **kwargs)
-
-        class Resource:
-            kind = "Lambda.Permission"
-
-            def parent(self):
-                return self
-
-            def value(self, name, *args):
-                return function if name == "FunctionName" else expected[name]
-
-            def current(self, name):
-                return physical
-
-            def optional(self, name, **kwargs):
-                return expected.get(name)
-
-        statement = service_module("lambda").fetch(Context(), Resource(), "permission")
+        statement = service_module("lambda").fetch(
+            PermissionContext(backend),
+            PermissionResource(function, expected, physical),
+            "permission",
+        )
         if statement.get("Sid") != physical or any(
             statement.get(key) != expected[key] for key in expected
         ):

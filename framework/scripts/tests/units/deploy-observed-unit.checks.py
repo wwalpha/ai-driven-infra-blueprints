@@ -32,6 +32,71 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+def _config_rule_evidence_aws(document, fault, description, stack, operation, **kwargs):
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    if operation == "get_resource":
+        assert kwargs == {
+            "service": "cloudcontrol",
+            "TypeName": "AWS::Config::ConfigRule",
+            "Identifier": "rule-name",
+        }
+        if fault == "denied":
+            raise AwsError("cloudcontrol", "get_resource", "AccessDeniedException")
+        return {"ResourceDescription": description}
+    if operation == "describe_stacks":
+        return {
+            "Stacks": [
+                dict(stack, StackStatus="UPDATE_IN_PROGRESS")
+                if fault == "changed"
+                else stack
+            ]
+        }
+    raise AssertionError(operation)
+
+
+def _config_rule_sync_aws(document, operation, **kwargs):
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    if operation == "get_resource":
+        return {
+            "ResourceDescription": {
+                "Identifier": "rule-name",
+                "Properties": json.dumps(
+                    {"ConfigRuleName": "rule-name", "ConfigRuleId": "rule-id"}
+                ),
+            }
+        }
+    raise AssertionError(operation)
+
+
+def _permission_evidence_aws(
+    document, fault, function_name, statement, stack, operation, **kwargs
+):
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    if operation == "get_policy":
+        assert kwargs == {"service": "lambda", "FunctionName": function_name}
+        if fault == "denied":
+            raise AwsError("lambda", "get_policy", "AccessDeniedException")
+        return {
+            "Policy": json.dumps(
+                {"Statement": [statement, dict(statement, Sid="sid-2")]}
+            )
+        }
+    if operation == "describe_stacks":
+        return {"Stacks": [stack]}
+    raise AssertionError(operation)
+
+
+def _permission_sync_aws(document, statements, operation, **kwargs):
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    if operation == "get_policy":
+        return {"Policy": json.dumps({"Statement": statements})}
+    raise AssertionError(operation)
+
+
 def _sg_rule_aws(document, records, stack, operation, **kwargs):
     if operation == "get_template":
         return {"TemplateBody": document}
@@ -730,27 +795,9 @@ def test_cloudcontrol_config_rule_evidence(project_workspace, fault):
     if fault == "missing":
         description.pop("Properties")
 
-    def aws(operation, **kwargs):
-        if operation == "get_template":
-            return {"TemplateBody": document}
-        if operation == "get_resource":
-            assert kwargs == {
-                "service": "cloudcontrol",
-                "TypeName": "AWS::Config::ConfigRule",
-                "Identifier": "rule-name",
-            }
-            if fault == "denied":
-                raise AwsError("cloudcontrol", "get_resource", "AccessDeniedException")
-            return {"ResourceDescription": description}
-        if operation == "describe_stacks":
-            return {
-                "Stacks": [
-                    dict(stack, StackStatus="UPDATE_IN_PROGRESS")
-                    if fault == "changed"
-                    else stack
-                ]
-            }
-        raise AssertionError(operation)
+    aws = _bind_framework_callback(
+        _config_rule_evidence_aws, document, fault, description, stack
+    )
 
     backend = SimpleNamespace(root=root, target=TARGET, aws=aws)
     value, reason = deploy_observed.cloudcontrol_observation(
@@ -814,19 +861,7 @@ def test_config_rule_collects_checked_api_value(
         "Outputs": [{"OutputKey": "Id", "OutputValue": output}] if output else [],
     }
 
-    def aws(operation, **kwargs):
-        if operation == "get_template":
-            return {"TemplateBody": document}
-        if operation == "get_resource":
-            return {
-                "ResourceDescription": {
-                    "Identifier": "rule-name",
-                    "Properties": json.dumps(
-                        {"ConfigRuleName": "rule-name", "ConfigRuleId": "rule-id"}
-                    ),
-                }
-            }
-        raise AssertionError(operation)
+    aws = _bind_framework_callback(_config_rule_sync_aws, document)
 
     backend = SimpleNamespace(
         root=root,
@@ -934,21 +969,9 @@ def test_lambda_permission_policy_identity(project_workspace, fault):
         + ("other" if fault == "function" else function_name),
     }
 
-    def aws(operation, **kwargs):
-        if operation == "get_template":
-            return {"TemplateBody": document}
-        if operation == "get_policy":
-            assert kwargs == {"service": "lambda", "FunctionName": function_name}
-            if fault == "denied":
-                raise AwsError("lambda", "get_policy", "AccessDeniedException")
-            return {
-                "Policy": json.dumps(
-                    {"Statement": [statement, dict(statement, Sid="sid-2")]}
-                )
-            }
-        if operation == "describe_stacks":
-            return {"Stacks": [stack]}
-        raise AssertionError(operation)
+    aws = _bind_framework_callback(
+        _permission_evidence_aws, document, fault, function_name, statement, stack
+    )
 
     backend = SimpleNamespace(root=root, target=TARGET, aws=aws)
     value, reason = deploy_observed.permission_observation(
@@ -1043,12 +1066,7 @@ def test_two_lambda_permissions_collect_independently(project_workspace, monkeyp
             }
         )
 
-    def aws(operation, **kwargs):
-        if operation == "get_template":
-            return {"TemplateBody": document}
-        if operation == "get_policy":
-            return {"Policy": json.dumps({"Statement": statements})}
-        raise AssertionError(operation)
+    aws = _bind_framework_callback(_permission_sync_aws, document, statements)
 
     backend = SimpleNamespace(
         root=root,
