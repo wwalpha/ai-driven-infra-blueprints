@@ -476,6 +476,47 @@ def check_latest_base_sync_retains_conflict():
 
 
 @it_case
+def check_ordinary_rewritten_base_sync():
+    for empty, conflict in ((False, False), (True, False), (False, True)):
+        with fixture() as root:
+            initial = git(root, "rev-parse", "HEAD")
+            (root / "old.txt").write_text("old base\n")
+            git(root, "add", "old.txt")
+            git(root, "commit", "-qm", "old base")
+            target, state = start(root, files=("file.txt", "new.txt"))
+            if not empty:
+                (target / "file.txt").write_text("task\n")
+                (target / "new.txt").write_text("new task file\n")
+            finish_contract(target, state)
+            git(root, "reset", "--hard", initial)
+            (root / "upstream.txt").write_text("rewritten\n")
+            if conflict:
+                (root / "file.txt").write_text("conflict\n")
+            git(root, "add", ".")
+            git(root, "commit", "-qm", "rewritten base")
+            latest = git(root, "rev-parse", "HEAD")
+            _, _, path, saved = wt.load(root, "example")
+            with TestCase().assertRaises(wt.NeedsSync):
+                wt._prepare_commit(root, path, saved, target, None)
+            if conflict:
+                with TestCase().assertRaises(wt.Blocked):
+                    wt.sync_latest_base(root, "example", latest)
+                assert (target / "file.txt").read_text() == "task\n"
+                assert target.exists()
+                continue
+            result = wt.sync_latest_base(root, "example", latest)
+            assert result["status"] == "needs_validation"
+            assert (target / "upstream.txt").read_text() == "rewritten\n"
+            assert not (target / "old.txt").exists()
+            assert git(target, "rev-parse", "HEAD" if empty else "HEAD^") == latest
+            if not empty:
+                assert (target / "new.txt").read_text() == "new task file\n"
+            result = cli(root, "finalize")
+            assert result["cleaned"] and not target.exists()
+            assert git(root, "rev-parse", "HEAD") == result["merged"]
+
+
+@it_case
 def check_base_advance_after_validation():
     with fixture() as root:
         (root / "framework").mkdir()
@@ -2178,6 +2219,7 @@ def main():
     for check in (
         check_implement_rebases_on_latest_base,
         check_latest_base_sync_retains_conflict,
+        check_ordinary_rewritten_base_sync,
         check_latest_base_linear_repeated_and_recovery,
         check_latest_base_rejects_old_merge_history,
         check_base_advance_after_validation,

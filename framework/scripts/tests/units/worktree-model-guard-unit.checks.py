@@ -312,14 +312,14 @@ def check_candidate_staleness(tmp_path, change):
             wt, "git", side_effect=AssertionError("stale candidate must not merge")
         ),
     ):
-        if change == "base":
+        if change in {"base", "base_rewritten"}:
             with pytest.raises(wt.NeedsSync) as error:
                 wt.merge_validated_candidate(result)
             assert error.value.base == "changed"
         else:
             with pytest.raises(
                 wt.Blocked,
-                match="rewritten" if change == "base_rewritten" else "changed",
+                match="changed",
             ):
                 wt.merge_validated_candidate(result)
 

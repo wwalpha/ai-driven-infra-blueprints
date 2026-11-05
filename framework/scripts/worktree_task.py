@@ -905,19 +905,6 @@ def _prepare_commit(
             )
     if not pr_update and state.get("integrationMode") != "pr":
         base_worktree(root, state)
-    implement = "- Infrastructure phase: `implement`" in tasks.section(
-        contract, "## Task contract"
-    )
-    if (
-        not pr_update
-        and state.get("integrationMode") != "pr"
-        and not implement
-        and not task_base
-        and not ancestor(
-            root, state.get("validation_base", state["start"]), state["base"]
-        )
-    ):
-        raise Blocked("base history was rewritten; task retained for review")
     if (
         not pr_update
         and not prepare_only
@@ -926,10 +913,6 @@ def _prepare_commit(
     ):
         latest = output(root, "rev-parse", f"refs/heads/{state['base']}")
         if latest != state.get("validation_base", state["start"]):
-            if not ancestor(
-                root, state.get("validation_base", state["start"]), state["base"]
-            ):
-                raise Blocked("base history was rewritten; task retained for review")
             raise NeedsSync(latest)
     if (not operation or approval) and (
         "- Workflow: `import`" in tasks.section(contract, "## Task contract")
@@ -1032,16 +1015,11 @@ def _prepare_commit(
         return None
     base = base_worktree(root, state)
     latest = output(root, "rev-parse", f"refs/heads/{state['base']}")
-    # Do not replay unexpected history if the base was rewritten after creation.
-    if (
-        not implement
-        and not task_base
-        and not ancestor(
-            root, state.get("validation_base", state["start"]), state["base"]
-        )
-    ):
-        raise Blocked("base history was rewritten; task retained for review")
     if recovery:
+        if not task_base and not ancestor(
+            root, state.get("validation_base", state["start"]), state["base"]
+        ):
+            raise Blocked("base history was rewritten; task retained for review")
         if task_base and latest != state["recovery"]["base"]:
             raise Blocked("recovery base changed before rebase")
         result = git(
@@ -1080,8 +1058,6 @@ def _prepare_commit(
             raise Blocked(
                 "base advanced during rebase; retry finalize with latest local base"
             )
-        if not ancestor(root, latest, state["base"]):
-            raise Blocked("base history was rewritten; task retained for review")
         raise NeedsSync(current_base)
     return latest
 
@@ -1536,8 +1512,6 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
         base = base_worktree(root, state)
         current_base = output(base, "rev-parse", "HEAD")
         if current_base != latest:
-            if not ancestor(root, latest, state["base"]):
-                raise Blocked("base history was rewritten; task retained for review")
             raise NeedsSync(current_base)
         git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
         if output(base, "rev-parse", "HEAD") != expected or not ancestor(
@@ -1604,8 +1578,6 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
             base is not None
             and output(base, "rev-parse", "HEAD") != candidate.base_commit
         ):
-            if not ancestor(root, candidate.base_commit, state["base"]):
-                raise Blocked("base history was rewritten; task retained for review")
             raise NeedsSync(output(base, "rev-parse", "HEAD"))
         if paths(target, "ls-files", "-z", "tasks"):
             raise Blocked("contracts must remain ignored; no status commit")
@@ -1631,8 +1603,6 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
             base is not None
             and output(base, "rev-parse", "HEAD") != candidate.base_commit
         ):
-            if not ancestor(root, candidate.base_commit, state["base"]):
-                raise Blocked("base history was rewritten; task retained for review")
             raise NeedsSync(output(base, "rev-parse", "HEAD"))
         if state.get("integrationMode") == "pr":
             return module("worktree_pr.py", "worktree_pr").prepare(
@@ -1803,10 +1773,6 @@ def sync_latest_base(where, task_id, expected_base):
             latest = output(base, "rev-parse", "HEAD")
             if not expected_base or latest != expected_base:
                 raise Blocked("review the exact latest base before sync")
-            if not ancestor(
-                root, state.get("validation_base", state["start"]), state["base"]
-            ):
-                raise Blocked("base history was rewritten; task retained for review")
             text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
             if tasks.status(text) not in {"running", "completed"}:
                 raise Blocked("base sync requires a running/completed Task")
@@ -1854,8 +1820,16 @@ def sync_latest_base(where, task_id, expected_base):
                 commits = output(
                     target, "rev-list", "--reverse", old_base + ".." + head
                 ).splitlines()
+                synthetic = output(
+                    target,
+                    "-c", "user.name=Blueprint verification",
+                    "-c", "user.email=blueprint-verification@invalid",
+                    "-c", "commit.gpgsign=false",
+                    "commit-tree", latest + "^{tree}", "-p", old_base,
+                    "-m", "Base sync verification",
+                )
                 tree_result = git(
-                    target, "merge-tree", "--write-tree", head, latest, check=False
+                    target, "merge-tree", "--write-tree", synthetic, head, check=False
                 )
                 if tree_result.returncode:
                     raise Blocked(

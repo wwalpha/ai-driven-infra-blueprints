@@ -189,6 +189,7 @@ WORKTREE_CASES = {
         "check_integration_detects_undeclared_paths",
     ),
     "integrations/worktree_task.checks.py": (
+        "check_ordinary_rewritten_base_sync",
         "check_explicit_disposal_and_orphans",
         "check_pr_update_and_operations",
         "check_pr_remote_base_only_sync",
