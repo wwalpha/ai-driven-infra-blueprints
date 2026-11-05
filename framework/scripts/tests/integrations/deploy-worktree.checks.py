@@ -595,6 +595,8 @@ def check_managed_success_while_peer_running(tmp_path, monkeypatch):
     context = json.loads(report.read_text())
     assert context["states"][first]["status"] == "SUCCESS"
     assert context["states"][second]["status"] == "RUNNING"
+    assert invoke(root, report, aws, ["--action", "sync", "--final", "--sync-stack", first, "--sync-stack", second]) == 2
+    assert "syncPending" not in json.loads(report.read_text())
     stack_model = root / "model/dev/123456789012/cloudformation-stacks.properties"
     stack_bytes = stack_model.read_bytes()
     assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", first]) == 0

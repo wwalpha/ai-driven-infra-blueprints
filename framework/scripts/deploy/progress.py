@@ -5,16 +5,15 @@ from pathlib import Path
 
 import worktree_state as ws
 from task_contract_core import normalize_selector
-from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 from utils.local_evidence import evidence_store, read_sealed, write_sealed
-
-from deploy import operation_journal
+from utils.script_loader import module
 
 
 def progress_path(root, task_file=None, *, create=False):
     if task_file is None:
         return evidence_store(root, create=create) / "deploy-progress.json"
+    operation_journal = module("deploy/operation_journal.py", "deploy.operation_journal")
     task_file = normalize_selector(task_file)
     if create:
         return operation_journal.location(root, task_file).parent / "progress.json"
@@ -47,7 +46,7 @@ def read_task(root, task):
         or fixed["taskDigest"] != task.task_digest
         or saved["runContext"].get("repository") != str(root.resolve())
     ):
-        raise Blocked("saved Deploy progress differs from the selected Task")
+        raise ws.Blocked("saved Deploy progress differs from the selected Task")
     return read_progress(root, {"deployIdentity": fixed}, task.name)
 
 
@@ -58,7 +57,7 @@ def correction_path(path):
 def require_no_correction(path):
     intent = correction_path(path)
     if intent.exists() or intent.is_symlink():
-        raise Blocked("unfinished Deploy contract correction; retry --correct-deploy-contract")
+        raise ws.Blocked("unfinished Deploy contract correction; retry --correct-deploy-contract")
 
 
 def read_legacy_task(root, task):
@@ -69,18 +68,19 @@ def read_legacy_task(root, task):
     if fixed["taskFile"] != task.name:
         return None
     if fixed["taskDigest"] != task.task_digest:
-        raise Blocked("legacy Deploy progress differs from the selected Task")
+        raise ws.Blocked("legacy Deploy progress differs from the selected Task")
     return read_progress(root, {"deployIdentity": fixed})
 
 
 def require_no_legacy_task(root, task_file):
     legacy = progress_path(root)
     if (legacy.exists() or legacy.is_symlink()) and read_sealed(root, legacy)["identity"]["taskFile"] == task_file:
-        raise Blocked("legacy Deploy evidence exists for this Task; retain it and use explicit legacy recovery")
+        raise ws.Blocked("legacy Deploy evidence exists for this Task; retain it and use explicit legacy recovery")
 
 
 def require_no_pending_peer(root, path, target, stacks):
     """Call while holding the repository request lock, before any new AWS request."""
+    operation_journal = module("deploy/operation_journal.py", "deploy.operation_journal")
     legacy = progress_path(root)
     for candidate in (legacy, *legacy.parent.glob("inputs-*/progress.json")):
         if candidate == path or not (candidate.exists() or candidate.is_symlink()):
@@ -94,7 +94,7 @@ def require_no_pending_peer(root, path, target, stacks):
         for name in set(stacks) & context["states"].keys():
             state = context["states"][name]
             if unresolved_request(state):
-                raise Blocked("unresolved AWS request belongs to another Deploy Task: " + name)
+                raise ws.Blocked("unresolved AWS request belongs to another Deploy Task: " + name)
 
 
 def unresolved_request(state):
@@ -220,7 +220,7 @@ def read_progress(root, state, task_file=None):
             or not set(sync["stacks"]) <= set(progress["identity"]["stacks"])
             or not isinstance(sync["final"], bool)
         ):
-            raise Blocked("Deploy sync intent is corrupt")
+            raise ws.Blocked("Deploy sync intent is corrupt")
     pending = context.get("checkpointPending")
     if "checkpointPending" in context and (
         not isinstance(pending.get("stacks"), list)

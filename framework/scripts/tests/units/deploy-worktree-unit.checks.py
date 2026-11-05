@@ -827,7 +827,7 @@ def check_progress_uses_fixed_identity_without_git(tmp_path):
     backend.progress_destination = first
     deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
     with operation_journal.locked(legacy):
-        with pytest.raises(DeployBlocked, match="another Deploy Task"):
+        with pytest.raises(ws.Blocked, match="another Deploy Task"):
             deploy_progress.require_no_pending_peer(isolated, second, identity["target"], ["A"])
         deploy_progress.require_no_pending_peer(isolated, first, identity["target"], ["A"])
         deploy_progress.require_no_pending_peer(isolated, second, identity["target"], ["B"])

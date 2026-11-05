@@ -138,7 +138,7 @@ def check_startup_needs_only_standard_library():
             sys.executable,
             "-S",
             "-c",
-            f"import sys; sys.path.insert(0, {str(Path(worktree.__file__).resolve().parents[1])!r}); from deploy.worktree import start; assert 'yaml' not in sys.modules; assert 'boto3' not in sys.modules",
+            f"import sys; sys.path.insert(0, {str(Path(worktree.__file__).resolve().parents[1])!r}); from deploy.worktree import start; from deploy.progress import discard_progress; assert 'yaml' not in sys.modules; assert 'boto3' not in sys.modules",
         ],
         capture_output=True,
         text=True,

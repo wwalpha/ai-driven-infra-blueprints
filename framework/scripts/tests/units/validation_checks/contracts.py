@@ -635,10 +635,10 @@ def _check_task_transition_routes(text, entrypoints):
         ),
         "deploy-task-transitions": (
             "Independent Deploy or CloudFormation completion",
-            "worktree_task.py deploy-start",
-            "preserve AWS FAIL",
-            "Active/uncertain AWS requests retain tracking",
-            "No additional Human failure approval or force",
+            "calling repository",
+            "settled request evidence",
+            "Preserve AWS FAIL as a separate result",
+            "local validation and Task Acceptance",
         ),
         "framework-final-candidates": (
             "Framework-only governance/catalog-maintenance/migration with `framework` Validation scope",
@@ -763,7 +763,7 @@ def check_task_transition_readings():
         "--suspend-reason",
         "--human-approved-validation-failure",
         "If applicability is unknown",
-        "preserve AWS FAIL",
+        "Preserve AWS FAIL as a separate result",
     ):
         assert required in text
         try:

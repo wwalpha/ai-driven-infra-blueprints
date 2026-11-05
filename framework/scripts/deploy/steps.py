@@ -157,6 +157,12 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
     if final and backend.phase != "deploy":
         raise Blocked("--final requires CloudFormation Deploy sync")
     if final:
+        preview = {**context, "states": copy.deepcopy(backend.states)}
+        completion.end_unexecuted(preview)
+        if not completion.attempts_finished(preview["states"], context.get("deployResult")) or any(
+            deploy_progress.unresolved_request(item) for item in preview["states"].values()
+        ):
+            raise Blocked("final sync requires settled AWS requests; continue the current Task")
         missing = [
             name
             for name, state in backend.states.items()
@@ -207,6 +213,8 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
         completion.end_unexecuted(context)
         blockers = completion.final_blockers(context)
         if blockers:
+            if not context.get("pendingObserved") and not context.get("pendingGeneration"):
+                context.pop("syncPending")
             backend.save()
             raise Blocked("final sync requires: " + json.dumps(blockers))
     context["snapshotValidation"] = VALIDATION_FAIL
@@ -229,6 +237,8 @@ def next_actions(backend, complete, can_advance):
     if getattr(backend, "task_status", "running") == "completed":
         return [{"action": "review", "reason": "completed Task has incomplete Deploy evidence"}]
     if pending:
+        if context.get("generationError") and not context.get("pendingGeneration"):
+            return [{"action": "review", "reason": context["generationError"]}]
         return [{"action": "sync", "stacks": pending["stacks"], "final": pending["final"]}]
     actions = [{"action": "advance"}] if can_advance else []
     actions += [

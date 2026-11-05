@@ -291,6 +291,7 @@ def safe_error(error):
             "--final requires managed CloudFormation Deploy --action sync",
             "step operations require CloudFormation",
             "resume the saved sync before advance",
+            "final sync requires settled AWS requests; continue the current Task",
             "completed Deploy permits status only",
             "no local sync to resume; use --action sync",
             "--final requires CloudFormation Deploy sync",
