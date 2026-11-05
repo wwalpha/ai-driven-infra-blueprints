@@ -163,9 +163,11 @@ def check_update_receipt_rewritten_base():
         "advance",
         "rewrite",
         "same-tree",
+        "other-model",
         "model",
         "view",
         "task",
+        "stack",
         "input",
         "unit",
         "commit",
@@ -220,18 +222,22 @@ def check_update_receipt_rewritten_base():
             )
             if scenario in {"rewrite", "same-tree"}:
                 git(root, "commit", "--amend", "-qm", "rewritten baseline")
-            if scenario in {"advance", "rewrite", "model", "view"}:
+            if scenario in {"advance", "rewrite", "other-model", "model", "view"}:
                 relative = {
+                    "other-model": "model/dev/team/other.properties",
                     "model": "model/dev/team/test.properties",
                     "view": "docs/designs/dev/team/test.md",
                 }.get(scenario, "upstream.txt")
                 (root / relative).write_text("changed\n", encoding="utf-8")
                 git(root, "add", relative)
                 git(root, "commit", "-qm", "advance")
-            if scenario in {"task", "input", "unit", "commit"}:
+                if scenario == "other-model":
+                    git(target, "merge", "--ff-only", git(root, "rev-parse", "HEAD").strip())
+            if scenario in {"task", "stack", "input", "unit", "commit"}:
                 receipt[
                     {
                         "task": "taskDigest",
+                        "stack": "stackId",
                         "input": "inputDigest",
                         "unit": "unit",
                         "commit": "commit",
@@ -239,7 +245,7 @@ def check_update_receipt_rewritten_base():
                 ] = "tampered"
                 state["deployCheckpoints"]["A"] = receipt
                 wt.save(path, state)
-            if scenario in {"model", "view", "task", "input", "unit", "commit"}:
+            if scenario in {"model", "view", "task", "stack", "input", "unit", "commit"}:
                 with pytest.raises(ValueError, match="receipt|content"):
                     checkpoints.update_checkpoint(backend, ["A"])
             else:
@@ -276,6 +282,10 @@ def check_update_checkpoint_latest_base():
         "advance",
         "rewrite",
         "same-tree",
+        "different-lines",
+        "task-overlap",
+        "add",
+        "delete",
         "conflict",
         "interrupt",
         "race",
@@ -289,16 +299,32 @@ def check_update_checkpoint_latest_base():
             relative = "model/dev/team/test.properties"
             model = root / relative
             model.parent.mkdir(parents=True)
-            model.write_text("old\n", encoding="utf-8")
+            if scenario != "add":
+                model.write_text("old\n" + ("middle\n" * 8) + "end\n", encoding="utf-8")
             input_path = "infra/input.yaml"
             (root / input_path).parent.mkdir(parents=True)
             (root / input_path).write_text("fixed input\n", encoding="utf-8")
-            git(root, "add", relative, input_path)
+            git(root, "add", "model", input_path)
             git(root, "commit", "-qm", "baseline")
             with patch("support.worktree_task_fixtures.dependency_index.rebuild"):
                 target, state = start_task(root, files=(relative,))
+            if scenario == "task-overlap":
+                (target / relative).write_text("task\n" + ("middle\n" * 8) + "end\n", encoding="utf-8")
+                git(target, "add", relative)
+                git(target, "commit", "-qm", "saved Task change")
+                _, _, state_path, state = wt.load(root, "example")
+                state["tip"] = git(target, "rev-parse", "HEAD").strip()
+                wt.save(state_path, state)
             before = checkpoints.contracts.validation_snapshot(target)
-            (target / relative).write_text("observed\n", encoding="utf-8")
+            observed = (
+                "task\n" + ("middle\n" * 4) + "observed\n" + ("middle\n" * 3) + "end\n"
+                if scenario == "task-overlap" else "observed\n" + ("middle\n" * 8) + "end\n"
+            )
+            if scenario == "delete":
+                (target / relative).unlink()
+            else:
+                (target / relative).parent.mkdir(parents=True, exist_ok=True)
+                (target / relative).write_text(observed, encoding="utf-8")
             after = checkpoints.contracts.validation_snapshot(target)
             text = (target / state["task_file"]).read_text(encoding="utf-8")
             context = {
@@ -333,13 +359,15 @@ def check_update_checkpoint_latest_base():
             if scenario != "same-tree":
                 base_path = (
                     relative
-                    if scenario in {"conflict", "already-applied"}
+                    if scenario in {"different-lines", "task-overlap", "conflict", "already-applied"}
                     else input_path
                     if scenario == "input-change"
                     else "upstream.txt"
                 )
                 base_value = (
-                    "observed\n" if scenario == "already-applied" else "upstream\n"
+                    observed if scenario == "already-applied"
+                    else "old\n" + ("middle\n" * 8) + "upstream\n"
+                    if scenario in {"different-lines", "task-overlap"} else "upstream\n"
                 )
                 (root / base_path).write_text(base_value, encoding="utf-8")
                 git(root, "add", base_path)
@@ -367,7 +395,7 @@ def check_update_checkpoint_latest_base():
                     }[scenario]
                     with pytest.raises(ValueError, match=error):
                         checkpoints.update_checkpoint(backend, ["A"])
-                    assert (target / relative).read_text() == "observed\n"
+                    assert (target / relative).read_text() == observed
                     assert git(root, "rev-parse", "HEAD").strip() == latest
                     continue
                 if scenario == "interrupt":
@@ -376,7 +404,7 @@ def check_update_checkpoint_latest_base():
                     ):
                         with pytest.raises(RuntimeError, match="interrupted"):
                             checkpoints.update_checkpoint(backend, ["A"])
-                    assert (target / relative).read_text() == "observed\n"
+                    assert (target / relative).read_text() == observed
                     (root / "after-interruption.txt").write_text(
                         "base advanced\n", encoding="utf-8"
                     )
@@ -387,7 +415,7 @@ def check_update_checkpoint_latest_base():
                         ValueError, match="changed during candidate validation"
                     ):
                         checkpoints.update_checkpoint(backend, ["A"])
-                    assert (target / relative).read_text() == "observed\n"
+                    assert (target / relative).read_text() == observed
                 if scenario in {"ack-interrupt", "ack-pending"}:
                     with pytest.raises(OSError, match="save interrupted"):
                         checkpoints.update_checkpoint(backend, ["A"])
@@ -405,7 +433,11 @@ def check_update_checkpoint_latest_base():
                         context.pop("pendingGeneration")
                 result = checkpoints.update_checkpoint(backend, ["A"])
                 assert result["A"]["commit"] == git(root, "rev-parse", "HEAD").strip()
-                assert (root / relative).read_text() == "observed\n"
+                expected = observed.replace("end\n", "upstream\n") if scenario in {"different-lines", "task-overlap"} else observed
+                if scenario == "delete":
+                    assert not (root / relative).exists()
+                else:
+                    assert (root / relative).read_text() == expected
                 assert checkpoints.update_checkpoint(backend, ["A"]) == result
 
 

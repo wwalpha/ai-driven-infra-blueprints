@@ -1973,9 +1973,14 @@ def sync_latest_base(where, task_id, expected_base):
             save(path, state)
             if current_base != sync_base:
                 return needs_sync(current_base)
+            unchanged_task = (
+                output(target, "rev-parse", intent["head"] + "^{tree}")
+                == output(target, "rev-parse", intent["oldBase"] + "^{tree}")
+                and intent["tree"] == output(target, "rev-parse", sync_base + "^{tree}")
+            )
             return {
                 **state,
-                "status": "needs_validation",
+                "status": "ok" if unchanged_task else "needs_validation",
                 "latest_base": sync_base,
                 "candidate": head,
             }

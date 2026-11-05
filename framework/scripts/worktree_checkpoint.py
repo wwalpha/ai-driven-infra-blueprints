@@ -130,6 +130,18 @@ def verify_update_receipts(root, target, state, context, names, receipts, text, 
         commit = receipt.get("commit")
         if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40,64}", commit):
             raise DeployStepBlocked("checkpoint receipt has no valid commit")
+        parents = wt.git(target, "show", "-s", "--format=%P", commit, check=False)
+        if parents.returncode:
+            raise DeployStepBlocked("checkpoint receipt has no valid commit")
+        parent_list = parents.stdout.split()
+        paths = (
+            wt.paths(
+                target, "diff", "--no-renames", "--name-only", "-z",
+                parent_list[0], commit, "--", "model/", "docs/designs/",
+            )
+            if len(parent_list) == 1
+            else set()
+        )
         for revision in (latest, head):
             result = wt.git(
                 target,
@@ -139,8 +151,10 @@ def verify_update_receipts(root, target, state, context, names, receipts, text, 
                 commit,
                 revision,
                 "--",
-                "model/",
-                "docs/designs/",
+                *(
+                    [f":(top,literal){p}" for p in sorted(paths)]
+                    if paths else ("model/", "docs/designs/")
+                ),
                 check=False,
             )
             if result.returncode:
@@ -285,28 +299,39 @@ def synchronize_update_candidate(
                 raise DeployStepBlocked(
                     "checkpoint base execution input differs: " + relative
                 )
-        old = intent["head"]
-        common = wt.git(target, "merge-base", old, latest, check=False)
+        boundary = state.get("validation_base", state["start"])
+        if wt.git(
+            target, "merge-base", "--is-ancestor", boundary, intent["head"], check=False
+        ).returncode:
+            raise DeployStepBlocked("checkpoint Task history has no recorded boundary")
+        common = wt.git(target, "merge-base", boundary, latest, check=False)
         if common.returncode:
             raise DeployStepBlocked(
                 "checkpoint Task and base have no provable common history"
             )
-        task_paths = wt.paths(
-            target,
-            "diff",
-            "--name-only",
-            "--no-renames",
-            "-z",
-            common.stdout.strip(),
-            old,
+        prior = wt.output(
+            target, "-c", "user.name=Blueprint verification", "-c",
+            "user.email=blueprint-verification@invalid", "-c", "commit.gpgsign=false",
+            "commit-tree", latest + "^{tree}", "-p", boundary,
+            "-m", "Checkpoint prior Task verification",
         )
-        differing = wt.paths(
-            target, "diff", "--name-only", "--no-renames", "-z", old, latest
+        merged = wt.git(
+            target, "merge-tree", "--write-tree", prior, intent["head"], check=False
         )
-        if task_paths & differing:
+        if (
+            not merged.returncode
+            and merged.stdout.splitlines()
+            and merged.stdout.splitlines()[0]
+            == wt.output(target, "rev-parse", latest + "^{tree}")
+        ):
+            boundary = intent["head"]
+        if wt.output(target, "rev-list", "--merges", boundary + ".." + source):
             raise DeployStepBlocked(
-                "base does not contain the saved Task changes; retain checkpoint candidate"
+                "checkpoint Task history is not linear; retain candidate"
             )
+        commits = wt.output(
+            target, "rev-list", "--reverse", boundary + ".." + source
+        ).splitlines()
         synthetic = wt.output(
             target,
             "-c",
@@ -318,7 +343,7 @@ def synchronize_update_candidate(
             "commit-tree",
             latest + "^{tree}",
             "-p",
-            old,
+            boundary,
             "-m",
             "Checkpoint verification",
         )
@@ -341,12 +366,29 @@ def synchronize_update_candidate(
             raise DeployStepBlocked(
                 "checkpoint or base changed during candidate validation"
             )
-        sync = intent["sync"] = {"base": latest, "source": source, "tree": tree}
+        sync = intent["sync"] = {
+            "base": latest, "source": source, "tree": tree,
+            "boundary": boundary, "commits": commits,
+        }
         wt.save(path, state)
     if sync["base"] != latest:
         raise DeployStepBlocked(
             "base changed during checkpoint synchronization; retain candidate"
         )
+    boundary = sync.get("boundary", intent["head"])
+    old_commits = sync.get("commits")
+    if old_commits is None:
+        old_commits = [] if sync["source"] == boundary else [sync["source"]]
+    if (
+        boundary not in {intent["head"], state.get("validation_base", state["start"])}
+        or wt.git(
+            target, "merge-base", "--is-ancestor", boundary, sync["source"], check=False
+        ).returncode
+        or wt.output(
+            target, "rev-list", "--reverse", boundary + ".." + sync["source"]
+        ).splitlines() != old_commits
+    ):
+        raise DeployStepBlocked("checkpoint replay intent has unexpected Task history")
     head = wt.output(target, "rev-parse", "HEAD")
     if head == sync["source"]:
         wt.idle_git(target)
@@ -361,7 +403,7 @@ def synchronize_update_candidate(
             "--empty=keep",
             "--onto",
             latest,
-            intent["head"],
+            boundary,
             check=False,
         )
         if result.returncode:
@@ -376,17 +418,27 @@ def synchronize_update_candidate(
         or wt.output(target, "rev-parse", "HEAD^{tree}") != sync["tree"]
     ):
         raise DeployStepBlocked("checkpoint replay differs from validated candidate")
-    if sync["source"] == intent["head"]:
-        if head != latest:
-            raise DeployStepBlocked("empty checkpoint replay differs from base")
-    else:
-        old_parent, new_parent = wt.verify_rebase_commits(
-            target, [sync["source"]], [head], intent["head"], latest
+    commits = wt.output(
+        target, "rev-list", "--reverse", latest + ".." + head
+    ).splitlines()
+    if (
+        wt.git(
+            target, "merge-base", "--is-ancestor", latest, head, check=False
+        ).returncode
+        or len(commits) != len(old_commits)
+        or wt.output(target, "rev-list", "--merges", latest + ".." + head)
+        or any(
+            wt.output(target, "show", "-s", "--format=%an%n%ae%n%aI%n%B", old)
+            != wt.output(target, "show", "-s", "--format=%an%n%ae%n%aI%n%B", new)
+            for old, new in zip(old_commits, commits, strict=True)
         )
-        if old_parent != sync["source"] or new_parent != head:
-            raise DeployStepBlocked(
-                "checkpoint replay history differs from saved intent"
-            )
+    ):
+        raise DeployStepBlocked("checkpoint replay history differs from saved intent")
+    old_parent, new_parent = wt.verify_rebase_commits(
+        target, old_commits, commits, boundary, latest
+    )
+    if old_parent != sync["source"] or new_parent != head:
+        raise DeployStepBlocked("checkpoint replay history differs from saved intent")
     return head
 
 

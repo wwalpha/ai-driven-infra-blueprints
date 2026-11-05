@@ -89,6 +89,16 @@ def _task_diff_survives_base_rewrite():
 @it_case
 def check_implement_rebases_on_latest_base():
     _task_diff_survives_base_rewrite()
+    with fixture() as root:
+        target, state = start(root)
+        (root / "upstream.txt").write_text("latest base\n", encoding="utf-8")
+        git(root, "add", "upstream.txt")
+        git(root, "commit", "-qm", "independent base change")
+        latest = git(root, "rev-parse", "HEAD")
+        result = wt.sync_latest_base(root, "example", latest)
+        assert result["status"] == "ok"
+        assert result["candidate"] == latest == git(target, "rev-parse", "HEAD")
+        assert wt.sync_latest_base(root, "example", latest)["status"] == "ok"
     check = TestCase()
     with fixture() as root:
         target, state = start(root)
@@ -584,7 +594,7 @@ def check_ordinary_rewritten_base_sync():
                 assert target.exists()
                 continue
             result = wt.sync_latest_base(root, "example", latest)
-            assert result["status"] == "needs_validation"
+            assert result["status"] == ("ok" if empty else "needs_validation")
             assert (target / "upstream.txt").read_text() == "rewritten\n"
             assert not (target / "old.txt").exists()
             assert git(target, "rev-parse", "HEAD" if empty else "HEAD^") == latest
