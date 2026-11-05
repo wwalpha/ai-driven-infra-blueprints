@@ -377,11 +377,12 @@ def check_v3_registry():
         "resourceType": "GuardDuty.MalwareProtectionPlan",
         "identifier": ["/properties/MalwareProtectionPlanId"],
     }
+    assert "AvailabilityZone" not in properties["ec2"]["EC2.Instance"]
     # Environment mappings add CodePipeline SDK fields and expose ECS/Lambda values.
     for values, expected in [
         (
             baseline_properties,
-            "aab77cee3918e4f8ff32277f71539549778afd740269297002823aa5a8cd75e8",
+            "d2d8672352703fc9e7b0e5ae3d55e4f669ce5ab6def29a1a7b2c2a5d3580051f",
         ),
         (
             definitions,
@@ -389,10 +390,8 @@ def check_v3_registry():
         ),
         (metadata, "6ddf2190bf6c29c9615b5fad44deb27f8b33007f9fd8b4596be89630da10869b"),
     ]:
-        assert (
-            hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
-            == expected
-        )
+        actual = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+        assert actual == expected, (actual, expected)
     print(
         "YAML v3/environment baseline: PASS (50 files, 179 types, 53 adapter types, 50 identities, 65 adapter getters; 18 TGW include/show changes explicit; properties/getters/metadata/API sets pinned)"
     )

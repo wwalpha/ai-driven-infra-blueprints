@@ -45,6 +45,7 @@ def coverage():
         for line in p.read_text(encoding="utf-8").splitlines()
         if "=" in line and not line.startswith("#")
     }
+    catalog.remove("EC2.Instance.AvailabilityZone")
     properties, types, sources, summaries = {}, set(), Counter(), []
     expected_owners = {}
     for path in sorted((ROOT / "framework/mappings/aws").glob("*.yaml")):

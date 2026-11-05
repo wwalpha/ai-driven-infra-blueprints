@@ -91,6 +91,21 @@ def check(root):
     validate_views(current, current, [repository_path], {repository_path: repository})
     assert "RepositoryId" not in repository_path.read_text()
     assert repository["desired.row.007-012.value"] == "`kept-hidden-id`"
+    # EC2 Instance and Subnet use distinct AZ display contracts.
+    for kind, rows, expected in (
+        (
+            "EC2.Instance",
+            [("InstanceType", "`t3.micro`"), ("SubnetId", "`subnet-12345678`")],
+            False,
+        ),
+        ("EC2.Subnet", [("AvailabilityZone", "`ap-northeast-1a`")], True),
+    ):
+        values = fixture("ec2", kind, "fixture", rows)
+        rendered = markdown_for(
+            current / "docs/designs/dev/123456789012/ec2.md", values, current
+        )
+        assert ("AvailabilityZone" in rendered) is expected
+
     print(
         "P5 grouped displays: PASS (current CodeCommit projection; formal source retained)"
     )

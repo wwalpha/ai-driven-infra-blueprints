@@ -119,11 +119,6 @@ def instance_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[st
     }
     cases.update(
         {
-            "AvailabilityZone": (
-                "Placement.AvailabilityZone",
-                "typed",
-                "ap-northeast-1a",
-            ),
             "IamInstanceProfile": (
                 "IamInstanceProfile.Arn",
                 "arn",

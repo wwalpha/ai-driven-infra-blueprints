@@ -161,11 +161,6 @@ resourceTypes:
         display: {show: true, name: InstanceId}
         access: [read-only]
         aws: {getter: base, path: InstanceId, normalize: typed}
-      AvailabilityZone:
-        model: {include: true}
-        display: {show: true, name: AvailabilityZone}
-        access: [create-only]
-        aws: {getter: base, path: Placement.AvailabilityZone, normalize: typed}
       BlockDeviceMappings[].DeviceName:
         model: {include: true}
         display: {show: true, name: 'BlockDeviceMappings[].DeviceName'}

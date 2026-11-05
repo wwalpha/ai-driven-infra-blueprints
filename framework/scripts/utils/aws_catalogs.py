@@ -20,7 +20,13 @@ def _callback_Catalogs_lines_load(resource_type, self, /):
         (p for p in self.paths if p.stem.replace("_", ".", 1) == resource_type), None
     )
     return (
-        None if path is None else tuple(input_text(path, encoding="utf-8").splitlines())
+        None
+        if path is None
+        else tuple(
+            line
+            for line in input_text(path, encoding="utf-8").splitlines()
+            if line.partition("=")[0] != "EC2.Instance.AvailabilityZone"
+        )
     )
 
 

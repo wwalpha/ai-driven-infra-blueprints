@@ -217,7 +217,6 @@ RULES = {
             SubnetId
         """,
         scalars="""
-            AvailabilityZone
             BlockDeviceMappings[].DeviceName
             BlockDeviceMappings[].Ebs.DeleteOnTermination
             BlockDeviceMappings[].Ebs.Encrypted

@@ -16,6 +16,7 @@ import pytest
 from aws_mapping import runtime_registry
 from aws_mapping_catalog import project
 from aws_mapping_compare import value as mapping_value
+from comparison import registry as comparison_registry
 from model.importing import (
     adapter_contracts,
     cli,
@@ -24,10 +25,22 @@ from model.importing import (
     limitations,
 )
 from model.importing.adapter_contract_cases import core, fake_sdk, registry
+from model.importing.adapter_contract_cases.core import fixture_context
 from model.importing.adapter_contract_cases.services import lambda_, quicksight, sqs
+from model.importing.adapter_contract_cases.services.ec2 import InstanceCalls
 from model.importing.discovery import ADAPTER_INVENTORIES
+from model.render import markdown_for
+from support.aws_mapping_display_fixtures import fixture as display_fixture
 from support.check_model_aws_fixtures import SchemaOffline
 from support.pytest_cli import run
+from support.reference_evidence_shared import (
+    fixture as comparison_fixture,
+)
+from support.reference_evidence_shared import (
+    resource,
+    setting,
+)
+from utils.aws_catalogs import catalogs_for
 from utils.aws_mappings import owners
 
 if not __debug__:
@@ -235,6 +248,134 @@ def test_logs_import_normalization_does_not_require_kms_api():
         "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
     )
     ctx.call.assert_not_called()
+
+
+def test_instance_availability_zone_is_not_imported_or_compared():
+    mapping = runtime_registry(ROOT, "ec2")
+    instance = mapping.properties
+    assert "EC2.Instance.AvailabilityZone" not in instance
+    for field in ("SubnetId", "NetworkInterfaces[].SubnetId", "InstanceType"):
+        assert "EC2.Instance." + field in instance
+    rules = comparison_registry.rules("EC2.Instance")
+    assert "AvailabilityZone" not in rules
+    assert "SubnetId" in rules and "InstanceType" in rules
+    assert "NetworkInterfaces[].SubnetId" in rules
+    assert "AvailabilityZone" in comparison_registry.rules("EC2.Subnet")
+    result = adapter_contracts.run(ROOT, mapping, "EC2.Instance")["base"]
+    assert result["status"] == "verified"
+    assert "EC2.Instance.AvailabilityZone" not in result["properties"]
+    assert "EC2.Instance.SubnetId" in result["properties"]
+    assert "EC2.Instance.InstanceType" in result["properties"]
+
+
+def test_instance_import_and_display_exclude_availability_zone(tmp_path):
+    catalog = catalogs_for(ROOT)
+    assert "AvailabilityZone" not in catalog.selected("EC2.Instance")
+    assert "AvailabilityZone" in catalog.selected("EC2.Subnet")
+    assert "LaunchTemplateData.Placement.AvailabilityZone" in catalog.selected(
+        "EC2.LaunchTemplate"
+    )
+    payload = {
+        "InstanceId": "i-12345678",
+        "InstanceType": "t3.micro",
+        "SubnetId": "subnet-12345678",
+        "Placement": {"AvailabilityZone": "ap-northeast-1a"},
+    }
+    ctx, _ = fixture_context(ROOT, "ec2", InstanceCalls, payload)
+    record = {
+        "kind": "EC2.Instance",
+        "identity": "i-12345678",
+        "getters": {"base": payload},
+    }
+    normalized = cli.normalize_records(ctx, "ec2", [record])[0]["properties"]
+    assert "EC2.Instance.AvailabilityZone" not in normalized
+    assert {"EC2.Instance.InstanceType", "EC2.Instance.SubnetId"} <= normalized.keys()
+    for kind, rows, expected in (
+        (
+            "EC2.Instance",
+            [("InstanceType", "`t3.micro`"), ("SubnetId", "`subnet-12345678`")],
+            False,
+        ),
+        ("EC2.Subnet", [("AvailabilityZone", "`ap-northeast-1a`")], True),
+    ):
+        values = display_fixture("ec2", kind, "fixture", rows)
+        path = tmp_path / "docs/designs/dev/team/ec2.md"
+        markdown = markdown_for(path, values, ROOT)
+        assert ("AvailabilityZone" in markdown) is expected
+
+
+def test_instance_iac_comparison_keeps_other_fields():
+    for az in (None, "ap-northeast-1b"):
+        comparison = comparison_fixture()
+        props = {"InstanceType": "t3.micro", "SubnetId": "subnet-12345678"}
+        if az:
+            props["AvailabilityZone"] = az
+        resource(
+            comparison,
+            "ec2",
+            "001",
+            "EC2.Instance",
+            "Instance",
+            [
+                ("InstanceType", "t3.micro", None),
+                ("SubnetId", "subnet-12345678", None),
+            ],
+            properties=props,
+        )
+        document = comparison.stack_inputs["producer"][0]
+        result = comparison.compare_rows(
+            "ec2",
+            "001",
+            comparison.resources["ec2"]["001"],
+            "producer",
+            "Instance",
+            ROOT / "synthetic.yaml",
+            document["Resources"]["Instance"],
+            document,
+        )
+        assert result.failure is None
+        assert not any("AvailabilityZone" in str(item) for item in result.records)
+        assert all(item["category"] == "matched" for item in result.records)
+        props["InstanceType"] = "t3.large"
+        definition = document["Resources"]["Instance"]
+        definition["Properties"] = props
+        changed = comparison.compare_rows(
+            "ec2",
+            "001",
+            comparison.resources["ec2"]["001"],
+            "producer",
+            "Instance",
+            ROOT / "synthetic.yaml",
+            definition,
+            document,
+        )
+        assert any(
+            "InstanceType" in str(item) and item["category"] == "difference"
+            for item in changed.records
+        )
+        definition["Properties"] = {**props, "SubnetId": "subnet-87654321"}
+        changed = comparison.compare_rows(
+            "ec2",
+            "001",
+            comparison.resources["ec2"]["001"],
+            "producer",
+            "Instance",
+            ROOT / "synthetic.yaml",
+            definition,
+            document,
+        )
+        assert any(
+            "SubnetId" in str(item) and item["category"] == "difference"
+            for item in changed.records
+        )
+    subnet = setting(
+        comparison_fixture(),
+        "EC2.Subnet",
+        "AvailabilityZone",
+        "ap-northeast-1a",
+        "ap-northeast-1b",
+    )
+    assert any(item["category"] == "difference" for item in subnet)
 
 
 def test_subnet_contract_checks_id_and_name_selector_branches():
