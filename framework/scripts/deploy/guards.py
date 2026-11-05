@@ -4,6 +4,7 @@ import re
 
 from task_contract_core import task_reads
 from utils.aws import cloudformation, kms, s3, secretsmanager, sts
+from utils.aws.client import request
 
 MUTATIONS = {
     "create_change_set",
@@ -26,6 +27,14 @@ def call(runtime, service, operation, arguments):
     if operation in MUTATIONS:
         with task_reads(runtime.root, live=True):
             runtime.guard()
+    if (service, operation) in {
+        ("cloudcontrol", "get_resource"),
+        ("lambda", "get_policy"),
+    }:
+        with runtime.timing.phase(
+            "awsApi", service=service, operation=operation.replace("_", "-")
+        ):
+            return request(runtime.connection, service, operation, arguments)
     with runtime.timing.phase(
         "awsApi", service=service, operation=operation.replace("_", "-")
     ):

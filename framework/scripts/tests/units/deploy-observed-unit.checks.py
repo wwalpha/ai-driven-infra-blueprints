@@ -16,6 +16,7 @@ import model.adapters.observed as observed_adapter
 import pytest
 from deploy import deferred
 from deploy.observed import security_group_rule_id
+from design.catalog import DesignSchemaCatalog
 from model.adapters.aws import Unresolved, service_module
 from model.adapters.observed import (
     propagate_references,
@@ -25,6 +26,7 @@ from model.files import read_model
 from support import model_reference_fixtures
 from support.cloudformation_deploy_fixtures import TARGET
 from support.model_sources import allocate_fixture, write_model
+from utils.aws.client import AwsError
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -683,3 +685,474 @@ if __name__ == "__main__":
     from support.pytest_cli import run
 
     raise SystemExit(run(__file__))
+
+
+def test_config_rule_identifier_mapping_does_not_require_output(project_workspace):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root, "config-rules", "Config.ConfigRule", attribute="ConfigRuleId"
+    )
+    model_reference_fixtures.write(scope, values)
+    document = {"Resources": {"Resource001": {"Type": "AWS::Config::ConfigRule"}}}
+    _, mapped = resolve_resources(
+        root,
+        "qa",
+        "team",
+        {"producer": (document, {})},
+        [{"name": "producer"}],
+        {"producer": {"Resource001"}},
+        target=TARGET,
+        check_scope=False,
+    )
+    assert "Config.ConfigRule.ConfigRuleId" in mapped["producer"]["Resource001"][4]
+
+
+@pytest.mark.parametrize(
+    "fault", [None, "identifier", "name", "missing", "denied", "changed"]
+)
+def test_cloudcontrol_config_rule_evidence(project_workspace, fault):
+    root = project_workspace
+    stack_id = (
+        "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique"
+    )
+    stack = {"StackId": stack_id, "StackStatus": "CREATE_COMPLETE", "Outputs": []}
+    document = {"Resources": {"Resource001": {"Type": "AWS::Config::ConfigRule"}}}
+    actual = {"ResourceStatus": "CREATE_COMPLETE", "PhysicalResourceId": "rule-name"}
+    payload = {
+        "ConfigRuleName": "other" if fault == "name" else "rule-name",
+        "ConfigRuleId": "rule-id",
+    }
+    description = {
+        "Identifier": "other" if fault == "identifier" else "rule-name",
+        "Properties": json.dumps(payload),
+    }
+    if fault == "missing":
+        description.pop("Properties")
+
+    def aws(operation, **kwargs):
+        if operation == "get_template":
+            return {"TemplateBody": document}
+        if operation == "get_resource":
+            assert kwargs == {
+                "service": "cloudcontrol",
+                "TypeName": "AWS::Config::ConfigRule",
+                "Identifier": "rule-name",
+            }
+            if fault == "denied":
+                raise AwsError("cloudcontrol", "get_resource", "AccessDeniedException")
+            return {"ResourceDescription": description}
+        if operation == "describe_stacks":
+            return {
+                "Stacks": [
+                    dict(stack, StackStatus="UPDATE_IN_PROGRESS")
+                    if fault == "changed"
+                    else stack
+                ]
+            }
+        raise AssertionError(operation)
+
+    backend = SimpleNamespace(root=root, target=TARGET, aws=aws)
+    value, reason = deploy_observed.cloudcontrol_observation(
+        backend,
+        stack,
+        document,
+        {},
+        actual,
+        {"resourceType": "Config.ConfigRule"},
+        "Config.ConfigRule.ConfigRuleId",
+        DesignSchemaCatalog(root),
+    )
+    if fault is None:
+        assert (value, reason) == ("rule-id", None)
+    else:
+        assert value is None and reason
+        if fault == "denied":
+            assert "AccessDeniedException" in reason
+
+
+@pytest.mark.parametrize(
+    "previous,output,expected",
+    [
+        (None, None, "UPDATED"),
+        ("rule-id", None, "MATCHED"),
+        (None, "different", "UNCONFIRMED"),
+    ],
+)
+def test_config_rule_collects_checked_api_value(
+    project_workspace, monkeypatch, previous, output, expected
+):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root,
+        "config-rules",
+        "Config.ConfigRule",
+        attribute="ConfigRuleId",
+        observed=previous,
+    )
+    model_reference_fixtures.write(scope, values)
+    document = {"Resources": {"Resource001": {"Type": "AWS::Config::ConfigRule"}}}
+    if output:
+        document["Outputs"] = {
+            "Id": {"Value": {"Fn::GetAtt": ["Resource001", "ConfigRuleId"]}}
+        }
+    unit = {"name": "producer"}
+    mapped = resolve_resources(
+        root,
+        "qa",
+        "team",
+        {"producer": (document, {})},
+        [unit],
+        {"producer": {"Resource001"}},
+        target=TARGET,
+        check_scope=False,
+    )
+    stack = {
+        "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique",
+        "StackStatus": "CREATE_COMPLETE",
+        "Outputs": [{"OutputKey": "Id", "OutputValue": output}] if output else [],
+    }
+
+    def aws(operation, **kwargs):
+        if operation == "get_template":
+            return {"TemplateBody": document}
+        if operation == "get_resource":
+            return {
+                "ResourceDescription": {
+                    "Identifier": "rule-name",
+                    "Properties": json.dumps(
+                        {"ConfigRuleName": "rule-name", "ConfigRuleId": "rule-id"}
+                    ),
+                }
+            }
+        raise AssertionError(operation)
+
+    backend = SimpleNamespace(
+        root=root,
+        environment="qa",
+        directory="team",
+        target=TARGET,
+        templates={"producer": (document, {})},
+        aws=aws,
+        run_context={},
+    )
+    monkeypatch.setattr(deploy_observed, "resolve_resources", lambda *a, **k: mapped)
+    monkeypatch.setattr(
+        deploy_observed.execution_scope, "check_fixed_resources", lambda *a, **k: None
+    )
+    monkeypatch.setattr(deploy_observed.current_state, "read", lambda *a: stack)
+    monkeypatch.setattr(
+        deploy_observed.current_state,
+        "pages",
+        lambda *a, **k: [
+            {
+                "LogicalResourceId": "Resource001",
+                "ResourceType": "AWS::Config::ConfigRule",
+                "ResourceStatus": "CREATE_COMPLETE",
+                "PhysicalResourceId": "rule-name",
+            }
+        ],
+    )
+    captured = {}
+    monkeypatch.setattr(
+        deploy_observed,
+        "observed_destinations",
+        _bind_framework_callback(_capture_destinations, captured),
+    )
+    states = {"producer": {}}
+    deploy_observed.collect_successful(backend, [unit], states)
+    assert states["producer"]["observedCoverage"]["Resource001"]["status"] == expected
+    assert captured[scope.path]["observed.row.001-001.value"] == (
+        None if output else "`rule-id`"
+    )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [None, "sid", "function", "parent", "action", "denied", "qualifier", "duplicate"],
+)
+def test_lambda_permission_policy_identity(project_workspace, fault):
+    root = project_workspace
+    stack_id = (
+        "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique"
+    )
+    stack = {"StackId": stack_id, "StackStatus": "CREATE_COMPLETE", "Outputs": []}
+    document = {
+        "Resources": {
+            "Function": {"Type": "AWS::Lambda::Function"},
+            "Permission": {
+                "Type": "AWS::Lambda::Permission",
+                "Properties": {
+                    "FunctionName": {"Ref": "Function"},
+                    "Action": "lambda:InvokeFunction",
+                    "Principal": "events.amazonaws.com",
+                },
+            },
+        }
+    }
+    if fault == "qualifier":
+        document["Resources"]["Permission"]["Properties"]["FunctionName"] = {
+            "Fn::Sub": "${Function}:live"
+        }
+    function_name = "my-function:live" if fault == "qualifier" else "my-function"
+    resource = {
+        "resourceType": "Lambda.Permission",
+        "parentReference": json.dumps(
+            model_reference_fixtures.reference(
+                "Other" if fault == "parent" else "Lambda_Function_001", "FunctionName"
+            )
+        ),
+    }
+    mapped = {
+        "Function": (
+            None,
+            None,
+            {"resourceType": "Lambda.Function", "logicalId": "Lambda_Function_001"},
+            [],
+            set(),
+        )
+    }
+    mapped["Permission"] = (None, None, resource, [], set())
+    parent = {
+        "LogicalResourceId": "Function",
+        "ResourceType": "AWS::Lambda::Function",
+        "ResourceStatus": "CREATE_COMPLETE",
+        "PhysicalResourceId": "my-function",
+    }
+    actual = {
+        "LogicalResourceId": "Permission",
+        "ResourceType": "AWS::Lambda::Permission",
+        "ResourceStatus": "CREATE_COMPLETE",
+        "PhysicalResourceId": "sid-1",
+    }
+    statement = {
+        "Sid": "wrong" if fault == "sid" else "sid-1",
+        "Action": "wrong" if fault == "action" else "lambda:InvokeFunction",
+        "Principal": {"Service": "events.amazonaws.com"},
+        "Resource": "arn:aws:lambda:ap-northeast-1:123456789012:function:"
+        + ("other" if fault == "function" else function_name),
+    }
+
+    def aws(operation, **kwargs):
+        if operation == "get_template":
+            return {"TemplateBody": document}
+        if operation == "get_policy":
+            assert kwargs == {"service": "lambda", "FunctionName": function_name}
+            if fault == "denied":
+                raise AwsError("lambda", "get_policy", "AccessDeniedException")
+            return {
+                "Policy": json.dumps(
+                    {"Statement": [statement, dict(statement, Sid="sid-2")]}
+                )
+            }
+        if operation == "describe_stacks":
+            return {"Stacks": [stack]}
+        raise AssertionError(operation)
+
+    backend = SimpleNamespace(root=root, target=TARGET, aws=aws)
+    value, reason = deploy_observed.permission_observation(
+        backend,
+        stack,
+        document,
+        {},
+        {},
+        [parent, actual]
+        + (
+            [dict(actual, LogicalResourceId="OtherPermission")]
+            if fault == "duplicate"
+            else []
+        ),
+        mapped,
+        "Permission",
+        actual,
+        resource,
+    )
+    if fault in {None, "qualifier"}:
+        assert (value, reason) == ("sid-1", None)
+    else:
+        assert value is None and reason
+        if fault == "denied":
+            assert "AccessDeniedException" in reason
+
+
+def test_two_lambda_permissions_collect_independently(project_workspace, monkeypatch):
+    root = project_workspace
+    stack = {
+        "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique",
+        "StackStatus": "CREATE_COMPLETE",
+        "Outputs": [],
+    }
+    document = {"Resources": {"Function": {"Type": "AWS::Lambda::Function"}}}
+    path = root / "model/qa/team/lambda.properties"
+    parent = {"resourceType": "Lambda.Function", "logicalId": "Lambda_Function_001"}
+    mapped = {"producer": {"Function": (path, "001", parent, [], set())}}
+    records = [
+        {
+            "LogicalResourceId": "Function",
+            "ResourceType": "AWS::Lambda::Function",
+            "ResourceStatus": "CREATE_COMPLETE",
+            "PhysicalResourceId": "my-function",
+        }
+    ]
+    statements = []
+    for number in (1, 2):
+        logical, sid, row = (
+            f"Permission{number}",
+            f"sid-{number}",
+            f"00{number + 1}-001",
+        )
+        document["Resources"][logical] = {
+            "Type": "AWS::Lambda::Permission",
+            "Properties": {
+                "FunctionName": {"Ref": "Function"},
+                "Action": "lambda:InvokeFunction",
+                "Principal": "events.amazonaws.com",
+            },
+        }
+        resource = {
+            "resourceType": "Lambda.Permission",
+            "logicalId": f"Lambda_Permission_00{number}",
+            "parentReference": json.dumps(
+                model_reference_fixtures.reference(
+                    "Lambda_Function_001", "FunctionName"
+                )
+            ),
+        }
+        mapped["producer"][logical] = (
+            path,
+            f"00{number + 1}",
+            resource,
+            [(row, {"property": "Lambda.Permission.Id"})],
+            {"Lambda.Permission.Id"},
+        )
+        records.append(
+            {
+                "LogicalResourceId": logical,
+                "ResourceType": "AWS::Lambda::Permission",
+                "ResourceStatus": "CREATE_COMPLETE",
+                "PhysicalResourceId": sid,
+            }
+        )
+        statements.append(
+            {
+                "Sid": sid,
+                "Action": "lambda:InvokeFunction",
+                "Principal": {"Service": "events.amazonaws.com"},
+                "Resource": "arn:aws:lambda:ap-northeast-1:123456789012:function:my-function",
+            }
+        )
+
+    def aws(operation, **kwargs):
+        if operation == "get_template":
+            return {"TemplateBody": document}
+        if operation == "get_policy":
+            return {"Policy": json.dumps({"Statement": statements})}
+        raise AssertionError(operation)
+
+    backend = SimpleNamespace(
+        root=root,
+        environment="qa",
+        directory="team",
+        target=TARGET,
+        templates={"producer": (document, {})},
+        aws=aws,
+        run_context={},
+    )
+    monkeypatch.setattr(
+        deploy_observed, "resolve_resources", lambda *a, **k: ({path: {}}, mapped)
+    )
+    monkeypatch.setattr(
+        deploy_observed.execution_scope, "check_fixed_resources", lambda *a, **k: None
+    )
+    monkeypatch.setattr(deploy_observed.current_state, "read", lambda *a: stack)
+    monkeypatch.setattr(deploy_observed.current_state, "pages", lambda *a, **k: records)
+    monkeypatch.setattr(deploy_observed, "propagate_references", lambda *a, **k: None)
+    captured = {}
+    monkeypatch.setattr(
+        deploy_observed,
+        "observed_destinations",
+        _bind_framework_callback(_capture_destinations, captured),
+    )
+    states = {"producer": {}}
+    deploy_observed.collect_successful(backend, [{"name": "producer"}], states)
+    assert captured[path] == {
+        "observed.row.002-001.value": "`sid-1`",
+        "observed.row.003-001.value": "`sid-2`",
+    }
+    assert all(
+        states["producer"]["observedCoverage"][f"Permission{n}"]["status"] == "UPDATED"
+        for n in (1, 2)
+    )
+
+
+def test_unsupported_observation_reports_and_remains_unconfirmed(
+    project_workspace, monkeypatch
+):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    scope, values = model_reference_fixtures.resource_values(
+        root,
+        "config-rules",
+        "Config.ConfigRule",
+        attribute="ConfigRuleId",
+        observed="old",
+    )
+    model_reference_fixtures.write(scope, values)
+    document = {"Resources": {"Resource001": {"Type": "AWS::Config::ConfigRule"}}}
+    monkeypatch.setattr(observed_adapter, "cloudcontrol_source", lambda *args: None)
+    monkeypatch.setattr(deploy_observed, "cloudcontrol_source", lambda *args: None)
+    with pytest.warns(
+        UserWarning, match="unsupported observation.*Config.ConfigRule.ConfigRuleId"
+    ):
+        mapped = resolve_resources(
+            root,
+            "qa",
+            "team",
+            {"producer": (document, {})},
+            [{"name": "producer"}],
+            {"producer": {"Resource001"}},
+            target=TARGET,
+            check_scope=False,
+        )
+    stack = {"StackId": "stack", "StackStatus": "CREATE_COMPLETE", "Outputs": []}
+    backend = SimpleNamespace(
+        root=root,
+        environment="qa",
+        directory="team",
+        target=TARGET,
+        templates={"producer": (document, {})},
+        aws=Mock(),
+        run_context={},
+    )
+    monkeypatch.setattr(deploy_observed, "resolve_resources", lambda *a, **k: mapped)
+    monkeypatch.setattr(
+        deploy_observed.execution_scope, "check_fixed_resources", lambda *a, **k: None
+    )
+    monkeypatch.setattr(deploy_observed.current_state, "read", lambda *a: stack)
+    monkeypatch.setattr(
+        deploy_observed.current_state,
+        "pages",
+        lambda *a, **k: [
+            {
+                "LogicalResourceId": "Resource001",
+                "ResourceType": "AWS::Config::ConfigRule",
+                "ResourceStatus": "CREATE_COMPLETE",
+                "PhysicalResourceId": "rule-name",
+            }
+        ],
+    )
+    captured = {}
+    monkeypatch.setattr(
+        deploy_observed,
+        "observed_destinations",
+        _bind_framework_callback(_capture_destinations, captured),
+    )
+    states = {"producer": {}}
+    deploy_observed.collect_successful(backend, [{"name": "producer"}], states)
+    assert captured[scope.path]["observed.row.001-001.value"] is None
+    coverage = states["producer"]["observedCoverage"]["Resource001"]
+    assert coverage["status"] == "UNCONFIRMED"
+    assert (
+        "supported API getter" in coverage["reasons"]["Config.ConfigRule.ConfigRuleId"]
+    )

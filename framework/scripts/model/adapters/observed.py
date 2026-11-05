@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import re
+import warnings
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
@@ -43,6 +44,7 @@ from utils.cloudformation.inputs import (
 from utils.iac_values import cfn_resource_identity
 from utils.input_cache import input_scope
 from utils.project_targets import load_target_directory as load_target
+from utils.reference_contracts import REF_ATTRIBUTES
 from utils.source_reads import FileReads
 from validation_scope import active_scope
 
@@ -51,6 +53,7 @@ import model.observed as _imports_model_observed
 import model.projection as _imports_model_projection
 import model.sources as source_models
 from model import projection as model_projection
+from model.adapters.observation_sources import cloudcontrol_source, permission_source
 from model.core import entries, properties, stack_model
 from model.files import read_model, resource_row_index
 from model.identity import Resolver
@@ -182,9 +185,9 @@ def identifier_source(catalog, resource, outputs, logical, prop, values):
     attribute = prop.removeprefix(resource[RESOURCE_TYPE_KEY] + ".")
     primary = (
         resource[RESOURCE_TYPE_KEY] != "SQS.QueuePolicy"
-        and "/properties/" + attribute
-        in catalog.schema(resource[RESOURCE_TYPE_KEY]).get("primaryIdentifier", [])
-        and len(outputs) == 1
+        and catalog.schema(resource[RESOURCE_TYPE_KEY]).get("primaryIdentifier", [])
+        == ["/properties/" + attribute]
+        and REF_ATTRIBUTES.get(resource[RESOURCE_TYPE_KEY]) == attribute
     )
     keys = []
     for key, value in values.items():
@@ -593,9 +596,16 @@ def _mappings(
                     primary, keys = identifier_source(
                         catalog, resource, outputs, logical, prop, output_values
                     )
-                    if not deleting and not primary and not keys:
-                        errors.setdefault(name, []).append(
-                            f"{name}/{logical}: required GetAtt Output missing: {prop}"
+                    if (
+                        not deleting
+                        and not primary
+                        and not keys
+                        and not cloudcontrol_source(root, catalog, resource, prop)
+                        and not permission_source(root, resource, prop)
+                    ):
+                        warnings.warn(
+                            f"{name}/{logical}: unsupported observation for {prop}: no verified Output, PhysicalResourceId, or API acquisition contract",
+                            stacklevel=2,
                         )
                 result[name][logical] = (path, identity, resource, rows, outputs)
             except (ValueError, Blocked) as error:

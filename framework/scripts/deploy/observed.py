@@ -5,6 +5,7 @@ import re
 import design.layout as _imports_design_layout
 import utils.cloudformation.format as _imports_cfn_format
 import utils.cloudformation.inputs as _imports_cfn_inputs
+from aws_mapping_catalog import project
 from contracts.model import MODEL_PENDING_DEPLOY, RESOURCE_TYPE_KEY
 from contracts.target import (
     AWS_ACCOUNT_ID_KEY,
@@ -12,7 +13,8 @@ from contracts.target import (
     AWS_REGION_KEY,
 )
 from design.catalog import DesignSchemaCatalog
-from model.adapters.aws import Unresolved, service_module
+from model.adapters.aws import MISSING, AcquisitionError, Unresolved, service_module
+from model.adapters.observation_sources import cloudcontrol_source, permission_source
 from model.adapters.observed import (
     active_outputs,
     ambiguous,
@@ -23,6 +25,8 @@ from model.adapters.observed import (
     resolve_resources,
     static_export_handle,
 )
+from model.importing.inventory import pointer_value, properties_json
+from model.reference_nodes import parse as parse_reference
 from task_contract_core import task_snapshot
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked as Blocked
@@ -205,6 +209,281 @@ def security_group_rule_id(
         )
     except (AwsError, Blocked, Unresolved, KeyError, TypeError, ValueError):
         return None
+
+
+def cloudcontrol_observation(
+    backend, stack, document, parameters, actual, resource, prop, catalog
+):
+    """Confirm a provider response against the exact current Stack resource."""
+    source = cloudcontrol_source(backend.root, catalog, resource, prop)
+    if source is None:
+        return None, "unsupported acquisition contract"
+    pointer, item = source
+    physical = actual.get("PhysicalResourceId")
+    account = backend.target.get(
+        AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
+    )
+    region = backend.target[AWS_REGION_KEY]
+    stack_id = stack.get("StackId", "")
+    if not stack_id.startswith(f"arn:aws:cloudformation:{region}:{account}:stack/"):
+        return None, "stack account or region identity mismatch"
+    if not isinstance(physical, str) or not physical or "|" in physical:
+        return None, "physical identifier unavailable"
+    if current_state.category(stack) != "SUCCESS" or actual.get(
+        "ResourceStatus"
+    ) not in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}:
+        return None, "stack or resource state unconfirmed"
+    try:
+        deployed = backend.aws("get_template", StackName=stack_id).get("TemplateBody")
+        if isinstance(deployed, str):
+            deployed, errors = _imports_cfn_format.decode(deployed)
+            if errors:
+                return None, "deployed template unavailable"
+        if deployed != document or document.get("Transform"):
+            return None, "deployed template mismatch"
+        actual_parameters = stack.get("Parameters", [])
+        checked = _imports_cfn_inputs.checked_parameters
+        if (
+            not isinstance(actual_parameters, list)
+            or any(
+                not isinstance(item, dict)
+                or item.get("ParameterValue") in (None, "****")
+                for item in actual_parameters
+            )
+            or len({item.get("ParameterKey") for item in actual_parameters})
+            != len(actual_parameters)
+        ):
+            return None, "deployed parameters unavailable or mismatch"
+        actual_parameters = [
+            {
+                "ParameterKey": item["ParameterKey"],
+                "ParameterValue": item["ParameterValue"],
+            }
+            for item in actual_parameters
+        ]
+        if checked(document, actual_parameters) != checked(
+            document,
+            [
+                {"ParameterKey": key, "ParameterValue": value}
+                for key, value in parameters.items()
+            ],
+        ):
+            return None, "deployed parameters unavailable or mismatch"
+        response = backend.aws(
+            "get_resource",
+            service="cloudcontrol",
+            TypeName=catalog.cloudformation_type(resource[RESOURCE_TYPE_KEY]),
+            Identifier=physical,
+        )
+        description = response["ResourceDescription"]
+        if description.get("Identifier") != physical:
+            return None, "Cloud Control identifier mismatch"
+        payload = properties_json(description["Properties"])
+        if pointer_value(payload, pointer) != physical:
+            return None, "Cloud Control resource identity mismatch"
+        value = project(item, payload)
+        after = current_state.read(backend.aws, stack_id)
+        if current_state.identity(stack) != current_state.identity(after) or stack.get(
+            "Outputs", []
+        ) != after.get("Outputs", []):
+            return None, "stack changed during acquisition"
+        return value, None
+    except AwsError as error:
+        return None, "cloudcontrol.get_resource: " + str(error.code)
+    except (Blocked, Unresolved, KeyError, TypeError, ValueError):
+        return None, "Cloud Control response or deployed evidence unavailable"
+
+
+def permission_observation(
+    backend,
+    stack,
+    document,
+    parameters,
+    pseudo,
+    actuals,
+    mapped,
+    logical,
+    actual,
+    resource,
+):
+    """Confirm one Lambda statement using its explicit parent and CloudFormation identity."""
+    stack_id = stack.get("StackId", "")
+    account = backend.target.get(
+        AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
+    )
+    region = backend.target[AWS_REGION_KEY]
+    if not stack_id.startswith(f"arn:aws:cloudformation:{region}:{account}:stack/"):
+        return None, "stack account or region identity mismatch"
+    if current_state.category(stack) != "SUCCESS" or actual.get(
+        "ResourceStatus"
+    ) not in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}:
+        return None, "stack or resource state unconfirmed"
+    try:
+        physical = actual["PhysicalResourceId"]
+        if not isinstance(physical, str) or not physical:
+            return None, "permission physical identifier unavailable"
+        deployed = backend.aws("get_template", StackName=stack_id).get("TemplateBody")
+        if isinstance(deployed, str):
+            deployed, errors = _imports_cfn_format.decode(deployed)
+            if errors:
+                return None, "deployed template unavailable"
+        if deployed != document or document.get("Transform"):
+            return None, "deployed template mismatch"
+        stack_parameters = stack.get("Parameters", [])
+        if (
+            not isinstance(stack_parameters, list)
+            or any(
+                not isinstance(item, dict)
+                or item.get("ParameterValue") in (None, "****")
+                for item in stack_parameters
+            )
+            or len({item.get("ParameterKey") for item in stack_parameters})
+            != len(stack_parameters)
+        ):
+            return None, "deployed parameters unavailable"
+        checked = _imports_cfn_inputs.checked_parameters
+        if checked(
+            document,
+            [
+                {
+                    "ParameterKey": x["ParameterKey"],
+                    "ParameterValue": x["ParameterValue"],
+                }
+                for x in stack_parameters
+            ],
+        ) != checked(
+            document,
+            [{"ParameterKey": k, "ParameterValue": v} for k, v in parameters.items()],
+        ):
+            return None, "deployed parameters mismatch"
+        props = document["Resources"][logical].get("Properties", {})
+        if set(props) - {
+            "FunctionName",
+            "Action",
+            "Principal",
+            "SourceArn",
+            "SourceAccount",
+        }:
+            return None, "permission attributes not supported"
+        parent_reference = parse_reference(resource["parentReference"])
+        if parent_reference.attribute != "FunctionName":
+            return None, "permission parent reference attribute mismatch"
+        parent_id = parent_reference.logical_id
+        parents = [
+            (name, entry)
+            for name, entry in mapped.items()
+            if entry[2][RESOURCE_TYPE_KEY] == "Lambda.Function"
+            and entry[2]["logicalId"] == parent_id
+        ]
+        if len(parents) != 1:
+            return None, "permission parent identity mismatch"
+        parent_logical, parent = parents[0]
+        if logical not in mapped or parent[0] != mapped[logical][0]:
+            return None, "permission parent Model scope mismatch"
+        matching = [
+            entry
+            for entry in actuals
+            if entry.get("LogicalResourceId") == parent_logical
+            and entry.get("ResourceType") == "AWS::Lambda::Function"
+            and entry.get("ResourceStatus")
+            in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
+        ]
+        if len(matching) != 1:
+            return None, "permission parent identity mismatch"
+        parent_name = matching[0].get("PhysicalResourceId")
+        if (
+            not isinstance(parent_name, str)
+            or not parent_name
+            or parent_name.startswith("arn:")
+        ):
+            return None, "function name unavailable"
+        function = _imports_cfn_inputs.resolve_value(
+            props["FunctionName"],
+            parameters,
+            pseudo | {parent_logical: parent_name},
+            conditions=document.get("Conditions"),
+        )
+        if not isinstance(function, str) or not re.fullmatch(
+            re.escape(parent_name) + r"(?::[A-Za-z0-9_$-]+)?", function
+        ):
+            return None, "function name or qualifier mismatch"
+        if any(
+            entry.get("LogicalResourceId") != logical
+            and entry.get("ResourceType") == "AWS::Lambda::Permission"
+            and entry.get("PhysicalResourceId") == physical
+            for entry in actuals
+        ):
+            return None, "permission Sid is shared by multiple Stack resources"
+        expected = {
+            key: _imports_cfn_inputs.resolve_value(
+                value, parameters, pseudo, conditions=document.get("Conditions")
+            )
+            for key, value in props.items()
+            if key != "FunctionName"
+        }
+        if not {"Action", "Principal"} <= expected.keys():
+            return None, "permission attributes unavailable"
+
+        class Context:
+            def call(self, service, operation, **kwargs):
+                return backend.aws(operation, service=service, **kwargs)
+
+        class Resource:
+            kind = "Lambda.Permission"
+
+            def parent(self):
+                return self
+
+            def value(self, name, *args):
+                return function if name == "FunctionName" else expected[name]
+
+            def current(self, name):
+                return physical
+
+            def optional(self, name, **kwargs):
+                return expected.get(name)
+
+        statement = service_module("lambda").fetch(Context(), Resource(), "permission")
+        if statement.get("Sid") != physical or any(
+            statement.get(key) != expected[key] for key in expected
+        ):
+            return None, "permission statement attributes or Sid mismatch"
+        if any(
+            statement.get(key, MISSING) != expected.get(key, MISSING)
+            for key in ("SourceArn", "SourceAccount")
+        ):
+            return None, "permission source condition mismatch"
+        condition = statement.get("Condition", {})
+        if not isinstance(condition, dict) or set(condition) - {
+            "ArnLike",
+            "ArnEquals",
+            "StringEquals",
+        }:
+            return None, "permission condition unsupported"
+        allowed_conditions = {
+            "ArnLike": {"AWS:SourceArn"},
+            "ArnEquals": {"AWS:SourceArn"},
+            "StringEquals": {"AWS:SourceAccount"},
+        }
+        if any(
+            not isinstance(value, dict) or set(value) - allowed_conditions[key]
+            for key, value in condition.items()
+        ):
+            return None, "permission condition unsupported"
+        arn = statement.get("Resource")
+        expected_arn = f"arn:aws:lambda:{region}:{account}:function:{function}"
+        if arn != expected_arn:
+            return None, "permission function or qualifier mismatch"
+        after = current_state.read(backend.aws, stack_id)
+        if current_state.identity(stack) != current_state.identity(after) or stack.get(
+            "Outputs", []
+        ) != after.get("Outputs", []):
+            return None, "stack changed during acquisition"
+        return physical, None
+    except (AwsError, AcquisitionError) as error:
+        return None, "lambda.get_policy: " + str(error.code)
+    except (Blocked, Unresolved, KeyError, TypeError, ValueError):
+        return None, "permission evidence unavailable or ambiguous"
 
 
 def readiness(backend, unit, state=None):
@@ -483,6 +762,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
                 coverage[logical] = {"status": "NO_IDENTIFIER"}
                 continue
             unknown, updated, absent = False, False, False
+            reasons = {}
             if logical in removed.get(name, {}) and complete:
                 try:
                     absent = deleted_resource(
@@ -570,6 +850,62 @@ def collect_successful(backend, units, states, *, generated_views=None):
                         value = values[0]
                     else:
                         value = physical
+                    source = cloudcontrol_source(backend.root, catalog, resource, prop)
+                    if source is not None and (not primary or bool(keys)):
+                        api_value, reason = cloudcontrol_observation(
+                            backend,
+                            stack,
+                            document,
+                            parameters,
+                            actual,
+                            resource,
+                            prop,
+                            catalog,
+                        )
+                        if reason:
+                            value = None
+                            reasons[prop] = reason
+                        elif (
+                            values
+                            and (
+                                len(values) != len(keys)
+                                or any(candidate != api_value for candidate in values)
+                            )
+                        ) or (physical is not None and physical != api_value):
+                            value = None
+                            reasons[prop] = (
+                                "Output or physical identifier disagrees with Cloud Control"
+                            )
+                        else:
+                            value = api_value
+                    elif permission_source(backend.root, resource, prop):
+                        api_value, reason = permission_observation(
+                            backend,
+                            stack,
+                            document,
+                            parameters,
+                            pseudo,
+                            actuals,
+                            mapped[name],
+                            logical,
+                            actual,
+                            resource,
+                        )
+                        if reason:
+                            value = None
+                            reasons[prop] = reason
+                        elif values and (
+                            len(values) != len(keys)
+                            or any(candidate != api_value for candidate in values)
+                        ):
+                            value = None
+                            reasons[prop] = "Output disagrees with Lambda policy"
+                        else:
+                            value = api_value
+                    elif value is None:
+                        reasons[prop] = (
+                            "no verified Output, physical identifier, or supported API getter"
+                        )
                     if (
                         not isinstance(value, str)
                         or not value
@@ -578,6 +914,14 @@ def collect_successful(backend, units, states, *, generated_views=None):
                         or any(c in value for c in "\r\n`")
                     ):
                         value = None
+                        reasons.setdefault(
+                            prop, "acquired value is missing, invalid, or prohibited"
+                        )
+                if value is None:
+                    reasons.setdefault(
+                        prop,
+                        stack.get("reason", "resource identity or state unconfirmed"),
+                    )
                 key = f"observed.row.{rid}.value"
                 raw = f"`{value}`" if value is not None else None
                 changed = loaded[path].get(key) != raw or (key in loaded[path]) != (
@@ -588,11 +932,12 @@ def collect_successful(backend, units, states, *, generated_views=None):
                 changes.setdefault(path, {})[key] = raw
                 identifiers[own_key(path, resource)] = value
             coverage[logical] = {
+                **({"reasons": reasons} if reasons else {}),
                 "status": "UNCONFIRMED"
                 if unknown
                 else "UPDATED"
                 if updated
-                else "MATCHED"
+                else "MATCHED",
             }
         for logical in document.get("Resources", {}) | removed.get(name, {}):
             if logical not in coverage:
@@ -663,8 +1008,7 @@ def deleted_resource(runtime, name, logical, removal, state, actuals):
         return False
     evidence = state.get("executionEvidence", {})
     if any(
-        evidence.get(key)
-        != state.get(field)
+        evidence.get(key) != state.get(field)
         for key, field in (
             ("StackId", "stackId"),
             ("ChangeSetId", "changeSetId"),
