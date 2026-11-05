@@ -768,7 +768,15 @@ def _run_model_guard(
 
 
 def _commit_preconditions(
-    target, state, changed, text, parsed_operation, *, scope_paths, published_head=None
+    target,
+    state,
+    changed,
+    text,
+    parsed_operation,
+    *,
+    scope_paths,
+    published_head=None,
+    ordinary_model=False,
 ):
     idle_git(target)
     tasks.validate_contract(target, state["task_file"], text)
@@ -781,16 +789,27 @@ def _commit_preconditions(
     if scope_paths - declared or any(
         not any(tasks.matches(p, pattern) for pattern in allowed) for p in scope_paths
     ):
-        raise Blocked("integration changes are outside the exact task contract")
+        outside = sorted(
+            scope_paths - declared
+            | {
+                p
+                for p in scope_paths
+                if not any(tasks.matches(p, pattern) for pattern in allowed)
+            }
+        )
+        raise Blocked(
+            "integration changes are outside the exact task contract: "
+            + ", ".join(outside)
+        )
     if any(p.startswith("tasks/") for p in changed):
         raise Blocked("contracts must remain ignored; nothing committed")
     head = output(target, "rev-parse", "HEAD")
     if published_head is not None:
         if not ancestor(target, published_head, state["branch"]):
             raise Blocked("PR update must descend from the published HEAD")
-    elif head != state["tip"]:
+    elif not ordinary_model and head != state["tip"]:
         raise Blocked("unexpected commits on task branch; review required")
-    if published_head is None and state["commit"] and changed:
+    if published_head is None and not ordinary_model and state["commit"] and changed:
         synchronized_framework = (
             state.get("validation_base")
             and state["commit"] == head
@@ -849,6 +868,15 @@ def _prepare_commit(
     _block_invalid_model_contract(contract, state["task_file"])
     operation = tasks.final_model_task(contract, model_changes)
     parsed_operation = tasks.model_operation(contract)
+    ordinary_model = (
+        operation
+        and parsed_operation is None
+        and tasks.model_refactor(contract) is None
+        and not approval
+        and not pr_update
+        and not recovery
+        and state.get("integrationMode") != "pr"
+    )
     if approval and (
         tasks.model_refactor(contract) is not None
         or parsed_operation is not None
@@ -865,7 +893,16 @@ def _prepare_commit(
         parsed_operation,
         scope_paths=model_changes,
         published_head=state["prUpdate"]["previousCandidate"] if pr_update else None,
+        ordinary_model=ordinary_model,
     )
+    if ordinary_model:
+        base = state.get("validation_base", state["start"])
+        if git(
+            target, "merge-base", "--is-ancestor", base, head, check=False
+        ).returncode or output(target, "rev-list", "--merges", base + ".." + head):
+            raise Blocked(
+                f"cannot reconstruct a linear Task candidate: HEAD {head}, base {base}"
+            )
     if not pr_update:
         base_worktree(root, state)
     implement = "- Infrastructure phase: `implement`" in tasks.section(
@@ -936,6 +973,7 @@ def _prepare_commit(
             published_head=state["prUpdate"]["previousCandidate"]
             if pr_update
             else None,
+            ordinary_model=ordinary_model,
         )
     if approval:
         state["validation_failure_approval"] = approval
@@ -975,6 +1013,9 @@ def _prepare_commit(
         ):
             raise Blocked("commit differs from the task changes; review required")
         state["verified"] = True
+        save(path, state)
+    elif ordinary_model and (state["tip"] != head or state["commit"] != head):
+        state.update(tip=head, commit=head, verified=True)
         save(path, state)
     if changed_paths(target):
         raise Blocked("task worktree changed during commit; review required")
@@ -1836,6 +1877,23 @@ def sync_latest_base(
             new_intent = intent is None
             if intent is None:
                 if latest == state.get("validation_base", state["start"]):
+                    ordinary_model = (
+                        not recover_prepared_pr
+                        and tasks.final_model_task(
+                            text, integration_changed_paths(target, state["task_file"])
+                        )
+                        and tasks.model_operation(text) is None
+                        and tasks.model_refactor(text) is None
+                    )
+                    if ordinary_model:
+                        _prepare_commit(
+                            root, path, state, target, None, prepare_only=True
+                        )
+                        return {
+                            **state,
+                            "status": "needs_validation",
+                            "candidate": output(target, "rev-parse", "HEAD"),
+                        }
                     if (
                         changed_paths(target)
                         or output(target, "rev-parse", "HEAD") != state["tip"]

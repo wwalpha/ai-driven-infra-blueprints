@@ -281,6 +281,11 @@ If an existing Task has an invalid declaration, correct its contract in the same
 worktree, refresh and validate it, then retry finalize while keeping it running.
 The normal Model-only finalize accepts running/completed tasks, validates after private
 commit/rebase, then completes only running tasks and merges the exact validated HEAD.
+For ordinary design/update, assess the effective committed and uncommitted Task diff
+against Modified files and Allowed paths; an older lifecycle tip or commit alone does
+not block a linear candidate. Refresh candidate metadata after checking current history
+and scope. Latest-base synchronization retains its conflict and replay verification;
+final validation and the exact candidate/base checks still precede integration.
 No persistent PASS receipt, public skip flag, automatic repair or workflow rollback exists.
 
 ## Standalone Model reference retarget

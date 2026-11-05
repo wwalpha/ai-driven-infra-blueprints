@@ -975,6 +975,24 @@ def _check_normal_model_final_candidate():
         assert target.is_dir()
         task.write_text(text)
         task_contract_runtime.refresh(target, state["task_file"])
+        _, _, lifecycle, saved = wt.load(root, "example")
+        wt._prepare_commit(root, lifecycle, saved, target, None, prepare_only=True)
+        source.write_text(source.read_text() + "# additional correction\n")
+        assert (
+            wt.sync_latest_base(root, "example", base_head)["status"]
+            == "needs_validation"
+        )
+        (target / "file.txt").write_text("outside scope\n")
+        with pytest.raises(
+            wt.Blocked, match="outside the exact task contract.*file.txt"
+        ):
+            wt.prepare_integration(root, "example")
+        (target / "file.txt").write_text("original\n")
+        source.write_text(source.read_text() + "# committed correction\n")
+        git(target, "add", relative)
+        git(target, "commit", "-qm", "additional Task correction")
+        assert git(target, "rev-parse", "HEAD") != saved["tip"]
+        source.write_text(source.read_text() + "# uncommitted correction\n")
         (root / "upstream.txt").write_text("latest\n")
         git(root, "add", "upstream.txt")
         git(root, "commit", "-qm", "advance base")
@@ -988,12 +1006,18 @@ def _check_normal_model_final_candidate():
             )
             candidate = wt.prepare_integration(root, "example")
             assert candidate.base_commit == latest
+            assert (
+                "# committed correction\n# uncommitted correction\n"
+                in source.read_text()
+            )
             assert wt.task_start_commit(target, state["task_file"]) == latest
             assert wt.committed_task_paths(target, state["task_file"]) == {relative}
             assert tasks.final_model_task(
                 text, wt.integration_changed_paths(target, state["task_file"])
             )
             validate = _callback_normal_model_candidate
+            with pytest.raises(wt.Blocked, match="validation failed"):
+                wt.merge_validated_candidate(wt._ValidatedCandidate(candidate, 1))
             with patch.object(loop, "run_loop", side_effect=validate) as checked:
                 result = wt.validate_final_candidate(candidate)
                 checked.assert_called_once()
@@ -1099,7 +1123,10 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
         values["display.resource.001.comment"] = "実行権限の説明を更新"
         write_model(model, values)
         design = target / design_path
-        design.write_text(loop_checks.markdown_for(design, load_model(model).values, target), encoding="utf-8")
+        design.write_text(
+            loop_checks.markdown_for(design, load_model(model).values, target),
+            encoding="utf-8",
+        )
         design.write_text(loop_checks.rendered_design(design), encoding="utf-8")
         finish_contract(target, state)
         environment = {

@@ -46,6 +46,18 @@ def prepare_integration(where: Path, task_id: str) -> wt.FinalCandidate:
         text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
         changed = partial(wt.integration_changed_paths, target, state["task_file"])
         framework = tasks.final_framework_task(text, changed)
+        declared = tasks.paths_in(text, "## Modified files")
+        if (
+            not framework
+            and tasks.model_operation(text) is None
+            and tasks.model_refactor(text) is None
+            and tasks.final_model_task(text, changed() & declared)
+            and changed() - declared
+        ):
+            raise wt.Blocked(
+                "integration changes are outside the exact task contract: "
+                + ", ".join(sorted(changed() - declared))
+            )
         if not (framework or tasks.final_model_task(text, changed)) or tasks.status(
             text
         ) not in {
