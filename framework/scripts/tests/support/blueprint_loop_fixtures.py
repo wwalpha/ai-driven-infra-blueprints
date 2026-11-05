@@ -168,6 +168,9 @@ def make_service_loop_fixture(root):
         name,
         f"""## Task contract
 - Task type: `design`
+- Workflow: `update`
+- AWS API execution: `forbidden`
+- deploy/apply: `forbidden`
 - Task status: `running`
 ## Validation scope
 - `dev/123456789012/iam`
