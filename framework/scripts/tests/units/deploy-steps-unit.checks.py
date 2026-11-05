@@ -162,11 +162,12 @@ def checkpoint_pending_is_unfinished_even_after_observed_case(monkeypatch, case)
             "gitPublication": copy.deepcopy(data["publication"]),
         },
     )
+    backend.run_context["syncPending"] = {"stacks": ["A"], "final": True}
     report = steps.describe(backend)
-    TestCase().assertEqual(report["result"], "PUBLICATION_PENDING")
-    TestCase().assertEqual(report["states"]["A"]["attempt"], "SUCCESS")
-    TestCase().assertEqual(report["gitPublication"]["status"], "CONFLICT")
-    display.assert_called_once_with(backend)
+    assert report["result"] != "COMPLETE"
+    assert report["states"]["A"]["attempt"] == "SUCCESS"
+    assert "gitPublication" not in report
+    display.assert_not_called()
     return report
 
 
@@ -235,6 +236,7 @@ def git_next_actions_are_exposed_until_publication_succeeds_case(monkeypatch, ca
         lambda backend: copy.deepcopy(backend.run_context["gitPublication"]),
     )
     states = copy.deepcopy(data["states"])
+    states["A"]["currentStack"] = {"StackStatus": "CREATE_COMPLETE"}
     actions = copy.deepcopy(data["actions"])
     backend = SimpleNamespace(
         phase="deploy",
@@ -248,43 +250,16 @@ def git_next_actions_are_exposed_until_publication_succeeds_case(monkeypatch, ca
         },
     )
     report = steps.describe(backend)
-    TestCase().assertTrue(
-        report["result"]
-        == ("COMPLETE" if status == "SUCCESS" else "PUBLICATION_PENDING")
-    )
-    TestCase().assertTrue(
-        report["nextActions"]
-        == (
-            [{"action": "finalize", "taskId": "deploy"}]
-            if status == "SUCCESS"
-            else actions
-        )
-    )
-    backend.run_context["checkpointPending"] = {"stacks": ["A"], "after": {}}
+    assert report["result"] == "COMPLETE"
+    assert report["nextActions"] == []
+    assert "gitPublication" not in report
+    backend.run_context["syncPending"] = {"stacks": ["A"], "final": True}
     pending_report = steps.describe(backend)
-    TestCase().assertTrue(pending_report["result"] != "COMPLETE")
-    TestCase().assertTrue(
-        not any(
-            (a["action"] == "deploy-publish" for a in pending_report["nextActions"])
-        )
-    )
-    TestCase().assertTrue(not pending_report["gitPublication"]["retryable"])
-    TestCase().assertTrue(
-        not any(
-            (
-                a["action"] == "deploy-publish"
-                for a in pending_report["gitPublication"]["nextActions"]
-            )
-        )
-    )
-    backend.run_context.pop("checkpointPending")
+    assert pending_report["result"] != "COMPLETE"
+    backend.run_context.pop("syncPending")
     states["A"]["status"] = "FAILED"
-    TestCase().assertEqual(steps.describe(backend)["deployResult"], "FAIL")
-    return {
-        "report": report,
-        "pendingCheckpoint": pending_report,
-        "failedAttempt": steps.describe(backend),
-    }
+    assert steps.describe(backend)["deployResult"] == "FAIL"
+    return {"report": report, "pendingCheckpoint": pending_report, "failedAttempt": steps.describe(backend)}
 
 
 @pytest.mark.parametrize("case_id", case_ids("deploy_steps", prefix="git-"))
@@ -1412,10 +1387,7 @@ class TestCurrentState(TestCase):
             with (
                 self.subTest(phase=phase),
                 patch.object(
-                    steps.worktree, "require", return_value={"deployIdentity": {}}
-                ),
-                patch.object(
-                    steps.deploy_progress, "read_progress", return_value={"runContext": saved}
+                    steps.deploy_progress, "read_task", return_value={"runContext": saved}
                 ),
             ):
                 backend = SimpleNamespace(
@@ -1434,7 +1406,7 @@ class TestCurrentState(TestCase):
                 )
 
     def test_local_publication_guard_does_not_require_old_execution_inputs(self):
-        task = SimpleNamespace(status="running", task_digest="current")
+        task = SimpleNamespace(name="tasks/deploy.md", status="running", task_digest="current")
         target = {"awsAccountId": "123456789012", "awsRegion": "region"}
         backend = SimpleNamespace(
             root=Path("/synthetic"),
@@ -1452,7 +1424,6 @@ class TestCurrentState(TestCase):
         )
         with (
             patch.object(steps, "task_snapshot", return_value=task),
-            patch.object(steps.worktree, "require"),
             patch.object(steps.context, "load_target", return_value=target),
         ):
             self.assertIs(steps.guard_local_publication(backend, task), task)
@@ -1463,7 +1434,7 @@ class TestCurrentState(TestCase):
 
     def test_generation_is_independent_of_deploy_result(self):
         states = {
-            "A": {"status": "FAILED", "observedSynced": True, "checkpointed": True}
+            "A": {"status": "FAILED", "observedSynced": True, "currentStack": {"StackStatus": "ROLLBACK_COMPLETE"}}
         }
         backend = SimpleNamespace(
             states=states,
@@ -1674,9 +1645,7 @@ def check_final_cli_rejected_before_action(action):
 def check_pending_generation_sync_preserves_candidate_scope(
     tmp_path, generation, after, names, final
 ):
-    pending = {"stacks": ["A"], "before": {}, "after": after}
-    if final:
-        pending["final"] = {"taskAfter": "completed"}
+    pending = {"stacks": ["A"], "final": final}
     backend = SimpleNamespace(
         root=tmp_path,
         phase="update",
@@ -1687,23 +1656,22 @@ def check_pending_generation_sync_preserves_candidate_scope(
         save=Mock(side_effect=RuntimeError("selected snapshot")),
         run_context={
             "inputDigests": {"A": "a", "B": "b"},
-            "checkpointPending": pending,
+            "syncPending": pending,
         },
     )
     if generation:
         backend.run_context["pendingGeneration"] = {"view": {}}
     with (
         patch.object(steps, "task_snapshot"),
-        patch.object(steps.contracts, "validation_snapshot", return_value={}),
     ):
-        if generation and after in (None, {}) and "A" in names and not final:
+        if not final and "A" in names and (names == ["A"] or generation):
             with pytest.raises(RuntimeError, match="selected snapshot"):
                 steps.sync(backend, names)
-            TestCase().assertEqual(pending["stacks"], sorted(names))
+            TestCase().assertEqual(backend.run_context["syncPending"]["stacks"], sorted(names))
             backend.save.assert_called_once()
         else:
             with pytest.raises(
-                steps.Blocked, match="Stack scope|synchronized candidate changed"
+                steps.Blocked, match="Stack scope"
             ):
                 steps.sync(backend, names)
             TestCase().assertEqual(pending["stacks"], ["A"])
@@ -1723,7 +1691,7 @@ def finish_or_collect(context, collected, _backend, units, _states):
 def check_pending_observed_finishes_before_collecting_other_stacks(tmp_path, names):
     context = {
         "inputDigests": {"A": "a", "B": "b"},
-        "checkpointPending": {"stacks": ["A"], "before": {}, "after": None},
+        "syncPending": {"stacks": ["A"], "final": False},
         "pendingObserved": {"evidence": {"A": {}}},
         "pendingGeneration": {"view": {}},
     }
@@ -1743,7 +1711,6 @@ def check_pending_observed_finishes_before_collecting_other_stacks(tmp_path, nam
 
     with (
         patch.object(steps, "task_snapshot"),
-        patch.object(steps.contracts, "validation_snapshot", return_value={}),
         patch.object(steps.observed_resume, "reconcile"),
         patch.object(steps.generation_resume, "recover_publications"),
         patch.object(steps.generation_resume, "run"),
@@ -1752,7 +1719,7 @@ def check_pending_observed_finishes_before_collecting_other_stacks(tmp_path, nam
             "sync_successful",
             side_effect=partial(finish_or_collect, context, collected),
         ),
-        patch.object(steps, "publish_snapshot"),
+        patch.object(steps.completion, "validate_local"),
     ):
         steps.sync(backend, names)
     assert collected == ([["saved A"], ["B"]] if "B" in names else [["saved A"]])

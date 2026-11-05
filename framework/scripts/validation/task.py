@@ -86,13 +86,7 @@ class TaskValidation:
         start = None
         if prompt is not None:
             name = prompt.relative_to(self.root).as_posix()
-            text = input_text(prompt)
-            baseline = (
-                worktree_state.deploy_start_commit
-                if "- Infrastructure phase: `deploy`" in text.splitlines()
-                else repository.task_start_commit
-            )
-            start = baseline(self.root, name)
+            start = repository.task_start_commit(self.root, name)
         if start is None:
             head = worktree_state.git(
                 self.root, "rev-parse", "--verify", "HEAD^{commit}", check=False

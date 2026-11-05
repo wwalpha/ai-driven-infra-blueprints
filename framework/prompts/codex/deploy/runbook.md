@@ -7,23 +7,22 @@ Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read 
 Read [Observation reads](#observation-reads) before collecting observations. Use the same Task/Target and every fixed `--stack` on all actions, even when saving one Stack. Keep configured `--profile`, or use `--aws-account-id` instead of `--alias` where applicable.
 
 ```console
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --sync-stack <StackName>
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action checkpoint --sync-stack <StackName>
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action status
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --sync-stack <StackName>
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action checkpoint --sync-stack <StackName>
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action status
 ```
 
-`sync --sync-stack` saves current facts for any outcome, generates available services, validates and publishes through the existing checkpoint. Repeat `--sync-stack` for an indivisible candidate; intermediate saves keep running in the same Worktree. `checkpoint` resumes an already saved candidate without fresh AWS execution/recollection; a separate checkpoint is normally unnecessary after sync. Use saved scope, including when resuming a final intent. `status` is only for independent inspection/interruption/uncertain requests through [SDK recovery](#unfinished-aws-operation-recovery), never a mechanical call before `advance`.
+`sync --sync-stack` saves current facts for any outcome, generates available services, validates and saves locally. Repeat `--sync-stack` for the exact observation scope; intermediate saves keep the Task running. `checkpoint` resumes a saved local sync without resubmitting an AWS request. Use saved scope, including when resuming a final intent. `status` is only for independent inspection/interruption/uncertain requests through [SDK recovery](#unfinished-aws-operation-recovery), never a mechanical call before `advance`.
 
 ## SDK Finish
 
-When ending the Task, use the final command below, retaining full Stack scope. Add only needed `--sync-stack` observations; omit when already saved. This privately validates completed with Model/Views and adopts only PASS. Failure retains running, saved Model and successful Views. `checkpoint` resumes the same saved final intent without another `--final` or recollection. No all-Stack SUCCESS or separate pre-final complete is required. After verified publication use finalize below; unresolved Git work selects [Git Recovery](#git-recovery).
+When ending the Task, use the final command below, retaining full Stack scope. Add only needed `--sync-stack` observations; omit when already saved. The controller validates the local Model/View and Task Acceptance before setting the Task to completed. Failure retains the Task and its local evidence. Use the same intent on retry.
 
 ```console
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --final
-python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id>
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --final
 ```
 
-Before ending read [Verify and finish](#verify-and-finish) for Validation/Acceptance and reporting. No finalization while requests are active/uncertain, approval is pending, saves/checks are incomplete or publication is pending. Worktree completion/permission guards remain authoritative.
+Before ending read [Verify and finish](#verify-and-finish) for Validation/Acceptance and reporting. Active or uncertain requests, pending approvals and incomplete saves or checks prevent completion.
 
 ## CLI Prepare
 
@@ -74,29 +73,29 @@ Use registered Python with `framework/scripts` on its process-local import path 
 After the guarded Model save, generate only authorized affected services and run the scoped task loop:
 
 ```console
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/sync-model.py --environment <environment> --alias <alias> --service <service-id> --write
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-id>.md
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/sync-model.py --environment <environment> --alias <alias> --service <service-id> --write
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-id>.md
 ```
 
 Repeat `--service` for exact affected services, or use confirmed `--scope <environment/target-directory/service>`; use `--aws-account-id` when no alias exists. Generation failure retains saved Model and successful Views; stale required Views/validation failure block completion. Intermediate saves keep running. Finish only through [CLI Finish](#cli-finish).
 
 ## Verify and finish
 
-Read [Validation policy](../../../rules/loop-engineering.md#validation-policy), [Validation scope](../../../rules/loop-engineering.md#validation-scope) and [Infrastructure task completion](../../../rules/loop-engineering.md#infrastructure-task-completion). Check Task Acceptance and authorized differences. Report AWS attempt result, current Stack state, required observations/Model saves, View generation, Snapshot validation, Git commit/merge and Task status independently. A failed settled attempt can have a consistent Snapshot; Deploy FAIL remains FAIL. Unexecuted/incomplete checks never count as PASS. Active/uncertain requests or pending approval keep tracking and prevent completion. Use only [SDK finish](#sdk-finish) or [CLI Finish](#cli-finish) for the fixed method. Do not proceed to scenarios or another task.
+Read [Validation policy](../../../rules/loop-engineering.md#validation-policy), [Validation scope](../../../rules/loop-engineering.md#validation-scope) and [Infrastructure task completion](../../../rules/loop-engineering.md#infrastructure-task-completion). Check Task Acceptance and authorized differences. Report AWS attempt result, current Stack state, required observations/Model saves, View generation, local validation and Task status independently. A failed settled attempt can have a consistent Snapshot; Deploy FAIL remains FAIL. Unexecuted/incomplete checks never count as PASS. Active/uncertain requests or pending approval keep tracking and prevent completion. Use only [SDK finish](#sdk-finish) or [CLI Finish](#cli-finish) for the fixed method. Do not proceed to scenarios or another task.
 
 ## CLI Finish
 
-Read [Verify and finish](#verify-and-finish) and [Observations, validation and publication](../../../rules/cloudformation.md#observations-validation-and-publication). Once all AWS requests are settled and required Model/View/loop work passed, follow that Rule's exact `task_contract.py --complete` and ordinary Worktree finalize commands. The actual completed latest-base candidate is validated without SDK receipts. CLI uses no sync/checkpoint/deploy-publish, PR mode or validation-failure bypass. Pending/conflicted Git work retains the candidate for Human review; do not force or redeploy.
+Read [Verify and finish](#verify-and-finish) and [Observations, validation and publication](../../../rules/cloudformation.md#observations-validation-and-publication). Once all AWS requests are settled and required Model/View/loop work passed, run `python3 -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete` from the calling root. Retain CLI request evidence in its original Task.
 
 ## Git Recovery
 
-Read [Managed Deploy snapshot and Git publication](../../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) for SDK and [Observations, validation and publication](../../../rules/cloudformation.md#observations-validation-and-publication) for CLI; select only the fixed method. SDK retry of an existing saved commit uses:
+This section applies to retained legacy Git evidence. Read [Managed Deploy snapshot and Git publication](../../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) for SDK and [Observations, validation and publication](../../../rules/cloudformation.md#observations-validation-and-publication) for CLI; select only the fixed method. SDK retry of an existing saved commit uses:
 
 ```console
 python3 -B framework/scripts/worktree_task.py deploy-publish --task-id <task-id>
 ```
 
-This performs no AWS execution or recollection, including when Task completed locally. On conflict show file/base/source/impact and obtain explicit Human resolution; the existing `--publication-resolution <absolute-json-path>` option takes that approved resolution and revalidates the actual latest-base candidate. Never invent a resolution, force integration or edit lifecycle metadata. CLI instead retains its candidate and uses the ordinary same-Task recovery/finalize procedure; never switch it to deploy-publish. After verified SDK final publication use [SDK finish](#sdk-finish).
+This performs no AWS execution or recollection, including when Task completed locally. On conflict show file/base/source/impact and obtain explicit Human resolution; the existing `--publication-resolution <absolute-json-path>` option takes that approved resolution and revalidates the actual latest-base candidate. Never invent a resolution, force integration or edit lifecycle metadata. CLI instead retains its candidate and uses the ordinary same-Task recovery/finalize procedure; never switch it to deploy-publish.
 
 ## CLI Recovery
 
@@ -122,8 +121,8 @@ Human同意の拡大は訂正扱いしない。ハッシュ一致は意味判断
 内部状態を手動変更せず、次を使う。
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --correct-deploy-contract <absolute-candidate.md>
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --check-resume-scope
+python3 -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --correct-deploy-contract <absolute-candidate.md>
+python3 -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --check-resume-scope
 ```
 
 成功してもsuspendを維持する。全停止原因が安全に訂正済みの自分の準備ミスだけであり、
@@ -145,7 +144,7 @@ AWS再実行やTask完了は訂正の結果として行わない。元契約原�
 
 ## Unfinished AWS operation recovery
 
-同一 Deploy の応答喪失時は、今回の StackId・ChangeSetId・token と AWS 状態を確認し、結果不明を報告する。無条件に再送しない。別の Deploy Skill 呼び出しでは、新規 Task と Snapshot を使い、過去の Task や共有要求記録を参照せず、最新 AWS 状態から判断する。競合は AWS API の結果として扱う。
+同一 Deploy の応答喪失時は、今回の StackId・ChangeSetId・token と AWS 状態を確認し、結果不明を報告する。無条件に再送しない。別の Deploy は新規 Task を使う。同じ checkout の重複 Stack に未確定要求があれば停止し、要求元の Task で確認する。
 
 REVIEW_IN_PROGRESS は ChangeSet と合わせて判断する。UPDATE_ROLLBACK_COMPLETE は今回失敗と次回更新可否を分ける。ROLLBACK_COMPLETE、rollback failed は AWS 制約に従う。構造化された不存在だけ ABSENT、取得不能は UNKNOWN。Output 欠落、削除履歴、不完全な一覧、保持リソースを不存在と混同しない。
 
@@ -158,9 +157,8 @@ Export は共通 Resolver で必要名だけを解決する。既知 Producer �
 
 [Controlled deploy repair](../../../rules/cloudformation.md#controlled-deploy-repair)と[Worktree repair lifecycle](../../../../.agents/skills/worktree/SKILL.md#explicit-cloudformation-repair-handoff)が権限・ライフサイクルの正本。CloudFormationの現在Taskに`External IaC repair: allowed`がある場合だけ、今回の署名付き失敗証拠、正確なIaCと承認済Modelから原因を診断する。`repairFailure`の存在は修復の証明ではない。
 
-承認待ち・認証/権限・設計不足・依存待ち・送信不明は修復依頼の根拠にしない。未完了操作/publicationの確定後、原因と入力/Model証拠が揃った場合だけ`deploy_handoff.py --help`所定の単発依頼を作る。親をsuspendし、別Implement Worktreeにexact IaC pathsだけを許可する。子のAWS API execution/AWS mutation/Deploy/applyは禁止。同一child/requestのstatic検証は最大3回、検証済みexact commit/paths/bytesだけff-only統合する。
+承認待ち・認証/権限・設計不足・依存待ち・送信不明は修復依頼の根拠にしない。未確定要求とローカル保存を確定し、原因・入力・Model の証拠が揃った場合だけ `deploy_handoff.py --help` の手順で依頼を作る。依頼を確認して親 Deploy Task を suspend し、明示承認を得た別の Implement Task で修正する。Deploy は依頼と元の AWS 証跡を保持する。修正後の独立 Deploy には、確認済みの commit 済み IaC と新しい Task 契約を使う。
 
-親の明示resume後は最新IaC/AWSによる独立Deployとし、必要なHuman承認も新しく取る。無制限の修復・Deploy連続起動は禁止。証拠の保持・明示破棄・cleanupは既存CLI/Worktree規則に従い、秘密値や推測原因を記録しない。
 
 ## Terraform
 

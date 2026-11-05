@@ -4,14 +4,13 @@ finalBlockers:
   stack: A
 - reason: current AWS is running or unreadable
   stack: A
-gitPublication:
-  checkpointRequired: []
-  status: CONFLICT
 modelSave: COMPLETE
-nextActions: []
+nextActions:
+- action: review
+  reason: completed Task has incomplete Deploy evidence
 pendingGeneration: {}
 repairFailure: null
-result: PUBLICATION_PENDING
+result: PENDING
 snapshotValidation: PASS
 states:
   A:
@@ -20,7 +19,6 @@ states:
     aws: UNKNOWN
     changeSetId: null
     changes: []
-    checkpoint: CHECKPOINTED
     coverage: {}
     deferredConsumers: []
     failure: null

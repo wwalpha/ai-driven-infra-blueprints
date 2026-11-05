@@ -5,15 +5,15 @@ from functools import wraps as wraps
 
 import import_guard as _imports_import_guard
 from contracts.validation import VALIDATION_PASS
-from deploy import contract_correction
-from deploy import worktree as deploy_worktree
+from deploy import completion, contract_correction, operation_journal
+from deploy import progress as deploy_progress
 from model.importing.scope import (
     read_consumers,
     require_write_scope,
     restrict,
     selected,
 )
-from model.sources import source_scope
+from model.sources import publication_lock, source_scope
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import TASK_NAME as TASK_NAME
 from task_contract_core import ContextVar as ContextVar
@@ -172,8 +172,11 @@ def check_import(
 
 def refresh(root, name, resuming=False):
     snapshot = task_snapshot(root, name, executable=False, live=True)
-    if deploy_worktree.is_deploy(snapshot.text):
-        deploy_worktree.require(root, snapshot)
+    if "- Infrastructure phase: `deploy`" in section(snapshot.text, "## Task contract"):
+        try:
+            deploy_progress.read_task(root, snapshot)
+        except DeployBlocked as error:
+            raise ValueError(str(error)) from error
     name = snapshot.name
     text = snapshot.text
     state = status(text)
@@ -194,13 +197,21 @@ def refresh(root, name, resuming=False):
 
 def complete(root, name):
     snapshot = task_snapshot(root, name, executable=False, live=True)
-    if cli_deploy.is_cli(snapshot.text):
-        return complete_selected(root, name)
-    if deploy_worktree.is_deploy(snapshot.text):
-        lifecycle = deploy_worktree.require(root, snapshot)
-        if lifecycle.get("deployIdentity"):
-            deploy_worktree.require_complete(root, snapshot)
-            return
+    if "- Infrastructure phase: `deploy`" in section(snapshot.text, "## Task contract") and not cli_deploy.is_cli(snapshot.text):
+        path = deploy_progress.progress_path(root, snapshot.name, create=True)
+        with (
+            operation_journal.locked(path),
+            selected_task(root, snapshot.name),
+            publication_lock(root, read_only=True),
+        ):
+            snapshot = task_snapshot(root, snapshot.name, live=True)
+            try:
+                completion.require_local(root, snapshot)
+                validated = completion.validate_local(root, snapshot)
+                completion.finish_local(root, snapshot, validated)
+            except DeployBlocked as error:
+                raise ValueError(str(error)) from error
+        return
     return complete_selected(root, name)
 
 
@@ -213,9 +224,6 @@ def complete_selected(root, name):
             raise ValueError("only a running task can complete")
         if cli_deploy.is_cli(text):
             cli_deploy.require_local_completion(root, snapshot)
-        else:
-            deploy_worktree.prepare_complete(root, snapshot)
-            deploy_worktree.require_complete(root, snapshot)
         if "- Workflow: `import`" in section(text, "## Task contract"):
             check_import(root, name)
             verify_snapshot(snapshot)

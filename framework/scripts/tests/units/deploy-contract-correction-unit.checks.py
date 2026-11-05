@@ -8,7 +8,7 @@ import tempfile
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -229,7 +229,10 @@ def check_correction_and_resume_preserve_execution(case, monkeypatch):
         run_context={"inputIdentities": saved["inputIdentities"]},
         file_digest=Mock(side_effect=file_digest),
     )
-    with tasks.selected_task(case.root, case.name):
+    with (
+        tasks.selected_task(case.root, case.name),
+        patch.object(deploy_progress, "read_task", return_value={"runContext": saved}),
+    ):
         steps.restore(backend, task)
     assert backend.states == before["states"]
     assert backend.expected_digests == before["inputDigests"]
@@ -601,9 +604,10 @@ def check_closed_checkpoint_is_verified_before_rebinding(case, monkeypatch):
 
 
 def check_resume_cannot_adopt_unreconciled_digest(case, monkeypatch):
+    write_sealed(case.root, deploy_progress.progress_path(case.root, case.name, create=True), deploy_progress.read_progress(case.root, case.state))
     case.task.path.write_text(case.candidate, encoding="utf-8")
     monkeypatch.setattr(runtime, "TaskValidation", case.scope)
-    with pytest.raises(ValueError, match="fixed snapshot authority"):
+    with pytest.raises(ValueError, match="differs from the selected Task"):
         runtime.resume(case.root, case.name)
     assert tasks.read_task_snapshot(case.root, case.name, live=True).status == "suspend"
 

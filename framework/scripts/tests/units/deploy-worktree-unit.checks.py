@@ -31,6 +31,7 @@ from deploy import git_publication as publication
 from deploy import progress as deploy_progress
 from support.pytest_cli import run
 from task_contract_core import task_digest
+from utils.cloudformation.inputs import Blocked as DeployBlocked
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -367,7 +368,7 @@ def check_unmanaged_mutation_is_rejected(tmp_path, monkeypatch, operation):
     )
     runtime.guard = Mock(wraps=runtime.guard)
     runtime.timing = Mock()
-    with pytest.raises(ValueError, match="managed worktree"):
+    with pytest.raises(DeployBlocked, match="validated controller Task"):
         guards.call(runtime, "cloudformation", operation, {})
     runtime.guard.assert_called_once()
     runtime.timing.phase.assert_not_called()
@@ -442,11 +443,11 @@ def check_mutation_rechecks_live_authority(tmp_path, monkeypatch, problem):
     elif problem == "input":
         runtime.file_digest.return_value = "changed"
     else:
-        require.side_effect = ws.Blocked("worktree changed")
+        snapshot.text = snapshot.text.replace("- Deploy/apply: `allowed`", "- Deploy/apply: `forbidden`")
     with pytest.raises((ValueError, run_context.Blocked)):
         guards.call(runtime, "s3", "put_object", {})
     assert mutation.call_count == 1
-    assert require.call_count == 2
+    require.assert_not_called()
 
 
 def check_git_failure_preserves_stack_success(tmp_path, monkeypatch):
@@ -811,6 +812,35 @@ def progress_backend(root, context):
 
 
 def check_progress_uses_fixed_identity_without_git(tmp_path):
+    isolated = tmp_path / "isolated"
+    isolated.mkdir()
+    first = deploy_progress.progress_path(isolated, "tasks/first.md", create=True)
+    second = deploy_progress.progress_path(isolated, "tasks/second.md", create=True)
+    legacy = deploy_progress.progress_path(isolated, create=True)
+    assert first != second and legacy not in {first, second}
+    assert first.parent == operation_journal.location(isolated, "tasks/first.md").parent
+    identity = {"taskFile": "tasks/first.md", "taskDigest": "digest", "target": {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}, "environment": "dev", "stacks": ["A"]}
+    backend = progress_backend(isolated, {"states": {"A": {"status": "RUNNING", "clientToken": "token"}}, "inputDigests": {}})
+    backend.progress_identity = identity
+    backend.run_context.update(identity)
+    backend.progress_task_file = identity["taskFile"]
+    backend.progress_destination = first
+    deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    with operation_journal.locked(legacy):
+        with pytest.raises(DeployBlocked, match="another Deploy Task"):
+            deploy_progress.require_no_pending_peer(isolated, second, identity["target"], ["A"])
+        deploy_progress.require_no_pending_peer(isolated, first, identity["target"], ["A"])
+        deploy_progress.require_no_pending_peer(isolated, second, identity["target"], ["B"])
+    legacy.write_text("legacy", encoding="utf-8")
+    with operation_journal.locked(first), operation_journal.locked(second):
+        with pytest.raises(DeployBlocked, match="lock busy"):
+            with operation_journal.locked(first):
+                pass
+    assert deploy_progress.read_progress(isolated, {"deployIdentity": identity}, identity["taskFile"])["runContext"]["states"]["A"]["clientToken"] == "token"
+    assert legacy.read_text(encoding="utf-8") == "legacy"
+    assert not second.exists()
+
+
     context = {"states": {"A": {"status": "RUNNING"}}, "inputDigests": {}}
     backend = progress_backend(tmp_path, context)
     with (

@@ -68,7 +68,7 @@ def check_direct_deploy_routes():
     book = runbook.read_text(encoding="utf-8")
     # Startup exposes only advance; later exact commands have one conditional authority.
     startup = re.findall(r"```console\n(.*?)```", text, re.S)
-    assert ["--action" in block for block in startup] == [False, False, True]
+    assert ["--action" in block for block in startup] == [False, True]
     blocks = startup + re.findall(r"```console\n(.*?)```", book, re.S)
     commands = [shlex.split(line) for block in blocks for line in block.splitlines()]
     actions = [argv for argv in commands if "--action" in argv]
@@ -82,7 +82,8 @@ def check_direct_deploy_routes():
     for argv in actions:
         assert "BLUEPRINT_TASK_FILE=tasks/<task-id>.md" in argv
         assert all(flag in argv for flag in ("--environment", "--alias", "--stack"))
-        assert "framework/scripts/run-python.py" in argv
+        assert "framework/scripts/cloudformation-deploy.py" in argv
+        assert "framework/scripts/run-python.py" not in argv
     assert "--final" in actions[-1] and "--final" not in actions[2]
     assert "04_deploy.md" not in text
     assert "SDK is the default; CLI requires an explicit Human choice" in text
@@ -104,7 +105,6 @@ def check_direct_deploy_routes():
         "unfinished-aws-operation-recovery",
         "correct-this-tasks-preparation-omissions",
         "external-iac-repair-handoff",
-        "git-recovery",
     ):
         assert anchor in links, anchor
     # Independent CLI How remains reachable without SDK command/receipt dependencies.
@@ -127,10 +127,11 @@ def check_direct_deploy_routes():
         assert "cloudformation-deploy.py" not in procedures[anchor]
     assert "--action" not in sections["common-entry"]
     assert "no unconditional status-before-advance call" in sections["sdk-operations"]
-    entry = sections["managed-entry"]
-    assert "returned `worktree` and `task_file`" in entry
-    assert "never investigate unrelated checkout contents" in entry
-    assert "Each Deploy Skill invocation starts a new Deploy" in entry
+    entry = sections["local-entry"]
+    assert "calling repository root" in entry
+    assert "unused Task ID" in entry
+    assert "original Task" in entry
+    assert "deploy-start" not in text
     permission = markdown_sections(
         (root / ".agents/skills/worktree/SKILL.md").read_text(encoding="utf-8")
     )["sandbox-permission-approval-and-continuation"]

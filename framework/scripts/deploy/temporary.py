@@ -5,10 +5,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+from task_contract_core import task_snapshot
 from utils.cloudformation.inputs import Blocked
 from utils.local_evidence import evidence_store
 
-from deploy import handoff, operation_journal, worktree
+from deploy import handoff, operation_journal
 from deploy import progress as deploy_progress
 
 
@@ -35,7 +36,7 @@ def reclaim(journal, root, *, directory, backend, stacks):
         task_directory(journal, directory)
         operation_journal.private_path(directory, directory=True)
         with handoff.repair_lock(root):
-            progress = deploy_progress.read_progress(root, deploy_progress.progress_state(backend, worktree.require))
+            progress = deploy_progress.read_task(root, task_snapshot(root, executable=False, live=True))
             contexts = [backend.run_context]
             if progress:
                 contexts.append(progress["runContext"])

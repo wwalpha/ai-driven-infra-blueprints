@@ -12,24 +12,21 @@ from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
-import worktree_task as wt
 from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
 from contracts.model import REFERENCE_PENDING_DEPLOY
 from contracts.target import AWS_ACCOUNT_ID_KEY, IAC_ENGINE_KEY
-from contracts.validation import VALIDATION_PASS
-from model.sources import model_session
-from task_contract_core import TaskSnapshot, selected_task, set_status, task_snapshot
+from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
+from model.sources import model_session, publication_lock
+from task_contract_core import TaskSnapshot, selected_task, task_snapshot
 from utils.aws.client import AwsError
 
 from deploy import (
     cli_guidance,
     completion,
     context,
-    contracts,
     current_state,
     failures,
     generation_resume,
-    git_publication,
     handoff,
     inputs,
     observed,
@@ -38,7 +35,6 @@ from deploy import (
     recovery,
     run_context,
     temporary,
-    worktree,
 )
 from deploy import progress as deploy_progress
 from deploy.cli_guidance import DeployStepBlocked as Blocked
@@ -50,10 +46,7 @@ from deploy.typing import StackUnit
 
 def restore(backend: SimpleNamespace, task: TaskSnapshot) -> None:
     """Resume only this Task's local save; shared records contain requests only."""
-    lifecycle = worktree.require(backend.root, task)
-    if lifecycle is None:
-        lifecycle = deploy_progress.progress_state(backend, worktree.require)
-    progress = deploy_progress.read_progress(backend.root, lifecycle) if lifecycle else None
+    progress = deploy_progress.read_task(backend.root, task)
     saved = progress.get("runContext") if progress else None
     if saved:
         if (
@@ -73,35 +66,7 @@ def restore(backend: SimpleNamespace, task: TaskSnapshot) -> None:
             != digest
         }
         if changed_inputs:
-            current_state.refresh(backend, backend.units)
-            if (
-                contracts.accepted_changes(
-                    backend.root, task.text, changed_inputs, contract_file=task.name
-                )
-                != changed_inputs
-            ):
-                raise Blocked(
-                    "fixed execution inputs changed without verified implement authority"
-                )
-            if any(
-                state.get("status") in {DEPLOY_RUNNING, "CHANGESET_CREATING", "READY"}
-                for state in saved["states"].values()
-            ):
-                raise Blocked(
-                    "current Deploy operation must settle before changing its inputs"
-                )
-            for key in (
-                "pendingObserved",
-                "pendingGeneration",
-                "generationError",
-                "checkpointPending",
-                "modelInputs",
-                "generationProducers",
-            ):
-                if key in saved:
-                    backend.run_context[key] = copy.deepcopy(saved[key])
-            backend.expected_digests = backend.run_context["inputDigests"]
-            return
+            raise Blocked("fixed execution inputs changed; retain current AWS request evidence")
         current_identities = backend.run_context.get("inputIdentities", {})
         backend.run_context.update(copy.deepcopy(saved))
         if backend.phase == "update":
@@ -121,10 +86,10 @@ def restore(backend: SimpleNamespace, task: TaskSnapshot) -> None:
 
 def guard_local_publication(backend, task):
     current = task_snapshot(backend.root, executable=False, live=True)
-    worktree.require(backend.root, current)
     alias = backend.target.get("alias")
     if (
         current.status != "running"
+        or current.name != task.name
         or current.task_digest != task.task_digest
         or context.load_target(
             backend.root,
@@ -142,8 +107,7 @@ def recover_local_publication(backend, task):
     """Settle this Task's saved bytes before loading a possibly interrupted Model."""
     backend.run_context = {"taskFile": task.name, "taskDigest": task.task_digest}
     backend.states = {name: {} for name in backend.requested_stacks}
-    lifecycle = deploy_progress.progress_state(backend, worktree.require)
-    progress = deploy_progress.read_progress(backend.root, lifecycle)
+    progress = deploy_progress.read_task(backend.root, task)
     saved = progress.get("runContext") if progress else None
     if not saved or not (
         saved.get("pendingObserved") or saved.get("pendingGeneration")
@@ -175,17 +139,8 @@ def recover_local_publication(backend, task):
     backend.save()
 
 
-def checkpoint_receipts(backend: SimpleNamespace) -> dict:
-    """Git receipts describe saved snapshots; they never manufacture AWS success."""
-    if backend.phase != "deploy":
-        return {}
-    _, _, _, state = wt.load(backend.root, backend.root.name)
-    receipts = state.get("deployCheckpoints", {})
-    return receipts
-
-
 def save(backend):
-    deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS, worktree.require)
+    deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
 
 
 def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
@@ -199,10 +154,8 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
         raise Blocked("sync needs distinct --sync-stack names within Deployment scope")
     backend.guard()
     task = task_snapshot(backend.root, executable=False, live=True)
-    if final and (
-        backend.phase != "deploy" or not worktree.require(backend.root, task)
-    ):
-        raise Blocked("--final requires managed CloudFormation Deploy sync")
+    if final and backend.phase != "deploy":
+        raise Blocked("--final requires CloudFormation Deploy sync")
     if final:
         missing = [
             name
@@ -210,46 +163,22 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
             if not state.get("observedSynced") and name not in names
         ]
         if missing:
-            raise Blocked(
-                "final sync needs --sync-stack for current observations: "
-                + ", ".join(missing)
-            )
+            raise Blocked("final sync needs --sync-stack for current observations: " + ", ".join(missing))
+    pending = context.get("syncPending")
+    if pending is not None and (
+        pending["final"] != final
+        or not set(pending["stacks"]) <= set(names)
+        or set(pending["stacks"]) != set(names) and not context.get("pendingGeneration")
+    ):
+        raise Blocked("resume the saved sync without changing its final intent or Stack scope")
     context["snapshotValidation"] = "NOT_RUN"
     for unit in units:
         if unit["name"] not in context["inputDigests"]:
             backend.claim_inputs(unit)
-    pending = context.get("checkpointPending")
     if pending is None:
-        if git_publication.output_changes(backend.root, {"task_file": task.name}):
-            raise Blocked("sync requires clean inputs or its own retained publication")
-        pending = {
-            "stacks": [],
-            "before": contracts.validation_snapshot(backend.root),
-            "after": None,
-        }
-        if final:
-            pending["final"] = {
-                "taskBefore": task.text,
-                "taskAfter": set_status(task.text, "completed"),
-            }
-        context["checkpointPending"] = pending
         for unit in units:
             backend.states[unit["name"]].pop("observedSynced", None)
-    elif bool(pending.get("final")) != final or (
-        set(names) != set(pending["stacks"])
-        and (
-            not context.get("pendingGeneration")
-            or not set(pending["stacks"]) <= set(names)
-        )
-    ):
-        raise Blocked(
-            "resume the saved checkpoint without changing its final intent or Stack scope"
-        )
-    elif pending.get("after") is not None:
-        if contracts.validation_snapshot(backend.root) != pending["after"]:
-            raise Blocked("synchronized candidate changed before next sync")
-    pending["stacks"] = sorted(set(pending["stacks"]) | set(names))
-    pending["after"] = None
+    context["syncPending"] = {"stacks": sorted(names), "final": final}
     backend.save()
     resumed_observation = bool(context.get("pendingObserved"))
     saved_observed = set(context.get("pendingObserved", {}).get("evidence", {}))
@@ -265,9 +194,6 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
         )
     if context.get("pendingGeneration"):
         generation_resume.recover_publications(backend)
-    if not context.get("pendingObserved"):
-        for unit in units:
-            backend.states[unit["name"]].pop("checkpointed", None)
     if resumed_observation:
         observed.sync_successful(backend, units, backend.states)
         units = [unit for unit in units if unit["name"] not in saved_observed]
@@ -283,53 +209,27 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
         if blockers:
             backend.save()
             raise Blocked("final sync requires: " + json.dumps(blockers))
-    pending["after"] = contracts.validation_snapshot(backend.root)
-    backend.guard()
+    context["snapshotValidation"] = VALIDATION_FAIL
     backend.save()
-    publish_snapshot(backend, pending["stacks"])
+    with publication_lock(backend.root, read_only=True):
+        validated = completion.validate_local(backend.root, task, deploy=backend.phase == "deploy")
+        backend.guard()
+        context["snapshotValidation"] = VALIDATION_PASS
+        context.pop("syncPending")
+        backend.save()
+        if final:
+            completion.finish_local(backend.root, task, validated)
 
 
-def publish_snapshot(backend, names):
-    wt.deploy_stack_checkpoint(backend, names)
-    git_publication.sync(backend)
-
-
-def next_actions(backend, complete, can_advance, publication):
-    """Derive executable routes from the saved candidate, never change its intent."""
+def next_actions(backend, complete, can_advance):
     context, states = backend.run_context, backend.states
-    pending = context.get("checkpointPending")
-    git_actions = (publication or {}).get("nextActions", [])
-    if pending:
-        if context.get("generationError") and not context.get("pendingGeneration"):
-            actions = [{"action": "review", "reason": context["generationError"]}]
-        elif (
-            context.get("pendingObserved")
-            or context.get("pendingGeneration")
-            or pending.get("after") is not None
-        ):
-            actions = [{"action": "checkpoint", "stacks": pending["stacks"]}]
-        else:
-            actions = [
-                {
-                    "action": "sync",
-                    "stacks": pending["stacks"],
-                    "final": bool(pending.get("final")),
-                }
-            ]
-        return actions + git_actions
+    pending = context.get("syncPending")
     if complete:
-        return (
-            [{"action": "finalize", "taskId": Path(context["taskFile"]).stem}]
-            if (publication or {}).get("status") == "SUCCESS"
-            else git_actions
-        )
+        return []
     if getattr(backend, "task_status", "running") == "completed":
-        return [
-            {
-                "action": "review",
-                "reason": "locally completed candidate is incomplete; inspect saved checkpoint evidence",
-            }
-        ] + git_actions
+        return [{"action": "review", "reason": "completed Task has incomplete Deploy evidence"}]
+    if pending:
+        return [{"action": "sync", "stacks": pending["stacks"], "final": pending["final"]}]
     actions = [{"action": "advance"}] if can_advance else []
     actions += [
         {"action": "sync", "stacks": [name]}
@@ -348,7 +248,7 @@ def next_actions(backend, complete, can_advance, publication):
         completion.end_unexecuted(preview)
     if not completion.final_blockers(preview):
         actions.append({"action": "sync", "final": True, "stacks": []})
-    if not actions and not git_actions:
+    if not actions:
         actions.append(
             {
                 "action": "review",
@@ -356,43 +256,15 @@ def next_actions(backend, complete, can_advance, publication):
                 or "current request, AWS observation or attempt evidence is unconfirmed",
             }
         )
-    return actions + git_actions
+    return actions
 
 
 def describe(backend: SimpleNamespace) -> dict:
     context = backend.run_context
     states = backend.states
-    pending = context.get("checkpointPending")
-    publication = git_publication.display(backend)
-    if publication is not None:
-        publication["checkpointRequired"] = pending["stacks"] if pending else []
-        if pending:
-            publication["nextActions"] = [
-                action
-                for action in publication.get("nextActions", [])
-                if action.get("action") != "deploy-publish"
-            ]
-            publication["retryable"] = False
-            if publication.get("status") != "CONFLICT":
-                publication["reason"] = (
-                    "finish the pending Stack checkpoint before Git publication"
-                )
     complete = (
         getattr(backend, "task_status", "running") == "completed"
-        and generation_resume.complete(context)
-        and completion.attempts_finished(states, context.get("deployResult"))
-        and all(s.get("observedSynced") for s in states.values())
-        and context.get("snapshotValidation") == VALIDATION_PASS
-        and not pending
-        and all(
-            s.get("status") != DEPLOY_RUNNING
-            and current_state.category(s.get("currentStack", {})) != "RUNNING"
-            for s in states.values()
-        )
-    )
-    publication_pending = (
-        getattr(backend, "phase", None) == "deploy"
-        and (publication or {}).get("status") != "SUCCESS"
+        and completion.local_ready(context)
     )
     uncertain = any(
         s.get("pollReadFailures") or s.get("schedulerError") for s in states.values()
@@ -423,9 +295,7 @@ def describe(backend: SimpleNamespace) -> dict:
         for s in candidates
     )
     return {
-        "result": "PUBLICATION_PENDING"
-        if complete and publication_pending
-        else "COMPLETE"
+        "result": "COMPLETE"
         if complete
         else "STOPPED"
         if (
@@ -454,7 +324,6 @@ def describe(backend: SimpleNamespace) -> dict:
         if all(s.get("observedSynced") for s in states.values())
         else "PENDING",
         "snapshotValidation": context.get("snapshotValidation", "NOT_RUN"),
-        "gitPublication": publication,
         "repairFailure": context.get("currentFailure"),
         "states": {
             name: {
@@ -480,16 +349,11 @@ def describe(backend: SimpleNamespace) -> dict:
                 "deferredConsumers": state.get("deferredConsumers", []),
                 "generation": "PENDING"
                 if context.get("generationError")
-                else "COMPLETE"
-                if state.get("checkpointed")
                 else "NOT_STARTED"
                 if not state.get("observedSynced")
                 else "PENDING"
                 if context.get("pendingGeneration")
                 else "COMPLETE",
-                "checkpoint": "CHECKPOINTED"
-                if state.get("checkpointed")
-                else "PENDING",
                 "failure": state.get("failure"),
                 **(
                     {"diagnostic": diagnostic}
@@ -528,7 +392,7 @@ def describe(backend: SimpleNamespace) -> dict:
             }
             for view, r in context.get("pendingGeneration", {}).items()
         },
-        "nextActions": next_actions(backend, complete, can_advance, publication),
+        "nextActions": next_actions(backend, complete, can_advance),
     }
 
 
@@ -542,16 +406,8 @@ def run(
     backend = None
     try:
         task = task_snapshot(root, executable=False, live=True)
-        if task.status == "completed" and args.action == "advance":
-            lifecycle = worktree.require(root, task)
-            progress = deploy_progress.read_progress(root, lifecycle) if lifecycle else None
-            if progress and progress["runContext"].get("checkpointPending"):
-                raise Blocked(
-                    "locally completed candidate still needs --action checkpoint; advance is unavailable"
-                )
-            raise Blocked(
-                "completed Deploy cannot advance; use deploy-publish for saved Git work or finalize after publication"
-            )
+        if task.status == "completed" and args.action != "status":
+            raise Blocked("completed Deploy permits status only")
         selected = context.load_target(
             root, args.environment, args.aws_account_id, args.alias
         )
@@ -570,29 +426,18 @@ def run(
             or selected[IAC_ENGINE_KEY] != "cloudformation"
         ):
             raise Blocked(
-                "--final requires managed CloudFormation Deploy --action sync"
+                "--final requires CloudFormation Deploy --action sync"
             )
-        if getattr(args, "final", False):
-            worktree.require(root, task)
-        progress_identity = worktree.bind(
-            root, task, selected, args.environment, args.stack
-        )
+        fixed = deploy_progress.identity(task, selected, args.environment, args.stack)
         authentication_error = None
-        if args.action == "checkpoint":
-            target = selected
-        else:
-            try:
-                target = context.check_deploy_context(
-                    root,
-                    args.environment,
-                    args.aws_account_id,
-                    args.alias,
-                    args.profile,
-                )
-            except AwsError as error:
-                if args.action == "advance":
-                    raise
-                target, authentication_error = selected, error.code
+        try:
+            target = context.check_deploy_context(
+                root, args.environment, args.aws_account_id, args.alias, args.profile
+            )
+        except AwsError as error:
+            if args.action == "advance" or getattr(args, "final", False):
+                raise
+            target, authentication_error = selected, error.code
         if target[IAC_ENGINE_KEY] != "cloudformation":
             raise Blocked("step operations require CloudFormation")
         directory = args.alias or args.aws_account_id
@@ -602,9 +447,16 @@ def run(
             selected_task(root, task.name),
             redirect_stdout(sys.stderr),
         ):
-            resources.enter_context(
-                operation_journal.locked(deploy_progress.progress_path(root, create=True))
-            )
+            destination = deploy_progress.progress_path(root, task.name, create=True)
+            resources.enter_context(operation_journal.locked(deploy_progress.progress_path(root, create=True)))
+            resources.enter_context(operation_journal.locked(destination))
+            deploy_progress.require_no_correction(destination)
+            deploy_progress.require_no_legacy_task(root, task.name)
+            if args.action == "advance":
+                deploy_progress.require_no_pending_peer(root, destination, selected, args.stack)
+            saved = deploy_progress.read_task(root, task)
+            if saved is not None and saved["identity"] != fixed:
+                raise Blocked("Deploy Task/Target/Stack identity changed")
             backend = backend_type(
                 root,
                 args.environment,
@@ -614,11 +466,11 @@ def run(
                 args.approve_change_set,
             )
             backend.phase, backend.timing = phase, timing
-            if phase == "deploy":
-                backend.progress_identity = progress_identity
-                backend.progress_root = root
-                backend.progress_directory = directory
-                backend.progress_destination = deploy_progress.progress_path(root, create=True)
+            backend.progress_identity = fixed
+            backend.progress_root = root
+            backend.progress_directory = directory
+            backend.progress_task_file = task.name
+            backend.progress_destination = destination
             if authentication_error:
                 backend.aws = partial(current_state.unavailable, authentication_error)
             backend.requested_stacks = args.stack
@@ -642,7 +494,7 @@ def run(
             backend.run_context = run_context.new_context(
                 root, task, target, args.environment, directory, units, backend
             )
-            backend.run_context.update(stepUnits=copy.deepcopy(units))
+            backend.run_context.update(stepUnits=copy.deepcopy(units), deployContract=task.text)
             backend.states = backend.run_context["states"]
             restore(backend, task)
             run = backend.run_context
@@ -723,9 +575,8 @@ def run(
                                 "partial": True,
                                 "stale": True,
                             }
-            checkpoint_receipts(backend)
-            if args.action == "advance" and run.get("checkpointPending"):
-                raise Blocked("resume the saved checkpoint before advance")
+            if args.action == "advance" and run.get("syncPending"):
+                raise Blocked("resume the saved sync before advance")
             if args.action == "advance":
                 backend.guard()
                 backend.workdir = temporary.create(journal, args.stack)
@@ -777,43 +628,16 @@ def run(
                     run["currentFailure"] = handoff.record_failure(backend)
                 backend.save()
             elif args.action in {"sync", "checkpoint"}:
-                if task.status == "completed" and not run.get("checkpointPending"):
-                    git_publication.sync(backend)
+                models = RunModels(root, run)
+                resources.enter_context(model_session(models))
+                backend.after_observed = models.apply_observed
+                pending = run.get("syncPending")
+                if args.action == "checkpoint":
+                    if pending is None:
+                        raise Blocked("no local sync to resume; use --action sync")
+                    sync(backend, args.sync_stack or pending["stacks"], final=pending["final"])
                 else:
-                    models = RunModels(root, run)
-                    resources.enter_context(model_session(models))
-                    backend.after_observed = models.apply_observed
-                    if args.action == "sync":
-                        sync(
-                            backend,
-                            args.sync_stack,
-                            final=getattr(args, "final", False),
-                        )
-                    elif run.get("checkpointPending"):
-                        if run.get("pendingObserved"):
-                            retained = set(run["pendingObserved"]["evidence"])
-                            observed.sync_successful(
-                                backend,
-                                [unit for unit in units if unit["name"] in retained],
-                                backend.states,
-                            )
-                        if run.get("pendingGeneration"):
-                            generation_resume.run(backend)
-                        if run["checkpointPending"].get("final"):
-                            completion.end_unexecuted(run)
-                        if run["checkpointPending"].get(
-                            "after"
-                        ) is None and not run.get("pendingObserved"):
-                            run["checkpointPending"]["after"] = (
-                                contracts.validation_snapshot(root)
-                            )
-                            backend.save()
-                        publish_snapshot(
-                            backend,
-                            args.sync_stack or run["checkpointPending"]["stacks"],
-                        )
-                    else:
-                        git_publication.sync(backend)
+                    sync(backend, args.sync_stack, final=getattr(args, "final", False))
             backend.task_status = task_snapshot(
                 root, executable=False, live=True
             ).status

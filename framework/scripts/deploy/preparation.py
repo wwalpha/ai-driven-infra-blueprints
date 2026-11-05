@@ -17,8 +17,6 @@ import time
 from pathlib import Path
 
 import task_contract_core as _imports_task_contract
-import worktree_python
-import worktree_state
 from contracts.model import (
     CFN_LOGICAL_ID_KEY,
     RESOURCE_LOGICAL_ID_KEY,
@@ -411,8 +409,6 @@ def prepare(root, args, run, timing):
         "--action",
         "advance",
     ]
-    if (root / ".git").exists() and worktree_python.runtime(root) is not None:
-        worktree_state.managed_task_state(root, args.task_file)
     for unit in units:
         command += ["--stack", unit["name"]]
     command += ["--timing-log", str(timing.path)]

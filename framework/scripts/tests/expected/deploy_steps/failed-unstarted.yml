@@ -13,7 +13,6 @@ finalBlockers:
 - reason: current AWS is running or unreadable
   stack: C
 - reason: attempts or explicit unexecuted reasons are incomplete
-gitPublication: null
 modelSave: COMPLETE
 nextActions:
 - action: advance
@@ -28,7 +27,6 @@ states:
     aws: UNKNOWN
     changeSetId: null
     changes: []
-    checkpoint: CHECKPOINTED
     coverage: {}
     deferredConsumers: []
     failure: null
@@ -50,7 +48,6 @@ states:
     aws: UNKNOWN
     changeSetId: null
     changes: []
-    checkpoint: CHECKPOINTED
     coverage: {}
     deferredConsumers: []
     diagnostic:
@@ -85,7 +82,6 @@ states:
     aws: UNKNOWN
     changeSetId: null
     changes: []
-    checkpoint: CHECKPOINTED
     coverage: {}
     deferredConsumers: []
     failure: null

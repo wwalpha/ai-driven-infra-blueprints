@@ -1,38 +1,19 @@
 failedAttempt:
   deployResult: FAIL
-  finalBlockers:
-  - reason: current observation needs sync
-    stack: A
-  - reason: current AWS is running or unreadable
-    stack: A
-  gitPublication:
-    checkpointRequired: []
-    nextActions:
-    - action: deploy-publish
-      command:
-      - python3
-      - worktree_task.py
-      - deploy-publish
-    status: PENDING
+  finalBlockers: []
   modelSave: COMPLETE
-  nextActions:
-  - action: deploy-publish
-    command:
-    - python3
-    - worktree_task.py
-    - deploy-publish
+  nextActions: []
   pendingGeneration: {}
   repairFailure: null
-  result: PUBLICATION_PENDING
+  result: COMPLETE
   snapshotValidation: PASS
   states:
     A:
       attempt: FAILED
       attemptResult: null
-      aws: UNKNOWN
+      aws: SUCCESS
       changeSetId: null
       changes: []
-      checkpoint: CHECKPOINTED
       coverage: {}
       deferredConsumers: []
       diagnostic:
@@ -64,23 +45,11 @@ failedAttempt:
   task: completed
 pendingCheckpoint:
   deployResult: SUCCESS
-  finalBlockers:
-  - reason: current observation needs sync
-    stack: A
-  - reason: current AWS is running or unreadable
-    stack: A
-  gitPublication:
-    checkpointRequired:
-    - A
-    nextActions: []
-    reason: finish the pending Stack checkpoint before Git publication
-    retryable: false
-    status: PENDING
+  finalBlockers: []
   modelSave: COMPLETE
   nextActions:
-  - action: checkpoint
-    stacks:
-    - A
+  - action: review
+    reason: completed Task has incomplete Deploy evidence
   pendingGeneration: {}
   repairFailure: null
   result: PENDING
@@ -89,10 +58,9 @@ pendingCheckpoint:
     A:
       attempt: SUCCESS
       attemptResult: null
-      aws: UNKNOWN
+      aws: SUCCESS
       changeSetId: null
       changes: []
-      checkpoint: CHECKPOINTED
       coverage: {}
       deferredConsumers: []
       failure: null
@@ -111,39 +79,20 @@ pendingCheckpoint:
   task: completed
 report:
   deployResult: SUCCESS
-  finalBlockers:
-  - reason: current observation needs sync
-    stack: A
-  - reason: current AWS is running or unreadable
-    stack: A
-  gitPublication:
-    checkpointRequired: []
-    nextActions:
-    - action: deploy-publish
-      command:
-      - python3
-      - worktree_task.py
-      - deploy-publish
-    status: PENDING
+  finalBlockers: []
   modelSave: COMPLETE
-  nextActions:
-  - action: deploy-publish
-    command:
-    - python3
-    - worktree_task.py
-    - deploy-publish
+  nextActions: []
   pendingGeneration: {}
   repairFailure: null
-  result: PUBLICATION_PENDING
+  result: COMPLETE
   snapshotValidation: PASS
   states:
     A:
       attempt: SUCCESS
       attemptResult: null
-      aws: UNKNOWN
+      aws: SUCCESS
       changeSetId: null
       changes: []
-      checkpoint: CHECKPOINTED
       coverage: {}
       deferredConsumers: []
       failure: null

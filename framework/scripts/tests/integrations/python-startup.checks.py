@@ -207,7 +207,7 @@ def check_isolated_imports_and_standalone_audit(first, tmp_path):
         (
             "deploy_handoff.py",
             "deploy_handoff.py",
-            ["inputRefs", "modelRefs", "--discard-failure", "repair-validate"],
+            ["inputRefs", "modelRefs", "--discard-failure", "local request.json"],
         ),
         (
             "check-deploy-context.py",

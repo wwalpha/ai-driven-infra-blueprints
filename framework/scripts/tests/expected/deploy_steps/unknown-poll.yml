@@ -23,7 +23,6 @@ report:
   - reason: current AWS is running or unreadable
     stack: A
   - reason: attempts or explicit unexecuted reasons are incomplete
-  gitPublication: null
   modelSave: PENDING
   nextActions:
   - action: advance
@@ -41,7 +40,6 @@ report:
       aws: UNKNOWN
       changeSetId: cs-A
       changes: []
-      checkpoint: PENDING
       coverage: {}
       deferredConsumers: []
       diagnostic:

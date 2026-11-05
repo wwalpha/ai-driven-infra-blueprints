@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 import task_contract_runtime as runtime
 import worktree_task as wt
+from deploy import completion
+from deploy import progress as deploy_progress
 from model.format import FORMAT
 from model.identity import Resolver
 from model.reference_nodes import parse
@@ -96,24 +98,11 @@ def check_completion_uses_local_validator(tmp_path, sdk_bound, validation_failur
         patch.object(wt, "paths", return_value=set()),
         patch.object(wt, "changed_paths", return_value=set()),
         patch.object(runtime._imports_import_guard, "require_import_changes"),
-        patch.object(
-            runtime.deploy_worktree,
-            "prepare_complete",
-            side_effect=AssertionError("SDK completion forbidden"),
-        ),
-        patch.object(
-            runtime.deploy_worktree,
-            "require_complete",
-            side_effect=AssertionError("SDK receipt forbidden"),
-        ),
-        patch(
-            "worktree_state.deploy_task_state",
-            return_value=(
-                "start",
-                {"deployIdentity": {"sdk": True}} if sdk_bound else {},
-            ),
-        ),
+        patch.object(completion, "verify_observation_delta"),
     ):
+        if sdk_bound:
+            progress_path = deploy_progress.progress_path(tmp_path, NAME, create=True)
+            progress_path.touch()
         if sdk_bound or validation_failure:
             with pytest.raises(ValueError):
                 runtime.complete(tmp_path, NAME)
@@ -126,24 +115,17 @@ def check_completion_uses_local_validator(tmp_path, sdk_bound, validation_failur
 
 def check_sdk_completion_route_is_unchanged(tmp_path):
     snapshot = SimpleNamespace(
-        text=contract().replace("method: `cli`", "method: `sdk`")
+        name=NAME, text=contract().replace("method: `cli`", "method: `sdk`")
     )
     with (
         patch.object(runtime, "task_snapshot", return_value=snapshot),
-        patch.object(
-            runtime.deploy_worktree,
-            "require",
-            return_value={"deployIdentity": {"sdk": True}},
-        ),
-        patch.object(runtime.deploy_worktree, "require_complete") as require,
-        patch.object(
-            runtime,
-            "complete_selected",
-            side_effect=AssertionError("SDK completion bypassed"),
-        ),
+        patch.object(completion, "require_local") as require,
+        patch.object(completion, "validate_local", return_value="validated"),
+        patch.object(completion, "finish_local") as finish,
     ):
         runtime.complete(tmp_path, NAME)
         require.assert_called_once_with(tmp_path, snapshot)
+        finish.assert_called_once_with(tmp_path, snapshot, "validated")
 
 
 @pytest.mark.parametrize("publication", [False, True])
@@ -321,14 +303,8 @@ def check_cli_completion_preserves_authority(tmp_path, change):
         text=contract(), name=NAME, scope=frozenset({("qa", "team", "iam")})
     )
     with (
-        patch("worktree_state.deploy_task_state", return_value=("start", {})),
-        patch.object(wt, "paths", return_value=set()),
-        patch.object(wt, "changed_paths", return_value=paths),
-        patch.object(
-            wt,
-            "subprocess_bytes",
-            return_value=None if change == "new" else before.encode("utf-8"),
-        ),
+        patch.object(completion, "collect_working_paths", return_value=SimpleNamespace(all_paths=paths)),
+        patch.object(completion.contracts, "subprocess_bytes", return_value=None if change == "new" else before.encode("utf-8")),
     ):
         if change == "observed":
             cli.require_local_completion(tmp_path, snapshot)

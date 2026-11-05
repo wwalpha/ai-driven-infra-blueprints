@@ -88,12 +88,12 @@ Ordinary Tasks/worktree integration retain Git/input safety rules.
 
 ## Deploy task transitions
 
-Independent `/deploy` uses `worktree_task.py deploy-start`, without extra Human `/worktree`;
-follow [Managed Deploy snapshot and Git publication](cloudformation.md#managed-deploy-snapshot-and-git-publication).
-CloudFormation completion concerns the current Snapshot: preserve AWS FAIL; validate
-Model/reference/scope/View and the latest-base candidate; include completed in its publication.
-No additional Human failure approval or force is required. Active/uncertain AWS requests retain tracking.
-Other Task baseline/integration/completion rules remain.
+Independent `/deploy` uses the calling repository and an explicit Task contract.
+SDK completion requires settled request evidence, saved Observed and required Views,
+local validation and Task Acceptance. Preserve AWS FAIL as a separate result.
+Direct CLI keeps its own scoped evidence and local completion procedure. Legacy
+Git recovery and other Task integration remain separate.
+
 
 ## Framework final candidates
 

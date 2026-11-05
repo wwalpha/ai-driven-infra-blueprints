@@ -6,9 +6,8 @@ import json
 import sys
 from pathlib import Path
 
-import worktree_task
-from deploy import cli_guidance, handoff
-from task_contract_core import task_snapshot
+from deploy import cli_guidance, handoff, operation_journal
+from deploy import progress as deploy_progress
 from utils.local_evidence import evidence_store, read_sealed, write_sealed
 
 
@@ -43,7 +42,11 @@ def main(argv=None):
             )
             return 0
         failure = read_sealed(root, handoff.external(root, args.failure))
-        with handoff.repair_lock(root):
+        with (
+            operation_journal.locked(deploy_progress.progress_path(root, create=True)),
+            operation_journal.locked(deploy_progress.progress_path(root, failure["taskFile"], create=True)),
+            handoff.repair_lock(root),
+        ):
             request = handoff.issue_request(
                 root,
                 args.failure,
@@ -59,13 +62,11 @@ def main(argv=None):
             )
             request_path.parent.mkdir(mode=0o700)
             write_sealed(root, request_path, request)
-        request = worktree_task.deploy_checkpoint(
-            root, Path(task_snapshot(root).name).stem, request_path
-        )
         print(
             json.dumps(
                 {
                     **request,
+                    "requestPath": str(request_path),
                     **cli_guidance.handoff_result(request),
                 },
                 indent=2,

@@ -17,7 +17,7 @@ from model.dependency_index import revision as file_revision
 from model.render import owned_artifacts
 from model.sources import load_model, publication_lock, source_scope
 from utils.file_operations import atomic_files, sha
-from utils.local_evidence import evidence_store, read_sealed, sealed
+from utils.local_evidence import evidence_store, read_sealed, sealed, write_sealed
 from utils.project_targets import load_target_directory
 from validation.findings import Findings
 from validation.task import TaskValidation
@@ -137,7 +137,7 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         raise ws.Blocked("saved fixed execution input evidence is missing")
     if (
         identity.get("taskFile") != task.name
-        or identity.get("snapshot") != state["start"]
+        or "start" in state and identity.get("snapshot") != state["start"]
         or {(env, directory) for env, directory, _ in task.scope or ()}
         != {(identity["environment"], context.get("directory"))}
         or identity["target"].get(IAC_ENGINE_KEY) != "cloudformation"
@@ -415,7 +415,10 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
             raise ws.Blocked("fixed execution digest changed: " + unit["name"])
     if state.get("deployCheckpoints"):
         git_publication.checkpoint_source(root, state, progress)
-    git_publication.require_observation_delta(root, state["start"])
+    if "start" in state:
+        git_publication.require_observation_delta(root, state["start"])
+    else:
+        completion.verify_observation_delta(root)
 
 
 def pending_identity(root, task, candidate, state, saved, consumers, *, journal=None):
@@ -546,7 +549,7 @@ def guard_snapshot(root, state):
     }
     store = evidence_store(root, create=False)
     return {
-        "head": wt.output(root, "rev-parse", "HEAD"),
+        "head": contracts.output(root, "rev-parse", "HEAD"),
         "index": ws.git(root, "ls-files", "--stage", "-z").stdout,
         "inputs": manifest,
         "fileIdentities": {
@@ -594,7 +597,7 @@ def recover_update(root, path, state, candidate):
     tasks.invalidate_task_reads(root)
 
 
-def correct(root, name, source, approved=()):
+def correct_legacy(root, name, source, approved=()):
     source = source.resolve()
     if source.is_relative_to(root):
         raise ws.Blocked("contract correction candidate must be outside the repository")
@@ -724,3 +727,107 @@ def correct(root, name, source, approved=()):
             raise
         finally:
             tasks.invalidate_task_reads(root)
+
+def local_state(saved):
+    return {
+        "task_file": saved["identity"]["taskFile"],
+        "deployIdentity": saved["identity"],
+        "deployContract": saved["runContext"].get("deployContract"),
+    }
+
+
+def recover_local_correction(root, name, source, path, intent_path):
+    intent = read_sealed(root, intent_path)
+    task_path = tasks.safe_path(root, name)
+    if (
+        intent["afterTask"] != source
+        or guard_snapshot(root, {"task_file": name}) != intent["guard"]
+        or task_path.read_bytes().decode("utf-8") not in (intent["beforeTask"], source)
+        or path.read_bytes().decode("utf-8") not in (intent["beforeProgress"], intent["afterProgress"])
+    ):
+        raise ws.Blocked("unfinished contract correction changed; retain its evidence")
+    atomic_files({task_path: intent["beforeTask"], path: intent["beforeProgress"]})
+    intent_path.unlink()
+    tasks.invalidate_task_reads(root)
+
+
+def review_local_correction(root, name, path, candidate, approved, *, journal=None):
+    task = tasks.read_task_snapshot(root, name, live=True)
+    # The live suspended Task may already include the Human's proposed exact additions.
+    saved = read_sealed(root, path)
+    state = local_state(saved)
+    saved = deploy_progress.read_progress(root, state, name)
+    original = original_contract(state)
+    context = saved["runContext"]
+    consumers = check_candidate(root, task, original, candidate, state, context, approved)
+    check_state(root, state, saved, task, consumers, candidate)
+    pending_identity(root, task, candidate, state, saved, consumers, journal=journal)
+    return task, saved, consumers
+
+
+def correct_local(root, name, source, path, approved):
+    source = source.resolve()
+    if source.is_relative_to(root):
+        raise ws.Blocked("contract correction candidate must be outside the repository")
+    source_raw = source.read_bytes()
+    candidate = source_raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    intent_path = deploy_progress.correction_path(path)
+    with (
+        operation_journal.locked(deploy_progress.progress_path(root, create=True)),
+        operation_journal.locked(path),
+        handoff.repair_lock(root),
+    ):
+        if intent_path.exists() or intent_path.is_symlink():
+            recover_local_correction(root, name, candidate, path, intent_path)
+        recovery = partial(review_local_correction, root, name, path, candidate, approved)
+        with publication_lock(root, recovery_check=partial(recover_local_publication, recovery)):
+            guard = guard_snapshot(root, {"task_file": name})
+            before = path.read_bytes().decode("utf-8")
+            task, saved, consumers = recovery()
+            context = saved["runContext"]
+            identity = saved["identity"]
+            revised = tasks.task_digest(candidate)
+            failure = context.pop("currentFailure", None)
+            if failure:
+                context.setdefault("resolvedScopeFailures", []).append({
+                    "evidence": failure,
+                    "sha256": sha(handoff.external(root, failure)),
+                    "taskDigest": identity["taskDigest"],
+                    "correctedTaskDigest": revised,
+                })
+            for item in context["states"].values():
+                for record in item.get("deferredConsumers", []):
+                    for consumer in consumers:
+                        if deferred.key(record) == deferred.key(consumer):
+                            record.update(consumer, approved=True)
+            identity["taskDigest"] = revised
+            context.update(taskDigest=revised, deployContract=candidate, snapshotValidation="NOT_RUN")
+            after = sealed(root, saved)
+            tasks.verify_snapshot(task)
+            if (
+                source.read_bytes() != source_raw
+                or path.read_bytes().decode("utf-8") != before
+                or guard_snapshot(root, {"task_file": name}) != guard
+            ):
+                raise ws.Blocked("contract correction inputs changed before save")
+            write_sealed(root, intent_path, {
+                "beforeTask": task.raw.decode("utf-8"), "afterTask": candidate,
+                "beforeProgress": before, "afterProgress": after, "guard": guard,
+            })
+            atomic_files({task.path: candidate, path: after})
+            intent_path.unlink()
+            tasks.invalidate_task_reads(root)
+
+
+def recover_local_publication(review, journal):
+    review(journal=journal)
+
+
+def correct(root, name, source, approved=()):
+    name = tasks.normalize_selector(name)
+    path = deploy_progress.progress_path(root, name)
+    if path.exists() or path.is_symlink() or deploy_progress.correction_path(path).exists():
+        return correct_local(root, name, source, path, approved)
+    if deploy_progress.progress_path(root).exists():
+        return correct_legacy(root, name, source, approved)
+    raise ws.Blocked("saved fixed Deploy progress evidence is missing")

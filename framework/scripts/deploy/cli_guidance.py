@@ -10,8 +10,6 @@ import shlex
 import sys
 from pathlib import Path
 
-import worktree_python
-import worktree_state
 from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED
 from model.core import ReferenceDiagnosticError
 from utils.aws.identity import IdentityError
@@ -21,10 +19,10 @@ from utils.reference_contracts import ARN_ATTRIBUTES, REF_ATTRIBUTES
 from deploy.failures import AUTH_CODES, dependency_wait
 
 PREPARATION_HELP = """Examples (replace example target, StackNames and paths with reviewed values):
-  python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --environment dev --alias app --stack app-network --stack app-worker --service ec2 --service iam --task-file tasks/deploy-app.md
-  python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --environment dev --alias app --order-from 30 --order-to 50 --task-file tasks/deploy-range.md
-  python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --register /tmp/blueprint-deploy-prepare-example/preparation.json
-  python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --run-controller /tmp/blueprint-deploy-prepare-example/preparation.json
+  python3 -B framework/scripts/deploy_preparation.py --environment dev --alias app --stack app-network --stack app-worker --service ec2 --service iam --task-file tasks/deploy-app.md
+  python3 -B framework/scripts/deploy_preparation.py --environment dev --alias app --order-from 30 --order-to 50 --task-file tasks/deploy-range.md
+  python3 -B framework/scripts/deploy_preparation.py --register /tmp/blueprint-deploy-prepare-example/preparation.json
+  python3 -B framework/scripts/deploy_preparation.py --run-controller /tmp/blueprint-deploy-prepare-example/preparation.json
 
 Offline Preparation performs no AWS calls or deployment. Use a new task-file;
 choose --stack repeatedly or an inclusive numeric --order-from/--order-to range.
@@ -58,31 +56,30 @@ Failures return stage/cause/nextAction; command=null means stop for review.
 """
 
 CONTROLLER_HELP = """Examples (use the current Task, target and exact Deployment scope):
-  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action advance
-  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action sync --sync-stack app-network
-  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action checkpoint --sync-stack app-network
-  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action advance --profile app-dev
-  env BLUEPRINT_TASK_FILE=tasks/update-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --sequential --action advance
-  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --action status
+  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action advance
+  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action sync --sync-stack app-network
+  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action checkpoint --sync-stack app-network
+  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action advance --profile app-dev
+  env BLUEPRINT_TASK_FILE=tasks/update-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --sequential --action advance
+  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --action status
 
 Existing Task: running infrastructure deploy/update, explicit AWS/Deploy permission,
 matching environment/account/alias and exact StackName scope are required.
-Managed Worktree operations use current AWS and fixed authorized inputs.
+Deploy uses the current checkout and fixed authorized inputs.
 advance advances one bounded AWS turn; status reads latest scoped AWS.
 sync --sync-stack saves current facts (success/failure/rollback/partial/unexecuted/
-running/unknown), generates available services, validates and commits/publishes.
-sync --final validates completed Task privately with the final Model/View candidate.
+running/unknown), generates available services, validates and saves locally.
+sync --final validates the local Model/View and Task Acceptance, then completes the Task.
 Omit --sync-stack when all needed observations are already saved.
-checkpoint resumes the saved final intent and local validation/commit/publication; omitted --sync-stack uses the saved candidate scope.
+checkpoint resumes a saved local sync; omitted --sync-stack uses its saved scope.
 The LLM chooses sync timing and explicit scope; no background writer or Sub Agents.
-Deploy result, Model save, Snapshot validation and Git publication are independent.
+Deploy result, Model save, Validation and Task status are independent.
 A consistent failed Snapshot can complete its Task with Deploy FAIL unchanged.
 Intermediate saves keep Task running and fixed IaC/parameters/artifacts unchanged.
 Current Task identity and saved candidate integrity determine the next action.
 Keep this execution’s IDs and token when reporting an uncertain response;
 a new Deploy invocation starts a new Task based on current AWS state.
 Choose an explicit --action for every invocation.
-Retry saved Git commits with worktree_task.py deploy-publish, without AWS or recollection.
 Same-Order independent peers can continue after a failure; later Order still requires
 prior success. --sequential only lowers the configured MaxConcurrentStacks to one.
 
@@ -97,8 +94,8 @@ fingerprints, CREATE_COMPLETE/AVAILABLE. Interrupted or changed approval is inva
 It may recover and save previously persisted unfinished work, including pending Observed
 values, generated artifacts and progress. It never implicitly starts a new Deploy
 or automatically grants Human approval. Use explicit sync and checkpoint for their
-respective current-snapshot and Git publication operations.
-Unconfirmed submissions block the affected Stack; Git publication is independent. Authentication,
+current observations and saved local recovery.
+Unconfirmed submissions block overlapping new requests in the checkout. Authentication,
 Task/target/input mismatches and unresolved dependencies stop new starts; peers drain.
 PENDING_DEPLOY is a dependency wait, not proof of an IaC defect. Task completion
 requires a settled attempt, saved observations, required generation and a validated
@@ -109,36 +106,22 @@ safe evidence and use deploy_handoff.py --help. repairFailure alone is insuffici
 """
 
 HANDOFF_HELP = """Examples (paths must identify current evidence and reviewed diagnosis):
-  python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_handoff.py --failure /tmp/deploy-failure-example.json --diagnosis /tmp/deploy-diagnosis.json --path infra/cloudformation/templates/worker.yaml
-  python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_handoff.py --failure /tmp/deploy-failure-example.json --discard-failure
+  python3 -B framework/scripts/deploy_handoff.py --failure /tmp/deploy-failure-example.json --diagnosis /tmp/deploy-diagnosis.json --path infra/cloudformation/templates/worker.yaml
+  python3 -B framework/scripts/deploy_handoff.py --failure /tmp/deploy-failure-example.json --discard-failure
 
 Request creation requires current Task External IaC repair: allowed, a proven IaC
 cause, settled scoped AWS/publication and exact current input/Model evidence.
 Repeat --path only for the exact IaC files to repair. Diagnosis JSON maps every
 failed StackName to {reason, inputRefs: [{path, sha256}], modelRefs: [{path, sha256,
 key}]}; key is an existing desired Model entry. Never include secrets or guess a cause.
-The CLI verifies and checkpoints the parent, then returns a pinned request.json.
-Suspend only that parent with task_contract.py --task-file ... --suspend-reason ...;
-create a separate child using worktree_task.py create --task-id ... --repair-request ... .
-The child is infrastructure/implement with identical Validation scope, only request
-IaC paths plus its contract, and AWS API execution/AWS mutation/Deploy/apply forbidden.
-Use worktree_task.py repair-validate --task-id ... --repair-request ... for at most
-three static cycles in that child, complete its Task, then finalize and cleanup.
-Exact verified commit/paths/bytes integrate ff-only into the suspended parent.
-Resume that named parent explicitly with task_contract.py --task-file ... --resume;
-start an independent cloudformation-deploy.py run with current target/stacks and fresh
-Human ChangeSet approval. Never automatically chain unlimited Deploy attempts.
-These lifecycle commands require real Task IDs/request paths; omitted values above
-are descriptions, not runnable commands. The Worktree skill defines the lifecycle.
-
-Approval wait, authentication/Task/target failure, PENDING_DEPLOY, missing design,
-unknown submission or unproven cause do not authorize repair. --discard-failure
-explicitly abandons an unconsumed proof; referenced/unknown evidence is retained.
-Blocked JSON adds stage/cause/nextAction and never grants authority or auto-retries.
+The CLI verifies current inputs and returns a local request.json for review.
+Suspend the named Deploy Task before separate, authorized Implement work. The
+request is evidence for review and identifies the exact IaC inputs; it does not
+create or integrate another checkout. Retain the original Task's AWS evidence.
 """
 
 CONTEXT_HELP = """Terraform preflight example (repository root, approved target/profile):
-  python3 -B framework/scripts/run-python.py -B framework/scripts/check-deploy-context.py --environment dev --alias app --profile app-dev
+  python3 -B framework/scripts/check-deploy-context.py --environment dev --alias app --profile app-dev
 Use --aws-account-id instead of --alias when no alias exists. This existing entry
 checks target/account/Region/profile and AWS credentials, requiring Terraform for a
 Terraform target. --read-only omits the IaC command requirement, not authentication.
@@ -307,7 +290,12 @@ def safe_error(error):
             "completed Deploy cannot advance; use deploy-publish for saved Git work or finalize after publication",
             "--final requires managed CloudFormation Deploy --action sync",
             "step operations require CloudFormation",
-            "resume the saved checkpoint before advance",
+            "resume the saved sync before advance",
+            "completed Deploy permits status only",
+            "no local sync to resume; use --action sync",
+            "--final requires CloudFormation Deploy sync",
+            "--final requires CloudFormation Deploy --action sync",
+            "resume the saved sync without changing its final intent or Stack scope",
         }
         result.update(
             code="DEPLOY_STEP_BLOCKED",
@@ -352,66 +340,23 @@ def safe_error(error):
 
 
 def command_environment(root):
-    """Re-enter the registered wrapper without adding its bin to PATH a second time."""
-    if os.name != "posix":
-        return None
-    root = Path(root).resolve()
-    if not (root / ".git").exists():
+    if os.name != "posix" or not (Path(root) / ".git").exists():
         return None
     if "PYTHONHOME" in os.environ or not os.environ.get("PATH"):
         return None
-    env = ["env", "-u", "PYTHONHOME", "-u", "PYTHONPATH"]
-    path = os.environ["PATH"]
-    try:
-        repository, _, primary = worktree_state.repository(root)
-        if repository != root:
-            return None
-        if root.parent == primary / ".worktrees":
-            _, _, _, state = worktree_state.load(root, root.name)
-            setup = state.get("python_setup", {})
-            directory = worktree_python.shared_directory(root)
-            interpreter = worktree_python.python_path(directory)
-            prefix = str(interpreter.parent) + os.pathsep
-            if (
-                state.get("worktree") != str(root)
-                or setup.get("status") != "ready"
-                or setup.get("kind") != "shared"
-                or setup.get("interpreter") != str(interpreter)
-                or setup.get("bin") != str(interpreter.parent)
-                or sys.executable != str(interpreter)
-                or not os.environ.get("PATH", "").startswith(prefix)
-                or "PYTHONPATH" in os.environ
-                or "PYTHONHOME" in os.environ
-                or not worktree_python.shared_ready(directory)
-                or directory.with_name("python-env.setup-lock").exists()
-                or not worktree_python.applied(
-                    directory, worktree_python.requirements_snapshot(root, primary)[1]
-                )
-            ):
-                return None
-            path = path[len(prefix) :]
-    except (OSError, ValueError, KeyError):
-        return None
-    env.append("PATH=" + path)
-    if "PYTHONPATH" in os.environ:
-        env.append("PYTHONPATH=" + os.environ["PYTHONPATH"])
-    return env
+    return ["env", "-u", "PYTHONHOME"]
 
 
 def python_command(root, script, arguments, *, task_file=None):
     root = Path(root).resolve()
     scripts = Path(__file__).resolve().parents[1]
     env = command_environment(root)
-    if env is None or not all(
-        (scripts / name).is_file() for name in ("run-python.py", script)
-    ):
+    if env is None or not (scripts / script).is_file():
         return None
     if task_file:
         env.append("BLUEPRINT_TASK_FILE=" + task_file)
     argv = env + [
         sys.executable,
-        "-B",
-        str(scripts / "run-python.py"),
         "-B",
         str(scripts / script),
         *arguments,
@@ -498,7 +443,7 @@ def handoff_result(request=None, *, discarded=False):
         "HANDOFF",
         {"requestId": request["requestId"]},
         "SUSPEND_PARENT",
-        "Pinned request issued. Suspend only the named parent, then follow the Worktree repair lifecycle with a separately named child; do not start Deploy.",
+        "Local repair request issued. Review the diagnosis and suspend the named Task before separately authorized IaC repair.",
         python_command(
             Path(request["repository"]),
             "task_contract.py",

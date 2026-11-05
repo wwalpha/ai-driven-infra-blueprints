@@ -11,13 +11,11 @@ from types import SimpleNamespace
 from contracts.target import AWS_ACCOUNT_ID_KEY
 from model.dependency_index import revision as file_revision
 from task_contract_core import TaskSnapshot, task_reads, task_snapshot
+from utils.cli_deploy import is_cli
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 from utils.type_contracts import JsonValue as JsonValue
 
-from deploy import (
-    worktree,
-)
 from deploy.typing import (
     DeployRunContext,
     StackUnit,
@@ -37,6 +35,8 @@ def active_scope(
 ) -> str:
     snapshot = snapshot or task_snapshot(root)
     text = snapshot.text
+    if is_cli(text):
+        raise Blocked("CLI Deploy Task cannot use the SDK controller")
     if snapshot.status != "running" and not (
         allow_saved and snapshot.status == "completed"
     ):
@@ -87,8 +87,11 @@ def _callback_claim_inputs(root, run_context, backend, save, /, unit):
         revision = subprocess.run(
             [
                 "git",
+                "--no-optional-locks",
                 "status",
                 "--porcelain",
+                "--untracked-files=all",
+                "--ignored=matching",
                 "--",
                 *[p.relative_to(root).as_posix() for p in paths],
             ],
@@ -121,7 +124,6 @@ def _callback_run_guard(
 ) -> TaskSnapshot:
     with task_reads(root, live=True):
         snapshot = task_snapshot(root, executable=False)
-        worktree.require(root, snapshot)
         active_scope(
             root,
             args.stack,

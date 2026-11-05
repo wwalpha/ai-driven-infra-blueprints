@@ -32,7 +32,7 @@ def working_revision(root):
 def task_start_commit(root, name):
     snapshot = task_snapshot(root, name, executable=False)
     if "- Infrastructure phase: `deploy`" in snapshot.text.splitlines():
-        return _imports_worktree_state.deploy_start_commit(root, name)
+        return None
     return _imports_worktree_state.task_start_commit(root, name)
 
 
@@ -70,4 +70,7 @@ def task_head(root):
 
 def publication_revision(root, name):
     """Opaque save authority; managed ownership and HEAD must both remain current."""
+    snapshot = task_snapshot(root, name, executable=False, live=True)
+    if "- Infrastructure phase: `deploy`" in snapshot.text.splitlines():
+        return snapshot.raw, task_head(root)
     return _imports_worktree_state.managed_task_state(root, name), task_head(root)

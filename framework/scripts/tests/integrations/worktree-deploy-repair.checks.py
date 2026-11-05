@@ -23,8 +23,8 @@ from support.deploy_controller_fixtures import (
     aws_state,
     child_environment,
     clients,
+    drive,
     git,
-    invoke,
 )
 from support.worktree_deploy_fixtures import seed
 from task_contract_core import read_task_snapshot, selected_task, start, suspend
@@ -188,37 +188,10 @@ def check_external_implement_round_trip(tmp_path, monkeypatch):
             parent, (parent / "tasks/deploy.md").read_text(), {relative}
         ) == {relative}
     # Independent current-input Deploy is a separate invocation, with no result/session entrance.
-    assert (drive_steps(parent, report, aws)) == 0
+    assert drive(parent, report, aws) == 0
+    assert git(parent, "rev-parse", "HEAD").strip() == request["commit"]
     assert not report.with_suffix(".operations.json").exists()
     validate_parent(parent)
-
-
-def drive_steps(parent, report, aws):
-    for _ in range(12):
-        result = invoke(parent, report, aws, ["--action", "advance"])
-        if result:
-            return result
-        saved = json.loads(report.read_text(encoding="utf-8"))
-        for name, state in saved["states"].items():
-            if state["status"] != "SUCCESS" or state.get("checkpointed"):
-                continue
-            assert (
-                invoke(parent, report, aws, ["--action", "sync", "--sync-stack", name])
-                == 0
-            )
-            assert (
-                invoke(
-                    parent,
-                    report,
-                    aws,
-                    ["--action", "checkpoint", "--sync-stack", name],
-                )
-                == 0
-            )
-        final = json.loads(report.read_text(encoding="utf-8"))
-        if all(s.get("checkpointed") for s in final["states"].values()):
-            return 0
-    raise AssertionError("short Deploy never completed")
 
 
 def managed_delivery(

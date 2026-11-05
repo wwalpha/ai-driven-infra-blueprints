@@ -17,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-import task_contract_runtime as transitions
 import worktree_checkpoint as checkpoints
 import worktree_task as wt
 from deploy import progress as deploy_progress
@@ -96,19 +95,17 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch):
     }
     first_success(target, report, aws)
     assert all(p.read_bytes() == raw for p, raw in models_before.items())
-    before_status = deploy_progress.progress_path(target).read_bytes()
+    before_status = deploy_progress.progress_path(target, "tasks/deploy.md").read_bytes()
     assert step(target, report, aws, "status") == 0
-    assert deploy_progress.progress_path(target).read_bytes() == before_status
+    assert deploy_progress.progress_path(target, "tasks/deploy.md").read_bytes() == before_status
     assert step(target, report, aws, "sync", [FIRST]) == 0
     after_sync = {p: p.read_bytes() for p in models_before}
     TestCase().assertEqual(step(target, report, aws, "sync", [FIRST]), 0)
     TestCase().assertTrue(all(p.read_bytes() == raw for p, raw in after_sync.items()))
-    assert step(target, report, aws, "checkpoint", [FIRST]) == 0
     sha = git(primary, "rev-parse", "HEAD").strip()
-    assert sha != base
-    assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "2"
+    assert sha == base
+    assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "0"
     assert status((target / "tasks/deploy.md").read_text(encoding="utf-8")) == "running"
-    assert step(target, report, aws, "checkpoint", [FIRST]) == 0
     assert git(primary, "rev-parse", "HEAD").strip() == sha
     assert (
         json.loads(aws.read_text(encoding="utf-8"))["stacks"][SECOND]["status"]
@@ -117,7 +114,6 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch):
     finish_peer(aws)
     assert step(target, report, aws, "advance") == 0
     assert step(target, report, aws, "sync", [SECOND]) == 0
-    assert step(target, report, aws, "checkpoint", [SECOND]) == 0
     assert step(target, report, aws, "status") == 0
     assert not report.with_suffix(".operations.json").exists()
     provider = json.loads(aws.read_text(encoding="utf-8"))
@@ -129,15 +125,13 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch):
     assert sorted(executions) == sorted(
         provider["stacks"][name]["id"] for name in (FIRST, SECOND)
     )
-    assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "4"
+    assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "0"
     assert step(target, report, aws, "sync", final=True) == 0
-    with selected_task(target, "tasks/deploy.md"):
-        transitions.complete(target, "tasks/deploy.md")
     assert (
         status((target / "tasks/deploy.md").read_text(encoding="utf-8")) == "completed"
     )
     assert "`subnet-fixture`" in (
-        primary / f"model/dev/{ACCOUNT}/ec2.properties"
+        target / f"model/dev/{ACCOUNT}/ec2.properties"
     ).read_text(encoding="utf-8")
 
 
@@ -150,7 +144,6 @@ def check_combined_checkpoint_after_peer_completion(tmp_path, monkeypatch):
     finish_peer(aws)
     TestCase().assertEqual(step(target, report, aws, "advance"), 0)
     TestCase().assertEqual(step(target, report, aws, "sync", [FIRST, SECOND]), 0)
-    TestCase().assertEqual(step(target, report, aws, "checkpoint", [FIRST, SECOND]), 0)
     saved = json.loads(report.read_text(encoding="utf-8"))
     TestCase().assertTrue(
         all(saved["states"][name]["status"] == "SUCCESS" for name in (FIRST, SECOND))

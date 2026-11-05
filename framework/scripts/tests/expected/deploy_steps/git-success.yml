@@ -1,18 +1,8 @@
 failedAttempt:
   deployResult: FAIL
-  finalBlockers:
-  - reason: current observation needs sync
-    stack: A
-  - reason: current AWS is running or unreadable
-    stack: A
-  gitPublication:
-    checkpointRequired: []
-    nextActions: []
-    status: SUCCESS
+  finalBlockers: []
   modelSave: COMPLETE
-  nextActions:
-  - action: finalize
-    taskId: deploy
+  nextActions: []
   pendingGeneration: {}
   repairFailure: null
   result: COMPLETE
@@ -21,10 +11,9 @@ failedAttempt:
     A:
       attempt: FAILED
       attemptResult: null
-      aws: UNKNOWN
+      aws: SUCCESS
       changeSetId: null
       changes: []
-      checkpoint: CHECKPOINTED
       coverage: {}
       deferredConsumers: []
       diagnostic:
@@ -56,23 +45,11 @@ failedAttempt:
   task: completed
 pendingCheckpoint:
   deployResult: SUCCESS
-  finalBlockers:
-  - reason: current observation needs sync
-    stack: A
-  - reason: current AWS is running or unreadable
-    stack: A
-  gitPublication:
-    checkpointRequired:
-    - A
-    nextActions: []
-    reason: finish the pending Stack checkpoint before Git publication
-    retryable: false
-    status: SUCCESS
+  finalBlockers: []
   modelSave: COMPLETE
   nextActions:
-  - action: checkpoint
-    stacks:
-    - A
+  - action: review
+    reason: completed Task has incomplete Deploy evidence
   pendingGeneration: {}
   repairFailure: null
   result: PENDING
@@ -81,10 +58,9 @@ pendingCheckpoint:
     A:
       attempt: SUCCESS
       attemptResult: null
-      aws: UNKNOWN
+      aws: SUCCESS
       changeSetId: null
       changes: []
-      checkpoint: CHECKPOINTED
       coverage: {}
       deferredConsumers: []
       failure: null
@@ -103,19 +79,9 @@ pendingCheckpoint:
   task: completed
 report:
   deployResult: SUCCESS
-  finalBlockers:
-  - reason: current observation needs sync
-    stack: A
-  - reason: current AWS is running or unreadable
-    stack: A
-  gitPublication:
-    checkpointRequired: []
-    nextActions: []
-    status: SUCCESS
+  finalBlockers: []
   modelSave: COMPLETE
-  nextActions:
-  - action: finalize
-    taskId: deploy
+  nextActions: []
   pendingGeneration: {}
   repairFailure: null
   result: COMPLETE
@@ -124,10 +90,9 @@ report:
     A:
       attempt: SUCCESS
       attemptResult: null
-      aws: UNKNOWN
+      aws: SUCCESS
       changeSetId: null
       changes: []
-      checkpoint: CHECKPOINTED
       coverage: {}
       deferredConsumers: []
       failure: null

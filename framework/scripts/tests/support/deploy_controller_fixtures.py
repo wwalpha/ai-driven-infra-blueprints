@@ -65,17 +65,17 @@ def seed(root, state_path, case="orders", *, same_group=False):
     multi_observed = case in {"multi-observed", "observed-peers"}
     if case == "remove" or multi_observed:
         template = root / "infra/cloudformation/templates/first.yaml"
-        document, errors = decode(template.read_text())
-        assert not errors
+        source = template.read_text()
         if case == "remove":
             for logical in ("Subnet", "Association"):
-                document["Resources"].pop(logical)
+                beginning = source.index(f"  {logical}:\n")
+                end = source.index("\n  ", beginning + 3)
+                while source[end + 3] == " ":
+                    end = source.index("\n  ", end + 1)
+                source = source[:beginning] + source[end + 1:]
             fixture["data"]["ec2"]["observed.row.002-001.value"] = "`subnet-before`"
         else:
-            document["Resources"]["VpcFirst"] = {
-                "Type": "AWS::EC2::VPC",
-                "Properties": {"CidrBlock": "10.1.0.0/16"},
-            }
+            source += "\n  VpcFirst:\n    Type: AWS::EC2::VPC\n    Properties: {CidrBlock: 10.1.0.0/16}\n"
             values = fixture["data"]["ec2"]
             values.update(
                 {
@@ -92,7 +92,7 @@ def seed(root, state_path, case="orders", *, same_group=False):
                     "desired.row.003-003.value": "`app-dev-observed-vpc`",
                 }
             )
-        template.write_text(json.dumps(document))
+        template.write_text(source)
     services = ["s3", "ec2"]
     fixture["data"]["s3"].update(fixture["data"].get("s3_extra", {}))
     fixture["data"]["ec2"].update(fixture["data"].get("ec2_extra", {}))
@@ -802,31 +802,14 @@ def _callback_invoke_write(
     return result
 
 
-def explained_stop(real, stage, error):
+def explained_stop(real, stage, error, **kwargs):
     traceback.print_exception(error, file=sys.stderr)
-    return real(stage, error)
+    return real(stage, error, **kwargs)
 
 
 def save_step_diagnostics(real_save, report, backend):
     real_save(backend)
     report.write_text(json.dumps(backend.run_context), encoding="utf-8")
-
-
-def complete_domain_checkpoint(backend, names):
-    # Domain suites replace Git publication; managed Worktree suites keep the real checkpoint.
-    pending = backend.run_context["checkpointPending"]
-    if pending["after"] is None or set(names) != set(pending["stacks"]):
-        raise AssertionError("fixture checkpoint has no saved snapshot")
-    changed = sorted(
-        path
-        for path, digest in pending["after"].items()
-        if pending["before"].get(path) != digest
-    )
-    if changed:
-        git(backend.root, "add", "--", *changed)
-        git(backend.root, "commit", "-qm", "Fixture domain publication")
-    backend.run_context.pop("checkpointPending")
-    backend.save()
 
 
 def invoke(root, state_path, aws_path, options=(), fault=None):
@@ -846,17 +829,6 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
         [],
     )
     with ExitStack() as stack:
-        if not (root / ".git").is_file():
-            stack.enter_context(
-                patch.object(steps, "publish_snapshot", complete_domain_checkpoint)
-            )
-        stack.enter_context(
-            patch.object(
-                operation_journal,
-                "location",
-                return_value=state_path.with_suffix(".operations.json"),
-            )
-        )
         stack.enter_context(
             patch.object(
                 steps.cli_guidance,
@@ -905,12 +877,6 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
                 *options,
             ]
         )
-        if state_path.exists():
-            report = json.loads(state_path.read_text(encoding="utf-8"))
-            report["gitPublication"] = steps.git_publication.retained(
-                root, "deploy", None
-            )
-            state_path.write_text(json.dumps(report), encoding="utf-8")
         return result
 
 
@@ -918,9 +884,10 @@ def drive(root, state_path, aws_path, options=(), fault=None):
     """A test supervisor chooses explicit short operations; the controller owns no loop."""
     for _ in range(24):
         saved = json.loads(state_path.read_text()) if state_path.exists() else {}
-        pending = saved.get("checkpointPending")
+        pending = saved.get("syncPending")
         if (
-            saved.get("pendingObserved")
+            pending
+            or saved.get("pendingObserved")
             or saved.get("pendingGeneration")
             or saved.get("generationError")
         ):

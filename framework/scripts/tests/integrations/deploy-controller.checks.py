@@ -18,14 +18,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 import sync_runtime
 from deploy import (
-    contracts,
     controller,
     current_state,
     failures,
     generation_resume,
     operation_journal,
     steps,
-    worktree,
 )
 from deploy import progress as deploy_progress
 from model.core import properties
@@ -34,14 +32,13 @@ from support.deploy_controller_fixtures import (
     ACCOUNT,
     aws_state,
     child_environment,
-    ordinary_base,
+    git,
     seed,
 )
 from support.deploy_controller_fixtures import (
     drive as invoke,
 )
 from support.deploy_controller_fixtures import invoke as invoke_step
-from support.publication_fixtures import publication_repository
 from support.pytest_cli import run
 from support.worktree_deploy_fixtures import seed as managed_seed
 from task_contract_core import selected_task, status
@@ -60,7 +57,6 @@ THIRD = "cfn-stack-app-dev-third"
 @pytest.fixture(autouse=True)
 def offline_workflow(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
-    monkeypatch.setattr(contracts, "task_start_commit", ordinary_base)
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     for name in ("TMPDIR", "TMP", "TEMP"):
         monkeypatch.setenv(name, str(tmp_path))
@@ -186,8 +182,10 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
         ["git", "commit", "-qm", "Existing issue report"], cwd=root, check=True
     )
     aws_state(aws, delivery=True)
-    with publication_repository():
-        assert invoke(root, session, aws) == 0
+    git(root, "branch", "-m", "feature/local-deploy")
+    head = git(root, "rev-parse", "HEAD")
+    checkouts = git(root, "worktree", "list", "--porcelain")
+    assert invoke(root, session, aws) == 0
     assert inventory.read_text(encoding="utf-8") == original
     saved, provider = json.loads(session.read_text()), json.loads(aws.read_text())
     calls = provider["calls"]
@@ -226,8 +224,9 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
     task = TaskValidation(root, findings)
     task.task_type = "infrastructure"
     assert not findings.errors and not findings.warnings
-    with publication_repository(), patch.object(worktree, "require", return_value={}):
-        complete(root, "tasks/deploy.md")
+    complete(root, "tasks/deploy.md")
+    assert git(root, "rev-parse", "HEAD") == head
+    assert git(root, "worktree", "list", "--porcelain") == checkouts
     assert status((root / "tasks/deploy.md").read_text()) == "completed"
     assert inventory.read_text(encoding="utf-8") == original
 
@@ -409,6 +408,14 @@ def check_advance_and_status_expose_observed_progress(tmp_path, monkeypatch, cap
     aws_state(aws)
     capsys.readouterr()
     assert invoke_step(root, report, aws, ["--action", "advance"]) == 0
+    capsys.readouterr()
+    peer = root / "tasks/peer.md"
+    peer.write_bytes((root / "tasks/deploy.md").read_bytes())
+    before = json.loads(aws.read_text())["calls"]
+    with selected_task(root, "tasks/peer.md"):
+        assert invoke_step(root, report, aws, ["--action", "advance"]) == 2
+    assert json.loads(aws.read_text())["calls"] == before
+    assert not deploy_progress.progress_path(root, "tasks/peer.md").exists()
     capsys.readouterr()
     provider = json.loads(aws.read_text())
     provider["stacks"][FIRST]["status"] = "CREATE_IN_PROGRESS"

@@ -11,8 +11,6 @@ import worktree_task as wt
 from contracts.target import IAC_ENGINE_KEY
 from utils.project_targets import load_target_directory
 
-from deploy import completion, progress
-
 
 def is_deploy(text):
     lines = tasks.section(text, "## Task contract")
@@ -222,6 +220,8 @@ def require_complete(root, task):
         ):
             return
         raise ws.Blocked("managed Deploy has no fixed identity")
+    progress = wt.module("deploy/progress.py", "deploy.progress")
+    completion = wt.module("deploy/completion.py", "deploy.completion")
     saved = progress.read_progress(root, state)
     if completion.candidate_incomplete(
         task, state, saved, lambda: wt.output(root, "rev-parse", state["tip"] + "^{tree}")

@@ -829,6 +829,8 @@ def check_checkpoint_observed_barrier(tmp_path, pending):
     handoff = wt._worktree_runtime().deploy_handoff
     request = {
         "target": {"awsAccountId": "account", "awsRegion": "region"},
+        "taskFile": "tasks/deploy.md",
+        "taskDigest": "digest",
         "diagnosis": {"Peer": {"inputRefs": [], "modelRefs": []}},
         "allowedPaths": [],
     }
@@ -864,9 +866,9 @@ def check_checkpoint_observed_barrier(tmp_path, pending):
             "progress_path",
             return_value=SimpleNamespace(exists=lambda: True),
         ),
-        patch.object(handoff.worktree, "require", return_value={}),
+        patch.object(handoff, "task_snapshot", return_value=SimpleNamespace(task_digest="digest")),
         patch.object(
-            handoff.deploy_progress, "read_progress", return_value={"runContext": context}
+            handoff.deploy_progress, "read_task", return_value={"runContext": context}
         ),
         patch.object(handoff, "dependency_reader", return_value=Mock()),
         patch.object(
@@ -939,10 +941,10 @@ def check_checkpoint_uses_scoped_barrier_under_ordered_locks(tmp_path, case):
             "progress_path",
             return_value=SimpleNamespace(exists=lambda: True),
         ),
-        patch.object(handoff.worktree, "require", return_value={}),
+        patch.object(handoff, "task_snapshot", return_value=SimpleNamespace(task_digest="digest")),
         patch.object(
             handoff.deploy_progress,
-            "read_progress",
+            "read_task",
             return_value={
                 "runContext": publication if case == "publication-overlap" else {}
             },

@@ -25,7 +25,6 @@ from deploy import (
     context,
     current_state,
     operation_journal,
-    worktree,
 )
 from deploy import progress as deploy_progress
 
@@ -275,10 +274,17 @@ def require_settled(
     stacks = set(request["diagnosis"])
     if not stacks:
         raise Blocked("repair request has no failed Stack scope")
-    if deploy_progress.progress_path(root).exists():
-        state = worktree.require(root)
-        progress = deploy_progress.read_progress(root, state)
-        context = progress.get("runContext", {})
+    task = task_snapshot(root, request["taskFile"], executable=False, live=True)
+    if task.task_digest != request["taskDigest"]:
+        raise Blocked("repair request differs from the selected Task")
+    progress = deploy_progress.read_task(root, task) or deploy_progress.read_legacy_task(root, task)
+    if progress:
+        context = progress["runContext"]
+        if any(
+            deploy_progress.unresolved_request(context["states"][name])
+            for name in stacks & context.get("states", {}).keys()
+        ):
+            raise Blocked("repair Task has an unresolved AWS request")
         observed = context.get("pendingObserved") or {}
         generation = context.get("pendingGeneration") or {}
         if observed or generation or context.get("generationError"):

@@ -5,8 +5,6 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 
 import task_contract_core as tasks
-import worktree_state
-from contracts.repository import PROJECT_FILENAME
 from contracts.target import (
     AWS_ACCOUNT_ID_KEY,
     AWS_EXECUTION_ACCOUNT_ID_KEY,
@@ -76,9 +74,6 @@ def partition(root, target, *, text=None):
 def require_local_completion(root, snapshot, *, base=None):
     if not is_cli(snapshot.text):
         raise ValueError("local CLI completion requires the CLI execution method")
-    start, state = worktree_state.deploy_task_state(root, snapshot.name, required=True)
-    if "deployIdentity" in state or "deployRepair" in state:
-        raise ValueError("SDK-bound Tasks cannot switch to CLI completion")
     if not snapshot.scope:
         raise ValueError("CLI Deploy requires a scoped target")
     for environment, directory in {(e, d) for e, d, _ in snapshot.scope}:
@@ -87,22 +82,26 @@ def require_local_completion(root, snapshot, *, base=None):
             load_target_directory(root, environment, directory),
             text=snapshot.text,
         )
+    if base is None:
+        progress = module("deploy/progress.py", "deploy.progress")
+        path = progress.progress_path(root, snapshot.name)
+        legacy = progress.progress_path(root)
+        if path.exists() or path.is_symlink() or (
+            (legacy.exists() or legacy.is_symlink())
+            and progress.read_sealed(root, legacy)["identity"]["taskFile"] == snapshot.name
+        ):
+            raise ValueError("SDK-bound Tasks cannot switch to CLI completion")
+        completion = module("deploy/completion.py", "deploy.completion")
+        completion.verify_observation_delta(root)
+        return
     wt = module("worktree_task.py", "worktree_task")
-    verify_observed_outputs = module(
-        "model/observed.py", "model.observed"
-    ).verify_observed_outputs
-    baseline = base or start
-    changed = wt.paths(
-        root, "diff", "--name-only", "--no-renames", "-z", baseline, "--"
-    ) | wt.changed_paths(root)
-    if PROJECT_FILENAME in changed:
+    verify_observed_outputs = module("model/observed.py", "model.observed").verify_observed_outputs
+    changed = wt.paths(root, "diff", "--name-only", "--no-renames", "-z", base, "--") | wt.changed_paths(root)
+    if "project.json" in changed:
         raise ValueError("CLI Deploy cannot change project configuration")
     sources = {root / p for p in changed if p.startswith("model/")}
     verify_observed_outputs(
-        {
-            p: wt.subprocess_bytes(root, baseline, p.relative_to(root).as_posix())
-            for p in sources
-        },
+        {p: wt.subprocess_bytes(root, base, p.relative_to(root).as_posix()) for p in sources},
         {p: p.read_text(encoding="utf-8") for p in sources},
     )
 

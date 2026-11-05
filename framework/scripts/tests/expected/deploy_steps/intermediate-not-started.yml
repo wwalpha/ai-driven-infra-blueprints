@@ -6,7 +6,6 @@ initial:
   - reason: current AWS is running or unreadable
     stack: A
   - reason: attempts or explicit unexecuted reasons are incomplete
-  gitPublication: null
   modelSave: COMPLETE
   nextActions:
   - action: advance
@@ -21,7 +20,6 @@ initial:
       aws: UNKNOWN
       changeSetId: null
       changes: []
-      checkpoint: CHECKPOINTED
       coverage: {}
       deferredConsumers: []
       failure: null
@@ -50,7 +48,6 @@ unknownPeer:
   - reason: current AWS is running or unreadable
     stack: B
   - reason: attempts or explicit unexecuted reasons are incomplete
-  gitPublication: null
   modelSave: COMPLETE
   nextActions:
   - action: advance
@@ -65,7 +62,6 @@ unknownPeer:
       aws: UNKNOWN
       changeSetId: null
       changes: []
-      checkpoint: CHECKPOINTED
       coverage: {}
       deferredConsumers: []
       failure: null
@@ -87,7 +83,6 @@ unknownPeer:
       aws: UNKNOWN
       changeSetId: null
       changes: []
-      checkpoint: PENDING
       coverage: {}
       deferredConsumers: []
       diagnostic:

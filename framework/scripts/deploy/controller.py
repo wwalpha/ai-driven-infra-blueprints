@@ -50,7 +50,6 @@ from deploy import (
     observed,
     secret_bootstrap,
     steps,
-    worktree,
 )
 from deploy import recovery as repair_ops
 from deploy.guards import call, secret_value_missing
@@ -66,6 +65,10 @@ from deploy.typing import (
     States,
     Target,
 )
+
+
+def require_bound_runtime():
+    raise Blocked("Deploy mutation requires a validated controller Task")
 
 
 def create_runtime(
@@ -93,7 +96,7 @@ def create_runtime(
         workdir=None,
         states={},
         save=lambda: None,
-        guard=partial(worktree.require, root),
+        guard=require_bound_runtime,
         hashes={},
         run_context={},
         refresh_validation=lambda unit: None,

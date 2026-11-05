@@ -40,8 +40,8 @@ def setup_case(tmp_path):
 
 def cleanup(root, journal, directory, backend, saved=None):
     with (
-        patch.object(temporary.deploy_progress, "progress_state", return_value={}),
-        patch.object(temporary.deploy_progress, "read_progress", return_value=saved),
+        patch.object(temporary, "task_snapshot"),
+        patch.object(temporary.deploy_progress, "read_task", return_value=saved),
     ):
         temporary.reclaim(
             journal, root, directory=directory, backend=backend, stacks=["App"]
@@ -274,14 +274,13 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
     )
     with (
         patch.object(temporary, "create", return_value=current_directory),
-        patch.object(temporary.deploy_progress, "progress_state", return_value={}),
-        patch.object(temporary.deploy_progress, "read_progress", return_value=None),
+        patch.object(temporary.deploy_progress, "read_task", return_value=None),
         patch.object(steps.context, "load_target", return_value=TARGET),
         patch.object(steps.context, "check_deploy_context", return_value=TARGET),
         patch.object(steps, "task_snapshot", return_value=task),
+        patch.object(temporary, "task_snapshot", return_value=task),
         patch.object(steps, "selected_task", return_value=nullcontext()),
         patch.object(run_context, "active_scope", return_value="deploy"),
-        patch.object(steps.worktree, "bind"),
         patch.object(steps, "recover_local_publication"),
         patch.object(steps, "restore"),
         patch.object(
@@ -293,7 +292,6 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
             return_value=SimpleNamespace(authoritative={}),
         ),
         patch.object(steps.current_state, "refresh"),
-        patch.object(steps, "checkpoint_receipts"),
         patch.object(steps, "describe", report),
         patch.object(steps, "run_group", return_value="ACTIVE"),
         patch.object(steps, "save"),

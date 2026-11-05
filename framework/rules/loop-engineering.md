@@ -364,7 +364,7 @@ Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`
 2. Confirm scope with AWS ValidateTemplate and change sets for CloudFormation; validation and saved plans for Terraform.
 3. If no unapproved delete/replacement exists, deploy/apply only targets authorized by the active prompt. If any exists, explain targets, reasons, impacts, and current execution state and wait for human confirmation; after approval, resume in the same task with the same change set or saved plan.
 4. For CloudFormation Deploy, save current successful, failed, rolled-back, partial, running, unexecuted or unknown observations through the shared Model writer. Desired stays fixed. Terraform retains its existing success rule.
-5. Keep AWS, Observed/generation and Git publication separate under [Managed Deploy snapshot](cloudformation.md#managed-deploy-snapshot-and-git-publication). Git conflicts retain AWS success and require Human judgment; resolve/retry only Git publication. For CloudFormation, required Snapshot validation and publication finish the Task even when the attempt remains FAIL; active/uncertain AWS requests keep tracking and Task running. Include completed in the final candidate before its validation/commit/merge. Git-only retry may resume a locally completed candidate. Other infrastructure phases retain their checks. Do not proceed to scenario tests.
+5. Keep AWS results, Observed, generation, Validation and Task status separate. CloudFormation Deploy completes locally after its AWS requests are settled, required outputs are saved and Validation and Task Acceptance pass. A failed AWS attempt remains FAIL. Keep tracking active or uncertain requests. Do not proceed to scenario tests.
 
 `update` phase:
 

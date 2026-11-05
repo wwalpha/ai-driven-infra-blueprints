@@ -204,8 +204,7 @@ Keep the Worktree Skill unchanged; repository development/setup is separate from
 the Deploy execution method. CLI AWS execution needs AWS CLI, not a Python SDK.
 Existing non-AWS Model/generation/validation/Git utilities remain usable. CLI Task
 completion uses the ordinary `task_contract.py --complete` local validator rather
-than SDK local progress/final-save receipts. Ordinary Worktree finalize validates
-the completed CLI candidate against the actual latest base before ff-only delivery.
+than SDK local progress/final-save receipts. Task completion and any later Git integration are separate.
 These local branches perform no AWS retrieval, submission, scheduling or recovery;
 the LLM remains responsible for all AWS decisions and unsettled-request tracking.
 Do not call SDK `sync`/`checkpoint`/`deploy-publish`, manufacture SDK receipts, edit
@@ -219,7 +218,7 @@ state cannot be converted to CLI; preserve the original Task and request evidenc
    Region and expected execution account under project configuration. Verify STS;
    never change credentials after failure. A missing CLI/option or mismatched
    profile/account/Region stops before mutation.
-2. Register/select the same infrastructure/deploy Task in its returned Worktree.
+2. Register/select the same infrastructure/deploy Task in the calling repository.
    Confirm allowed AWS actions, exact StackNames, Model/View output paths and
    destructive-change consent. Before fixing the Snapshot, record the following
    Task context from the configured target and verified STS response; Partition
@@ -453,25 +452,13 @@ View and scoped task-loop check succeeded, complete through the local Task valid
 
 ```sh
 python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete
-python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id>
 ```
 
-The CLI completion branch requires its own managed Task without SDK-bound identity;
-it does not require SDK progress or receipts and cannot convert a running SDK Task.
-The completed Model/View/Task candidate is checked against the actual latest local
-base before guarded ff-only delivery. CLI publication does not support `--create-pr`
-or a validation-failure bypass. Preserve pending/conflicted candidates for Human
-review; never force or silently resolve a conflict. While AWS is active/uncertain or
-approval is pending, do not invoke completion; Python local validation cannot prove
-AWS success or that the LLM has finished tracking requests.
-
-Report Model/View/Validation/Git/Task at their actual stage. On a local failure,
-retain the exact candidate, inspect current Git/Task state and use the existing
-same-Task recovery/finalize path only when safe. Do not invoke SDK `sync`,
-`checkpoint`, checkpoint internals or `deploy-publish`, or write SDK progress/
-receipts. Never use a Git/save failure as cause to redeploy. Intermediate Model saves
-keep Task running; the LLM chooses saving and finalization times, without a Python
-Scheduler or background writer.
+The CLI completion branch uses its selected local Task and scoped Model/View
+validation. An SDK-bound Task cannot switch methods. While AWS is active or uncertain
+or approval is pending, keep tracking the original request. Local Python validation
+does not establish AWS success or settle CLI requests. Report AWS, Model, Views,
+Validation and Task status separately. Do not use SDK sync or progress for CLI recovery.
 
 AWS command arguments follow the official CLI references for
 [CreateChangeSet](https://docs.aws.amazon.com/cli/latest/reference/cloudformation/create-change-set.html),
@@ -526,16 +513,15 @@ retain AWS's actual operation restrictions. REVIEW_IN_PROGRESS is classified wit
 current ChangeSet execution, never by suffix alone. Structured absence is ABSENT;
 read/permission/network failures are UNKNOWN, never absence.
 
-Keep this Task's original Stack ID, ChangeSet ID and token when a submission reply is lost. Report an uncertain outcome without blind resubmission. A new Deploy uses a new Task and current AWS state; it does not inspect previous request records.
+Keep this Task's original Stack ID, ChangeSet ID and token when a submission reply is lost. Report an uncertain outcome without blind resubmission. A new Deploy uses a new Task and current AWS state. Unresolved requests for overlapping Stacks in the same checkout block new SDK submissions and remain owned by their original Task.
 
 ### Managed Deploy snapshot and Git publication
 
-Independent new Deploy uses `worktree_task.py deploy-start --task-id <id>` with a
-currently unused ID. Operations within that invocation use its Worktree and Snapshot. Keep lifecycle ownership, current Task authority,
-Target/Account/Region, destructive-change consent and fixed IaC/parameters/artifacts.
-Self-authored Observed/View/contract commits advance HEAD without changing execution
-inputs. Base advancement or rewritten publication history does not replace fixed inputs.
-No historical digest/executionDigest ledger is added. Other Workflow safeguards remain.
+This section describes legacy managed Deploy evidence and its explicit Git recovery.
+Ordinary Deploy uses the calling checkout and its current committed IaC, Task
+contract and Task-local progress. SDK sync saves Observed and Views locally, then
+checks the current Task and required Validation. Final sync may complete a settled
+Task with Deploy FAIL unchanged. No Git publication is needed for local completion.
 
 Local progress resumes this Task's save/generation/checkpoint. Git receipts prove
 only saved candidates; restoring one never creates AWS SUCCESS. Current observations,

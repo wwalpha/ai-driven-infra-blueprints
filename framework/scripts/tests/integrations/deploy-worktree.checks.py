@@ -224,11 +224,6 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     root = seed(tmp_path / "project", report, "orders")
     monkeypatch.chdir(root)
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
-    monkeypatch.setattr(
-        operation_journal,
-        "location",
-        Mock(return_value=report.with_suffix(".operations.json")),
-    )
     path = root / "tasks/deploy.md"
     omitted = f"docs/designs/dev/{ACCOUNT}/s3/s3-bucket-001-bucket-policy.json"
     old = path.read_text(encoding="utf-8")
@@ -256,7 +251,7 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     ).replace("## Allowed paths\n", f"## Allowed paths\n- `{omitted}`\n")
     source = tmp_path / "corrected-contract.md"
     source.write_text(candidate, encoding="utf-8")
-    before = deploy_progress.read_progress(root, ws.load(root, "deploy")[3])["runContext"]
+    before = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))["runContext"]
     with patch.object(
         sys,
         "argv",
@@ -270,8 +265,7 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     ):
         assert task_main() == 0
     assert json.loads(aws.read_text(encoding="utf-8"))["calls"] == calls
-    state = ws.load(root, "deploy")[3]
-    progress = deploy_progress.read_progress(root, state)["runContext"]
+    progress = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))["runContext"]
     assert progress["states"] == before["states"]
     assert progress["inputIdentities"] == before["inputIdentities"]
     assert read_task_snapshot(root, "tasks/deploy.md", live=True).status == "suspend"
@@ -282,18 +276,9 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
         s["status"] == "SUCCESS" and s.get("observedSynced")
         for s in saved["states"].values()
     )
-    assert saved["gitPublication"]["status"] == "SUCCESS"
-    primary = Path(ws.load(root, "deploy")[0])
-    published_head = git(primary, "rev-parse", "HEAD")
-    source_head = git(root, "rev-parse", "HEAD")
-    check = TestCase()
-    check.assertEqual(invoke(root, report, aws, ["--action", "checkpoint"]), 0)
-    check.assertEqual(git(primary, "rev-parse", "HEAD"), published_head)
-    check.assertEqual(git(root, "rev-parse", "HEAD"), source_head)
-    assert (
-        read_task_snapshot(root, "tasks/deploy.md", live=True).task_digest
-        == state["deployIdentity"]["taskDigest"]
-    )
+    assert saved["snapshotValidation"] == "PASS"
+    assert "gitPublication" not in saved
+    assert read_task_snapshot(root, "tasks/deploy.md", live=True).task_digest == progress["taskDigest"]
     assert not any(
         op in {"create_change_set", "execute_change_set"}
         for _, op, _ in json.loads(aws.read_text(encoding="utf-8"))["calls"][
@@ -323,11 +308,6 @@ def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
         root = seed(tmp_path / "project", report, "orders")
     monkeypatch.chdir(root)
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
-    monkeypatch.setattr(
-        operation_journal,
-        "location",
-        Mock(return_value=report.with_suffix(".operations.json")),
-    )
     path = root / "tasks/deploy.md"
     unrelated = root / f"model/dev/{ACCOUNT}/dynamodb.properties"
     unrelated_before = unrelated.read_bytes()
@@ -360,8 +340,7 @@ def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
     )
     aws_state(aws)
     assert invoke(root, report, aws, ["--action", "advance"]) != 0
-    state = ws.load(root, "deploy")[3]
-    before = deploy_progress.read_progress(root, state)["runContext"]
+    before = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))["runContext"]
     failure = Path(before["currentFailure"])
     assert failure.is_file()
     assert any(
@@ -379,11 +358,8 @@ def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
     source = tmp_path / "owner-correction.md"
     source.write_text(candidate, encoding="utf-8")
     transitions.correct_deploy_contract(root, "tasks/deploy.md", source)
-    revised = ws.load(root, "deploy")[3]
-    after = deploy_progress.read_progress(root, revised)["runContext"]
-    assert (
-        state["start"] == revised["start"] and state["worktree"] == revised["worktree"]
-    )
+    after = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))["runContext"]
+    assert before["inputIdentities"] == after["inputIdentities"]
     assert "currentFailure" not in after and after["resolvedScopeFailures"][0][
         "evidence"
     ] == str(failure)
@@ -392,7 +368,7 @@ def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
     transitions.resume(root, "tasks/deploy.md")
     assert run_controller(root, report, aws) == 0
     saved = json.loads(report.read_text(encoding="utf-8"))
-    assert saved["gitPublication"]["status"] == "SUCCESS"
+    assert saved["snapshotValidation"] == "PASS"
     assert unrelated.read_bytes() == unrelated_before
     all_calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
     for call in calls:
@@ -401,61 +377,7 @@ def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
 
 
 def run_controller(root, report, aws):
-    if read_task_snapshot(root, "tasks/deploy.md", live=True).status == "completed":
-        return invoke(root, report, aws, ["--action", "checkpoint"])
-    for _ in range(12):
-        assert invoke(root, report, aws, ["--action", "advance"]) == 0
-        context = json.loads(report.read_text())
-        names = [
-            name
-            for name, saved in context["states"].items()
-            if saved["status"] == "SUCCESS" and not saved.get("observedSynced")
-        ]
-        if names:
-            assert (
-                invoke(
-                    root,
-                    report,
-                    aws,
-                    [
-                        "--action",
-                        "sync",
-                        *[arg for name in names for arg in ("--sync-stack", name)],
-                    ],
-                )
-                == 0
-            )
-        context = json.loads(report.read_text())
-        pending = context.get("checkpointPending")
-        if (
-            pending
-            and pending.get("after") is not None
-            and not context.get("pendingGeneration")
-        ):
-            assert (
-                invoke(
-                    root,
-                    report,
-                    aws,
-                    [
-                        "--action",
-                        "checkpoint",
-                        *[
-                            arg
-                            for name in pending["stacks"]
-                            for arg in ("--sync-stack", name)
-                        ],
-                    ],
-                )
-                == 0
-            )
-        context = json.loads(report.read_text())
-        if all(
-            saved["status"] == "SUCCESS" and saved.get("checkpointed")
-            for saved in context["states"].values()
-        ):
-            return 0
-    raise AssertionError("short operations did not complete local checkpoints")
+    return deploy_controller_fixtures.drive(root, report, aws)
 
 
 @contextmanager
@@ -681,49 +603,17 @@ def check_managed_success_while_peer_running(tmp_path, monkeypatch):
     assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", first]) == 0
     assert stack_model.read_bytes() == stack_bytes
     assert git(primary, "rev-parse", "HEAD") == before
-    with selected_task(root, "tasks/deploy.md"):
-        TestCase().assertEqual(publication.publish(root, "deploy")["status"], "SUCCESS")
-    assert git(primary, "rev-parse", "HEAD") == before
-    TestCase().assertEqual(
-        invoke(root, report, aws, ["--action", "checkpoint", "--sync-stack", first]), 0
-    )
-    context = json.loads(report.read_text())
-    TestCase().assertEqual(context["gitPublication"]["status"], "SUCCESS")
-    TestCase().assertFalse(context["gitPublication"]["retryable"])
     provider = json.loads(aws.read_text())
     provider["stacks"][second]["status"] = "CREATE_COMPLETE"
     aws.write_text(json.dumps(provider))
     assert invoke(root, report, aws, ["--action", "advance"]) == 0
     assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", second]) == 0
-    candidates = {p: (root / p).read_bytes() for p in wt.changed_paths(root)}
-    TestCase().assertFalse(candidates)
-    calls = json.loads(aws.read_text())["calls"]
-    result = wt.run_deploy_publication(root, "deploy")
-    assert result["status"] == "SUCCESS"
-    assert wt.changed_paths(root) == set(candidates)
-    assert all((root / p).read_bytes() == content for p, content in candidates.items())
-    assert json.loads(aws.read_text())["calls"] == calls
-    assert git(primary, "rev-parse", "HEAD") != before
-    TestCase().assertEqual(result["checkpointRequired"], [])
-    assert (
-        invoke(root, report, aws, ["--action", "checkpoint", "--sync-stack", second])
-        == 0
-    )
-    with selected_task(root, "tasks/deploy.md"):
-        TestCase().assertEqual(
-            read_task_snapshot(root, "tasks/deploy.md", live=True).status, "running"
-        )
-        assert invoke(root, report, aws, ["--action", "sync", "--final"]) == 0
-        transitions.complete(root, "tasks/deploy.md")
-    with selected_task(root, "tasks/deploy.md"):
-        worktree.require_complete(
-            root, read_task_snapshot(root, "tasks/deploy.md", live=True)
-        )
-        TestCase().assertEqual(
-            read_task_snapshot(root, "tasks/deploy.md").status, "completed"
-        )
-    TestCase().assertTrue(wt.finalize(root, "deploy")["cleaned"])
-    TestCase().assertFalse(root.exists())
+    assert git(primary, "rev-parse", "HEAD") == before
+    assert wt.changed_paths(root)
+    assert invoke(root, report, aws, ["--action", "sync", "--final"]) == 0
+    assert read_task_snapshot(root, "tasks/deploy.md", live=True).status == "completed"
+    assert git(primary, "rev-parse", "HEAD") == before
+    assert root.is_dir()
 
 
 @pytest.mark.parametrize("mode", ["tracked", "ignored", "untracked"])
@@ -895,12 +785,12 @@ def check_order_range_preparation_publication_and_resume(tmp_path, monkeypatch):
     TestCase().assertEqual(set(saved["states"]), selected)
     TestCase().assertTrue(
         all(
-            state.get("observedSynced") and state.get("checkpointed")
+            state.get("observedSynced")
             for state in saved["states"].values()
         )
     )
-    TestCase().assertEqual(saved["gitPublication"]["status"], "SUCCESS")
-    TestCase().assertNotEqual(git(primary, "rev-parse", "HEAD"), baseline)
+    TestCase().assertEqual(saved["snapshotValidation"], "PASS")
+    TestCase().assertEqual(git(primary, "rev-parse", "HEAD"), baseline)
     TestCase().assertEqual(
         (root / design.relative_to(primary)).read_bytes(), outside_view
     )
@@ -933,11 +823,6 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
     monkeypatch.chdir(root)
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
-    monkeypatch.setattr(
-        operation_journal,
-        "location",
-        Mock(return_value=report.with_suffix(".operations.json")),
-    )
     path = root / "tasks/deploy.md"
     text = path.read_text(encoding="utf-8")
     target = json.loads((root / "project.json").read_text())["targets"][0]
@@ -966,7 +851,7 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
     consumer_before = consumer.read_bytes()
     aws_state(aws)
     assert run_controller(root, report, aws) == 0
-    progress = deploy_progress.read_progress(root, ws.load(root, "deploy")[3])
+    progress = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))
     records = [
         record
         for state in progress["runContext"]["states"].values()
@@ -994,7 +879,7 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
     transitions.correct_deploy_contract(
         root, "tasks/deploy.md", external, [f"dev/{ACCOUNT}/rds"]
     )
-    corrected_progress = deploy_progress.read_progress(root, ws.load(root, "deploy")[3])[
+    corrected_progress = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))[
         "runContext"
     ]
     assert any(
@@ -1004,7 +889,7 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
     transitions.resume(root, "tasks/deploy.md")
     first = "cfn-stack-app-dev-first"
     assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", first]) == 0
-    saved = deploy_progress.read_progress(root, ws.load(root, "deploy")[3])["runContext"]
+    saved = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))["runContext"]
     resolved = [
         record
         for state in saved["states"].values()
@@ -1018,7 +903,7 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
     assert (
         "subnet-before" not in (root / f"docs/designs/dev/{ACCOUNT}/rds.md").read_text()
     )
-    assert json.loads(report.read_text())["gitPublication"]["status"] == "SUCCESS"
+    assert json.loads(report.read_text())["snapshotValidation"] == "PASS"
     assert not any(
         operation in {"create_change_set", "execute_change_set"}
         for _, operation, _ in json.loads(aws.read_text())["calls"][len(calls) :]

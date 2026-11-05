@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import model.importing.repository as repository
-from deploy import git_publication, steps, worktree
+from deploy import git_publication, worktree
 
 
 def git_revision(root, name):
@@ -50,8 +50,6 @@ def publication_repository(revision=git_revision):
             require_complete=lambda *a: None,
             prepare_complete=lambda *a: None,
         ),
-        patch.object(steps, "checkpoint_receipts", return_value={}),
-        patch.object(steps, "publish_snapshot"),
         patch.object(git_publication, "sync"),
     ):
         yield
