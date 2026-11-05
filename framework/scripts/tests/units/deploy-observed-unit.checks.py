@@ -1945,33 +1945,13 @@ def test_codebuild_id_from_api_without_output(
     if case == "wrong-stack":
         stack["StackId"] = stack["StackId"].replace("/producer/", "/other/")
 
-    def aws(operation, **kwargs):
-        if operation == "get_template":
-            return {"TemplateBody": document}
-        if operation == "batch_get_projects":
-            assert kwargs == {"service": "codebuild", "names": ["project"]}
-            if case in {"denied", "output-denied"}:
-                raise AwsError("codebuild", operation, "AccessDeniedException")
-            if case == "missing":
-                return {"projects": [], "projectsNotFound": ["project"]}
-            if case == "incomplete":
-                return {"projects": [{"name": "project"}], "projectsNotFound": []}
-            name = "other" if case == "physical-mismatch" else "project"
-            arn = "arn:aws:codebuild:ap-northeast-1:123456789012:project/" + name
-            if case == "arn-account":
-                arn = arn.replace("123456789012", "999999999999")
-            if case == "arn-region":
-                arn = arn.replace("ap-northeast-1", "us-east-1")
-            return {"projects": [{"name": name, "arn": arn}], "projectsNotFound": []}
-        raise AssertionError(operation)
-
     backend = SimpleNamespace(
         root=root,
         environment="qa",
         directory="team",
         target=TARGET,
         templates={"producer": (document, {})},
-        aws=aws,
+        aws=_bind_framework_callback(_codebuild_sync_aws, document, case),
         run_context={},
     )
     monkeypatch.setattr(
@@ -1984,15 +1964,11 @@ def test_codebuild_id_from_api_without_output(
     )
     reads = []
 
-    def read(*args):
-        reads.append(None)
-        return (
-            dict(stack, StackStatus="UPDATE_IN_PROGRESS")
-            if case == "changed" and len(reads) > 2
-            else stack
-        )
-
-    monkeypatch.setattr(deploy_observed.current_state, "read", read)
+    monkeypatch.setattr(
+        deploy_observed.current_state,
+        "read",
+        _bind_framework_callback(_codebuild_sync_read, reads, stack, case),
+    )
     monkeypatch.setattr(
         deploy_observed.current_state,
         "pages",
@@ -2015,3 +1991,33 @@ def test_codebuild_id_from_api_without_output(
     deploy_observed.collect_successful(backend, [unit], states)
     assert captured[scope.path]["observed.row.001-001.value"] == expected
     assert states["producer"]["observedCoverage"]["Resource001"]["status"] == status
+
+
+def _codebuild_sync_aws(document, case, operation, **kwargs):
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    if operation == "batch_get_projects":
+        assert kwargs == {"service": "codebuild", "names": ["project"]}
+        if case in {"denied", "output-denied"}:
+            raise AwsError("codebuild", operation, "AccessDeniedException")
+        if case == "missing":
+            return {"projects": [], "projectsNotFound": ["project"]}
+        if case == "incomplete":
+            return {"projects": [{"name": "project"}], "projectsNotFound": []}
+        name = "other" if case == "physical-mismatch" else "project"
+        arn = "arn:aws:codebuild:ap-northeast-1:123456789012:project/" + name
+        if case == "arn-account":
+            arn = arn.replace("123456789012", "999999999999")
+        if case == "arn-region":
+            arn = arn.replace("ap-northeast-1", "us-east-1")
+        return {"projects": [{"name": name, "arn": arn}], "projectsNotFound": []}
+    raise AssertionError(operation)
+
+
+def _codebuild_sync_read(reads, stack, case, *args):
+    reads.append(None)
+    return (
+        dict(stack, StackStatus="UPDATE_IN_PROGRESS")
+        if case == "changed" and len(reads) > 2
+        else stack
+    )

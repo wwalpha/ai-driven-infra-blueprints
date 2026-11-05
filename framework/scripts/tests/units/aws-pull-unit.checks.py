@@ -6,24 +6,26 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from generation_inputs import GenerationInputs
-from model.operations import prepare_edit, publish_edit
-from model.sources import SourceWriteContext
-from task_contract_core import selected_task, start
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import import_guard
 import model.adapters.aws as aws
 import pytest
+from generation_inputs import GenerationInputs
 from model.format import serialize
+from model.operations import prepare_edit, publish_edit
 from model.pull_review import MARKER, build, verify
-from model.sources import raw_model
+from model.sources import SourceWriteContext, raw_model
 from support.import_model_fixtures import resource_values
 from support.producer_identifier_reference_fixtures import setup, write_model
 from support.pytest_cli import run
 from support.repository_fixtures import git
+from task_contract_core import selected_task, start
+
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 KEY = "desired.row.001-001.value"
 TASK = "tasks/pull.md"

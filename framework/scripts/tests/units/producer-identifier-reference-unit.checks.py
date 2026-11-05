@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from unittest.mock import patch
 
 import pytest
+from generation_inputs import GenerationInputs
 from model.operations import prepare_edit, validate_candidates
 from model.render import generate_files, generate_markdown, render_validated_model
 from model.sources import Scope, SourceWriteContext
@@ -155,7 +156,7 @@ def check_json_boundaries(tmp_path):
             {("preview", "team", "vpc-endpoint")},
         )
     for action in ("edit", "import"):
-        reads = FileReads()
+        reads = GenerationInputs(tmp_path)
         context = SourceWriteContext._authorized(
             tmp_path,
             reads,

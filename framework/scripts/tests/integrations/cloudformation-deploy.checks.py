@@ -1817,32 +1817,13 @@ def check_codebuild_observation_publication_and_resync(project_workspace, monkey
         "PhysicalResourceId": "project",
     }
 
-    def aws(operation, **kwargs):
-        if operation == "describe_stacks":
-            return {"Stacks": [stack]}
-        if operation == "list_stack_resources":
-            return {"StackResourceSummaries": [actual]}
-        if operation == "get_template":
-            return {"TemplateBody": document}
-        if operation == "batch_get_projects":
-            return {
-                "projects": [
-                    {
-                        "name": "project",
-                        "arn": "arn:aws:codebuild:ap-northeast-1:123456789012:project/project",
-                    }
-                ],
-                "projectsNotFound": [],
-            }
-        raise AssertionError(operation)
-
     backend = SimpleNamespace(
         root=root,
         environment="qa",
         directory="team",
         target=TARGET,
         templates={"producer": (document, {})},
-        aws=aws,
+        aws=_bind_framework_callback(_codebuild_sync_aws, stack, actual, document),
         run_context={},
     )
     unit = {"name": "producer"}
@@ -1861,3 +1842,23 @@ def check_codebuild_observation_publication_and_resync(project_workspace, monkey
         assert (
             state["producer"]["observedCoverage"]["Resource001"]["status"] == expected
         )
+
+
+def _codebuild_sync_aws(stack, actual, document, operation, **kwargs):
+    if operation == "describe_stacks":
+        return {"Stacks": [stack]}
+    if operation == "list_stack_resources":
+        return {"StackResourceSummaries": [actual]}
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    if operation == "batch_get_projects":
+        return {
+            "projects": [
+                {
+                    "name": "project",
+                    "arn": "arn:aws:codebuild:ap-northeast-1:123456789012:project/project",
+                }
+            ],
+            "projectsNotFound": [],
+        }
+    raise AssertionError(operation)

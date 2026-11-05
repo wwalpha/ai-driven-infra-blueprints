@@ -1,8 +1,8 @@
 # AWS pull
 
-## Read and scope
+## Read first
 
-Read AGENTS.md, [Task transition](../../rules/task-contract.md#task-transition),
+Read AGENTS.md, [Task transition](../../rules/task-contract.md#task-transition) (including its required common and conditional reads),
 [Model sources](../../rules/model-templates.md), [project configuration](../../rules/project-configuration.md),
 [Model authority](../../rules/model-information.md#model-authority),
 [Properties format](../../rules/model-information.md#properties-format), and

@@ -615,7 +615,7 @@ def _check_task_transition_routes(text, entrypoints):
         ),
         "conditional-transitions": ("If applicability is unknown",),
         "task-boundary": (
-            "AWS acquisition and acquired add/refresh/bind/replace remain exclusive to /import",
+            "IMPORT acquisition and acquired add/refresh/bind/replace remain exclusive to /import",
             "Do not proceed to IaC, AWS mutation or scenarios",
         ),
         "acceptance-contract": (
