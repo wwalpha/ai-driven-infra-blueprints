@@ -1471,14 +1471,29 @@ def check_scan_progress_preserves_other_files_and_reuses_progress(tmp_path):
     progress = issues_cli.Progress(progress_path)
     progress.start()
     progress.finish("completed")
-    legacy = json.loads(progress_path.read_text())
-    legacy.pop("kind")
-    legacy.pop("version")
-    progress_path.write_text(json.dumps(legacy))
+    current = json.loads(progress_path.read_text())
     assert (
         invoke_cli(base + ["scan-status", "--progress", str(progress_path)]).returncode
         == 0
     )
+    for missing in (("kind", "version"), ("kind",), ("version",)):
+        invalid = {key: value for key, value in current.items() if key not in missing}
+        progress_path.write_text(json.dumps(invalid), encoding="utf-8")
+        before = {
+            path: path.read_bytes()
+            for path in (progress_path, artifact, checkpoint, review)
+        }
+        assert (
+            invoke_cli(
+                base + ["scan-status", "--progress", str(progress_path)]
+            ).returncode
+            == 2
+        )
+        with patch.object(issues_cli._imports_issues_runner, "scan") as scan:
+            assert invoke_cli(command + [str(progress_path)]).returncode == 2
+            scan.assert_not_called()
+        assert {path: path.read_bytes() for path in before} == before
+    progress_path.write_text(json.dumps(current), encoding="utf-8")
     with (
         patch.object(
             issues_cli._imports_issues_runner, "scan", return_value={"example": True}

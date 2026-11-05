@@ -37,7 +37,7 @@ from support.model_v2_fixtures import deploy_properties_fixture
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
 from utils.input_cache import input_context
-from utils.sealed_evidence import evidence_store as old_store
+from utils.local_evidence import shared_store as old_store
 from validation.findings import Findings
 
 from model import dependency_index
@@ -1289,7 +1289,6 @@ def check_deploy_builds_missing_index_without_old_seal(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, _ = readiness_fixture(tmp_path)
     old = old_store(tmp_path)
-    (old / "seal.key").write_bytes(b"broken")
     (old / "model-dependencies.json").write_text("{broken", encoding="utf-8")
     with sources.model_session(RunModels(tmp_path, {})):
         index = dependency_index.load(tmp_path)
@@ -1303,7 +1302,6 @@ def check_deploy_builds_missing_index_without_old_seal(tmp_path, monkeypatch):
             relative
         ] == dependency_index.revision(scope.path)
         assert not dependency_index.location(tmp_path).exists()
-    assert (old / "seal.key").read_bytes() == b"broken"
 
 
 if __name__ == "__main__":

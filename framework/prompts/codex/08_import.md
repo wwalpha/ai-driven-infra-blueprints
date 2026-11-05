@@ -130,7 +130,7 @@ never qualify. Python rechecks each proposal against acquisition, Model and Mapp
 `not_returned` requires a successful Cloud Control Get whose Identifier agrees with
 List/request and whose Properties primary identifier independently agrees. The entire
 returned structure must match the supported provider schema, and only a final optional
-Property may be absent. The Mapping/getter/path/identity proof is part of the sealed
+Property may be absent. The Mapping/getter/path/identity proof is part of the private
 acquisition; Selection cannot create it. Current support covers direct root Properties
 without transforms. SDK/Adapter Getters, nested/array Paths, and ambiguous/unresolved
 provider schema structures fail closed for retention. Identity, required Properties,

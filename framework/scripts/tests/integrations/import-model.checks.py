@@ -57,7 +57,7 @@ from support.import_model_fixtures import (
 from support.import_repository_fixtures import checkpoint, repositories, state
 from support.model_sources import write_model
 from task_contract_core import selected_task, start
-from utils import sealed_evidence
+from utils import local_evidence
 from utils.json_format import document_sha256
 from validation import change
 from validation.task import TaskValidation
@@ -458,7 +458,7 @@ def check_repeat_without_reformat(tmp_path):
         assert publish_fixture(root, again)["status"] == "complete"
         import_guard.require_import_changes(root)
     with selected_task(root, old_name):
-        assert sealed_evidence.read_sealed(root, import_guard.proof_path(root))[
+        assert local_evidence.read_sealed(root, import_guard.proof_path(root))[
             "complete"
         ]
 

@@ -23,8 +23,8 @@ from utils import cli_deploy
 from utils.file_operations import sha
 from utils.import_evidence import discard_import_proof
 from utils.local_evidence import evidence_store as local_evidence_store
+from utils.local_evidence import shared_store as evidence_store
 from utils.script_loader import module
-from utils.sealed_evidence import evidence_store
 from worktree_state import (
     Blocked as Blocked,
 )

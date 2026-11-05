@@ -26,33 +26,10 @@ def read_progress(path):
     state = strict_json(path.read_bytes())
     if not isinstance(state, dict):
         raise ValueError("invalid Issue Scan progress file")
-    legacy = "kind" not in state and "version" not in state
-    legacy_fields = {
-        "status",
-        "started_at",
-        "stages",
-        "total_stages",
-        "stage",
-        "heartbeat_at",
-        "elapsed_seconds",
-        "completed_stages",
-    }
     if (
-        (
-            legacy
-            and (
-                not legacy_fields <= state.keys()
-                or state.keys() - legacy_fields - {"ended_at"}
-            )
-        )
-        or (
-            not legacy
-            and (
-                state.get("kind") != "issues-scan-progress"
-                or type(state.get("version")) is not int
-                or state["version"] != 1
-            )
-        )
+        state.get("kind") != "issues-scan-progress"
+        or type(state.get("version")) is not int
+        or state["version"] != 1
         or state.get("status") not in ("running", "completed", "failed")
         or not isinstance(state.get("started_at"), str)
         or not isinstance(state.get("heartbeat_at"), str)

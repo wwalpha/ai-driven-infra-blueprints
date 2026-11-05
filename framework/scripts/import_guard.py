@@ -14,7 +14,7 @@ import model.importing.repository as _imports_model_importing_repository
 import model.operations as _imports_model_operations
 import model.sources as _dependency_model_sources
 import task_contract_core as _imports_task_contract
-import utils.sealed_evidence as _sealed_evidence
+import utils.local_evidence as _local_evidence
 import validation_scope as _imports_validation_scope
 from contracts.repository import PROJECT_FILENAME
 from model.change_scope import index_stage
@@ -53,7 +53,7 @@ def workflow(root, *, contract_file=None):
 
 
 def proof_path(root, *, contract_file=None):
-    return _sealed_evidence.evidence_store(root) / (
+    return _local_evidence.shared_store(root) / (
         (
             contract_path(root, selected=contract_file)
             if contract_file is not None

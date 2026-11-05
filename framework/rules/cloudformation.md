@@ -204,7 +204,7 @@ Keep the Worktree Skill unchanged; repository development/setup is separate from
 the Deploy execution method. CLI AWS execution needs AWS CLI, not a Python SDK.
 Existing non-AWS Model/generation/validation/Git utilities remain usable. CLI Task
 completion uses the ordinary `task_contract.py --complete` local validator rather
-than SDK sealed progress/final-save receipts. Ordinary Worktree finalize validates
+than SDK local progress/final-save receipts. Ordinary Worktree finalize validates
 the completed CLI candidate against the actual latest base before ff-only delivery.
 These local branches perform no AWS retrieval, submission, scheduling or recovery;
 the LLM remains responsible for all AWS decisions and unsettled-request tracking.
@@ -398,7 +398,7 @@ later separately reviewed update, not automatic resubmission. ROLLBACK_COMPLETE,
 UPDATE_ROLLBACK_FAILED and other failed states retain AWS restrictions. Stop on
 failure requiring repair/Human action; do not delete, continue rollback, bootstrap,
 initialize secrets or redeploy successful Stacks automatically. SDK runtime cleanup
-and signed repair handoff are not available as CLI recovery shortcuts.
+and repair handoff are not available as CLI recovery shortcuts.
 
 ### Interruption and independent recovery
 
@@ -468,7 +468,7 @@ AWS success or that the LLM has finished tracking requests.
 Report Model/View/Validation/Git/Task at their actual stage. On a local failure,
 retain the exact candidate, inspect current Git/Task state and use the existing
 same-Task recovery/finalize path only when safe. Do not invoke SDK `sync`,
-`checkpoint`, signed checkpoint internals or `deploy-publish`, or write SDK progress/
+`checkpoint`, checkpoint internals or `deploy-publish`, or write SDK progress/
 receipts. Never use a Git/save failure as cause to redeploy. Intermediate Model saves
 keep Task running; the LLM chooses saving and finalization times, without a Python
 Scheduler or background writer.
@@ -537,7 +537,7 @@ Self-authored Observed/View/contract commits advance HEAD without changing execu
 inputs. Base advancement or rewritten publication history does not replace fixed inputs.
 No historical digest/executionDigest ledger is added. Other Workflow safeguards remain.
 
-Local sealed progress resumes this Task's save/generation/checkpoint. Git receipts prove
+Local progress resumes this Task's save/generation/checkpoint. Git receipts prove
 only saved candidates; restoring one never creates AWS SUCCESS. Current observations,
 attempt result, Snapshot validation, commit/merge and Task state remain separate.
 A failure Snapshot can have Deploy FAIL, UPDATE_ROLLBACK_COMPLETE, Snapshot PASS,
@@ -572,7 +572,7 @@ A settled current request may leave its attempt outcome UNKNOWN while the curren
 The suspended same-Task operation in [Self recovery](task-contract.md#self-recovery)
 permits monotone additions only to Validation scope, Modified files and Allowed paths.
 Missing owner services must match fixed Execution scope and unique Model ownership of
-the saved execution inputs. A legacy Task without fixed Resource evidence is BLOCKED;
+the saved execution inputs. A Task without fixed Resource evidence is BLOCKED;
 no Execution scope is inferred or added. Exact entrances, necessary parts and generated
 Markdown/JSON are derived from Model sources, never directory-wide permissions. Existing
 observation writers still permit only observed fields; additions grant no Desired or IaC
@@ -644,7 +644,7 @@ Use current Task/target/account/Region/profile/scope/input guards before each mu
 
 Use only `framework/prompts/codex/07_destroy.md` and independent `cloudformation-destroy.py` in infrastructure phase `destroy`. Explicit human StackNames are authorized after safety checks; no duplicate confirmation. Do not route through deploy options, deploy preparation, repair, change sets or deploy mutation guards. No Terraform/resource/retained-resource/force deletion.
 
-Resolve local units, DeployOrder, MaxConcurrentStacks, resource ownership, identifier outputs/incoming references and exact observed/model/view paths before AWS calls. Use existing deterministic model readers and explicit cfn-logicalId; legacy name inference and template/parameter body reading are prohibited. Reject out-of-target references under existing scope policy before deletion. No desired/IaC changes.
+Resolve local units, DeployOrder, MaxConcurrentStacks, resource ownership, identifier outputs/incoming references and exact observed/model/view paths before AWS calls. Use existing deterministic model readers and explicit cfn-logicalId; name-based ownership inference and template/parameter body reading are prohibited. Reject out-of-target references under existing scope policy before deletion. No desired/IaC changes.
 
 Authenticate once per invocation through the existing `deploy/context.py` read-only target/account and STS logic (no IaC command requirement). Destroy uses the existing SDK, not an AWS CLI subprocess: DescribeStacks, ListImports and DeleteStack use `utils/aws/cloudformation.py`; DescribeStackEvents uses the common `utils/aws/client.py` request per page. Pin execution account, region, profile and each described StackId; all deletes address StackId. Confirm StackName/StackStatus/EnableTerminationProtection/ParentId/RootId. Block termination protection or direct nested targets without changing protection or scope. Use the destroy controller's existing lock.
 

@@ -18,8 +18,9 @@ from generation_inputs import GenerationInputs
 from task_contract_core import task_reads
 from utils.input_cache import recording_inputs
 from utils.json_format import document_sha256, json_text
+from utils.local_evidence import private, read_sealed, write_sealed
+from utils.local_evidence import shared_store as evidence_store
 from utils.script_loader import module
-from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import model.importing.approval as _imports_model_importing_approval
 import model.importing.inventory as _imports_model_importing_inventory
@@ -330,6 +331,7 @@ def read_acquisition(root, file, identity, dry_run):
         raise ValueError(
             "IMPORT acquisition must use its original external evidence identifier"
         )
+    private(file.parent, directory=True)
     value = read_sealed(root, file)
     require_format(value, 3, "acquisition")
     require_fresh_acquisition(value)

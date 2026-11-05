@@ -963,7 +963,6 @@ def main():
     sys.path[:0] = [str(TESTS.parent), str(TESTS)]
     unit_failed = False
     if not args.it_only:
-        _imports_validation_loop.authorize_full_regression(TESTS.parents[2])
         units, reason = _imports_validation_loop.select_checks(TESTS.parents[2])
         print(f"{reason}: {len(units)} UT suites", flush=True)
         with tempfile.TemporaryDirectory(prefix="framework-ut-") as directory:

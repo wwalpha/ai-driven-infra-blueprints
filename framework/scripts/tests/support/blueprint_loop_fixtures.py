@@ -95,7 +95,6 @@ def run_validation(root, options, **kwargs):
         return 0
     return SimpleNamespace(display_report=report)
 runner.run_validation = run_validation
-loop.authorize_full_regression = lambda root: None
 raise SystemExit(cli.main())
 """
     (scripts / "blueprint-loop.py").write_text(bootstrap, encoding="utf-8")
