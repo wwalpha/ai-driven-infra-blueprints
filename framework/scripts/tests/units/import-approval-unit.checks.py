@@ -1275,6 +1275,10 @@ def check_subnet_answers_correction_and_resume(tmp_path):
             "record": "subnet-" + str(n),
             "kind": "EC2.Subnet",
             "identity": "subnet-" + str(n),
+            "identityProperty": "EC2.Subnet.SubnetId",
+            "properties": {
+                "EC2.Subnet.SubnetId": {"status": "captured", "value": "subnet-" + str(n)}
+            },
         }
         for n in range(4)
     ]
