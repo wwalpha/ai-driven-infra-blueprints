@@ -721,16 +721,23 @@ def check_candidate_directory_requirements(tmp_path):
     file.write_bytes(original)
     with pytest.raises(ValueError, match="directory, not a file"):
         candidate_sources(root, file, before)
+    assert entrance.read_bytes() == original
     with pytest.raises(ValueError, match="path does not exist"):
         candidate_sources(root, tmp_path / "missing", before)
+    assert entrance.read_bytes() == original
     with pytest.raises(ValueError, match="outside the repository"):
         candidate_sources(root, root / "model", before)
+    assert entrance.read_bytes() == original
     file.unlink()
     with pytest.raises(ValueError, match="including its entrance"):
         candidate_sources(root, stage, before)
+    assert entrance.read_bytes() == original
     candidate = stage / entrance.relative_to(root)
     candidate.parent.mkdir(parents=True)
     candidate.write_bytes(original)
+    changes, after = candidate_sources(root, stage, before)
+    assert not changes and after.authoritative == before.authoritative
+    assert entrance.read_bytes() == original
     part = entrance.with_suffix("") / "part-001.properties"
     part.parent.mkdir()
     part.write_bytes(original)
