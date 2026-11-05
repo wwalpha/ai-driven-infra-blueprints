@@ -232,6 +232,21 @@ def check_v3_registry():
     }
     assert sum(map(len, tgw_properties.values())) == 18
     baseline_properties = deepcopy(properties)
+    namespace = baseline_properties["codepipeline"]["CodePipeline.Pipeline"][
+        "Stages[].Actions[].Namespace"
+    ]
+    assert namespace["model"]["include"] is True
+    assert namespace["display"]["show"] is True
+    assert namespace["aws"] == {
+        "getter": "base",
+        "path": "stages[].actions[].namespace",
+        "normalize": "typed",
+    }
+    namespace["model"]["include"] = False
+    namespace["display"]["show"] = False
+    namespace["aws"].update(
+        getter="provider-codepipeline-pipeline", path="Stages[].Actions[].Namespace"
+    )
     image_uri = baseline_properties["lambda"]["Lambda.Function"]["Code.ImageUri"]
     assert image_uri["model"]["include"] is True
     assert image_uri["aws"] == {
