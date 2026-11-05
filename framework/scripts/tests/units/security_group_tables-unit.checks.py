@@ -17,6 +17,7 @@ import pytest
 from aws_mapping_display import selected_rows
 from comparison.values import desired_value
 from design.catalog import DesignSchemaCatalog
+from design.policy_tables import rendered_design
 from design.services.ec2.security_groups import cells, sg_tables
 from model.core import literal, properties
 from support.fixture_cases import load_case, load_suite
@@ -245,7 +246,7 @@ def check_table_conditions():
             DESIGN.splitlines()
         )
         assert not errors(DESIGN)
-        assert VALIDATOR.rendered_policy_design(path) == DESIGN
+        assert rendered_design(path) == DESIGN
 
         normalized, children = expanded_design(DESIGN.splitlines())
         assert len(children) == 4

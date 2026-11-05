@@ -33,7 +33,6 @@ from design.catalog import DesignSchemaCatalog
 from design.document import DesignIndex
 from design.layout_schema import STACK_DESIGN
 from design.policy_tables import artifact_id as artifact_id
-from design.policy_tables import rendered_design
 from issues.publication import save_authority
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import contract_reads as contract_reads
@@ -69,8 +68,6 @@ from validation_cache import PassCache
 from validation_scope import active_scope, scoped_files
 
 import model as _model_api
-
-rendered_policy_design = rendered_design
 
 
 def owned_field(owner, name):
