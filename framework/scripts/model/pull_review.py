@@ -10,7 +10,7 @@ import re
 
 from task_contract_core import section
 
-from model.format import owner
+from model.format import owner, patch
 
 MARKER = "- Model source: `aws-pull`"
 
@@ -68,6 +68,18 @@ def build(before, after, task_file, evidence):
         )
     if set(evidence) != {item["key"] for item in changes}:
         raise ValueError("AWS pull evidence must name exactly the changed keys")
+    approved = {item["key"]: item["after"] for item in changes}
+    expected = dict(before.files)
+    for path, document in before.documents.items():
+        updates = {key: value for key, value in approved.items() if key in document.values}
+        if updates:
+            expected[path] = patch(document, updates)
+    if {
+        path.relative_to(before.scope.root): text for path, text in expected.items()
+    } != {
+        path.relative_to(after.scope.root): text for path, text in after.files.items()
+    }:
+        raise ValueError("AWS pull candidate contains unapproved raw Model changes")
     return {
         "version": 1,
         "worktree": str(before.scope.root.resolve()),

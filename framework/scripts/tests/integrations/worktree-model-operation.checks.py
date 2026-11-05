@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Parent deletion transactions use synthetic sources; no consumer checkout or AWS."""
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -11,13 +12,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from unittest import TestCase
 from unittest.mock import patch
 
+import pytest
 import task_contract_core as tasks
 import worktree_task as wt
 from import_guard import require_import_changes
 from model.adapters.task import source_write_context
 from model.format import patch as patch_properties
-from model.sources import load_model
+from model.pull_review import MARKER
+from model.sources import load_model, raw_model
+from support.import_model_fixtures import resource_values
 from support.model_v2_fixtures import properties_fixture
+from support.producer_identifier_reference_fixtures import setup, write_model
 from support.worktree_task_fixtures import fixture as git_fixture
 from support.worktree_task_fixtures import git
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
@@ -116,11 +121,23 @@ def check_one_parent_model_operation_merge():
         assert not target.exists()
 
 
-def check_cli_candidate_managed_task(tmp_path):
+@pytest.mark.parametrize("aws_pull", [False, True])
+def check_cli_candidate_managed_task(tmp_path, aws_pull):
     cli = Path(__file__).resolve().parents[2] / "model/cli.py"
     with git_fixture() as root:
-        scope = properties_fixture(root)
-        relative = scope.path.relative_to(root)
+        if aws_pull:
+            setup(root, ["iam"], ["IAM.ManagedPolicy"])
+            relative = Path("model/preview/team/iam.properties")
+            write_model(root / relative, resource_values(
+                "001", "IAM.ManagedPolicy", "policy", "CREATE",
+                [("ManagedPolicyName", "fixture"), ("Description", "old")],
+            ))
+            scope_name = "preview/team/iam"
+            fields = {"desired.row.001-002.value": "new"}
+        else:
+            relative = properties_fixture(root).path.relative_to(root)
+            scope_name = "qa-synthetic/team-a/network"
+            fields = {"display.resource.007.label": "explicit display"}
         git(root, "add", "model", "project.json")
         git(root, "commit", "-qm", "synthetic editable Model")
         with patch.object(wt.python_env, "setup", return_value={"status": "ready"}):
@@ -132,21 +149,37 @@ def check_cli_candidate_managed_task(tmp_path):
             "# CLI candidate edit\n## Task contract\n- Task type: `design`\n"
             "- Task status: `running`\n- Workflow: `update`\n"
             "- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n"
-            "## Validation scope\n- `qa-synthetic/team-a/network`\n"
+            f"## Validation scope\n- `{scope_name}`\n"
             "## Required changes\n- [R1] Explicit candidate edit\n"
             "## Acceptance checks\n- [R1] `exists:project.json`\n"
             + "## Modified files\n" + listed + "## Allowed paths\n" + listed
         )
-        tasks.start(target, name, text)
         candidate_root = tmp_path / "candidate"
         candidate = candidate_root / relative
         candidate.parent.mkdir(parents=True)
         candidate.write_text(
-            patch_properties(load_model(path).documents[path],
-                             {"display.resource.007.label": "explicit display"}),
+            patch_properties(load_model(path).documents[path], fields),
             encoding="utf-8",
         )
         original = path.read_bytes()
+        before = raw_model(path)
+        if aws_pull:
+            evidence = tmp_path / "evidence.json"
+            evidence.write_text(json.dumps({next(iter(fields)): "fixture iam.get_policy confirmed"}), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, "-I", "-B", str(cli), "pull-review", str(path),
+                 "--candidate", str(candidate_root), "--task-file", name,
+                 "--evidence", str(evidence)],
+                cwd=target, capture_output=True, text=True,
+            )
+            assert result.returncode == 0, result.stderr
+            review = json.loads(result.stdout)
+            assert review["changes"][0]["after"] == "new"
+            assert path.read_bytes() == original
+            # Supply an approved contract; Python does not prove the Human conversation.
+            text = text.replace("## Task contract\n", "## Task contract\n" + MARKER + "\n")
+            text += "## AWS pull review\n" + json.dumps(review) + "\n"
+        tasks.start(target, name, text)
 
         edit = _bind_framework_callback(_model_edit, cli)
 
@@ -165,6 +198,20 @@ def check_cli_candidate_managed_task(tmp_path):
         assert result.returncode == 0, result.stderr
         assert path.read_bytes() == candidate.read_bytes()
         assert (root / relative).read_bytes() == original
+        after = raw_model(path)
+        assert dict(after.authoritative) == {**before.authoritative, **fields}
+        if aws_pull:
+            assert {item["key"]: item["after"] for item in review["changes"]} == fields
+            final_check = _bind_framework_callback(
+                _callback_check_one_parent_model_operation_merge_final_check, name,
+            )
+            with patch("validation.loop.run_loop", side_effect=final_check) as validation:
+                wt._integrate_model(target, "candidate")
+            assert validation.call_count == 1
+            assert (root / relative).read_bytes() == candidate.read_bytes()
+            assert tasks.status((target / name).read_text(encoding="utf-8")) == "completed"
+            wt.cleanup(root, "candidate")
+            assert not target.exists()
 
 
 if __name__ == "__main__":

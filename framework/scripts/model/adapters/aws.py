@@ -36,6 +36,7 @@ from contracts.model import (
     MODEL_UNSET,
     RESOURCE_LOGICAL_ID_KEY,
     RESOURCE_TYPE_KEY,
+    row_has_resource_prefix,
 )
 from contracts.repository import PROJECT_FILENAME
 from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY
@@ -1544,13 +1545,31 @@ def run(root, items, profile=None, session_factory=None, *, create_only=False):
     selected_profiles = [select_profile(target, profile) for target, _ in items]
     for target, _ in items:
         execution_account(target)
+    selected_resources = {}
+    if create_only:
+        for _, path in items:
+            selected_resources[path] = {
+                number
+                for number, spec in entries(properties(read_model(path)), "desired.resource.")
+                if spec.get("resourceMode", "CREATE") == "CREATE"
+            }
     comparison = _imports_aws_mapping_compare.comparison
-    for service in sorted({path.stem for _, path in items} - {"cloudformation-stacks"}):
+    for service in sorted({
+        path.stem for _, path in items
+        if not create_only or selected_resources[path]
+    } - {"cloudformation-stacks"}):
         comparison(ROOT, service)  # Validate all Mapping inputs before AWS retrieval.
     for _, path in items:
-        if path.stem != "cloudformation-stacks":
+        if path.stem != "cloudformation-stacks" and (
+            not create_only or selected_resources[path]
+        ):
             _, definitions = comparison(ROOT, path.stem)
-            for _, row in entries(properties(read_model(path)), "desired.row."):
+            for rid, row in entries(properties(read_model(path)), "desired.row."):
+                if create_only and not any(
+                    row_has_resource_prefix(rid, number)
+                    for number in selected_resources[path]
+                ):
+                    continue
                 if row["property"] not in definitions:
                     raise ValueError("missing AWS Compare Mapping: " + row["property"])
     contexts, results = {}, []
@@ -1560,6 +1579,16 @@ def run(root, items, profile=None, session_factory=None, *, create_only=False):
             "target": target["directory"],
             "service": path.stem,
         }
+        if create_only and not selected_resources[path]:
+            results.append({
+                **prefix,
+                "resource": None,
+                "propertiesKey": None,
+                "status": "local_metadata",
+                "reason": "no CREATE Resources selected",
+                "apis": [],
+            })
+            continue
         connection = (target["environment"], target["directory"])
         if connection not in contexts:
             try:
@@ -1609,7 +1638,7 @@ def run(root, items, profile=None, session_factory=None, *, create_only=False):
                 else [
                     item
                     for resource in model.resources
-                    if not create_only or resource.spec.get("resourceMode", "CREATE") == "CREATE"
+                    if not create_only or resource.number in selected_resources[path]
                     for item in compare_resource(ctx, resource)
                 ]
             )
