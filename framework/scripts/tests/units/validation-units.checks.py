@@ -25,6 +25,7 @@ if not __debug__:
 
 def main():
     terraform.check_configuration()
+    contracts.check_task_completion_contract()
     contracts.check_optional_alias_contract()
     contracts.check_implementation_preflight_prompt()
     contracts.check_update_flow_prompt()
