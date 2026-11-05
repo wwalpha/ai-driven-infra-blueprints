@@ -6,7 +6,7 @@ Use these guidelines when newly implementing Python code, substantially changing
 
 - A function should generally have one clear responsibility. Consider separating independent responsibilities such as input acquisition, data transformation, validation, control flow, persistence, and result construction.
 - An orchestration function may call multiple operations in order. Do not embed detailed business processing in it without a valid reason.
-- For new or substantially changed functions, use approximately 150 lines as a guideline for considering whether responsibilities should be separated. Never split a function solely to reduce its line count.
+- For new or substantially changed functions, use approximately 60–80 lines as a design guideline. When a function exceeds 80 lines, consider whether responsibilities should be separated. Function length is a secondary indicator to single responsibility; never split a function solely to reduce its line count.
 - Simple data definitions and operations that become harder to understand when split may be exceptions. Existing long functions need not be changed in bulk.
 
 ## Conditions and extraction
