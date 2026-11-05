@@ -168,13 +168,153 @@ def test_provider_malformed_response_cannot_authorize_retention(payload):
         assert not raw["verifiedDetailGetters"]
 
 
-def test_provider_required_and_sdk_properties_cannot_be_waived():
+def test_required_and_unmapped_properties_cannot_be_waived():
     for prop in (
         "Logs.MetricFilter.FilterName",
-        "QuickSight.Group.Description",
+        "QuickSight.Group.GroupName",
         "EC2.TransitGateway.NoSuchProperty",
     ):
         assert limitations.contract(ROOT, prop, "not_returned") is None
+
+
+@pytest.mark.parametrize(
+    "api,operation,result,path,response,expected",
+    [
+        ("s3", "get_bucket_versioning", "$", "Status", {}, True),
+        ("s3", "get_bucket_versioning", "$", "Unknown", {}, False),
+        (
+            "lambda",
+            "get_function",
+            "Configuration",
+            "Description",
+            {"Configuration": {"FunctionName": "function"}},
+            True,
+        ),
+        ("lambda", "get_function", "Configuration", "Description", {}, False),
+        (
+            "lambda",
+            "get_function",
+            "Configuration",
+            "Description",
+            {"Configuration": None},
+            False,
+        ),
+        (
+            "lambda",
+            "get_function",
+            "Configuration",
+            "Description",
+            {"Configuration": {"Environment": []}},
+            False,
+        ),
+        (
+            "datazone",
+            "get_project",
+            "$",
+            "description",
+            {
+                "domainId": "domain",
+                "id": "project",
+                "name": "project",
+                "createdBy": "user",
+            },
+            True,
+        ),
+        (
+            "datazone",
+            "get_project",
+            "$",
+            "description",
+            {"domainId": "domain", "id": "project", "name": "project"},
+            False,
+        ),
+        (
+            "datazone",
+            "get_project",
+            "$",
+            "createdBy",
+            {"domainId": "domain", "id": "project", "name": "project"},
+            False,
+        ),
+        ("s3", "get_bucket_versioning", "WrongParent", "Status", {}, False),
+    ],
+)
+def test_sdk_omission_uses_schema_without_service_retention_exceptions(
+    api, operation, result, path, response, expected
+):
+    getter = {"service": api, "operation": operation, "result": result}
+    assert limitations.sdk_omission(ROOT, getter, response, path) is expected
+
+
+def test_sdk_retention_preserves_row_metadata_and_references():
+    prop = "QuickSight.Group.Description"
+    capture = limitations.contract(ROOT, prop, "not_returned")
+    assert capture is not None
+    capture["evidence"]["identity"] = "group-identity"
+    record = {
+        "record": "group",
+        "kind": "QuickSight.Group",
+        "identity": "group-identity",
+        "_action": "refresh",
+        "properties": {prop: capture},
+    }
+    old = resource_values(
+        "001", "QuickSight.Group", "group", "IMPORT", [("Description", "`keep this`")]
+    )
+    old.update(
+        {
+            "observed.row.001-001.value": "`previous observation`",
+            "display.row.001-001.show": "false",
+            "desired.row.001-001.comment": "existing metadata",
+            "desired.reference.001.consumerKey": "desired.row.001-001.value",
+            "desired.reference.001.sourceResourceId": "002",
+        }
+    )
+    selection = {
+        "limitations": [
+            {
+                "record": "group",
+                "property": prop,
+                "reasonCode": capture["reasonCode"],
+                "treatment": "retain_existing",
+                "reason": "Human approved retaining the exact existing Row",
+            }
+        ]
+    }
+    assert limitations.validate(selection, {"001": record}, old, dict(old), ROOT)
+    for key in limitations.row_state(old, "001", prop):
+        with pytest.raises(ValueError, match="unchanged existing"):
+            limitations.validate(
+                selection, {"001": deepcopy(record)}, old, {**old, key: "changed"}, ROOT
+            )
+
+
+def test_sdk_omit_unobserved_does_not_authorize_ordinary_missing():
+    prop = "QuickSight.Group.Description"
+    capture = limitations.contract(ROOT, prop, "not_returned")
+    capture["evidence"]["identity"] = "group-identity"
+    record = {
+        "record": "group",
+        "kind": "QuickSight.Group",
+        "identity": "group-identity",
+        "_action": "add",
+        "properties": {prop: capture},
+    }
+    selection = {
+        "limitations": [
+            {
+                "record": "group",
+                "property": prop,
+                "reasonCode": capture["reasonCode"],
+                "treatment": "omit_unobserved",
+                "reason": "Human approved leaving this optional Property unobserved",
+            }
+        ]
+    }
+    assert limitations.validate(selection, {"001": record}, {}, {}, ROOT)
+    record["properties"][prop] = {"status": "missing", "reason": "No evidence"}
+    with pytest.raises(ValueError, match="not eligible"):
+        limitations.validate(selection, {"001": record}, {}, {}, ROOT)
 
 
 def schema(prop):

@@ -1367,11 +1367,17 @@ def check_limited_acquisition_preserves_values_and_completes(tmp_path):
     assert "Task status: `completed`" in (root / "tasks/import-fixture.md").read_text()
 
 
-def check_optional_provider_retention_completes(tmp_path):
+@pytest.mark.parametrize(
+    "route", ["cloudcontrol", "sdk", "sdk-evidence-tamper", "sdk-review-tamper"]
+)
+def check_optional_provider_retention_completes(tmp_path, route):
     root = tmp_path / "limited"
     root.mkdir()
     project_fixture(root)
-    service, kind = "ec2", "EC2.TransitGateway"
+    sdk = route.startswith("sdk")
+    service, kind = (
+        ("quicksight", "QuickSight.Group") if sdk else ("ec2", "EC2.TransitGateway")
+    )
     path = root / "model/dev" / ACCOUNT / (service + ".properties")
     arn = "tgw-1234567890abcdef0"
     values = {
@@ -1382,6 +1388,14 @@ def check_optional_provider_retention_completes(tmp_path):
             "registered-data",
             "IMPORT",
             [
+                ("GroupName", "`group`"),
+                ("Description", "`retained description`"),
+                ("AwsAccountId", m.model_literal(ACCOUNT)),
+                ("Namespace", "`default`"),
+                ("PrincipalId", "`old-principal`"),
+            ]
+            if sdk
+            else [
                 ("Id", m.model_literal(arn)),
                 ("Description", "`retained description`"),
                 ("AmazonSideAsn", "`64512`"),
@@ -1435,6 +1449,23 @@ def check_optional_provider_retention_completes(tmp_path):
             ]
         }
     )
+    if sdk:
+        cli = AwsCli()
+        cli.responses.update(
+            {
+                ("quicksight", "list-namespaces"): {
+                    "Namespaces": [{"Name": "default"}]
+                },
+                ("quicksight", "list-groups"): {"GroupList": [{"GroupName": "group"}]},
+                ("quicksight", "describe-group"): {
+                    "Group": {
+                        "GroupName": "group",
+                        "Arn": f"arn:aws:quicksight:ap-northeast-1:{ACCOUNT}:group/default/group",
+                        "PrincipalId": "new-principal",
+                    }
+                },
+            }
+        )
     acquired = m.acquire(
         root, "dev", service, ACCOUNT, cli_runner=cli, resource_types=[kind]
     )
@@ -1443,7 +1474,14 @@ def check_optional_provider_retention_completes(tmp_path):
         acquired["records"][0]["properties"][kind + ".Description"]["status"]
         == "not_returned"
     )
-    proposed = {**values, "desired.row.001-004.value": "`enable`"}
+    proposed = {
+        **values,
+        **(
+            {"desired.row.001-005.value": "`new-principal`"}
+            if sdk
+            else {"desired.row.001-004.value": "`enable`"}
+        ),
+    }
     selected = [
         {
             "record": acquired["records"][0]["record"],
@@ -1457,6 +1495,10 @@ def check_optional_provider_retention_completes(tmp_path):
     first = review_fixture(root, acquired, service)
     assert not first["review"]["completion"]["propertiesResolved"]
     assert first["review"]["limitations"][0]["treatment"] is None
+    before_publish = path.read_bytes()
+    with pytest.raises(ValueError):
+        m.publish_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
+    assert path.read_bytes() == before_publish
     selection_path = Path(acquired["selection"])
     selection = json.loads(selection_path.read_text())
     selection["limitations"] = [
@@ -1486,6 +1528,25 @@ def check_optional_provider_retention_completes(tmp_path):
     )
     resumed = m.resume_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
     assert resumed["status"] == "resumed" and resumed["answers"] == selected
+    if route.endswith("tamper"):
+        evidence_file = Path(acquired["evidence"])
+        tampered_file = (
+            evidence_file
+            if route == "sdk-evidence-tamper"
+            else evidence_file.parent / "review.json"
+        )
+        tampered = json.loads(tampered_file.read_text(encoding="utf-8"))
+        if route == "sdk-evidence-tamper":
+            tampered["payload"]["records"][0]["properties"][kind + ".Description"][
+                "evidence"
+            ]["identity"] = "other"
+        else:
+            tampered["completion"]["allPropertiesObserved"] = True
+        tampered_file.write_text(json_text(tampered), encoding="utf-8")
+        with pytest.raises(ValueError):
+            m.publish_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
+        assert path.read_bytes() == before_publish
+        return
     # The fixture represents consent to this unchanged Review; Python checks integrity only.
     result = m.publish_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
     assert result["status"] == "complete" and len(cli.calls) == count, result
@@ -1501,7 +1562,9 @@ def check_optional_provider_retention_completes(tmp_path):
         after.authoritative["desired.row.001-002.value"]
         == values["desired.row.001-002.value"]
     )
-    assert "observed.row.001-002.value" not in after.authoritative
+    assert m.limitations.row_state(
+        values, "001", kind + ".Description"
+    ) == m.limitations.row_state(after.authoritative, "001", kind + ".Description")
     import_guard.require_import_changes(root)
     with patch.object(TaskValidation, "git_paths", _callback_limited_task_paths):
         task_contract.complete(root, "tasks/import-fixture.md")

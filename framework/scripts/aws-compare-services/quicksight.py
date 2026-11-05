@@ -166,5 +166,7 @@ def fetch_sdk(ctx: Any, r: Any, operation: str) -> dict[str, Any]:
         Namespace=r.value("Namespace"),
         GroupName=r.value("GroupName"),
     )
-    verify_owner(result.get("Group", {}), account)
+    if not isinstance(result, dict) or not isinstance(result.get("Group"), dict):
+        raise Unresolved("QuickSight DescribeGroup response structure is invalid")
+    verify_owner(result["Group"], account)
     return result

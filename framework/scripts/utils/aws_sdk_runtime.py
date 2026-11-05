@@ -8,6 +8,7 @@ from botocore import xform_name
 from botocore.exceptions import BotoCoreError as BotoCoreError
 from botocore.exceptions import ClientError as ClientError
 from botocore.exceptions import UnknownRegionError as UnknownRegionError
+from botocore.validate import ParamValidator as ParamValidator
 
 
 def sdk_session():

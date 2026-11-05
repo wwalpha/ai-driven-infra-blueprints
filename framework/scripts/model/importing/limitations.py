@@ -98,6 +98,64 @@ def response_structure(value: Any, schema: dict[str, Any]) -> bool:
     return type(value) in types.get(kind, ())
 
 
+def sdk_shapes(root: Path, getter: Any, path: str) -> tuple[Any, Any] | None:
+    """Resolve an optional scalar leaf through the exact SDK result and Mapping path."""
+    if any(
+        not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part) for part in path.split(".")
+    ):
+        return None
+    model = sdk_for(root).service_model(getter["service"])
+    name = aws_runtime().operation_name(model, getter["operation"])
+    if name is None:
+        return None
+    output = model.operation_model(name).output_shape
+    try:
+        result = (
+            output
+            if getter["result"] == "$"
+            else response_shape(output, getter["result"])
+        )
+        parent_path, _, leaf = path.rpartition(".")
+        parent = response_shape(result, parent_path) if parent_path else result
+        shape = response_shape(result, path)
+    except (ValueError, AttributeError):
+        return None
+    if leaf in parent.required_members or shape.type_name not in {
+        "string",
+        "boolean",
+        "integer",
+        "long",
+        "float",
+        "double",
+    }:
+        return None
+    return output, result
+
+
+def sdk_omission(root: Path, getter: Any, response: Any, path: str) -> bool:
+    """Validate the whole SDK response before accepting an absent optional leaf."""
+    shapes = sdk_shapes(root, getter, path)
+    if shapes is None or not isinstance(response, dict):
+        return False
+    if "ResponseMetadata" in response and not isinstance(
+        response["ResponseMetadata"], dict
+    ):
+        return False
+    output, _ = shapes
+    payload = {
+        key: value for key, value in response.items() if key != "ResponseMetadata"
+    }
+    if aws_runtime().ParamValidator().validate(payload, output).has_errors():
+        return False
+    result = response
+    if getter["result"] != "$":
+        for part in getter["result"].split("."):
+            if not isinstance(result, dict) or part not in result:
+                return False
+            result = result[part]
+    return missing_leaf(result, path)
+
+
 def contract(root: Path, prop: str, status: str) -> dict[str, Any] | None:
     kind = ".".join(prop.split(".")[:2])
     service = owners(root).get(kind)
@@ -113,10 +171,14 @@ def contract(root: Path, prop: str, status: str) -> dict[str, Any] | None:
         if (
             mapped.source != "aws"
             or mapped.field.classification != "supported"
-            or getter.get("kind") != "cloudcontrol"
+            or getter.get("kind") not in {"cloudcontrol", "sdk"}
             or mapped.transform != "identity"
             or required(root, kind, prop)
-            or not missing_leaf({}, mapped.field.path)
+            or (
+                sdk_shapes(root, getter, mapped.field.path) is None
+                if getter.get("kind") == "sdk"
+                else not missing_leaf({}, mapped.field.path)
+            )
             or sensitive(
                 SimpleNamespace(module=SimpleNamespace(sensitive=lambda _: False)), prop
             )

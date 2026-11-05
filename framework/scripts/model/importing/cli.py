@@ -54,7 +54,7 @@ import model.references as _imports_model_references
 import model.sources as _imports_model_sources
 from model.core import entries as entries
 from model.importing import approval as import_approval
-from model.importing import limitations
+from model.importing import limitations, sdk_inventory
 from model.importing.evidence import (
     acquired,
     acquisition_complete,
@@ -512,11 +512,19 @@ def _normalize_records(ctx, service, records):
                     value = m.select(ctx.fetch(proxy, field.getter), field.path)
                 if value == m.MISSING:
                     omitted = limitations.contract(ctx.root, prop, "not_returned")
-                    if (
-                        omitted is not None
-                        and field.getter in record.get("verifiedDetailGetters", ())
+                    getter = mapping.getters.get(field.getter, {})
+                    verified_omission = (
+                        sdk_inventory.verified_detail(
+                            ctx, proxy, record, getter, response
+                        )
+                        and limitations.sdk_omission(
+                            ctx.root, getter, response, field.path
+                        )
+                        if omitted is not None and getter.get("kind") == "sdk"
+                        else field.getter in record.get("verifiedDetailGetters", ())
                         and limitations.missing_leaf(response, field.path)
-                    ):
+                    )
+                    if omitted is not None and verified_omission:
                         omitted["evidence"]["identity"] = record["identity"]
                         captured[prop] = omitted
                         continue

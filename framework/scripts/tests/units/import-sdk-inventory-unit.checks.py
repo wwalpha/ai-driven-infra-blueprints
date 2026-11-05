@@ -3,6 +3,7 @@
 
 import sys
 from collections import Counter
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -12,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from botocore.validate import ParamValidator
-from model.importing import cli, coverage, inventory, sdk_inventory
+from model.importing import cli, coverage, inventory, limitations, sdk_inventory
 from support.pytest_cli import run
 from utils.aws_sdk import aws_runtime
 
@@ -143,6 +144,202 @@ def test_groups_preserve_namespace_and_selector_provenance():
     )
     with pytest.raises(ValueError, match="second parent"):
         sdk_inventory.collect(ctx, "QuickSight.Group")
+
+
+def normalize_group(response, *, region=REGION, raw_change=None):
+    ctx = cli.import_context(
+        cli.ROOT, dict(TARGET, awsRegion=region), service="quicksight", no_profile=True
+    )
+    ctx.verified = True
+    ctx._call = (
+        Mock(side_effect=response)
+        if isinstance(response, Exception)
+        else Mock(return_value=response)
+    )
+    selectors = {"AwsAccountId": ACCOUNT, "Namespace": "default"}
+    raw = sdk_inventory.record(
+        "QuickSight.Group", dict(selectors, GroupName="group"), {}, selectors=selectors
+    )
+    if raw_change:
+        raw_change(raw)
+    result = cli.normalize_records(ctx, "quicksight", [raw])[0]
+    return ctx, raw, result
+
+
+@pytest.mark.parametrize(
+    "partition,region",
+    [("aws", REGION), ("aws-cn", "cn-north-1"), ("aws-us-gov", "us-gov-west-1")],
+)
+def test_sdk_group_omission_requires_real_request_and_independent_identity(
+    partition, region
+):
+    response = {
+        "Group": {
+            "GroupName": "group",
+            "Arn": f"arn:{partition}:quicksight:{region}:{ACCOUNT}:group/default/group",
+            "PrincipalId": "principal",
+        }
+    }
+    ctx, _, result = normalize_group(response, region=region)
+    capture = result["properties"]["QuickSight.Group.Description"]
+    assert capture["status"] == "not_returned"
+    assert limitations.valid_capture(
+        cli.ROOT, "QuickSight.Group.Description", capture, result
+    )
+    ctx._call.assert_called_once_with(
+        "quicksight",
+        "describe_group",
+        AwsAccountId=ACCOUNT,
+        Namespace="default",
+        GroupName="group",
+    )
+    forged = deepcopy(capture)
+    forged["evidence"]["identity"] = "other"
+    assert not limitations.valid_capture(
+        cli.ROOT, "QuickSight.Group.Description", forged, result
+    )
+
+
+@pytest.mark.parametrize(
+    "group",
+    [
+        None,
+        [],
+        "wrong",
+        {},
+        {"GroupName": "different"},
+        {
+            "GroupName": "different",
+            "Arn": f"arn:aws:quicksight:{REGION}:{ACCOUNT}:group/default/group",
+        },
+        {"Arn": f"arn:aws:quicksight:{REGION}:{ACCOUNT}:group/default/group"},
+        {"GroupName": "group"},
+        {"GroupName": "group", "Arn": None},
+        *[
+            {"GroupName": "group", "Arn": arn}
+            for arn in (
+                f"arn:aws:quicksight:{REGION}:210987654321:group/default/group",
+                f"arn:aws:quicksight:{REGION}:{ACCOUNT}:group/other/group",
+                f"arn:aws:quicksight:{REGION}:{ACCOUNT}:group/default/other",
+                f"arn:aws:quicksight:us-east-1:{ACCOUNT}:group/default/group",
+                f"arn:aws-cn:quicksight:{REGION}:{ACCOUNT}:group/default/group",
+            )
+        ],
+    ],
+)
+def test_sdk_group_unproven_identity_cannot_retain(group):
+    _, _, result = normalize_group({"Group": group})
+    assert (
+        result["properties"]["QuickSight.Group.Description"]["status"] != "not_returned"
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda response: response.update(Unexpected="bad"),
+        lambda response: response["Group"].update(PrincipalId=[]),
+        lambda response: response["Group"].update(Unexpected=True),
+        lambda response: response.update(ResponseMetadata=None),
+    ],
+)
+def test_sdk_group_response_schema_must_be_intact(change):
+    response = {
+        "Group": {
+            "GroupName": "group",
+            "Arn": f"arn:aws:quicksight:{REGION}:{ACCOUNT}:group/default/group",
+        }
+    }
+    change(response)
+    _, _, result = normalize_group(response)
+    assert (
+        result["properties"]["QuickSight.Group.Description"]["status"] != "not_returned"
+    )
+
+
+@pytest.mark.parametrize("code", ["AccessDeniedException", "InternalFailure"])
+def test_sdk_failed_getter_cannot_become_optional_omission(code):
+    _, _, result = normalize_group(
+        cli.comparator().AcquisitionError("quicksight.describe_group", code)
+    )
+    capture = result["properties"]["QuickSight.Group.Description"]
+    assert capture["status"] == "unavailable" and capture["errorCode"] == code
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "identityComponents",
+        "identity",
+        "identityStatus",
+        "provenance",
+        "seedProperties",
+    ],
+)
+def test_sdk_group_inventory_evidence_is_required(key):
+    response = {
+        "Group": {
+            "GroupName": "group",
+            "Arn": f"arn:aws:quicksight:{REGION}:{ACCOUNT}:group/default/group",
+        }
+    }
+    _, _, result = normalize_group(
+        response,
+        raw_change=lambda raw: raw.update(
+            {key: {} if key in {"provenance", "seedProperties"} else "changed"}
+        ),
+    )
+    assert (
+        result["properties"]["QuickSight.Group.Description"]["status"] != "not_returned"
+    )
+
+
+def test_sdk_cached_payload_without_request_evidence_cannot_retain():
+    response = {
+        "Group": {
+            "GroupName": "group",
+            "Arn": f"arn:aws:quicksight:{REGION}:{ACCOUNT}:group/default/group",
+        }
+    }
+    _, _, result = normalize_group(
+        response,
+        raw_change=lambda raw: raw["getters"].update(
+            {"sdk-quicksight-group": response}
+        ),
+    )
+    assert result["properties"]["QuickSight.Group.Description"]["status"] == "missing"
+    assert not sdk_inventory.verified_detail(
+        SimpleNamespace(), None, {"kind": "Glue.Table"}, {}, {}
+    )
+
+
+def test_sdk_requested_identity_must_match_inventory():
+    response = {
+        "Group": {
+            "GroupName": "group",
+            "Arn": f"arn:aws:quicksight:{REGION}:{ACCOUNT}:group/default/group",
+        }
+    }
+    ctx, raw, result = normalize_group(response)
+    mapping, mapped = inventory.inventory_for(ctx).mapping("quicksight")
+    resource = cli.selector_resource(
+        SimpleNamespace(
+            path=cli.ROOT / "model/dev/cde/quicksight.properties",
+            ctx=ctx,
+            service="quicksight",
+            values={},
+            resources=[],
+        ),
+        result["record"],
+        raw,
+        mapped,
+    )
+    getter = mapping.getters["sdk-quicksight-group"]
+    assert sdk_inventory.verified_detail(ctx, resource, raw, getter, response)
+    ctx.fetch_trace[resource.model.path, resource.number, "sdk-quicksight-group"][0][
+        "inputs"
+    ]["Namespace"] = "other"
+    assert not sdk_inventory.verified_detail(ctx, resource, raw, getter, response)
 
 
 def test_glue_all_catalogs_databases_and_same_named_tables():
