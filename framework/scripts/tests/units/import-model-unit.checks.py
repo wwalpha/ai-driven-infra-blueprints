@@ -4303,6 +4303,7 @@ def test_import_sts_failure_and_unicode_cli(tmp_path, capsys):
         m.acquire(tmp_path, "dev", "cloudwatch-logs", "cde", True, cli)
     assert caught.value.phase == "sts"
     assert caught.value.category == "endpoint_unreachable"
+    capsys.readouterr()
     with patch.object(m, "acquire", side_effect=caught.value):
         assert (
             m.main(
