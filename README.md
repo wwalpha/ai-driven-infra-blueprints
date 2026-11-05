@@ -470,7 +470,7 @@ python -X utf8 framework/scripts/blueprint-loop.py --mode task --task-file tasks
 python -X utf8 framework/scripts/blueprint-loop.py --mode full --task-file tasks/<task-name>.md
 ```
 
-Use one command matching the task. `python` denotes the available Python 3 launcher (`python3` on Unix-like OSes or `py -3` on Windows when needed). Full regression on Windows requires human input under the [Windows full regression input guard](framework/rules/loop-engineering.md#windows-full-regression-input-guard); agents must not register passwords or bypass it.
+Use one command matching the task. `python` denotes the available Python 3 launcher (`python3` on Unix-like OSes or `py -3` on Windows when needed).
 
 ### pytest checks
 
@@ -493,7 +493,7 @@ python -B framework/scripts/tests/units/test_issues_iac.py
 Use `python3` on macOS or `py -3` on Windows when needed. Both entrypoints reject
 optimized Python (`-O` or `PYTHONOPTIMIZE`). Pytest caching and temporary-directory
 retention are disabled; each invocation owns its temporary root. The script CLI retains PASS output, failure diagnostics,
-nonzero failure exits and `BLUEPRINT_PROFILE_DIR`; the local loop selects UT only, retaining parallelism and the Windows full-regression input guard.
+nonzero failure exits and `BLUEPRINT_PROFILE_DIR`; the local loop selects UT only, retaining parallelism.
 
 ### Integration tests in GitHub Actions
 

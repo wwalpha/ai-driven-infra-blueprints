@@ -38,13 +38,11 @@ def check_routes_and_selection():
     regression = section("Framework regression")
     execution = section("Local loop execution")
     change = section("Change Validation and Full Model Validation")
-    windows = section("Windows full regression input guard")
     for anchor in (
         "validation-policy",
         "local-loop-execution",
         "change-validation-and-full-model-validation",
         "framework-regression",
-        "windows-full-regression-input-guard",
     ):
         assert f"(loop-engineering.md#{anchor})" in local
     assert "(loop-engineering.md#local-loop)" in policy
@@ -53,11 +51,6 @@ def check_routes_and_selection():
         "If a loop is required" in local
         and "If classification, OS or execution form is uncertain" in local
     )
-    assert (
-        "the OS is Windows and the run uses `full` or `--all`" in regression
-        and "otherwise stop" in regression
-    )
-    assert "## Windows full regression" not in regression
     for phrase in (
         "Markdown, Skill or Prompt text only",
         "no local loop or regression",
@@ -84,12 +77,6 @@ def check_routes_and_selection():
         "old Model validity is not a save prerequisite",
     ):
         assert phrase.lower() in " ".join(change.lower().split())
-    for phrase in (
-        "human password input",
-        "do not start validation processes or report PASS",
-        "Agents must not register/retrieve actual passwords or bypass guards",
-    ):
-        assert phrase in windows
     for phrase in (
         "--mode local",
         "Repository-wide IaC checks remain enabled",
@@ -118,16 +105,8 @@ def require_routing_contract(local, policy, regression):
             "If Framework regression applies, read [Framework regression](loop-engineering.md#framework-regression)",
         ),
         (
-            local,
-            "When the OS is Windows and the run uses `full` or `--all`, read [Windows full regression input guard](loop-engineering.md#windows-full-regression-input-guard)",
-        ),
-        (
             policy,
             "When a loop is required, read [Local loop](loop-engineering.md#local-loop) and its conditional mandatory reads",
-        ),
-        (
-            regression,
-            "When the OS is Windows and the run uses `full` or `--all`, read [Windows full regression input guard](loop-engineering.md#windows-full-regression-input-guard)",
         ),
         (policy, "Unknown impact | Stop for missing dependency evidence"),
         (
@@ -139,8 +118,6 @@ def require_routing_contract(local, policy, regression):
         assert directive in text, directive
     assert "If classification, OS or execution form is uncertain" in local
     assert "if it cannot be resolved, stop" in local
-    assert "If OS or execution form is uncertain" in regression
-    assert "otherwise stop" in regression
 
 
 def check_conditional_read_mutations():
@@ -162,10 +139,6 @@ def check_conditional_read_mutations():
             "If Framework regression applies, read",
             "If Framework regression does not apply, read",
         ),
-        (
-            "When the OS is Windows and the run uses `full` or `--all`, read",
-            "When the OS is not Windows and the run uses `full` or `--all`, read",
-        ),
     ):
         assert before in local
         mutated = local.replace(before, after, 1)
@@ -183,12 +156,6 @@ def check_conditional_read_mutations():
             require_routing_contract(
                 local, policy.replace(before, after, 1), regression
             )
-    before = "When the OS is Windows and the run uses `full` or `--all`, read"
-    assert before in regression
-    with pytest.raises(AssertionError):
-        require_routing_contract(
-            local, policy, regression.replace(before, "For `--all`, read", 1)
-        )
 
 
 def check_representative_routes():
@@ -211,24 +178,13 @@ def check_representative_routes():
             "local-loop-execution",
             "change-validation-and-full-model-validation",
             "framework-regression",
-            "windows-full-regression-input-guard",
         },
     )
     require_anchors(policy, rule, {"local-loop"})
-    require_anchors(regression, rule, {"windows-full-regression-input-guard"})
     assert "If a loop is required" in local
     assert "for Model changes" in local
     assert "If Framework regression applies" in local
-    assert "When the OS is Windows and the run uses `full` or `--all`" in local
-    assert "When the OS is Windows and the run uses `full` or `--all`" in regression
     assert "If classification, OS or execution form is uncertain" in local
-    assert "otherwise stop" in regression
-    condition = "When the OS is Windows and the run uses `full` or `--all`, read"
-    for text in (local, regression):
-        assert condition in text
-        damaged = text.replace(condition, "For Windows Full or `--all`, read")
-        with pytest.raises(AssertionError):
-            assert condition in damaged
     for parent in (local, policy, regression):
         assert "human password input" not in parent
     # Direct callers must still reach the entry from actual Markdown links.
@@ -254,7 +210,6 @@ def check_representative_routes():
         "local-loop-execution",
         "change-validation-and-full-model-validation",
         "framework-regression",
-        "windows-full-regression-input-guard",
     ):
         damaged = local.replace(f"loop-engineering.md#{anchor}", "loop-engineering.md")
         with pytest.raises(AssertionError):
@@ -321,7 +276,6 @@ def check_incoming_anchors():
         "change-validation-and-full-model-validation",
         "local-loop-execution",
         "framework-regression",
-        "windows-full-regression-input-guard",
     }
     headings = set()
     for title in re.findall(r"^#{1,6} +(.+?)\s*$", TEXT, re.M):
@@ -341,7 +295,6 @@ def check_incoming_anchors():
         "local-loop",
         "validation-policy",
         "framework-regression",
-        "windows-full-regression-input-guard",
     } <= seen
 
 

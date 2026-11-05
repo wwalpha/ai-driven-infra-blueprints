@@ -7,7 +7,6 @@ import re
 from pathlib import Path
 
 import design.document as _design_document
-import model.core as _exports_model_core
 import model.files as _imports_model_files
 from aws_mapping_display import validation_rows
 from contracts.model import (
@@ -87,9 +86,6 @@ from .diagnostics import (
     stable_id,
 )
 from .findings import FindingsError
-
-# Preserve shared fixtures and compatibility exports under their historical names.
-properties = _exports_model_core.properties
 
 
 def check_cidr_value(path: Path, property_name: str, value: str, *, findings) -> None:

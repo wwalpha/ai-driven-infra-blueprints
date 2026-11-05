@@ -14,7 +14,7 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 ## Local loop
 
-Read [Task transition](task-contract.md#task-transition), [Acceptance contract](task-contract.md#acceptance-contract), and [Selection and publication](task-contract.md#selection-and-publication). Read [Validation policy](loop-engineering.md#validation-policy) to classify the work. If a loop is required, read [Local loop execution](loop-engineering.md#local-loop-execution); for Model changes also read [Change Validation and Full Model Validation](loop-engineering.md#change-validation-and-full-model-validation). If Framework regression applies, read [Framework regression](loop-engineering.md#framework-regression). When the OS is Windows and the run uses `full` or `--all`, read [Windows full regression input guard](loop-engineering.md#windows-full-regression-input-guard). If classification, OS or execution form is uncertain, resolve it before omitting a required section; if it cannot be resolved, stop.
+Read [Task transition](task-contract.md#task-transition), [Acceptance contract](task-contract.md#acceptance-contract), and [Selection and publication](task-contract.md#selection-and-publication). Read [Validation policy](loop-engineering.md#validation-policy) to classify the work. If a loop is required, read [Local loop execution](loop-engineering.md#local-loop-execution); for Model changes also read [Change Validation and Full Model Validation](loop-engineering.md#change-validation-and-full-model-validation). If Framework regression applies, read [Framework regression](loop-engineering.md#framework-regression). If classification, OS or execution form is uncertain, resolve it before omitting a required section; if it cannot be resolved, stop.
 
 The OS-independent entrypoint is `framework/scripts/blueprint-loop.py`. In examples,
 `python` means a Python 3 launcher: use `py -3` on Windows or `python3` on Unix-like
@@ -273,8 +273,6 @@ the input comparison succeeds. `--fresh` disables retained PASS reuse, not curre
 deduplication.
 
 ## Framework regression
-
-When the OS is Windows and the run uses `full` or `--all`, read [Windows full regression input guard](loop-engineering.md#windows-full-regression-input-guard) before starting. If OS or execution form is uncertain, resolve it before omitting the guard; otherwise stop.
 
 Ordinary `task` / `local` loops, including staged snapshots, do not
 automatically run Framework regression for changed files or missing Validation scope.

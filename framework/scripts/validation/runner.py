@@ -17,7 +17,6 @@ import deploy.inputs as _imports_deploy_inputs
 import deploy.scope as _imports_deploy_scope
 import generation_inputs as _imports_generation_inputs
 import model.change_plan as change_plan
-import model.core as _exports_model_core
 import model.core as _imports_model_core
 import model.sources as _imports_model_sources
 import model.validations.full_inputs as _model_validation_full_inputs
@@ -70,10 +69,6 @@ from validation_cache import PassCache
 from validation_scope import active_scope, scoped_files
 
 import model as _model_api
-
-# Preserve shared fixtures and compatibility exports under their historical names.
-properties = _exports_model_core.properties
-
 
 rendered_policy_design = rendered_design
 

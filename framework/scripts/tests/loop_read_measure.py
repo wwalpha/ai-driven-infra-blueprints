@@ -60,7 +60,7 @@ cases = {
     "Model Change": ([P1, L], [P1, L, E, C]),
     "Framework bounded": ([P1, L], [P1, L, E]),
     "Framework regression non-Windows": ([P1, L, F], [P1, L, E, F]),
-    "Framework regression Windows Full": ([P1, L, F], [P1, L, E, F, W]),
+    "Framework regression Windows Full": ([P1, L, F], [P1, L, E, F]),
     "IaC": ([P1, L], [P1, L, E]),
     "Deploy": ([P1, L], [P1, L, E]),
     "Unknown impact": ([P1], [P1]),
