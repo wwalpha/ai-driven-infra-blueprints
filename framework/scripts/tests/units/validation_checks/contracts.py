@@ -331,9 +331,12 @@ def _callback_check_update_flow_prompt_validate(prompt):
         "--read-only",
         "describe-stacks",
         "list-exports",
-        "ExportingStackId",
-        "NOT_STARTED",
         "do not run it in ordinary CloudFormation update",
+        "delegate AWS Export verification to the existing controller",
+        "missing, changed, ambiguous or unavailable",
+        "Producer-first order",
+        "not added automatically",
+        "Consumer-only deployment",
     ):
         assert token in dependency, token
     cfn = engine(deploy, "CloudFormation controller")
