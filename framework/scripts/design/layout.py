@@ -154,6 +154,8 @@ def resource_logical_ids(lines: list[str]) -> dict[str, str]:
 
 def resource_name_fields(resource_type: str) -> list[str]:
     """Candidate resource names, excluding names of referenced resources."""
+    if resource_type == "Glue.Database":
+        return ["DatabaseInput.Name"]
     if resource_type == "SSM.Association":
         return ["AssociationName"]  # Name identifies the referenced SSM document.
     kind = resource_type.split(".")[1]

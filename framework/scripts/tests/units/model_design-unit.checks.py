@@ -200,6 +200,10 @@ def check_design_naming_rules():
         "SecretsManager.Secret",
         "Macie.ClassificationJob",
         "SSM.Association",
+        "Glue.Database",
+        "Glue.Table",
+        "Glue.Connection",
+        "Glue.Job",
         "CloudFormation.Stack",
     ):
         assert not design_naming_errors(ROOT, kind), kind
@@ -1399,6 +1403,17 @@ def check_required_name_tag(kind):
         with pytest.raises(ValueError) as error:
             resource_display_name(kind, rows)
         assert str(error.value) in findings.errors[0]
+
+
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
+@pytest.mark.parametrize("value", [None, "``", "`UNSET`", "`PENDING_DEPLOY`"])
+def check_glue_database_required_name(mode, value):
+    rows = [] if value is None else [["1", "DatabaseInput.Name", value, "name"]]
+    with pytest.raises(ValueError):
+        resource_display_selection(ROOT, "Glue.Database", rows, None, mode, 1)
+    assert DesignSchemaCatalog(ROOT).literal_errors(
+        "Glue.Database", "DatabaseInput.Name", "UNSET"
+    )
 
 
 def check_naming_exclusions():

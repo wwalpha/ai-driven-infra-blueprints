@@ -488,6 +488,34 @@ def check_name_tag_valid_violation_aliases(tmp_path, prop):
 
 
 @pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
+def check_glue_database_naming_candidates(tmp_path, mode):
+    fixture(tmp_path, services=("sqs",))
+    comparison = Comparison(tmp_path, "dev", "123456789012", ["sqs"])
+    comparison.resources["sqs"]["001"].update(
+        resourceType="Glue.Database", resourceMode=mode
+    )
+    comparison.rows["sqs"]["001"] = [
+        (
+            "001-001",
+            dict(
+                property="Glue.Database.DatabaseInput.Name",
+                value="`example`",
+                comment="Name",
+            ),
+        )
+    ]
+    material, _ = naming_materials(comparison)
+    names = material["names"]
+    assert [name["property"] for name in names] == ["DatabaseInput.Name"]
+    assert not names[0]["required_missing"]
+    data = snapshot_artifact(tmp_path, services=["sqs"])
+    data["naming_context"] = {
+        key: value for key, value in material.items() if key != "names"
+    }
+    assert naming_decision(data, names[0])["status"] == "AUTO_PASS"
+
+
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
 @pytest.mark.parametrize(
     "kind, tags",
     [("EC2.VPCEndpoint", "Tags"), ("Route53.HostedZone", "HostedZoneTags")],

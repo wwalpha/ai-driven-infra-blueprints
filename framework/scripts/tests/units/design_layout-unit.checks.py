@@ -18,11 +18,13 @@ import design.layout as _imports_design_layout
 import pytest as _imports_pytest
 import support.design_layout_fixtures as _exports_support_design_layout_fixtures
 import validation.design_tables as design_tables
+import yaml
 from design.document import DesignDocument
 from design.layout import (
     is_import_pending_reference,
     resource_display_selection,
     resource_has_name_property,
+    resource_name_fields,
 )
 from model.display import ReferenceTable
 from support.design_layout_fixtures import (
@@ -69,6 +71,18 @@ if not __debug__:
 # Preserve shared fixtures and compatibility exports under their historical names.
 catalog = _exports_support_design_layout_fixtures.catalog
 resource_logical_ids = _exports_support_design_layout_fixtures.resource_logical_ids
+
+
+def check_glue_database_name_fields():
+    mapping = yaml.safe_load(
+        (REPOSITORY / "framework/mappings/aws/glue.yaml").read_text(encoding="utf-8")
+    )
+    assert (
+        resource_name_fields("Glue.Database")
+        == [mapping["resourceTypes"]["Glue.Database"]["identity"]["nameProperty"]]
+        == ["DatabaseInput.Name"]
+    )
+    assert resource_name_fields("SSM.Association") == ["AssociationName"]
 
 
 def check_import_pending_reference():
