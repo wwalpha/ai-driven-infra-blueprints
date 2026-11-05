@@ -325,6 +325,13 @@ def _callback_check_update_flow_prompt_validate(prompt):
         "variable input",
     ):
         assert token in scope, token
+    implementation = sections["Generate Markdown and implement IaC"]
+    for token in (
+        "Producer/Consumer relationship locally", "`!ImportValue`",
+        "missing or ambiguous local prerequisites", "AWS Export lookup alone is not a prerequisite",
+    ):
+        assert token in implementation, token
+    assert not re.search(r"AWS Export (?:confirmation|lookup) (?:is|must be) required", implementation, re.I)
     deploy = sections["Preflight and deploy"]
     dependency = engine(deploy, "CloudFormation read-only dependency check")
     for token in (
@@ -339,6 +346,8 @@ def _callback_check_update_flow_prompt_validate(prompt):
         "Consumer-only deployment",
     ):
         assert token in dependency, token
+    assert not re.search(r"(?:require|must)[^\n.]*ExportingStackId", dependency, re.I)
+    assert not re.search(r"(?:require|must)[^\n.]*NOT_STARTED", dependency, re.I)
     cfn = engine(deploy, "CloudFormation controller")
     cfn_commands = commands(cfn)
     assert len(cfn_commands) == 1 and cfn_commands[0][1].endswith(
@@ -356,6 +365,9 @@ def _callback_check_update_flow_prompt_validate(prompt):
         "MaxConcurrentStacks",
         "COMPLETE",
         "independent run",
+        "task scope",
+        "profiles, accounts, regions, engines",
+        "Do not create consumer change sets before producer success",
     ):
         assert token in cfn, token
     assert "--state" not in cfn and "--resume" not in cfn
@@ -446,8 +458,67 @@ def check_update_flow_prompt() -> None:
     validate = _callback_check_update_flow_prompt_validate
 
     validate(text)
+    root = SCRIPT.parents[2]
+    implement = (root / "framework/prompts/codex/03_implement.md").read_text(encoding="utf-8")
+    rules = (root / "framework/rules/cloudformation.md").read_text(encoding="utf-8")
+
+    def validate_cross_stack(implement, rules):
+        sections = _imports_utils_markdown_format.markdown_sections(rules)
+        units = implement.split("## Resolve implementation units\n", 1)[1].split("\n## ", 1)[0]
+        for token in (
+            "local reference and dependency conditions", "`!ImportValue` without requiring AWS Export confirmation",
+            "`PENDING_DEPLOY`", "never be embedded as a physical value",
+            "Stop if ownership or the local reference cannot be resolved",
+            "Do not execute AWS APIs, ChangeSets or deploy",
+        ):
+            assert token in units, token
+        cross_stack = sections["cross-stack-references"]
+        for token in (
+            "formal Model resource and attribute", "unique owning Producer Stack", "Output/Export",
+            "Consumer Export name locally", "dependencies and DeployOrder", "same account/region",
+            "Stop without guessing", "ambiguous or unresolved", "not an Implement prerequisite",
+            "Never embed `PENDING_DEPLOY` as a KeyId", "`!ImportValue`",
+            "before ChangeSet creation", "immediately before execution", "Producer StackId",
+            "successful status and Outputs", "Export name, value and owner",
+            "missing, changed, ambiguous or unavailable evidence is BLOCKED",
+            "do not create a Consumer ChangeSet before an in-scope Producer succeeds",
+        ):
+            assert token in cross_stack, token
+        kms = sections["kms-key-and-alias"]
+        for token in ("Model reference target and attribute", "Alias reference", "KeyId reference", "Key ARN", "S3 encryption", "Do not automatically convert among Alias, KeyId and ARN"):
+            assert token in kms, token
+
+    validate_cross_stack(implement, rules)
+    # Check each safety boundary in its own section, even if the text appears elsewhere.
+    for document, phrase in (
+        (implement, "`!ImportValue` without requiring AWS Export confirmation"),
+        (rules, "not an Implement prerequisite"),
+        (rules, "Never embed `PENDING_DEPLOY` as a KeyId"),
+        (rules, "before ChangeSet creation"),
+        (rules, "immediately before execution"),
+        (rules, "missing, changed, ambiguous or unavailable evidence is BLOCKED"),
+        (rules, "Export name, value and owner"),
+        (rules, "same account/region"),
+        (rules, "do not create a Consumer ChangeSet before an in-scope Producer succeeds"),
+        (rules, "Do not automatically convert among Alias, KeyId and ARN"),
+    ):
+        assert phrase in document
+        altered = document.replace(phrase, "", 1) + "\n## Unrelated section\n" + phrase
+        try:
+            validate_cross_stack(altered if document == implement else implement, altered if document == rules else rules)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(f"Cross-stack regression accepted: {phrase}")
     # Prohibitions alone must not hide contradictory executable/read instructions.
     regressions = [
+        text.replace("AWS Export lookup alone is not a prerequisite", "AWS Export lookup is required", 1),
+        text.replace("### CloudFormation read-only dependency check\n", "### CloudFormation read-only dependency check\nRequire ExportingStackId and NOT_STARTED.\n", 1),
+        text.replace("Producer-first order", "arbitrary order", 1),
+        text.replace("task scope and immutable inputs", "immutable inputs", 1),
+        text.replace("accounts, regions, engines", "engines", 1),
+        text.replace("delegate AWS Export verification to the existing controller", "skip AWS Export verification", 1),
+        text.replace("do not run it in ordinary CloudFormation update", "run it in ordinary CloudFormation update", 1),
         text.replace(
             "6. Authoritative Design scope",
             "6. Target `docs/designs/<environment>/<target-directory>/*.md` and related JSON artifacts\n7. Authoritative Design scope",
