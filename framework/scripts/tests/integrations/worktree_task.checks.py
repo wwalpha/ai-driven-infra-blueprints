@@ -477,7 +477,7 @@ def check_latest_base_sync_retains_conflict():
 
 @it_case
 def check_rewritten_base_replay_content():
-    for scenario in ("different-lines", "same-change", "conflict"):
+    for scenario in ("different-lines", "same-change", "conflict", "interrupted"):
         with fixture() as root:
             original = "first\nmiddle\nlast\n"
             (root / "file.txt").write_text(original, encoding="utf-8")
@@ -489,6 +489,10 @@ def check_rewritten_base_replay_content():
             (target / "new.txt").write_text("new\n", encoding="utf-8")
             (target / "delete.txt").unlink()
             finish_contract(target, state)
+            _, _, lifecycle, saved = wt.load(root, "example")
+            wt._prepare_commit(root, lifecycle, saved, target, None, prepare_only=True)
+            committed = git(target, "rev-parse", "HEAD")
+            assert committed != state["start"]
             git(
                 root,
                 "commit",
@@ -502,6 +506,7 @@ def check_rewritten_base_replay_content():
                 "different-lines": "first\nmiddle\nbase\n",
                 "same-change": "task\nmiddle\nlast\n",
                 "conflict": "base\nmiddle\nlast\n",
+                "interrupted": "first\nmiddle\nbase\n",
             }[scenario]
             (root / "file.txt").write_text(base_content, encoding="utf-8")
             git(root, "add", "file.txt")
@@ -516,11 +521,25 @@ def check_rewritten_base_replay_content():
                 assert (target / "new.txt").read_text(encoding="utf-8") == "new\n"
                 assert not (target / "delete.txt").exists()
                 continue
+            if scenario == "interrupted":
+                with (
+                    patch.object(
+                        wt,
+                        "git",
+                        side_effect=_bind_framework_callback(
+                            _interrupt_after_rebase, wt.git
+                        ),
+                    ),
+                    pytest.raises(RuntimeError, match="simulated interruption"),
+                ):
+                    wt.sync_latest_base(root, "example", latest)
+                assert wt.load(root, "example")[3].get("latestBaseSync")
+                assert (target / "new.txt").read_text(encoding="utf-8") == "new\n"
             result = wt.sync_latest_base(root, "example", latest)
             assert result["status"] == "needs_validation"
             expected = (
                 "task\nmiddle\nbase\n"
-                if scenario == "different-lines"
+                if scenario in {"different-lines", "interrupted"}
                 else base_content
             )
             assert (target / "file.txt").read_text(encoding="utf-8") == expected
@@ -529,7 +548,7 @@ def check_rewritten_base_replay_content():
             assert git(target, "merge-base", "--is-ancestor", latest, "HEAD") == ""
             assert git(target, "diff", "--name-only", latest, "HEAD").splitlines() == (
                 ["delete.txt", "file.txt", "new.txt"]
-                if scenario == "different-lines"
+                if scenario in {"different-lines", "interrupted"}
                 else ["delete.txt", "new.txt"]
             )
 
@@ -672,7 +691,6 @@ def check_unpublished_pr_intent_base_sync_preserves_candidate():
         "deployRepair",
         "recovery",
         "latestBaseSync",
-        "rewrittenBaseIntent",
         "setup-lock",
         "python_setup",
     ):
@@ -699,78 +717,6 @@ def check_unpublished_pr_intent_base_sync_preserves_candidate():
                 path.read_bytes() == before
                 and (target / "file.txt").read_text() == "candidate\n"
             )
-
-
-def _interrupt_rebase(original_git, /, where, *args, **kwargs):
-    result = original_git(where, *args, **kwargs)
-    if "rebase" in args:
-        raise RuntimeError("simulated interruption")
-    return result
-
-
-@it_case
-def check_rewritten_base_preserves_candidate():
-    for interrupt in (False, True):
-        with fixture() as root:
-            initial = git(root, "rev-parse", "HEAD")
-            (root / "old.txt").write_text("old\n")
-            git(root, "add", "old.txt")
-            git(root, "commit", "-qm", "old history")
-            target, state = start(root)
-            (target / "file.txt").write_text("candidate\n")
-            git(root, "reset", "--hard", initial)
-            (root / "new.txt").write_text("new\n")
-            git(root, "add", "new.txt")
-            git(root, "commit", "-qm", "rewritten history")
-            base = git(root, "rev-parse", "HEAD")
-            if interrupt:
-                original_git = wt.git
-
-                interrupted = _bind_framework_callback(_interrupt_rebase, original_git)
-
-                with patch.object(wt, "git", side_effect=interrupted):
-                    try:
-                        wt.rewrite_base(root, "example", state["start"], base)
-                    except RuntimeError as error:
-                        assert str(error) == "simulated interruption"
-                    else:
-                        raise AssertionError("interruption did not occur")
-                assert git(target, "rev-parse", "HEAD") == base
-                assert wt.load(root, "example")[3].get("rewrittenBaseIntent")
-            saved = wt.rewrite_base(root, "example", state["start"], base)
-            assert saved["validation_base"] == saved["tip"] == base
-            assert (target / "file.txt").read_text() == "candidate\n"
-            assert (target / "new.txt").read_text() == "new\n"
-            assert not (target / "old.txt").exists()
-            assert "rewrittenBaseIntent" not in saved
-            finish_contract(target, state)
-            assert cli(root, "finalize")["cleaned"]
-            assert (root / "file.txt").read_text() == "candidate\n"
-
-
-@it_case
-def check_rewritten_base_rejects_overlap():
-    with fixture() as root:
-        initial = git(root, "rev-parse", "HEAD")
-        (root / "old.txt").write_text("old\n")
-        git(root, "add", "old.txt")
-        git(root, "commit", "-qm", "old")
-        target, state = start(root)
-        (target / "file.txt").write_text("candidate\n")
-        git(root, "reset", "--hard", initial)
-        (root / "file.txt").write_text("upstream\n")
-        git(root, "add", "file.txt")
-        git(root, "commit", "-qm", "rewritten")
-        try:
-            wt.rewrite_base(
-                root, "example", state["start"], git(root, "rev-parse", "HEAD")
-            )
-        except wt.Blocked as error:
-            assert "overlap" in str(error)
-        else:
-            raise AssertionError("overlap was accepted")
-        assert (target / "file.txt").read_text() == "candidate\n"
-        assert git(target, "rev-parse", "HEAD") == state["start"]
 
 
 @it_case
@@ -2287,8 +2233,6 @@ def main():
         check_base_advance_after_validation,
         check_sync_base_preserves_candidate,
         check_unpublished_pr_intent_base_sync_preserves_candidate,
-        check_rewritten_base_preserves_candidate,
-        check_rewritten_base_rejects_overlap,
         check_committed_recovery_across_rewritten_base,
         check_old_workflow_registry_is_ignored,
         check_success_and_empty,

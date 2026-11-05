@@ -1233,7 +1233,6 @@ def recover(
                 or state.get("deployRepair")
                 or state.get("deployIdentity")
                 or state.get("baseSyncIntent")
-                or state.get("rewrittenBaseIntent")
                 or changed_paths(target)
             ):
                 raise Blocked(
@@ -1389,8 +1388,6 @@ def _finalize(where, task_id, human_approved_validation_failure=None):
         if human_approved_validation_failure is not None:
             raise Blocked("deploy repair result requires successful static validation")
         return deploy_finalize(where, task_id)
-    if state.get("rewrittenBaseIntent"):
-        raise Blocked("finish rewritten base recovery before finalize")
     if state.get("recovery"):
         raise Blocked("finish reviewed recovery and rerun validation before finalize")
     if not state["merged"]:
@@ -1761,7 +1758,6 @@ def sync_latest_base(where, task_id, expected_base):
                 or state["merged"]
                 or state.get("recovery")
                 or state.get("baseSyncIntent")
-                or state.get("rewrittenBaseIntent")
                 or state.get("validation_failure_approval")
             ):
                 raise Blocked("local base sync requires an ordinary unmerged Task")
@@ -2005,7 +2001,6 @@ def sync_base(where, task_id, expected_base):
             or state.get("deployRepair")
             or state.get("recovery")
             or state.get("latestBaseSync")
-            or state.get("rewrittenBaseIntent")
             or path.with_suffix(".setup-lock").exists()
             or state.get("python_setup", {}).get("status") != "ready"
         ):
@@ -2146,171 +2141,6 @@ def sync_base(where, task_id, expected_base):
         return state
 
 
-def rewrite_base(where, task_id, expected_commit, expected_base):
-    """Move a reviewed fresh task across rewritten history, retaining its candidate."""
-    root, _, path, state = load(where, task_id)
-    with lifecycle_lock(root):
-        root, _, path, state = load(root, task_id)
-        target = task_worktree(root, state)
-        text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
-        tasks.validate_contract(target, state["task_file"], text)
-        if (
-            tasks.status(text) != "running"
-            or "- Task type: `governance`"
-            not in tasks.section(text, "## Task contract")
-            or state.get("integrationMode") == "pr"
-            or state.get("deployRepair")
-            or state.get("deployIdentity")
-            or state.get("baseSyncIntent")
-            or state.get("recovery")
-            or state["commit"]
-            or state["verified"]
-            or state["merged"]
-            or state["tip"] != state.get("validation_base", state["start"])
-        ):
-            raise Blocked(
-                "rewritten base recovery requires a fresh running governance task"
-            )
-        base = output(root, "rev-parse", "refs/heads/" + state["base"])
-        if (
-            not re.fullmatch(r"[0-9a-f]{40}", expected_commit or "")
-            or not re.fullmatch(r"[0-9a-f]{40}", expected_base or "")
-            or base != expected_base
-            or state["tip"] != expected_commit
-        ):
-            raise Blocked("review the exact task tip and current base before recovery")
-        idle_git(target)
-        intent = state.get("rewrittenBaseIntent")
-        if intent is None:
-            if output(target, "rev-parse", "HEAD") != expected_commit or paths(
-                target, "diff", "--cached", "--name-only", "-z"
-            ):
-                raise Blocked(
-                    "recovery requires the expected HEAD and an unstaged index"
-                )
-            if not git(
-                target,
-                "merge-base",
-                "--is-ancestor",
-                expected_commit,
-                base,
-                check=False,
-            ).returncode:
-                raise Blocked("base is a descendant; use ordinary base sync")
-            changed = changed_paths(target)
-            if (
-                not changed
-                or changed - tasks.paths_in(text, "## Modified files")
-                or changed - tasks.paths_in(text, "## Allowed paths")
-            ):
-                raise Blocked("recovery requires only declared changed files")
-            upstream = paths(
-                target,
-                "diff",
-                "--name-only",
-                "--no-renames",
-                "-z",
-                expected_commit,
-                base,
-            )
-            if changed & upstream or output(target, "diff", "--summary"):
-                raise Blocked("overlap or file mode changes require separate review")
-            backup = Path(tempfile.mkdtemp(prefix="blueprint-rewritten-base-"))
-            files = {}
-            for number, relative in enumerate(sorted(changed)):
-                actual = tasks.safe_path(target, relative)
-                if (
-                    actual.is_symlink()
-                    or not actual.is_file()
-                    or git(
-                        target,
-                        "cat-file",
-                        "-e",
-                        expected_commit + ":" + relative,
-                        check=False,
-                    ).returncode
-                ):
-                    raise Blocked(
-                        "recovery supports only existing tracked regular files"
-                    )
-                original = subprocess_bytes(target, expected_commit, relative)
-                candidate = actual.read_bytes()
-                file = backup / str(number)
-                file.write_bytes(candidate)
-                files[relative] = {
-                    "backup": str(file),
-                    "candidate": hashlib.sha256(candidate).hexdigest(),
-                    "original": hashlib.sha256(original).hexdigest(),
-                }
-            intent = {
-                "head": expected_commit,
-                "base": base,
-                "contract": hashlib.sha256(text.encode()).hexdigest(),
-                "files": files,
-            }
-            state["rewrittenBaseIntent"] = intent
-            save(path, state)
-        if (intent["head"], intent["base"], intent["contract"]) != (
-            expected_commit,
-            base,
-            hashlib.sha256(text.encode()).hexdigest(),
-        ):
-            raise Blocked("recovery intent, base or contract changed")
-        head = output(target, "rev-parse", "HEAD")
-        if head not in {expected_commit, base} or paths(
-            target, "diff", "--cached", "--name-only", "-z"
-        ):
-            raise Blocked("recovery HEAD or index changed; retain candidate and backup")
-        for relative, record in intent["files"].items():
-            actual = tasks.safe_path(target, relative)
-            if (
-                actual.is_symlink()
-                or not actual.is_file()
-                or sha(Path(record["backup"])) != record["candidate"]
-                or sha(actual) not in {record["candidate"], record["original"]}
-            ):
-                raise Blocked("recovery candidate or backup changed")
-        if changed_paths(target) - set(intent["files"]):
-            raise Blocked("unexpected changes during recovery")
-        if head == expected_commit:
-            for relative in intent["files"]:
-                (target / relative).write_bytes(
-                    subprocess_bytes(target, expected_commit, relative)
-                )
-            outcome = git(
-                target,
-                "-c",
-                "rebase.updateRefs=false",
-                "rebase",
-                "--no-autostash",
-                "--onto",
-                base,
-                expected_commit,
-                check=False,
-            )
-            if outcome.returncode:
-                for relative, record in intent["files"].items():
-                    (target / relative).write_bytes(Path(record["backup"]).read_bytes())
-                raise Blocked(
-                    "rewritten base rebase failed; candidate retained: "
-                    + outcome.stderr.strip()
-                )
-        for relative, record in intent["files"].items():
-            (target / relative).write_bytes(Path(record["backup"]).read_bytes())
-        if (
-            output(target, "rev-parse", "HEAD") != base
-            or output(root, "rev-parse", "refs/heads/" + state["base"]) != base
-        ):
-            raise Blocked("recovery result differs from reviewed base")
-        state["tip"] = base
-        state["validation_base"] = base
-        state.setdefault("rewrittenBaseRecoveries", []).append(
-            state.pop("rewrittenBaseIntent")
-        )
-        save(path, state)
-        return state
-
-
 def _worktree_runtime():
     return module("worktree_runtime.py", "worktree_runtime")
 
@@ -2372,7 +2202,6 @@ def main():
             "repair-validate",
             "sync-base",
             "sync-latest-base",
-            "rewrite-base",
             "deploy-start",
             "deploy-publish",
         ),
@@ -2470,7 +2299,6 @@ def main():
         "sync-latest-base",
         "pr-retry-create",
         "pr-sync-base",
-        "rewrite-base",
     } and (
         args.expected_commit
         or args.expected_base
@@ -2526,10 +2354,6 @@ def main():
             state = sync_base(where, args.task_id, args.expected_base)
         elif args.command == "sync-latest-base":
             state = sync_latest_base(where, args.task_id, args.expected_base)
-        elif args.command == "rewrite-base":
-            state = rewrite_base(
-                where, args.task_id, args.expected_commit, args.expected_base
-            )
         elif args.command == "repair-checkpoint":
             if not args.repair_request:
                 raise Blocked("repair-checkpoint requires --repair-request")
