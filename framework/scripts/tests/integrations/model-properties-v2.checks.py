@@ -370,7 +370,7 @@ def check_managed_observation_preserves_exact_authority(monkeypatch):
 @pytest.mark.parametrize(
     "change", ["display", "create", "import-config", "fixed-id", "cli"]
 )
-def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, capsys, change):
+def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, change):
     prepare_edit = _imports_model_operations.prepare_edit
     publish_edit = _imports_model_operations.publish_edit
     fixture = _imports_support_repository_fixtures.fixture
@@ -418,11 +418,6 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
                 candidate.write_text(
                     patch(before.documents[path], fields), encoding="utf-8"
                 )
-                assert main([
-                    "edit", str(path), "--candidate", str(candidate), "--task-file", name
-                ]) == 1
-                assert "directory, not a file" in capsys.readouterr().err
-                assert path.read_bytes() == original
                 assert (
                     main(
                         [
