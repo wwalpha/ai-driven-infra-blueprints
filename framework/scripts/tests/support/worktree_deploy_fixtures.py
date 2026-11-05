@@ -8,7 +8,7 @@ import venv
 from pathlib import Path
 
 import worktree_task as wt
-from deploy import worktree
+from deploy import progress as deploy_progress
 from model.dependency_index import rebuild as rebuild_index
 from support.deploy_controller_fixtures import invoke
 from support.deploy_controller_fixtures import seed as seed_project
@@ -20,7 +20,7 @@ def pin_progress(backend, identity):
     backend.progress_identity = identity
     backend.progress_root = backend.root.resolve()
     backend.progress_directory = backend.run_context.get("directory")
-    backend.progress_destination = worktree.progress_path(backend.root, create=True)
+    backend.progress_destination = deploy_progress.progress_path(backend.root, create=True)
     backend.run_context["repository"] = str(backend.root)
     backend.run_context.setdefault("consumedInputs", {})
     backend.run_context.setdefault("stepUnits", [])

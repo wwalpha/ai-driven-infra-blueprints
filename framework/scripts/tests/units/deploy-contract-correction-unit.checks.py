@@ -25,6 +25,7 @@ from deploy import (
     worktree,
 )
 from deploy import contract_correction as correction
+from deploy import progress as deploy_progress
 from model.dependency_index import revision
 from support.pytest_cli import run
 from support.repository_fixtures import transition_contract
@@ -140,7 +141,7 @@ def case(tmp_path, monkeypatch):
     )
     path = primary / "state.json"
     correction.wt.save(path, state)
-    progress_path = worktree.progress_path(root, create=True)
+    progress_path = deploy_progress.progress_path(root, create=True)
     write_sealed(root, progress_path, dict(identity=identity, runContext=context))
     monkeypatch.setattr(correction.ws, "load", read_state)
     monkeypatch.setattr(correction.ws, "deploy_task_state", read_deploy_state)
@@ -211,7 +212,7 @@ def check_correction_and_resume_preserve_execution(case, monkeypatch):
     assert (
         tasks.status((case.root / case.name).read_text(encoding="utf-8")) == "suspend"
     )
-    saved = worktree.read_progress(case.root, state)["runContext"]
+    saved = deploy_progress.read_progress(case.root, state)["runContext"]
     before.update(
         taskDigest=state["deployIdentity"]["taskDigest"], snapshotValidation="NOT_RUN"
     )
@@ -323,7 +324,7 @@ def check_unproven_paths_refused(case, added):
 )
 def check_inconsistent_states_refused(case, monkeypatch, problem):
     state = copy.deepcopy(case.state)
-    progress = worktree.read_progress(case.root, state)
+    progress = deploy_progress.read_progress(case.root, state)
     context = progress["runContext"]
     if problem == "missing-original":
         state.pop("deployContract")
@@ -547,7 +548,7 @@ def check_interrupted_correction_retries_same_operation(
     state = read_state(case.root, case.name)[3]
     assert "deployContractUpdate" not in state
     assert (
-        worktree.read_progress(case.root, state)["identity"] == state["deployIdentity"]
+        deploy_progress.read_progress(case.root, state)["identity"] == state["deployIdentity"]
     )
     assert (
         tasks.status((case.root / case.name).read_text(encoding="utf-8")) == "suspend"
@@ -628,7 +629,7 @@ def fixed_owner_case(case, monkeypatch):
         + "\n## Suspension reason\n\n    omitted owner\n",
         encoding="utf-8",
     )
-    progress = worktree.read_progress(case.root, case.state)
+    progress = deploy_progress.read_progress(case.root, case.state)
     progress["identity"] = state["deployIdentity"]
     progress["runContext"]["taskDigest"] = state["deployIdentity"]["taskDigest"]
     correction.wt.save(case.path, state)
@@ -664,7 +665,7 @@ def check_missing_owner_is_added_inside_fixed_execution(case, monkeypatch):
     state, progress, candidate = fixed_owner_case(case, monkeypatch)
     correction.correct(case.root, case.name, case.source)
     revised = read_state(case.root, case.name)[3]
-    saved = worktree.read_progress(case.root, revised)
+    saved = deploy_progress.read_progress(case.root, revised)
     assert tasks.section(candidate, "## Execution scope") == tasks.section(
         state["deployContract"], "## Execution scope"
     )
@@ -712,7 +713,7 @@ def check_scope_failure_is_retained_and_transferred(case, monkeypatch):
     original = evidence.read_bytes()
     correction.correct(case.root, case.name, case.source)
     revised = read_state(case.root, case.name)[3]
-    saved = worktree.read_progress(case.root, revised)["runContext"]
+    saved = deploy_progress.read_progress(case.root, revised)["runContext"]
     assert "currentFailure" not in saved
     assert evidence.read_bytes() == original
     assert saved["resolvedScopeFailures"] == [
@@ -774,7 +775,7 @@ def check_interrupted_scope_failure_correction_preserves_evidence(
     monkeypatch.setattr(correction, "atomic_files", atomic)
     correction.correct(case.root, case.name, case.source)
     revised = read_state(case.root, case.name)[3]
-    saved = worktree.read_progress(case.root, revised)["runContext"]
+    saved = deploy_progress.read_progress(case.root, revised)["runContext"]
     assert "currentFailure" not in saved
     assert saved["resolvedScopeFailures"][0]["evidence"] == str(evidence)
     assert evidence.read_bytes() == original
@@ -832,7 +833,7 @@ def check_scope_failure_rejects_unproven_evidence(case, monkeypatch, problem):
         evidence.unlink()
     with pytest.raises((ValueError, OSError)):
         correction.correct(case.root, case.name, case.source)
-    assert worktree.read_progress(case.root, state)["runContext"][
+    assert deploy_progress.read_progress(case.root, state)["runContext"][
         "currentFailure"
     ] == str(evidence)
     case.aws.assert_not_called()
@@ -899,7 +900,7 @@ def check_added_owner_rejects_unproven_authority(case, monkeypatch, problem):
 
 
 def pending_case(case, *, generation=False):
-    progress = worktree.read_progress(case.root, case.state)
+    progress = deploy_progress.read_progress(case.root, case.state)
     context = progress["runContext"]
     text = case.state["deployContract"]
     raw = text.encode("utf-8")
@@ -956,7 +957,7 @@ def check_pending_intent_identity_is_migrated_without_discard(case, generation):
     before = pending_case(case, generation=generation)
     correction.correct(case.root, case.name, case.source)
     state = read_state(case.root, case.name)[3]
-    saved = worktree.read_progress(case.root, state)
+    saved = deploy_progress.read_progress(case.root, state)
     key = "pendingGeneration" if generation else "pendingObserved"
     prior = (
         next(iter(before["runContext"][key].values()))
@@ -1035,7 +1036,7 @@ def check_desired_model_change_is_never_authorized(case, monkeypatch):
     (case.root / relative).write_text(
         old.replace("original", "changed"), encoding="utf-8"
     )
-    progress = worktree.read_progress(case.root, case.state)
+    progress = deploy_progress.read_progress(case.root, case.state)
     progress["runContext"]["modelInputs"][relative] = file_operations.sha(
         case.root / relative
     )

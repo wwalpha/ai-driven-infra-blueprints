@@ -19,6 +19,7 @@ from validation.change import check_references
 
 import model as _model_api
 from deploy import deferred, inputs, worktree
+from deploy import progress as deploy_progress
 from model import row_resource
 
 
@@ -35,7 +36,7 @@ def reference_write(root, task, change, row, mapped, target, authority_root):
             "reference synchronization Task differs from publication authority"
         )
     state = worktree.require(authority_root, source_task)
-    progress = worktree.read_progress(authority_root, state) if state else None
+    progress = deploy_progress.read_progress(authority_root, state) if state else None
     if progress is None:
         return False
     records = deferred.approved(progress["runContext"])

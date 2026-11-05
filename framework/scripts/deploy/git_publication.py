@@ -19,6 +19,7 @@ from validation.runner import Validator
 from validation.task import TaskValidation
 
 from deploy import contracts, inputs, worktree
+from deploy import progress as deploy_progress
 
 
 def check_scope(root, task_file):
@@ -604,7 +605,7 @@ def publish(where, task_id, resolution=None, *, automatic=False):
         worktree.require(
             root, tasks.read_task_snapshot(root, state["task_file"], live=True)
         )
-        progress = worktree.read_progress(root, state)
+        progress = deploy_progress.read_progress(root, state)
         if progress is None:
             raise ws.Blocked("Git publication requires current Deploy progress")
         if state.get("deployCheckpointIntent"):
@@ -707,7 +708,7 @@ def publish(where, task_id, resolution=None, *, automatic=False):
                 or wt.output(root, "write-tree") != index
             )
             or tasks.read_task_snapshot(root, task.name, live=True).raw != task.raw
-            or worktree.read_progress(root, state) != progress
+            or deploy_progress.read_progress(root, state) != progress
         ):
             raise ws.Blocked(
                 "Git publication inputs changed during candidate validation"
@@ -746,7 +747,7 @@ def publish(where, task_id, resolution=None, *, automatic=False):
 def retained(root, task_id, error):
     try:
         state = wt.load(root, task_id)[3]
-        return describe(root, state, worktree.read_progress(root, state), error)
+        return describe(root, state, deploy_progress.read_progress(root, state), error)
     except (
         OSError,
         ValueError,
@@ -803,7 +804,7 @@ def finalize(where, task_id):
         if task.status != "completed":
             raise ws.Blocked("Deploy Task must complete its validation before cleanup")
         worktree.require(root, task)
-        progress = worktree.read_progress(root, state)
+        progress = deploy_progress.read_progress(root, state)
         if progress is None:
             raise ws.Blocked("final Deploy checkpoint requires current progress")
         worktree.require_complete(root, task)

@@ -27,6 +27,7 @@ from deploy import (
     operation_journal,
     worktree,
 )
+from deploy import progress as deploy_progress
 
 
 def repair_lock(root: Path) -> AbstractContextManager[None]:
@@ -274,9 +275,9 @@ def require_settled(
     stacks = set(request["diagnosis"])
     if not stacks:
         raise Blocked("repair request has no failed Stack scope")
-    if worktree.progress_path(root).exists():
+    if deploy_progress.progress_path(root).exists():
         state = worktree.require(root)
-        progress = worktree.read_progress(root, state)
+        progress = deploy_progress.read_progress(root, state)
         context = progress.get("runContext", {})
         observed = context.get("pendingObserved") or {}
         generation = context.get("pendingGeneration") or {}

@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 from deploy import (
     cli_guidance,
+    completion,
     controller,
     current_state,
     failures,
@@ -33,6 +34,7 @@ from deploy import (
 from deploy import (
     git_publication as publication,
 )
+from deploy import progress as deploy_progress
 from model.core import properties, stack_model, validate_model_keys
 from model.observed import verify_observed_outputs
 from model.projection import observed_value
@@ -1120,7 +1122,7 @@ class TestCurrentState(TestCase):
         )
         self.assertEqual(outcome, "STOPPED")
         backend.execute.assert_not_called()
-        self.assertTrue(worktree.attempts_finished({"A": state}, "UNKNOWN"))
+        self.assertTrue(completion.attempts_finished({"A": state}, "UNKNOWN"))
         self.assertEqual(state["attemptResult"], "UNKNOWN")
 
     def test_explicit_completion_requires_the_saved_final_candidate(self):
@@ -1413,7 +1415,7 @@ class TestCurrentState(TestCase):
                     steps.worktree, "require", return_value={"deployIdentity": {}}
                 ),
                 patch.object(
-                    steps.worktree, "read_progress", return_value={"runContext": saved}
+                    steps.deploy_progress, "read_progress", return_value={"runContext": saved}
                 ),
             ):
                 backend = SimpleNamespace(
@@ -1505,7 +1507,7 @@ def progress_backend(root, context):
         progress_identity=identity,
         progress_root=root.resolve(),
         progress_directory=context.get("directory"),
-        progress_destination=worktree.progress_path(root, create=True),
+        progress_destination=deploy_progress.progress_path(root, create=True),
     )
 
 
@@ -1513,7 +1515,7 @@ def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
     monkeypatch.setattr(local_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
     old = os.umask(0o022)
     try:
-        path = worktree.progress_path(tmp_path / "project", create=True)
+        path = deploy_progress.progress_path(tmp_path / "project", create=True)
         for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
             assert stat.S_IMODE(directory.stat().st_mode) == 0o700
         context = {
@@ -1522,12 +1524,12 @@ def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
         }
         backend = progress_backend(tmp_path / "project", context)
         with operation_journal.locked(path):
-            worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+            deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
         with operation_journal.locked(
-            worktree.progress_path(backend.root, create=True)
+            deploy_progress.progress_path(backend.root, create=True)
         ):
             assert (
-                worktree.read_progress(
+                deploy_progress.read_progress(
                     backend.root, {"deployIdentity": backend.progress_identity}
                 )["runContext"]["states"]["A"]["status"]
                 == "SUCCESS"
@@ -1541,7 +1543,7 @@ def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
 def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, level):
     monkeypatch.setattr(local_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
     root = tmp_path / "project"
-    path = worktree.progress_path(root, create=True)
+    path = deploy_progress.progress_path(root, create=True)
     directory = (path.parent.parent.parent, path.parent.parent, path.parent)[level]
     if unsafe == "permissions":
         directory.chmod(0o755)
@@ -1564,7 +1566,7 @@ def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, lev
         else None
     )
     with pytest.raises(ValueError, match=expected):
-        worktree.progress_path(root, create=True)
+        deploy_progress.progress_path(root, create=True)
 
 
 def check_candidate_validation_displays_report_once(tmp_path, monkeypatch, capsys):

@@ -29,7 +29,8 @@ import sync_files as _imports_sync_files
 import sync_runtime
 import utils.cloudformation.inputs as _imports_cfn_inputs
 from botocore.exceptions import ClientError
-from deploy import operation_journal, steps, worktree
+from deploy import operation_journal, steps
+from deploy import progress as deploy_progress
 from deploy.controller import main
 from model.core import properties, stack_model
 from model.dependency_index import rebuild as rebuild_index
@@ -981,7 +982,7 @@ def child_environment():
 def recover_owned_lock(root, child):
     assert child.returncode is not None  # subprocess.run has reaped this exact child.
 
-    with operation_journal.locked(worktree.progress_path(root)):
+    with operation_journal.locked(deploy_progress.progress_path(root)):
         pass
 
 

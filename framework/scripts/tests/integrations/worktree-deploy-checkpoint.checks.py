@@ -20,7 +20,7 @@ import pytest
 import task_contract_runtime as transitions
 import worktree_checkpoint as checkpoints
 import worktree_task as wt
-from deploy import worktree
+from deploy import progress as deploy_progress
 from support.deploy_controller_fixtures import (
     ACCOUNT,
     aws_state,
@@ -96,9 +96,9 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch):
     }
     first_success(target, report, aws)
     assert all(p.read_bytes() == raw for p, raw in models_before.items())
-    before_status = worktree.progress_path(target).read_bytes()
+    before_status = deploy_progress.progress_path(target).read_bytes()
     assert step(target, report, aws, "status") == 0
-    assert worktree.progress_path(target).read_bytes() == before_status
+    assert deploy_progress.progress_path(target).read_bytes() == before_status
     assert step(target, report, aws, "sync", [FIRST]) == 0
     after_sync = {p: p.read_bytes() for p in models_before}
     TestCase().assertEqual(step(target, report, aws, "sync", [FIRST]), 0)
@@ -327,6 +327,12 @@ def check_update_checkpoint_latest_base():
                     checkpoints.update_checkpoint(backend, ["A"])
 
 
+def fail_update_git(directory, *args, scenario, original, **kwargs):
+    if scenario in {"commit", "merge"} and scenario in args:
+        raise ValueError("simulated " + scenario + " failure")
+    return original(directory, *args, **kwargs)
+
+
 def check_update_current_candidate_boundaries():
     for scenario in ("zero", "multiple", "missing", "running", "unknown", "mismatch", "scope", "commit", "merge"):
         with task_fixture(branch="master") as root:
@@ -354,11 +360,7 @@ def check_update_current_candidate_boundaries():
                 (target / relative).write_text("changed after sync\n", encoding="utf-8")
             if scenario in {"running", "unknown"}:
                 states["A"]["status"] = "RUNNING" if scenario == "running" else "UNKNOWN"
-            original = wt.git
-            def fail_git(directory, *args, scenario=scenario, original=original, **kwargs):
-                if scenario in {"commit", "merge"} and scenario in args:
-                    raise ValueError("simulated " + scenario + " failure")
-                return original(directory, *args, **kwargs)
+            fail_git = partial(fail_update_git, scenario=scenario, original=wt.git)
             initial = git(root, "rev-parse", "HEAD").strip()
             with patch.object(checkpoints, "validate", side_effect=ValueError("scope violation") if scenario == "scope" else None), patch.object(wt, "git", side_effect=fail_git):
                 if scenario in {"zero", "multiple"}:

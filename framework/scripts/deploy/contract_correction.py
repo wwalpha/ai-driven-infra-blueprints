@@ -23,6 +23,7 @@ from validation.findings import Findings
 from validation.task import TaskValidation
 
 from deploy import (
+    completion,
     contracts,
     correction_scope,
     deferred,
@@ -35,6 +36,7 @@ from deploy import (
     run_context,
     worktree,
 )
+from deploy import progress as deploy_progress
 
 
 def original_contract(state):
@@ -376,7 +378,7 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         if (
             item.get("status")
             not in {"NOT_STARTED", DEPLOY_SUCCESS, "FAILED", "SETTLED", "BLOCKED"}
-            or worktree.current_category(item) in {"RUNNING", "UNKNOWN"}
+            or completion.current_category(item) in {"RUNNING", "UNKNOWN"}
             and item.get("currentStack")
             or item.get("attemptResult") == "UNKNOWN"
         ):
@@ -518,7 +520,7 @@ def recover_publication(root, name, initial, candidate, approved, record):
             "lifecycle changed before publication recovery; retain all evidence"
         )
     task = tasks.read_task_snapshot(root, name, live=True)
-    progress = worktree.read_progress(root, state)
+    progress = deploy_progress.read_progress(root, state)
     if progress is None:
         raise ws.Blocked("publication journal has no saved Deploy progress")
     consumers = check_candidate(
@@ -572,7 +574,7 @@ def recover_update(root, path, state, candidate):
         )
     task_path, progress_path = (
         tasks.safe_path(root, before["task_file"]),
-        worktree.progress_path(root),
+        deploy_progress.progress_path(root),
     )
     for file, key in ((task_path, "Task"), (progress_path, "Progress")):
         if file.read_bytes().decode("utf-8") not in (
@@ -606,7 +608,7 @@ def correct(root, name, source, approved=()):
         raise ws.Blocked("correction requires this managed fixed Deploy Task")
     with ExitStack() as locks:
         locks.enter_context(
-            operation_journal.locked(worktree.progress_path(root, create=True))
+            operation_journal.locked(deploy_progress.progress_path(root, create=True))
         )
         locks.enter_context(handoff.repair_lock(root))
         locks.enter_context(
@@ -630,13 +632,13 @@ def correct(root, name, source, approved=()):
         task = tasks.read_task_snapshot(root, name, live=True)
         original = original_contract(state)
         guard = guard_snapshot(root, state)
-        progress_path = worktree.progress_path(root)
+        progress_path = deploy_progress.progress_path(root)
         before_progress = (
             progress_path.read_text(encoding="utf-8")
             if progress_path.is_file()
             else None
         )
-        progress = worktree.read_progress(root, state)
+        progress = deploy_progress.read_progress(root, state)
         if progress is None:
             raise ws.Blocked("saved fixed execution input evidence is missing")
         consumers = check_candidate(
@@ -681,7 +683,7 @@ def correct(root, name, source, approved=()):
         if (
             source.read_bytes() != source_raw
             or ws.load(root, state["task_id"])[3] != state
-            or worktree.read_progress(root, state) != progress
+            or deploy_progress.read_progress(root, state) != progress
             or progress_path.read_text(encoding="utf-8") != before_progress
             or guard_snapshot(root, state) != guard
         ):

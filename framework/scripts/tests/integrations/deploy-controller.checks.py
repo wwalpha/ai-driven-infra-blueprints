@@ -27,6 +27,7 @@ from deploy import (
     steps,
     worktree,
 )
+from deploy import progress as deploy_progress
 from model.core import properties
 from model.files import read_model
 from support.deploy_controller_fixtures import (
@@ -338,10 +339,10 @@ def check_failure_evidence_survives_progress_reload_and_status(tmp_path):
         progress_identity=identity,
         progress_root=root.resolve(),
         progress_directory=None,
-        progress_destination=worktree.progress_path(root, create=True),
+        progress_destination=deploy_progress.progress_path(root, create=True),
     )
-    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-    loaded = worktree.read_progress(root, {"deployIdentity": identity})["runContext"]
+    deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    loaded = deploy_progress.read_progress(root, {"deployIdentity": identity})["runContext"]
     saved = loaded["states"]["A"]
     report = steps.describe(
         SimpleNamespace(states=loaded["states"], run_context=loaded)
@@ -359,8 +360,8 @@ def check_failure_evidence_survives_progress_reload_and_status(tmp_path):
     with patch.object(controller.repair_ops, "require_authorized"):
         assert not controller.repair(runtime, {"name": "A"}, saved)
     backend.run_context = loaded
-    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-    restored = worktree.read_progress(root, {"deployIdentity": identity})["runContext"]
+    deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    restored = deploy_progress.read_progress(root, {"deployIdentity": identity})["runContext"]
     diagnostic = steps.describe(
         SimpleNamespace(states=restored["states"], run_context=restored)
     )["states"]["A"]["diagnostic"]

@@ -600,7 +600,7 @@ def cleanup_state(root, path, state, *, discard=False):
                 _worktree_runtime().deploy_handoff.discard_request(state)
             if state.get("deployIdentity"):
                 phase = "remove_deploy_progress"
-                module("deploy/worktree.py", "deploy.worktree").discard_progress(state)
+                module("deploy/progress.py", "deploy.progress").discard_progress(state)
         phase = "remove_state"
         path.unlink()
         return {

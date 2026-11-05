@@ -28,6 +28,7 @@ from deploy import (
     worktree,
 )
 from deploy import git_publication as publication
+from deploy import progress as deploy_progress
 from support.pytest_cli import run
 from task_contract_core import task_digest
 
@@ -527,7 +528,7 @@ def check_completion_keeps_states_separate(tmp_path, monkeypatch, pending):
         final["taskAfter"] += "changed authority\n"
     monkeypatch.setattr(worktree, "require", Mock(return_value=state))
     monkeypatch.setattr(
-        worktree, "read_progress", Mock(return_value={"runContext": context})
+        deploy_progress, "read_progress", Mock(return_value={"runContext": context})
     )
     monkeypatch.setattr(worktree.wt, "output", Mock(return_value="tree"))
     if pending:
@@ -653,7 +654,7 @@ def check_final_completion_rechecks_saved_checkpoint_evidence(
     state, progress = checkpoint_evidence
     snapshot = task(tmp_path)
     monkeypatch.setattr(worktree, "require", Mock(return_value=state))
-    monkeypatch.setattr(worktree, "read_progress", Mock(return_value=progress))
+    monkeypatch.setattr(deploy_progress, "read_progress", Mock(return_value=progress))
     with pytest.raises(ValueError, match="final candidate"):
         worktree.require_complete(tmp_path, snapshot)
 
@@ -676,7 +677,7 @@ def check_publication_without_receipt_never_creates_checkpoint(
         publication.tasks, "read_task_snapshot", Mock(return_value=task(tmp_path))
     )
     monkeypatch.setattr(worktree, "require", Mock(return_value=state))
-    monkeypatch.setattr(worktree, "read_progress", Mock(return_value=progress))
+    monkeypatch.setattr(deploy_progress, "read_progress", Mock(return_value=progress))
     checkpoint = Mock()
     monkeypatch.setattr(publication, "checkpoint", checkpoint)
     with pytest.raises(
@@ -805,7 +806,7 @@ def progress_backend(root, context):
         progress_identity=identity,
         progress_root=root.resolve(),
         progress_directory=context.get("directory"),
-        progress_destination=worktree.progress_path(root, create=True),
+        progress_destination=deploy_progress.progress_path(root, create=True),
     )
 
 
@@ -816,22 +817,22 @@ def check_progress_uses_fixed_identity_without_git(tmp_path):
         patch.object(ws, "git", side_effect=AssertionError("unexpected Git")),
         patch.object(worktree, "require", side_effect=ws.Blocked("worktree changed")),
     ):
-        worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+        deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
         context["states"]["A"]["status"] = "SUCCESS"
-        worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+        deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
         with pytest.raises(ws.Blocked, match="worktree changed"):
             worktree.require(tmp_path)
     assert (
-        worktree.read_progress(tmp_path, {"deployIdentity": backend.progress_identity})[
+        deploy_progress.read_progress(tmp_path, {"deployIdentity": backend.progress_identity})[
             "runContext"
         ]["states"]["A"]["status"]
         == "SUCCESS"
     )
     context["taskDigest"] = "other"
     with pytest.raises(ValueError, match="fixed identity"):
-        worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+        deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
     assert (
-        worktree.read_progress(tmp_path, {"deployIdentity": backend.progress_identity})[
+        deploy_progress.read_progress(tmp_path, {"deployIdentity": backend.progress_identity})[
             "runContext"
         ]["states"]["A"]["status"]
         == "SUCCESS"
@@ -852,11 +853,11 @@ def check_progress_preserves_success_and_omits_unowned_fields(tmp_path, monkeypa
     }
     backend = progress_backend(tmp_path, context)
     state = {"deployIdentity": backend.progress_identity}
-    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
     context["states"]["A"] = {"status": "NOT_STARTED"}
     context["inputDigests"] = {}
-    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-    progress = worktree.read_progress(tmp_path, state)
+    deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    progress = deploy_progress.read_progress(tmp_path, state)
     TestCase().assertEqual(
         progress["runContext"]["states"]["A"], {"status": "NOT_STARTED"}
     )
@@ -905,13 +906,13 @@ def check_other_engine_retains_its_completion(tmp_path, monkeypatch, engine):
     snapshot = task(tmp_path)
     snapshot.scope = {("dev", "123456789012", "ec2")}
     monkeypatch.setattr(worktree, "require", Mock(return_value={}))
-    monkeypatch.setattr(worktree, "read_progress", Mock(return_value=None))
+    monkeypatch.setattr(deploy_progress, "read_progress", Mock(return_value=None))
     monkeypatch.setattr(
         worktree, "load_target_directory", Mock(return_value={"iacEngine": engine})
     )
     if engine == "terraform":
         worktree.require_complete(tmp_path, snapshot)
-        worktree.read_progress.assert_not_called()
+        deploy_progress.read_progress.assert_not_called()
     else:
         with pytest.raises(ValueError, match="no fixed identity"):
             worktree.require_complete(tmp_path, snapshot)
@@ -943,8 +944,8 @@ def check_progress_has_one_mutable_context_and_preserves_recovery(tmp_path):
         "gitPublication": {"status": "stale"},
     }
     backend = progress_backend(tmp_path, context)
-    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-    saved = worktree.read_progress(
+    deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    saved = deploy_progress.read_progress(
         tmp_path, {"deployIdentity": backend.progress_identity}
     )
     assert set(saved) == {"identity", "runContext"}
@@ -980,8 +981,8 @@ def check_corrupt_progress_is_never_empty_success(tmp_path, damage):
         tmp_path,
         {"states": {"A": {"status": "FAILED"}}, "inputDigests": {"A": "fixed"}},
     )
-    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-    saved = worktree.read_progress(
+    deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    saved = deploy_progress.read_progress(
         tmp_path, {"deployIdentity": backend.progress_identity}
     )
     if damage == "context":
@@ -990,9 +991,9 @@ def check_corrupt_progress_is_never_empty_success(tmp_path, damage):
         saved["runContext"][damage] = True
     else:
         saved["runContext"].pop(damage)
-    worktree.write_sealed(tmp_path, backend.progress_destination, saved)
+    deploy_progress.write_sealed(tmp_path, backend.progress_destination, saved)
     with pytest.raises(ValueError, match="incomplete or corrupt"):
-        worktree.read_progress(tmp_path, {"deployIdentity": backend.progress_identity})
+        deploy_progress.read_progress(tmp_path, {"deployIdentity": backend.progress_identity})
 
 
 def check_git_display_uses_latest_lifecycle_without_progress_copy(
@@ -1007,7 +1008,7 @@ def check_git_display_uses_latest_lifecycle_without_progress_copy(
         publication.wt, "load", Mock(side_effect=lambda *a: (None, None, None, state))
     )
     monkeypatch.setattr(
-        worktree,
+        deploy_progress,
         "read_progress",
         Mock(return_value=progress),
     )
@@ -1023,7 +1024,7 @@ def check_git_display_uses_latest_lifecycle_without_progress_copy(
 
 def check_missing_progress_with_saved_checkpoint_is_not_a_fresh_run(tmp_path):
     with pytest.raises(ValueError, match="progress is missing"):
-        worktree.read_progress(
+        deploy_progress.read_progress(
             tmp_path, {"deployCheckpoints": {"A": {"commit": "saved"}}}
         )
 
@@ -1123,7 +1124,7 @@ def check_untracked_cleanup_uses_only_published_exact_task(
 
 
 def atomic_test_save(tmp_path, progress, state, request, saves):
-    worktree.write_sealed(tmp_path, progress, state)
+    deploy_progress.write_sealed(tmp_path, progress, state)
     saves.append(
         (
             json.loads(request.read_text()) if request.exists() else None,
@@ -1316,7 +1317,7 @@ def check_final_checkpoint_rejects_changes_before_adoption(
     monkeypatch.setattr(
         checkpoints.tasks, "read_task_snapshot", lambda *a, **k: trace.task
     )
-    monkeypatch.setattr(checkpoints.worktree, "final_blockers", Mock(return_value=[]))
+    monkeypatch.setattr(checkpoints.completion, "final_blockers", Mock(return_value=[]))
     monkeypatch.setattr(
         checkpoints.contracts, "validation_snapshot", lambda *a: dict(trace.snapshot)
     )
@@ -1407,7 +1408,7 @@ def check_publication_merge_intent_reconciles_once(tmp_path, monkeypatch, failur
         publication.tasks, "read_task_snapshot", Mock(return_value=task(tmp_path))
     )
     monkeypatch.setattr(
-        publication.worktree, "read_progress", Mock(return_value={"runContext": {}})
+        publication.deploy_progress, "read_progress", Mock(return_value={"runContext": {}})
     )
     monkeypatch.setattr(publication, "checkpoint_source", Mock(return_value="source"))
     monkeypatch.setattr(
@@ -1614,7 +1615,7 @@ def check_conflict_review_publishes_without_repeating_aws(tmp_path, monkeypatch)
     )
     monkeypatch.setattr(publication.worktree, "require", Mock())
     monkeypatch.setattr(
-        publication.worktree, "read_progress", Mock(return_value=progress)
+        publication.deploy_progress, "read_progress", Mock(return_value=progress)
     )
     monkeypatch.setattr(publication, "checkpoint_source", Mock(return_value="source"))
     monkeypatch.setattr(

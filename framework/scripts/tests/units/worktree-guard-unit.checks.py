@@ -860,13 +860,13 @@ def check_checkpoint_observed_barrier(tmp_path, pending):
     )
     with (
         patch.object(
-            handoff.worktree,
+            handoff.deploy_progress,
             "progress_path",
             return_value=SimpleNamespace(exists=lambda: True),
         ),
         patch.object(handoff.worktree, "require", return_value={}),
         patch.object(
-            handoff.worktree, "read_progress", return_value={"runContext": context}
+            handoff.deploy_progress, "read_progress", return_value={"runContext": context}
         ),
         patch.object(handoff, "dependency_reader", return_value=Mock()),
         patch.object(
@@ -935,13 +935,13 @@ def check_checkpoint_uses_scoped_barrier_under_ordered_locks(tmp_path, case):
         ),
         patch.object(journal, "location", return_value=journal_path),
         patch.object(
-            handoff.worktree,
+            handoff.deploy_progress,
             "progress_path",
             return_value=SimpleNamespace(exists=lambda: True),
         ),
         patch.object(handoff.worktree, "require", return_value={}),
         patch.object(
-            handoff.worktree,
+            handoff.deploy_progress,
             "read_progress",
             return_value={
                 "runContext": publication if case == "publication-overlap" else {}

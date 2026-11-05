@@ -23,6 +23,7 @@ from utils.aws.client import AwsError
 
 from deploy import (
     cli_guidance,
+    completion,
     context,
     contracts,
     current_state,
@@ -39,6 +40,7 @@ from deploy import (
     temporary,
     worktree,
 )
+from deploy import progress as deploy_progress
 from deploy.cli_guidance import DeployStepBlocked as Blocked
 from deploy.model_cache import RunModels
 from deploy.scheduler import run_group
@@ -50,8 +52,8 @@ def restore(backend: SimpleNamespace, task: TaskSnapshot) -> None:
     """Resume only this Task's local save; shared records contain requests only."""
     lifecycle = worktree.require(backend.root, task)
     if lifecycle is None:
-        lifecycle = worktree.progress_state(backend)
-    progress = worktree.read_progress(backend.root, lifecycle) if lifecycle else None
+        lifecycle = deploy_progress.progress_state(backend, worktree.require)
+    progress = deploy_progress.read_progress(backend.root, lifecycle) if lifecycle else None
     saved = progress.get("runContext") if progress else None
     if saved:
         if (
@@ -140,8 +142,8 @@ def recover_local_publication(backend, task):
     """Settle this Task's saved bytes before loading a possibly interrupted Model."""
     backend.run_context = {"taskFile": task.name, "taskDigest": task.task_digest}
     backend.states = {name: {} for name in backend.requested_stacks}
-    lifecycle = worktree.progress_state(backend)
-    progress = worktree.read_progress(backend.root, lifecycle)
+    lifecycle = deploy_progress.progress_state(backend, worktree.require)
+    progress = deploy_progress.read_progress(backend.root, lifecycle)
     saved = progress.get("runContext") if progress else None
     if not saved or not (
         saved.get("pendingObserved") or saved.get("pendingGeneration")
@@ -183,7 +185,7 @@ def checkpoint_receipts(backend: SimpleNamespace) -> dict:
 
 
 def save(backend):
-    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS, worktree.require)
 
 
 def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
@@ -276,8 +278,8 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
     elif context.get("generationError"):
         raise Blocked("generationError has no recoverable generation candidate")
     if final:
-        worktree.end_unexecuted(context)
-        blockers = worktree.final_blockers(context)
+        completion.end_unexecuted(context)
+        blockers = completion.final_blockers(context)
         if blockers:
             backend.save()
             raise Blocked("final sync requires: " + json.dumps(blockers))
@@ -343,8 +345,8 @@ def next_actions(backend, complete, can_advance, publication):
     ]
     preview = {**context, "states": copy.deepcopy(states)}
     if context.get("stepUnits"):
-        worktree.end_unexecuted(preview)
-    if not worktree.final_blockers(preview):
+        completion.end_unexecuted(preview)
+    if not completion.final_blockers(preview):
         actions.append({"action": "sync", "final": True, "stacks": []})
     if not actions and not git_actions:
         actions.append(
@@ -378,7 +380,7 @@ def describe(backend: SimpleNamespace) -> dict:
     complete = (
         getattr(backend, "task_status", "running") == "completed"
         and generation_resume.complete(context)
-        and worktree.attempts_finished(states, context.get("deployResult"))
+        and completion.attempts_finished(states, context.get("deployResult"))
         and all(s.get("observedSynced") for s in states.values())
         and context.get("snapshotValidation") == VALIDATION_PASS
         and not pending
@@ -434,7 +436,7 @@ def describe(backend: SimpleNamespace) -> dict:
         and not can_advance
         else "PENDING",
         "task": getattr(backend, "task_status", "running"),
-        "finalBlockers": worktree.final_blockers(context),
+        "finalBlockers": completion.final_blockers(context),
         "deployResult": context.get(
             "deployResult",
             "FAIL"
@@ -542,7 +544,7 @@ def run(
         task = task_snapshot(root, executable=False, live=True)
         if task.status == "completed" and args.action == "advance":
             lifecycle = worktree.require(root, task)
-            progress = worktree.read_progress(root, lifecycle) if lifecycle else None
+            progress = deploy_progress.read_progress(root, lifecycle) if lifecycle else None
             if progress and progress["runContext"].get("checkpointPending"):
                 raise Blocked(
                     "locally completed candidate still needs --action checkpoint; advance is unavailable"
@@ -601,7 +603,7 @@ def run(
             redirect_stdout(sys.stderr),
         ):
             resources.enter_context(
-                operation_journal.locked(worktree.progress_path(root, create=True))
+                operation_journal.locked(deploy_progress.progress_path(root, create=True))
             )
             backend = backend_type(
                 root,
@@ -616,7 +618,7 @@ def run(
                 backend.progress_identity = progress_identity
                 backend.progress_root = root
                 backend.progress_directory = directory
-                backend.progress_destination = worktree.progress_path(root, create=True)
+                backend.progress_destination = deploy_progress.progress_path(root, create=True)
             if authentication_error:
                 backend.aws = partial(current_state.unavailable, authentication_error)
             backend.requested_stacks = args.stack
@@ -798,7 +800,7 @@ def run(
                         if run.get("pendingGeneration"):
                             generation_resume.run(backend)
                         if run["checkpointPending"].get("final"):
-                            worktree.end_unexecuted(run)
+                            completion.end_unexecuted(run)
                         if run["checkpointPending"].get(
                             "after"
                         ) is None and not run.get("pendingObserved"):

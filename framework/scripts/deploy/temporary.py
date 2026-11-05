@@ -9,6 +9,7 @@ from utils.cloudformation.inputs import Blocked
 from utils.local_evidence import evidence_store
 
 from deploy import handoff, operation_journal, worktree
+from deploy import progress as deploy_progress
 
 
 def create(journal, stacks):
@@ -34,7 +35,7 @@ def reclaim(journal, root, *, directory, backend, stacks):
         task_directory(journal, directory)
         operation_journal.private_path(directory, directory=True)
         with handoff.repair_lock(root):
-            progress = worktree.read_progress(root, worktree.progress_state(backend))
+            progress = deploy_progress.read_progress(root, deploy_progress.progress_state(backend, worktree.require))
             contexts = [backend.run_context]
             if progress:
                 contexts.append(progress["runContext"])

@@ -20,6 +20,7 @@ import worktree_checkpoint as checkpoints
 import worktree_state as ws
 import worktree_task as wt
 from deploy import (
+    completion,
     contracts,
     inputs,
     operation_journal,
@@ -27,6 +28,7 @@ from deploy import (
     worktree,
 )
 from deploy import git_publication as publication
+from deploy import progress as deploy_progress
 from model.format import parse
 from model.render import stack_markdown
 from model.sources import load_model
@@ -254,7 +256,7 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     ).replace("## Allowed paths\n", f"## Allowed paths\n- `{omitted}`\n")
     source = tmp_path / "corrected-contract.md"
     source.write_text(candidate, encoding="utf-8")
-    before = worktree.read_progress(root, ws.load(root, "deploy")[3])["runContext"]
+    before = deploy_progress.read_progress(root, ws.load(root, "deploy")[3])["runContext"]
     with patch.object(
         sys,
         "argv",
@@ -269,7 +271,7 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
         assert task_main() == 0
     assert json.loads(aws.read_text(encoding="utf-8"))["calls"] == calls
     state = ws.load(root, "deploy")[3]
-    progress = worktree.read_progress(root, state)["runContext"]
+    progress = deploy_progress.read_progress(root, state)["runContext"]
     assert progress["states"] == before["states"]
     assert progress["inputIdentities"] == before["inputIdentities"]
     assert read_task_snapshot(root, "tasks/deploy.md", live=True).status == "suspend"
@@ -359,7 +361,7 @@ def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
     aws_state(aws)
     assert invoke(root, report, aws, ["--action", "advance"]) != 0
     state = ws.load(root, "deploy")[3]
-    before = worktree.read_progress(root, state)["runContext"]
+    before = deploy_progress.read_progress(root, state)["runContext"]
     failure = Path(before["currentFailure"])
     assert failure.is_file()
     assert any(
@@ -378,7 +380,7 @@ def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
     source.write_text(candidate, encoding="utf-8")
     transitions.correct_deploy_contract(root, "tasks/deploy.md", source)
     revised = ws.load(root, "deploy")[3]
-    after = worktree.read_progress(root, revised)["runContext"]
+    after = deploy_progress.read_progress(root, revised)["runContext"]
     assert (
         state["start"] == revised["start"] and state["worktree"] == revised["worktree"]
     )
@@ -549,7 +551,7 @@ def managed_repository(tracked_contract=False, untracked_contract=False):
             )
             pin_progress(backend, identity)
             backend.save = partial(
-                worktree.save_progress, backend, operation_journal.OPERATION_FIELDS
+                deploy_progress.save_progress, backend, operation_journal.OPERATION_FIELDS
             )
             backend.save()
             yield primary, backend, relative
@@ -964,7 +966,7 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
     consumer_before = consumer.read_bytes()
     aws_state(aws)
     assert run_controller(root, report, aws) == 0
-    progress = worktree.read_progress(root, ws.load(root, "deploy")[3])
+    progress = deploy_progress.read_progress(root, ws.load(root, "deploy")[3])
     records = [
         record
         for state in progress["runContext"]["states"].values()
@@ -992,17 +994,17 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
     transitions.correct_deploy_contract(
         root, "tasks/deploy.md", external, [f"dev/{ACCOUNT}/rds"]
     )
-    corrected_progress = worktree.read_progress(root, ws.load(root, "deploy")[3])[
+    corrected_progress = deploy_progress.read_progress(root, ws.load(root, "deploy")[3])[
         "runContext"
     ]
     assert any(
         item.get("consumer") == f"dev/{ACCOUNT}/rds"
-        for item in worktree.final_blockers(corrected_progress)
+        for item in completion.final_blockers(corrected_progress)
     )
     transitions.resume(root, "tasks/deploy.md")
     first = "cfn-stack-app-dev-first"
     assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", first]) == 0
-    saved = worktree.read_progress(root, ws.load(root, "deploy")[3])["runContext"]
+    saved = deploy_progress.read_progress(root, ws.load(root, "deploy")[3])["runContext"]
     resolved = [
         record
         for state in saved["states"].values()

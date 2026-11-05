@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import task_contract_core as tasks
 import worktree_task as wt
 from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
-from deploy import contracts, git_publication, inputs, worktree
+from deploy import completion, contracts, git_publication, inputs, worktree
 from deploy.cli_guidance import DeployStepBlocked
 from model.observed import verify_observed_outputs
 from model.sources import source_scope
@@ -414,7 +414,7 @@ def final_checkpoint(backend, primary, path, state, pending):
         raw=final["taskAfter"].encode("utf-8"),
         raw_digest=hashlib.sha256(final["taskAfter"].encode("utf-8")).hexdigest(),
     )
-    blockers = worktree.final_blockers(context)
+    blockers = completion.final_blockers(context)
     if blockers:
         raise DeployStepBlocked("final checkpoint requires: " + json.dumps(blockers))
     if pending.get("after") is None:

@@ -40,8 +40,8 @@ def setup_case(tmp_path):
 
 def cleanup(root, journal, directory, backend, saved=None):
     with (
-        patch.object(temporary.worktree, "progress_state", return_value={}),
-        patch.object(temporary.worktree, "read_progress", return_value=saved),
+        patch.object(temporary.deploy_progress, "progress_state", return_value={}),
+        patch.object(temporary.deploy_progress, "read_progress", return_value=saved),
     ):
         temporary.reclaim(
             journal, root, directory=directory, backend=backend, stacks=["App"]
@@ -214,7 +214,7 @@ def workspace(tmp_path):
 
 
 def reclaim_under_progress_lock(actual, target_backend, *args, **kwargs):
-    progress = steps.worktree.progress_path(target_backend.root)
+    progress = steps.deploy_progress.progress_path(target_backend.root)
     with pytest.raises(Blocked, match="lock busy"):
         with J.locked(progress):
             raise AssertionError("cleanup ran after releasing progress lock")
@@ -274,8 +274,8 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
     )
     with (
         patch.object(temporary, "create", return_value=current_directory),
-        patch.object(temporary.worktree, "progress_state", return_value={}),
-        patch.object(temporary.worktree, "read_progress", return_value=None),
+        patch.object(temporary.deploy_progress, "progress_state", return_value={}),
+        patch.object(temporary.deploy_progress, "read_progress", return_value=None),
         patch.object(steps.context, "load_target", return_value=TARGET),
         patch.object(steps.context, "check_deploy_context", return_value=TARGET),
         patch.object(steps, "task_snapshot", return_value=task),
@@ -325,7 +325,7 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         assert output["cause"]["errno"] == 2
         assert "private secret" not in json.dumps(output)
         backend.aws.assert_not_called()
-    with J.locked(steps.worktree.progress_path(root)):
+    with J.locked(steps.deploy_progress.progress_path(root)):
         pass
     TestCase().assertTrue(failure.exists() and prior_template.exists())
     with J.locked(journal):
