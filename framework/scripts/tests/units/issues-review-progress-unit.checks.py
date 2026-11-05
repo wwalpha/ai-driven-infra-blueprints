@@ -318,25 +318,30 @@ def check_real_naming_rules_shared_with_complete_twenty_item_batch(
     assert 0 < len(batch["items"]) <= 20
     assert len(encoded(batch).encode("utf-8")) <= 32768
     full_batch = review.next_batch(limit=20, max_bytes=65536)
-    assert len(full_batch["items"]) == 20
-    if len(batch["items"]) < 20:
-        assert len(encoded(full_batch).encode("utf-8")) > 32768
-    batch = full_batch
-    shared = batch["naming_context"]
-    assert shared == dict(
-        data["naming_context"], rules={k: rules[k] for k in ("common", *namespaces)}
-    )
-    for material in batch["items"]:
-        kind = material["item"]["resourceType"].partition(".")[0]
-        assert material["naming_rule_refs"] == ["common", kind]
-        assert "naming_context" not in material
-    for items in shared["rules"].values():
-        for rule in items:
-            assert (
-                encoded(batch).count(json.dumps(rule["text"], ensure_ascii=False)) == 1
-            )
-    review.submit(submission(batch))
-    assert review.status()["sections"]["naming"]["reviewed"] == len(batch["items"])
+    assert full_batch == batch
+    reviewed = 0
+    while review.status()["next_section"] == "naming":
+        batch = review.next_batch(limit=20, max_bytes=65536)
+        assert len(encoded(batch).encode("utf-8")) <= 32768
+        kinds = {
+            ref for material in batch["items"] for ref in material["naming_rule_refs"]
+        }
+        shared = batch["naming_context"]
+        assert shared == dict(
+            data["naming_context"], rules={k: v for k, v in rules.items() if k in kinds}
+        )
+        for material in batch["items"]:
+            kind = material["item"]["resourceType"].partition(".")[0]
+            assert material["naming_rule_refs"] == ["common", kind]
+            assert "naming_context" not in material
+        for items in shared["rules"].values():
+            for rule in items:
+                assert (
+                    encoded(batch).count(json.dumps(rule["text"], ensure_ascii=False)) == 1
+                )
+        reviewed += len(batch["items"])
+        review.submit(submission(batch))
+    assert reviewed == 20
 
 
 def revision_for(
@@ -631,6 +636,34 @@ def check_batch_size_bytes_and_oversize_item(tmp_path):
     assert review.status()["sections"]["naming"]["reviewed"] == 0
 
 
+def check_judgment_batches_respect_effective_limit(tmp_path):
+    data = snapshot_artifact(tmp_path / "repository")
+    data["judgments"] = [
+        dict(
+            id=f"judgment-{i}",
+            service="s3",
+            kind="human-components/exceptions",
+            materials="日本" * 2048,
+        )
+        for i in range(5)
+    ]
+    review = controller(tmp_path, data)
+    review.initialize()
+    while review.status()["next_section"] != "judgments":
+        review.submit(submission(review.next_batch()))
+    seen = []
+    sizes = []
+    while review.status()["next_section"] == "judgments":
+        batch = review.next_batch(max_bytes=65536)
+        sizes.append(len(encoded(batch).encode("utf-8")))
+        assert sizes[-1] <= 32768, sizes[-1]
+        seen.extend(batch["expected_ids"])
+        review.submit(submission(batch))
+    assert len(sizes) > 1
+    assert seen == [f"judgment-{i}" for i in range(5)]
+    assert review.status()["sections"]["judgments"]["reviewed"] == 5
+
+
 def check_large_pages_resume_confirmation_and_complete(tmp_path):
     data = named_artifact(tmp_path, 1)
     data["naming_context"]["review_policy"] = "日本語🙂" * 18000
@@ -748,6 +781,8 @@ def check_142_human_notes_page_as_one_judgment(tmp_path):
     reconstructed = json.loads("".join(part["content"] for part in parts))
     assert reconstructed["items"][0]["item"]["materials"] == notes
     assert all(len(encoded(part).encode("utf-8")) <= 32768 for part in parts)
+    with pytest.raises(ValueError, match="unconfirmed"):
+        review.submit(submission(reconstructed))
     for part in parts:
         review.page(
             **args,

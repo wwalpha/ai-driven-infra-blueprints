@@ -551,6 +551,7 @@ class ReviewController:
     def next_batch(self, limit: int = 20, max_bytes: int = DEFAULT_MAX_BYTES) -> Json:
         if limit < 1 or max_bytes < 256:
             raise ValueError("Review limit must be positive and max_bytes at least 256")
+        effective_max_bytes = min(max_bytes, DEFAULT_MAX_BYTES)
         with publication_lock(self.path, read_only=True):
             state = self._load()
             sections = self._sections(state)
@@ -568,14 +569,10 @@ class ReviewController:
                 material = self._material(section, sections[section][key])
                 if section == "additions" and key in state["results"][section]:
                     material["previous_result"] = state["results"][section][key]
-                if items and len(
-                    encoded(self._candidate(section, [key], [material])).encode("utf-8")
-                ) > min(max_bytes, DEFAULT_MAX_BYTES):
-                    break
                 candidate_ids = [*ids, key]
                 candidate = self._candidate(section, candidate_ids, [*items, material])
                 size = len(encoded(candidate).encode("utf-8"))
-                if size > (max_bytes if items else min(max_bytes, DEFAULT_MAX_BYTES)):
+                if size > effective_max_bytes:
                     if not items:
                         material_pages = pages(candidate)
                         pending = dict(
