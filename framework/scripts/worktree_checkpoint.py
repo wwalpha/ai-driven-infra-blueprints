@@ -137,6 +137,7 @@ def verify_update_receipts(root, target, state, context, names, receipts, text, 
         if not isinstance(evidence, dict):
             raise DeployStepBlocked("checkpoint receipt has no content evidence")
         paths = evidence.get("changed")
+        retained = state.get("stackCheckpointIntents", {}).get(name)
         parent_list = parents.stdout.split()
         if (
             len(parent_list) != 1
@@ -148,6 +149,14 @@ def verify_update_receipts(root, target, state, context, names, receipts, text, 
                 for p in paths
             )
             or paths != sorted(set(paths))
+            or not isinstance(retained, dict)
+            or retained.get("commit") != commit
+            or retained.get("changed") != paths
+            or not isinstance(retained.get("stacks"), list)
+            or name not in retained.get("stacks", [])
+            or retained.get("taskDigest") != context.get("taskDigest")
+            or retained.get("taskBase") != receipt.get("taskBase")
+            or retained.get("taskHead") != receipt.get("taskHead")
             or evidence.get("digest") != update_receipt_digest(receipt, paths)
             or evidence.get("tree")
             != wt.output(target, "rev-parse", commit + "^{tree}")
@@ -730,6 +739,14 @@ def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
             raise DeployStepBlocked("checkpoint merge differs from intended commit")
         for name in names:
             unit = next(u for u in context["stepUnits"] if u["name"] == name)
+            state.setdefault("stackCheckpointIntents", {})[name] = {
+                "commit": commit,
+                "changed": copy.deepcopy(intent["changed"]),
+                "stacks": copy.deepcopy(intent["stacks"]),
+                "taskDigest": intent["taskDigest"],
+                "taskBase": intent["taskBase"],
+                "taskHead": intent["taskHead"],
+            }
             receipts[name] = {
                 "commit": commit,
                 "taskDigest": context["taskDigest"],

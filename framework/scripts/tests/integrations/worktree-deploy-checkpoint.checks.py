@@ -162,7 +162,8 @@ def check_update_receipt_rewritten_base():
     scenarios = (
         "normal", "advance", "rewrite", "same-tree", "other-model", "model", "view", "missing", "task", "stack",
         "input", "unit", "commit", "other-task", "zero", "zero-other-model",
-        "zero-unverifiable", "zero-no-parent",
+        "zero-unverifiable", "zero-no-parent", "forged-evidence", "forged-empty",
+        "forged-other-task", "forged-empty-loss", "zero-reused", "missing-intent",
     )
     for scenario in scenarios:
         with task_fixture(branch="master") as root:
@@ -206,9 +207,9 @@ def check_update_receipt_rewritten_base():
                 _, _, path, state = wt.load(root, "example")
                 if scenario in {"rewrite", "same-tree"}:
                     git(root, "commit", "--amend", "-qm", "rewritten checkpoint")
-                if scenario in {"advance", "other-model", "zero-other-model", "model", "view", "missing"}:
+                if scenario in {"advance", "other-model", "zero-other-model", "model", "view", "missing", "forged-empty-loss"}:
                     relative = {
-                        "model": model, "view": view, "missing": model,
+                        "model": model, "view": view, "missing": model, "forged-empty-loss": model,
                         "advance": "unrelated.txt",
                     }.get(scenario, "model/dev/team/other.properties")
                     if scenario == "missing":
@@ -219,7 +220,7 @@ def check_update_receipt_rewritten_base():
                     git(root, "commit", "-qm", "task(other): deploy checkpoint A")
                     if scenario in {"other-model", "zero-other-model"}:
                         git(target, "merge", "--ff-only", git(root, "rev-parse", "HEAD").strip())
-                if scenario == "other-task":
+                if scenario in {"other-task", "forged-other-task"}:
                     other_model = "model/dev/team/other.properties"
                     with patch("support.worktree_task_fixtures.dependency_index.rebuild"):
                         other, other_state = start_task(root, task_id="other", files=(other_model,))
@@ -241,6 +242,38 @@ def check_update_receipt_rewritten_base():
                         states={"A": dict(backend.states["A"])},
                     )
                     checkpoints.update_checkpoint(other_backend, ["A"])
+                if scenario == "zero-reused":
+                    context["stepUnits"].append({"name": "B"})
+                    context["inputDigests"]["B"] = "input-b"
+                    backend.states["B"] = dict(backend.states["A"])
+                    snapshot = checkpoints.contracts.validation_snapshot(target)
+                    context["checkpointPending"] = {
+                        "stacks": ["B"], "before": snapshot, "after": snapshot,
+                    }
+                    second = checkpoints.update_checkpoint(backend, ["B"])["B"]
+                    assert second["commit"] == receipt["commit"]
+                    assert second["checkpointEvidence"]["changed"] == []
+                    assert checkpoints.update_checkpoint(backend, ["B"])["B"] == second
+                if scenario in {"forged-evidence", "forged-empty", "forged-other-task", "forged-empty-loss"}:
+                    if scenario != "forged-empty-loss":
+                        receipt["commit"] = (
+                            git(root, "rev-parse", "HEAD").strip()
+                            if scenario == "forged-other-task" else unrelated
+                        )
+                    evidence = receipt["checkpointEvidence"]
+                    if scenario in {"forged-empty", "forged-empty-loss"}:
+                        evidence["changed"] = []
+                    evidence["tree"] = git(
+                        root, "rev-parse", receipt["commit"] + "^{tree}"
+                    ).strip()
+                    evidence["digest"] = checkpoints.update_receipt_digest(
+                        receipt, evidence["changed"]
+                    )
+                    state["deployCheckpoints"]["A"] = receipt
+                    wt.save(path, state)
+                if scenario == "missing-intent":
+                    state.pop("stackCheckpointIntents")
+                    wt.save(path, state)
                 if scenario == "zero-no-parent":
                     receipt["commit"] = git(root, "rev-list", "--max-parents=0", "HEAD").strip()
                     receipt["checkpointEvidence"]["tree"] = git(
@@ -263,7 +296,7 @@ def check_update_receipt_rewritten_base():
                     )
                     state["deployCheckpoints"]["A"] = receipt
                     wt.save(path, state)
-                if scenario in {"model", "view", "missing", "task", "stack", "input", "unit", "commit", "other-task", "zero-unverifiable", "zero-no-parent"}:
+                if scenario in {"model", "view", "missing", "task", "stack", "input", "unit", "commit", "other-task", "zero-unverifiable", "zero-no-parent", "forged-evidence", "forged-empty", "forged-other-task", "forged-empty-loss", "missing-intent"}:
                     with pytest.raises(ValueError, match="receipt|content"):
                         checkpoints.update_checkpoint(backend, ["A"])
                 else:
