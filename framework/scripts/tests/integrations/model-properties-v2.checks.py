@@ -369,7 +369,7 @@ def check_managed_observation_preserves_exact_authority(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "change", ["display", "create", "import-config", "fixed-id", "cli", "allocate"]
+    "change", ["display", "create", "import-config", "fixed-id", "allocate"]
 )
 def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, change):
     prepare_edit = _imports_model_operations.prepare_edit

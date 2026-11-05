@@ -238,6 +238,7 @@ WORKTREE_CASES = {
     ),
     "integrations/worktree-model-operation.checks.py": (
         "check_one_parent_model_operation_merge",
+        "check_cli_candidate_managed_task",
     ),
 }
 WORKTREE_SUPPORT = frozenset(
