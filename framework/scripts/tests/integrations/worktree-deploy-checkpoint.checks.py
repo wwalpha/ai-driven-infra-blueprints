@@ -1,6 +1,5 @@
 """Real scoped publication and normal Worktree checkpoint while a peer is running."""
 
-import copy
 import hashlib
 import json
 import sys
@@ -9,7 +8,7 @@ from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import model.format as model_format
 import sync_runtime
@@ -159,177 +158,6 @@ def check_combined_checkpoint_after_peer_completion(tmp_path, monkeypatch):
     assert not report.with_suffix(".operations.json").exists()
 
 
-def check_update_receipt_rewritten_base():
-    scenarios = (
-        "normal", "restart", "advance", "rewrite", "rebase", "same-tree", "other-model", "other-view", "model", "view", "missing", "task", "stack",
-        "input", "unit", "commit", "other-task", "zero", "zero-other-model",
-        "zero-unverifiable", "zero-no-parent", "forged-evidence", "forged-empty",
-        "forged-other-task", "forged-empty-loss", "zero-reused", "missing-intent",
-        "coherent-loss", "coherent-other-task", "coherent-empty", "coherent-empty-loss",
-        "zero-other-view",
-        "zero-model-loss", "zero-view-loss", "zero-missing",
-    )
-    for scenario in scenarios:
-        with task_fixture(branch="master") as root:
-            model = "model/dev/team/test.properties"
-            view = "docs/designs/dev/team/test.md"
-            for relative in (model, view):
-                path = root / relative
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("before\n", encoding="utf-8")
-            git(root, "add", "model", "docs")
-            git(root, "commit", "-qm", "model and view")
-            unrelated = git(root, "rev-parse", "HEAD").strip()
-            with patch("support.worktree_task_fixtures.dependency_index.rebuild"):
-                target, state = start_task(root, files=(model, view, "model/dev/team/other.properties", "docs/designs/dev/team/other.md"))
-            text = (target / state["task_file"]).read_text(encoding="utf-8")
-            before = checkpoints.contracts.validation_snapshot(target)
-            if not scenario.startswith("zero") or scenario == "zero-reused":
-                for relative in (model, view):
-                    (target / relative).write_text("checkpoint\n", encoding="utf-8")
-            context = {
-                "checkpointPending": {
-                    "stacks": ["A"], "before": before,
-                    "after": checkpoints.contracts.validation_snapshot(target),
-                },
-                "taskDigest": task_digest(text),
-                "inputDigests": {"A": "input"},
-                "stepUnits": [{"name": "A"}],
-                "consumedInputs": {},
-            }
-            backend = SimpleNamespace(
-                root=target, phase="update", run_context=context,
-                guard=lambda: None, save=lambda: None,
-                states={"A": {
-                    "observedSynced": True, "stackId": "stack-id",
-                    "stackStatus": "COMPLETE", "status": "SUCCESS",
-                    "observedServices": ["test"],
-                }},
-            )
-            with patch.object(checkpoints, "validate"):
-                receipt = checkpoints.update_checkpoint(backend, ["A"])["A"]
-                assert checkpoints.update_checkpoint(backend, ["A"])["A"] == receipt
-                _, _, path, state = wt.load(root, "example")
-                if scenario == "restart":
-                    assert checkpoints.update_checkpoint(backend, ["A"])["A"] == receipt
-                if scenario in {"rewrite", "same-tree"}:
-                    git(root, "commit", "--amend", "-qm", "rewritten checkpoint")
-                if scenario == "rebase":
-                    parent = git(root, "rev-parse", "HEAD^").strip()
-                    new_base = git(
-                        root, "commit-tree", parent + "^{tree}", "-p", parent,
-                        "-m", "rewritten master base",
-                    ).strip()
-                    git(root, "rebase", "--onto", new_base, parent)
-                    assert wt.git(root, "merge-base", "--is-ancestor", receipt["commit"], "HEAD", check=False).returncode == 1
-                if scenario in {"advance", "other-model", "other-view", "zero-other-model", "zero-other-view", "model", "view", "missing", "forged-empty-loss", "coherent-loss", "coherent-empty-loss", "zero-model-loss", "zero-view-loss", "zero-missing"}:
-                    relative = {
-                        "model": model, "view": view, "missing": model, "forged-empty-loss": model,
-                        "coherent-loss": model, "coherent-empty-loss": model,
-                        "zero-model-loss": model, "zero-view-loss": view, "zero-missing": model,
-                        "other-view": "docs/designs/dev/team/other.md",
-                        "zero-other-view": "docs/designs/dev/team/other.md",
-                        "advance": "unrelated.txt",
-                    }.get(scenario, "model/dev/team/other.properties")
-                    if scenario in {"missing", "zero-missing"}:
-                        (root / relative).unlink()
-                    else:
-                        (root / relative).write_text("other\n", encoding="utf-8")
-                    git(root, "add", "-A", relative)
-                    git(root, "commit", "-qm", "task(other): deploy checkpoint A")
-                    if scenario in {"other-model", "other-view", "zero-other-model", "zero-other-view", "coherent-loss"}:
-                        git(target, "merge", "--ff-only", git(root, "rev-parse", "HEAD").strip())
-                if scenario in {"other-task", "forged-other-task", "coherent-other-task"}:
-                    other_model = "model/dev/team/other.properties"
-                    with patch("support.worktree_task_fixtures.dependency_index.rebuild"):
-                        other, other_state = start_task(root, task_id="other", files=(other_model,))
-                    other_before = checkpoints.contracts.validation_snapshot(other)
-                    (other / other_model).write_text("other task\n", encoding="utf-8")
-                    other_text = (other / other_state["task_file"]).read_text(encoding="utf-8")
-                    other_context = {
-                        "checkpointPending": {
-                            "stacks": ["A"], "before": other_before,
-                            "after": checkpoints.contracts.validation_snapshot(other),
-                        },
-                        "taskDigest": task_digest(other_text),
-                        "inputDigests": {"A": "input"},
-                        "stepUnits": [{"name": "A"}], "consumedInputs": {},
-                    }
-                    other_backend = SimpleNamespace(
-                        root=other, phase="update", run_context=other_context,
-                        guard=lambda: None, save=lambda: None,
-                        states={"A": dict(backend.states["A"])},
-                    )
-                    checkpoints.update_checkpoint(other_backend, ["A"])
-                if scenario == "zero-reused":
-                    context["stepUnits"].append({"name": "B"})
-                    context["inputDigests"]["B"] = "input-b"
-                    backend.states["B"] = dict(backend.states["A"])
-                    snapshot = checkpoints.contracts.validation_snapshot(target)
-                    context["checkpointPending"] = {
-                        "stacks": ["B"], "before": snapshot, "after": snapshot,
-                    }
-                    second = checkpoints.update_checkpoint(backend, ["B"])["B"]
-                    assert second["commit"] == receipt["commit"]
-                    assert second["checkpointEvidence"]["changed"] == []
-                    assert checkpoints.update_checkpoint(backend, ["B"])["B"] == second
-                if scenario in {"forged-evidence", "forged-empty", "forged-other-task", "forged-empty-loss", "coherent-loss", "coherent-other-task", "coherent-empty", "coherent-empty-loss"}:
-                    if scenario not in {"forged-empty-loss", "coherent-empty", "coherent-empty-loss"}:
-                        receipt["commit"] = (
-                            git(root, "rev-parse", "HEAD").strip()
-                            if scenario in {"forged-other-task", "coherent-other-task", "coherent-loss"} else unrelated
-                        )
-                    evidence = receipt["checkpointEvidence"]
-                    if scenario in {"forged-empty", "forged-empty-loss", "coherent-empty", "coherent-empty-loss"}:
-                        evidence["changed"] = []
-                    evidence["tree"] = git(
-                        root, "rev-parse", receipt["commit"] + "^{tree}"
-                    ).strip()
-                    evidence["digest"] = checkpoints.update_receipt_digest(
-                        receipt, evidence["changed"]
-                    )
-                    state["deployCheckpoints"]["A"] = receipt
-                    if scenario.startswith("coherent"):
-                        retained = state["stackCheckpointIntents"]["A"]
-                        retained["commit"] = receipt["commit"]
-                        retained["changed"] = list(evidence["changed"])
-                        # Demonstrate that every original mutable-state consistency check agrees.
-                        assert retained["commit"] == receipt["commit"]
-                        assert retained["changed"] == evidence["changed"]
-                    wt.save(path, state)
-                if scenario == "missing-intent":
-                    state.pop("stackCheckpointIntents")
-                    wt.save(path, state)
-                if scenario == "zero-no-parent":
-                    receipt["commit"] = git(root, "rev-list", "--max-parents=0", "HEAD").strip()
-                    receipt["checkpointEvidence"]["tree"] = git(
-                        root, "rev-parse", receipt["commit"] + "^{tree}"
-                    ).strip()
-                    receipt["checkpointEvidence"]["digest"] = checkpoints.update_receipt_digest(receipt, [])
-                    state["deployCheckpoints"]["A"] = receipt
-                    wt.save(path, state)
-                if scenario in {"task", "stack", "input", "unit", "commit", "other-task", "zero-unverifiable"}:
-                    key = {
-                        "task": "taskDigest", "stack": "stackId", "input": "inputDigest",
-                        "unit": "unit", "commit": "commit", "other-task": "commit",
-                        "zero-unverifiable": "checkpointEvidence",
-                    }[scenario]
-                    receipt[key] = (
-                        unrelated if scenario == "commit"
-                        else git(root, "rev-parse", "HEAD").strip() if scenario == "other-task"
-                        else {} if scenario == "zero-unverifiable"
-                        else "tampered"
-                    )
-                    state["deployCheckpoints"]["A"] = receipt
-                    wt.save(path, state)
-                if scenario in {"model", "view", "missing", "task", "stack", "input", "unit", "commit", "other-task", "zero-unverifiable", "zero-no-parent", "forged-evidence", "forged-empty", "forged-other-task", "forged-empty-loss", "missing-intent", "coherent-loss", "coherent-other-task", "coherent-empty", "coherent-empty-loss", "missing-proof", "tampered-proof", "zero-model-loss", "zero-view-loss", "zero-missing"}:
-                    with pytest.raises(ValueError, match="receipt|content"):
-                        checkpoints.update_checkpoint(backend, ["A"])
-                else:
-                    assert checkpoints.update_checkpoint(backend, ["A"]) == {"A": receipt}
-                    assert checkpoints.update_checkpoint(backend, ["A"]) == {"A": receipt}
-
-
 def _update_candidate_validate(root, tree, base, task, context):
     assert wt.output(root, "rev-parse", tree + "^{tree}") == tree
 
@@ -354,13 +182,6 @@ def _update_interrupt_rebase(original, root, *args, **kwargs):
     return result
 
 
-def _update_interrupt_receipt_save(original, interrupted, path, state):
-    if state.get("deployCheckpoints") and not state.get("stackCheckpointIntent") and not interrupted:
-        interrupted.append(copy.deepcopy(state["deployCheckpoints"]))
-        raise OSError("interrupted before lifecycle save")
-    return original(path, state)
-
-
 def check_update_checkpoint_latest_base():
     for scenario in (
         "advance",
@@ -376,12 +197,6 @@ def check_update_checkpoint_latest_base():
         "input-change",
         "validation-fail",
         "already-applied",
-        "ack-interrupt",
-        "ack-pending",
-        "proof-interrupt",
-        "proof-advance",
-        "direct-interrupt",
-        "direct-advance",
     ):
         with task_fixture(branch="master") as root:
             relative = "model/dev/team/test.properties"
@@ -444,7 +259,7 @@ def check_update_checkpoint_latest_base():
             )
             if scenario in {"rewrite", "same-tree"}:
                 git(root, "commit", "--amend", "-qm", "rewritten base")
-            if scenario not in {"same-tree", "direct-interrupt", "direct-advance"}:
+            if scenario != "same-tree":
                 base_path = (
                     relative
                     if scenario in {"different-lines", "task-overlap", "conflict", "already-applied"}
@@ -461,8 +276,6 @@ def check_update_checkpoint_latest_base():
                 git(root, "add", base_path)
                 git(root, "commit", "-qm", "advance base")
             latest = git(root, "rev-parse", "HEAD").strip()
-            if scenario in {"ack-interrupt", "ack-pending"}:
-                backend.save = Mock(side_effect=[OSError("save interrupted"), None])
             with (
                 patch.object(checkpoints, "validate"),
                 patch.object(
@@ -493,57 +306,73 @@ def check_update_checkpoint_latest_base():
                         with pytest.raises(RuntimeError, match="interrupted"):
                             checkpoints.update_checkpoint(backend, ["A"])
                     assert (target / relative).read_text() == observed
-                    (root / "after-interruption.txt").write_text(
-                        "base advanced\n", encoding="utf-8"
-                    )
-                    git(root, "add", "after-interruption.txt")
-                    git(root, "commit", "-qm", "base after interruption")
+                    with pytest.raises(ValueError, match="candidate changed after sync|unexpected commits"):
+                        checkpoints.update_checkpoint(backend, ["A"])
+                    continue
                 if scenario == "race":
                     with pytest.raises(
                         ValueError, match="changed during candidate validation"
                     ):
                         checkpoints.update_checkpoint(backend, ["A"])
                     assert (target / relative).read_text() == observed
-                if scenario in {"ack-interrupt", "ack-pending"}:
-                    with pytest.raises(OSError, match="save interrupted"):
-                        checkpoints.update_checkpoint(backend, ["A"])
-                    context["checkpointPending"] = {
-                        "stacks": ["A"],
-                        "before": before,
-                        "after": after,
-                    }
-                    if scenario == "ack-pending":
-                        context["pendingGeneration"] = {"ec2": True}
-                        with pytest.raises(
-                            ValueError, match="generation remains pending"
-                        ):
-                            checkpoints.update_checkpoint(backend, ["A"])
-                        context.pop("pendingGeneration")
-                if scenario in {"proof-interrupt", "proof-advance", "direct-interrupt", "direct-advance"}:
-                    interrupted = []
-                    with patch.object(wt, "save", side_effect=partial(_update_interrupt_receipt_save, wt.save, interrupted)):
-                        with pytest.raises(OSError, match="before lifecycle save"):
-                            checkpoints.update_checkpoint(backend, ["A"])
-                    retained = wt.load(root, "example")[3]
-                    assert retained.get("stackCheckpointIntent")
-                    assert not retained.get("deployCheckpoints")
-                    if scenario in {"proof-advance", "direct-advance"}:
-                        (root / "after-proof.txt").write_text("later base\n", encoding="utf-8")
-                        git(root, "add", "after-proof.txt")
-                        git(root, "commit", "-qm", "base after sealed publication")
-                    published_base = git(root, "rev-parse", "HEAD").strip()
+                    continue
                 result = checkpoints.update_checkpoint(backend, ["A"])
-                if scenario in {"proof-interrupt", "proof-advance", "direct-interrupt", "direct-advance"}:
-                    assert result == interrupted[0], (scenario, result, interrupted[0])
-                    assert git(root, "rev-parse", "HEAD").strip() == published_base
-                else:
-                    assert result["A"]["commit"] == git(root, "rev-parse", "HEAD").strip()
+                assert result["A"]["commit"] == git(root, "rev-parse", "HEAD").strip()
                 expected = observed.replace("end\n", "upstream\n") if scenario in {"different-lines", "task-overlap"} else observed
                 if scenario == "delete":
                     assert not (root / relative).exists()
                 else:
                     assert (root / relative).read_text() == expected
-                assert checkpoints.update_checkpoint(backend, ["A"]) == result
+                with pytest.raises(ValueError, match="no synchronized checkpoint candidate"):
+                    checkpoints.update_checkpoint(backend, ["A"])
+
+
+def check_update_current_candidate_boundaries():
+    for scenario in ("zero", "multiple", "missing", "running", "unknown", "mismatch", "scope", "commit", "merge"):
+        with task_fixture(branch="master") as root:
+            relative = "model/dev/team/test.properties"
+            (root / relative).parent.mkdir(parents=True)
+            (root / relative).write_text("old\n", encoding="utf-8")
+            git(root, "add", relative)
+            git(root, "commit", "-qm", "baseline")
+            with patch("support.worktree_task_fixtures.dependency_index.rebuild"):
+                target, state = start_task(root, files=(relative,))
+            before = checkpoints.contracts.validation_snapshot(target)
+            if scenario != "zero":
+                (target / relative).write_text("new\n", encoding="utf-8")
+            after = checkpoints.contracts.validation_snapshot(target)
+            names = ["A", "B"] if scenario == "multiple" else ["A"]
+            context = {"checkpointPending": {"stacks": names, "before": before, "after": after},
+                       "taskDigest": task_digest((target / state["task_file"]).read_text()),
+                       "stepUnits": [{"name": n} for n in names], "consumedInputs": {}}
+            states = {n: {"observedSynced": True, "status": "SUCCESS"} for n in names}
+            backend = SimpleNamespace(root=target, phase="update", run_context=context,
+                                      states=states, guard=lambda: None, save=lambda: None)
+            if scenario == "missing":
+                context.pop("checkpointPending")
+            if scenario == "mismatch":
+                (target / relative).write_text("changed after sync\n", encoding="utf-8")
+            if scenario in {"running", "unknown"}:
+                states["A"]["status"] = "RUNNING" if scenario == "running" else "UNKNOWN"
+            original = wt.git
+            def fail_git(directory, *args, scenario=scenario, original=original, **kwargs):
+                if scenario in {"commit", "merge"} and scenario in args:
+                    raise ValueError("simulated " + scenario + " failure")
+                return original(directory, *args, **kwargs)
+            initial = git(root, "rev-parse", "HEAD").strip()
+            with patch.object(checkpoints, "validate", side_effect=ValueError("scope violation") if scenario == "scope" else None), patch.object(wt, "git", side_effect=fail_git):
+                if scenario in {"zero", "multiple"}:
+                    result = checkpoints.update_checkpoint(backend, names)
+                    assert all(states[n]["checkpointed"] for n in names)
+                    assert "checkpointPending" not in context
+                    assert not wt.load(root, "example")[3].get("deployCheckpoints")
+                    if scenario == "zero":
+                        assert result["A"]["commit"] == initial
+                else:
+                    with pytest.raises(ValueError):
+                        checkpoints.update_checkpoint(backend, names)
+                    assert git(root, "rev-parse", "HEAD").strip() == initial
+                    assert "checkpointPending" not in context if scenario == "missing" else not states["A"].get("checkpointed")
 
 
 def check_update_candidate_real_validation(tmp_path, monkeypatch):
@@ -586,17 +415,9 @@ def check_update_candidate_real_validation(tmp_path, monkeypatch):
     }
     checkpoints.validate_update_candidate(target, tree, head, task, context)
     _, _, state_path, state = wt.load(target, "deploy")
-    state["deployCheckpoints"] = {
-        "A": {
-            "taskBase": state["start"],
-            "taskHead": head,
-            "taskDigest": task.task_digest,
-            "unit": {"name": "A"},
-            "inputDigest": "input",
-        }
-    }
     state["validation_base"] = head
     wt.save(state_path, state)
+    assert iac in checkpoints.update_task_iac_paths(target, state, task, context)
     checkpoints.validate_update_candidate(target, tree, head, task, context)
     context["taskFile"] = task.name
     context["checkpointPending"] = {
@@ -615,12 +436,6 @@ def check_update_candidate_real_validation(tmp_path, monkeypatch):
             backend,
             task_paths=checkpoints.update_task_iac_paths(target, state, task, context),
         )
-    for key in ("taskBase", "taskHead", "taskDigest", "inputDigest", "unit"):
-        original = state["deployCheckpoints"]["A"][key]
-        state["deployCheckpoints"]["A"][key] = "tampered"
-        with pytest.raises(ValueError, match="evidence"):
-            checkpoints.update_task_iac_paths(target, state, task, context)
-        state["deployCheckpoints"]["A"][key] = original
 
 
 def check_update_repeated_checkpoint_validation(tmp_path):
@@ -695,8 +510,9 @@ def check_update_repeated_checkpoint_validation(tmp_path):
                 (primary / "upstream.txt").write_text("latest\n", encoding="utf-8")
                 git(primary, "add", "upstream.txt")
                 git(primary, "commit", "-qm", "advance base")
-            receipt = checkpoints.update_checkpoint(backend, ["A"])["A"]
-            assert checkpoints.update_checkpoint(backend, ["A"])["A"] == receipt
+            checkpoints.update_checkpoint(backend, ["A"])
+            with pytest.raises(ValueError, match="no synchronized checkpoint candidate"):
+                checkpoints.update_checkpoint(backend, ["A"])
         assert (
             f"`vpc-checkpoint-{count}`"
             in (primary / model.relative_to(target)).read_text()

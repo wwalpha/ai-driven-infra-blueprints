@@ -155,7 +155,6 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         raise ws.Blocked("saved run input identity is inconsistent")
     for key in (
         "deployCheckpointIntent",
-        "stackCheckpointIntent",
         "deployRepair",
         "deployIntegrationIntent",
         "iacRepair",

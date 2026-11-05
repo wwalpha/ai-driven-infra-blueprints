@@ -99,193 +99,19 @@ def checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
     return update_checkpoint(backend, names)
 
 
-def verify_update_receipts(root, target, state, context, names, receipts, text, states):
-    """Verify retained Update evidence and exact Model/View content without base ancestry."""
-    base = wt.base_worktree(root, state)
-    latest = wt.output(base, "rev-parse", "HEAD")
-    head = wt.output(target, "rev-parse", "HEAD")
-    if any(p.startswith(("model/", "docs/designs/")) for p in wt.changed_paths(target)):
-        raise DeployStepBlocked(
-            "checkpoint Model/View has unsaved changes; retain candidate"
-        )
-    units = {unit["name"]: unit for unit in context["stepUnits"]}
-    for name in names:
-        receipt = receipts[name]
-        if (
-            receipt.get("taskDigest") != tasks.task_digest(text)
-            or receipt.get("taskDigest") != context.get("taskDigest")
-            or name not in context["inputDigests"]
-            or receipt.get("inputDigest") != context["inputDigests"][name]
-            or name not in units
-            or receipt.get("unit") != units[name]
-            or receipt.get("stackId") != states[name].get("stackId")
-            or receipt.get("stackStatus") != states[name].get("stackStatus", "UNKNOWN")
-            or receipt.get("deployStatus") != states[name].get("status")
-            or receipt.get("coverage") != states[name].get("observedCoverage", {})
-            or receipt.get("services") != states[name].get("observedServices", [])
-        ):
-            raise DeployStepBlocked(
-                "checkpoint receipt Task, Stack or input evidence differs"
-            )
-        commit = receipt.get("commit")
-        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40,64}", commit):
-            raise DeployStepBlocked("checkpoint receipt has no valid commit")
-        parents = wt.git(target, "show", "-s", "--format=%P", commit, check=False)
-        if parents.returncode:
-            raise DeployStepBlocked("checkpoint receipt has no valid commit")
-        evidence = receipt.get("checkpointEvidence")
-        if not isinstance(evidence, dict):
-            raise DeployStepBlocked("checkpoint receipt has no content evidence")
-        paths = evidence.get("changed")
-        retained = state.get("stackCheckpointIntents", {}).get(name)
-        parent_list = parents.stdout.split()
-        if (
-            len(parent_list) != 1
-            or wt.git(target, "cat-file", "-e", parent_list[0] + "^{commit}", check=False).returncode
-            or not isinstance(paths, list)
-            or any(
-                not isinstance(p, str)
-                or not p.startswith(("model/", "docs/designs/"))
-                for p in paths
-            )
-            or paths != sorted(set(paths))
-            or not isinstance(retained, dict)
-            or retained.get("commit") != commit
-            or retained.get("changed") != paths
-            or not isinstance(retained.get("stacks"), list)
-            or name not in retained.get("stacks", [])
-            or retained.get("taskDigest") != context.get("taskDigest")
-            or retained.get("taskBase") != receipt.get("taskBase")
-            or retained.get("taskHead") != receipt.get("taskHead")
-            or evidence.get("digest") != update_receipt_digest(receipt, paths)
-            or evidence.get("tree")
-            != wt.output(target, "rev-parse", commit + "^{tree}")
-        ):
-            raise DeployStepBlocked("checkpoint receipt content evidence differs")
-        if paths:
-            subject = wt.output(target, "show", "-s", "--format=%s", commit)
-            actual = wt.paths(target, "diff", "--name-only", "--no-renames", "-z", parent_list[0], commit)
-            if subject != f"task({state['task_id']}): deploy checkpoint " + ", ".join(retained["stacks"]) or not {p for p in actual if p.startswith(("model/", "docs/designs/"))} <= set(paths):
-                raise DeployStepBlocked("checkpoint receipt commit ownership or changed paths differ")
-        elif commit != receipt.get("taskHead") and not any(
-            peer != name and other.get("commit") == commit
-            and other.get("checkpointEvidence", {}).get("changed")
-            for peer, other in receipts.items()
-        ):
-            raise DeployStepBlocked("checkpoint receipt cannot prove an empty candidate")
-        if not paths:
-            paths = update_zero_content_paths(target, receipt, text)
-        # A Task with no declared Model/View subject makes no content claim.
-        # Git diff without a pathspec would compare unrelated later changes.
-        if not paths:
-            continue
-        for revision in (latest, head):
-            result = wt.git(
-                target,
-                "diff",
-                "--quiet",
-                "--no-ext-diff",
-                commit,
-                revision,
-                "--",
-                *[f":(top,literal){p}" for p in paths],
-                check=False,
-            )
-            if result.returncode:
-                raise DeployStepBlocked(
-                    "checkpoint Model/View content cannot be verified"
-                )
-    if (
-        wt.output(base, "rev-parse", "HEAD") != latest
-        or wt.output(target, "rev-parse", "HEAD") != head
-    ):
-        raise DeployStepBlocked(
-            "checkpoint base or Task changed during receipt verification"
-        )
-
-
-def update_receipt_digest(receipt, paths):
-    evidence = {
-        key: receipt.get(key)
-        for key in (
-            "commit", "taskDigest", "taskBase", "taskHead", "inputDigest", "unit",
-            "stackId", "stackStatus", "deployStatus", "coverage", "services",
-        )
-    }
-    evidence.update(changed=paths, tree=receipt["checkpointEvidence"].get("tree"))
-    return hashlib.sha256(
-        json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-
-
-def update_zero_content_paths(target, receipt, text):
-    """A verified no-delta receipt still protects its declared service content."""
-    services = set(receipt.get("services", []))
-    paths = []
-    for relative in tasks.paths_in(text, "## Modified files"):
-        if relative.startswith("model/"):
-            service = source_scope(target, target / relative).service
-            if not services or service in services:
-                paths.append(relative)
-        elif relative.startswith("docs/designs/"):
-            path = Path(relative)
-            if (
-                not services
-                or len(path.parts) == 5 and path.stem in services
-                or len(path.parts) > 5 and path.parts[4] in services
-            ):
-                paths.append(relative)
-    return sorted(paths)
-
-
 def update_task_iac_paths(target, state, task, context):
-    """Recover only Task-owned IaC changes backed by the existing checkpoint receipt."""
+    """Validate IaC paths across the current Task boundary, including prior checkpoints."""
     paths = wt.committed_task_paths(target, task.name)
     if paths is None:
         raise DeployStepBlocked("checkpoint requires a managed Task boundary")
+    paths |= wt.paths(target, "diff", "--no-renames", "--name-only", "-z", state["start"], "HEAD")
     iac = {p for p in paths if p.startswith("infra/")}
-    units = {unit["name"]: unit for unit in context["stepUnits"]}
-    for name, receipt in state.get("deployCheckpoints", {}).items():
-        base = receipt.get("taskBase")
-        source = receipt.get("taskHead")
-        if base is None and source is None:
-            continue
-        if (
-            receipt.get("taskDigest") != task.task_digest
-            or receipt.get("taskDigest") != context.get("taskDigest")
-            or name not in units
-            or receipt.get("unit") != units[name]
-            or name not in context["inputDigests"]
-            or receipt.get("inputDigest") != context["inputDigests"][name]
-            or not isinstance(base, str)
-            or not re.fullmatch(r"[0-9a-f]{40,64}", base)
-            or not isinstance(source, str)
-            or not re.fullmatch(r"[0-9a-f]{40,64}", source)
-            or wt.git(
-                target, "merge-base", "--is-ancestor", base, source, check=False
-            ).returncode
-        ):
-            raise DeployStepBlocked("checkpoint Task IaC evidence is invalid")
-        owned = {
-            p
-            for p in wt.paths(
-                target, "diff", "--no-renames", "--name-only", "-z", base, source
-            )
-            if p.startswith("infra/")
-        }
-        if owned & wt.paths(
-            target, "diff", "--no-renames", "--name-only", "-z", source, "HEAD"
-        ):
-            raise DeployStepBlocked(
-                "checkpoint Task IaC evidence differs from current inputs"
-            )
-        declared = tasks.paths_in(task.text, "## Modified files")
-        allowed = tasks.paths_in(task.text, "## Allowed paths")
-        if owned - declared or any(
-            not any(tasks.matches(p, pattern) for pattern in allowed) for p in owned
-        ):
-            raise DeployStepBlocked("checkpoint Task IaC evidence exceeds Task scope")
-        iac.update(owned)
+    declared = tasks.paths_in(task.text, "## Modified files")
+    allowed = tasks.paths_in(task.text, "## Allowed paths")
+    if iac - declared or any(
+        not any(tasks.matches(p, pattern) for pattern in allowed) for p in iac
+    ):
+        raise DeployStepBlocked("checkpoint Task IaC changes exceed Task scope")
     return iac
 
 
@@ -348,166 +174,120 @@ def validate_update_candidate(target, tree, base, task, context):
                 )
 
 
-def synchronize_update_candidate(
-    root, target, path, state, intent, task, source, latest, context
-):
-    """Validate a private replay and retain its intent before moving the Task branch."""
-    sync = intent.get("sync")
-    if sync is None:
-        for relative, expected in context.get("consumedInputs", {}).items():
-            try:
-                actual = hashlib.sha256(
-                    wt.subprocess_bytes(target, latest, relative)
-                ).hexdigest()
-            except ValueError as error:
-                raise DeployStepBlocked(
-                    "checkpoint base is missing an execution input: " + relative
-                ) from error
-            if actual != expected:
-                raise DeployStepBlocked(
-                    "checkpoint base execution input differs: " + relative
-                )
-        boundary = state.get("validation_base", state["start"])
-        if wt.git(
-            target, "merge-base", "--is-ancestor", boundary, intent["head"], check=False
-        ).returncode:
-            raise DeployStepBlocked("checkpoint Task history has no recorded boundary")
-        common = wt.git(target, "merge-base", boundary, latest, check=False)
-        if common.returncode:
+def synchronize_update_candidate(root, target, state, head, task, source, latest, context):
+    """Validate and replay the current candidate within this invocation."""
+    for relative, expected in context.get("consumedInputs", {}).items():
+        try:
+            actual = hashlib.sha256(
+                wt.subprocess_bytes(target, latest, relative)
+            ).hexdigest()
+        except ValueError as error:
             raise DeployStepBlocked(
-                "checkpoint Task and base have no provable common history"
-            )
-        prior = wt.output(
-            target, "-c", "user.name=Blueprint verification", "-c",
-            "user.email=blueprint-verification@invalid", "-c", "commit.gpgsign=false",
-            "commit-tree", latest + "^{tree}", "-p", boundary,
-            "-m", "Checkpoint prior Task verification",
-        )
-        merged = wt.git(
-            target, "merge-tree", "--write-tree", prior, intent["head"], check=False
-        )
-        if (
-            not merged.returncode
-            and merged.stdout.splitlines()
-            and merged.stdout.splitlines()[0]
-            == wt.output(target, "rev-parse", latest + "^{tree}")
-        ):
-            boundary = intent["head"]
-        if wt.output(target, "rev-list", "--merges", boundary + ".." + source):
+                "checkpoint base is missing an execution input: " + relative
+            ) from error
+        if actual != expected:
             raise DeployStepBlocked(
-                "checkpoint Task history is not linear; retain candidate"
+                "checkpoint base execution input differs: " + relative
             )
-        commits = wt.output(
-            target, "rev-list", "--reverse", boundary + ".." + source
-        ).splitlines()
-        synthetic = wt.output(
-            target,
-            "-c",
-            "user.name=Blueprint verification",
-            "-c",
-            "user.email=blueprint-verification@invalid",
-            "-c",
-            "commit.gpgsign=false",
-            "commit-tree",
-            latest + "^{tree}",
-            "-p",
-            boundary,
-            "-m",
-            "Checkpoint verification",
-        )
-        result = wt.git(
-            target, "merge-tree", "--write-tree", synthetic, source, check=False
-        )
-        if result.returncode or not result.stdout.splitlines():
-            raise DeployStepBlocked(
-                "checkpoint conflicts with latest base; retain checkpoint candidate"
-            )
-        tree = result.stdout.splitlines()[0]
-        if not re.fullmatch(r"[0-9a-f]{40,64}", tree):
-            raise DeployStepBlocked("cannot determine checkpoint candidate tree")
-        validate_update_candidate(target, tree, latest, task, context)
-        if (
-            wt.output(target, "rev-parse", "HEAD") != source
-            or wt.changed_paths(target)
-            or wt.output(wt.base_worktree(root, state), "rev-parse", "HEAD") != latest
-        ):
-            raise DeployStepBlocked(
-                "checkpoint or base changed during candidate validation"
-            )
-        sync = intent["sync"] = {
-            "base": latest, "source": source, "tree": tree,
-            "boundary": boundary, "commits": commits,
-        }
-        wt.save(path, state)
-    if sync["base"] != latest:
+    boundary = state.get("validation_base", state["start"])
+    if wt.git(
+        target, "merge-base", "--is-ancestor", boundary, head, check=False
+    ).returncode:
+        raise DeployStepBlocked("checkpoint Task history has no recorded boundary")
+    common = wt.git(target, "merge-base", boundary, latest, check=False)
+    if common.returncode:
         raise DeployStepBlocked(
-            "base changed during checkpoint synchronization; retain candidate"
+            "checkpoint Task and base have no provable common history"
         )
-    boundary = sync.get("boundary", intent["head"])
-    old_commits = sync.get("commits")
-    if old_commits is None:
-        old_commits = [] if sync["source"] == boundary else [sync["source"]]
+    prior = wt.output(
+        target, "-c", "user.name=Blueprint verification", "-c",
+        "user.email=blueprint-verification@invalid", "-c", "commit.gpgsign=false",
+        "commit-tree", latest + "^{tree}", "-p", boundary,
+        "-m", "Checkpoint prior Task verification",
+    )
+    merged = wt.git(
+        target, "merge-tree", "--write-tree", prior, head, check=False
+    )
     if (
-        boundary not in {intent["head"], state.get("validation_base", state["start"])}
-        or wt.git(
-            target, "merge-base", "--is-ancestor", boundary, sync["source"], check=False
-        ).returncode
-        or wt.output(
-            target, "rev-list", "--reverse", boundary + ".." + sync["source"]
-        ).splitlines() != old_commits
+        not merged.returncode
+        and merged.stdout.splitlines()
+        and merged.stdout.splitlines()[0]
+        == wt.output(target, "rev-parse", latest + "^{tree}")
     ):
-        raise DeployStepBlocked("checkpoint replay intent has unexpected Task history")
-    head = wt.output(target, "rev-parse", "HEAD")
-    if head == sync["source"]:
-        wt.idle_git(target)
-        result = wt.git(
-            target,
-            "-c",
-            "rebase.updateRefs=false",
-            "rebase",
-            "--no-autostash",
-            "--no-fork-point",
-            "--reapply-cherry-picks",
-            "--empty=keep",
-            "--onto",
-            latest,
-            boundary,
-            check=False,
+        boundary = head
+    if wt.output(target, "rev-list", "--merges", boundary + ".." + source):
+        raise DeployStepBlocked(
+            "checkpoint Task history is not linear; retain candidate"
         )
-        if result.returncode:
-            raise DeployStepBlocked(
-                "checkpoint rebase failed; retain candidate and Git operation: "
-                + (result.stderr.strip() or result.stdout.strip())
-            )
-        head = wt.output(target, "rev-parse", "HEAD")
-    wt.idle_git(target)
-    if (
-        wt.changed_paths(target)
-        or wt.output(target, "rev-parse", "HEAD^{tree}") != sync["tree"]
-    ):
-        raise DeployStepBlocked("checkpoint replay differs from validated candidate")
     commits = wt.output(
-        target, "rev-list", "--reverse", latest + ".." + head
+        target, "rev-list", "--reverse", boundary + ".." + source
     ).splitlines()
+    synthetic = wt.output(
+        target,
+        "-c",
+        "user.name=Blueprint verification",
+        "-c",
+        "user.email=blueprint-verification@invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit-tree",
+        latest + "^{tree}",
+        "-p",
+        boundary,
+        "-m",
+        "Checkpoint verification",
+    )
+    result = wt.git(
+        target, "merge-tree", "--write-tree", synthetic, source, check=False
+    )
+    if result.returncode or not result.stdout.splitlines():
+        raise DeployStepBlocked(
+            "checkpoint conflicts with latest base; retain checkpoint candidate"
+        )
+    tree = result.stdout.splitlines()[0]
+    if not re.fullmatch(r"[0-9a-f]{40,64}", tree):
+        raise DeployStepBlocked("cannot determine checkpoint candidate tree")
+    validate_update_candidate(target, tree, latest, task, context)
     if (
-        wt.git(
-            target, "merge-base", "--is-ancestor", latest, head, check=False
-        ).returncode
-        or len(commits) != len(old_commits)
-        or wt.output(target, "rev-list", "--merges", latest + ".." + head)
+        wt.output(target, "rev-parse", "HEAD") != source
+        or wt.changed_paths(target)
+        or wt.output(wt.base_worktree(root, state), "rev-parse", "HEAD") != latest
+    ):
+        raise DeployStepBlocked(
+            "checkpoint or base changed during candidate validation"
+        )
+
+    wt.idle_git(target)
+    result = wt.git(
+        target, "-c", "rebase.updateRefs=false", "rebase", "--no-autostash",
+        "--no-fork-point", "--reapply-cherry-picks", "--empty=keep", "--onto",
+        latest, boundary, check=False,
+    )
+    if result.returncode:
+        raise DeployStepBlocked(
+            "checkpoint rebase failed; retain candidate and Git operation: "
+            + (result.stderr.strip() or result.stdout.strip())
+        )
+    new_head = wt.output(target, "rev-parse", "HEAD")
+    wt.idle_git(target)
+    if wt.changed_paths(target) or wt.output(target, "rev-parse", "HEAD^{tree}") != tree:
+        raise DeployStepBlocked("checkpoint replay differs from validated candidate")
+    replayed = wt.output(target, "rev-list", "--reverse", latest + ".." + new_head).splitlines()
+    if (
+        wt.git(target, "merge-base", "--is-ancestor", latest, new_head, check=False).returncode
+        or len(replayed) != len(commits)
+        or wt.output(target, "rev-list", "--merges", latest + ".." + new_head)
         or any(
             wt.output(target, "show", "-s", "--format=%an%n%ae%n%aI%n%B", old)
             != wt.output(target, "show", "-s", "--format=%an%n%ae%n%aI%n%B", new)
-            for old, new in zip(old_commits, commits, strict=True)
+            for old, new in zip(commits, replayed, strict=True)
         )
     ):
-        raise DeployStepBlocked("checkpoint replay history differs from saved intent")
-    old_parent, new_parent = wt.verify_rebase_commits(
-        target, old_commits, commits, boundary, latest
-    )
-    if old_parent != sync["source"] or new_parent != head:
-        raise DeployStepBlocked("checkpoint replay history differs from saved intent")
-    return head
+        raise DeployStepBlocked("checkpoint replay history differs from validated candidate")
+    old_parent, new_parent = wt.verify_rebase_commits(target, commits, replayed, boundary, latest)
+    if old_parent != source or new_parent != new_head:
+        raise DeployStepBlocked("checkpoint replay history differs from validated candidate")
+    return new_head
 
 
 def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
@@ -536,310 +316,81 @@ def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
                 "normal checkpoint requires ready running Deploy Task"
             )
         backend.guard()
-        receipts = state.setdefault("deployCheckpoints", {})
-        intent = state.get("stackCheckpointIntent")
         if not pending:
-            if intent:
-                raise DeployStepBlocked(
-                    "checkpoint intent remains without its candidate"
-                )
-            if all(n in receipts for n in names):
-                verify_update_receipts(
-                    root, target, state, context, names, receipts, text, backend.states
-                )
-                return {n: receipts[n] for n in names}
-            raise DeployStepBlocked(
-                "no synchronized checkpoint candidate for requested Stacks"
-            )
+            raise DeployStepBlocked("no synchronized checkpoint candidate for requested Stacks")
         if set(names) != set(pending["stacks"]) or pending.get("after") is None:
-            raise DeployStepBlocked(
-                "checkpoint must include the complete synchronized candidate"
-            )
-        if (
-            context.get("pendingObserved")
-            or context.get("pendingGeneration")
-            or context.get("generationError")
-        ):
-            raise DeployStepBlocked(
-                "required generation remains pending; inspect pendingGeneration"
-            )
+            raise DeployStepBlocked("checkpoint must include the complete synchronized candidate")
+        if context.get("pendingObserved") or context.get("pendingGeneration") or context.get("generationError"):
+            raise DeployStepBlocked("required generation remains pending; inspect pendingGeneration")
         if any(not backend.states[n].get("observedSynced") for n in names):
-            raise DeployStepBlocked(
-                "checkpoint requires a complete adopted observation for every selected Stack"
-            )
-        if (
-            not intent
-            and all(n in receipts for n in names)
-            and not wt.changed_paths(target)
+            raise DeployStepBlocked("checkpoint requires a complete adopted observation for every selected Stack")
+        if any(
+            backend.states[n].get("status") in {None, "RUNNING", "NOT_STARTED", "READY", "CHANGESET_CREATING", "SETTLED", "UNKNOWN"}
+            or backend.states[n].get("attemptResult") == "UNKNOWN"
+            for n in names
         ):
-            verify_update_receipts(
-                root, target, state, context, names, receipts, text, backend.states
-            )
-            changed = {
-                p
-                for p in pending["before"].keys() | pending["after"].keys()
-                if pending["before"].get(p) != pending["after"].get(p)
-            }
-            for name in names:
-                for relative in changed:
-                    try:
-                        actual = hashlib.sha256(
-                            wt.subprocess_bytes(
-                                target, receipts[name]["commit"], relative
-                            )
-                        ).hexdigest()
-                    except ValueError:
-                        actual = None
-                    if actual != pending["after"].get(relative):
-                        raise DeployStepBlocked(
-                            "checkpoint receipt cannot prove the pending candidate"
-                        )
-            for name in names:
-                backend.states[name].pop("checkpointRequired", None)
-                backend.states[name]["checkpointed"] = True
-            context.pop("checkpointPending", None)
-            backend.save()
-            return {name: receipts[name] for name in names}
-        if (
-            not (intent and intent.get("sync"))
-            and contracts.validation_snapshot(target) != pending["after"]
-        ):
+            raise DeployStepBlocked("checkpoint requires a known completed AWS execution")
+        if contracts.validation_snapshot(target) != pending["after"]:
             raise DeployStepBlocked("checkpoint candidate changed after sync")
         base = wt.base_worktree(root, state)
         wt.idle_git(target)
         head = wt.output(target, "rev-parse", "HEAD")
         latest = wt.output(base, "rev-parse", "HEAD")
-        if intent is None:
-            inherited = wt.paths(
-                target, "diff", "--name-only", "--no-renames", "-z", latest, head
-            )
-            repair = state.get("iacRepair", {})
-            delegated = (
-                (
-                    repair.get("commit") == head
-                    and repair.get("parentTip") == latest
-                    and contracts.accepted_changes(target, text, inherited) == inherited
-                )
-                if latest != head
-                else False
-            )
-            if head != state["tip"]:
-                raise DeployStepBlocked(
-                    "Task has unexpected commits; retain checkpoint candidate"
-                )
-            changed = wt.changed_paths(target)
-            expected = {
-                p
-                for p in pending["before"].keys() | pending["after"].keys()
-                if pending["before"].get(p) != pending["after"].get(p)
-            }
-            if changed != expected or any(
-                not p.startswith(("model/", "docs/designs/")) for p in changed
-            ):
-                raise DeployStepBlocked(
-                    "checkpoint includes changes outside synchronized Model/views"
-                )
-            task = tasks.read_task_snapshot(target, state["task_file"], live=True)
-            task_paths = update_task_iac_paths(target, state, task, context)
-            validate(backend, task_paths=task_paths)
-            backend.guard()
-            if (
-                contracts.validation_snapshot(target) != pending["after"]
-                or wt.changed_paths(target) != changed
-            ):
-                raise DeployStepBlocked(
-                    "checkpoint candidate changed during validation"
-                )
-            wt.git(target, "diff", "--check")
-            wt.git(target, "diff", "--cached", "--check")
-            if changed:
-                wt.git(
-                    target,
-                    "add",
-                    "--",
-                    *[f":(top,literal){p}" for p in sorted(changed)],
-                )
-            provenance = next(
-                (
-                    (r["taskBase"], r["taskHead"])
-                    for r in receipts.values()
-                    if r.get("taskBase") and r.get("taskHead")
-                ),
-                (wt.task_start_commit(target, state["task_file"]), head),
-            )
-            intent = {
-                "head": head,
-                "base": latest,
-                "tree": wt.output(target, "write-tree"),
-                "stacks": sorted(names),
-                "taskDigest": context["taskDigest"],
-                "candidate": copy.deepcopy(pending["after"]),
-                "changed": sorted(changed),
-                "delegated": delegated,
-                "taskBase": provenance[0],
-                "taskHead": provenance[1],
-                "message": f"task({state['task_id']}): deploy checkpoint "
-                + ", ".join(sorted(names)),
-            }
-            state["stackCheckpointIntent"] = intent
-            wt.save(path, state)
-        if (
-            intent["stacks"] != sorted(names)
-            or intent["taskDigest"] != context["taskDigest"]
-            or intent["candidate"] != pending["after"]
-            or not intent.get("sync")
-            and wt.output(target, "write-tree") != intent["tree"]
-        ):
-            raise DeployStepBlocked("checkpoint intent changed; retain candidate")
-        if head == intent["head"] and not intent.get("sync"):
-            if latest != intent["base"] and intent.get("delegated"):
-                raise DeployStepBlocked(
-                    "delegated repair base changed; retain checkpoint intent"
-                )
-            if intent["changed"]:
-                wt.git(target, "commit", "-m", intent["message"])
-        commit = wt.output(target, "rev-parse", "HEAD")
-        if not intent.get("sync") and (
-            wt.changed_paths(target)
-            or wt.output(target, "rev-parse", "HEAD^{tree}") != intent["tree"]
-            or commit != intent["head"]
-            and (
-                wt.output(target, "rev-parse", "HEAD^") != intent["head"]
-                or wt.output(target, "log", "-1", "--format=%s") != intent["message"]
-            )
-        ):
-            raise DeployStepBlocked(
-                "checkpoint commit is not the saved exact candidate"
-            )
-        published = commit != intent["head"] and latest != commit and not wt.git(
-            target, "merge-base", "--is-ancestor", commit, latest, check=False
-        ).returncode
-        if intent.get("sync"):
-            commit = synchronize_update_candidate(
-                root,
-                target,
-                path,
-                state,
-                intent,
-                tasks.read_task_snapshot(target, state["task_file"], live=True),
-                commit,
-                intent["sync"]["base"],
-                context,
-            )
-            published = latest != commit and not wt.git(
-                target, "merge-base", "--is-ancestor", commit, latest, check=False
-            ).returncode
-            if latest != intent["base"] and latest != commit and not published:
-                intent["head"] = intent["sync"]["base"]
-                intent["tree"] = intent["sync"]["tree"]
-                intent["base"] = latest
-                intent.pop("sync")
-        elif latest != intent["base"] and latest != commit and not published:
-            if intent.get("delegated"):
-                raise DeployStepBlocked(
-                    "delegated repair base changed; retain checkpoint candidate"
-                )
-            intent["base"] = latest
-        if (
-            not intent.get("sync")
-            and intent["head"] != intent["base"]
-            and latest != commit
-            and not published
-            and not intent.get("delegated")
-        ):
-            commit = synchronize_update_candidate(
-                root,
-                target,
-                path,
-                state,
-                intent,
-                tasks.read_task_snapshot(target, state["task_file"], live=True),
-                commit,
-                intent["base"],
-                context,
-            )
-        base = wt.base_worktree(root, state)
-        published = latest != commit and not wt.git(
-            target, "merge-base", "--is-ancestor", commit, latest, check=False
-        ).returncode
-        if published:
-            if not intent["changed"] or wt.git(
-                target, "diff", "--quiet", "--no-ext-diff", commit, latest, "--",
-                *[f":(top,literal){p}" for p in intent["changed"]], check=False,
-            ).returncode:
-                raise DeployStepBlocked("published checkpoint content differs; retain candidate")
-            for relative, expected in context.get("consumedInputs", {}).items():
-                try:
-                    actual = hashlib.sha256(wt.subprocess_bytes(target, latest, relative)).hexdigest()
-                except ValueError as error:
-                    raise DeployStepBlocked("checkpoint base is missing an execution input: " + relative) from error
-                if actual != expected:
-                    raise DeployStepBlocked("checkpoint base execution input differs: " + relative)
-        if wt.output(base, "rev-parse", "HEAD") not in {intent["base"], commit, *([latest] if published else [])}:
-            raise DeployStepBlocked(
-                "base advanced before merge; retain commit for review"
-            )
+        if head != state["tip"]:
+            raise DeployStepBlocked("Task has unexpected commits; retain checkpoint candidate")
+        changed = wt.changed_paths(target)
+        expected = {
+            p for p in pending["before"].keys() | pending["after"].keys()
+            if pending["before"].get(p) != pending["after"].get(p)
+        }
+        if changed != expected or any(not p.startswith(("model/", "docs/designs/")) for p in changed):
+            raise DeployStepBlocked("checkpoint includes changes outside synchronized Model/views")
+        task = tasks.read_task_snapshot(target, state["task_file"], live=True)
+        task_paths = update_task_iac_paths(target, state, task, context)
+        validate(backend, task_paths=task_paths)
         backend.guard()
-        if (
-            not intent.get("sync")
-            and contracts.validation_snapshot(target) != intent["candidate"]
-            or wt.changed_paths(target)
-            or wt.output(target, "rev-parse", "HEAD") != commit
-        ):
-            raise DeployStepBlocked(
-                "validated checkpoint changed immediately before merge"
-            )
-        base = wt.base_worktree(root, state)
-        if wt.output(base, "rev-parse", "HEAD") not in {intent["base"], commit, *([latest] if published else [])}:
-            raise DeployStepBlocked("base changed immediately before checkpoint merge")
-        if not published and wt.output(base, "rev-parse", "HEAD") != commit:
+        if (contracts.validation_snapshot(target) != pending["after"]
+                or wt.changed_paths(target) != changed
+                or wt.output(target, "rev-parse", "HEAD") != head
+                or wt.output(base, "rev-parse", "HEAD") != latest):
+            raise DeployStepBlocked("checkpoint candidate or base changed during validation")
+        wt.git(target, "diff", "--check")
+        wt.git(target, "diff", "--cached", "--check")
+        if changed:
+            wt.git(target, "add", "--", *[f":(top,literal){p}" for p in sorted(changed)])
+        tree = wt.output(target, "write-tree")
+        if changed:
+            wt.git(target, "commit", "-m", f"task({state['task_id']}): deploy checkpoint " + ", ".join(sorted(names)))
+        commit = wt.output(target, "rev-parse", "HEAD")
+        if wt.changed_paths(target) or wt.output(target, "rev-parse", "HEAD^{tree}") != tree:
+            raise DeployStepBlocked("checkpoint commit differs from validated candidate")
+        repair = state.get("iacRepair", {})
+        inherited = wt.paths(target, "diff", "--name-only", "--no-renames", "-z", latest, head)
+        delegated = (
+            head != latest
+            and repair.get("commit") == head
+            and repair.get("parentTip") == latest
+            and contracts.accepted_changes(target, text, inherited) == inherited
+        )
+        if head != latest and not delegated:
+            commit = synchronize_update_candidate(root, target, state, head, task, commit, latest, context)
+            state["validation_base"] = latest
+        backend.guard()
+        if (wt.changed_paths(target) or wt.output(target, "rev-parse", "HEAD") != commit
+                or wt.output(base, "rev-parse", "HEAD") != latest):
+            raise DeployStepBlocked("checkpoint or base changed immediately before merge")
+        if latest != commit:
             wt.git(base, "merge", "--ff-only", "--no-autostash", commit)
-        if wt.output(base, "rev-parse", "HEAD") != (latest if published else commit):
+        if wt.output(base, "rev-parse", "HEAD") != commit:
             raise DeployStepBlocked("checkpoint merge differs from intended commit")
-        for name in names:
-            unit = next(u for u in context["stepUnits"] if u["name"] == name)
-            state.setdefault("stackCheckpointIntents", {})[name] = {
-                "commit": commit,
-                "changed": copy.deepcopy(intent["changed"]),
-                "stacks": copy.deepcopy(intent["stacks"]),
-                "taskDigest": intent["taskDigest"],
-                "taskBase": intent["taskBase"],
-                "taskHead": intent["taskHead"],
-            }
-            receipts[name] = {
-                "commit": commit,
-                "taskDigest": context["taskDigest"],
-                "taskBase": intent["taskBase"],
-                "taskHead": intent["taskHead"],
-                "inputDigest": context["inputDigests"].get(name),
-                "unit": copy.deepcopy(unit),
-                "stackId": backend.states[name].get("stackId"),
-                "stackStatus": backend.states[name].get("stackStatus", "UNKNOWN"),
-                "deployStatus": backend.states[name]["status"],
-                "coverage": copy.deepcopy(
-                    backend.states[name].get("observedCoverage", {})
-                ),
-                "services": backend.states[name].get("observedServices", []),
-                "checkpointEvidence": {
-                    "tree": wt.output(target, "rev-parse", commit + "^{tree}"),
-                    "changed": intent["changed"],
-                },
-            }
-            receipts[name]["checkpointEvidence"]["digest"] = update_receipt_digest(
-                receipts[name], intent["changed"]
-            )
         state["tip"] = commit
-        if intent.get("sync"):
-            state["validation_base"] = intent["base"]
-        state.pop("stackCheckpointIntent", None)
         wt.save(path, state)
-        # Journal acknowledgement follows the durable lifecycle receipt, so retry is idempotent.
         for name in names:
             backend.states[name].pop("checkpointRequired", None)
             backend.states[name]["checkpointed"] = True
         context.pop("checkpointPending", None)
         backend.save()
-        return {n: receipts[n] for n in names}
+        return {name: {"commit": commit} for name in names}
 
 
 def final_checkpoint(backend, primary, path, state, pending):

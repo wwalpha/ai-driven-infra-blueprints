@@ -47,7 +47,6 @@ WORKTREE_CASES = {
         "check_desired_model_change_is_never_authorized",
     ),
     "units/deploy-worktree-unit.checks.py": (
-        "check_update_zero_content_subject",
         "check_reviewed_conflict_tree_uses_private_index",
         "check_conflict_review_publishes_without_repeating_aws",
         "check_source_scope_shares_deploy_baseline",
@@ -230,8 +229,8 @@ WORKTREE_CASES = {
         "check_external_implement_round_trip",
     ),
     "integrations/worktree-deploy-checkpoint.checks.py": (
-        "check_update_receipt_rewritten_base",
         "check_update_checkpoint_latest_base",
+        "check_update_current_candidate_boundaries",
         "check_update_candidate_real_validation",
         "check_update_repeated_checkpoint_validation",
         "check_parallel_checkpoint_and_restart",

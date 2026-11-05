@@ -35,18 +35,6 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
-@pytest.mark.parametrize("services", [[], ["test"], ["other"]])
-def check_update_zero_content_subject(tmp_path, services):
-    selected = [
-        "model/dev/team/test.properties", "model/dev/team/test/part-001.properties",
-        "docs/designs/dev/team/test.md", "docs/designs/dev/team/test/policy.json",
-    ]
-    others = ["model/dev/team/other.properties", "docs/designs/dev/team/other.md", "docs/designs/dev/team/other/test/policy.json"]
-    text = "## Modified files\n" + "\n".join(f"- `{p}`" for p in [*selected, *others, "infra/fixed.yaml"])
-    expected = selected if services == ["test"] else others if services else [*selected, *others]
-    assert checkpoints.update_zero_content_paths(tmp_path, {"services": services}, text) == sorted(expected)
-
-
 def check_source_scope_shares_deploy_baseline(tmp_path, monkeypatch):
     start = Mock(return_value="start")
     observation = Mock()

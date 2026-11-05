@@ -302,7 +302,6 @@ def check_unproven_paths_refused(case, added):
         "checkpointPending",
         "currentFailure",
         "deployCheckpointIntent",
-        "stackCheckpointIntent",
         "deployIntegrationIntent",
         "iacRepair",
         "publication",
@@ -364,7 +363,6 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
         context[problem] = dict(stacks=["A"], before={}, after={})
     elif problem in {
         "deployCheckpointIntent",
-        "stackCheckpointIntent",
         "deployIntegrationIntent",
         "iacRepair",
     }:
