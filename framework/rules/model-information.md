@@ -178,29 +178,9 @@ The agent edits only changed source candidates outside the repository; publicati
 checks their syntax and native types without applying unrelated design constraints.
 Explicit issues retains those design and consistency checks without requiring AWS.
 
-Bind importer evidence to Task, target, acquisition, planned source changes,
-pre-save snapshots and saved source hashes. The source publication guard and Worktree
-completion verify this evidence without expanding old Git Models or other services.
-Self-declared flags cannot authorize changes. Missing, stale or incomplete evidence
-blocks reflection completion. Ordinary workflows retain their IMPORT protection.
-Acquisition evidence is a private temporary session outside the repository,
-binding normalized non-secret records, STS/connection/time, Task/Worktree/scope,
-source hashes and the direct consumer set across acquire/publish processes. The agent
-records correspondence and review there; source publication follows explicit final consent in chat.
-Only after complete source/display success or explicit Human termination, remove
-temporary acquisition/candidate contents; retain only a private task receipt at
-`evidence_store(execution_root)/<task-name>.json`, outside the repository. Dry-run
-persists no Model, displays, contract or completion receipt; retain its session until
-explicit Human termination. Pre-save failure, incomplete display or display I/O failure
-retains acquisition/review evidence for diagnosis and display-only recovery.
-Never save raw responses. Acquisition/receipt timestamps expire after seven days;
-future timestamps beyond five minutes are rejected. Review version 5 and receipt version 7
-record the conversational responsibility boundary. Version 7 binds Review/selection,
-acquisition/baseline, proposed values, Reference/Selector meaning, Task/Worktree/scope
-and exact saved source hashes. Receipt parsing requires the current version and private external location; old signed envelopes are rejected and require a new acquisition and review. Review and source digests detect inconsistent inputs, but do not authenticate their author or Human consent. Worktree reuse remains rejected.
-Temporary snapshot receipts are removed in finally; source evidence remains retryable. Worktree evidence
-is removed only after verified integration and successful checkout/branch cleanup.
-See 08_import for failure/cancellation cleanup.
+Bind acquisition, selection and Review to Task, Worktree, target, source baseline and the complete candidate before publication. The private temporary acquisition session contains normalized non-secret records, STS/connection/time, source hashes and the direct consumer set. Explicit final Human consent remains required. Acquisition expires after seven days; future timestamps beyond five minutes are rejected. Review and source digests detect inconsistent inputs, but do not authenticate their author or Human consent.
+
+No completion receipt is retained. Task completion checks scope and Model integrity but cannot independently prove that an authorized published Model was not directly edited afterward. A completely unchanged repeat Publish is an idempotent no-op. Retain acquisition and Review when display recovery is needed. Recovery requires the original acquisition and a Task-start Git baseline matching its original source hashes and file sets; if ownership cannot be proved, stop without changing generated artifacts. Never save raw AWS responses.
 
 Import reflection uses explicit `add`, `refresh`, `replace` and `bind` correspondence in the
 existing selection.json. Add requires new fixed IDs and IMPORT mode. Refresh requires

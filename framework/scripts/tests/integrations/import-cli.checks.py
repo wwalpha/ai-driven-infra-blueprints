@@ -4,6 +4,7 @@
 import sys
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -11,8 +12,6 @@ import json
 import subprocess
 from contextlib import contextmanager
 
-import import_guard
-import model.importing.evidence as import_evidence
 from support.import_model_fixtures import fixture as import_fixture
 from support.import_model_fixtures import (
     logs_edit,
@@ -86,11 +85,18 @@ def check_cross_process_evidence(tmp_path):
     )
     report = json.loads(result.stdout)
     assert report["model"] == "reflected" and report["markdown"] == "generated"
-    assert import_evidence.read_proof(root)["complete"]
-    # The ignored completion receipt contains hashes, not captured configuration values.
-    assert '"retentionInDays"' not in import_guard.proof_path(root).read_text(
-        encoding="utf-8"
-    )
+    assert not (Path(acquired["evidence"]).parent.parent / "import-fixture.json").exists()
+    document = root / "docs/designs/dev/cde/cloudwatch-logs.md"
+    expected = document.read_bytes()
+    document.unlink()
+    base = git(root, "rev-parse", "HEAD")
+    with (
+        patch.object(m.repository, "task_start_commit", return_value=base),
+        patch.object(m.repository, "publication_revision", return_value=(root, base)),
+    ):
+        assert m.main(["recover-display", *command[5:]]) == 0
+    assert document.read_bytes() == expected
+
 
 
 def _git_publication_workspace_begin(root, relative):

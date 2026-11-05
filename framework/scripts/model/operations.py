@@ -444,7 +444,7 @@ def _publish_plans(plans, context):
             finish = _bind_framework_callback(
                 _callback__publish_plans_finish, changes, context
             )
-            if changes or context._receipt is not None:
+            if changes:
                 _dependency_model_sources._publish_transaction(
                     context.root,
                     {p: text for p, text in changes.items() if text is not None},
@@ -452,7 +452,7 @@ def _publish_plans(plans, context):
                     journal,
                     start=context._start,
                     finish=finish,
-                    receipt=context._receipt,
+                    import_owner=context._import_owner,
                     observed=context.operation.action == "observed",
                 )
             else:

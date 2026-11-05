@@ -115,13 +115,6 @@ def check_journal_precedes_publication(tmp_path: Path) -> None:
         assert not journal.exists()
 
 
-def _receipt_write(receipt, failure):
-    receipt.parent.mkdir(parents=True, exist_ok=True)
-    receipt.write_bytes(b"new receipt")
-    if failure == "start":
-        raise OSError("start failure")
-
-
 def _partial_publication(output):
     path, text = next(iter(output.items()))
     path.write_text(text, encoding="utf-8")
@@ -129,10 +122,7 @@ def _partial_publication(output):
 
 
 @pytest.mark.parametrize("failure", ["start", "model", "finish"])
-@pytest.mark.parametrize("old_receipt", [None, b"previous receipt"])
-def check_import_transaction_rolls_back_sources_views_and_receipt(
-    tmp_path, failure, old_receipt
-):
+def check_import_transaction_rolls_back_sources_and_views(tmp_path, failure):
     check = TestCase()
     root = tmp_path / "repository"
     source = root / "model/dev/team/logs.properties"
@@ -140,12 +130,12 @@ def check_import_transaction_rolls_back_sources_views_and_receipt(
     for path in (source, view):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"old bytes\r\n")
-    name = "tasks/import.md"
-    receipt = sources.evidence_store(root) / "import.json"
-    if old_receipt is not None:
-        receipt.write_bytes(old_receipt)
+    owner = {
+        "task": "tasks/import.md",
+        "workflow": "import",
+        "scope": ["dev", "team", "logs"],
+    }
     with sources.publication_lock(root) as journal:
-        start = _bind_framework_callback(_receipt_write, receipt, failure)
         with (
             patch.object(
                 sources.sync_files,
@@ -161,16 +151,17 @@ def check_import_transaction_rolls_back_sources_views_and_receipt(
                 {source: "new source", view: "new view"},
                 (),
                 journal,
-                start=start,
+                start=Mock(side_effect=OSError("start failure"))
+                if failure == "start"
+                else None,
                 finish=Mock(side_effect=OSError("finish failure"))
                 if failure == "finish"
                 else None,
-                receipt=(name, old_receipt),
+                import_owner=owner,
             )
         check.assertFalse(journal.exists())
     check.assertEqual(source.read_bytes(), b"old bytes\r\n")
     check.assertEqual(view.read_bytes(), b"old bytes\r\n")
-    check.assertEqual(receipt.read_bytes() if receipt.exists() else None, old_receipt)
 
 
 def check_loader_rejects_corrupt_and_unreadable_sources(tmp_path):

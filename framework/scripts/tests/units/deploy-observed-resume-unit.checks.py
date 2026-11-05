@@ -125,7 +125,7 @@ def check_journal_ownership(problem):
     if problem == "incomplete":
         record["originals"].pop("a")
     if problem == "receipt":
-        record["importReceipt"] = {}
+        record["importOwner"] = {"task": "tasks/import.md", "workflow": "import", "scope": ["dev", "cde", "vpc"]}
     if problem == "none":
         M.verify_journal(plan, record, current)
     else:
@@ -476,7 +476,7 @@ def check_generated_journal(tmp_path, problem):
     if problem == "empty-original":
         record["originals"][artifact] = ""
     if problem == "receipt":
-        record["importReceipt"] = {}
+        record["importOwner"] = {"task": "tasks/import.md", "workflow": "import", "scope": ["dev", "cde", "vpc"]}
     task = tmp_path / "tasks/deploy.md"
     task.parent.mkdir()
     listed = "".join("- `" + p + "`\n" for p in ["tasks/deploy.md", *files])

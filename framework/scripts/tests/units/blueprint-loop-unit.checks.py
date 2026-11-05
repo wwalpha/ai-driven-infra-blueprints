@@ -6,7 +6,6 @@ import shutil
 import sys
 import warnings
 from contextlib import ExitStack
-from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 from unittest import TestCase
@@ -15,13 +14,9 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import import_guard
-import model.importing.evidence as import_evidence
 import run_it
 import support.model_design_fixtures as _imports_support_model_design_fixtures
 import utils.aws_mappings as _imports_utils_aws_mappings
-from model.importing import evidence
-from model.importing.evidence import FORMAT_FIELDS
 from support import it_fixture_bundle as fixtures
 from support.blueprint_loop_fixtures import (
     CLI,
@@ -1752,7 +1747,7 @@ def _snapshot_evidence_pack(command, **kwargs):
 
 
 @pytest.mark.parametrize("result", [0, 1])
-def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
+def check_import_snapshot_without_receipt(tmp_path, monkeypatch, result):
     root = tmp_path / "source"
     scripts = root / "framework/scripts"
     scripts.mkdir(parents=True)
@@ -1762,14 +1757,6 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
         "## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `import`\n## Modified files\n- `tasks/snapshot.md`\n## Allowed paths\n- `tasks/snapshot.md`\n"
     )
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", selected)
-    monkeypatch.setattr(import_guard.tempfile, "gettempdir", lambda: str(tmp_path))
-    monkeypatch.setattr(import_guard, "require_import_changes", lambda root: None)
-    monkeypatch.setattr(
-        evidence,
-        "read_proof",
-        lambda root: local_evidence.read_sealed(root, import_guard.proof_path(root)),
-    )
-    # Authorization is covered by Import IT; this fixture runs the real staged copy/finally boundary.
     (scripts / "blueprint-loop.py").write_text(
         "raise SystemExit(" + str(result) + ")\n"
     )
@@ -1778,14 +1765,6 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
     )
     monkeypatch.setattr(MODULE, "index_tree", lambda *args: "synthetic-tree")
     monkeypatch.setattr(MODULE.subprocess, "run", _snapshot_evidence_pack)
-    proof = {
-        "version": 6,
-        **FORMAT_FIELDS,
-        "task": selected,
-        "acquiredAt": datetime.now(timezone.utc).isoformat(),
-    }
-    local_evidence.write_sealed(root, import_guard.proof_path(root), proof)
-    saved = import_guard.proof_path(root).read_bytes()
     directory = tmp_path / "logs"
     directory.mkdir()
     args = SimpleNamespace(
@@ -1806,9 +1785,7 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
         child.assert_called_once()
     snapshot = directory / "repository"
     assert not local_evidence.shared_store(snapshot, create=False).exists()
-    assert import_guard.proof_path(root).read_bytes() == saved
     assert not (root / ".blueprint").exists() and not (snapshot / ".blueprint").exists()
-    import_evidence.discard_import_proof(root, selected)
 
 
 @pytest.mark.parametrize("change", ["head", "index", "lock"])

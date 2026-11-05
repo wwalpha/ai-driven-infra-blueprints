@@ -57,7 +57,6 @@ from support.import_model_fixtures import (
 from support.import_repository_fixtures import checkpoint, repositories, state
 from support.model_sources import write_model
 from task_contract_core import selected_task, start
-from utils import local_evidence
 from utils.json_format import document_sha256
 from validation import change
 from validation.task import TaskValidation
@@ -178,11 +177,94 @@ def check_logs_roundtrip(tmp_path):
     assert all((root / p).read_bytes() == raw for p, raw in foreign.items())
     calls = list(cli.calls)
     assert (
-        m.recover_display(root, "dev", "cloudwatch-logs", TARGET)["status"]
+        m.recover_display(root, "dev", "cloudwatch-logs", acquired["evidence"], TARGET)[
+            "status"
+        ]
         == "complete"
     )
     assert cli.calls == calls
     import_guard.require_import_changes(root)
+
+
+@pytest.mark.parametrize("changed", [None, "baseline", "model", "candidate"])
+def check_display_recovers_only_from_verified_baseline(tmp_path, changed):
+    root, acquired, cli = prepare(tmp_path)
+    files = logs_edit(root, acquired)
+    evidence = Path(acquired["evidence"])
+    document = root / "docs/designs/dev/cde/cloudwatch-logs.md"
+    unknown = document.with_suffix("") / "unowned.json"
+    unknown.parent.mkdir(parents=True)
+    unknown.write_bytes(b'{"keep": true}')
+    review_fixture(root, acquired)
+    with patch.object(m, "view_plan", side_effect=OSError("display unavailable")):
+        result = m.publish_acquisition(root, "dev", "cloudwatch-logs", evidence, TARGET)
+    assert result["status"] == "display-failed" and result["model"] == "reflected"
+    assert not document.exists()
+    relative = next(iter(files))
+    if changed == "baseline":
+        state(root).baseline[relative] += b"\n# changed original\n"
+    elif changed == "model":
+        with (root / relative).open("ab") as stream:
+            stream.write(b"\n# changed saved Model\n")
+    elif changed == "candidate":
+        with (evidence.parent / "candidates" / relative).open("ab") as stream:
+            stream.write(b"\n# changed candidate\n")
+    saved, calls = source_files(root), list(cli.calls)
+    if changed:
+        with pytest.raises(ValueError, match="changed|differs"):
+            m.recover_display(root, "dev", "cloudwatch-logs", evidence, TARGET)
+        assert not document.exists()
+    else:
+        result = m.recover_display(root, "dev", "cloudwatch-logs", evidence, TARGET)
+        assert result["status"] == "complete" and result["markdown"] == "generated"
+        assert "managed-new" in document.read_text(encoding="utf-8")
+    assert source_files(root) == saved and cli.calls == calls
+    assert unknown.read_bytes() == b'{"keep": true}'
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def check_import_model_transaction_rollback(tmp_path, interrupted):
+    root, acquired, cli = prepare(tmp_path)
+    logs_edit(root, acquired)
+    review_fixture(root, acquired)
+    evidence = Path(acquired["evidence"])
+    original, calls = source_files(root), list(cli.calls)
+    index = dependency_index.location(root)
+    before_index = json.loads(index.read_bytes())["payload"]
+    with model.sources.publication_lock(root) as journal:
+        assert not journal.exists()
+    error = KeyboardInterrupt if interrupted else OSError
+    with (
+        patch.object(
+            m, "_callback_publish_acquisition_finish_model", side_effect=error
+        ),
+        pytest.raises(error),
+    ):
+        m.publish_acquisition(root, "dev", "cloudwatch-logs", evidence, TARGET)
+    if interrupted:
+        assert source_files(root) != original
+        with pytest.raises(ValueError, match="requires authorized recovery"):
+            with model.sources.publication_lock(root):
+                pass
+        original_record = journal.read_bytes()
+        foreign = json.loads(original_record)
+        foreign["importOwner"]["task"] = "tasks/foreign.md"
+        journal.write_text(json_text(foreign), encoding="utf-8")
+        with pytest.raises(ValueError, match="different Task"):
+            m.recover_transaction(root, "dev", "cloudwatch-logs", evidence, TARGET)
+        assert json.loads(journal.read_bytes()) == foreign
+        journal.write_bytes(original_record)
+        assert source_files(root) != original
+        result = m.recover_transaction(root, "dev", "cloudwatch-logs", evidence, TARGET)
+        assert result["status"] == "recovered"
+    assert source_files(root) == original and cli.calls == calls
+    after_index = json.loads(index.read_bytes())["payload"]
+    assert after_index.keys() == before_index.keys()
+    # Restoration refreshes file revisions while preserving the indexed model.
+    assert after_index.pop("files").keys() == before_index.pop("files").keys()
+    assert after_index == before_index
+    with model.sources.publication_lock(root) as journal:
+        assert not journal.exists()
 
 
 def check_config_sources(tmp_path):
@@ -432,6 +514,8 @@ def check_repeat_without_reformat(tmp_path):
     logs_edit(root, acquired)
     publish_fixture(root, acquired)
     before = source_files(root)
+    with pytest.raises(ValueError, match="already changed"):
+        m.acquire(root, "dev", "cloudwatch-logs", TARGET, cli_runner=aws(changed=True))
     import_guard.require_import_changes(root)
     old_name, new_name = "tasks/import-fixture.md", "tasks/reimport.md"
     checkpoint(root, task=new_name)
@@ -455,13 +539,10 @@ def check_repeat_without_reformat(tmp_path):
             selected,
             exclusions(again, selected),
         )
-        assert publish_fixture(root, again)["status"] == "complete"
+        for _ in range(2):
+            repeated = publish_fixture(root, again)
+            assert repeated["status"] == "complete" and repeated["model"] == "unchanged"
         import_guard.require_import_changes(root)
-    with selected_task(root, old_name):
-        assert local_evidence.read_sealed(root, import_guard.proof_path(root))[
-            "complete"
-        ]
-
     TestCase().assertEqual(source_files(root), before)
 
 
@@ -490,10 +571,6 @@ def check_reflection_validation_boundary(tmp_path):
     logs_edit(root, acquired)
     with (
         patch(
-            "import_guard.snapshots",
-            wraps=import_guard.snapshots,
-        ) as snapshots,
-        patch(
             "model.validations.full_inputs.check_model_inputs",
             side_effect=AssertionError("no whole design validation"),
         ),
@@ -511,10 +588,6 @@ def check_reflection_validation_boundary(tmp_path):
         result = publish_fixture(root, acquired)
     assert result["model"] == "reflected" and result["designValidation"] == "not-run"
     assert saving.call_count == 1
-    assert snapshots.call_args_list
-    assert all(
-        "model" not in call.kwargs["source_paths"] for call in snapshots.call_args_list
-    )
 
 
 def check_dry_run_cleanup(tmp_path):
@@ -732,7 +805,6 @@ def check_route53_acquired_identity_evidence(tmp_path):
     result = publish_fixture(root, acquired, "route53")
     assert result["status"] == "complete", result
     assert load_model(path).authoritative["desired.row.001-004.value"] == "`blue`"
-    assert import_evidence.read_proof(root)["complete"] is True
 
 
 def _callback_check_reference_publication_counted(
@@ -927,7 +999,12 @@ def check_reference_publication(tmp_path):
     assert all(p.read_bytes() == raw for p, raw in foreign.items())
     assert not (root / "docs/designs/dev/cde/s3.md").exists()
     before_recovery = source_files(root)
-    assert m.recover_display(root, "dev", "cloudtrail", TARGET)["status"] == "complete"
+    assert (
+        m.recover_display(root, "dev", "cloudtrail", acquired["evidence"], TARGET)[
+            "status"
+        ]
+        == "complete"
+    )
     assert source_files(root) == before_recovery and document.read_text() == markdown
 
 
@@ -1330,7 +1407,7 @@ def check_limited_acquisition_preserves_values_and_completes(tmp_path):
     ]
     selection_path.write_text(json_text(selection))
     reviewed = review_fixture(root, acquired, service)
-    binding = import_approval.review_binding(
+    import_approval.review_binding(
         reviewed["review"],
         import_evidence.read_acquisition(
             root, Path(acquired["evidence"]), ("dev", ACCOUNT, service), False
@@ -1348,13 +1425,6 @@ def check_limited_acquisition_preserves_values_and_completes(tmp_path):
     # The fixture represents consent to this unchanged Review; Python checks integrity only.
     result = m.publish_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
     assert result["status"] == "complete" and len(cli.calls) == count
-    proof = import_evidence.read_proof(root)
-    assert proof["complete"] and proof["completion"] == {
-        "acquisition": True,
-        "properties": True,
-        "review": True,
-    }
-    assert proof["observationComplete"] is False and proof["reviewBinding"] == binding
     after = load_model(path)
     assert (
         after.authoritative["desired.row.001-002.value"]
@@ -1541,7 +1611,7 @@ def check_optional_provider_retention_completes(tmp_path, route):
     selection_path.write_text(json_text(selection))
     reviewed = review_fixture(root, acquired, service)
     assert not reviewed["review"]["completion"]["allPropertiesObserved"]
-    binding = import_approval.review_binding(
+    import_approval.review_binding(
         reviewed["review"],
         import_evidence.read_acquisition(
             root, Path(acquired["evidence"]), ("dev", ACCOUNT, service), False
@@ -1578,13 +1648,6 @@ def check_optional_provider_retention_completes(tmp_path, route):
     # The fixture represents consent to this unchanged Review; Python checks integrity only.
     result = m.publish_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
     assert result["status"] == "complete" and len(cli.calls) == count, result
-    proof = import_evidence.read_proof(root)
-    assert proof["complete"] and proof["completion"] == {
-        "acquisition": True,
-        "properties": True,
-        "review": True,
-    }
-    assert proof["observationComplete"] is False and proof["reviewBinding"] == binding
     after = load_model(path)
     assert (
         after.authoritative["desired.row.001-002.value"]

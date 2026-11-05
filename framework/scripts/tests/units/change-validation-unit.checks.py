@@ -1,6 +1,5 @@
 """Changed rule selection and zero Full-validation calls on synthetic Models."""
 
-import hashlib
 import json
 import subprocess
 import sys
@@ -14,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import design.catalog as _model_validation_catalog
 import design.policy_tables as policy_tables
 import import_guard
-import model.importing.evidence as import_evidence
 import model.validations.change_inputs as _model_validation_change_inputs
 import model.validations.full_inputs as _model_validation_full_inputs
 import model.validations.schema as _model_validation_schema
@@ -1050,14 +1048,8 @@ def check_real_final_candidate_guard_never_calls_full(project_workspace, workflo
     candidate = SimpleNamespace(
         base_commit=base, changed_paths={relative}, scope={("preview", "team", "logs")}
     )
-    proof = {
-        "sources": {relative: hashlib.sha256(path.read_bytes()).hexdigest()},
-        "model": "reflected",
-        "complete": True,
-    }
     with (
         selected_task(root, name),
-        patch.object(import_evidence, "read_proof", return_value=proof),
         patch.object(
             _model_validation_full_inputs,
             "check_model_inputs",
@@ -1071,7 +1063,6 @@ def check_real_final_candidate_guard_never_calls_full(project_workspace, workflo
     ):
         import_guard.require_import_changes(root, final_candidate=candidate)
         write_model(path, dict(before, **{"desired.row.001-002.value": "new-invalid"}))
-        proof["sources"][relative] = hashlib.sha256(path.read_bytes()).hexdigest()
         with pytest.raises(ValueError, match="RetentionInDays"):
             import_guard.require_import_changes(root, final_candidate=candidate)
         full.assert_not_called()

@@ -9,7 +9,6 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import import_guard as _imports_import_guard
-import model.importing.cli as _imports_model_importing_cli
 import model.importing.scope as _imports_model_importing_scope
 import model.projection as _imports_model_projection
 import model.sources as _imports_model_sources
@@ -526,12 +525,7 @@ def _sync(
                 "IMPORT generation is outside selected environment/target/service"
             )
         if write:
-            recover_display = _imports_model_importing_cli.recover_display
-            identity = import_selection(root)
-            recover_display(root, identity[0], identity[2], identity[1])
-            consumers({identity})
-            completed(identity)
-            return 0
+            raise ValueError("IMPORT display recovery requires import recover-display with the original --evidence")
         jobs = 1
     scope = (
         {(environment, target_directory, service) for service in services}

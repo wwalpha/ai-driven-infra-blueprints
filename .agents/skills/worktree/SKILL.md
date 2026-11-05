@@ -290,7 +290,7 @@ Exit 0 and JSON `status: ok` indicate success; `needs_sync` and `needs_validatio
 For failed validation/loop, assess Self recovery first; if unresolved, stop before finalize/commit unless the human explicitly approves the exception above. Other suspended tasks, missing input, approval waits or conflicts still stop before finalize/commit. Keep worktree and branch; use the child's existing suspension/resume rules. Ordinary finalize never completes or resumes a task; the Model-only/Framework final-candidate path completes only after validation passes. A dirty base is never stashed/reset/overwritten. Reviewed recovery rebase failure runs `rebase --abort`, preserves the task commit and worktree, and requires human review; do not guess conflict resolutions. A normal base advance follows [Base synchronization and revalidation](#base-synchronization-and-revalidation).
 
 Automatic cleanup follows a verified local FF merge or a GitHub merge confirmed by
-`pr-merge`/`pr-status`. It retains the existing completion/cleanliness checks and Import,
+`pr-merge`/`pr-status`. It retains the existing completion/cleanliness checks and
 Deploy and Repair evidence finalization. Merge success remains recorded if cleanup fails;
 never roll it back. Automatic cleanup uses the already-held task publication lock, followed
 by the common lifecycle lock; it does not recursively acquire the publication lock.
@@ -314,7 +314,7 @@ HEAD/branch and lock checks; explicit disposal does not require a clean retained
 merge receipt. A branch-delete failure retains state so the same Cleanup retries after
 checkout removal. Verify actual remaining resources before reporting completion.
 
-Explicit disposal does not finalize uncertain Import/Deploy/Repair evidence. External
+Explicit disposal does not finalize uncertain Deploy/Repair evidence. External
 evidence is retained and reported under `retained_external_evidence`; it never becomes
 successful publication evidence. Physical cleanup does not depend on workflow completion.
 Neither cleanup mode changes GitHub PRs, remote branches, other Tasks, the shared Python

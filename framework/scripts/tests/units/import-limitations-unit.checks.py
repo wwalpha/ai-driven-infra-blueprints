@@ -1068,7 +1068,7 @@ def test_missing_absence_is_valid_but_false_limited_evidence_is_not():
         evidence.validate_inventory(data[3])
 
 
-def test_legacy_review_and_receipt_versions_require_new_review():
+def test_legacy_review_version_requires_new_review():
     result = review_case(case())
     result["version"] = 4
     with pytest.raises(ValueError, match="incompatible"):

@@ -19,7 +19,6 @@ from typing import Callable, Mapping, NoReturn, TypeAlias
 
 import generation_inputs
 import sync_files
-import task_contract_core as _imports_task_contract
 import task_contract_core as task_contract
 from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
 from sync_progress import phase, thread_lock
@@ -33,7 +32,6 @@ from utils.input_cache import (
 )
 from utils.json_format import exact as exact
 from utils.json_format import json_text, strict_json
-from utils.local_evidence import shared_store as evidence_store
 from utils.project_targets import DeployContextError, select_target
 from utils.script_loader import module
 from utils.source_reads import CandidateReads as CandidateReads
@@ -148,25 +146,13 @@ def safe(root: Path, path: Path) -> None:
         raise ValueError("unsafe Model source path: " + str(path))
 
 
-def _receipt_original(root, record):
-    """The only external rollback target is this root's named Import receipt."""
-    TASK_NAME = _imports_task_contract.TASK_NAME
-    exact(record, {"task", "original"}, "Import receipt journal")
-    if not isinstance(record["task"], str) or not TASK_NAME.fullmatch(record["task"]):
-        raise ValueError("invalid Import receipt journal Task")
-    file = evidence_store(root) / (Path(record["task"]).stem + ".json")
-    if file.is_symlink():
-        raise ValueError("unsafe Import receipt journal path")
-    data = record["original"]
-    return {file: None if data is None else base64.b64decode(data, validate=True)}
-
-
 @contextmanager
 def publication_lock(
     root: Path,
     *,
     read_only: bool = False,
     recovery_check: Callable[[JsonObject], None] | None = None,
+    import_recovery: bool = False,
 ) -> Iterator[Path]:
     """OS releases the lock on process exit; restore an interrupted batch before reads."""
     key = str(root.resolve())
@@ -212,11 +198,7 @@ def publication_lock(
                         {
                             "root",
                             "originals",
-                            *(
-                                {"importReceipt"}
-                                if "importReceipt" in record
-                                else set()
-                            ),
+                            *({"importOwner"} if "importOwner" in record else set()),
                             *(
                                 {"dependencyIndex"}
                                 if "dependencyIndex" in record
@@ -227,6 +209,12 @@ def publication_lock(
                     )
                     if record["root"] != key:
                         raise ValueError("publication journal root mismatch")
+                    if "importOwner" in record and (
+                        not import_recovery or recovery_check is None
+                    ):
+                        raise ValueError(
+                            "pending Import transaction requires authorized recovery"
+                        )
                     if recovery_check is not None:
                         recovery_check(record)
                     originals = {}
@@ -239,10 +227,6 @@ def publication_lock(
                             None
                             if data is None
                             else base64.b64decode(data, validate=True)
-                        )
-                    if "importReceipt" in record:
-                        originals.update(
-                            _receipt_original(root, record["importReceipt"])
                         )
                     originals.update(_index_original(root, record))
                     sync_files.restore_files(originals)
@@ -275,7 +259,11 @@ def _restore_index_revisions(root, record, originals):
     if "dependencyIndex" in record:
         module("model/dependency_index.py", "model.dependency_index").update(
             root,
-            {p for p in originals if p.is_relative_to(root / "model")},
+            {
+                p
+                for p, data in originals.items()
+                if data is not None and p.is_relative_to(root / "model")
+            },
             observed=True,
         )
 
@@ -289,7 +277,7 @@ def _publish_transaction(
     originals=None,
     start=None,
     finish=None,
-    receipt=None,
+    import_owner=None,
     observed=False,
 ):
     """Journal and rollback shared by guarded publication and validated generation plans.
@@ -312,15 +300,8 @@ def _publish_transaction(
             for p, data in originals.items()
         },
     }
-    if receipt is not None:
-        task, original = receipt
-        record["importReceipt"] = {
-            "task": task,
-            "original": None
-            if original is None
-            else base64.b64encode(original).decode(),
-        }
-        originals = {**originals, **_receipt_original(root, record["importReceipt"])}
+    if import_owner is not None:
+        record["importOwner"] = import_owner
     model_changes = {
         p for p in set(output) | set(obsolete) if p.is_relative_to(root / "model")
     }
@@ -916,7 +897,7 @@ class SourceWriteContext:
         "_require_current",
         "_start",
         "_finish",
-        "_receipt",
+        "_import_owner",
     )
 
     root = property(lambda self: self._root)
@@ -939,12 +920,16 @@ class SourceWriteContext:
         *,
         start=None,
         finish=None,
-        receipt=None,
+        import_owner=None,
     ):
         context = object.__new__(cls)
         context._root, context._snapshot, context._operation = root, snapshot, operation
         context._require_current, context._paths = require_current, paths
-        context._start, context._finish, context._receipt = start, finish, receipt
+        context._start, context._finish, context._import_owner = (
+            start,
+            finish,
+            import_owner,
+        )
         context._closed = False
         return context
 
@@ -970,7 +955,9 @@ def candidate_sources(
             "candidate directory containing model/<environment>/<target>/<service>.properties."
         )
     if not directory.is_dir():
-        raise ValueError("Model candidate must be an external directory: " + str(directory))
+        raise ValueError(
+            "Model candidate must be an external directory: " + str(directory)
+        )
     output = {}
     for path in directory.rglob("*"):
         safe(directory, path)

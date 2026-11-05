@@ -15,7 +15,6 @@ from unittest.mock import Mock, patch
 
 import import_guard
 import model.format as _imports_model_format
-import model.importing.evidence as import_evidence
 import pytest
 from model.format import serialize
 from model.importing import approval, evidence
@@ -349,44 +348,9 @@ def check_valid_observation_and_nonblocking_reference_warning():
         {"expiresAt": "2099-01-01"},
     ],
 )
-def check_local_claim_cannot_replace_review_binding(tmp_path, claim):
-    evidence = tmp_path / "acquisition.json"
-    evidence.write_text("{}")
-    (tmp_path / "approval.json").write_text(json.dumps(claim))
-    before = {p: p.read_bytes() for p in tmp_path.iterdir()}
-    with pytest.raises(ValueError, match="Review binding"):
-        import_evidence.record_import(tmp_path, {}, evidence, {}, review_binding=claim)
-    assert {p: p.read_bytes() for p in tmp_path.iterdir()} == before
-
-
-def check_alternate_source_guard_rejects_legacy_receipt(tmp_path):
-    (tmp_path / ".git").mkdir()
-    task = tmp_path / "tasks/import.md"
-    text = (
-        "## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `import`\n"
-        "## Modified files\n- `tasks/import.md`\n- `model/dev/cde/vpc.properties`\n"
-        "## Allowed paths\n- `tasks/import.md`\n- `model/dev/cde/vpc.properties`\n"
-        "## Validation scope\n- `dev/cde/vpc`\n"
-    )
-    task.parent.mkdir()
-    task.write_text(text)
-    with (
-        patch.object(
-            import_guard,
-            "changed_sources",
-            return_value={"model/dev/cde/vpc.properties"},
-        ),
-        patch.object(
-            import_evidence,
-            "read_proof",
-            side_effect=ValueError("IMPORT change has no verified /import evidence"),
-        ) as receipt,
-    ):
-        with pytest.raises(ValueError, match="no verified /import evidence"):
-            import_guard.require_import_changes(
-                tmp_path, output={tmp_path / "model/dev/cde/vpc.properties": "forged"}
-            )
-        receipt.assert_called_once()
+def check_local_claim_cannot_replace_review_binding(claim):
+    with pytest.raises(ValueError):
+        approval.verify_review_binding(claim)
 
 
 def check_expiry_and_digest_tampering():
@@ -630,8 +594,7 @@ def check_preflight_before_any_save(tmp_path, failure):
     )
 
 
-@pytest.mark.parametrize("receipt_failure", [False, True])
-def check_view_failure_does_not_block_approved_source_save(tmp_path, receipt_failure):
+def check_view_failure_does_not_block_approved_source_save(tmp_path):
     case = source_review_case(tmp_path)
     context = Mock()
     with (
@@ -640,16 +603,10 @@ def check_view_failure_does_not_block_approved_source_save(tmp_path, receipt_fai
         patch.object(m, "property_schema", side_effect=schema),
         patch.object(m, "view_plan", side_effect=OSError("synthetic View failure")),
         patch.object(m, "record_outputs"),
-        patch.object(m, "proof_path", return_value=case.root / "receipt.json"),
         patch.object(m.SourceWriteContext, "_authorized", return_value=context),
         patch.object(m, "prepare_edit", return_value="approved-source") as prepare,
         patch.object(m, "publish_edit") as save,
         patch.object(m, "recover_display") as recover,
-        patch.object(
-            m,
-            "finish_import",
-            side_effect=OSError("receipt failure") if receipt_failure else None,
-        ),
     ):
         m.review_acquisition(case.root, "dev", "vpc", case.evidence, "cde")
         result = m.publish_acquisition(case.root, "dev", "vpc", case.evidence, "cde")
@@ -661,7 +618,6 @@ def check_view_failure_does_not_block_approved_source_save(tmp_path, receipt_fai
         result["viewComplete"] is False
         and "synthetic View failure" in result["displayError"]
     )
-    assert ("receipt failure" in result["displayError"]) == receipt_failure
 
 
 @pytest.mark.parametrize(
@@ -805,7 +761,6 @@ def check_publication_finish_rejects_late_changes(tmp_path, failure):
                 ),
             ),
         ),
-        patch.object(m, "finish_import") as finish,
     ):
         args = (
             case.acquisition,
@@ -814,7 +769,6 @@ def check_publication_finish_rejects_late_changes(tmp_path, failure):
             case.evidence,
             external,
             ("dev", "cde", "vpc"),
-            {case.source: "candidate"},
             review,
             b"review",
             case.root,
@@ -822,10 +776,8 @@ def check_publication_finish_rejects_late_changes(tmp_path, failure):
         if failure:
             with pytest.raises(ValueError, match="changed during publication"):
                 m._callback_publish_acquisition_finish_model(*args)
-            finish.assert_not_called()
         else:
             m._callback_publish_acquisition_finish_model(*args)
-            finish.assert_called_once_with(case.root, model="reflected")
     check.assertEqual(case.source.read_bytes(), case.original)
 
 

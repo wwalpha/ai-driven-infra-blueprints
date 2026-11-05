@@ -21,7 +21,6 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 
-import model.importing.evidence as _imports_model_importing_evidence
 import task_contract_core as _imports_task_contract
 import validation.runner as _imports_validation_runner
 from task_contract_core import (
@@ -33,7 +32,6 @@ from task_contract_core import (
 )
 from utils.aws_mappings import definition_root
 from utils.git_changes import collect_working_paths
-from utils.local_evidence import shared_store as evidence_store
 from validation_scope import active_scope
 
 
@@ -493,84 +491,71 @@ def staged_snapshot(root, args, directory, environment):
     git(snapshot, "checkout", "--quiet", "--detach", base)
     git(snapshot, "read-tree", "--reset", "-u", tree)
     captured = task_snapshot(snapshot)
-    import_task = "- Workflow: `import`" in captured.text
+    metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
+    (directory / "snapshot.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}",
+        flush=True,
+    )
+    command = [
+        sys.executable,
+        "-X",
+        "utf8",
+        str(definition_root(snapshot) / "framework/scripts/blueprint-loop.py"),
+        "--mode",
+        args.mode,
+        "--jobs",
+        str(args.jobs),
+        "--log-dir",
+        str(directory),
+        "--validation-jobs",
+        str(args.validation_jobs),
+        *(["--fresh"] if args.fresh else []),
+        *(["--all"] if args.all else []),
+        *(["--profile"] if args.profile else []),
+    ]
+    process = subprocess.Popen(
+        command,
+        cwd=snapshot,
+        env=environment,
+        **(
+            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            if os.name == "nt"
+            else {}
+        ),
+    )
     try:
-        if import_task:
-            copy_import_proof = _imports_model_importing_evidence.copy_import_proof
-            copy_import_proof(root, snapshot)
-        metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
-        (directory / "snapshot.json").write_text(
-            json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
-        )
-        print(
-            f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}",
-            flush=True,
-        )
-        command = [
-            sys.executable,
-            "-X",
-            "utf8",
-            str(definition_root(snapshot) / "framework/scripts/blueprint-loop.py"),
-            "--mode",
-            args.mode,
-            "--jobs",
-            str(args.jobs),
-            "--log-dir",
-            str(directory),
-            "--validation-jobs",
-            str(args.validation_jobs),
-            *(["--fresh"] if args.fresh else []),
-            *(["--all"] if args.all else []),
-            *(["--profile"] if args.profile else []),
-        ]
-        process = subprocess.Popen(
-            command,
-            cwd=snapshot,
-            env=environment,
-            **(
-                {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-                if os.name == "nt"
-                else {}
-            ),
+        result = process.wait()
+    except KeyboardInterrupt:
+        process.send_signal(
+            signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGTERM
         )
         try:
-            result = process.wait()
-        except KeyboardInterrupt:
-            process.send_signal(
-                signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGTERM
-            )
-            try:
-                process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-            raise
-        metadata.update(returncode=result)
-        if not issues_save_only(snapshot, text=captured.text):
-            current_tree = index_tree(root, directory)
-            unchanged = (
-                current_tree == tree
-                and git(root, "rev-parse", "HEAD") == head
-            )
-            metadata.update(source_unchanged=unchanged)
-            if not unchanged:
-                result = 1
-                print(
-                    "Staged snapshot is stale: source HEAD/index changed; result applies only to the saved tree.",
-                    flush=True,
-                )
-        (directory / "snapshot.json").write_text(
-            json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        raise
+    metadata.update(returncode=result)
+    if not issues_save_only(snapshot, text=captured.text):
+        current_tree = index_tree(root, directory)
+        unchanged = (
+            current_tree == tree
+            and git(root, "rev-parse", "HEAD") == head
         )
-        return result
-    finally:
-        if import_task:
-            discard_import_proof = (
-                _imports_model_importing_evidence.discard_import_proof
+        metadata.update(source_unchanged=unchanged)
+        if not unchanged:
+            result = 1
+            print(
+                "Staged snapshot is stale: source HEAD/index changed; result applies only to the saved tree.",
+                flush=True,
             )
-            discard_import_proof(snapshot, captured.name)
-            store = evidence_store(snapshot)
-            store.rmdir()
+    (directory / "snapshot.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
+    return result
 
 
 def suspend_selected(root, selected, reason):

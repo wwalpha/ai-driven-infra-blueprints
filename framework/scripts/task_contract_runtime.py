@@ -106,7 +106,7 @@ def check_import(
     supplied: set[str] | None = None,
     integration: bool = False,
 ) -> None:
-    """Check Import evidence and Task acceptance without running design validation."""
+    """Check Import scope, changed Model and Task acceptance without running design validation."""
     snapshot = task_snapshot(root, name, executable=False, live=True)
     contract = section(snapshot.text, "## Task contract")
     if (

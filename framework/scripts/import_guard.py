@@ -9,21 +9,17 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 import model.core as _imports_model_core
-import model.importing.evidence as _dependency_model_importing_evidence
 import model.importing.repository as _imports_model_importing_repository
 import model.operations as _imports_model_operations
 import model.sources as _dependency_model_sources
 import task_contract_core as _imports_task_contract
-import utils.local_evidence as _local_evidence
 import validation_scope as _imports_validation_scope
 from contracts.repository import PROJECT_FILENAME
 from model.change_scope import index_stage
 from model.pull_review import read_review, verify
 from sync_files import save_files
 from task_contract_core import (
-    contract_path,
     section,
-    task_path,
     task_read_scope,
     task_snapshot,
 )
@@ -50,17 +46,6 @@ def workflow(root, *, contract_file=None):
             "IMPORT configuration changes require the registered design /import workflow"
         )
     return path.relative_to(root).as_posix()
-
-
-def proof_path(root, *, contract_file=None):
-    return _local_evidence.shared_store(root) / (
-        (
-            contract_path(root, selected=contract_file)
-            if contract_file is not None
-            else task_path(root)
-        ).stem
-        + ".json"
-    )
 
 
 def working_revision(root):
@@ -339,50 +324,6 @@ def require_import_changes(
                 _dependency_model_sources.raw_model(before / relative),
                 _dependency_model_sources.raw_model(after / relative),
                 snapshot.name, text, worktree=root,
-            )
-        warnings = []
-    elif "- Workflow: `import`" in section(text, "## Task contract"):
-        if not sources and generation:
-            return
-        proof = (
-            _dependency_model_importing_evidence.read_proof(
-                root, contract_file=contract_file
-            )
-            if contract_file is not None
-            else _dependency_model_importing_evidence.read_proof(root)
-        )
-        expected = proof["sources"]
-        if sources - expected.keys():
-            raise ValueError("IMPORT source change has no acquired change plan")
-        for relative in expected:
-            path = root / relative
-            text = (
-                output[path]
-                if output and path in output
-                else input_bytes(path).decode("utf-8")
-                if input_is_file(path)
-                else None
-            )
-            actual = (
-                None
-                if text is None
-                else hashlib.sha256(text.encode("utf-8")).hexdigest()
-            )
-            if actual != expected[relative]:
-                raise ValueError(
-                    "IMPORT configuration differs from acquired change plan: "
-                    + relative
-                )
-        if (
-            output is None
-            and not generation
-            and (
-                proof["model"] not in {"reflected", "unchanged"}
-                or not proof["complete"]
-            )
-        ):
-            raise ValueError(
-                "IMPORT retrieval/reflection is incomplete; task remains unfinished"
             )
         warnings = []
     else:

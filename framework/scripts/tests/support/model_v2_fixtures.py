@@ -556,9 +556,17 @@ def import_publication_case(monkeypatch, subprocess_cli=False, *, workspace=None
         assert published["status"] == "complete", published
         assert path.read_bytes() == candidate.read_bytes()
         assert aws.calls == calls
-        assert (
-            target / "docs/designs/qa-synthetic/team-a/cloudwatch-logs.md"
-        ).is_file()
+        view = target / "docs/designs/qa-synthetic/team-a/cloudwatch-logs.md"
+        assert view.is_file()
+        if not subprocess_cli:
+            expected_view = view.read_bytes()
+            view.unlink()
+            recovered = cli.recover_display(
+                target, "qa-synthetic", "cloudwatch-logs", evidence, "team-a"
+            )
+            assert recovered["status"] == "complete", recovered
+            assert view.read_bytes() == expected_view
+            assert path.read_bytes() == candidate.read_bytes() and aws.calls == calls
         assert (root / relative).read_bytes() == original
 
 

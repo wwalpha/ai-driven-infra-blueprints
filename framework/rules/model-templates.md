@@ -108,9 +108,9 @@ including reference-only semantic changes even when the saved value is unchanged
 Read-only incoming analysis for bind/replace never calls a CREATE mutation guard.
 Keep semantic warnings; propagate malformed metadata, I/O and scope violations.
 Accumulate the whole service candidate and all acquired-record Reviews before one save.
-Model and receipt rollback together. Save generated views afterward in a separate
-transaction. A display failure keeps the Model and permits recover-display without
-acquisition, new Import or renewed consent for unchanged approved content.
+Model and dependency index roll back together. Save generated views afterward in a separate
+transaction. A display failure keeps the Model and permits recover-display using the original
+acquisition without AWS reacquisition or renewed consent for unchanged approved content.
 
 ## Model-only intermediate sources
 

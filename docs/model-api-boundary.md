@@ -771,7 +771,6 @@ Runtime Model import bindings: **399**, shared contracts included below: **140**
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 11 | `model.core` | A | 217 | 既存公開 API／ModelView／Model Key 契約を利用。内部構造の再解析・再構成を行わない。 使用操作: `report_reference_warnings`. |
-| 12 | `model.importing.evidence` | A | 327,331 | 取得・保存の許可範囲、証跡、既存 Import 操作を Model に委譲。呼び出し側は実行を制御。 使用操作: `read_proof`. |
 | 13 | `model.importing.repository` | A | 66,78,87,218,401 | 取得・保存の許可範囲、証跡、既存 Import 操作を Model に委譲。呼び出し側は実行を制御。 使用操作: `changed_paths`, `has_baseline`, `task_start_commit`, `working_revision`. |
 | 14 | `model.operations` | A | 282,305,370 | Model の読み取り、入力追跡、変更計画、検証済み公開・整合性確認を既存 API に委譲。 使用操作: `validate_candidates`, `verify_model_operation`, `verify_model_refactor`. |
 | 15 | `model.sources` | A | 189 | Model の読み取り、入力追跡、変更計画、検証済み公開・整合性確認を既存 API に委譲。 使用操作: `safe`. |
@@ -1058,7 +1057,6 @@ Runtime Model import bindings: **399**, shared contracts included below: **140**
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
-| 24 | `model.importing.evidence` | A | 500,592 | 取得・保存の許可範囲、証跡、既存 Import 操作を Model に委譲。呼び出し側は実行を制御。 使用操作: `copy_import_proof`, `discard_import_proof`. |
 
 ### validation/project.py
 

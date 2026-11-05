@@ -1,245 +1,25 @@
-"""Versioned Import acquisition, Review-bound receipts and external evidence retention."""
+"""Versioned Import acquisition and temporary evidence retention."""
 
 import shutil
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 import import_guard as _imports_import_guard
-import task_contract_core as _imports_task_contract
-import utils.import_evidence as _receipt_storage
 from contracts.target import (
     AWS_ACCOUNT_ID_KEY,
     AWS_EXECUTION_ACCOUNT_ID_KEY,
     AWS_REGION_KEY,
 )
-from generation_inputs import GenerationInputs
-from task_contract_core import task_reads
-from utils.input_cache import recording_inputs
-from utils.json_format import document_sha256, json_text
+from utils.json_format import json_text
 from utils.local_evidence import private, read_sealed, write_sealed
 from utils.local_evidence import shared_store as evidence_store
-from utils.script_loader import module
 
-import model.importing.approval as _imports_model_importing_approval
 import model.importing.inventory as _imports_model_importing_inventory
 import model.importing.limitations as limitations
 import model.importing.repository as _imports_model_importing_repository
-import model.importing.scope as _imports_model_importing_scope
 from model.format import FORMAT_FIELDS as FORMAT_FIELDS
 from model.format import require_format as require_format
-
-
-def read_proof(root, *, contract_file=None):
-    base_revision = _imports_import_guard.base_revision
-    proof_path = _imports_import_guard.proof_path
-    workflow = _imports_import_guard.workflow
-    safe_path = _imports_task_contract.safe_path
-
-    selected = _imports_model_importing_scope.selected
-
-    reference = {} if contract_file is None else {"contract_file": contract_file}
-    file = proof_path(root, **reference)
-    try:
-        if file.is_symlink():
-            raise ValueError("symlink import evidence")
-        proof = read_sealed(root, file)
-        require_format(proof, 7, "receipt")
-        require_fresh_acquisition(proof)
-        if (
-            proof["version"] != 7
-            or proof["task"] != workflow(root, **reference)
-            or proof["base"] != base_revision(root, **reference)
-            or proof["scope"] != list(selected(root, **reference))
-            or not proof["acquisition"]
-            or not isinstance(proof["sources"], dict)
-            or not proof["plan"]
-            or type(proof["complete"]) is not bool
-            or proof["model"] not in {"pending", "reflected", "unchanged"}
-            or proof["markdown"] not in {"not-run", "failed", "generated", "unchanged"}
-            or not isinstance(proof["ownedArtifacts"], list)
-        ):
-            raise ValueError("stale import evidence")
-        for relative, checksum in proof["sources"].items():
-            safe_path(root, relative)
-            if checksum is not None and (
-                not isinstance(checksum, str) or len(checksum) != 64
-            ):
-                raise ValueError("invalid source checksum")
-        for relative in proof["ownedArtifacts"]:
-            safe_path(root, relative)
-        verify_review_binding = _imports_model_importing_approval.verify_review_binding
-        binding = verify_review_binding(proof["reviewBinding"])
-        if proof["reviewBindingDigest"] != document_sha256(binding):
-            raise ValueError("IMPORT Review binding checksum differs")
-        if (
-            binding["task"] != proof["task"]
-            or binding["worktree"] != str(root.resolve())
-            or binding["scope"] != proof["scope"]
-            or binding["acquisitionDigest"] != proof["acquisition"]
-            or binding["acquiredAt"] != proof["acquiredAt"]
-        ):
-            raise ValueError(
-                "IMPORT Review binding belongs to another Task/Worktree/scope/acquisition"
-            )
-        completion = proof.get("completion")
-        if (
-            not isinstance(completion, dict)
-            or set(completion) != {"acquisition", "properties", "review"}
-            or any(type(value) is not bool for value in completion.values())
-            or proof["complete"]
-            and not all(completion.values())
-            or proof.get("limitationsDigest") != binding["limitationsDigest"]
-            or type(proof.get("observationComplete")) is not bool
-        ):
-            raise ValueError(
-                "IMPORT receipt completion/limitations binding is invalid; reacquire and review"
-            )
-        return proof
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        raise ValueError(
-            "IMPORT change has no verified /import evidence: " + str(error)
-        ) from error
-
-
-def checked_completion(
-    root: Path,
-    evidence: Path,
-    acquisition: dict[str, Any],
-    output: dict[Path, str],
-    plan: dict[str, Any],
-    binding: dict[str, Any],
-) -> tuple[dict[str, bool], bool]:
-    """Recheck the actual candidate and Review; a caller's complete flag grants nothing."""
-    cli = module("model/importing/cli.py", "model.importing.cli")
-    inputs = GenerationInputs(root)
-    try:
-        with task_reads(root), recording_inputs(inputs):
-            _, _, current_output, selection, review, _, _ = cli.review_inputs(
-                root, tuple(acquisition["scope"]), Path(evidence), acquisition, inputs
-            )
-            if (
-                current_output != output
-                or selection != plan.get("selection")
-                or _imports_model_importing_approval.review_binding(review, acquisition)
-                != binding
-            ):
-                raise ValueError(
-                    "IMPORT completion differs from current candidate/Selection/Review binding"
-                )
-            inputs.verify()
-        return {
-            "acquisition": acquisition_complete(acquisition),
-            "properties": review["completion"]["propertiesResolved"],
-            "review": True,
-        }, review["completion"]["allPropertiesObserved"]
-    finally:
-        inputs.close()
-
-
-def record_import(root, output, evidence, plan, complete=True, *, review_binding=None):
-    """Bind a verified cross-process acquisition and checked candidate to exact bytes."""
-    base_revision = _imports_import_guard.base_revision
-    file_hash = _imports_import_guard.file_hash
-    proof_path = _imports_import_guard.proof_path
-    text_hash = _imports_import_guard.text_hash
-    workflow = _imports_import_guard.workflow
-
-    verify_review_binding = _imports_model_importing_approval.verify_review_binding
-    selected = _imports_model_importing_scope.selected
-    source_hashes = {
-        p.relative_to(root).as_posix(): text_hash(text) for p, text in output.items()
-    }
-    verify_review_binding(review_binding)
-    identity = selected(root)
-    acquisition = read_acquisition(root, evidence, identity, False)
-    if (
-        acquisition["root"] != str(root.resolve())
-        or acquisition["task"] != workflow(root)
-        or acquisition["scope"] != list(identity)
-        or acquisition["dryRun"]
-    ):
-        raise ValueError("IMPORT evidence does not authorize this source publication")
-    planned = {p.relative_to(root).as_posix(): text for p, text in output.items()}
-    if (
-        not isinstance(review_binding, dict)
-        or review_binding.get("task") != acquisition["task"]
-        or review_binding.get("worktree") != acquisition["root"]
-        or review_binding.get("scope") != acquisition["scope"]
-        or review_binding.get("acquisitionDigest") != document_sha256(acquisition)
-        or review_binding.get("sourceBaselineDigest")
-        != document_sha256(acquisition["sources"])
-        or review_binding.get("selectionDigest")
-        != document_sha256(plan.get("selection"))
-    ):
-        raise ValueError(
-            "IMPORT Review binding differs from acquisition/selection/baseline"
-        )
-    if plan.get("sources") != planned:
-        raise ValueError("IMPORT evidence requires the checked candidate sources")
-    if proof_path(root).exists():
-        raise ValueError(
-            "IMPORT Task already published; use display recovery or a new Task"
-        )
-    completion, observed = checked_completion(
-        root, evidence, acquisition, output, plan, review_binding
-    )
-    sources = source_hashes
-    proof = {
-        "version": 7,
-        **FORMAT_FIELDS,
-        "reviewBinding": review_binding,
-        "reviewBindingDigest": document_sha256(review_binding),
-        "task": workflow(root),
-        "base": base_revision(root),
-        "scope": list(identity),
-        "sources": sources,
-        "before": {p.relative_to(root).as_posix(): file_hash(p) for p in output},
-        "plan": document_sha256(plan),
-        "acquisition": document_sha256(acquisition),
-        "acquiredAt": acquisition["acquiredAt"],
-        "ownedArtifacts": plan["ownedArtifacts"],
-        "connection": acquisition["connection"],
-        "completion": completion,
-        "observationComplete": observed,
-        "limitationsDigest": review_binding["limitationsDigest"],
-        "complete": complete and all(completion.values()),
-        "model": "pending",
-        "markdown": "not-run",
-        "designValidation": "not-run",
-    }
-    file = proof_path(root)
-    file.parent.mkdir(parents=True, exist_ok=True)
-    write_sealed(root, file, proof)
-
-
-def finish_import(root, model=None, markdown=None):
-    proof_path = _imports_import_guard.proof_path
-    require_import_changes = _imports_import_guard.require_import_changes
-    require_import_changes(root, generation=True)
-    proof = read_proof(root)
-    if model is not None:
-        proof["model"] = model
-    if markdown is not None:
-        proof["markdown"] = markdown
-    file = proof_path(root)
-    write_sealed(root, file, proof)
-
-
-def copy_import_proof(root, snapshot):
-    """Carry only currently valid evidence into an existing staged validation snapshot."""
-    proof_path = _imports_import_guard.proof_path
-    require_import_changes = _imports_import_guard.require_import_changes
-    require_import_changes(root)
-    proof = read_proof(root)
-    destination = proof_path(snapshot)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    write_sealed(snapshot, destination, proof)
-
-
-def discard_import_proof(root, task_name):
-    return _receipt_storage.discard_import_proof(root, task_name)
 
 
 def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, source_sets):
@@ -459,7 +239,7 @@ def acquisition_complete(value):
 
 
 def require_fresh_acquisition(value):
-    """A receipt cannot indefinitely authorize replay against an unchanged Git baseline."""
+    """Acquisition cannot indefinitely authorize replay against an unchanged Git baseline."""
     acquired_at = datetime.fromisoformat(value["acquiredAt"])
     if acquired_at.tzinfo is None:
         raise ValueError("IMPORT evidence time must include its timezone")

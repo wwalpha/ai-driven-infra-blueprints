@@ -4,7 +4,6 @@ import json
 import shutil
 import subprocess
 from copy import deepcopy
-from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
 from unittest import TestCase
@@ -16,13 +15,11 @@ from model.core import entries
 from model.format import owner, serialize
 from model.importing import cli as m
 from model.importing.approval import reference_provenance
-from model.importing.evidence import FORMAT_FIELDS
 from model.operations import operation_rows
 from model.sources import candidate_sources, json_text, load_model
 from support.import_repository_fixtures import checkpoint
 from support.model_sources import write_model
 from task_contract_core import start
-from utils.json_format import document_sha256
 from utils.source_reads import FileReads
 from utils.yaml_format import yaml_read as yaml_read
 
@@ -672,46 +669,6 @@ def logs_edit(root, acquisition, days=90):
     selected = [correspondence(acquisition, "managed-new")]
     stage(root, acquisition, files, selected, exclusions(acquisition, selected))
     return files
-
-
-def review_proof_fixture(root, proof):
-    """Authored integrity proof for guard-only tests, never Human authentication."""
-
-    proof["acquisition"] = document_sha256(proof["acquisition"])
-    binding = {
-        name: document_sha256(name)
-        for name in (
-            "sourceBaselineDigest",
-            "reviewDigest",
-            "recordsDigest",
-            "selectionDigest",
-            "limitationsDigest",
-            "referencesDigest",
-            "proposedValuesDigest",
-            "impactDigest",
-        )
-    }
-    binding.update(
-        version=3,
-        **FORMAT_FIELDS,
-        task=proof["task"],
-        worktree=str(root.resolve()),
-        scope=proof["scope"],
-        acquisitionDigest=proof["acquisition"],
-        acquiredAt=proof["acquiredAt"],
-        expiresAt=(
-            datetime.fromisoformat(proof["acquiredAt"]) + timedelta(days=7)
-        ).isoformat(),
-    )
-    proof.update(
-        version=7,
-        **FORMAT_FIELDS,
-        completion={"acquisition": True, "properties": True, "review": True},
-        observationComplete=True,
-        limitationsDigest=binding["limitationsDigest"],
-        reviewBinding=binding,
-        reviewBindingDigest=document_sha256(binding),
-    )
 
 
 def review_fixture(root, acquisition, service="cloudwatch-logs", dry_run=False):

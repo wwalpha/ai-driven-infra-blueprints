@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Acquisition/source validation units; all Models and AWS facts below are synthetic."""
 
+import base64
 import hashlib
 import shutil
 import subprocess
@@ -9,7 +10,6 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from unittest import TestCase
@@ -87,7 +87,6 @@ from support.import_model_fixtures import (
     project_fixture,
     reference_fields,
     resource_values,
-    review_proof_fixture,
 )
 from support.model_sources import write_model
 from support.model_v2_fixtures import value_snapshot as Expansion
@@ -1404,172 +1403,6 @@ def check_model_operation_shape_preservation(tmp_path, shape):
                     "desired.row.001-010.document"
                 ]
             )["Statement"] == [{"Effect": "Allow"}]
-
-
-@pytest.mark.parametrize(
-    "failure",
-    [
-        "none",
-        "tamper",
-        "missing",
-        "expired",
-        "task",
-        "base",
-        "scope",
-        "binding-task",
-        "binding-worktree",
-        "binding-risk",
-        "completion",
-        "legacy-receipt",
-    ],
-)
-def check_external_completion_proof(tmp_path, monkeypatch, failure):
-    root = tmp_path / "repository"
-    root.mkdir()
-    monkeypatch.setattr(import_guard.tempfile, "gettempdir", lambda: str(tmp_path))
-    monkeypatch.setattr(
-        import_guard, "task_path", lambda root: root / "tasks/example.md"
-    )
-    monkeypatch.setattr(import_guard, "workflow", lambda root: "tasks/example.md")
-    monkeypatch.setattr(import_guard, "base_revision", lambda root: "base")
-    monkeypatch.setattr(
-        "model.importing.scope.selected", lambda root: ("stg", "cde", "vpc")
-    )
-    proof = {
-        "version": 3,
-        "task": "tasks/example.md",
-        "base": "base",
-        "scope": ["stg", "cde", "vpc"],
-        "acquisition": "receipt",
-        "sources": {},
-        "plan": "verified",
-        "complete": True,
-        "model": "unchanged",
-        "markdown": "unchanged",
-        "ownedArtifacts": [],
-        "acquiredAt": datetime.now(timezone.utc).isoformat(),
-    }
-    review_proof_fixture(root, proof)
-    if failure == "completion":
-        proof["completion"]["acquisition"] = False
-    elif failure == "legacy-receipt":
-        proof["version"] = 6
-    elif failure == "expired":
-        proof["acquiredAt"] = (
-            datetime.now(timezone.utc) - timedelta(days=8)
-        ).isoformat()
-    elif failure in {"task", "base"}:
-        proof[failure] = "wrong"
-    elif failure == "scope":
-        proof["scope"] = ["dev", "cde", "vpc"]
-    elif failure.startswith("binding-"):
-        field = {
-            "binding-task": "task",
-            "binding-worktree": "worktree",
-            "binding-risk": "recordsDigest",
-        }[failure]
-        proof["reviewBinding"][field] = "f" * 64
-        if failure != "binding-risk":
-            proof["reviewBindingDigest"] = document_sha256(proof["reviewBinding"])
-    file = import_guard.proof_path(root)
-    assert not file.is_relative_to(root)
-    local_evidence.write_sealed(root, file, proof)
-    if failure == "tamper":
-        file.write_text(file.read_text().replace("tasks/example.md", "tasks/other.md"))
-    elif failure == "missing":
-        file.unlink()
-    if failure != "none":
-        with pytest.raises(ValueError, match="no verified"):
-            import_evidence.read_proof(root)
-    else:
-        assert import_evidence.read_proof(root) == proof
-        import_evidence.discard_import_proof(root, "tasks/example.md")
-        assert not file.exists()
-    assert not (root / ".blueprint").exists()
-
-
-@pytest.mark.parametrize("failure", ["incomplete", "unplanned", "hash"])
-def check_acquired_plan_completion(tmp_path, monkeypatch, failure):
-    relative = "model/stg/cde/vpc.properties"
-    path = tmp_path / relative
-    path.parent.mkdir(parents=True)
-    path.write_text("source bytes")
-    name = "tasks/example.md"
-    text = _imports_support_repository_fixtures.contract("example", [relative]).replace(
-        "- Task type: `governance`", "- Task type: `design`\n- Workflow: `import`"
-    )
-    proof = dict(
-        sources={relative: hashlib.sha256(b"source bytes").hexdigest()},
-        model="reflected",
-        complete=failure != "incomplete",
-    )
-    if failure == "unplanned":
-        proof["sources"] = {}
-    if failure == "hash":
-        proof["sources"][relative] = "0" * 64
-    monkeypatch.setattr("model.importing.repository.has_baseline", lambda root: True)
-    monkeypatch.setattr(
-        import_guard,
-        "task_snapshot",
-        lambda *a, **k: SimpleNamespace(path=tmp_path / name, text=text),
-    )
-    monkeypatch.setattr(_imports_task_contract, "validate_contract", lambda *a: None)
-    monkeypatch.setattr(import_evidence, "read_proof", lambda *a, **k: proof)
-    expected = {
-        "incomplete": "incomplete",
-        "unplanned": "no acquired change plan",
-        "hash": "differs from acquired",
-    }
-    with pytest.raises(ValueError, match=expected[failure]):
-        import_guard.require_import_changes(
-            tmp_path, supplied={relative}, contract_file=name
-        )
-
-
-def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
-    root, snapshot = tmp_path / "repository", tmp_path / "snapshot"
-    root.mkdir()
-    snapshot.mkdir()
-    monkeypatch.setattr(import_guard.tempfile, "gettempdir", lambda: str(tmp_path))
-    monkeypatch.setattr(
-        import_guard, "task_path", lambda root: root / "tasks/example.md"
-    )
-    monkeypatch.setattr(import_guard, "workflow", lambda root: "tasks/example.md")
-    monkeypatch.setattr(import_guard, "base_revision", lambda root: "base")
-    monkeypatch.setattr(
-        "model.importing.scope.selected", lambda root: ("stg", "cde", "vpc")
-    )
-    monkeypatch.setattr(import_guard, "require_import_changes", lambda root: None)
-    proof = {
-        "version": 3,
-        "task": "tasks/example.md",
-        "base": "base",
-        "scope": ["stg", "cde", "vpc"],
-        "acquisition": "receipt",
-        "sources": {},
-        "plan": "verified",
-        "complete": True,
-        "model": "unchanged",
-        "markdown": "unchanged",
-        "ownedArtifacts": [],
-        "acquiredAt": datetime.now(timezone.utc).isoformat(),
-    }
-    review_proof_fixture(root, proof)
-    local_evidence.write_sealed(root, import_guard.proof_path(root), proof)
-    import_evidence.copy_import_proof(root, snapshot)
-    with pytest.raises(ValueError, match="no verified"):
-        import_evidence.read_proof(snapshot)
-    assert (
-        import_guard.proof_path(root).read_bytes()
-        == import_guard.proof_path(snapshot).read_bytes()
-    )
-    import_evidence.discard_import_proof(snapshot, "tasks/example.md")
-    assert (
-        not import_guard.proof_path(snapshot).exists()
-        and import_evidence.read_proof(root) == proof
-    )
-    assert not (root / ".blueprint").exists() and not (snapshot / ".blueprint").exists()
-    import_evidence.discard_import_proof(root, "tasks/example.md")
 
 
 def generic_context(service="datazone", resources=None, **kwargs):
@@ -4487,3 +4320,26 @@ def test_import_failure_stage_and_safe_cli(tmp_path, capsys, failure):
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+def check_import_journal_requires_owner_authorization(tmp_path, monkeypatch):
+    monkeypatch.setattr(_imports_model_sources.tempfile, "gettempdir", lambda: str(tmp_path))
+    root = tmp_path / "repository"
+    root.mkdir()
+    target = root / "model.properties"
+    target.write_text("partial", encoding="utf-8")
+    directory = tmp_path / "blueprint-model-publication"
+    directory.mkdir()
+    journal = directory / (hashlib.sha256(str(root.resolve()).encode()).hexdigest() + ".json")
+    owner = {"task": "tasks/import.md", "workflow": "import", "scope": ["dev", "cde", "vpc"]}
+    journal.write_text(json.dumps({"root": str(root.resolve()), "originals": {"model.properties": base64.b64encode(b"original").decode()}, "importOwner": owner}), encoding="utf-8")
+    with pytest.raises(ValueError, match="requires authorized recovery"):
+        with _imports_model_sources.publication_lock(root):
+            pass
+    with pytest.raises(ValueError, match="foreign"):
+        with _imports_model_sources.publication_lock(root, import_recovery=True, recovery_check=lambda record: (_ for _ in ()).throw(ValueError("foreign"))):
+            pass
+    assert journal.exists() and target.read_text(encoding="utf-8") == "partial"
+    with _imports_model_sources.publication_lock(root, import_recovery=True, recovery_check=lambda record: None):
+        assert target.read_text(encoding="utf-8") == "original"
+    assert not journal.exists()

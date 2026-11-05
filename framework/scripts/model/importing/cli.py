@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from typing import Any
 
+import import_guard
 import task_contract_core as task_contract
 import utils.project_targets as _imports_project_targets
 from aws_mapping_compare import MODEL_ONLY
@@ -26,7 +27,6 @@ from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY
 from generation_inputs import GenerationInputs
 from import_guard import (
     file_hash,
-    proof_path,
     require_import_changes,
     workflow,
 )
@@ -38,6 +38,7 @@ from task_contract_core import (
     task_snapshot,
 )
 from utils.aws.identity import IdentityError, import_profile
+from utils.aws_mappings import definition_root, mapping_alias
 from utils.file_operations import atomic_files
 from utils.input_cache import input_context, input_scope, memoized, recording_inputs
 from utils.json_format import json_text
@@ -58,10 +59,7 @@ from model.importing.evidence import (
     acquired,
     acquisition_complete,
     evidence_store,
-    finish_import,
     read_acquisition,
-    read_proof,
-    record_import,
 )
 from model.importing.evidence import (
     discard_acquisition as discard_acquisition,
@@ -823,9 +821,14 @@ def acquire(
     ):
         if not dry_run:
             contract_scope(root, {identity})
-            if proof_path(root).exists():
+            source = model_path(root, identity).relative_to(root).as_posix()
+            changed = repository.changed_paths(root)
+            parts_prefix = source.removesuffix(".properties") + "/"
+            if source in changed or any(
+                path.startswith(parts_prefix) for path in changed
+            ):
                 raise ValueError(
-                    "IMPORT Task already published; recover its display or use a new Task"
+                    "IMPORT Task already changed this service; use display recovery or a new Task"
                 )
             require_import_changes(root, generation=True)
         inputs = GenerationInputs(root)
@@ -1110,37 +1113,6 @@ def _callback_publish_acquisition_current(
         record_outputs(root, identity, set(changes), set())
 
 
-def _callback_publish_acquisition_begin_receipt(
-    after,
-    binding,
-    changes,
-    evidence,
-    managed,
-    output,
-    root,
-    selected_records,
-    selection,
-    /,
-):
-    record_import(
-        root,
-        output,
-        evidence,
-        {
-            "sources": {
-                p.relative_to(root).as_posix(): text for p, text in output.items()
-            },
-            "selection": selection,
-            "changes": changes,
-            "ownedArtifacts": [p.relative_to(root).as_posix() for p in managed],
-        },
-        complete=not pending_items(
-            selection, selected_records, after.values, property_schema
-        ),
-        review_binding=binding,
-    )
-
-
 def _callback_publish_acquisition_finish_model(
     acquisition,
     after,
@@ -1148,7 +1120,6 @@ def _callback_publish_acquisition_finish_model(
     evidence,
     external,
     identity,
-    output,
     review_file,
     review_raw,
     root,
@@ -1164,7 +1135,6 @@ def _callback_publish_acquisition_finish_model(
         raise ValueError(
             "IMPORT candidate, selection, acquisition or Review changed during publication"
         )
-    finish_import(root, model="reflected" if output else "unchanged")
 
 
 @input_scope
@@ -1179,7 +1149,7 @@ def publish_acquisition(
         restrict(identity),
         read_consumers({identity}),
         input_context(),
-        publication_lock(root),
+        publication_lock(root, read_only=True) as journal,
     ):
         acquisition = read_acquisition(root, evidence, identity, dry_run)
         if not acquisition_complete(acquisition):
@@ -1211,7 +1181,9 @@ def publish_acquisition(
                 managed = owned_artifacts(document, before.values)
                 display_error = None
                 try:
-                    views, _ = view_plan(document, after.values, root, managed)
+                    views, view_originals = view_plan(
+                        document, after.values, root, managed
+                    )
                 except (OSError, ValueError, KeyError, TypeError) as error:
                     views = {}
                     display_error = str(error)
@@ -1223,7 +1195,7 @@ def publish_acquisition(
                     "model": "unchanged",
                     "markdown": "not-run",
                 }
-            binding = import_approval.review_binding(expected, acquisition)
+            import_approval.review_binding(expected, acquisition)
             record_outputs(root, identity, set(output), set(views))
             expected_task = inputs.expected_task
             current = _bind_framework_callback(
@@ -1239,8 +1211,6 @@ def publish_acquisition(
                 review_raw,
                 root,
             )
-            proof = proof_path(root)
-            previous = proof.read_bytes() if proof.is_file() else None
             selected_records = selection_records(
                 selection,
                 acquisition["records"],
@@ -1248,18 +1218,12 @@ def publish_acquisition(
                 after.authoritative,
                 property_schema,
             )
-            begin_receipt = _bind_framework_callback(
-                _callback_publish_acquisition_begin_receipt,
-                after,
-                binding,
-                changes,
-                evidence,
-                managed,
-                output,
-                root,
-                selected_records,
-                selection,
-            )
+            if pending_items(
+                selection, selected_records, after.values, property_schema
+            ):
+                raise ValueError("IMPORT has unresolved items; publication refused")
+            if not expected["completion"]["propertiesResolved"]:
+                raise ValueError("IMPORT properties are unresolved")
             finish_model = _bind_framework_callback(
                 _callback_publish_acquisition_finish_model,
                 acquisition,
@@ -1268,19 +1232,22 @@ def publish_acquisition(
                 evidence,
                 external,
                 identity,
-                output,
                 review_file,
                 review_raw,
                 root,
             )
+            owner = {
+                "task": expected_task[0],
+                "workflow": "import",
+                "scope": list(identity),
+            }
             context = SourceWriteContext._authorized(
                 root,
                 inputs,
                 SimpleNamespace(action="import"),
                 current,
                 frozenset(output),
-                start=begin_receipt,
-                receipt=(expected_task[0], previous),
+                import_owner=owner,
                 finish=finish_model,
             )
             plan = prepare_edit(before, output, context)
@@ -1295,7 +1262,42 @@ def publish_acquisition(
             }
             if display_error is None:
                 try:
-                    result.update(recover_display(root, environment, service, selector))
+                    changed, candidate = candidate_sources(
+                        root, evidence.parent / "candidates", after
+                    )
+                    if (
+                        task_contract.task_revision(
+                            root, selected=expected_task[0], live=True
+                        )
+                        != expected_task
+                        or read_acquisition(root, evidence, identity, False)
+                        != acquisition
+                        or any(
+                            file.read_bytes() != raw for file, raw in external.items()
+                        )
+                        or review_file.read_bytes() != review_raw
+                        or changed
+                        or candidate.files != after.files
+                        or any(
+                            (file.read_bytes() if file.is_file() else None) != raw
+                            for file, raw in view_originals.items()
+                        )
+                    ):
+                        raise ValueError(
+                            "IMPORT display inputs changed before publication"
+                        )
+                    if views:
+                        _publish_transaction(
+                            root,
+                            {p: text for p, text in views.items() if text is not None},
+                            {p for p, text in views.items() if text is None},
+                            journal,
+                            import_owner=owner,
+                        )
+                    result.update(
+                        status="complete",
+                        markdown="generated" if views else "unchanged",
+                    )
                 except (OSError, ValueError) as error:
                     display_error = str(error)
             if display_error is not None:
@@ -1305,12 +1307,6 @@ def publish_acquisition(
                     viewComplete=False,
                     displayError=display_error,
                 )
-                try:
-                    finish_import(root, markdown="failed")
-                except (OSError, ValueError) as receipt_error:
-                    result["displayError"] += "; receipt update failed: " + str(
-                        receipt_error
-                    )
             return result
         finally:
             if context is not None:
@@ -1332,7 +1328,11 @@ def _callback_recover_transaction_authorize(
     record,
 ):
     with task_reads(root, live=True):
-        if record.get("importReceipt", {}).get("task") != name:
+        if record.get("importOwner") != {
+            "task": name,
+            "workflow": "import",
+            "scope": list(identity),
+        }:
             raise ValueError(
                 "pending transaction belongs to a different Task or is not an Import transaction"
             )
@@ -1362,6 +1362,10 @@ def recover_transaction(
     with restrict(identity), read_consumers({identity}), input_context():
         contract_scope(root, {identity})
         acquisition = read_acquisition(root, evidence, identity, False)
+        if not acquisition_complete(acquisition):
+            raise ValueError(
+                "IMPORT transaction recovery requires complete acquisition"
+            )
         name = workflow(root)
         revision = publication_revision(root, name)
         expected_task = task_contract.task_revision(root, selected=name)
@@ -1376,60 +1380,144 @@ def recover_transaction(
             root,
             revision,
         )
-        with publication_lock(root, recovery_check=authorize):
+        with publication_lock(root, recovery_check=authorize, import_recovery=True):
             pass
         return {"status": "recovered", "aws": "not-contacted", "scope": list(identity)}
 
 
 @input_scope
 @task_read_scope
-def recover_display(root, environment, service, selector=None):
-    root = root.resolve()
+def recover_display(root, environment, service, evidence, selector=None):
+    root, evidence = root.resolve(), Path(evidence).absolute()
     target = target_for(root, environment, service, selector)
     identity = environment, target["directory"], service
     with (
         restrict(identity),
         read_consumers({identity}),
         input_context(),
-        publication_lock(root) as journal,
+        publication_lock(root, read_only=True) as journal,
     ):
-        require_import_changes(root, generation=True)
-        proof = read_proof(root)
-        if proof["model"] not in {"reflected", "unchanged"}:
-            raise ValueError("IMPORT display recovery requires an already saved Model")
+        contract_scope(root, {identity})
+        acquisition = read_acquisition(root, evidence, identity, False)
+        if not acquisition_complete(acquisition):
+            raise ValueError("IMPORT display recovery requires complete acquisition")
+        name = workflow(root)
+        base = repository.task_start_commit(root, name)
+        if base is None:
+            raise ValueError("IMPORT display recovery requires a Task baseline")
+        review_file = evidence.parent / "review.json"
+        safe(evidence.parent, review_file)
+        review_raw = review_file.read_bytes()
+        reviewed = json_read(review_raw)
+        import_approval.verify_review(reviewed, reviewed)
+        import_approval.review_binding(reviewed, acquisition)
+        with tempfile.TemporaryDirectory(
+            prefix="import-display-baseline-"
+        ) as directory:
+            baseline = Path(directory).resolve()
+            import_guard.archive_sources(
+                root,
+                base,
+                ["model", PROJECT_FILENAME, "infra/cloudformation"],
+                baseline,
+            )
+            # Task contracts can be untracked. Use only the live contracts, whose
+            # original bytes and file set are checked by the acquisition and Review.
+            contracts = task_contract.contract_snapshot(root)
+            (baseline / "tasks").mkdir()
+            for task in contracts.tasks:
+                (baseline / task.name).write_bytes(task.raw)
+            with (
+                selected_task(baseline, name),
+                mapping_alias(definition_root(root), baseline),
+                task_reads(baseline),
+            ):
+                if any(
+                    item["base"] == "tasks"
+                    for item in reviewed["referenceImpact"]["fileSets"]
+                ):
+                    task_contract.contract_snapshot(baseline)
+                old_inputs = GenerationInputs(baseline)
+                try:
+                    with recording_inputs(old_inputs):
+                        before, after, _, selection, expected, _, external = (
+                            review_inputs(
+                                baseline, identity, evidence, acquisition, old_inputs
+                            )
+                        )
+                        import_approval.verify_review(reviewed, expected)
+                        old_inputs.verify()
+                    if pending_items(
+                        selection,
+                        selection_records(
+                            selection,
+                            acquisition["records"],
+                            before.authoritative,
+                            after.authoritative,
+                            property_schema,
+                        ),
+                        after.values,
+                        property_schema,
+                    ):
+                        raise ValueError("IMPORT display recovery has unresolved items")
+                    document = (
+                        root
+                        / DESIGNS_DIRECTORY
+                        / environment
+                        / identity[1]
+                        / (service + ".md")
+                    )
+                    managed = owned_artifacts(document, before.values)
+                finally:
+                    old_inputs.close()
         inputs = GenerationInputs(root)
         try:
             with task_reads(root), recording_inputs(inputs):
-                snapshot = load_model(model_path(root, identity), inputs)
-                document = (
-                    root
-                    / DESIGNS_DIRECTORY
-                    / environment
-                    / identity[1]
-                    / (service + ".md")
+                current = load_model(model_path(root, identity), inputs)
+                changed, candidate = candidate_sources(
+                    root, evidence.parent / "candidates", current
                 )
-                managed = {root / relative for relative in proof["ownedArtifacts"]}
-                managed |= owned_artifacts(document, snapshot.values)
-                output, originals = view_plan(document, snapshot.values, root, managed)
+                approved_files = {
+                    root / file.relative_to(baseline): text
+                    for file, text in after.files.items()
+                }
+                if (
+                    changed
+                    or candidate.files != current.files
+                    or current.files != approved_files
+                ):
+                    raise ValueError(
+                        "IMPORT saved Model differs from approved candidate"
+                    )
+                output, originals = view_plan(document, current.values, root, managed)
             record_outputs(root, identity, set(), set(output))
             inputs.verify()
-            if any(
-                (file.read_bytes() if file.is_file() else None) != raw
-                for file, raw in originals.items()
+            if (
+                read_acquisition(root, evidence, identity, False) != acquisition
+                or review_file.read_bytes() != review_raw
+                or any(file.read_bytes() != raw for file, raw in external.items())
+                or any(
+                    (file.read_bytes() if file.is_file() else None) != raw
+                    for file, raw in originals.items()
+                )
             ):
-                raise ValueError("IMPORT display inputs changed before publication")
-            _publish_transaction(
-                root,
-                {p: text for p, text in output.items() if text is not None},
-                {p for p, text in output.items() if text is None},
-                journal,
-                receipt=(proof["task"], proof_path(root).read_bytes()),
-                finish=lambda: finish_import(
-                    root, markdown="generated" if output else "unchanged"
-                ),
-            )
+                raise ValueError(
+                    "IMPORT display recovery inputs changed before publication"
+                )
+            if output:
+                _publish_transaction(
+                    root,
+                    {p: text for p, text in output.items() if text is not None},
+                    {p for p, text in output.items() if text is None},
+                    journal,
+                    import_owner={
+                        "task": name,
+                        "workflow": "import",
+                        "scope": list(identity),
+                    },
+                )
             return {
-                "status": "complete" if proof["complete"] else "incomplete",
+                "status": "complete",
                 "markdown": "generated" if output else "unchanged",
             }
         finally:
@@ -1478,10 +1566,12 @@ def main(argv=None):
                     no_profile=args.no_profile,
                     resource_types=args.resource_type,
                 )
-            elif args.action != "recover-display":
+            else:
                 if args.evidence is None:
                     raise ValueError("IMPORT action requires its original --evidence")
-                kwargs.update(evidence=args.evidence, dry_run=args.dry_run)
+                kwargs.update(evidence=args.evidence)
+                if args.action != "recover-display":
+                    kwargs["dry_run"] = args.dry_run
             result = functions[args.action](
                 args.repository_root, args.environment, args.service, **kwargs
             )

@@ -136,7 +136,7 @@ without transforms. SDK/Adapter Getters, nested/array Paths, and ambiguous/unres
 provider schema structures fail closed for retention. Identity, required Properties,
 AccessDenied, failed retrieval and Mapping errors never qualify. Explicit Human consent
 to the full bound Review remains required. Approved retention permits completion while
-allPropertiesObserved and receipt observationComplete remain false.
+allPropertiesObserved remains false.
 
 A limited inventory means complete enumeration/Identity with only evidenced property
 limitations; it does not mean all values were observed. Failed, permission_denied,
@@ -231,19 +231,17 @@ Direct CLI execution can bypass that conversational step; this remains an operat
 not a Human authentication guarantee. Do not add an issuer/token/SDK to hide that boundary.
 A regenerated Review never proves consent: the LLM must present changed content again.
 
-Current evidence uses acquisition3, Review5, checkpoint2, binding3 and receipt7, together
-with modelFormat2, snapshotVersion2 and referenceMeaningVersion1. Old versions are rejected
-with mismatch reasons; obsolete Review/receipt bindings require reacquisition and a new complete Review, never automatic conversion. Do not strip fields or silently reuse old evidence or Deploy sessions.
-Seven-day expiry, Task/worktree/HEAD/base/scope and exact source/file-set checks remain.
-Receipt separates acquisition establishment, property resolution and current Review binding.
-Task completion requires all three, while observationComplete remains false for accepted
-limitations. The publisher recomputes completion from current candidate/Review inputs; a
-caller-provided complete flag cannot grant completion.
+Current evidence uses acquisition3, Review5, checkpoint2 and binding3, together
+with modelFormat2, snapshotVersion2 and referenceMeaningVersion1. Seven-day expiry,
+Task/worktree/HEAD/base/scope and exact source/file-set checks remain. Publish refuses
+unresolved acquisition or property items before saving; approved limited inventory is allowed.
+No completion receipt exists. Completion cannot independently detect later direct Model edits;
+a completely unchanged repeat Publish is an idempotent no-op.
 After merge the Human also reviews the resulting Model. Do not push or mutate AWS.
 
 Manual agent acceptance is separate from fixtures: present all entries; verify that
 「確認しました」 leaves the agent pending; correct one item and inspect a full rebuilt
-Review; explicitly choose 全件承認して反映; inspect source/receipt/generated hashes and
+Review; explicitly choose 全件承認して反映; inspect source/generated changes and
 post-merge diff. In a separate authorized session test cancellation and unchanged sources.
 Offline Review/publication tests do not prove an actual LLM's conversational behavior.
 
@@ -266,17 +264,16 @@ Prepare selected-service views in memory before source save; structural/JSON err
 Reference-only inability reports WARNING and retained/not-generated display status.
 Do not add ordinary Import naming/design-wide/generated-equality/loop/test gates.
 All Model commands use the shared prepare/publish API, lock, journal and rollback.
-Model and receipt roll back on source transaction failure. No partial Resource save.
+Model and dependency index roll back on source transaction failure. No partial Resource save.
 
 Display publication is a separate transaction. Display-only failure retains saved Model
 and evidence. Recover without AWS reacquisition, re-Import or renewed unchanged consent:
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py import recover-display --environment <environment> --target <target> --service <service> --task-file tasks/<task-name>.md
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py import recover-display --environment <environment> --target <target> --service <service> --evidence <original-acquisition.json> --task-file tasks/<task-name>.md
 ```
 
-After successful source save the same Task cannot acquire/publish again. Use recovery for
-its display, or an independently authorized new Task/baseline for changed source content.
+Recovery requires the Task-start Git baseline to match the acquisition source hashes and file sets, and the saved Model to match the reviewed candidate. If prior ownership cannot be established, stop without modifying displays.
 Retain acquisition/Review/checkpoint on pending, dry-run, failure, cancellation or incomplete
 display. Remove external sessions only after complete success or explicit termination.
 Do not delete journals or fabricate completion receipts. Follow the existing worktree
@@ -295,14 +292,14 @@ and unverified dialogue/AWS behavior without treating fixtures as live evidence.
 
 
 Interrupted Import source/display transactions are restored through the same journal,
-including the external receipt. Read-only analysis never performs this recovery.
+with temporary Task, workflow and scope ownership in the journal. Read-only analysis never performs this recovery.
 Use the matching running managed Task and original acquisition/HEAD:
 
 ```console
 python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py import recover-transaction --environment <environment> --target <target> --service <service> --evidence <original-acquisition.json> --task-file tasks/<task-name>.md
 ```
 
-Recovery verifies the receipt's Task and every journal output against the selected scope
+Recovery verifies the journal owner and every journal output against the selected scope
 and registered paths. It contacts no AWS API and grants no new edit rights. After source
 rollback the unchanged acquisition/Review can be retried; after display rollback keep
 the saved Model and use recover-display. A different Task, HEAD or acquisition stops.

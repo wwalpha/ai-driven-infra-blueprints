@@ -34,7 +34,7 @@ ITは正常なCLI・Git・保存・再読込・コンポーネント接続を所
 | Deployのcheckpoint/receipt、Git競合・公開intent、完了状態 | deploy-worktree-unit、deploy-steps-unit、deploy-runtime-unit、observed-mapping | deploy-worktree、Checkpoint、controller、CloudFormationの正常保存/公開 |
 | Observedのjournal所有者、部分書込、復元順序 | deploy-observed-resume-unit | controllerの別プロセス正常公開（旧observed-recovery ITは削除） |
 | Worktreeの作成拒否、Git引数/競合、cleanup、修復/PR中断と再開 | worktree-guard-unit、既存worktree-model-guard-unit | worktree_task、model-operation、Python setup、修復の通常CLI→検証→親統合 |
-| ImportのReview/Scope/入力変更、Schema、保存/Receipt rollback | import-approval-unit、import-model-unit、model_files-unit | import-model、import-cli、import-worktree-contract |
+| ImportのReview/Scope/入力変更、Schema、保存/Transaction rollback | import-approval-unit、import-model-unit、model_files-unit | import-model、import-cli、import-worktree-contract |
 | Modelのone-use、同時変更、生成/保存失敗、JSON/復元エラー | model-format-v2、sync-model-unit、file_operations-unit、model_files-unit、既存Model/参照UT | model-properties-v2、sync-model、model_templates、model_design |
 | 新規Python起動・import順序・API注釈・CLI help・依存不要の正常入口 | API/引数/型の判定は既存各UT | python-startup（既存pytest/Discovery/Receiptを使用） |
 | 監査CLIのTask状態・変更・出力保護 | model_test/generation-unit | model_test/cli-contract、監査生成→独立実行→ログ再読込 |
@@ -45,7 +45,7 @@ ITは正常なCLI・Git・保存・再読込・コンポーネント接続を所
 
 最新baseのPR update/merge応答・失敗Validationはworktree-guard-unitのFakeで保証する。merge/squash/rebaseの引数・応答と後処理は同UTで各方式を確認する。Worktree ITはcloseの代表経路でDraft/Ready・更新・実Gitの祖先関係を確認し、cleanup-first・外部Merge・mergeは独立した公開済みPRで各終了方法と実Gitの状態を確認する。更新の中断・再開は別の復旧シナリオに残す。Deploy owner補正/参照同期の故障は既存contract-correction/observed/generation-resume UTが所有し、ITには正常な範囲指定と承認済み参照同期を残す。
 
-Importの未使用な故障注入Fixture/Mockは削除し、共有 `import_publication_case()` はAPI/CLIの正常公開だけを扱う。
+Importの未使用な故障注入Fixture/Mockは削除し、共有 `import_publication_case()` はAPI/CLIの正常公開と管理 Worktree での Display 復旧を扱う。
 修復ITの入口は診断済みの既存Task資料であり、新しいController故障や中断を注入しない。
 実OSでの強制終了・子孫回収をFakeで完全には再現できない。UTは送信signal・handle・保存状態・順序と再開判断を保証し、ITは正常なWorker起動/終了を保証する。
 既存の実Git index/commitを使うTask・retarget境界UTと、最適化Pythonでのcapacity拒否UTは、物理的な契約をMockで同等に証明できない例外として独立起動を維持する。正常なGit/CLI接続のIT保証は別に残す。

@@ -21,9 +21,7 @@ from contracts.repository import PROJECT_FILENAME
 from contracts.target import AWS_ACCOUNT_ID_KEY
 from utils import cli_deploy
 from utils.file_operations import sha
-from utils.import_evidence import discard_import_proof
 from utils.local_evidence import evidence_store as local_evidence_store
-from utils.local_evidence import shared_store as evidence_store
 from utils.script_loader import module
 from worktree_state import (
     Blocked as Blocked,
@@ -572,11 +570,6 @@ def cleanup_state(root, path, state, *, discard=False):
         retained_evidence = []
         if discard:
             try:
-                proof = evidence_store(target, create=False) / (
-                    state["task_id"] + ".json"
-                )
-                if proof.exists() or proof.is_symlink():
-                    retained_evidence.append(str(proof))
                 if state.get("deployIdentity"):
                     progress = (
                         local_evidence_store(target, create=False)
@@ -592,9 +585,6 @@ def cleanup_state(root, path, state, *, discard=False):
                 if state.get(key):
                     retained_evidence.append({key: state[key]})
         else:
-            phase = "remove_import_proof"
-            if not state.get("deployIdentity"):
-                discard_import_proof(target, state["task_file"])
             phase = "remove_repair_proof"
             if state.get("deployRepair"):
                 _worktree_runtime().deploy_handoff.discard_request(state)

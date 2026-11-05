@@ -1835,7 +1835,7 @@ def _cleanup_unlink(trace, state_path, original, path, *args, **kwargs):
 
 @pytest.mark.parametrize(
     "failure",
-    ["remove_worktree", "remove_branch", "remove_import_proof", "remove_state"],
+    ["remove_worktree", "remove_branch", "remove_state"],
 )
 def check_cleanup_operation_failure_and_retry(tmp_path, failure):
     check = TestCase()
@@ -1879,13 +1879,6 @@ def check_cleanup_operation_failure_and_retry(tmp_path, failure):
             side_effect=_bind_framework_callback(_cleanup_operation, trace, target),
         ),
         patch.object(
-            wt,
-            "discard_import_proof",
-            side_effect=OSError("proof failure")
-            if failure == "remove_import_proof"
-            else None,
-        ) as proof,
-        patch.object(
             Path,
             "unlink",
             autospec=True,
@@ -1900,7 +1893,6 @@ def check_cleanup_operation_failure_and_retry(tmp_path, failure):
         check.assertEqual(path.read_bytes(), b"preserve state")
         check.assertEqual(state["merged"], "tip")
         trace.failure = None
-        proof.side_effect = None
         check.assertTrue(wt.cleanup_state(tmp_path, path, state)["cleaned"])
     check.assertFalse(path.exists())
     check.assertTrue(trace.removed and trace.branch_removed)

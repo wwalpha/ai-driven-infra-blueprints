@@ -53,7 +53,7 @@ Select from the Human's request before loading a prompt. IaC-only work loads imp
 
 ## Common transitions
 
-- Finish requested work, successful final validation under [Validation policy](loop-engineering.md#validation-policy), all Requirement ID Acceptance checks and workflow completion conditions before `task_contract.py --task-file tasks/<task-name>.md --complete`. IMPORT retains its evidence check; contract retention follows Task boundary.
+- Finish requested work, successful final validation under [Validation policy](loop-engineering.md#validation-policy), all Requirement ID Acceptance checks and workflow completion conditions before `task_contract.py --task-file tasks/<task-name>.md --complete`. IMPORT retains its scope, Model and Acceptance checks; contract retention follows Task boundary.
 - On a stopping check error, suspend only the explicitly selected Task, regardless of cause/ownership. `## Suspension reason` must name the check, file, concrete error and necessary external log path; keep only the current reason. The loop suspends after all checks finish or children stop, including precheck failures. Staged status changes apply only to the snapshot.
 - Outside the loop, suspend unresolved stopping errors with `task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<concrete problem>'`. Preserve other contracts/changes; do not repair unrelated failures. Safely resolved operation errors may continue under [Self recovery](#self-recovery).
 - While suspended, do not run generation, deploy or loops. `task_contract.py --task-file tasks/<task-name>.md --resume` performs read-only Scope preflight; success sets running/clears the reason, failure retains status/reason. Autonomous resume requires [Self recovery](#self-recovery); other Human approval boundaries remain. It also refreshes a running Task.
@@ -131,7 +131,7 @@ Cleanup a PR number/URL may be supplied to `pr-close --pr`.
 Explicit `cleanup --task-id` discards the owned local Worktree, registration, branch and
 management state regardless of merge, PR or Task status and dirty/uncommitted/ignored files.
 Ownership, symlink and competing-operation locks remain mandatory. State survives partial
-physical removal for retry. Unfinished Import/Deploy/Repair evidence is retained/reported,
+physical removal for retry. Unfinished Deploy/Repair evidence is retained/reported,
 not falsely finalized or made a prerequisite for physical removal. Automatic post-merge
 cleanup retains its cleanliness and owned-evidence finalization checks. Cleanup never
 changes PRs, remote branches, other Tasks, shared Python or AWS. `branches` provides read-only
@@ -259,7 +259,7 @@ Python consumers import contract parsing, shared data types, and the `start` and
 such as `refresh`, `resume`, and `complete` from `task_contract_runtime`;
 `task_contract.py` remains the Task transition CLI. Validation consumers import
 from `validation.runner` or `validation.loop` rather than their CLI wrappers.
-Import acquisition and receipt operations belong to `model.importing.evidence`,
+Import acquisition operations belong to `model.importing.evidence`,
 resource configuration to `model.configuration.resource_configuration`, and
 source write authority to `model.adapters.task.source_write_context`.
 

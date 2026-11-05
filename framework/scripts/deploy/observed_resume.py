@@ -224,7 +224,7 @@ def verify_generated_journal(root, plan, record):
     before, after = generated_manifests(root, plan)
     generated = plan["generated"]
     if (
-        "importReceipt" in record
+        "importOwner" in record
         or generated["outputs"] is None
         or not record["originals"]
         or any(
@@ -544,7 +544,7 @@ def validate_plan(root, run_context, target, environment, directory):
 
 def verify_journal(plan, record, current):
     if (
-        "importReceipt" in record
+        "importOwner" in record
         or not record["originals"]
         or any(
             path not in plan["originals"] or raw != plan["originals"][path]

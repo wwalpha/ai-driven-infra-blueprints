@@ -80,7 +80,7 @@ def review_binding(review: JsonObject, acquisition: JsonObject) -> JsonObject:
 
 
 def verify_review_binding(binding: JsonObject) -> JsonObject:
-    """Validate receipt structure/lifetime, never authenticate conversational consent."""
+    """Validate binding structure/lifetime, never authenticate conversational consent."""
     _dependency_model_importing_evidence.require_format(binding, 3, "Review binding")
     hashes = {
         "acquisitionDigest",
