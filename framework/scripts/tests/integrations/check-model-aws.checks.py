@@ -241,8 +241,8 @@ def _callback_batch_checks_compare_294(
             with patch.object(
                 m,
                 "run",
-                side_effect=lambda root, items, profile: actual_run(
-                    root, items, profile, session_factory=factory
+                side_effect=lambda root, items, profile, **kwargs: actual_run(
+                    root, items, profile, session_factory=factory, **kwargs
                 ),
             ):
                 code, report, _ = cli(
