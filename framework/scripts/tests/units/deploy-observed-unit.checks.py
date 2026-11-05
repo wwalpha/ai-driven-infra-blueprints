@@ -890,6 +890,7 @@ def test_cloudcontrol_config_rule_evidence(project_workspace, fault):
     "previous,output,expected,denied",
     [
         (None, None, "UPDATED", False),
+        ("rule-id", "rule-id", "MATCHED", "template"),
         ("rule-id", None, "MATCHED", False),
         (None, "different", "UNCONFIRMED", False),
         ("rule-id", "rule-id", "MATCHED", True),
@@ -934,8 +935,10 @@ def test_config_rule_collects_checked_api_value(
     if denied:
 
         def aws(operation, **kwargs):
-            if operation == "get_resource":
-                raise AwsError("cloudcontrol", "get_resource", "AccessDeniedException")
+            if operation == (
+                "get_template" if denied == "template" else "get_resource"
+            ):
+                raise AwsError("aws", operation, "AccessDeniedException")
             return _config_rule_sync_aws(document, operation, **kwargs)
 
     backend = SimpleNamespace(
@@ -1544,3 +1547,189 @@ def test_incomplete_stack_observation_is_rejected():
         },
         [good],
     )
+
+
+@pytest.mark.parametrize("sub", [False, True])
+@pytest.mark.parametrize(
+    "fault",
+    [None, "name", "bus", "arn", "physical", "if-inactive", "if-secret", "if-missing"],
+)
+def test_permission_event_rule_arn_identity(project_workspace, sub, fault):
+    root = project_workspace
+    stack_id = (
+        "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique"
+    )
+    stack = {"StackId": stack_id, "StackStatus": "CREATE_COMPLETE", "Outputs": []}
+    arn = "arn:aws:events:ap-northeast-1:123456789012:rule/custom/my-rule"
+    expression = (
+        {"Fn::Sub": "${EventRule.Arn}"} if sub else {"Fn::GetAtt": ["EventRule", "Arn"]}
+    )
+    document = {
+        "Resources": {
+            "Function": {"Type": "AWS::Lambda::Function"},
+            "EventRule": {
+                "Type": "AWS::Events::Rule",
+                "Properties": {"Name": "my-rule", "EventBusName": "custom"},
+            },
+            "Permission": {
+                "Type": "AWS::Lambda::Permission",
+                "Properties": {
+                    "FunctionName": {"Ref": "Function"},
+                    "Action": "lambda:InvokeFunction",
+                    "Principal": "events.amazonaws.com",
+                    "SourceArn": expression,
+                },
+            },
+        }
+    }
+    params = {}
+    if fault.startswith("if-") if fault else False:
+        document["Parameters"] = {
+            "Choice": {"Type": "String"},
+            "Secret": {"Type": "String", "NoEcho": True},
+        }
+        document["Conditions"] = {
+            "Selected": {"Fn::Equals": [{"Ref": "Choice"}, "yes"]}
+        }
+        stack["Parameters"] = [
+            {"ParameterKey": "Choice", "ParameterValue": "yes"},
+            {"ParameterKey": "Secret", "ParameterValue": "****"},
+        ]
+        params = {"Choice": "yes", "Secret": "private"}
+        unused = (
+            {"Ref": "Secret"}
+            if fault == "if-secret"
+            else {"Fn::GetAtt": ["Missing", "Arn"]}
+        )
+        condition = "Unknown" if fault == "if-missing" else "Selected"
+        document["Resources"]["Permission"]["Properties"]["SourceArn"] = {
+            "Fn::If": [
+                condition,
+                unused if fault == "if-secret" else expression,
+                expression if fault == "if-secret" else unused,
+            ]
+        }
+    resource = {
+        "resourceType": "Lambda.Permission",
+        "parentReference": json.dumps(
+            model_reference_fixtures.reference("Lambda_Function_001", "FunctionName")
+        ),
+    }
+    mapped = {
+        "Function": (
+            None,
+            None,
+            {"resourceType": "Lambda.Function", "logicalId": "Lambda_Function_001"},
+            [],
+            set(),
+        ),
+        "EventRule": (None, None, {"resourceType": "Events.Rule"}, [], set()),
+        "Permission": (None, None, resource, [], set()),
+    }
+    actuals = [
+        {
+            "LogicalResourceId": logical,
+            "ResourceType": kind,
+            "ResourceStatus": "CREATE_COMPLETE",
+            "PhysicalResourceId": physical,
+        }
+        for logical, kind, physical in [
+            ("Function", "AWS::Lambda::Function", "my-function"),
+            (
+                "EventRule",
+                "AWS::Events::Rule",
+                "wrong" if fault == "physical" else "my-rule",
+            ),
+            ("Permission", "AWS::Lambda::Permission", "sid-1"),
+        ]
+    ]
+    statement = {
+        "Sid": "sid-1",
+        "Action": "lambda:InvokeFunction",
+        "Principal": {"Service": "events.amazonaws.com"},
+        "Resource": "arn:aws:lambda:ap-northeast-1:123456789012:function:my-function",
+        "Condition": {"ArnLike": {"AWS:SourceArn": arn}},
+    }
+
+    def aws(operation, **kwargs):
+        if operation == "get_template":
+            return {"TemplateBody": document}
+        if operation == "describe_rule":
+            assert kwargs == {
+                "service": "events",
+                "Name": "my-rule",
+                "EventBusName": "custom",
+            }
+            return {
+                "Name": "other" if fault == "name" else "my-rule",
+                "EventBusName": "other" if fault == "bus" else "custom",
+                "Arn": arn + "-other" if fault == "arn" else arn,
+            }
+        if operation == "get_policy":
+            return {"Policy": json.dumps({"Statement": [statement]})}
+        if operation == "describe_stacks":
+            return {"Stacks": [stack]}
+        raise AssertionError(operation)
+
+    backend = SimpleNamespace(root=root, target=TARGET, aws=aws)
+    value, reason = deploy_observed.permission_observation(
+        backend,
+        stack,
+        document,
+        params,
+        {},
+        actuals,
+        mapped,
+        "Permission",
+        actuals[-1],
+        resource,
+    )
+    assert (
+        (value == "sid-1" and reason is None)
+        if fault in {None, "if-inactive"}
+        else (value is None and reason)
+    ), reason
+
+
+def test_evidence_if_uses_only_confirmed_branch(project_workspace):
+    document = {
+        "Parameters": {
+            "Secret": {"Type": "String", "NoEcho": True},
+            "Choice": {"Type": "String"},
+        },
+        "Conditions": {"Selected": {"Fn::Equals": [{"Ref": "Choice"}, "yes"]}},
+    }
+    stack = {
+        "Parameters": [
+            {"ParameterKey": "Secret", "ParameterValue": "****"},
+            {"ParameterKey": "Choice", "ParameterValue": "yes"},
+        ]
+    }
+    params = {"Secret": "private", "Choice": "yes"}
+    good = {"Fn::If": ["Selected", "safe", {"Ref": "Secret"}]}
+    bad = {"Fn::If": ["Selected", {"Ref": "Secret"}, "safe"]}
+    assert deploy_observed.checked_evidence_parameters(document, params, stack, good)
+    assert not deploy_observed.checked_evidence_parameters(document, params, stack, bad)
+    backend = SimpleNamespace(
+        root=project_workspace,
+        target=TARGET,
+        aws=lambda *a, **k: pytest.fail("inactive GetAtt fetched"),
+    )
+    inactive = {"Fn::If": ["Selected", "safe", {"Fn::GetAtt": ["Missing", "Arn"]}]}
+    assert (
+        deploy_observed.permission_expression(
+            inactive, backend, [], {}, document, params, {}, stack
+        )
+        == "safe"
+    )
+    with pytest.raises(deploy_observed.Blocked):
+        deploy_observed.permission_expression(
+            {"Fn::If": ["Missing", "safe", "other"]},
+            backend,
+            [],
+            {},
+            document,
+            params,
+            {},
+            stack,
+        )

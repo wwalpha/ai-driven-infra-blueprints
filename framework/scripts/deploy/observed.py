@@ -136,7 +136,9 @@ def security_group_rule_id(
         ]
         if definition.get("Condition"):
             evidence[0] = {"Condition": definition["Condition"]}
-        if not checked_evidence_parameters(document, parameters, stack, evidence):
+        if not checked_evidence_parameters(
+            document, parameters, stack, evidence, pseudo
+        ):
             return None
         references = {
             item["LogicalResourceId"]: item["PhysicalResourceId"]
@@ -200,7 +202,9 @@ def security_group_rule_id(
         return None
 
 
-def checked_evidence_parameters(document, parameters, stack, expressions):
+def checked_evidence_parameters(
+    document, parameters, stack, expressions, pseudo=None, _condition_stack=frozenset()
+):
     """Compare only parameters used by identity evidence or its conditions."""
     definitions = document.get("Parameters", {})
     conditions = document.get("Conditions", {})
@@ -213,6 +217,29 @@ def checked_evidence_parameters(document, parameters, stack, expressions):
             for item in value:
                 visit(item)
         elif isinstance(value, dict):
+            if set(value) == {"Fn::If"}:
+                argument = value["Fn::If"]
+                if not isinstance(argument, list) or len(argument) != 3:
+                    raise Blocked("invalid Fn::If expression")
+                name = argument[0]
+                if not isinstance(name, str) or name in _condition_stack:
+                    raise Blocked("cyclic or invalid condition")
+                condition = {"Condition": name}
+                if not checked_evidence_parameters(
+                    document,
+                    parameters,
+                    stack,
+                    condition,
+                    pseudo,
+                    _condition_stack | {name},
+                ):
+                    raise Blocked("condition parameters unavailable")
+                visit(condition)
+                selected = _imports_cfn_inputs.output_value(
+                    document, parameters, pseudo or {}, value
+                )
+                visit(selected)
+                return
             if "Ref" in value and value["Ref"] in definitions:
                 needed.add(value["Ref"])
             if "Fn::Sub" in value:
@@ -361,11 +388,13 @@ class PermissionResource:
     def current(self, name):
         return self.physical
 
-    def optional(self, name, **kwargs):
-        return self.expected.get(name)
+    def optional(self, name, default=None, **kwargs):
+        return self.expected.get(name, default)
 
 
-def permission_expression(value, backend, actuals, mapped):
+def permission_expression(
+    value, backend, actuals, mapped, document, parameters, pseudo, stack
+):
     """Resolve GetAtt only from a uniquely mapped, identity-checked provider read."""
 
     def attribute(logical, name):
@@ -387,11 +416,54 @@ def permission_expression(value, backend, actuals, mapped):
             or not physical
             or "|" in physical
             or len(primary) != 1
-            or primary[0] != "/properties/" + str(REF_ATTRIBUTES.get(kind, ""))
             or "read" not in schema.get("handlers", {})
             or "/properties/" + name not in schema.get("readOnlyProperties", [])
         ):
             raise Blocked("GetAtt resource identity or attribute unsupported")
+        if kind == "Events.Rule" and name == "Arn":
+            definition = document["Resources"][logical]
+            props = definition.get("Properties", {})
+            evidence = {
+                key: props[key] for key in ("Name", "EventBusName") if key in props
+            }
+            if not checked_evidence_parameters(
+                document, parameters, stack, evidence, pseudo
+            ):
+                raise Blocked("rule identity parameters unavailable")
+            resolved = {
+                key: _imports_cfn_inputs.resolve_value(
+                    val, parameters, pseudo, conditions=document.get("Conditions")
+                )
+                for key, val in evidence.items()
+            }
+            rule_name = resolved.get("Name", physical)
+            bus = resolved.get("EventBusName", "default")
+            if (
+                rule_name != physical
+                or not isinstance(bus, str)
+                or not re.fullmatch(r"[A-Za-z0-9_.-]+", bus)
+            ):
+                raise Blocked("rule identity ambiguous")
+            response = service_module("eventbridge").fetch(
+                PermissionContext(backend),
+                PermissionResource(
+                    rule_name, {"Name": rule_name, "EventBusName": bus}, physical
+                ),
+                "base",
+            )
+            partition = stack["StackId"].split(":")[1]
+            account = backend.target.get(
+                AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
+            )
+            prefix = f"arn:{partition}:events:{backend.target[AWS_REGION_KEY]}:{account}:rule/"
+            expected = prefix + ("" if bus == "default" else bus + "/") + rule_name
+            if (
+                response.get("Name") != rule_name
+                or response.get("EventBusName") != bus
+                or response.get("Arn") != expected
+            ):
+                raise Blocked("rule provider identity mismatch")
+            return response["Arn"]
         response = backend.aws(
             "get_resource",
             service="cloudcontrol",
@@ -417,9 +489,19 @@ def permission_expression(value, backend, actuals, mapped):
         return result
 
     if isinstance(value, list):
-        return [permission_expression(item, backend, actuals, mapped) for item in value]
+        return [
+            permission_expression(
+                item, backend, actuals, mapped, document, parameters, pseudo, stack
+            )
+            for item in value
+        ]
     if not isinstance(value, dict):
         return value
+    if set(value) == {"Fn::If"}:
+        selected = _imports_cfn_inputs.output_value(document, parameters, pseudo, value)
+        return permission_expression(
+            selected, backend, actuals, mapped, document, parameters, pseudo, stack
+        )
     if set(value) == {"Ref"} and value["Ref"] in mapped:
         logical = value["Ref"]
         resource = mapped[logical][2]
@@ -455,13 +537,22 @@ def permission_expression(value, backend, actuals, mapped):
         sub = value["Fn::Sub"]
         text, overrides = (sub, {}) if isinstance(sub, str) else sub
         overrides = {
-            key: permission_expression(item, backend, actuals, mapped)
+            key: permission_expression(
+                item, backend, actuals, mapped, document, parameters, pseudo, stack
+            )
             for key, item in overrides.items()
         }
         for logical in re.findall(r"\$\{([A-Za-z0-9]+)\}", text):
             if logical in mapped and logical not in overrides:
                 overrides[logical] = permission_expression(
-                    {"Ref": logical}, backend, actuals, mapped
+                    {"Ref": logical},
+                    backend,
+                    actuals,
+                    mapped,
+                    document,
+                    parameters,
+                    pseudo,
+                    stack,
                 )
         for logical, name in re.findall(r"\$\{([A-Za-z0-9]+)\.([A-Za-z0-9]+)\}", text):
             key = logical + "." + name
@@ -469,7 +560,9 @@ def permission_expression(value, backend, actuals, mapped):
                 overrides[key] = attribute(logical, name)
         return {"Fn::Sub": [text, overrides]}
     return {
-        key: permission_expression(item, backend, actuals, mapped)
+        key: permission_expression(
+            item, backend, actuals, mapped, document, parameters, pseudo, stack
+        )
         for key, item in value.items()
     }
 
@@ -510,7 +603,9 @@ def permission_observation(
         if deployed != document or document.get("Transform"):
             return None, "deployed template mismatch"
         definition = document["Resources"][logical]
-        if not checked_evidence_parameters(document, parameters, stack, definition):
+        if not checked_evidence_parameters(
+            document, parameters, stack, definition, pseudo
+        ):
             return None, "required deployed parameters unavailable or mismatch"
         props = document["Resources"][logical].get("Properties", {})
         pseudo = pseudo | {"AWS::Partition": stack_id.split(":", 2)[1]}
@@ -571,7 +666,16 @@ def permission_observation(
         ):
             return None, "function name unavailable"
         function = _imports_cfn_inputs.resolve_value(
-            permission_expression(props["FunctionName"], backend, actuals, mapped),
+            permission_expression(
+                props["FunctionName"],
+                backend,
+                actuals,
+                mapped,
+                document,
+                parameters,
+                pseudo,
+                stack,
+            ),
             parameters,
             pseudo | {parent_logical: parent_name},
             exports=exports,
@@ -630,7 +734,9 @@ def permission_observation(
                 return None, "permission Sid is shared by the same function"
         expected = {
             key: _imports_cfn_inputs.resolve_value(
-                permission_expression(value, backend, actuals, mapped),
+                permission_expression(
+                    value, backend, actuals, mapped, document, parameters, pseudo, stack
+                ),
                 parameters,
                 pseudo,
                 exports=exports,
@@ -1116,7 +1222,10 @@ def collect_successful(backend, units, states, *, generated_views=None):
                         )
                         if reason:
                             unavailable = reason.startswith(
-                                "cloudcontrol.get_resource: "
+                                (
+                                    "cloudcontrol.get_resource: ",
+                                    "CloudFormation evidence API: ",
+                                )
                             ) and any(
                                 word in reason.lower()
                                 for word in (
