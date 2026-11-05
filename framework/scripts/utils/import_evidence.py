@@ -4,11 +4,12 @@ from pathlib import Path
 
 from task_contract_core import TASK_NAME
 
-from utils.sealed_evidence import evidence_store, read_sealed
+from utils.local_evidence import read_sealed
+from utils.local_evidence import shared_store as evidence_store
 
 
 def discard_import_proof(root, task_name):
-    """Remove only this task's sealed receipt after verified integration/snapshot use."""
+    """Remove only this task's receipt after verified integration/snapshot use."""
     if not TASK_NAME.fullmatch(task_name):
         raise ValueError("invalid evidence task identity")
     file = evidence_store(root, create=False) / (Path(task_name).stem + ".json")

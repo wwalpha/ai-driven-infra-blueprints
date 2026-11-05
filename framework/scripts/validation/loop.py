@@ -24,7 +24,6 @@ from types import SimpleNamespace
 import model.importing.evidence as _imports_model_importing_evidence
 import task_contract_core as _imports_task_contract
 import validation.runner as _imports_validation_runner
-from regression_guard import authorize_full_regression
 from task_contract_core import (
     SELECTOR,
     issues_save_only,
@@ -34,7 +33,7 @@ from task_contract_core import (
 )
 from utils.aws_mappings import definition_root
 from utils.git_changes import collect_working_paths
-from utils.sealed_evidence import evidence_store
+from utils.local_evidence import shared_store as evidence_store
 from validation_scope import active_scope
 
 
@@ -524,26 +523,6 @@ def staged_snapshot(root, args, directory, environment):
             *(["--all"] if args.all else []),
             *(["--profile"] if args.profile else []),
         ]
-        if os.name == "nt":
-            # Never dispatch an older staged entrypoint that predates the password gate.
-            for name in (
-                "blueprint-loop.py",
-                "validation/loop.py",
-                "regression_guard.py",
-            ):
-                source = root / "framework/scripts" / name
-                saved = snapshot / "framework/scripts" / name
-                if not saved.is_file() or saved.read_bytes() != source.read_bytes():
-                    raise ValueError(
-                        "Windows staged validation requires the current runner and regression guard to be staged"
-                    )
-        # .lock is local configuration, outside the staged task tree.
-        source_lock = root / ".lock"
-        if source_lock.is_symlink():
-            raise ValueError("repo .lock must be a regular file")
-        saved_lock = source_lock.read_bytes() if source_lock.is_file() else None
-        if saved_lock is not None:
-            (snapshot / ".lock").write_bytes(saved_lock)
         process = subprocess.Popen(
             command,
             cwd=snapshot,
@@ -569,17 +548,15 @@ def staged_snapshot(root, args, directory, environment):
         metadata.update(returncode=result)
         if not issues_save_only(snapshot, text=captured.text):
             current_tree = index_tree(root, directory)
-            current_lock = source_lock.read_bytes() if source_lock.is_file() else None
             unchanged = (
                 current_tree == tree
                 and git(root, "rev-parse", "HEAD") == head
-                and current_lock == saved_lock
             )
             metadata.update(source_unchanged=unchanged)
             if not unchanged:
                 result = 1
                 print(
-                    "Staged snapshot is stale: source HEAD/index/.lock changed; result applies only to the saved tree.",
+                    "Staged snapshot is stale: source HEAD/index changed; result applies only to the saved tree.",
                     flush=True,
                 )
         (directory / "snapshot.json").write_text(
@@ -593,8 +570,6 @@ def staged_snapshot(root, args, directory, environment):
             )
             discard_import_proof(snapshot, captured.name)
             store = evidence_store(snapshot)
-            # This freshly created snapshot owns its seal; source evidence is retained.
-            (store / "seal.key").unlink(missing_ok=True)
             store.rmdir()
 
 
@@ -760,31 +735,6 @@ def _run_loop(root, args, final_candidate):
         print(f"Blueprint local loop: ERROR ({error})", file=sys.stderr)
         suspend_selected(root, selected_name, f"Regression discovery failed: {error}")
         return 2
-    if regression and not args.staged:
-        try:
-            authorize_full_regression(root)
-        except KeyboardInterrupt:
-            print(
-                "Full regression authorization cancelled; no checks started.",
-                file=sys.stderr,
-            )
-            suspend_selected(
-                root,
-                selected_name,
-                "Full regression authorization cancelled; no checks started.",
-            )
-            return 130
-        except (OSError, ValueError) as error:
-            print(
-                f"Blueprint local loop: LOCKED ({error}); no checks started.",
-                file=sys.stderr,
-            )
-            suspend_selected(
-                root,
-                selected_name,
-                f"Full regression authorization failed: {error}; no checks started.",
-            )
-            return 2
     log_parent = (args.log_dir or Path(tempfile.gettempdir())).expanduser().resolve()
     if log_parent == root or root in log_parent.parents:
         fail("--log-dir must be outside the repository")

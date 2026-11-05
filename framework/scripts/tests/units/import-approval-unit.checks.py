@@ -345,7 +345,7 @@ def check_valid_observation_and_nonblocking_reference_warning():
         {"approved": True},
         {"wholeReview": True},
         {"records": ["r1"]},
-        {"signature": "agent-local-HMAC"},
+        {"signature": "untrusted-approval"},
         {"expiresAt": "2099-01-01"},
     ],
 )
@@ -857,6 +857,7 @@ def check_acquisition_identity_boundary(tmp_path, failure):
         )
     store = tmp_path / "external-evidence"
     file = store / "session-unit" / "acquisition.json"
+    file.parent.mkdir(parents=True, mode=0o700)
     with (
         patch.object(evidence, "evidence_store", return_value=store),
         patch.object(evidence, "read_sealed", return_value=acquisition),

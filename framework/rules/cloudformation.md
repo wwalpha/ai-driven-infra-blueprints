@@ -204,7 +204,7 @@ Keep the Worktree Skill unchanged; repository development/setup is separate from
 the Deploy execution method. CLI AWS execution needs AWS CLI, not a Python SDK.
 Existing non-AWS Model/generation/validation/Git utilities remain usable. CLI Task
 completion uses the ordinary `task_contract.py --complete` local validator rather
-than SDK sealed progress/final-save receipts. Ordinary Worktree finalize validates
+than SDK local progress/final-save receipts. Ordinary Worktree finalize validates
 the completed CLI candidate against the actual latest base before ff-only delivery.
 These local branches perform no AWS retrieval, submission, scheduling or recovery;
 the LLM remains responsible for all AWS decisions and unsettled-request tracking.
@@ -398,7 +398,7 @@ later separately reviewed update, not automatic resubmission. ROLLBACK_COMPLETE,
 UPDATE_ROLLBACK_FAILED and other failed states retain AWS restrictions. Stop on
 failure requiring repair/Human action; do not delete, continue rollback, bootstrap,
 initialize secrets or redeploy successful Stacks automatically. SDK runtime cleanup
-and signed repair handoff are not available as CLI recovery shortcuts.
+and repair handoff are not available as CLI recovery shortcuts.
 
 ### Interruption and independent recovery
 
@@ -468,7 +468,7 @@ AWS success or that the LLM has finished tracking requests.
 Report Model/View/Validation/Git/Task at their actual stage. On a local failure,
 retain the exact candidate, inspect current Git/Task state and use the existing
 same-Task recovery/finalize path only when safe. Do not invoke SDK `sync`,
-`checkpoint`, signed checkpoint internals or `deploy-publish`, or write SDK progress/
+`checkpoint`, checkpoint internals or `deploy-publish`, or write SDK progress/
 receipts. Never use a Git/save failure as cause to redeploy. Intermediate Model saves
 keep Task running; the LLM chooses saving and finalization times, without a Python
 Scheduler or background writer.
@@ -537,7 +537,7 @@ Self-authored Observed/View/contract commits advance HEAD without changing execu
 inputs. Base advancement or rewritten publication history does not replace fixed inputs.
 No historical digest/executionDigest ledger is added. Other Workflow safeguards remain.
 
-Local sealed progress resumes this Task's save/generation/checkpoint. Git receipts prove
+Local progress resumes this Task's save/generation/checkpoint. Git receipts prove
 only saved candidates; restoring one never creates AWS SUCCESS. Current observations,
 attempt result, Snapshot validation, commit/merge and Task state remain separate.
 A failure Snapshot can have Deploy FAIL, UPDATE_ROLLBACK_COMPLETE, Snapshot PASS,

@@ -18,9 +18,7 @@ from deploy import contracts, git_publication, inputs, worktree
 from deploy.cli_guidance import DeployStepBlocked
 from model.observed import verify_observed_outputs
 from model.sources import source_scope
-from utils import sealed_evidence
 from utils.aws_mappings import definition_root
-from utils.local_evidence import private
 from validation.findings import Findings
 from validation.runner import Validator
 from validation.task import TaskValidation
@@ -103,7 +101,6 @@ def checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
 
 def verify_update_receipts(root, target, state, context, names, receipts, text, states):
     """Verify retained Update evidence and exact Model/View content without base ancestry."""
-    verify_update_receipt_proof(target, state)
     base = wt.base_worktree(root, state)
     latest = wt.output(base, "rev-parse", "HEAD")
     head = wt.output(target, "rev-parse", "HEAD")
@@ -165,6 +162,17 @@ def verify_update_receipts(root, target, state, context, names, receipts, text, 
             != wt.output(target, "rev-parse", commit + "^{tree}")
         ):
             raise DeployStepBlocked("checkpoint receipt content evidence differs")
+        if paths:
+            subject = wt.output(target, "show", "-s", "--format=%s", commit)
+            actual = wt.paths(target, "diff", "--name-only", "--no-renames", "-z", parent_list[0], commit)
+            if subject != f"task({state['task_id']}): deploy checkpoint " + ", ".join(retained["stacks"]) or not {p for p in actual if p.startswith(("model/", "docs/designs/"))} <= set(paths):
+                raise DeployStepBlocked("checkpoint receipt commit ownership or changed paths differ")
+        elif commit != receipt.get("taskHead") and not any(
+            peer != name and other.get("commit") == commit
+            and other.get("checkpointEvidence", {}).get("changed")
+            for peer, other in receipts.items()
+        ):
+            raise DeployStepBlocked("checkpoint receipt cannot prove an empty candidate")
         if not paths:
             paths = update_zero_content_paths(target, receipt, text)
         # A Task with no declared Model/View subject makes no content claim.
@@ -228,125 +236,6 @@ def update_zero_content_paths(target, receipt, text):
             ):
                 paths.append(relative)
     return sorted(paths)
-
-
-def update_receipt_proof(state, receipts):
-    """Bind the latest issued receipts to this managed Task, outside lifecycle state."""
-    return {
-        "task": {
-            key: state[key]
-            for key in ("primary", "worktree", "task_id", "task_file", "start")
-        },
-        "receipts": receipts,
-    }
-
-
-def update_receipt_store(target, *, create=False):
-    """Use the existing per-worktree Git administration lifetime, including cleanup.
-
-    Local HMAC detects corruption, not a malicious owner: the same user can read
-    the key and rewrite Git, Task provenance, lifecycle state and this proof.
-    No existing local evidence supplies an independent trust root against that user.
-    """
-    directory = Path(wt.output(target, "rev-parse", "--path-format=absolute", "--git-path", "blueprint-update-checkpoints"))
-    if directory.is_symlink():
-        raise DeployStepBlocked("checkpoint receipt evidence directory is redirected")
-    if create:
-        directory.mkdir(mode=0o700, exist_ok=True)
-    if directory.exists():
-        private(directory, directory=True)
-    return directory
-
-
-def read_update_receipt_proof(target):
-    try:
-        directory = update_receipt_store(target)
-        file = directory / "update-checkpoints.json"
-        if file.exists() or file.is_symlink():
-            # A corrupt durable record must never fall back to a stale legacy copy.
-            return sealed_evidence.read_sealed(target, file, directory=directory)
-        legacy = sealed_evidence.evidence_store(target, create=False) / file.name
-        proof = sealed_evidence.read_sealed(target, legacy)
-        # Migrate only a verified old seal; missing proof/key requires Human review.
-        directory = update_receipt_store(target, create=True)
-        sealed_evidence.write_sealed(target, file, proof, directory=directory)
-        return proof
-    except (OSError, ValueError) as error:
-        raise DeployStepBlocked(
-            "checkpoint receipt issuance evidence is unavailable or invalid; "
-            "retain Task for Human review (do not reconstruct proof from receipts): " + str(error)
-        ) from error
-
-
-def verify_update_receipt_proof(target, state):
-    if read_update_receipt_proof(target) != update_receipt_proof(
-        state, state.get("deployCheckpoints", {})
-    ):
-        raise DeployStepBlocked("checkpoint receipt differs from retained issuance evidence")
-
-
-def save_update_receipt_proof(target, state, previous):
-    """Seal only validated issuance; reconcile a crash before the lifecycle save."""
-    directory = update_receipt_store(target, create=True)
-    file = directory / "update-checkpoints.json"
-    legacy = sealed_evidence.evidence_store(target, create=False) / file.name
-    proof = update_receipt_proof(state, state["deployCheckpoints"])
-    if file.exists() or file.is_symlink() or legacy.exists() or legacy.is_symlink():
-        retained = read_update_receipt_proof(target)
-        if retained == proof:
-            return
-        if retained != update_receipt_proof(state, previous):
-            raise DeployStepBlocked("checkpoint receipt issuance would replace unverified evidence")
-    elif previous:
-        # Legacy receipts cannot authenticate themselves, even when all state values agree.
-        raise DeployStepBlocked("checkpoint receipt has no independent issuance evidence")
-    sealed_evidence.write_sealed(target, file, proof, directory=directory)
-
-
-def recover_update_receipt_proof(root, target, path, state, context, names, text, states):
-    """A retained issuance records publication finished before a lost lifecycle save."""
-    file = update_receipt_store(target) / "update-checkpoints.json"
-    legacy = sealed_evidence.evidence_store(target, create=False) / file.name
-    if not any(p.exists() or p.is_symlink() for p in (file, legacy)):
-        if state.get("deployCheckpoints"):
-            verify_update_receipt_proof(target, state)
-        return False
-    proof = read_update_receipt_proof(target)
-    if proof == update_receipt_proof(state, state.get("deployCheckpoints", {})):
-        return False
-    candidate = copy.deepcopy(state)
-    candidate["deployCheckpoints"] = proof.get("receipts", {})
-    intent = state["stackCheckpointIntent"]
-    head = wt.output(target, "rev-parse", "HEAD")
-    others = set(candidate["deployCheckpoints"]) | set(state.get("deployCheckpoints", {}))
-    if any(
-        candidate["deployCheckpoints"].get(n) != state.get("deployCheckpoints", {}).get(n)
-        for n in others - set(names)
-    ):
-        raise DeployStepBlocked("checkpoint receipt recovery changed peer evidence")
-    for name in names:
-        receipt = candidate["deployCheckpoints"].get(name, {})
-        if (
-            receipt.get("commit") != head
-            or receipt.get("checkpointEvidence", {}).get("tree")
-            != intent.get("sync", {}).get("tree", intent["tree"])
-            or receipt.get("checkpointEvidence", {}).get("changed") != intent["changed"]
-            or any(receipt.get(k) != intent[k] for k in ("taskDigest", "taskBase", "taskHead"))
-        ):
-            raise DeployStepBlocked("checkpoint receipt recovery differs from saved candidate")
-        candidate.setdefault("stackCheckpointIntents", {})[name] = {
-            "commit": head,
-            **{k: copy.deepcopy(intent[k]) for k in ("changed", "stacks", "taskDigest", "taskBase", "taskHead")},
-        }
-    verify_update_receipts(root, target, candidate, context, names, candidate["deployCheckpoints"], text, states)
-    candidate["tip"] = head
-    if intent.get("sync"):
-        candidate["validation_base"] = intent["base"]
-    candidate.pop("stackCheckpointIntent")
-    wt.save(path, candidate)
-    state.update(candidate)
-    state.pop("stackCheckpointIntent", None)
-    return True
 
 
 def update_task_iac_paths(target, state, task, context):
@@ -649,8 +538,6 @@ def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
         backend.guard()
         receipts = state.setdefault("deployCheckpoints", {})
         intent = state.get("stackCheckpointIntent")
-        if receipts and pending and not intent:
-            verify_update_receipt_proof(target, state)
         if not pending:
             if intent:
                 raise DeployStepBlocked(
@@ -680,15 +567,6 @@ def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
             raise DeployStepBlocked(
                 "checkpoint requires a complete adopted observation for every selected Stack"
             )
-        if intent and recover_update_receipt_proof(
-            root, target, path, state, context, names, text, backend.states
-        ):
-            for name in names:
-                backend.states[name].pop("checkpointRequired", None)
-                backend.states[name]["checkpointed"] = True
-            context.pop("checkpointPending", None)
-            backend.save()
-            return {name: state["deployCheckpoints"][name] for name in names}
         if (
             not intent
             and all(n in receipts for n in names)
@@ -833,6 +711,9 @@ def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
             raise DeployStepBlocked(
                 "checkpoint commit is not the saved exact candidate"
             )
+        published = commit != intent["head"] and latest != commit and not wt.git(
+            target, "merge-base", "--is-ancestor", commit, latest, check=False
+        ).returncode
         if intent.get("sync"):
             commit = synchronize_update_candidate(
                 root,
@@ -845,12 +726,15 @@ def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
                 intent["sync"]["base"],
                 context,
             )
-            if latest != intent["base"]:
+            published = latest != commit and not wt.git(
+                target, "merge-base", "--is-ancestor", commit, latest, check=False
+            ).returncode
+            if latest != intent["base"] and latest != commit and not published:
                 intent["head"] = intent["sync"]["base"]
                 intent["tree"] = intent["sync"]["tree"]
                 intent["base"] = latest
                 intent.pop("sync")
-        elif latest != intent["base"]:
+        elif latest != intent["base"] and latest != commit and not published:
             if intent.get("delegated"):
                 raise DeployStepBlocked(
                     "delegated repair base changed; retain checkpoint candidate"
@@ -859,6 +743,8 @@ def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
         if (
             not intent.get("sync")
             and intent["head"] != intent["base"]
+            and latest != commit
+            and not published
             and not intent.get("delegated")
         ):
             commit = synchronize_update_candidate(
@@ -873,7 +759,23 @@ def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
                 context,
             )
         base = wt.base_worktree(root, state)
-        if wt.output(base, "rev-parse", "HEAD") not in {intent["base"], commit}:
+        published = latest != commit and not wt.git(
+            target, "merge-base", "--is-ancestor", commit, latest, check=False
+        ).returncode
+        if published:
+            if not intent["changed"] or wt.git(
+                target, "diff", "--quiet", "--no-ext-diff", commit, latest, "--",
+                *[f":(top,literal){p}" for p in intent["changed"]], check=False,
+            ).returncode:
+                raise DeployStepBlocked("published checkpoint content differs; retain candidate")
+            for relative, expected in context.get("consumedInputs", {}).items():
+                try:
+                    actual = hashlib.sha256(wt.subprocess_bytes(target, latest, relative)).hexdigest()
+                except ValueError as error:
+                    raise DeployStepBlocked("checkpoint base is missing an execution input: " + relative) from error
+                if actual != expected:
+                    raise DeployStepBlocked("checkpoint base execution input differs: " + relative)
+        if wt.output(base, "rev-parse", "HEAD") not in {intent["base"], commit, *([latest] if published else [])}:
             raise DeployStepBlocked(
                 "base advanced before merge; retain commit for review"
             )
@@ -888,13 +790,12 @@ def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
                 "validated checkpoint changed immediately before merge"
             )
         base = wt.base_worktree(root, state)
-        if wt.output(base, "rev-parse", "HEAD") not in {intent["base"], commit}:
+        if wt.output(base, "rev-parse", "HEAD") not in {intent["base"], commit, *([latest] if published else [])}:
             raise DeployStepBlocked("base changed immediately before checkpoint merge")
-        if wt.output(base, "rev-parse", "HEAD") != commit:
+        if not published and wt.output(base, "rev-parse", "HEAD") != commit:
             wt.git(base, "merge", "--ff-only", "--no-autostash", commit)
-        if wt.output(base, "rev-parse", "HEAD") != commit:
+        if wt.output(base, "rev-parse", "HEAD") != (latest if published else commit):
             raise DeployStepBlocked("checkpoint merge differs from intended commit")
-        previous_receipts = copy.deepcopy(receipts)
         for name in names:
             unit = next(u for u in context["stepUnits"] if u["name"] == name)
             state.setdefault("stackCheckpointIntents", {})[name] = {
@@ -931,8 +832,6 @@ def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
         if intent.get("sync"):
             state["validation_base"] = intent["base"]
         state.pop("stackCheckpointIntent", None)
-        # Save independently before acknowledging the lifecycle receipt or Journal.
-        save_update_receipt_proof(target, state, previous_receipts)
         wt.save(path, state)
         # Journal acknowledgement follows the durable lifecycle receipt, so retry is idempotent.
         for name in names:

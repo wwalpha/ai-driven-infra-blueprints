@@ -40,7 +40,7 @@ from support.cloudformation_deploy_fixtures import Fake, advance_group, states, 
 from support.fixture_cases import load_case
 from support.pytest_cli import run
 from support.regression_cases import case_ids
-from utils import sealed_evidence
+from utils import local_evidence
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
 
@@ -1510,7 +1510,7 @@ def progress_backend(root, context):
 
 
 def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
-    monkeypatch.setattr(sealed_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(local_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
     old = os.umask(0o022)
     try:
         path = worktree.progress_path(tmp_path / "project", create=True)
@@ -1539,7 +1539,7 @@ def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
 @pytest.mark.parametrize("unsafe", ["permissions", "owner", "symlink"])
 @pytest.mark.parametrize("level", [0, 1, 2])
 def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, level):
-    monkeypatch.setattr(sealed_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(local_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
     root = tmp_path / "project"
     path = worktree.progress_path(root, create=True)
     directory = (path.parent.parent.parent, path.parent.parent, path.parent)[level]
@@ -1559,7 +1559,7 @@ def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, lev
             ),
         )
     expected = (
-        ("private to the current user" if level < 2 else "unsafe local evidence")
+        "unsafe local evidence"
         if unsafe == "owner"
         else None
     )

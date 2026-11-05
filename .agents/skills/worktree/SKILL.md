@@ -318,7 +318,7 @@ Explicit disposal does not finalize uncertain Import/Deploy/Repair evidence. Ext
 evidence is retained and reported under `retained_external_evidence`; it never becomes
 successful publication evidence. Physical cleanup does not depend on workflow completion.
 Neither cleanup mode changes GitHub PRs, remote branches, other Tasks, the shared Python
-environment or AWS. Only verified post-merge automatic cleanup removes owned sealed receipts.
+environment or AWS. Only verified post-merge automatic cleanup removes owned receipts.
 
 ### Orphan local branches
 

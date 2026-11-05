@@ -3,8 +3,6 @@
 import copy
 import hashlib
 import json
-import shutil
-import subprocess
 import sys
 import tempfile
 from functools import partial
@@ -163,12 +161,12 @@ def check_combined_checkpoint_after_peer_completion(tmp_path, monkeypatch):
 
 def check_update_receipt_rewritten_base():
     scenarios = (
-        "normal", "restart", "legacy-migration", "legacy-missing", "advance", "rewrite", "rebase", "same-tree", "other-model", "other-view", "model", "view", "missing", "task", "stack",
+        "normal", "restart", "advance", "rewrite", "rebase", "same-tree", "other-model", "other-view", "model", "view", "missing", "task", "stack",
         "input", "unit", "commit", "other-task", "zero", "zero-other-model",
         "zero-unverifiable", "zero-no-parent", "forged-evidence", "forged-empty",
         "forged-other-task", "forged-empty-loss", "zero-reused", "missing-intent",
         "coherent-loss", "coherent-other-task", "coherent-empty", "coherent-empty-loss",
-        "missing-proof", "tampered-proof", "other-task-proof", "zero-other-view",
+        "zero-other-view",
         "zero-model-loss", "zero-view-loss", "zero-missing",
     )
     for scenario in scenarios:
@@ -212,27 +210,7 @@ def check_update_receipt_rewritten_base():
                 receipt = checkpoints.update_checkpoint(backend, ["A"])["A"]
                 assert checkpoints.update_checkpoint(backend, ["A"])["A"] == receipt
                 _, _, path, state = wt.load(root, "example")
-                if scenario in {"restart", "legacy-migration", "legacy-missing"}:
-                    directory = checkpoints.update_receipt_store(target)
-                    if scenario != "restart":
-                        legacy = checkpoints.sealed_evidence.evidence_store(target) / "update-checkpoints.json"
-                        checkpoints.sealed_evidence.write_sealed(target, legacy, checkpoints.read_update_receipt_proof(target))
-                        shutil.rmtree(directory)
-                        if scenario == "legacy-missing":
-                            legacy.unlink()
-                    if scenario == "legacy-missing":
-                        with pytest.raises(ValueError, match="Human review"):
-                            checkpoints.update_checkpoint(backend, ["A"])
-                        continue
-                    # Fresh interpreter, then loss of the legacy temporary evidence/key.
-                    script = ("import sys; from pathlib import Path; "
-                              f"sys.path.insert(0, {str(Path(checkpoints.__file__).parent)!r}); "
-                              "import worktree_checkpoint as c; "
-                              "c.read_update_receipt_proof(Path(sys.argv[1]))")
-                    subprocess.run([sys.executable, "-B", "-c", script, str(target)], check=True)
-                    legacy_directory = checkpoints.sealed_evidence.evidence_store(target, create=False)
-                    if legacy_directory.exists():
-                        shutil.rmtree(legacy_directory)
+                if scenario == "restart":
                     assert checkpoints.update_checkpoint(backend, ["A"])["A"] == receipt
                 if scenario in {"rewrite", "same-tree"}:
                     git(root, "commit", "--amend", "-qm", "rewritten checkpoint")
@@ -261,7 +239,7 @@ def check_update_receipt_rewritten_base():
                     git(root, "commit", "-qm", "task(other): deploy checkpoint A")
                     if scenario in {"other-model", "other-view", "zero-other-model", "zero-other-view", "coherent-loss"}:
                         git(target, "merge", "--ff-only", git(root, "rev-parse", "HEAD").strip())
-                if scenario in {"other-task", "forged-other-task", "coherent-other-task", "other-task-proof"}:
+                if scenario in {"other-task", "forged-other-task", "coherent-other-task"}:
                     other_model = "model/dev/team/other.properties"
                     with patch("support.worktree_task_fixtures.dependency_index.rebuild"):
                         other, other_state = start_task(root, task_id="other", files=(other_model,))
@@ -283,10 +261,6 @@ def check_update_receipt_rewritten_base():
                         states={"A": dict(backend.states["A"])},
                     )
                     checkpoints.update_checkpoint(other_backend, ["A"])
-                    if scenario == "other-task-proof":
-                        proof = checkpoints.update_receipt_store(target) / "update-checkpoints.json"
-                        other_proof = checkpoints.update_receipt_store(other) / proof.name
-                        proof.write_bytes(other_proof.read_bytes())
                 if scenario == "zero-reused":
                     context["stepUnits"].append({"name": "B"})
                     context["inputDigests"]["B"] = "input-b"
@@ -323,14 +297,6 @@ def check_update_receipt_rewritten_base():
                         assert retained["commit"] == receipt["commit"]
                         assert retained["changed"] == evidence["changed"]
                     wt.save(path, state)
-                if scenario in {"missing-proof", "tampered-proof"}:
-                    proof = checkpoints.update_receipt_store(target) / "update-checkpoints.json"
-                    if scenario == "missing-proof":
-                        proof.unlink()
-                    else:
-                        payload = json.loads(proof.read_text(encoding="utf-8"))
-                        payload["payload"]["receipts"]["A"]["checkpointEvidence"]["changed"] = []
-                        proof.write_text(json.dumps(payload), encoding="utf-8")
                 if scenario == "missing-intent":
                     state.pop("stackCheckpointIntents")
                     wt.save(path, state)
@@ -356,7 +322,7 @@ def check_update_receipt_rewritten_base():
                     )
                     state["deployCheckpoints"]["A"] = receipt
                     wt.save(path, state)
-                if scenario in {"model", "view", "missing", "task", "stack", "input", "unit", "commit", "other-task", "zero-unverifiable", "zero-no-parent", "forged-evidence", "forged-empty", "forged-other-task", "forged-empty-loss", "missing-intent", "coherent-loss", "coherent-other-task", "coherent-empty", "coherent-empty-loss", "missing-proof", "tampered-proof", "other-task-proof", "zero-model-loss", "zero-view-loss", "zero-missing"}:
+                if scenario in {"model", "view", "missing", "task", "stack", "input", "unit", "commit", "other-task", "zero-unverifiable", "zero-no-parent", "forged-evidence", "forged-empty", "forged-other-task", "forged-empty-loss", "missing-intent", "coherent-loss", "coherent-other-task", "coherent-empty", "coherent-empty-loss", "missing-proof", "tampered-proof", "zero-model-loss", "zero-view-loss", "zero-missing"}:
                     with pytest.raises(ValueError, match="receipt|content"):
                         checkpoints.update_checkpoint(backend, ["A"])
                 else:
@@ -391,7 +357,7 @@ def _update_interrupt_rebase(original, root, *args, **kwargs):
 def _update_interrupt_receipt_save(original, interrupted, path, state):
     if state.get("deployCheckpoints") and not state.get("stackCheckpointIntent") and not interrupted:
         interrupted.append(copy.deepcopy(state["deployCheckpoints"]))
-        raise OSError("interrupted after independent evidence save")
+        raise OSError("interrupted before lifecycle save")
     return original(path, state)
 
 
@@ -414,6 +380,8 @@ def check_update_checkpoint_latest_base():
         "ack-pending",
         "proof-interrupt",
         "proof-advance",
+        "direct-interrupt",
+        "direct-advance",
     ):
         with task_fixture(branch="master") as root:
             relative = "model/dev/team/test.properties"
@@ -476,7 +444,7 @@ def check_update_checkpoint_latest_base():
             )
             if scenario in {"rewrite", "same-tree"}:
                 git(root, "commit", "--amend", "-qm", "rewritten base")
-            if scenario != "same-tree":
+            if scenario not in {"same-tree", "direct-interrupt", "direct-advance"}:
                 base_path = (
                     relative
                     if scenario in {"different-lines", "task-overlap", "conflict", "already-applied"}
@@ -551,23 +519,22 @@ def check_update_checkpoint_latest_base():
                         ):
                             checkpoints.update_checkpoint(backend, ["A"])
                         context.pop("pendingGeneration")
-                if scenario in {"proof-interrupt", "proof-advance"}:
+                if scenario in {"proof-interrupt", "proof-advance", "direct-interrupt", "direct-advance"}:
                     interrupted = []
                     with patch.object(wt, "save", side_effect=partial(_update_interrupt_receipt_save, wt.save, interrupted)):
-                        with pytest.raises(OSError, match="independent evidence save"):
+                        with pytest.raises(OSError, match="before lifecycle save"):
                             checkpoints.update_checkpoint(backend, ["A"])
                     retained = wt.load(root, "example")[3]
                     assert retained.get("stackCheckpointIntent")
                     assert not retained.get("deployCheckpoints")
-                    assert checkpoints.read_update_receipt_proof(target)["receipts"] == interrupted[0]
-                    if scenario == "proof-advance":
+                    if scenario in {"proof-advance", "direct-advance"}:
                         (root / "after-proof.txt").write_text("later base\n", encoding="utf-8")
                         git(root, "add", "after-proof.txt")
                         git(root, "commit", "-qm", "base after sealed publication")
                     published_base = git(root, "rev-parse", "HEAD").strip()
                 result = checkpoints.update_checkpoint(backend, ["A"])
-                if scenario in {"proof-interrupt", "proof-advance"}:
-                    assert result == interrupted[0]
+                if scenario in {"proof-interrupt", "proof-advance", "direct-interrupt", "direct-advance"}:
+                    assert result == interrupted[0], (scenario, result, interrupted[0])
                     assert git(root, "rev-parse", "HEAD").strip() == published_base
                 else:
                     assert result["A"]["commit"] == git(root, "rev-parse", "HEAD").strip()

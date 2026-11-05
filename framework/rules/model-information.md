@@ -183,12 +183,12 @@ pre-save snapshots and saved source hashes. The source publication guard and Wor
 completion verify this evidence without expanding old Git Models or other services.
 Self-declared flags cannot authorize changes. Missing, stale or incomplete evidence
 blocks reflection completion. Ordinary workflows retain their IMPORT protection.
-Acquisition evidence is a private sealed temporary session outside the repository,
+Acquisition evidence is a private temporary session outside the repository,
 binding normalized non-secret records, STS/connection/time, Task/Worktree/scope,
 source hashes and the direct consumer set across acquire/publish processes. The agent
 records correspondence and review there; source publication follows explicit final consent in chat.
 Only after complete source/display success or explicit Human termination, remove
-temporary acquisition/candidate contents; retain only a sealed task receipt at
+temporary acquisition/candidate contents; retain only a private task receipt at
 `evidence_store(execution_root)/<task-name>.json`, outside the repository. Dry-run
 persists no Model, displays, contract or completion receipt; retain its session until
 explicit Human termination. Pre-save failure, incomplete display or display I/O failure
@@ -197,8 +197,7 @@ Never save raw responses. Acquisition/receipt timestamps expire after seven days
 future timestamps beyond five minutes are rejected. Review version 5 and receipt version 7
 record the conversational responsibility boundary. Version 7 binds Review/selection,
 acquisition/baseline, proposed values, Reference/Selector meaning, Task/Worktree/scope
-and exact saved source hashes. Receipt parsing requires the current version and sealed external location. Local seals and the Review
-binding provide integrity, not Human authentication. Worktree reuse remains rejected.
+and exact saved source hashes. Receipt parsing requires the current version and private external location; old signed envelopes are rejected and require a new acquisition and review. Review and source digests detect inconsistent inputs, but do not authenticate their author or Human consent. Worktree reuse remains rejected.
 Temporary snapshot receipts are removed in finally; source evidence remains retryable. Worktree evidence
 is removed only after verified integration and successful checkout/branch cleanup.
 See 08_import for failure/cancellation cleanup.
@@ -283,9 +282,9 @@ display.stack.002.comment=月次集計jobを配置するstack
 - The same DeployOrder and the same Template are allowed. Do not add `DependsOn`, `AfterStack`, `DependsOnStack`, or `Dependencies`.
 - Display in ascending numeric DeployOrder, then ascending string StackName; No. is a sequential display number. Do not change model entry IDs or comment membership through sorting.
 
-Deploy checks the signed Model dependency index and only the current execution slots' known Observed owners/consumers before delivery or ChangeSet creation, then checks ChangeSet removals before execution. The index and first-used Model snapshots are checked once per process through the shared session cache; saved READY state does not replace these checks. Physical identifiers and actual Outputs remain post-success checks. Bootstrap a missing index offline with `python framework/scripts/model/cli.py index --repository-root <project-root>`; Deploy never rebuilds it.
+Deploy checks the Model dependency index and only the current execution slots' known Observed owners/consumers before delivery or ChangeSet creation, then checks ChangeSet removals before execution. The index and first-used Model snapshots are checked once per process through the shared session cache; saved READY state does not replace these checks. Physical identifiers and actual Outputs remain post-success checks. Bootstrap a missing index offline with `python framework/scripts/model/cli.py index --repository-root <project-root>`; Deploy never rebuilds it.
 
-Canonical Model publication updates owner/reference metadata for desired changes and only file revisions for Observed changes, in the same rollback-protected transaction. Unchanged index content is not rewritten. Direct file edits outside the guarded Model publication API cannot guarantee index freshness: first-used snapshots are compared with the signed index, but newly added owners or incoming references in otherwise unselected Models cannot be detected completely without a full scan. After such edits, explicitly rebuild the index offline before Deploy; signature validity alone does not prove freshness.
+Canonical Model publication updates owner/reference metadata for desired changes and only file revisions for Observed changes, in the same rollback-protected transaction. Unchanged index content is not rewritten. Direct file edits outside the guarded Model publication API cannot guarantee index freshness: first-used snapshots are compared with the index, but newly added owners or incoming references in otherwise unselected Models cannot be detected completely without a full scan. After such edits, explicitly rebuild the index offline before Deploy; the index alone does not prove freshness.
 
 ### Resource-level CloudFormation identity
 

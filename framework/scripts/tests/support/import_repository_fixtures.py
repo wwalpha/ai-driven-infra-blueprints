@@ -10,7 +10,7 @@ from pathlib import Path
 import import_guard
 import model.importing.repository as _imports_model_importing_repository
 from model.importing.scope import read_consumers
-from utils import sealed_evidence
+from utils import local_evidence
 
 from model import dependency_index
 
@@ -106,7 +106,7 @@ def repositories(monkeypatch):
             yield cases
         finally:
             _cases.reset(token)
-            evidence_store = sealed_evidence.evidence_store
+            evidence_store = local_evidence.shared_store
             for root in cases:
                 directory = evidence_store(root, create=False)
                 if directory.exists():

@@ -320,13 +320,6 @@ alone do not enable that setting.
 - For read-only loops, continue regression and diff checks even if the validator fails; integrated write failures stop follow-up checks as specified in [Local loop execution](loop-engineering.md#local-loop-execution). Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.
 - Retain existing mandatory CloudFormation deploy context, `aws cloudformation validate-template`, change set/change summary, delete/replacement checks, AWS account/region checks, and Terraform fmt/init/validate/plan/apply procedures according to each phase's rules/prompts. The loop does not replace actual IaC/deployment procedures or combine implement and deploy.
 
-## Windows full regression input guard
-
-- Windows full regression requires human password input before starting validation processes for explicit `full` / `--all` (including `test_*.py`). Scoped validation and regression narrowed to a subset by explicit mappings require no input. In staged validation, the snapshot runner uses the same guard. On Windows, stage the current runner/guard and reject dispatch through old entrypoints differing from workspace content.
-- The human runs `python -I -B framework/scripts/regression_guard.py --install` at repository root to register a salted PBKDF2-HMAC-SHA256 hash only in the single `.lock` at repo root. Do not use administrator privileges, ProgramData, separate helper installation, or ACL settings. Do not overwrite existing `.lock`.
-- Before each full regression, match input against that repository's `.lock`. For absent registration, invalid format, redirect, noninteractive input, mismatch, or canceled input, do not start validation processes or report PASS. Do not pass passwords through chat, arguments, environment variables, or logs or save unlock flags/tokens/authenticated state. Agents must not register/retrieve actual passwords or bypass guards.
-- `.lock` is local configuration, not a task artifact; exclude only repo-root `.lock` from validator changed task paths. Carry the same registration into staged snapshots; source `.lock` changes also make final results stale. Do not display actual password/hash registration values in completion reports or logs.
-
 ## Conflict resolution and reproducible validation
 
 - Launch with `python -X utf8 framework/scripts/blueprint-loop.py --mode task` is recommended. Even under ordinary launch, the runner restarts in UTF-8 mode and passes `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` to child processes. Before validation, confirm Japanese file reads/writes and child process output; do not start regression if this fails. Explicitly specify UTF-8 for text I/O.

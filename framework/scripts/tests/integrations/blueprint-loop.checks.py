@@ -304,14 +304,6 @@ def check_staged_snapshot(tmp_path):
     MODULE.git(root, "add", ".")
     active.write_text("dirty workspace contract", encoding="utf-8")
     (root / "untracked.txt").write_text("not staged", encoding="utf-8")
-    (root / ".lock").write_text(
-        '{"local":"fixture service_source"}\n', encoding="utf-8"
-    )
-    validator.write_text(
-        validator.read_text(encoding="utf-8")
-        + "assert __import__('json').loads(Path('.lock').read_text()) == {'local':'fixture service_source'}\n",
-        encoding="utf-8",
-    )
     MODULE.git(root, "add", "checks/validate-blueprint.py")
     log_parent = tmp_path / "logs"
     command = [

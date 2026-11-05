@@ -94,7 +94,7 @@ from support.pytest_cli import run
 from support.regression_cases import case_ids
 from task_contract_core import model_operation, model_refactor, selected_task
 from task_contract_runtime import complete
-from utils import sealed_evidence
+from utils import local_evidence
 from utils.input_cache import input_context
 from utils.json_format import document_sha256
 from utils.script_loader import module as module
@@ -770,21 +770,12 @@ def check_candidate_scope_and_changed_files(tmp_path, case_runner, case_id):
     )
 
 
-def check_sealed_evidence_tamper(tmp_path):
+def check_old_import_envelope_rejected(tmp_path):
     file = tmp_path / "acquisition.json"
-    value = {
-        "scope": ["dev", "cde", "vpc"],
-        "records": [record()],
-        "sts": {"verified": True},
-    }
-    with patch.object(sealed_evidence, "seal_key", return_value=b"x" * 32):
-        file.write_text(sealed_evidence.sealed(tmp_path, value), encoding="utf-8")
-        assert sealed_evidence.read_sealed(tmp_path, file) == value
-        data = json.loads(file.read_text(encoding="utf-8"))
-        data["payload"]["records"][0]["identity"] = "fabricated"
-        file.write_text(json.dumps(data), encoding="utf-8")
-        with pytest.raises(ValueError, match="modified"):
-            sealed_evidence.read_sealed(tmp_path, file)
+    file.write_text(json.dumps({"payload": {}, "signature": "obsolete"}), encoding="utf-8")
+    file.chmod(0o600)
+    with pytest.raises(ValueError, match="invalid local evidence"):
+        local_evidence.read_sealed(tmp_path, file)
 
 
 @pytest.mark.parametrize(
@@ -1476,9 +1467,9 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
             proof["reviewBindingDigest"] = document_sha256(proof["reviewBinding"])
     file = import_guard.proof_path(root)
     assert not file.is_relative_to(root)
-    sealed_evidence.write_sealed(root, file, proof)
+    local_evidence.write_sealed(root, file, proof)
     if failure == "tamper":
-        file.write_text(file.read_text().replace("verified", "fabricated"))
+        file.write_text(file.read_text().replace("tasks/example.md", "tasks/other.md"))
     elif failure == "missing":
         file.unlink()
     if failure != "none":
@@ -1558,13 +1549,13 @@ def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
         "acquiredAt": datetime.now(timezone.utc).isoformat(),
     }
     review_proof_fixture(root, proof)
-    sealed_evidence.write_sealed(root, import_guard.proof_path(root), proof)
+    local_evidence.write_sealed(root, import_guard.proof_path(root), proof)
     import_evidence.copy_import_proof(root, snapshot)
     with pytest.raises(ValueError, match="no verified"):
         import_evidence.read_proof(snapshot)
     assert (
         import_guard.proof_path(root).read_bytes()
-        != import_guard.proof_path(snapshot).read_bytes()
+        == import_guard.proof_path(snapshot).read_bytes()
     )
     import_evidence.discard_import_proof(snapshot, "tasks/example.md")
     assert (

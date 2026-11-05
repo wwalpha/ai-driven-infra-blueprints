@@ -33,9 +33,9 @@ from utils.input_cache import (
 )
 from utils.json_format import exact as exact
 from utils.json_format import json_text, strict_json
+from utils.local_evidence import shared_store as evidence_store
 from utils.project_targets import DeployContextError, select_target
 from utils.script_loader import module
-from utils.sealed_evidence import evidence_store
 from utils.source_reads import CandidateReads as CandidateReads
 from utils.source_reads import FileReads as FileReads
 from utils.type_contracts import JsonObject

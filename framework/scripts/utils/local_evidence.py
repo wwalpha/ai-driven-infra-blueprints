@@ -3,10 +3,24 @@
 import json
 import os
 import stat
+import tempfile
+from pathlib import Path
 
 from utils.file_operations import atomic_replace_file
-from utils.json_format import json_text
-from utils.sealed_evidence import evidence_store as shared_store
+from utils.json_format import document_sha256, json_text
+
+
+def shared_store(root, *, create=True):
+    base = Path(tempfile.gettempdir()).resolve() / (
+        "blueprint-import-" + document_sha256(str(Path.home()))[:16]
+    )
+    directory = base / document_sha256(str(root.resolve()))
+    for path in (base, directory):
+        if not create and not path.exists() and not path.is_symlink():
+            return directory
+        path.mkdir(mode=0o700, exist_ok=True)
+        private(path, directory=True)
+    return directory
 
 
 def evidence_store(root, *, create=True):

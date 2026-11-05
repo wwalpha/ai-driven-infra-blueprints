@@ -51,7 +51,7 @@ from support.worktree_task_fixtures import (
 from support.worktree_task_fixtures import (
     contract as contract,
 )
-from utils import sealed_evidence
+from utils import local_evidence
 from utils.aws_mappings import mapping_alias
 from validation import loop
 from validation.findings import Findings
@@ -1610,8 +1610,8 @@ def check_explicit_disposal_and_orphans():
             (target / "file.txt").write_text("dirty\n", encoding="utf-8")
             (target / "untracked.txt").write_text("discard\n", encoding="utf-8")
             (target / "secret.bin").write_bytes(b"ignored discard")
-            proof = sealed_evidence.evidence_store(target) / "example.json"
-            sealed_evidence.write_sealed(target, proof, {"task": state["task_file"]})
+            proof = local_evidence.shared_store(target) / "example.json"
+            local_evidence.write_sealed(target, proof, {"task": state["task_file"]})
             shared_marker = wt.python_env.shared_directory(root) / "keep.txt"
             shared_marker.parent.mkdir(parents=True, exist_ok=True)
             shared_marker.write_text("shared environment", encoding="utf-8")

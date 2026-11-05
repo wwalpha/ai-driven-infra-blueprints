@@ -46,7 +46,7 @@ from support.pytest_cli import GroupDiagnostics, groupable, run_group, unit_comm
 from support.pytest_cli import run as pytest_run
 from support.validator import MODULE as validator
 from support.validator import project, schema_validator, write
-from utils import sealed_evidence
+from utils import local_evidence
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.git_changes import GitWorkingPaths
 from utils.script_loader import module
@@ -779,7 +779,6 @@ def check_unit_dispatch(tmp_path, scope, paths):
         patch.object(MODULE, "changed_paths", return_value=paths) as changes,
         patch.object(MODULE, "select_checks", wraps=MODULE.select_checks) as selection,
         patch.object(MODULE._imports_validation_runner, "run_validation") as validate,
-        patch.object(MODULE, "authorize_full_regression") as authorize,
         patch.object(MODULE, "run_commands", return_value=0) as dispatch,
         patch.object(MODULE, "utf8_preflight"),
         patch.object(
@@ -800,7 +799,6 @@ def check_unit_dispatch(tmp_path, scope, paths):
             saved_logs = {
                 path: path.read_bytes() for path in (tmp_path / "logs").rglob("*.jsonl")
             }
-            authorize.reset_mock()
             selection.reset_mock()
             with patch.object(
                 sys, "argv", [str(runner), *args, "--log-dir", str(tmp_path / "logs")]
@@ -820,10 +818,7 @@ def check_unit_dispatch(tmp_path, scope, paths):
             if args == ["--mode", "full"]:
                 assert "--fresh" in commands[0]
                 assert ("--contract-scope" in commands[0]) == (scope is not None)
-            if full:
-                authorize.assert_called_once_with(root)
-            else:
-                authorize.assert_not_called()
+            if not full:
                 selection.assert_not_called()
             assert ",cr-at-eol" in commands[-2][2]
             assert commands[-2][-1] == "--check" and "--cached" in commands[-1]
@@ -852,7 +847,6 @@ def check_unit_dispatch(tmp_path, scope, paths):
             len(dispatch.call_args.args[1]) == 3
         )  # No forced UT for non-regression scope.
         dispatch.reset_mock()
-        authorize.reset_mock()
         with patch.object(
             sys,
             "argv",
@@ -870,7 +864,6 @@ def check_unit_dispatch(tmp_path, scope, paths):
             assert CLI.main() == 0
         staged.assert_called_once()
         dispatch.assert_not_called()
-        authorize.assert_not_called()  # The pinned snapshot performs its own authorization.
 
 
 def _check_ci_workflow_invalid_receipts(command, **kwargs):
@@ -952,8 +945,7 @@ def check_run_it_dispatch(tmp_path, monkeypatch):
             patch.object(
                 run_it, "source_snapshot", return_value="unchanged"
             ) as snapshot,
-            patch.object(MODULE, "authorize_full_regression") as authorize,
-            patch.object(
+                patch.object(
                 MODULE, "select_checks", return_value=([SCRIPT], "all requested")
             ) as discover,
             patch.object(
@@ -973,7 +965,6 @@ def check_run_it_dispatch(tmp_path, monkeypatch):
             patch.object(run_it, "run_all", return_value=outcome) as it_dispatch,
         ):
             assert run_it.main() == int(bool(unit_status or timing_errors or it_status))
-        authorize.assert_called_once_with(run_it.TESTS.parents[2])
         policy_check.assert_called_once_with(run_it.TESTS)
         assert snapshot.call_count == 3
         assert discover.call_args.args == (run_it.TESTS.parents[2],)
@@ -983,18 +974,6 @@ def check_run_it_dispatch(tmp_path, monkeypatch):
         assert it_dispatch.call_args.args[0] == run_it.TESTS
         assert it_dispatch.call_args.kwargs == {}
 
-    with (
-        patch.object(sys, "argv", ["run_it.py"]),
-        patch.object(
-            MODULE, "authorize_full_regression", side_effect=ValueError("locked")
-        ),
-        patch.object(MODULE, "run_commands") as unit_dispatch,
-        patch.object(run_it, "run_all") as it_dispatch,
-        pytest.raises(ValueError, match="locked"),
-    ):
-        run_it.main()
-    unit_dispatch.assert_not_called()
-    it_dispatch.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -1009,7 +988,6 @@ def check_ut_policy_preflight_failure(failure):
     errors = ["forbidden"] if failure == "policy" else []
     with (
         patch.object(sys, "argv", ["run_it.py", "--ut-only"]),
-        patch.object(MODULE, "authorize_full_regression"),
         patch.object(MODULE, "select_checks", return_value=([SCRIPT], "all")),
         patch.object(run_it, "source_snapshot", side_effect=snapshots),
         patch.object(run_it, "violations", return_value=errors),
@@ -1048,7 +1026,6 @@ def check_ut_only_never_reaches_it(
         patch.object(sys, "argv", ["run_it.py", "--ut-only"]),
         patch.object(run_it, "violations", return_value=[]) as policy_check,
         patch.object(run_it, "source_snapshot", return_value="unchanged") as snapshot,
-        patch.object(MODULE, "authorize_full_regression") as authorize,
         patch.object(MODULE, "select_checks", return_value=([SCRIPT], "all requested")),
         patch.object(MODULE, "run_commands", return_value=unit_status) as units,
         patch.object(
@@ -1067,7 +1044,6 @@ def check_ut_only_never_reaches_it(
         patch.object(run_it, "inventory") as inventory,
     ):
         assert run_it.main() == int(bool(unit_status or timing_errors))
-    authorize.assert_called_once_with(run_it.TESTS.parents[2])
     policy_check.assert_called_once_with(run_it.TESTS)
     assert snapshot.call_count == 3
     assert units.call_args.args[1] == [[sys.executable, str(SCRIPT)]]
@@ -1531,46 +1507,6 @@ def check_staged_write_rejected():
     assert error.value.code == 2
 
 
-def check_regression_authorization(tmp_path):
-    root = tmp_path / "repository"
-    scripts = root / "framework/scripts"
-    scripts.mkdir(parents=True)
-    (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
-    runner = scripts / SCRIPT.name
-    runner.write_text("# fixture\n", encoding="utf-8")
-    (scripts / "tests/units/a.checks.py").write_text("# fixture\n", encoding="utf-8")
-    with (
-        patch.object(Path, "cwd", return_value=root),
-        patch.object(MODULE, "active_scope", return_value={"framework"}),
-        patch.object(MODULE, "changed_paths", return_value=set()) as changed,
-        patch.object(
-            MODULE,
-            "authorize_full_regression",
-            side_effect=ValueError("fixture locked"),
-        ) as authorize,
-        patch.object(MODULE, "run_commands", return_value=0) as run,
-        patch.object(MODULE, "utf8_preflight"),
-        redirect_stdout(io.StringIO()),
-        patch.object(sys, "stderr", io.StringIO()),
-    ):
-        logs = tmp_path / "logs"
-        for mode, paths, extra in (("full", set(), []), ("local", set(), ["--all"])):
-            changed.return_value = paths
-            with patch.object(
-                sys,
-                "argv",
-                [str(runner), "--mode", mode, "--log-dir", str(logs), *extra],
-            ):
-                assert CLI.main() == 2
-            run.assert_not_called()
-        authorize.side_effect = KeyboardInterrupt()
-        with patch.object(
-            sys, "argv", [str(runner), "--mode", "full", "--log-dir", str(logs)]
-        ):
-            assert CLI.main() == 130
-        run.assert_not_called()
-
-
 def _callback_check_startup_diagnostics_run(
     fail, phase, real_run, /, command, *args, **kwargs
 ):
@@ -1831,7 +1767,7 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
     monkeypatch.setattr(
         evidence,
         "read_proof",
-        lambda root: sealed_evidence.read_sealed(root, import_guard.proof_path(root)),
+        lambda root: local_evidence.read_sealed(root, import_guard.proof_path(root)),
     )
     # Authorization is covered by Import IT; this fixture runs the real staged copy/finally boundary.
     (scripts / "blueprint-loop.py").write_text(
@@ -1848,7 +1784,7 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
         "task": selected,
         "acquiredAt": datetime.now(timezone.utc).isoformat(),
     }
-    sealed_evidence.write_sealed(root, import_guard.proof_path(root), proof)
+    local_evidence.write_sealed(root, import_guard.proof_path(root), proof)
     saved = import_guard.proof_path(root).read_bytes()
     directory = tmp_path / "logs"
     directory.mkdir()
@@ -1869,13 +1805,13 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
         )
         child.assert_called_once()
     snapshot = directory / "repository"
-    assert not sealed_evidence.evidence_store(snapshot, create=False).exists()
+    assert not local_evidence.shared_store(snapshot, create=False).exists()
     assert import_guard.proof_path(root).read_bytes() == saved
     assert not (root / ".blueprint").exists() and not (snapshot / ".blueprint").exists()
     import_evidence.discard_import_proof(root, selected)
 
 
-@pytest.mark.parametrize("change", ["head", "index", "lock", "windows"])
+@pytest.mark.parametrize("change", ["head", "index", "lock"])
 @pytest.mark.parametrize("issue_only", [False, True])
 def check_snapshot_guards(tmp_path, monkeypatch, change, issue_only):
     root = tmp_path / "source"
@@ -1919,25 +1855,13 @@ def check_snapshot_guards(tmp_path, monkeypatch, change, issue_only):
         child.return_value.wait.side_effect = _bind_framework_callback(
             _snapshot_guard_wait, lock, change
         )
-        if change == "windows":
-            with (
-                patch.object(
-                    MODULE, "os", SimpleNamespace(name="nt", environ=os.environ)
-                ),
-                pytest.raises(ValueError, match="current runner and regression guard"),
-            ):
-                MODULE.staged_snapshot(root, args, directory, {})
-            child.assert_not_called()
-        else:
-            assert MODULE.staged_snapshot(root, args, directory, {}) == (
-                0 if issue_only else 1
-            )
-            metadata = json.loads((directory / "snapshot.json").read_text())
-            assert (
-                ("source_unchanged" not in metadata)
-                if issue_only
-                else metadata["source_unchanged"] is False
-            )
+        assert MODULE.staged_snapshot(root, args, directory, {}) == (
+            0 if issue_only or change == "lock" else 1
+        )
+        metadata = json.loads((directory / "snapshot.json").read_text())
+        if not issue_only:
+            assert metadata["source_unchanged"] is (change == "lock")
+
 
 
 def _snapshot_guard_git(source, change, root, *args, **kwargs):
