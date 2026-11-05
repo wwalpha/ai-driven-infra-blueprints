@@ -375,6 +375,66 @@ def check_s3_key_link_validation(project_workspace, logical, attribute, anchor, 
         )
 
 
+@pytest.mark.parametrize(
+    "logical,attribute,anchor",
+    [
+        ("KMS_Key_001", "KeyId", "key-one"),
+        ("KMS_Key_001", "Arn", "key-one"),
+        ("KMS_Alias_001", "AliasName", "alias-one"),
+        ("KMS_Alias_001", "Arn", "alias-one"),
+    ],
+)
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
+def check_s3_key_link_diagnostic(project_workspace, logical, attribute, anchor, mode):
+    scope, bucket, kms_values = fixture(project_workspace)
+    bucket["desired.resource.001.resourceMode"] = mode
+    bucket[ROW] = "`" + json.dumps(reference(logical, attribute)) + "`"
+    write_model(scope.path, bucket)
+    files = designs(scope, bucket, kms_values)
+    view = scope.root / "docs/designs/fixture/team/s3.md"
+    expected = (
+        "alias/fixture-key"
+        if logical == "KMS_Alias_001"
+        else "12345678-1234-1234-1234-123456789abc"
+        if attribute == "KeyId"
+        else "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789abc"
+    )
+    valid = files[view]
+    assert "BucketEncryption[1].KMSMasterKeyID" in valid
+    valid = valid.replace("BucketEncryption[1]", "BucketEncryption[]")
+    for replacement, should_pass in [
+        (f"[{expected}](kms.md#{anchor})", True),
+        (f"[{expected}](kms.md#key-two)", False),
+        (f"[wrong](kms.md#{anchor})", False),
+        (f"[{expected}](kms.md#missing)", False),
+    ]:
+        candidate = valid.replace(f"[{expected}](kms.md#{anchor})", replacement)
+        assert f"[{expected}](kms.md#{anchor})" in valid
+        view.write_text(candidate, encoding="utf-8")
+        findings = Findings(scope.root)
+        validate_links(
+            {},
+            [view],
+            design_sources={view: bucket},
+            findings=findings,
+            root=scope.root,
+            scope=None,
+            definitions_root=FRAMEWORK,
+            check_display=False,
+        )
+        assert (not findings.errors and not findings.warnings) == should_pass, (
+            findings.errors,
+            findings.warnings,
+        )
+        if not should_pass and "#missing" not in replacement:
+            messages = "\n".join(map(str, findings.warnings))
+            assert (
+                "S3 KMSMasterKeyID link target and display must match its Model reference"
+                in messages
+            ), (findings.errors, findings.warnings)
+            assert "must display the referenced KMS alias name" not in messages
+
+
 def check_s3_multiple_key_links_cannot_be_swapped(project_workspace):
     scope, bucket, kms_values = fixture(project_workspace)
     bucket["desired.resource.001.resourceMode"] = "CREATE"
@@ -404,6 +464,48 @@ def check_s3_multiple_key_links_cannot_be_swapped(project_workspace):
         check_display=False,
     )
     assert findings.errors or findings.warnings
+
+
+def check_s3_link_diagnostic_second_reference(project_workspace):
+    scope, bucket, kms_values = fixture(project_workspace)
+    bucket["desired.resource.001.resourceMode"] = "CREATE"
+    bucket[ROW] = "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`"
+    for suffix, value in {
+        "property": PROP,
+        "value": "`" + json.dumps(reference("KMS_Key_002", "KeyId")) + "`",
+        "comment": "別のキー",
+    }.items():
+        bucket[f"desired.row.001-005.{suffix}"] = value
+    write_model(scope.path, bucket)
+    files = designs(scope, bucket, kms_values)
+    view = scope.root / "docs/designs/fixture/team/s3.md"
+    valid = (
+        files[view]
+        .replace("BucketEncryption[1]", "BucketEncryption[]")
+        .replace("BucketEncryption[2]", "BucketEncryption[]")
+    )
+    first = "[12345678-1234-1234-1234-123456789abc](kms.md#key-one)"
+    second = "[87654321-1234-1234-1234-123456789abc](kms.md#key-two)"
+    assert first in valid and second in valid
+    for candidate, expected in [(valid, False), (valid.replace(second, first), True)]:
+        view.write_text(candidate, encoding="utf-8")
+        findings = Findings(scope.root)
+        validate_links(
+            {},
+            [view],
+            design_sources={view: bucket},
+            findings=findings,
+            root=scope.root,
+            scope=None,
+            definitions_root=FRAMEWORK,
+            check_display=False,
+        )
+        assert not findings.errors, findings.errors
+        diagnostics = "\n".join(map(str, findings.warnings))
+        assert (
+            "S3 KMSMasterKeyID link target and display must match its Model reference"
+            in diagnostics
+        ) == expected, (findings.errors, findings.warnings)
 
 
 def check_iac_matrix(project_workspace):

@@ -1033,13 +1033,14 @@ def check_design_links(
         variable_type = ""
         source_anchor = ""
         reference_kind = ""
+        s3_kms_rows = defaultdict(int)
         for line in resource_heading_lines(source_lines):
             if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                 reference_kind = heading.group(1)
             if anchor := ANCHOR_PATTERN.fullmatch(line):
                 source_anchor = anchor.group(1)
             cells = [cell.strip() for cell in line.strip("|").split("|")]
-            s3_kms_index = 1
+            s3_kms_index = None
             if len(cells) == 4:
                 try:
                     display_property = cells[1]
@@ -1062,7 +1063,15 @@ def check_design_links(
                     continue
                 if cells[1] == CODEBUILD_FORMAL_VARIABLE + "Type":
                     variable_type = unquoted(cells[2])
-            if source_anchor in imported[source]:
+                if cells[1] == S3_KMS_MASTER_KEY_ID:
+                    s3_kms_rows[source_anchor] += 1
+                    if s3_kms_index is None:
+                        s3_kms_index = s3_kms_rows[source_anchor]
+            if source_anchor in imported[source] and not (
+                len(cells) == 4
+                and cells[1] == S3_KMS_MASTER_KEY_ID
+                and (source_anchor, s3_kms_index) in s3_kms_references
+            ):
                 continue
             link = (
                 RESOURCE_LINK_PATTERN.fullmatch(cells[2]) if len(cells) == 4 else None
@@ -1132,7 +1141,7 @@ def check_design_links(
                 if (source_anchor, s3_kms_index) in s3_kms_references:
                     findings.warn(
                         cells[2] == s3_kms_references[source_anchor, s3_kms_index],
-                        f"S3 KMSMasterKeyID must match its Model reference: {findings.relative(source)}: {label}",
+                        f"S3 KMSMasterKeyID link target and display must match its Model reference: {findings.relative(source)}: {label}",
                     )
                     continue
                 alias_name = (
