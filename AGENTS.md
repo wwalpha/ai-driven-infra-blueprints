@@ -41,3 +41,4 @@ The following guides you to authoritative sources; it is not a list of files to 
 - [cloudformation](framework/rules/cloudformation.md)/[terraform](framework/rules/terraform.md): Procedures specific to the selected engine
 - [scenario-testing](framework/rules/scenario-testing.md): Scenario-specific procedures
 - [loop-engineering](framework/rules/loop-engineering.md): Validation scope, checks, regression, completion conditions
+- [python-code-design](framework/rules/python-code-design.md): Read when newly implementing Python code, substantially changing an existing Python function, or refactoring Python code.
