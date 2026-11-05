@@ -133,7 +133,9 @@ class Evidence:
             candidates = [
                 candidate
                 for candidate in outputs
-                if identifier_source(
+                if reference_attribute(kind, candidate.removeprefix(kind + "."))
+                == attribute
+                or identifier_source(
                     inputs.catalog,
                     resource,
                     outputs,
