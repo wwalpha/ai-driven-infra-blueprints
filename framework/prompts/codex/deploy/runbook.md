@@ -12,11 +12,11 @@ env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudfor
 env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action status
 ```
 
-`sync --sync-stack` saves current facts for any outcome, generates available services, validates and saves locally. Repeat `--sync-stack` for the exact observation scope; intermediate saves keep the Task running. `checkpoint` resumes a saved local sync without resubmitting an AWS request. Use saved scope, including when resuming a final intent. `status` is only for independent inspection/interruption/uncertain requests through [SDK recovery](#unfinished-aws-operation-recovery), never a mechanical call before `advance`.
+`sync --sync-stack` saves current facts for any outcome, generates available services, validates and saves locally. Repeat `--sync-stack` for the exact observation scope; intermediate saves keep the Task running. `checkpoint` resumes a saved local sync without resubmitting an AWS request; it is not a Git checkpoint. Use saved scope, including when resuming a final intent. `status` is only for independent inspection/interruption/uncertain requests through [SDK recovery](#unfinished-aws-operation-recovery), never a mechanical call before `advance`.
 
 ## SDK Finish
 
-When ending the Task, use the final command below, retaining full Stack scope. Add only needed `--sync-stack` observations; omit when already saved. The controller validates the local Model/View and Task Acceptance before setting the Task to completed. Failure retains the Task and its local evidence. Use the same intent on retry.
+When ending the Task, use the final command below, retaining full Stack scope. Add only needed `--sync-stack` observations; omit when already saved. The controller validates the local Model/View and Task Acceptance before setting the Task to completed. Failure retains the Task and its local evidence. Use the same intent on retry. Local completion is separate from any Git integration.
 
 ```console
 env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --final
@@ -87,16 +87,6 @@ Read [Validation policy](../../../rules/loop-engineering.md#validation-policy), 
 
 Read [Verify and finish](#verify-and-finish) and [Observations, validation and publication](../../../rules/cloudformation.md#observations-validation-and-publication). Once all AWS requests are settled and required Model/View/loop work passed, run `python3 -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete` from the calling root. Retain CLI request evidence in its original Task.
 
-## Git Recovery
-
-This section applies to retained legacy Git evidence. Read [Managed Deploy snapshot and Git publication](../../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) for SDK and [Observations, validation and publication](../../../rules/cloudformation.md#observations-validation-and-publication) for CLI; select only the fixed method. SDK retry of an existing saved commit uses:
-
-```console
-python3 -B framework/scripts/worktree_task.py deploy-publish --task-id <task-id>
-```
-
-This performs no AWS execution or recollection, including when Task completed locally. On conflict show file/base/source/impact and obtain explicit Human resolution; the existing `--publication-resolution <absolute-json-path>` option takes that approved resolution and revalidates the actual latest-base candidate. Never invent a resolution, force integration or edit lifecycle metadata. CLI instead retains its candidate and uses the ordinary same-Task recovery/finalize procedure; never switch it to deploy-publish.
-
 ## CLI Recovery
 
 Read [Interruption and independent recovery](../../../rules/cloudformation.md#interruption-and-independent-recovery). Recheck fixed inputs/caller, original Stack/ChangeSet/name/tokens, full events and unfinished requests with direct CLI. Lost Create inspects the original unique name; lost Execute reconciles the same ID/token events. An old COMPLETE, AVAILABLE or missing event alone cannot settle a request. Missing evidence, replacement, UNKNOWN or competitor activity stops new mutations and retains tracking. No unconditional resend, replacement token, SDK recovery, rollback/delete or signed repair shortcut. Resume only the operation supported by current evidence, retaining original scope and consent boundaries.
@@ -106,7 +96,7 @@ Read [Interruption and independent recovery](../../../rules/cloudformation.md#in
 この節はSDK方式で固定済みの契約訂正専用。保存済みの固定契約とdigest一致が必須で、Git履歴や現在のTask文面から復元しない。CLI方式の不足証拠をSDK progressで補わない。
 
 固定後の契約訂正は[Self recovery](../../../rules/task-contract.md#self-recovery)と
-[Deploy correction conditions](../../../rules/cloudformation.md#managed-deploy-contract-correction)を読む。
+[Deploy correction conditions](../../../rules/cloudformation.md#deploy-contract-correction)を読む。
 元Human依頼と固定時の原文を比較し、固定Execution scopeと保存入力で証明できるOwner serviceの
 Validation scope追加と、必要なModified files／Allowed pathsの記載漏れを判断する。
 同一TargetのConsumerはDeferredのProducer・Consumer・Reference Key・Stackを確認し、
@@ -129,7 +119,7 @@ python3 -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md -
 他の阻害がないと確認したときだけ、既存の`--resume`を使い失敗した検査から再開する。
 AWS再実行やTask完了は訂正の結果として行わない。元契約原文や固定入力証拠の不足、未確定要求は停止する。
 原本・候補・現在値を検証できるObserved／生成Intentと未確定checkpointは既存復旧処理で保持・継続する。
-証拠不整合、固定済みcheckpoint候補、未完了Git公開、修復Failure／handoff、同時変更は停止・保持する。
+証拠不整合、固定済みcheckpoint候補、未完了の証拠、修復Failure／handoff、同時変更は停止・保持する。
 保存中断のintentが残った場合だけ同じ候補・同じ訂正コマンドで安全性を再検証する。
 未対応の契約訂正や状態を別Taskへの付け替え・無条件再固定・進捗削除で回避しない。
 再開は必要な`sync`／`checkpoint`を使い、確定済みStackを再Deployしない。

@@ -74,6 +74,18 @@ def check_error_secret_guard_precedes_snapshot(monkeypatch):
         exception_route_case(load_case("deploy_cli_guidance", "error-01"))
 
 
+
+def check_local_completion_guidance():
+    assert "Git integration is separate" in G.CONTROLLER_HELP
+    assert "not a Git checkpoint" in G.CONTROLLER_HELP
+    legacy = G.DeployStepBlocked(
+        "completed Deploy cannot advance; use deploy-publish for saved Git work or finalize after publication"
+    )
+    report = G.stopped("STEP", legacy)
+    assert "deploy-publish" not in json.dumps(report)
+    assert report["nextAction"]["command"] is None
+
+
 def check_missing_template_safe_diagnostic():
     path = "/private/task/inputs-123/App.json"
     error = FileNotFoundError(2, "secret", path)

@@ -442,7 +442,7 @@ The fixed text is retained as `deployContract` in the existing managed lifecycle
 Its presence and matching Task digest are mandatory; missing/inconsistent evidence stops.
 Never restore it from Git history or substitute the current Task text. The candidate is outside the repository and must
 retain the current suspended status/reason. A live contract already containing only those
-same additions is also accepted. See [Deploy correction conditions](cloudformation.md#managed-deploy-contract-correction)
+same additions is also accepted. See [Deploy correction conditions](cloudformation.md#deploy-contract-correction)
 for progress, locks and interruption handling. Success keeps the Task suspended, retains
 execution evidence and verified pending save candidates, and requires Snapshot validation
 again. Missing fixed Resource evidence, unknown manifests, active requests

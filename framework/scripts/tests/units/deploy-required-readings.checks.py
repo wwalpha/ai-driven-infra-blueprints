@@ -156,6 +156,37 @@ def check_direct_deploy_routes():
     assert "git worktree list" not in permission
 
 
+
+def check_local_deploy_document_contract():
+    root = Path(__file__).resolve().parents[4]
+    rules = (root / "framework/rules/cloudformation.md").read_text(encoding="utf-8")
+    book_path = root / "framework/prompts/codex/deploy/runbook.md"
+    book = book_path.read_text(encoding="utf-8")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    sections = markdown_sections(rules)
+    local = sections["local-deploy-completion"]
+    final = sections["explicit-final-sync-candidate"]
+    assert "Worktree is optional" in local
+    assert "not a completion condition" in local
+    assert "Git integration is separate" in final
+    assert "not a Git checkpoint" in final
+    assert "without another `--final`" in final
+    for text in (rules, book, readme):
+        assert "deploy-start" not in text
+        assert "deploy-publish" not in text
+    assert "## Git Recovery" not in book
+    assert "Existing applicable lifecycle/HEAD/index integrity checks remain in force" in rules
+    correction = markdown_sections(book)["correct-this-tasks-preparation-omissions"]
+    assert "deploy-contract-correction" in rule_readings(root, book_path, correction)[
+        root / "framework/rules/cloudformation.md"
+    ]["sections"]
+    task_path = root / "framework/rules/task-contract.md"
+    task = task_path.read_text(encoding="utf-8")
+    assert "deploy-contract-correction" in rule_readings(root, task_path, task)[
+        root / "framework/rules/cloudformation.md"
+    ]["sections"]
+
+
 def check_deploy_skill_structure_uses_definition_root(tmp_path):
     root, definitions = tmp_path / "consumer", tmp_path / "definitions"
     root.mkdir()

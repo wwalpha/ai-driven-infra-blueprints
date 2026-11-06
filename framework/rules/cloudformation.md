@@ -207,7 +207,7 @@ completion uses the ordinary `task_contract.py --complete` local validator rathe
 than SDK local progress/final-save receipts. Task completion and any later Git integration are separate.
 These local branches perform no AWS retrieval, submission, scheduling or recovery;
 the LLM remains responsible for all AWS decisions and unsettled-request tracking.
-Do not call SDK `sync`/`checkpoint`/`deploy-publish`, manufacture SDK receipts, edit
+Do not call SDK `sync`/`checkpoint`, manufacture SDK receipts, edit
 lifecycle metadata or change the Task phase to complete CLI. SDK-bound lifecycle
 state cannot be converted to CLI; preserve the original Task and request evidence.
 
@@ -476,33 +476,32 @@ its independent procedure and non-AWS completion path are defined above.
 
 ### LLM-controlled short operations
 
-Use `cloudformation-deploy.py --action status|advance|sync|checkpoint` in the existing
-managed Worktree, with the same current Task, Target and complete Stack scope.
+Use `cloudformation-deploy.py --action status|advance|sync|checkpoint` from the calling repository root, with the same current Task, Target and complete Stack scope.
 Only the LLM chooses sync timing and explicit `--sync-stack` names. Do not use Sub Agents,
 a background Model writer, fixed-period sync or Python-driven agent control.
 
 - `status` reads current AWS and displays current Stack state, this attempt's result,
-  Model save, Snapshot validation and Git publication separately.
+  Model save, Snapshot validation and Task status separately.
 - `advance` reads current AWS first and advances one bounded poll/prepare/execute turn.
   It keeps DeployOrder and the configured concurrency. A failed Stack does not stop
   independent peers in the same Order. A later Order requires prior Order success;
   saving a failure Snapshot never grants that success.
 - `sync` reads the selected current observations, atomically saves permitted Model
-  changes, generates available services, validates the complete candidate and uses
-  existing checkpoint/Git publication. No separate checkpoint command is required.
-- `checkpoint` resumes a saved candidate's validation/commit/publication without a
-  new AWS execution or fresh observation. A saved completed contract may retry Git only.
+  changes, generates available services and validates the local candidate. No separate
+  checkpoint command is required.
+- `checkpoint` resumes a saved local sync and its validation without a new AWS
+  execution or fresh observation; it is not a Git checkpoint or publication.
 
 Sync accepts successful, failed, rolled-back, partially applied, unexecuted, running
 and unreadable Stacks. Unexecuted does not mean absent. Consistent observations may
 be saved while another Stack is changing; no target-wide quiescence is required.
 Generation failures retain saved Model authority and successful service outputs;
 stale Views are not claimed current. True structural/reference/scope/View mismatch
-blocks integration, retaining the candidate for local recovery without new AWS work.
+blocks completion, retaining the candidate for local recovery without new AWS work.
 
 ### Explicit operations
 
-Specify `--action` for each invocation. Use `advance` for a bounded turn and `status` to inspect current requests without saving or publication. Select `sync` and `checkpoint` explicitly for Model saving and Git publication. Select sync before the producer/consumer input handoff. Claimed inputs remain fixed; a later update invocation may claim its newly implemented, previously unused Consumer inputs. This grants no IaC changes to Deploy.
+Specify `--action` for each invocation. Use `advance` for a bounded turn and `status` to inspect current requests without saving or publication. Select `sync` for Model saving and `checkpoint` for saved local sync recovery. Select sync before the producer/consumer input handoff. Claimed inputs remain fixed; a later update invocation may claim its newly implemented, previously unused Consumer inputs. This grants no IaC changes to Deploy.
 
 Normal decisions use current scoped DescribeStacks and ChangeSets plus this Task's
 fixed inputs. CREATE_COMPLETE / UPDATE_COMPLETE / IMPORT_COMPLETE are successful
@@ -515,45 +514,20 @@ read/permission/network failures are UNKNOWN, never absence.
 
 Keep this Task's original Stack ID, ChangeSet ID and token when a submission reply is lost. Report an uncertain outcome without blind resubmission. A new Deploy uses a new Task and current AWS state. Unresolved requests for overlapping Stacks in the same checkout block new SDK submissions and remain owned by their original Task.
 
-### Managed Deploy snapshot and Git publication
+### Local Deploy completion
 
-This section describes legacy managed Deploy evidence and its explicit Git recovery.
-Ordinary Deploy uses the calling checkout and its current committed IaC, Task
-contract and Task-local progress. An explicitly managed Deploy starts with `worktree_task.py deploy-start --task-name <task-name>`; use the returned Task ID and contract path. SDK sync saves Observed and Views locally, then
-checks the current Task and required Validation. Final sync may complete a settled
-Task with Deploy FAIL unchanged. No Git publication is needed for local completion.
+Use the calling checkout for Preparation, AWS execution, Observed and View synchronization,
+Validation and Task completion. A Worktree is optional; when needed, use ordinary
+`create --task-name` and its returned Task ID and root. `sync --final` completes the
+local Task only after settled requests, required saves, Views and Validation. Git
+integration is separate and is not a completion condition. A settled failed attempt
+may complete with Deploy FAIL unchanged; active or uncertain requests prevent completion.
 
-Local progress resumes this Task's save/generation/checkpoint. Git receipts prove
-only saved candidates; restoring one never creates AWS SUCCESS. Current observations,
-attempt result, Snapshot validation, commit/merge and Task state remain separate.
-A failure Snapshot can have Deploy FAIL, UPDATE_ROLLBACK_COMPLETE, Snapshot PASS,
-commit/merge complete and Task completed. Desired remains the Human's intended design.
+A settled request may have an UNKNOWN attempt outcome while its current Snapshot is
+saved and validated independently. Never persist UNKNOWN as an identifier. Exact root
+Stack events use the original StackId/token; later operations cannot rewrite the attempt.
 
-Reuse the existing private candidate against the latest clean local base, scoped
-Model/Task validation, lifecycle lock and ff-only delivery. Validate the actual final
-candidate, including authorized scope, structure/types, references, unknown/pending
-identifiers and corresponding generated Views. No all-Stack success, all physical IDs,
-Desired/Observed equality, individual checkpoints or old Journal/Fence completion is
-required. Do not scan unrelated AWS resources or regenerate unrelated services.
-
-The final snapshot includes Task completed when observations, required generation and
-validation are complete and no AWS request is active/uncertain. Intermediate saves keep
-Task running and the same Worktree can continue AWS work. Failed finalized attempts do
-not remain suspended as old recovery work. AWS failure stays FAIL; validation remains
-PASS/FAIL and unexecuted required checks are never PASS. Other Workflow completion is unchanged.
-
-Git publication has independent SUCCESS/PENDING/CONFLICT. Commit success with merge
-failure retains the exact candidate (possibly completed locally). Use only
-`worktree_task.py deploy-publish --task-id <id>` to retry saved commits; no AWS call,
-Observed recollection or working-candidate commit is required. Existing Human conflict
-review remains: inspect files/base/source/impact, provide the approved exact resolution
-through `--publication-resolution <absolute-json-path>`, and validate the resulting
-candidate before delivery. Never automatically overwrite conflicts or force integration.
-After verified publication, ordinary finalize verifies and performs guarded cleanup.
-
-A settled current request may leave its attempt outcome UNKNOWN while the current Snapshot is saved and validated independently. Never persist UNKNOWN as an identifier. Exact root Stack events use the original StackId/token; later Stack replacement, repair or failure cannot rewrite the original attempt result or replace current observation fields.
-
-### Managed Deploy contract correction
+### Deploy contract correction
 
 The suspended same-Task operation in [Self recovery](task-contract.md#self-recovery)
 permits monotone additions only to Validation scope, Modified files and Allowed paths.
@@ -567,8 +541,8 @@ units/templates/parameters/artifacts, permissions or consent require their origi
 authority and cannot be disguised as preparation omissions. The digest comparison in normal
 Deploy remains mandatory.
 
-Correction requires ready managed Python, valid unchanged lifecycle/HEAD/index, original
-contract text and readable saved progress. It verifies current project target, execution
+Correction requires the current Python environment, original contract text and readable
+saved progress. Existing applicable lifecycle/HEAD/index integrity checks remain in force. It verifies current project target, execution
 units, file identities/consumed hashes/unit digests, saved Model inputs, and closed checkpoint
 receipts. Current Task operations must be settled: an uncertain submission, active/unknown recorded Stack or active controller stops correction. No AWS read is used to settle operations on this path. Missing progress/input evidence stops.
 
@@ -581,7 +555,7 @@ its retained generation Intent. An unfinished checkpoint without an adopted afte
 candidate may continue when every changed byte is explained by those Intents or a verified
 observation patch from its Git source. A fixed after/final candidate, commit intent,
 pending/conflicted/final Git publication or repair failure/handoff/integration evidence
-stops for existing checkpoint, Git publication or repair/discard review first. Failure
+stops for review of the retained evidence first. Failure
 evidence is inspected and retained, never implicitly erased. Completed Tasks are not
 reopened. Missing/inconsistent proof is BLOCKED with its concrete recovery need.
 
@@ -650,26 +624,18 @@ Destroy preflight validates scoped StackIds/Outputs and records exportNames; dep
 
 ### Explicit final sync candidate
 
-Use managed CloudFormation `--action sync --final` only when the LLM ends the Task.
-The full `--stack` selection still matches Task scope; `--sync-stack` selects only
-observations needed now and may be omitted when all required observations are saved.
-Ordinary sync retains running. Final sync records exact running/completed Task bytes
-in checkpointPending, validates completed privately with Model/View, then adopts only
-the verified status transition and commits that same source tree. Tracked contracts
-join that commit; ignored/untracked contracts are never force-added, but their exact
-bytes remain candidate and completion evidence. No empty commit or history rewrite.
-Validation failure retains running Task, saved Model and successfully generated Views.
-Checkpoint resumes its saved final intent without another --final; never change the
-saved scope or intent. Finalize checks the final receipt and publication before cleanup;
-it creates neither a separate Task candidate nor an additional source commit.
-Cleanup may remove its own non-ignored untracked contract only after matching the
-published final receipt exactly; an interrupted removal restores those same saved
-bytes on cleanup retry. Other untracked/ignored files and foreign edits remain blockers.
+Use CloudFormation `--action sync --final` only when the LLM ends the Task. The full
+`--stack` selection matches Task scope; `--sync-stack` selects observations needed now
+and may be omitted when all required observations are saved. Ordinary sync retains
+running. Final sync validates the local Model, Views and Task Acceptance before setting
+Task completed. Validation failure retains the running Task, saved Model and successfully
+generated Views. A settled failed AWS attempt remains Deploy FAIL.
 
-Progress persists identity plus one runContext, including full observation/generation
-candidates, fixed input evidence, generationError and checkpoint intent. Lifecycle
-Deploy publication is the only saved Git state; display always derives it freshly.
-Each Deploy Skill invocation creates a new Task and Snapshot. It does not read previous Tasks or shared request records. Within the current Task retain its Stack ID, ChangeSet ID, token and execution evidence; report an unknown response without blindly resending it. Read the current AWS Stack state immediately before creating and executing a ChangeSet. AWS API conflicts are reported as the current operation result.
+`--action checkpoint` resumes an already saved local sync, including its final intent,
+without another `--final`, new AWS execution or fresh observation. Keep its saved scope
+and intent. It is local save recovery, not a Git checkpoint. Git integration is separate
+from local Task completion. Retain current Task request identity and evidence; never
+blindly resend an uncertain AWS request.
 
 ## DeployOrder selection and synchronization scope
 
@@ -705,6 +671,6 @@ Necessary external producers are not deployed automatically. The existing Export
 checks current required Exports before creating a consumer ChangeSet; selected producers
 still require success. Missing/unknown/pending values do not prove a dependency satisfied.
 Snapshot, current AWS state checks, change/replacement approval, Order barriers,
-same-Order concurrency, partial saves and checkpoint/Git publication recovery remain required.
+same-Order concurrency, partial saves and local sync recovery remain required.
 CLI deployment remains independent: the LLM fixes the explicit selected StackNames in
 its Task and applies the same Order/dependency boundaries without calling SDK Preparation.

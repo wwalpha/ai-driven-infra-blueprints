@@ -49,7 +49,7 @@ For omitted owner services, suspend the same Task and use task_contract.py
 Validation services and exact outputs. Same-target deferred reference consumers
 also require explicit Human consent and --approve-deferred-consumer env/target/service.
 Other Targets gain no authority. Verified pending Intents are retained; unknown
-bytes, active requests and unfinished Git/failure evidence stop for existing recovery.
+bytes, active requests and unfinished failure evidence stop for review.
 Then check-resume-scope, resume and use needed sync/checkpoint without AWS replay.
 Do not relaunch the old preparation.json through --run-controller after correction.
 Failures return stage/cause/nextAction; command=null means stop for review.
@@ -59,6 +59,7 @@ CONTROLLER_HELP = """Examples (use the current Task, target and exact Deployment
   env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action advance
   env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action sync --sync-stack app-network
   env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action checkpoint --sync-stack app-network
+  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action sync --final
   env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action advance --profile app-dev
   env BLUEPRINT_TASK_FILE=tasks/update-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --sequential --action advance
   env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --action status
@@ -69,9 +70,11 @@ Deploy uses the current checkout and fixed authorized inputs.
 advance advances one bounded AWS turn; status reads latest scoped AWS.
 sync --sync-stack saves current facts (success/failure/rollback/partial/unexecuted/
 running/unknown), generates available services, validates and saves locally.
-sync --final validates the local Model/View and Task Acceptance, then completes the Task.
+sync --final validates the local Model/View and Task Acceptance, then completes the Task
+locally; Git integration is separate.
 Omit --sync-stack when all needed observations are already saved.
-checkpoint resumes a saved local sync; omitted --sync-stack uses its saved scope.
+checkpoint resumes a saved local sync, not a Git checkpoint; omitted --sync-stack
+uses its saved scope and preserves its final intent.
 The LLM chooses sync timing and explicit scope; no background writer or Sub Agents.
 Deploy result, Model save, Validation and Task status are independent.
 A consistent failed Snapshot can complete its Task with Deploy FAIL unchanged.
@@ -287,7 +290,6 @@ def safe_error(error):
             "finish the saved Observed Stack scope before another sync",
             "generationError has no recoverable generation candidate",
             "locally completed candidate still needs --action checkpoint; advance is unavailable",
-            "completed Deploy cannot advance; use deploy-publish for saved Git work or finalize after publication",
             "--final requires managed CloudFormation Deploy --action sync",
             "step operations require CloudFormation",
             "resume the saved sync before advance",
