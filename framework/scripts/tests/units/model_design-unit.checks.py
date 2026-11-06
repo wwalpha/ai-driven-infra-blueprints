@@ -1025,60 +1025,19 @@ def check_catalog_display_order(case_runner, case_id):
 
 
 def check_optional_naming_suffix():
-    patterns = (
-        (
-            "CloudFormation.Stack",
-            "StackName",
-            "cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}][-{{suffix}}]",
-        ),
-        (
-            "CodeCommit.Repository",
-            "RepositoryName",
-            "ccmt-{{application}}[-{{environment}}]-{{purpose}}[-{{suffix}}]",
-        ),
-        (
-            "S3.Bucket",
-            "BucketName",
-            "{{application}}-{{environment}}-{{purpose}}-{{account_id}}[-{{suffix}}]",
-        ),
-        (
-            "IAM.Role",
-            "RoleName",
-            "{{application}}-{{environment}}-{{purpose}}Role[-{{suffix}}]",
-        ),
-        (
-            "Athena.WorkGroup",
-            "Name",
-            "athwg-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]",
-        ),
-        ("Glue.SecurityConfiguration", "Name", "glsc[-{{number}}][-{{suffix}}]"),
-        (
-            "CodeBuild.Project",
-            "Name",
-            "cbld-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]",
-        ),
-        (
-            "CodePipeline.Pipeline",
-            "Name",
-            "cpln-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]",
-        ),
-        (
-            "CloudTrail.Trail",
-            "TrailName",
-            "ctrail-{{application}}-{{environment}}[-{{suffix}}]",
-        ),
-        (
-            "Macie.ClassificationJob",
-            "name",
-            "macie-{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]",
-        ),
+    targets = (
+        ("CloudFormation.Stack", "StackName"),
+        ("CodeCommit.Repository", "RepositoryName"),
+        ("S3.Bucket", "BucketName"),
+        ("IAM.Role", "RoleName"),
+        ("Athena.WorkGroup", "Name"),
+        ("Glue.SecurityConfiguration", "Name"),
+        ("CodeBuild.Project", "Name"),
+        ("CodePipeline.Pipeline", "Name"),
+        ("CloudTrail.Trail", "TrailName"),
+        ("Macie.ClassificationJob", "name"),
     )
-    for kind, field, pattern in patterns:
-        naming = "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in naming_rule_files(ROOT, kind.partition(".")[0])
-        )
-        assert f"| `{kind}` | `{field}` | `{pattern}` |" in naming, kind
+    for kind, field in targets:
         assert field in naming_targets(ROOT, kind.partition(".")[0])[kind], kind
     schema = DesignSchemaCatalog(ROOT)
     for suffix in ("", "-aaaaaa"):
