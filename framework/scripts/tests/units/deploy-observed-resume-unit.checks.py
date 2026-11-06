@@ -62,7 +62,7 @@ def check_execution_identity(field):
         "status": "SUCCESS",
         "stackId": "stack",
         "stackStatus": "UPDATE_COMPLETE",
-                "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
+        "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
         "changeSetId": "change",
         "changeDigest": "digest",
         "clientToken": "token",
@@ -174,7 +174,7 @@ def proposal(tmp_path):
                         "status": "SUCCESS",
                         "stackId": "stack",
                         "stackStatus": "UPDATE_COMPLETE",
-                "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
+                        "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
                     }
                 },
                 ["A"],
@@ -300,7 +300,7 @@ def check_direct_writer_keeps_noop_source_snapshot(tmp_path):
             "status": "SUCCESS",
             "stackId": "stack",
             "stackStatus": "UPDATE_COMPLETE",
-                "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
+            "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
         }
     }
     backend = SimpleNamespace(
@@ -978,7 +978,7 @@ def check_generated_journal_recovery_uses_observed_owner(tmp_path, monkeypatch):
         "status": "SUCCESS",
         "stackId": "stack",
         "stackStatus": "UPDATE_COMPLETE",
-                "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
+        "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
         "changeSetId": "change",
         "clientToken": "token",
         "changeDigest": "digest",
