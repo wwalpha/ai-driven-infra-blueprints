@@ -11,6 +11,8 @@ During ordinary Deploy, **never search, inspect or read Framework Python source*
 
 Confirm Human environment/Target, Engine, account/Region/profile, Stack scope and permitted actions against `project.json`; never infer missing scope or substitute credentials. Stop on uncertain identity, conflicting operations, changed fixed inputs or missing evidence. Deploy cannot change IaC, intended design or scenarios.
 
+For CloudFormation, a Human-specified name is not necessarily a formal StackName. Once the Environment and Target Directory are fixed, inspect the design Model's `cloudformation-stacks.properties` and obtain the formal StackNames from `desired.stack.*.name`. Compare each Human-specified name with those names: use an exact match; otherwise use a formal name only when the design establishes a unique correspondence. If there are multiple candidates, ask the Human to identify the intended Stack. If there is no candidate or the correspondence is unclear, ask the Human and do not proceed until the scope is fixed. Never guess from an ambiguous name or add a Stack the Human did not authorize. For multiple names, resolve each one and preserve the Human-authorized scope.
+
 Before registration read [Task transition](../../../framework/rules/task-contract.md#task-transition) (including its required common and conditional reads), [Task boundary](../../../framework/rules/task-contract.md#task-boundary), [Acceptance contract](../../../framework/rules/task-contract.md#acceptance-contract), [Topology](../../../framework/rules/project-configuration.md#topology) and [Credentials and account](../../../framework/rules/project-configuration.md#credentials-and-account). Reuse unchanged readings in this Task, never current AWS facts.
 
 Select only the fixed method: SDK follows the sections below directly. Read only Common entry, Local entry, SDK preparation and SDK operations before the first `advance`; later procedures are conditional. Human-selected CLI reads [CLI preparation](../../../framework/prompts/codex/deploy/runbook.md#cli-prepare) and its operation links, skipping SDK preparation/commands. Terraform reads [Terraform](../../../framework/prompts/codex/deploy/runbook.md#terraform). Both use [local entry](#local-entry).
@@ -27,7 +29,7 @@ CloudFormation progress and recovery remain tied to this same Task. Retain its W
 
 Use the returned Worktree root. The first repository change is registration of `tasks/<task-id>.md`. Model, Template, Parameters and Stack definitions are execution authority; generated detailed-design prose is not. Preparation is offline and does not authorize deployment.
 
-Offline preparation produces an external contract and summary; inspect the original contract, exact StackNames, Resource owners, Validation scope and Model/View paths before registering:
+Before running preparation, fix the entire Stack scope as described in Common entry. Pass only confirmed formal StackNames to `--stack`; never pass an unchecked Human string or treat a service name, abbreviation or internal identifier as a formal StackName. Do not run preparation while the scope is unresolved. Offline preparation produces an external contract and summary; inspect the original contract, exact StackNames, Resource owners, Validation scope and Model/View paths before registering:
 
 ```console
 python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> --task-file tasks/<task-id>.md
