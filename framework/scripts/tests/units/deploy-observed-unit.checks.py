@@ -1444,16 +1444,25 @@ def test_security_group_physical_id_contract():
     )
 
 
+@pytest.mark.parametrize(
+    "kind,physical,expected",
+    [
+        ("SecurityGroup", "sg-0123abcd", "sg-0123abcd"),
+        ("SecurityGroupIngress", "sgr-0123abcd", "sgr-0123abcd"),
+        ("SecurityGroupEgress", "sgr-0123abcd", "sgr-0123abcd"),
+        ("SecurityGroupIngress", "sg-0123abcd", None),
+    ],
+)
 def test_security_group_physical_fallback_collects_without_output(
-    project_workspace, monkeypatch
+    project_workspace, monkeypatch, kind, physical, expected
 ):
     root = project_workspace
     model_reference_fixtures.project_configuration(root)
     scope, values = model_reference_fixtures.resource_values(
-        root, "security-group", "EC2.SecurityGroup", attribute="Id"
+        root, "security-group", f"EC2.{kind}", attribute="Id"
     )
     model_reference_fixtures.write(scope, values)
-    document = {"Resources": {"Resource001": {"Type": "AWS::EC2::SecurityGroup"}}}
+    document = {"Resources": {"Resource001": {"Type": f"AWS::EC2::{kind}"}}}
     unit = {"name": "producer"}
     _, mapped = resolve_resources(
         root,
@@ -1494,9 +1503,9 @@ def test_security_group_physical_fallback_collects_without_output(
         lambda *a, **k: [
             {
                 "LogicalResourceId": "Resource001",
-                "ResourceType": "AWS::EC2::SecurityGroup",
+                "ResourceType": f"AWS::EC2::{kind}",
                 "ResourceStatus": "CREATE_COMPLETE",
-                "PhysicalResourceId": "sg-0123abcd",
+                "PhysicalResourceId": physical,
             }
         ],
     )
@@ -1508,8 +1517,13 @@ def test_security_group_physical_fallback_collects_without_output(
     )
     states = {"producer": {}}
     deploy_observed.collect_successful(backend, [unit], states)
-    assert states["producer"]["observedCoverage"]["Resource001"]["status"] == "UPDATED"
-    assert captured[scope.path]["observed.row.001-001.value"] == "`sg-0123abcd`"
+    coverage = states["producer"]["observedCoverage"]["Resource001"]
+    if expected is None:
+        assert coverage["status"] == "UNCONFIRMED"
+        assert "observed.row.001-001.value" not in captured[scope.path]
+    else:
+        assert coverage["status"] == "UPDATED"
+        assert captured[scope.path]["observed.row.001-001.value"] == f"`{expected}`"
 
 
 @pytest.mark.parametrize(

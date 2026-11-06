@@ -1420,7 +1420,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
                             and all(key in outputs for key in id_keys)
                         ):
                             ids = {outputs[key] for key in id_keys}
-                            if len(ids) == 1:
+                            if len(ids) == 1 and (physical is None or physical in ids):
                                 value = security_group_rule_id(
                                     backend,
                                     stack,
@@ -1432,6 +1432,8 @@ def collect_successful(backend, units, states, *, generated_views=None):
                                     actual,
                                     ids.pop(),
                                 )
+                        elif complete and not keys:
+                            value = physical
                     elif values and (
                         len(set(values)) != 1
                         or physical is not None

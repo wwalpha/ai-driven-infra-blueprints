@@ -60,11 +60,17 @@ def permission_source(root, resource, prop):
 
 
 def physical_identifier_source(resource, prop, physical=None):
-    # EC2 Security Group names can be physical IDs; only an actual group ID is usable.
+    kind = resource[RESOURCE_TYPE_KEY]
+    prefix = {
+        "EC2.SecurityGroup": "sg",
+        "EC2.SecurityGroupIngress": "sgr",
+        "EC2.SecurityGroupEgress": "sgr",
+    }.get(kind)
+    # CloudFormation can also return a name or the owning group ID for a rule.
     return (
-        resource[RESOURCE_TYPE_KEY] == "EC2.SecurityGroup"
-        and prop == "EC2.SecurityGroup.Id"
-        and (physical is None or re.fullmatch(r"sg-[0-9a-f]+", physical) is not None)
+        prefix is not None
+        and prop == f"{kind}.Id"
+        and (physical is None or re.fullmatch(rf"{prefix}-[0-9a-f]+", physical) is not None)
     )
 
 
