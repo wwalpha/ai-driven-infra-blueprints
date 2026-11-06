@@ -403,7 +403,7 @@ Modified files and Allowed paths. Do not expand authority merely to make a check
 Validate the contract and actual change scope after repair. If resolved, continue the
 same Task with its existing validation and Acceptance checks.
 
-A standalone task/local loop still suspends on failure. Worktree Skill-managed Task loops preserve the current Task status and stop on failure. If already suspended, inspect the recorded
+A standalone task/local loop still suspends on failure. Worktree Skill-managed Task loops preserve the current Task status and stop on failure. For an already suspended standalone Task, inspect the recorded
 reason and current state. Restore the erroneous changes and register each necessary
 file in Modified files and Allowed paths only when justified by the unchanged Task Goal.
 Run `task_contract.py --task-file tasks/<task-name>.md --check-resume-scope` for a
