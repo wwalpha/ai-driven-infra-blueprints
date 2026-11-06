@@ -111,8 +111,8 @@ Human同意の拡大は訂正扱いしない。ハッシュ一致は意味判断
 内部状態を手動変更せず、次を使う。
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --correct-deploy-contract <absolute-candidate.md>
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --check-resume-scope
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --correct-deploy-contract <absolute-candidate.md>
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --check-resume-scope
 ```
 
 成功してもsuspendを維持する。全停止原因が安全に訂正済みの自分の準備ミスだけであり、
