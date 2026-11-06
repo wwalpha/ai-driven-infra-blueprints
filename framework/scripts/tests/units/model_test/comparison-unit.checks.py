@@ -9,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import copy
@@ -1111,9 +1113,10 @@ def test_pending_source_does_not_select_ingress_rule():
         module.fetch(ctx, resource, "rule")
 
 
-def test_quicksight_namespace_fixture():
+@pytest.mark.parametrize("snapshot_only", [True, False])
+def test_quicksight_namespace_fixture(snapshot_only):
     fixture = load_fixture("quicksight/namespace")
-    actual = execute(fixture, snapshot_only=True)
+    actual = execute(fixture, snapshot_only=snapshot_only)
     assert_result(actual, fixture)
 
 

@@ -106,6 +106,7 @@ def set_path(tree, path, value):
 
 PATCHES = {
     ("quicksight", "describe_group"): {
+        "Status": 200,
         "Group.Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:group/default/fixture"
     },
     ("quicksight", "describe_data_source"): {

@@ -164,7 +164,7 @@ def check_preparation_success_output(tmp_path, capsys, registered, filename):
         argv = shlex.split(report["nextAction"]["command"].split(" && ", 1)[1])
         assert argv[-2:] == ["--run-controller", str(plan)]
         assert report["plan"] == str(plan)
-        assert str(ROOT / "framework/scripts/run-python.py") in argv
+        assert sys.executable in argv
     else:
         assert report["nextAction"]["command"] is None
         assert Path(report["plan"]).is_file()
@@ -259,7 +259,7 @@ def check_structured_reference_cause_and_handoff_command(tmp_path):
             }
         )
     argv = shlex.split(report["nextAction"]["command"].split(" && ", 1)[1])
-    assert str(ROOT / "framework/scripts/run-python.py") in argv
+    assert sys.executable in argv
     assert "BLUEPRINT_TASK_FILE=tasks/parent.md" in argv
     assert argv[-4:] == [
         "--task-file",

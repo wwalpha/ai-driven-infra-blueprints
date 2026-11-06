@@ -12,6 +12,7 @@ from dataclasses import asdict, replace
 from functools import lru_cache
 from functools import partial as _bind_framework_callback
 from pathlib import Path
+from types import SimpleNamespace
 
 import aws_mapping as _imports_aws_mapping
 import generation_inputs as _imports_generation_inputs
@@ -37,6 +38,7 @@ from contracts.model import (
     RESOURCE_TYPE_KEY,
 )
 from contracts.repository import PROJECT_FILENAME
+from contracts.target import AWS_REGION_KEY
 from design.array_display import indexed_rows
 from design.catalog import DesignSchemaCatalog
 from design.layout import confirmed_display_name
@@ -68,6 +70,8 @@ from model.render import display_name
 from model.sources import load_model, model_paths, publication_lock
 
 ROOT = Path(__file__).resolve().parents[3]
+AUDIT_QUICKSIGHT_SHAPE = {}
+AUDIT_PARTITION = AUDIT_REGION = ""
 
 
 def pipeline_indexed_rows(rows):
@@ -247,6 +251,67 @@ def _definitions(source, names, filename):
     return "\n\n".join(found[name] for name in selected) + "\n"
 
 
+def audit_sdk_shape(shape):
+    """Capture the SDK response contract needed by the standalone audit."""
+    result = {"type": shape.type_name}
+    if shape.type_name == "structure":
+        result["required"] = list(shape.required_members)
+        result["members"] = {
+            name: audit_sdk_shape(child) for name, child in shape.members.items()
+        }
+    elif shape.type_name not in {"string", "integer"}:
+        raise ValueError(
+            "unsupported standalone SDK response shape: " + shape.type_name
+        )
+    if "min" in shape.metadata:
+        result["min"] = shape.metadata["min"]
+    return result
+
+
+def audit_sdk_valid(value, schema):
+    kind = schema["type"]
+    if kind == "structure":
+        if not isinstance(value, dict) or not set(schema["required"]) <= value.keys():
+            return False
+        return all(
+            key in schema["members"] and audit_sdk_valid(item, schema["members"][key])
+            for key, item in value.items()
+        )
+    if kind == "string":
+        return isinstance(value, str) and len(value) >= schema.get("min", 0)
+    return type(value) is int and value >= schema.get("min", value)
+
+
+def sdk_response(root, getter, response):
+    if getter != {
+        "service": "quicksight",
+        "operation": "describe_group",
+    } or not isinstance(response, dict):
+        return False
+    metadata = response.get("ResponseMetadata", {})
+    if not isinstance(metadata, dict):
+        return False
+    statuses = [response["Status"]] if "Status" in response else []
+    if "HTTPStatusCode" in metadata:
+        statuses.append(metadata["HTTPStatusCode"])
+    return all(
+        type(status) is int and 200 <= status < 300 for status in statuses
+    ) and audit_sdk_valid(
+        {key: value for key, value in response.items() if key != "ResponseMetadata"},
+        AUDIT_QUICKSIGHT_SHAPE,
+    )
+
+
+def sdk_for(root):
+    return SimpleNamespace(
+        session=lambda: SimpleNamespace(
+            get_partition_for_region=lambda region: AUDIT_PARTITION
+            if region == AUDIT_REGION
+            else None
+        )
+    )
+
+
 @lru_cache(maxsize=64)
 def embed_adapter(source, service, engine_source):
     """Resolve adapter imports before embedding and reject unknown dependencies."""
@@ -279,6 +344,8 @@ def embed_adapter(source, service, engine_source):
                     "contracts.target",
                     "contracts.repository",
                     "contracts.mapping",
+                    "model.importing.limitations",
+                    "utils.aws_sdk",
                 }
                 and isinstance(node, ast.ImportFrom)
                 and not node.level
@@ -958,6 +1025,23 @@ def _build(root, environment, selector, service, standalone):
             f"{name} = {getattr(contract, name)!r}\n" for name in names
         )
     engine += contract_bindings
+    if "quicksight" in mappings:
+        session = aws_runtime().sdk_session()
+        shape = (
+            session.get_service_model("quicksight")
+            .operation_model("DescribeGroup")
+            .output_shape
+        )
+        engine += "AUDIT_QUICKSIGHT_SHAPE = " + repr(audit_sdk_shape(shape)) + "\n"
+        engine += "AUDIT_REGION = " + repr(target[AWS_REGION_KEY]) + "\n"
+        engine += (
+            "AUDIT_PARTITION = "
+            + repr(session.get_partition_for_region(target[AWS_REGION_KEY]))
+            + "\n"
+        )
+        engine += definitions(
+            scripts / "model/audit.py", ["audit_sdk_valid", "sdk_response", "sdk_for"]
+        )
     engine += definitions(
         scripts / "validation/diagnostics.py", ["InputValidationError"]
     )

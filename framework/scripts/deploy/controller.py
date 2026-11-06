@@ -67,7 +67,7 @@ from deploy.typing import (
 )
 
 
-def require_bound_runtime():
+def require_bound_runtime() -> None:
     raise Blocked("Deploy mutation requires a validated controller Task")
 
 

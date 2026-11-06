@@ -155,7 +155,7 @@ WORKTREE_CASES = {
         "check_repair_static_failure_preserves_inputs",
     ),
     "units/worktree_python-unit.checks.py": (
-        "check_worktree_commands_reproduce_wrapper_environment",
+        "check_worktree_commands_use_current_interpreter",
         "check_worktree_command_unknown_environment",
         "check_environment",
         "check_pdf_native_optional",

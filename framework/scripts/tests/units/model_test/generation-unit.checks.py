@@ -410,6 +410,32 @@ class EmbeddedImportTests(unittest.TestCase):
         )
 
 
+def test_quicksight_embedded_sdk_validation(monkeypatch):
+    session = generator.aws_runtime().sdk_session()
+    output = (
+        session.get_service_model("quicksight")
+        .operation_model("DescribeGroup")
+        .output_shape
+    )
+    monkeypatch.setattr(
+        generator,
+        "AUDIT_QUICKSIGHT_SHAPE",
+        generator.audit_sdk_shape(output),
+        raising=False,
+    )
+    getter = {"service": "quicksight", "operation": "describe_group"}
+    valid = {"Group": {"Arn": "arn", "GroupName": "group"}, "Status": 200}
+    assert generator.sdk_response(None, getter, valid)
+    for invalid in (
+        {**valid, "Status": 400},
+        {**valid, "ResponseMetadata": {"HTTPStatusCode": 503}},
+        {"Group": {"GroupName": ""}},
+        {"Group": {"unknown": "value"}},
+        {"Group": []},
+    ):
+        assert not generator.sdk_response(None, getter, invalid)
+
+
 def test_guardduty_plan_generated_comparison():
     fixture = load_fixture("guardduty/comparison")
     actual = execute(fixture)

@@ -87,6 +87,13 @@ def check_service_adapters(tmp_path):
             ctx.egress = False
             ctx.verify()
             resource = FakeResource(ctx, service, owner)
+            if kind == "QuickSight.Group":
+                original_value = resource.value
+                resource.value = (
+                    lambda prop, norm="typed", original_value=original_value: "default"
+                    if prop == "Namespace"
+                    else original_value(prop, norm)
+                )
             if kind == "EC2.SecurityGroupEgress":
                 resource.rows.extend(
                     (name, {"property": kind + "." + name, "value": "fixture"})

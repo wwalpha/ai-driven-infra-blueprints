@@ -46,58 +46,15 @@
     "records": [
       {
         "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "match"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.Description",
-        "status": "match"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.GroupName",
-        "status": "match"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.Namespace",
-        "status": "difference"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.PrincipalId",
-        "status": "match"
-      }
-    ],
-    "calls": [
-      [
-        [
-          "quicksight",
-          "describe-group"
-        ],
-        {
-          "AwsAccountId": "123456789012",
-          "Namespace": "default",
-          "GroupName": "team"
-        }
-      ]
-    ],
-    "code": 1,
-    "report": {
-      "contains": [
-        "[NG] QuickSight.Group | team | Namespace"
-      ]
-    }
-  },
-  {
-    "records": [
-      {
-        "propertiesKey": "QuickSight.Group.AwsAccountId",
         "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
-        "status": "match"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.GroupName",
-        "status": "match"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Namespace",
@@ -105,7 +62,7 @@
       },
       {
         "propertiesKey": "QuickSight.Group.PrincipalId",
-        "status": "match"
+        "status": "design_unresolved"
       }
     ],
     "calls": [
@@ -124,8 +81,7 @@
     "code": 2,
     "report": {
       "contains": [
-        "[ERROR] QuickSight.Group | team | Namespace",
-        "missing or malformed"
+        "QuickSight DescribeGroup Identity conflicts with requested Group"
       ]
     }
   },
@@ -168,96 +124,7 @@
     "code": 2,
     "report": {
       "contains": [
-        "[ERROR] QuickSight.Group | team | Namespace",
-        "owner conflicts"
-      ]
-    }
-  },
-  {
-    "records": [
-      {
-        "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "design_unresolved"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.Description",
-        "status": "match"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.GroupName",
-        "status": "match"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.Namespace",
-        "status": "design_unresolved"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.PrincipalId",
-        "status": "match"
-      }
-    ],
-    "calls": [
-      [
-        [
-          "quicksight",
-          "describe-group"
-        ],
-        {
-          "AwsAccountId": "123456789012",
-          "Namespace": "default",
-          "GroupName": "team"
-        }
-      ]
-    ],
-    "code": 2,
-    "report": {
-      "contains": [
-        "[ERROR] QuickSight.Group | team | Namespace",
-        "missing or malformed"
-      ]
-    }
-  },
-  {
-    "records": [
-      {
-        "propertiesKey": "QuickSight.Group.AwsAccountId",
-        "status": "design_unresolved"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.Description",
-        "status": "match"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.GroupName",
-        "status": "match"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.Namespace",
-        "status": "design_unresolved"
-      },
-      {
-        "propertiesKey": "QuickSight.Group.PrincipalId",
-        "status": "match"
-      }
-    ],
-    "calls": [
-      [
-        [
-          "quicksight",
-          "describe-group"
-        ],
-        {
-          "AwsAccountId": "123456789012",
-          "Namespace": "default",
-          "GroupName": "team"
-        }
-      ]
-    ],
-    "code": 2,
-    "report": {
-      "contains": [
-        "[ERROR] QuickSight.Group | team | Namespace",
-        "namespace is malformed"
+        "QuickSight DescribeGroup Identity conflicts with requested Group"
       ]
     }
   },
@@ -300,8 +167,7 @@
     "code": 2,
     "report": {
       "contains": [
-        "[ERROR] QuickSight.Group | team | Namespace",
-        "owner conflicts"
+        "QuickSight DescribeGroup Identity conflicts with requested Group"
       ]
     }
   },
@@ -313,11 +179,11 @@
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
-        "status": "match"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.GroupName",
-        "status": "match"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Namespace",
@@ -325,7 +191,7 @@
       },
       {
         "propertiesKey": "QuickSight.Group.PrincipalId",
-        "status": "match"
+        "status": "design_unresolved"
       }
     ],
     "calls": [
@@ -344,8 +210,7 @@
     "code": 2,
     "report": {
       "contains": [
-        "[ERROR] QuickSight.Group | team | Namespace",
-        "account or region"
+        "QuickSight DescribeGroup Identity conflicts with requested Group"
       ]
     }
   },
@@ -357,11 +222,11 @@
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
-        "status": "match"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.GroupName",
-        "status": "match"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Namespace",
@@ -369,7 +234,7 @@
       },
       {
         "propertiesKey": "QuickSight.Group.PrincipalId",
-        "status": "match"
+        "status": "design_unresolved"
       }
     ],
     "calls": [
@@ -388,8 +253,7 @@
     "code": 2,
     "report": {
       "contains": [
-        "[ERROR] QuickSight.Group | team | Namespace",
-        "account or region"
+        "QuickSight DescribeGroup Identity conflicts with requested Group"
       ]
     }
   },
@@ -401,11 +265,11 @@
       },
       {
         "propertiesKey": "QuickSight.Group.Description",
-        "status": "match"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.GroupName",
-        "status": "match"
+        "status": "design_unresolved"
       },
       {
         "propertiesKey": "QuickSight.Group.Namespace",
@@ -413,7 +277,7 @@
       },
       {
         "propertiesKey": "QuickSight.Group.PrincipalId",
-        "status": "match"
+        "status": "design_unresolved"
       }
     ],
     "calls": [
@@ -432,8 +296,136 @@
     "code": 2,
     "report": {
       "contains": [
-        "[ERROR] QuickSight.Group | team | Namespace",
-        "group name"
+        "QuickSight DescribeGroup Identity conflicts with requested Group"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.Group.AwsAccountId",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.Description",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.GroupName",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.Namespace",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.PrincipalId",
+        "status": "design_unresolved"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "quicksight",
+          "describe-group"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "Namespace": "default",
+          "GroupName": "team"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "QuickSight DescribeGroup Identity conflicts with requested Group"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.Group.AwsAccountId",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.Description",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.GroupName",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.Namespace",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.PrincipalId",
+        "status": "design_unresolved"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "quicksight",
+          "describe-group"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "Namespace": "default",
+          "GroupName": "team"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "QuickSight DescribeGroup Identity conflicts with requested Group"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.Group.AwsAccountId",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.Description",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.GroupName",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.Namespace",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.Group.PrincipalId",
+        "status": "design_unresolved"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "quicksight",
+          "describe-group"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "Namespace": "default",
+          "GroupName": "team"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "QuickSight DescribeGroup Identity conflicts with requested Group"
       ]
     }
   },

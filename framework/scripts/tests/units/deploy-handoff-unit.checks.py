@@ -681,10 +681,17 @@ def check_handoff_uses_current_state_without_journal(tmp_path, status):
         "target": {"awsAccountId": "123456789012", "awsRegion": "region"},
         "diagnosis": {"S3": {}},
         "allowedPaths": [],
+        "taskFile": "tasks/parent.md",
+        "taskDigest": "digest",
     }
     reader = Mock()
     current = {"StackId": "stack", "StackStatus": status}
     with (
+        patch.object(
+            handoff, "task_snapshot", return_value=SimpleNamespace(task_digest="digest")
+        ),
+        patch.object(handoff.deploy_progress, "read_task", return_value=None),
+        patch.object(handoff.deploy_progress, "read_legacy_task", return_value=None),
         patch.object(handoff, "dependency_reader", return_value=reader),
         patch.object(handoff.current_state, "read", return_value=current),
     ):
