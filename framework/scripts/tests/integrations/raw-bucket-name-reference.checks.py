@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from support.it_case_receipt import it_case
-from support.raw_bucket_name_reference_fixtures import (
+from support.producer_identifier_reference_fixtures import (
     Path,
     affected,
     dependency_hashes,
