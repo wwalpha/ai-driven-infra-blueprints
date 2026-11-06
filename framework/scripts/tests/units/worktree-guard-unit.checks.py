@@ -331,6 +331,11 @@ def check_cleanup_missing_worktree(tmp_path, discard):
         "symlink",
         "locked",
         "ignored",
+        "cache_and_dirty",
+        "cache_and_ignored",
+        "cache_and_setup_busy",
+        "cache_and_locked",
+        "cache_and_branch_changed",
         "missing_branch",
     ],
 )
@@ -351,7 +356,11 @@ def check_cleanup_stops_before_removal(tmp_path, case):
     )
     for name in ("HEAD", "index"):
         (target / name).touch()
-    if case == "setup_busy":
+    if case.startswith("cache_and_"):
+        cache = target / "nested/.ruff_cache/entry"
+        cache.parent.mkdir(parents=True)
+        cache.write_text("cache", encoding="utf-8")
+    if case in {"setup_busy", "cache_and_setup_busy"}:
         path.with_suffix(".setup-lock").mkdir()
     with (
         patch.object(
@@ -365,7 +374,9 @@ def check_cleanup_stops_before_removal(tmp_path, case):
         patch.object(
             wt,
             "task_worktree",
-            side_effect=wt.Blocked("locked worktree") if case == "locked" else None,
+            side_effect=wt.Blocked("locked worktree")
+            if case in {"locked", "cache_and_locked"}
+            else None,
             return_value=target,
         ),
         patch.object(
@@ -378,14 +389,28 @@ def check_cleanup_stops_before_removal(tmp_path, case):
         patch.object(
             wt, "output", side_effect=lambda root, *args: str(target)
             if args[0] == "for-each-ref" else
-            "changed" if case == "branch_changed" else
+            "changed" if case in {"branch_changed", "cache_and_branch_changed"} else
             (_ for _ in ()).throw(wt.Blocked("missing branch")) if case == "missing_branch" else "tip"
         ),
         patch.object(
-            wt, "changed_paths", return_value={"dirty"} if case == "dirty" else set()
+            wt,
+            "changed_paths",
+            return_value={"dirty"} if case == "dirty" else
+            {"nested/.ruff_cache/entry", "outside.txt"} if case == "cache_and_dirty" else
+            {"nested/.ruff_cache/entry"} if case == "cache_and_ignored" else set(),
         ),
         patch.object(
-            wt, "paths", return_value={"secret.bin"} if case == "ignored" else set()
+            wt,
+            "paths",
+            side_effect=lambda _root, *args: (
+                (
+                    {"nested/.ruff_cache/entry", "secret.bin"}
+                    if case == "cache_and_ignored"
+                    else {"secret.bin"}
+                )
+                if "--ignored" in args
+                else set()
+            ),
         ),
         patch.object(wt, "branch_exists", return_value=case != "missing_branch"),
         patch.object(wt, "git") as mutate,
@@ -405,6 +430,8 @@ def check_cleanup_stops_before_removal(tmp_path, case):
         task_state=True,
     )
     assert path.read_text() == "preserve state" and target.is_dir()
+    if case.startswith("cache_and_"):
+        assert (target / "nested/.ruff_cache/entry").read_text() == "cache"
 
 
 @pytest.mark.parametrize("command", ["cleanup", "finalize"])

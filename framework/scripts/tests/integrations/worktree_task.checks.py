@@ -1478,31 +1478,85 @@ def check_explicit_disposal_and_orphans():
 
 
 def _check_automatic_cleanup_ruff_cache():
-    for cache_path, unknown in ((".ruff_cache", False), ("nested/.ruff_cache", False),
-                                ("nested/.ruff_cache", True)):
+    for cache_path, ignored in (
+        (".ruff_cache", True),
+        (".ruff_cache", False),
+        ("nested/.ruff_cache", True),
+        ("nested/.ruff_cache", False),
+    ):
         with fixture() as root:
-            with (root / ".gitignore").open("a", encoding="utf-8") as ignored:
-                ignored.write(".ruff_cache/\n")
-            git(root, "add", ".gitignore")
-            git(root, "commit", "-qm", "ignore Ruff cache")
+            if ignored:
+                with (root / ".gitignore").open("a", encoding="utf-8") as rules:
+                    rules.write(".ruff_cache/\n")
+                git(root, "add", ".gitignore")
+                git(root, "commit", "-qm", "ignore Ruff cache")
             target, state = start(root)
             (target / "file.txt").write_text("changed\n", encoding="utf-8")
             finish_contract(target, state)
             cache = target / cache_path / "version" / "entry"
             cache.parent.mkdir(parents=True)
             cache.write_text("cache", encoding="utf-8")
-            if unknown:
-                (target / "secret.bin").write_text("preserve", encoding="utf-8")
-                result = cli(root, "finalize", success=False)
-                assert "ignored files need preservation" in result["error"]
-                assert cache.exists() and (target / "secret.bin").read_text() == "preserve"
-                assert wt.branch_exists(root, state["branch"])
-                (target / "secret.bin").unlink()
-                result = wt.automatic_cleanup(root, state["task_id"])
-            else:
-                result = cli(root, "finalize")
+            result = cli(root, "finalize")
             assert result["cleaned"] and not target.exists()
             assert not wt.branch_exists(root, state["branch"])
+            assert not wt.state_path(root, state["task_id"]).exists()
+
+    for unknown, ignored in (("secret.bin", True), ("unknown.txt", False)):
+        with fixture() as root:
+            if ignored:
+                with (root / ".gitignore").open("a", encoding="utf-8") as rules:
+                    rules.write(".ruff_cache/\n")
+                git(root, "add", ".gitignore")
+                git(root, "commit", "-qm", "ignore Ruff cache")
+            target, state = start(root)
+            (target / "file.txt").write_text("changed\n", encoding="utf-8")
+            finish_contract(target, state)
+            if ignored:
+                cache = target / "nested/.ruff_cache/entry"
+                cache.parent.mkdir(parents=True)
+                cache.write_text("cache", encoding="utf-8")
+                unknown_file = target / unknown
+                unknown_file.write_text("preserve", encoding="utf-8")
+                result = cli(root, "finalize", success=False)
+                assert "ignored files need preservation" in result["error"]
+            else:
+                git(target, "add", "file.txt")
+                git(target, "commit", "-qm", "task changes")
+                candidate = git(target, "rev-parse", "HEAD")
+                git(root, "merge", "--ff-only", "--no-autostash", state["branch"])
+                _, _, lifecycle, merged_state = wt.load(root, state["task_id"])
+                merged_state.update(
+                    tip=candidate, commit=candidate, verified=True, merged=candidate
+                )
+                wt.save(lifecycle, merged_state)
+                cache = target / "nested/.ruff_cache/entry"
+                cache.parent.mkdir(parents=True)
+                cache.write_text("cache", encoding="utf-8")
+                unknown_file = target / unknown
+                unknown_file.write_text("preserve", encoding="utf-8")
+                with pytest.raises(wt.Blocked, match="dirty"):
+                    wt.automatic_cleanup(root, state["task_id"])
+            assert cache.exists() and unknown_file.read_text() == "preserve"
+            assert wt.branch_exists(root, state["branch"])
+            unknown_file.unlink()
+            result = wt.automatic_cleanup(root, state["task_id"])
+            assert result["cleaned"] and not target.exists()
+            assert not wt.branch_exists(root, state["branch"])
+            assert not wt.state_path(root, state["task_id"]).exists()
+
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("changed\n", encoding="utf-8")
+        finish_contract(target, state)
+        external = root / "external-cache"
+        external.mkdir()
+        (external / "keep.txt").write_text("preserve", encoding="utf-8")
+        (target / ".ruff_cache").symlink_to(external, target_is_directory=True)
+        result = cli(root, "finalize", success=False)
+        assert "outside the exact task contract" in result["error"]
+        assert (external / "keep.txt").read_text() == "preserve"
+        assert (target / ".ruff_cache").is_symlink()
+        assert wt.branch_exists(root, state["branch"])
 
 
 @it_case

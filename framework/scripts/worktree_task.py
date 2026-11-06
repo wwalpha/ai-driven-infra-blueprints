@@ -4,8 +4,10 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -240,6 +242,37 @@ def integration_task(target, state, *, candidate_common=None):
         raise Blocked(f"task must be completed for integration; current status: {current}")
 
 
+def _ruff_cache_dirs(target):
+    target = Path(target)
+    candidates = []
+    for walk_root, names, _ in os.walk(target, topdown=True, followlinks=False):
+        for name in tuple(names):
+            candidate = Path(walk_root) / name
+            if name == ".ruff_cache":
+                if candidate.is_dir() and not candidate.is_symlink():
+                    candidates.append(candidate)
+                names.remove(name)
+    tracked = paths(target, "ls-files", "-z")
+    roots = [cache.relative_to(target).parts for cache in candidates]
+    return [
+        cache
+        for cache, root in zip(candidates, roots, strict=True)
+        if not any(Path(path).parts[: len(root)] == root for path in tracked)
+    ]
+
+
+def _without_ruff_cache(target, values):
+    values = set(values)
+    if not any(".ruff_cache" in Path(value).parts for value in values):
+        return values
+    roots = [cache.relative_to(target).parts for cache in _ruff_cache_dirs(target)]
+    return {
+        value
+        for value in values
+        if not any(Path(value).parts[: len(root)] == root for root in roots)
+    }
+
+
 def base_worktree(root, state):
     _, _, primary = repository(root)
     if output(primary, "branch", "--show-current") != state["base"]:
@@ -335,24 +368,34 @@ def cleanup_state(root, path, state, *, discard=False):
             ):
                 raise Blocked("temporary branch changed or is unmerged; cleanup refused")
             integration_task(target, state)
-            changed = changed_paths(target)
+            cache_dirs = _ruff_cache_dirs(target)
+            changed = _without_ruff_cache(target, changed_paths(target))
             if changed:
                 raise Blocked("task worktree is dirty; cleanup refused")
-            ignored = paths(
-                target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"
+            ignored = _without_ruff_cache(
+                target,
+                paths(
+                    target,
+                    "ls-files",
+                    "--others",
+                    "--ignored",
+                    "--exclude-standard",
+                    "-z",
+                ),
             )
             extras = {
                 p
                 for p in ignored
                 if p != state["task_file"]
                 and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))
-                and ".ruff_cache" not in Path(p).parts[:-1]
             }
             if extras:
                 raise Blocked(
                     "ignored files need preservation before cleanup: "
                     + ", ".join(sorted(extras))
                 )
+            for cache in cache_dirs:
+                shutil.rmtree(cache)
         phase = "remove_worktree"
         git(root, "worktree", "remove", *(["--force"] if discard else []), str(target))
         phase = "remove_branch"
@@ -542,7 +585,10 @@ def _commit_preconditions(
 
 
 def integration_changed_paths(target, task_file):
-    return changed_paths(target) | (committed_task_paths(target, task_file) or set())
+    return _without_ruff_cache(
+        target,
+        changed_paths(target) | (committed_task_paths(target, task_file) or set()),
+    )
 
 
 def _block_invalid_model_contract(text, name):
@@ -567,7 +613,7 @@ def _prepare_commit(
 ):
     if state.get("baseSyncIntent") or state.get("latestBaseSync"):
         raise Blocked("previous base synchronization did not finish; retain worktree for review")
-    changed = changed_paths(target)
+    changed = _without_ruff_cache(target, changed_paths(target))
     task_id = state["task_id"]
     sync_base = state.get("prUpdate", {}).get("syncBase") if pr_update else None
     model_changes = (
@@ -629,7 +675,7 @@ def _prepare_commit(
             for p in changed
         }
         _run_model_guard(target, state["task_file"])
-        changed = changed_paths(target)
+        changed = _without_ruff_cache(target, changed_paths(target))
         current = tasks.read_task_snapshot(target, state["task_file"], live=True).text
         if (
             output(target, "diff", "--cached", "--raw", "--no-abbrev", "--no-renames")
@@ -698,7 +744,7 @@ def _prepare_commit(
     elif ordinary_model and (state["tip"] != head or state["commit"] != head):
         state.update(tip=head, commit=head, verified=True)
         save(path, state)
-    if changed_paths(target):
+    if _without_ruff_cache(target, changed_paths(target)):
         raise Blocked("task worktree changed during commit; review required")
     if prepare_only:
         return None
@@ -718,7 +764,7 @@ def _prepare_commit(
         raise Blocked(
             "recorded base is not an ancestor of the candidate; review required"
         )
-    if changed_paths(target):
+    if _without_ruff_cache(target, changed_paths(target)):
         raise Blocked("task worktree changed before merge; review required")
     base = base_worktree(
         root, state
@@ -869,7 +915,7 @@ def _finalize(where, task_id):
             )
             if (
                 output(target, "rev-parse", "HEAD") != expected
-                or changed_paths(target)
+                or _without_ruff_cache(target, changed_paths(target))
                 or tasks.read_task_snapshot(target, state["task_file"], live=True).raw
                 != contract
             ):
@@ -938,7 +984,7 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
         target = task_worktree(root, state)
         if (
             target != candidate.root
-            or changed_paths(target)
+            or _without_ruff_cache(target, changed_paths(target))
             or output(target, "rev-parse", "HEAD") != candidate.candidate_head
         ):
             raise Blocked("validated candidate/base changed; no merge")
@@ -964,7 +1010,7 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
         if (
             tasks.read_task_snapshot(target, candidate.task_file, live=True).text
             != text
-            or changed_paths(target)
+            or _without_ruff_cache(target, changed_paths(target))
             or output(target, "rev-parse", "HEAD") != candidate.candidate_head
         ):
             raise Blocked("validated state changed during task completion; no merge")
