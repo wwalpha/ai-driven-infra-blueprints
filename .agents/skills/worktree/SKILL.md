@@ -19,7 +19,7 @@ When performing validation/integration, read [Validation scope](../../../framewo
 
 ## Sandbox permission approval and continuation
 
-Apply this procedure to **create, deploy-start, setup (when needed), normal Deploy checkpoint, base synchronization, finalize, PR operations, orphan branch deletion and cleanup**, regardless of the Codex model. The agent requests permissions through its execution tool; the Python helper cannot open the platform's approval UI. Do not end the task merely because a sandboxed helper invocation returns `status: blocked` with a write denial.
+Apply this procedure to **create, setup (when needed), base synchronization, finalize, PR operations, orphan branch deletion and cleanup**, regardless of the Codex model. The agent requests permissions through its execution tool; the Python helper cannot open the platform's approval UI. Do not end the task merely because a sandboxed helper invocation returns `status: blocked` with a write denial.
 
 Before **each operation**, inspect the relevant Git/Task/lock state and the execution environment's effective Sandbox restrictions using read-only information. Determine the actual write destinations for that operation, including the Git common directory, linked worktree administration/index, lifecycle metadata and, for create/setup when needed, the shared Python environment. Compare resolved paths with the effective policy, including protected exceptions and symlinks. Do not probe by writing or infer a denial from ordinary filesystem permissions alone. If the policy confirms a required destination is protected, request native permission on the **first invocation**, including for a new Task; a prior denial is not required. If normal access is allowed, run normally without an unnecessary approval. If restrictions or destinations are unknown, do not assume either access or denial: use the ordinary invocation and identify any failure below. Keep knowledge only in the current execution context; add no persistent permission-state file. Permission approval does not relax the Python helper's guards.
 
@@ -75,9 +75,9 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py
 
 If contract registration is rejected, report the error and retain the Task Worktree. Register exact necessary paths before editing. Select validation under [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy), including dependency-selected checks for Framework changes. Run lifecycle commands with the ordinary launcher from a surviving checkout. Worktrees start from committed base inputs. Place the Human’s intended input in the selected Worktree before starting a child workflow that needs an uncommitted Model diff.
 
-## Independent Deploy lifecycle
+## Optional Deploy use
 
-Independent `/deploy` uses its calling checkout. When using the managed Deploy lifecycle, start with `worktree_task.py deploy-start --task-name <task-name>` and use the returned ID, Worktree and Task file. Follow [Managed Deploy snapshot and Git publication](../../../framework/rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) for Deploy-only Snapshot, checkpoints, Human conflict review and Git publication. After successful final Snapshot validation and publication, ordinary `finalize` verifies delivery and performs guarded cleanup.
+Independent `/deploy` uses its calling checkout and does not require a Worktree. If the LLM determines a Worktree is needed, use ordinary `create --task-name <task-name>` and pass its returned Task ID and local root to Deploy. Deploy owns its preparation, AWS execution, observation and View synchronization, validation and Task completion; ordinary Worktree lifecycle operations are separate. AWS authority and Human approvals remain governed by the Deploy Task.
 
 ## Complete and integrate
 
@@ -138,7 +138,7 @@ python3 -B framework/scripts/worktree_task.py pr-sync-base --task-id <task-id> -
 
 The local operation is for ordinary running/completed Tasks; the PR operation is for the same published PR and Worktree. The local operation replays only the proven linear Task history from its recorded boundary onto the reviewed local base, including a rewritten base, changing commit SHAs. Git combines nonconflicting changes even in the same file; changes already present in the base are not applied twice. A real conflict retains the Task candidate for review; merge histories that cannot be proven safe stop for review. A Task with no changes does not need to be redone when the base changes. The PR operation retains history with a Git merge. Both return `needs_validation` after a new candidate is prepared. An unchanged local base returns `ok` without a new candidate. A failed or unfinished rebase, an unknown outcome, or a changed Task or HEAD retains the Worktree for review; never automatically abort or reset it. A retained incomplete local sync stops for review. The PR operation checks GitHub and Git refs, published HEAD and intent; it fetches the target base without changing local master or pushing. An uncertain push requires review of the recorded and remote HEADs before synchronization. For a published PR whose GitHub conflict requires resolution, explicitly select `pr-sync-base` for the reviewed remote base. If its merge conflicts, retain the recorded merge, resolve and commit the conflict in the same worktree, then retry the same command. The helper verifies both merge parents and the Task scope against that base, then requires validation before `pr-update`. Unexpected HEAD or inconsistent state stops for review; do not reset, force push or edit lifecycle metadata.
 
-After synchronization, the LLM reviews the inherited changes and selects and runs the relevant UT/IT and other checks under Validation policy; revalidate the updated candidate when its contents change. Confirm their results, then invoke `finalize` or `pr-update` for that Task; the existing final-candidate guard and Validation remain separate mandatory checks. The Python helper does not select or run UT/IT or record their PASS. If an ordinary local integration base advances again, repeat synchronization and reassess the tests; stop and report persistent churn or an actual failure instead of an unlimited automatic retry. Do not switch to a new PR or alter Deploy checkpoint/repair lifecycles.
+After synchronization, the LLM reviews the inherited changes and selects and runs the relevant UT/IT and other checks under Validation policy; revalidate the updated candidate when its contents change. Confirm their results, then invoke `finalize` or `pr-update` for that Task; the existing final-candidate guard and Validation remain separate mandatory checks. The Python helper does not select or run UT/IT or record their PASS. If an ordinary local integration base advances again, repeat synchronization and reassess the tests; stop and report persistent churn or an actual failure instead of an unlimited automatic retry. Do not switch to a new PR or alter the Deploy repair handoff.
 
 ## Explicit PR publication
 
@@ -229,23 +229,6 @@ Automatic cleanup follows a verified local FF merge or a GitHub merge confirmed 
 Explicit `cleanup --task-id <task-id>` authorizes local disposal of the owned checkout, registration, branch and lifecycle state, including uncommitted and ignored files. Git ownership and lock checks still apply. A missing checkout whose exact registration cannot be proved stops cleanup. Cleanup reports the phase and remaining resources. Unverified Deploy/Repair evidence is retained and reported.
 
 Use `branch-delete --branch codex/worktree/<task-id>` only for one explicitly named branch without Task state. Git refuses deletion of a branch in use. Cleanup and branch deletion are local Git operations. Deploy permissions and AWS locks are separate.
-
-## Normal Deploy Stack checkpoints
-
-`cloudformation-deploy.py --action sync --sync-stack <StackName>` saves the adopted
-current Model, generates available Views, validates and uses
-`worktree_task.deploy_stack_checkpoint` plus Git publication in the same operation.
-Success, failure, rollback, unexecuted, running and unknown Stack observations are
-permitted. Receipts prove saved candidates, never AWS SUCCESS. `--action checkpoint`
-resumes an already saved candidate, not a required second stage.
-Snapshot structure/reference/scope/View and actual latest-base validation remain required.
-A failed attempt may finish as completed with Deploy FAIL after its consistent Snapshot
-is committed/merged. Include the final Task status in that same candidate. Active/uncertain
-AWS requests keep Task running; intermediate publication may continue in the same Worktree.
-Fixed IaC/parameters/artifacts remain unchanged across self-authored checkpoint commits.
-Git-only retry of a saved (possibly locally completed) candidate requires no new AWS
-execution or observation. Finalize verifies publication and performs guarded cleanup.
-No old Task/Journal/Fence/Output or all-Stack-success prerequisite is reintroduced.
 
 ## Explicit CloudFormation repair handoff
 

@@ -17,7 +17,9 @@ Select only the fixed method: SDK follows the sections below directly. Read only
 
 ## Local entry
 
-Use the calling repository root and an unused Task ID. Register its exact Task contract locally. Use the current Python environment with the Framework dependencies. CloudFormation SDK progress and recovery are tied to that Task in this checkout. An overlapping unresolved request remains owned by its original Task; never reuse its token or progress in a new Task. Existing legacy Git recovery is separate.
+The standard standalone path uses the calling checkout for Deploy Preparation, AWS execution, Observed / View synchronization, Validation and Task completion. Use the calling repository root and an unused Task ID. Register its exact Task contract locally. Use the current Python environment with the Framework dependencies. CloudFormation SDK progress and recovery are tied to that Task in this checkout. An overlapping unresolved request remains owned by its original Task; never reuse its token or progress in a new Task. Existing legacy Git recovery is separate.
+
+A Worktree is optional. When the LLM determines one is needed, use the ordinary `/worktree` create with `create --task-name <task-name>` and use the returned six-digit-suffixed Task ID for subsequent operations. Treat its returned local root as the calling repository root. Deploy itself does not create, set up, finalize or clean up a Worktree, or automatically commit, merge, push or publish Git changes.
 
 ## SDK preparation
 

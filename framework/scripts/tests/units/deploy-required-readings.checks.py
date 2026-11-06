@@ -131,7 +131,23 @@ def check_direct_deploy_routes():
     assert "calling repository root" in entry
     assert "unused Task ID" in entry
     assert "original Task" in entry
+    assert (
+        "Deploy Preparation, AWS execution, Observed / View synchronization, Validation and Task completion"
+        in entry
+    )
+    assert "create --task-name <task-name>" in entry
+    assert "returned six-digit-suffixed Task ID" in entry
+    assert "does not create, set up, finalize or clean up a Worktree" in entry
+    assert "automatically commit, merge, push or publish Git changes" in entry
     assert "deploy-start" not in text
+    worktree = (root / ".agents/skills/worktree/SKILL.md").read_text(encoding="utf-8")
+    optional = markdown_sections(worktree)["optional-deploy-use"]
+    assert "does not require a Worktree" in optional
+    assert "ordinary `create --task-name <task-name>`" in optional
+    assert "returned Task ID and local root" in optional
+    assert "deploy-start" not in worktree
+    assert "Normal Deploy Stack checkpoints" not in worktree
+    assert "## Explicit CloudFormation repair handoff" in worktree
     permission = markdown_sections(
         (root / ".agents/skills/worktree/SKILL.md").read_text(encoding="utf-8")
     )["sandbox-permission-approval-and-continuation"]
