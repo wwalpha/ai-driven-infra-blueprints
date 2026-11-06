@@ -24,8 +24,8 @@ from deploy import (
     contracts,
     correction_scope,
     deferred,
+    failures,
     generation_resume,
-    handoff,
     inputs,
     observed_resume,
     operation_journal,
@@ -156,7 +156,7 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
             raise ws.Blocked(
                 "currentFailure has no readable failure evidence; retain and review it"
             )
-        failure_path = handoff.external(root, failure)
+        failure_path = failures.external_evidence_path(root, failure)
         store = evidence_store(root, create=False)
         if failure_path.parent != store or not re.fullmatch(
             r"deploy-failure-[a-zA-Z0-9-]+\.json", failure_path.name
@@ -178,12 +178,12 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
             or record.get("directory") != context["directory"]
         ):
             raise ws.Blocked(
-                "currentFailure ownership differs; retain evidence and review existing repair/discard operation"
+                "currentFailure ownership differs; retain evidence and review its Task identity"
             )
-        failures = record.get("states")
-        if not candidate or not isinstance(failures, dict) or not failures:
+        failed_states = record.get("states")
+        if not candidate or not isinstance(failed_states, dict) or not failed_states:
             raise ws.Blocked("currentFailure scope cause cannot be proven")
-        if set(failures) != {
+        if set(failed_states) != {
             name
             for name, item in context["states"].items()
             if item.get("status") in {"FAILED", "BLOCKED"}
@@ -192,7 +192,7 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         owners = correction_scope.ownership(root, state, context)
         before = tasks.replace(task, text=original_contract(state)).scope or frozenset()
         after = tasks.replace(task, text=candidate).scope or frozenset()
-        for name, saved in failures.items():
+        for name, saved in failed_states.items():
             current = copy.deepcopy(context["states"].get(name))
             if not isinstance(current, dict) or not isinstance(saved, dict):
                 raise ws.Blocked("currentFailure Stack evidence is unknown")
@@ -256,7 +256,7 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
             or not all(isinstance(value, str) and value for value in entry.values())
         ):
             raise ws.Blocked("resolved scope failure history is inconsistent")
-        retained_path = handoff.external(root, entry["evidence"])
+        retained_path = failures.external_evidence_path(root, entry["evidence"])
         if retained_path.parent != store or retained_path in retained:
             raise ws.Blocked("resolved scope failure evidence location is invalid")
         try:
@@ -276,17 +276,10 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         ):
             raise ws.Blocked("resolved scope failure evidence changed")
         retained.add(retained_path)
-    if (
-        any(store.glob("deploy-repair-*"))
-        or any(
-            p != failure_path and p not in retained
-            for p in store.glob("deploy-failure-*")
-        )
-        or any(store.glob("deploy-cleanup-*"))
+    if any(
+        p != failure_path and p not in retained for p in store.glob("deploy-failure-*")
     ):
-        raise ws.Blocked(
-            "retain and review repair handoff/failure evidence before correction"
-        )
+        raise ws.Blocked("retain and review failure evidence before correction")
     if context.get("repository") != str(root):
         raise ws.Blocked("saved progress repository changed")
     plan = context.get("pendingObserved") or {}
@@ -459,10 +452,10 @@ def guard_snapshot(root, state):
             p: file_revision(root / p) if (root / p).is_file() else None
             for p in manifest
         },
+        # Keep the key used by already-saved correction intents.
         "repairEvidence": sorted(
             [p.name, sha(p) if p.is_file() else None]
-            for pattern in ("deploy-repair-*", "deploy-failure-*", "deploy-cleanup-*")
-            for p in store.glob(pattern)
+            for p in store.glob("deploy-failure-*")
         ),
     }
 
@@ -513,7 +506,7 @@ def correct_local(root, name, source, path, approved):
     intent_path = deploy_progress.correction_path(path)
     with (
         operation_journal.locked(path),
-        handoff.repair_lock(root),
+        failures.failure_lock(root),
     ):
         if intent_path.exists() or intent_path.is_symlink():
             recover_local_correction(root, name, candidate, path, intent_path)
@@ -529,7 +522,7 @@ def correct_local(root, name, source, path, approved):
             if failure:
                 context.setdefault("resolvedScopeFailures", []).append({
                     "evidence": failure,
-                    "sha256": sha(handoff.external(root, failure)),
+                    "sha256": sha(failures.external_evidence_path(root, failure)),
                     "taskDigest": identity["taskDigest"],
                     "correctedTaskDigest": revised,
                 })

@@ -43,10 +43,6 @@ def read_state(root, name):
     return root.parent, None, path, json.loads(path.read_text(encoding="utf-8"))
 
 
-def read_deploy_state(root, name, **kwargs):
-    return "head", read_state(root, name)[3]
-
-
 @pytest.fixture
 def case(tmp_path, monkeypatch):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
@@ -146,7 +142,6 @@ def case(tmp_path, monkeypatch):
     progress_path = deploy_progress.progress_path(root, name, create=True)
     write_sealed(root, progress_path, dict(identity=identity, runContext=context))
     monkeypatch.setattr(correction.ws, "load", read_state)
-    monkeypatch.setattr(correction.ws, "deploy_task_state", read_deploy_state)
     monkeypatch.setattr(wt, "lifecycle_lock", Mock(side_effect=nullcontext))
     monkeypatch.setattr(wt, "output", Mock(return_value="head"))
     monkeypatch.setattr(wt, "paths", Mock(return_value=set()))
@@ -307,7 +302,7 @@ def check_unproven_paths_refused(case, added):
         "pendingGeneration",
         "generationError",
         "currentFailure",
-        "handoff",
+        "failure-evidence",
         "running",
         "token",
         "region",
@@ -359,8 +354,8 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
         "currentFailure",
     }:
         context[problem] = {"retained": True}
-    elif problem == "handoff":
-        (evidence_store(case.root) / "deploy-repair-retained").mkdir()
+    elif problem == "failure-evidence":
+        (evidence_store(case.root) / "deploy-failure-retained.json").write_text("unverified")
     elif problem == "running":
         context["states"]["A"]["currentStack"]["StackStatus"] = "UPDATE_IN_PROGRESS"
     elif problem == "token":
@@ -615,7 +610,7 @@ def scope_failure_case(case, monkeypatch):
         environment="dev",
         directory="team",
     )
-    failure = correction.handoff.record_failure(backend)
+    failure = correction.failures.record_failure(backend)
     context["currentFailure"] = failure
     write_sealed(case.root, case.progress_path, progress)
     return state, progress, candidate, Path(failure)
@@ -966,7 +961,7 @@ def check_desired_model_change_is_never_authorized(case, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "changed", ["progress", "inputs", "head", "handoff"]
+    "changed", ["progress", "inputs", "head", "failure-evidence"]
 )
 def check_interrupted_correction_external_edit_is_retained(case, monkeypatch, changed):
     atomic = correction.atomic_files
@@ -982,8 +977,8 @@ def check_interrupted_correction_external_edit_is_retained(case, monkeypatch, ch
             "validation_snapshot",
             Mock(return_value={"project.json": "external change"}),
         )
-    elif changed == "handoff":
-        (evidence_store(case.root) / "deploy-repair-new").mkdir()
+    elif changed == "failure-evidence":
+        (evidence_store(case.root) / "deploy-failure-new.json").write_text("unverified")
     else:
         monkeypatch.setattr(
             correction.contracts,

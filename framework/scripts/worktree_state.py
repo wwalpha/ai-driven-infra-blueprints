@@ -178,46 +178,6 @@ def committed_task_paths(root, task_file):
     )
 
 
-def deploy_start_commit(root, task_file, *, required=False, allow_merged=False):
-    """Deploy pins its own history; the publication branch is not an AWS input."""
-    verified = deploy_task_state(
-        root, task_file, required=required, allow_merged=allow_merged
-    )
-    return verified[0] if verified is not None else None
-
-
-def deploy_task_state(
-    root: Path, task_file: str, *, required: bool = False, allow_merged: bool = False
-) -> tuple[str, dict] | None:
-    """Read ownership and fixed history once for this authorization operation only."""
-    _, common, primary = repository(root)
-    path = state_path(primary, Path(task_file).stem)
-    managed = root.resolve().parent == primary / ".worktrees"
-    if not path.exists():
-        if required or managed:
-            raise Blocked("Deploy requires its registered managed worktree")
-        return None
-    state = _load(primary, common, Path(task_file).stem)[3]
-    if Path(state["worktree"]) != root.resolve():
-        if required or managed:
-            raise Blocked("Deploy Task belongs to another managed worktree")
-        return None
-    if (
-        state["task_file"] != task_file
-        or state["merged"] is not None
-        and not allow_merged
-    ):
-        raise Blocked("Deploy Task lifecycle is mismatched or already merged")
-    task_worktree(root, state)
-    start = output(root, "rev-parse", "--verify", state["start"] + "^{commit}")
-    head = output(root, "rev-parse", "HEAD")
-    if head != state["tip"]:
-        raise Blocked("unexpected Deploy worktree HEAD; retain snapshot for review")
-    if git(root, "merge-base", "--is-ancestor", start, head, check=False).returncode:
-        raise Blocked("Deploy snapshot start is not an ancestor of its HEAD")
-    return start, state
-
-
 def idle_operations(root, *, runner=None):
     names = (
         "MERGE_HEAD",

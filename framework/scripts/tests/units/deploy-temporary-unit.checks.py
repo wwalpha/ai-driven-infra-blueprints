@@ -109,7 +109,7 @@ def check_unsafe_files_retained(tmp_path, kind):
     assert directory.exists()
 
 
-def check_failure_evidence_and_repair_lock_retain_inputs(tmp_path):
+def check_failure_evidence_and_failure_lock_retain_inputs(tmp_path):
     root, journal, directory, template, backend = setup_case(tmp_path)
     store = temporary.evidence_store(root)
     failure = store / "deploy-failure-current.json"
@@ -117,7 +117,7 @@ def check_failure_evidence_and_repair_lock_retain_inputs(tmp_path):
     cleanup(root, journal, directory, backend)
     assert template.exists()
     failure.unlink()
-    with temporary.handoff.repair_lock(root):
+    with temporary.failures.failure_lock(root):
         cleanup(root, journal, directory, backend)
     assert template.exists()
 

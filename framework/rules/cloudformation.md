@@ -6,7 +6,7 @@
 
 - Create, change, and execute CloudFormation only in `infrastructure` tasks.
 - Infrastructure task design inputs are approved authoritative model properties entries and required parts/referenced models. Obtain design values from `desired.row.*`, JSON bodies from `desired.row.*.document`, identity/references from metadata such as `desired.resource.*`, and current non-ARN identifiers from `observed.*`. In ordinary deploy, do not additionally read generated service Markdown/service-owned JSON bodies. Resolve saved Markdown Resource links using the common Model resolver and consumer scope; stop for unknown, unmatched, or ambiguous mappings, without generated Markdown body fallback.
-- Retain generated artifact existence verification, existing hash monitoring, generated artifact validation by sync-model/local loop, and stop conditions. For explicit display defect/mismatch investigation, only necessary corresponding portions may be read. Classify mismatches under Controlled deploy repair below. Do not change intended design.
+- Retain generated artifact existence verification, existing hash monitoring, generated artifact validation by sync-model/local loop, and stop conditions. For explicit display defect/mismatch investigation, only necessary corresponding portions may be read. Classify mismatches using [Deploy failure and runtime recovery](#deploy-failure-and-runtime-recovery). Do not change intended design.
 - If intended design changes are needed, stop without filling values and report that a separate `design` task is required.
 - Use only when the active project and target environment/target directory select CloudFormation.
 - Do not interpret disappeared/renamed StackNames in design as existing stack deletion/rename. Decide ending management/deletion under a separate authorized scope with explicit targets/impacts; do not implicitly include it in current deploy/update.
@@ -116,7 +116,7 @@ Before selecting additional rules, inspect relevant Model Resources, Stack place
 3. Create change sets and confirm scope, delete, and replacement.
 4. Do not introduce human review uniformly stopping all change sets. Wait for human confirmation with an explanation according to [approval procedure](../prompts/codex/deploy/runbook.md#confirm-unapproved-deletereplacement) only for unapproved delete/replacement.
 5. Proceed to execution only if the active prompt authorizes deploy/update, change scope matches it, and delete/replacement is preapproved or approved by the human after change set creation.
-6. Preserve/classify failures under Controlled deploy repair. The supervising LLM uses a separate authorized implement Task for IaC, then integrates its verified result before an independent new Deploy; internal runtime recovery alone may continue without IaC changes.
+6. Preserve and classify failures using [Deploy failure and runtime recovery](#deploy-failure-and-runtime-recovery).
 
 Process only Deployment scope StackNames in numeric DeployOrder ascending order and StackName order within groups. Only stacks in the same DeployOrder group may run concurrently; RUNNING count must be at most MaxConcurrentStacks. Reuse free slots for the same group's queue, not fixed batches. Proceed to the next group only after the required earlier AWS attempts succeed. Observed/Git saving is chosen explicitly and is not an additional Order barrier; actual Consumer input dependencies still apply. Values need not be consecutive. Do not convert DeployOrder to CloudFormation resource `DependsOn` or add dependency fields to stack models.
 
@@ -133,9 +133,9 @@ A failure/rollback stops dependent later Orders; independent peers at the same O
 3. Continue with the same preflight, `aws cloudformation validate-template`, change set checks, execution, and completion confirmation as deploy phase.
 4. Permit only target template uncommitted diffs generated in this phase for deploy.
 
-## Controlled deploy repair
+## Deploy failure and runtime recovery
 
-Deploy never edits IaC. Diagnose the current failed Stack and structured AWS error against approved Model and exact inputs. Proven IaC defects use the separately authorized one-shot [Implement handoff](../prompts/codex/deploy/runbook.md#external-iac-repair-handoff): settle unfinished operations, pin/checkpoint current Task/input authority, suspend parent, isolate child, run static validation, verify exact commit/paths/bytes, ff-only integrate, discard temporary evidence and start an independent Deploy from latest IaC/AWS. No Session, Workflow Ledger/Registry, cumulative attempt budget, SAME/NEW history or historical approval participates. Unknown cause, authentication/scope/design defects and unconfirmed submissions require investigation/Human action.
+Deploy never edits IaC. Review the current failed Stack and structured AWS errors against the approved Model and exact inputs. Settle unfinished operations and preserve their evidence. Use a separate authorized Implement Task in a normal Worktree for proven IaC defects. After validation and integration, start a new Deploy Task if needed. Unknown causes, authentication or scope errors, design defects and unconfirmed submissions require investigation or Human action.
 
 Runtime bootstrap remains separate and changes no IaC. Preserve original StackId/Token, failed-template Retain/Custom/nested safety, deletion inventory/protection and empty-shell ownership checks. A failed Stack remains FAILED in this Task; never retry it within the same run. Secrets versions and the current Task’s stable Token prevent duplicate initialization after interruption. Never use corrected template policy as authority to delete old resources. A subsequent run accepts latest IaC and creates/evaluates its own ChangeSet; no local hash alone proves AWS application.
 
@@ -397,7 +397,7 @@ later separately reviewed update, not automatic resubmission. ROLLBACK_COMPLETE,
 UPDATE_ROLLBACK_FAILED and other failed states retain AWS restrictions. Stop on
 failure requiring repair/Human action; do not delete, continue rollback, bootstrap,
 initialize secrets or redeploy successful Stacks automatically. SDK runtime cleanup
-and repair handoff are not available as CLI recovery shortcuts.
+is not available as a CLI recovery shortcut.
 
 ### Interruption and independent recovery
 
@@ -469,7 +469,7 @@ AWS command arguments follow the official CLI references for
 
 ## Independent controller runs and execution timing
 
-This section's Controller commands, Scheduler, Task-local progress, SDK repair handoff and receipts describe the existing **SDK method**.
+This section's Controller commands, Scheduler, Task-local progress and receipts describe the existing **SDK method**.
 They are not CLI execution/recovery dependencies. The fixed-input Snapshot,
 Model/Observed/View, Validation and Git integrity requirements still apply to CLI;
 its independent procedure and non-AWS completion path are defined above.
@@ -554,7 +554,7 @@ never initialized, discarded or unconditionally regenerated. A generation error 
 its retained generation Intent. An unfinished checkpoint without an adopted after/final
 candidate may continue when every changed byte is explained by those Intents or a verified
 observation patch from its Git source. A fixed after/final candidate, commit intent,
-pending/conflicted/final Git publication or repair failure/handoff/integration evidence
+pending/conflicted/final Git publication or unresolved failure evidence
 stops for review of the retained evidence first. Failure
 evidence is inspected and retained, never implicitly erased. Completed Tasks are not
 reopened. Missing/inconsistent proof is BLOCKED with its concrete recovery need.
@@ -578,7 +578,7 @@ in the consumer's existing workflow, or Human facts/IMPORT refresh when acquisit
 needed. Present affected Target, key, producer Stack and unconfirmed facts; do not create
 or execute a follow-up Task automatically or claim View generation changed Consumer AWS.
 
-The operation holds existing progress, repair, Model publication and lifecycle locks. It compares candidate, contract, Git/index, project inputs, progress and
+The operation holds existing progress, failure-evidence, Model publication and lifecycle locks. It compares candidate, contract, Git/index, project inputs, progress and
 temporary template owners again before saving. One rollback batch changes the current
 contract, lifecycle identity/text, progress identity, verified closed receipt identities and
 matching temporary template ownership, including pending Intent identities. Tokens/results,
@@ -602,7 +602,7 @@ Use current Task/target/account/Region/profile/scope/input guards before each mu
 
 ## Explicit Stack destroy
 
-Use only `framework/prompts/codex/07_destroy.md` and independent `cloudformation-destroy.py` in infrastructure phase `destroy`. Explicit human StackNames are authorized after safety checks; no duplicate confirmation. Do not route through deploy options, deploy preparation, repair, change sets or deploy mutation guards. No Terraform/resource/retained-resource/force deletion.
+Use only `framework/prompts/codex/07_destroy.md` and independent `cloudformation-destroy.py` in infrastructure phase `destroy`. Explicit human StackNames are authorized after safety checks; no duplicate confirmation. Do not route through deploy options, deploy preparation, change sets or deploy mutation guards. No Terraform/resource/retained-resource/force deletion.
 
 Resolve local units, DeployOrder, MaxConcurrentStacks, resource ownership, identifier outputs/incoming references and exact observed/model/view paths before AWS calls. Use existing deterministic model readers and explicit cfn-logicalId; name-based ownership inference and template/parameter body reading are prohibited. Reject out-of-target references under existing scope policy before deletion. No desired/IaC changes.
 
@@ -616,7 +616,7 @@ Use only lightweight pre-mutation task/target/account/region/profile/scope/Stack
 
 ## Scoped CloudFormation reference reads
 
-Deploy delivery, Create and Execute use independent verification boundaries; acquired AWS responses never cross them. Same-boundary Producer reads are shared. Unfinished-operation independence retains the existing Producer→Consumer graph, seeded by scoped Stack Outputs, saved delivery imports and current planned imports. ListImports reads only Exports owned by reached Stacks; shared Producers alone do not create a conflict. Cycles/diamonds are deduplicated; absent, incomplete or changed proof blocks. Repair permits scoped DescribeStacks in this same proof.
+Deploy delivery, Create and Execute use independent verification boundaries; acquired AWS responses never cross them. Same-boundary Producer reads are shared. Unfinished-operation independence retains the existing Producer→Consumer graph, seeded by scoped Stack Outputs, saved delivery imports and current planned imports. ListImports reads only Exports owned by reached Stacks; shared Producers alone do not create a conflict. Cycles/diamonds are deduplicated; absent, incomplete or changed proof blocks.
 
 DescribeStacks/DescribeStackEvents/GetTemplate/ListExports are limited to 5 req/s and ListImports to 1 req/s per execution Account/Region/API across all Threads and profiles in the process. The common SDK read controller accounts for every page and retry, retries only Throttling with exponential backoff and jitter, and shares the operation deadline. Controlled read SDK clients use one transport attempt; mutation SDK clients use standard retries with up to two total attempts. The slot remains held through transport completion to prevent delayed requests bunching together. Other processes are outside this budget.
 

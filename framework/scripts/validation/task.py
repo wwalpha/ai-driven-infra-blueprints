@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import deploy.contracts as _imports_deploy_contracts
 import import_guard as _imports_import_guard
 import model.importing.repository as repository
 import model.observed as _imports_model_observed
@@ -190,28 +189,12 @@ class TaskValidation:
             f"Allowed paths section missing or empty: {self.relative(prompt)}",
         )
 
-        delegated = set()
-        if self.infrastructure_phase == "deploy":
-            try:
-                accepted_changes = _imports_deploy_contracts.accepted_changes
-                delegated = accepted_changes(
-                    self.attribution_root,
-                    self.contract_text,
-                    self.permission_paths,
-                    **(
-                        {"contract_file": self.contract_file}
-                        if self.contract_file
-                        else {}
-                    ),
-                )
-            except (OSError, ValueError, KeyError, TypeError) as error:
-                self.check(False, f"invalid child IaC attribution: {error}")
         declared = (
             paths_in(self.contract_text, "## Modified files")
             if self.contract_file is not None
             else None
         )
-        for changed in sorted(self.permission_paths - delegated):
+        for changed in sorted(self.permission_paths):
             permitted = any(self.matches(changed, pattern) for pattern in allowed)
             self.check(permitted, f"changed path is outside task scope: {changed}")
             if declared is not None:
@@ -381,25 +364,9 @@ class TaskValidation:
                     "infrastructure implement phase must change selected IaC",
                 )
             elif self.infrastructure_phase == "deploy":
-                if iac_changed:
-                    accepted_changes = _imports_deploy_contracts.accepted_changes
-                    try:
-                        attributed = accepted_changes(
-                            self.attribution_root,
-                            task_snapshot(self.root).text,
-                            {path for path in changed if self.under(path, "infra")},
-                            contract_file=self.contract_file,
-                        )
-                        self.check(
-                            attributed
-                            == {path for path in changed if self.under(path, "infra")},
-                            "infrastructure deploy phase must not change IaC without verified child attribution",
-                        )
-                    except (OSError, ValueError, KeyError, TypeError) as error:
-                        self.check(
-                            False,
-                            f"infrastructure deploy phase must not change IaC: {error}",
-                        )
+                self.check(
+                    not iac_changed, "infrastructure deploy phase must not change IaC"
+                )
             elif self.infrastructure_phase == "update":
                 self.check(
                     iac_changed, "infrastructure update phase must change selected IaC"

@@ -167,7 +167,7 @@ def seed(root, state_path, case="orders", *, same_group=False):
         "- Deployment scope: "
         + ", ".join("`cfn-stack-app-dev-" + item["name"] + "`" for item in stacks)
         + "\n- Authorized delete/replacement: `none`\n"
-        "- Runtime recovery: `allowed`\n- External IaC repair: `allowed`\n"
+        "- Runtime recovery: `allowed`\n"
         "## Required changes\n- [R1] Synthetic deployment\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         "## Validation scope\n"
         + "".join(
@@ -945,17 +945,10 @@ def child_environment():
     }
 
 
-def ordinary_base(root, name):
-    return git(root, "rev-list", "--max-parents=0", "HEAD").strip()
-
-
 if __name__ == "__main__":
     root, state_path, aws_path = map(lambda arg: Path(arg).resolve(), sys.argv[1:4])
     os.chdir(root)
-    with (
-        publication_repository(),
-        patch("deploy.contracts.task_start_commit", ordinary_base),
-    ):
+    with publication_repository():
         raise SystemExit(
             drive(
                 root,

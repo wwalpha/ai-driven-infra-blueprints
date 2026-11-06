@@ -18,7 +18,6 @@ import task_contract_core as tasks
 import worktree_python as python_env
 import worktree_state
 from contracts.repository import PROJECT_FILENAME
-from contracts.target import AWS_ACCOUNT_ID_KEY
 from utils import cli_deploy
 from utils.file_operations import sha
 from utils.script_loader import module
@@ -167,43 +166,15 @@ def _new_worktree(primary, task_name, base, start, creation):
     raise Blocked(f"could not reserve a Task ID for {task_name} after 20 collisions")
 
 
-def create(where, task_name, repair_request=None):
+def create(where, task_name):
     _, _, primary = repository(where)
     state_path(primary, task_name)  # Apply the same lower-kebab-case rule as Task IDs.
-    repair_lock = nullcontext()
-    if repair_request:
-        transfer = deploy_request(where, repair_request)
-        if transfer[0] != primary:
-            raise Blocked("repair parent belongs to another repository")
-        repair_lock = _worktree_runtime().deploy_handoff.locked(
-            Path(transfer[-1]["requestPath"])
-        )
     creation = {}
     try:
-        with lifecycle_lock(primary), repair_lock:
-            transfer = deploy_request(where, repair_request) if repair_request else None
-            request = transfer[-1] if transfer else None
-            if request:
-                parent = Path(request["repository"])
-                if tasks.status(
-                    tasks.read_task_snapshot(parent, request["taskFile"], live=True).text
-                ) != "suspend":
-                    raise Blocked("suspend the original deploy Task before child creation")
-                if transfer[-2]["iacRepair"].get("childTask") is not None:
-                    raise Blocked("one-shot request already owns an implement child")
-                if transfer[0] != primary:
-                    raise Blocked("repair parent belongs to another repository")
-            base = request["parentBranch"] if request else base_branch(primary)
+        with lifecycle_lock(primary):
+            base = base_branch(primary)
             start = output(primary, "rev-parse", f"refs/heads/{base}")
-            if request and start != request["parentTip"]:
-                raise Blocked("repair parent tip changed")
             state_file, state = _new_worktree(primary, task_name, base, start, creation)
-            if request:
-                state["deployRepair"] = request["requestPath"]
-            if request:
-                parent_state = transfer[-2]
-                parent_state["iacRepair"]["childTask"] = state["task_id"]
-                save(transfer[1], parent_state)
             state_file.parent.mkdir(exist_ok=True)
             save(state_file, state)
         return setup(primary, state["task_id"])
@@ -389,21 +360,11 @@ def cleanup_state(root, path, state, *, discard=False):
         remaining = cleanup_progress(root, path, state, phase, directory=directory)["remaining"]
         if any(remaining[key] for key in ("worktree", "git_registration", "branch")):
             raise Blocked("local cleanup is incomplete; retain Task state for review")
-        retained_evidence = []
-        if discard:
-            for key in ("deployRepair", "iacRepair"):
-                if state.get(key):
-                    retained_evidence.append({key: state[key]})
-        else:
-            phase = "remove_repair_proof"
-            if state.get("deployRepair"):
-                _worktree_runtime().deploy_handoff.discard_request(state)
         phase = "remove_state"
         path.unlink()
         return {
             **state,
             "cleaned": True,
-            "retained_external_evidence": retained_evidence,
             "cleanup": cleanup_progress(root, path, state, "complete", directory=directory),
         }
     except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
@@ -777,9 +738,7 @@ def finalize(
     root, _, path, state = load(where, task_id)
     if (
         create_pr
-        and not (
-            state.get("deployRepair") or state["merged"]
-        )
+        and not state["merged"]
         and cli_deploy.is_cli(
             tasks.read_task_snapshot(
                 Path(state["worktree"]), state["task_file"], live=True
@@ -787,19 +746,17 @@ def finalize(
         )
     ):
         raise Blocked("PR publication is unavailable for Deploy tasks")
-    if create_pr and (
-        state.get("deployRepair") or state["merged"]
-    ):
+    if create_pr and state["merged"]:
         raise Blocked(
-            "PR publication is unavailable for Deploy, repair or merged tasks"
+            "PR publication is unavailable for merged tasks"
         )
     publication = module("worktree_pr.py", "worktree_pr")
     with publication.publication_lock(path):
         state = load(root, task_id)[3]
-        if state.get("deployRepair") or state["merged"]:
+        if state["merged"]:
             if create_pr:
                 raise Blocked(
-                    "PR publication is unavailable for Deploy, repair or merged tasks"
+                    "PR publication is unavailable for merged tasks"
                 )
             return _finalize(root, task_id)
         if create_pr:
@@ -815,8 +772,6 @@ def finalize(
 
 def _finalize(where, task_id):
     root, common, path, state = load(where, task_id)
-    if state.get("deployRepair"):
-        return deploy_finalize(where, task_id)
     if not state["merged"]:
         target = task_worktree(root, state)
         text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
@@ -1058,62 +1013,6 @@ def _integrate_model(where, task_id):
             raise Blocked(str(error) + "; integration log: " + log.name) from error
 
 
-def deploy_request(where, request_path):
-    return _worktree_runtime().deploy_request(where, request_path)
-
-
-def deploy_checkpoint(where, task_id, session_path):
-    return _worktree_runtime().deploy_checkpoint(where, task_id, session_path)
-
-
-def deploy_child_contract(target, state, request):
-    text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
-    tasks.validate_contract(target, state["task_file"], text)
-    lines = tasks.section(text, "## Task contract")
-    for line in (
-        "- Task type: `infrastructure`",
-        "- Infrastructure phase: `implement`",
-        "- AWS API execution: `forbidden`",
-        "- AWS mutation: `forbidden`",
-        "- Deploy/apply: `forbidden`",
-        f"- Deploy repair request: `{request['requestPath']}`",
-        f"- Target environment: `{request['environment']}`",
-        f"- Target AWS account: `{request['target'][AWS_ACCOUNT_ID_KEY]}`",
-    ):
-        if line not in lines:
-            raise Blocked("child repair contract must contain " + line)
-    if (
-        request["target"].get("alias")
-        and f"- Target alias: `{request['target']['alias']}`" not in lines
-    ):
-        raise Blocked("child target alias differs from request")
-    if tasks.paths_in(text, "## Allowed paths") != set(request["allowedPaths"]) | {
-        state["task_file"]
-    }:
-        raise Blocked("child repair write authority differs from request")
-    if not tasks.paths_in(text, "## Modified files") <= set(request["allowedPaths"]) | {
-        state["task_file"]
-    }:
-        raise Blocked("child contract contains undeclared repair paths")
-    if tasks.paths_in(text, "## Validation scope") != set(request["validationScope"]):
-        raise Blocked("child repair Validation scope changed")
-    if any(p.startswith("tasks/") for p in paths(target, "ls-files", "-z", "tasks")):
-        raise Blocked("child must not commit Task contracts")
-    return text
-
-
-def deploy_snapshot(target):
-    return _worktree_runtime().deploy_snapshot(target)
-
-
-def deploy_validate(where, task_id, request_path):
-    return _worktree_runtime().deploy_validate(where, task_id, request_path)
-
-
-def deploy_finalize(where, task_id):
-    return _worktree_runtime().deploy_finalize(where, task_id)
-
-
 def verify_rebase_commits(target, old_commits, new_commits, old_parent, new_parent):
     for old, new in zip(old_commits, new_commits, strict=True):
         if (
@@ -1159,7 +1058,6 @@ def sync_latest_base(where, task_id, expected_base):
             if (
                 state.get("prPublication")
                 or state.get("integrationMode") == "pr"
-                or state.get("deployRepair")
                 or state["merged"]
                 or state.get("baseSyncIntent")
             ):
@@ -1404,7 +1302,6 @@ def sync_base(where, task_id, expected_base):
         if pr_mode and (
             any(key in state for key in ("prPublication", "prUpdate", "githubMerged"))
             or state.get("verified")
-            or state.get("deployRepair")
             or state.get("latestBaseSync")
             or path.with_suffix(".setup-lock").exists()
             or state.get("python_setup", {}).get("status") != "ready"
@@ -1425,7 +1322,6 @@ def sync_base(where, task_id, expected_base):
         if (
             state["commit"]
             or state["merged"]
-            or state.get("deployRepair")
             or state["tip"] != state.get("validation_base", state["start"])
         ):
             raise Blocked(
@@ -1568,8 +1464,6 @@ def main():
             "pr-close",
             "pr-draft",
             "pr-ready",
-            "repair-checkpoint",
-            "repair-validate",
             "sync-base",
             "sync-latest-base",
         ),
@@ -1596,7 +1490,6 @@ def main():
         action="store_true",
         help="Publish a validated PR only on explicit Human request; retain worktree without local merge",
     )
-    parser.add_argument("--repair-request", type=Path)
     parser.add_argument("--expected-base")
     args = parser.parse_args()
     creating = args.command == "create"
@@ -1627,8 +1520,6 @@ def main():
         parser.error("--create-pr is only valid with finalize")
     if args.expected_base and args.command not in {"sync-base", "sync-latest-base", "pr-sync-base"}:
         parser.error("--expected-base requires a base synchronization command")
-    if args.repair_request and args.command not in {"create", "repair-checkpoint", "repair-validate"}:
-        parser.error("--repair-request requires create, repair-checkpoint or repair-validate")
     where = args.repository_root
     try:
         if not creating and args.command != "branch-delete" and not args.pr:
@@ -1656,16 +1547,8 @@ def main():
             state = sync_base(where, args.task_id, args.expected_base)
         elif args.command == "sync-latest-base":
             state = sync_latest_base(where, args.task_id, args.expected_base)
-        elif args.command == "repair-checkpoint":
-            if not args.repair_request:
-                raise Blocked("repair-checkpoint requires --repair-request")
-            state = deploy_checkpoint(where, args.task_id, args.repair_request)
-        elif args.command == "repair-validate":
-            if not args.repair_request:
-                raise Blocked("repair-validate requires --repair-request")
-            state = deploy_validate(where, args.task_id, args.repair_request)
         elif args.command == "create":
-            state = create(where, args.task_name, args.repair_request)
+            state = create(where, args.task_name)
         elif args.command == "finalize":
             state = finalize(where, args.task_id, create_pr=args.create_pr, draft=args.draft)
         else:

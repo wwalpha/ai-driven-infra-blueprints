@@ -4,15 +4,22 @@ from __future__ import annotations
 
 import copy
 import re
+import uuid
+from contextlib import AbstractContextManager
+from pathlib import Path
+from types import SimpleNamespace
 
 from contracts.deploy import DEPLOY_RUNNING
 from contracts.model import REFERENCE_PENDING_DEPLOY
 from model.core import ReferenceDiagnosticError
 from utils.cloudformation.environment import EnvironmentValuePending
+from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
+from utils.local_evidence import evidence_store, write_sealed
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
+from deploy import operation_journal
 from deploy.guards import secret_value_missing
 from deploy.typing import AwsResponse, StackState
 from deploy.typing import AwsValue as AwsValue
@@ -410,3 +417,52 @@ def template_safety(document: AwsResponse) -> JsonObject:
             for key, resource in document.get("Resources", {}).items()
         }
     }
+
+
+def failure_lock(root: Path) -> AbstractContextManager[None]:
+    # Keep the existing lock path so older checkouts still share exclusion.
+    return operation_journal.locked(evidence_store(root) / "deploy-repair.json")
+
+
+def external_evidence_path(root: Path, path: str | Path) -> Path:
+    path = Path(path)
+    if (
+        not path.is_absolute()
+        or any(p.is_symlink() for p in (path, *path.parents))
+        or path.resolve().is_relative_to(root.resolve())
+    ):
+        raise Blocked("failure evidence must be outside repository without symlinks")
+    return path
+
+
+def record_failure(backend: SimpleNamespace) -> str | None:
+    """Seal this invocation's failed or blocked Stack evidence."""
+    selected = {
+        name: copy.deepcopy(state)
+        for name, state in backend.states.items()
+        if state.get("status") in {"FAILED", "BLOCKED"}
+    }
+    for state in selected.values():
+        state.pop("approvedChangeDigest", None)
+    if not selected:
+        return None
+    path = evidence_store(backend.root) / (
+        "deploy-failure-" + uuid.uuid4().hex + ".json"
+    )
+    context = backend.run_context
+    with failure_lock(backend.root):
+        write_sealed(
+            backend.root,
+            path,
+            {
+                "repository": str(backend.root),
+                "taskFile": context["taskFile"],
+                "taskDigest": context["taskDigest"],
+                "target": backend.target,
+                "environment": backend.environment,
+                "directory": backend.directory,
+                "states": selected,
+                "inputs": {**context["consumedInputs"], **context["modelInputs"]},
+            },
+        )
+    return str(path)

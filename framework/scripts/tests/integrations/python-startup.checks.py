@@ -204,11 +204,6 @@ def check_isolated_imports_and_standalone_audit(first, tmp_path):
             ["--action", "--approve-change-set", "MaxConcurrentStacks", "Snapshot"],
         ),
         (
-            "deploy_handoff.py",
-            "deploy_handoff.py",
-            ["inputRefs", "modelRefs", "--discard-failure", "local request.json"],
-        ),
-        (
             "check-deploy-context.py",
             "aws_context.py",
             [
@@ -258,7 +253,6 @@ def check_cli_help_and_example_options(script, module, tokens):
                     for old in [
                         "--state",
                         "--resume",
-                        "--repair-result",
                         "--observe-only",
                     ]
                 )

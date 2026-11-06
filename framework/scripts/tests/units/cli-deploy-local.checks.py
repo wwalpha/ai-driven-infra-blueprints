@@ -166,7 +166,6 @@ def check_context_required_without_model_references(
         patch.object(runtime, "task_snapshot", return_value=snapshot),
         patch("task_contract_core.task_snapshot", return_value=snapshot),
         patch.object(runtime, "task_reads", return_value=nullcontext()),
-        patch("worktree_state.deploy_task_state", return_value=("start", {})),
         patch.object(wt, "paths", return_value=set()),
         patch.object(wt, "changed_paths", return_value=set()),
         patch.object(
@@ -262,7 +261,6 @@ def check_publication_validates_actual_latest_base(tmp_path, failure):
     validator.report.return_value = int(failure)
     with (
         patch("task_contract_core.task_snapshot", return_value=snapshot),
-        patch("worktree_state.deploy_task_state", return_value=("start", {})),
         patch.object(wt, "output", return_value="candidate-head"),
         patch.object(wt, "paths", return_value={"model/qa/team/iam.properties"}),
         patch.object(wt, "changed_paths", return_value=set()),

@@ -68,7 +68,7 @@ Validation scope; do not add `--all` or `--repository-wide-iac` for bounded chec
 Local regression discovers all UTs; caches, worker counts and validation scope are retained.
 Ordinary Project Tasks treat Framework code and definitions as immutable. Deploy does
 not scan/hash Framework definitions or compare them at start, mutation, Observed
-synchronization, handoff or resume. Task, Model, IaC and current ChangeSet/request checks remain required; historical Journal completion is not a normal Deploy prerequisite. Task/local
+synchronization or resume. Task, Model, IaC and current ChangeSet/request checks remain required; historical Journal completion is not a normal Deploy prerequisite. Task/local
 loops do not select UT/IT from Framework Git differences; they validate the Project's
 Validation scope and Task Contract. Framework development uses dedicated UT entrypoints,
 `run_it.py`, Framework IT CI, or explicit Full. CI changed-file selection and its dependency mapping are removed. Explicit Full uses
@@ -365,11 +365,11 @@ Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`
 1. Using approved design and service models as input, create/change only IaC specified by the active prompt.
 2. Perform the existing local Model/provider-schema and mapping checks with shared CloudFormation decoding, or `terraform fmt -check`, `terraform init -backend=false`, and `terraform validate` for Terraform.
 3. Do not execute AWS APIs, CloudFormation change sets, Terraform plans, deploy/apply, or observed value updates.
-4. Run the local loop and finish. A deploy-request child uses `worktree_task.py repair-validate` to execute this same scoped task loop, sealing the actual result/dependent-input snapshot for exact parent integration. Keep at most 3 same-child static correction cycles. Require a recorded PASS with the same validation inputs; static PASS alone is not AWS resolution.
+4. Run the local loop and finish.
 
 `deploy` phase:
 
-1. Run deterministic preflight with validated IaC. Preserve failure and AWS execution state under [Controlled deploy repair](cloudformation.md#controlled-deploy-repair). The supervising LLM hands proven IaC causes to a separate authorized implement Task; deploy never edits IaC. Runtime recovery is independent.
+1. Run deterministic preflight with validated IaC. Preserve failure evidence and AWS execution state under [Deploy failure and runtime recovery](cloudformation.md#deploy-failure-and-runtime-recovery). Use a separate authorized Implement Task for IaC corrections.
 2. Confirm scope with AWS ValidateTemplate and change sets for CloudFormation; validation and saved plans for Terraform.
 3. If no unapproved delete/replacement exists, deploy/apply only targets authorized by the active prompt. If any exists, explain targets, reasons, impacts, and current execution state and wait for human confirmation; after approval, resume in the same task with the same change set or saved plan.
 4. For CloudFormation Deploy, save current successful, failed, rolled-back, partial, running, unexecuted or unknown observations through the shared Model writer. Desired stays fixed. Terraform retains its existing success rule.
@@ -396,7 +396,7 @@ Infrastructure phase `destroy` is an independent CloudFormation Stack workflow:
 7. Run `python framework/scripts/blueprint-loop.py --mode task --task-file <task>` once, then complete only after terminal/sync evidence and PASS.
 8. Finish without scenario tests or another task.
 
-Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate-template, change sets, template/parameter/artifact checks, deploy preparation, clean revision check, deploy repair or deployment input guards. The scoped loop retains model/generated equality, task boundary, issue, catalog/schema and common checks; it skips IaC validation. Framework implementation changes follow [Validation policy](loop-engineering.md#validation-policy).
+Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate-template, change sets, template/parameter/artifact checks, deploy preparation, clean revision check or deployment input guards. The scoped loop retains model/generated equality, task boundary, issue, catalog/schema and common checks; it skips IaC validation. Framework implementation changes follow [Validation policy](loop-engineering.md#validation-policy).
 
 ## Scenario-test task completion
 

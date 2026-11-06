@@ -41,9 +41,8 @@ and the candidate; a change stops registration and requires a reviewed new prepa
 Python, PATH/PYTHONPATH. It launches exactly one controller, with current AWS checks.
 Use --aws-account-id instead of --alias for targets without an alias; --profile
 must agree with project.json. --sequential caps concurrency at one; otherwise the
-Model's MaxConcurrentStacks applies within each DeployOrder group. The optional
---allow-external-repair authorizes a separate evidence-backed Implement handoff,
-never automatic IaC editing. Existing Tasks use cloudformation-deploy.py directly.
+Model's MaxConcurrentStacks applies within each DeployOrder group. Existing Tasks use
+cloudformation-deploy.py directly.
 For omitted owner services, suspend the same Task and use task_contract.py
 --correct-deploy-contract with a reviewed external candidate adding only proven
 Validation services and exact outputs. Same-target deferred reference consumers
@@ -104,23 +103,8 @@ PENDING_DEPLOY is a dependency wait, not proof of an IaC defect. Task completion
 requires a settled attempt, saved observations, required generation and a validated
 final candidate. A failed attempt retains Deploy FAIL when its Task completes.
 Failure JSON adds stage/cause/nextAction; unknown or unapproved actions have no command.
-For a proven IaC defect with current external repair authority, inspect current
-safe evidence and use deploy_handoff.py --help. repairFailure alone is insufficient.
-"""
-
-HANDOFF_HELP = """Examples (paths must identify current evidence and reviewed diagnosis):
-  python3 -B framework/scripts/deploy_handoff.py --failure /tmp/deploy-failure-example.json --diagnosis /tmp/deploy-diagnosis.json --path infra/cloudformation/templates/worker.yaml
-  python3 -B framework/scripts/deploy_handoff.py --failure /tmp/deploy-failure-example.json --discard-failure
-
-Request creation requires current Task External IaC repair: allowed, a proven IaC
-cause, settled scoped AWS/publication and exact current input/Model evidence.
-Repeat --path only for the exact IaC files to repair. Diagnosis JSON maps every
-failed StackName to {reason, inputRefs: [{path, sha256}], modelRefs: [{path, sha256,
-key}]}; key is an existing desired Model entry. Never include secrets or guess a cause.
-The CLI verifies current inputs and returns a local request.json for review.
-Suspend the named Deploy Task before separate, authorized Implement work. The
-request is evidence for review and identifies the exact IaC inputs; it does not
-create or integrate another checkout. Retain the original Task's AWS evidence.
+For a proven IaC defect, review current failure evidence and use a separate
+Implement Task. Start a new Deploy after integrating the validated IaC.
 """
 
 CONTEXT_HELP = """Terraform preflight example (repository root, approved target/profile):
@@ -350,14 +334,12 @@ def command_environment(root):
     return ["env", "-u", "PYTHONHOME"]
 
 
-def python_command(root, script, arguments, *, task_file=None):
+def python_command(root, script, arguments):
     root = Path(root).resolve()
     scripts = Path(__file__).resolve().parents[1]
     env = command_environment(root)
     if env is None or not (scripts / script).is_file():
         return None
-    if task_file:
-        env.append("BLUEPRINT_TASK_FILE=" + task_file)
     argv = env + [
         sys.executable,
         "-B",
@@ -431,33 +413,4 @@ def preparation_result(root, plan_path, registered):
         None,
         "REVIEW_PREPARATION",
         "Review the contract and target summary and read applicable Rules before registration.",
-    )
-
-
-def handoff_result(request=None, *, discarded=False):
-    if discarded:
-        return guidance(
-            "HANDOFF",
-            None,
-            "REVIEW_CURRENT_INPUTS",
-            "Unconsumed failure proof discarded; no repair or Deploy was started.",
-        )
-    return guidance(
-        "HANDOFF",
-        {"requestId": request["requestId"]},
-        "SUSPEND_PARENT",
-        "Local repair request issued. Review the diagnosis and suspend the named Task before separately authorized IaC repair.",
-        python_command(
-            Path(request["repository"]),
-            "task_contract.py",
-            [
-                "--repository-root",
-                request["repository"],
-                "--task-file",
-                request["taskFile"],
-                "--suspend-reason",
-                "one-shot implement repair " + request["requestId"],
-            ],
-            task_file=request["taskFile"],
-        ),
     )

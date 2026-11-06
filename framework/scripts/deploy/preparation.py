@@ -327,12 +327,7 @@ def prepare(root, args, run, timing):
             raise ValueError("generated view conflicts with execution/required input")
         text = text.replace(
             "- Authorized delete/replacement: `none`",
-            "- Authorized delete/replacement: `none`\n- Runtime recovery: `allowed`\n"
-            + (
-                "- External IaC repair: `allowed`"
-                if getattr(args, "allow_external_repair", False)
-                else "- External IaC repair: `forbidden`"
-            ),
+            "- Authorized delete/replacement: `none`\n- Runtime recovery: `allowed`",
         )
         checks = [
             f"- [R1] `exists:{path.relative_to(root).as_posix()}`"
@@ -634,11 +629,6 @@ def main(argv=None):
     )
     parser.add_argument("--task-file")
     parser.add_argument("--profile")
-    parser.add_argument(
-        "--allow-external-repair",
-        action="store_true",
-        help="explicitly authorize the separate implement repair loop",
-    )
     parser.add_argument("--sequential", action="store_true")
     parser.add_argument(
         "--log-dir", type=Path, help="external parent for a fresh preparation directory"

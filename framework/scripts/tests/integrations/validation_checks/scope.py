@@ -25,7 +25,6 @@ def check_deployment_iac_scope():
     with (
         git_project() as root,
         patch.dict(os.environ, {}, clear=True),
-        patch("deploy.contracts.accepted_changes", return_value=set()),
     ):
         target = {
             "awsAccountId": "123456789012",

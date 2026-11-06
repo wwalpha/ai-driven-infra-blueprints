@@ -89,11 +89,7 @@ def check_preparation():
         )
         assert not {p for p in declared if p.startswith("infra/")}
         assert "- Runtime recovery: `allowed`" in text
-        assert "- External IaC repair: `forbidden`" in text
-        assert (
-            "Deploy repair session" not in text
-            and "--state" not in plan["controllerArgv"]
-        )
+        assert "--state" not in plan["controllerArgv"]
         assert "documents" not in plan and not (run / "documents").exists()
         assert Path(plan["contract"]) == run / "contract.md"
         assert Path(plan["targetSummary"]) == run / "target-summary.json"

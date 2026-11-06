@@ -76,8 +76,7 @@ def select(where, task_id):
         target = wt.task_worktree(root, state)
         text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
         if (
-            state.get("deployRepair")
-            or state["merged"]
+            state["merged"]
             or wt.cli_deploy.is_cli(text)
             or state.get("integrationMode") not in (None, "pr")
             or path.with_suffix(".setup-lock").exists()
@@ -94,7 +93,7 @@ def finalize(where, task_id, *, draft=False):
     root, _, path, state = wt.load(where, task_id)
     with wt.lifecycle_lock(root):
         root, _, path, state = wt.load(root, task_id)
-        if state.get("deployRepair") or state["merged"]:
+        if state["merged"]:
             raise wt.Blocked("PR publication requires an ordinary unmerged task")
         if (
             path.with_suffix(".setup-lock").exists()

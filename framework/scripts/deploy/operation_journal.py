@@ -124,15 +124,3 @@ def locked(path):
         yield
     finally:
         os.close(descriptor)
-
-
-def publication_paths(context):
-    paths = set(context.get("pendingObserved", {}).get("beforeManifest", {}))
-    plans = [*context.get("pendingGeneration", {}).values()]
-    if context.get("pendingObserved"):
-        plans.append(context["pendingObserved"])
-    for plan in plans:
-        paths.update(plan.get("generated", {}).get("originals", {}))
-        paths.update(plan.get("waitingModelManifest", {}))
-        paths.update(plan.get("candidateManifest") or {})
-    return paths

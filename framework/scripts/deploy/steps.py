@@ -27,7 +27,6 @@ from deploy import (
     current_state,
     failures,
     generation_resume,
-    handoff,
     inputs,
     observed,
     observed_resume,
@@ -631,7 +630,7 @@ def run(
                     s["status"] in {"FAILED", "BLOCKED"}
                     for s in backend.states.values()
                 ) and not run.get("currentFailure"):
-                    run["currentFailure"] = handoff.record_failure(backend)
+                    run["currentFailure"] = failures.record_failure(backend)
                 backend.save()
             elif args.action in {"sync", "checkpoint"}:
                 models = RunModels(root, run)

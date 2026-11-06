@@ -89,7 +89,7 @@ Read [Verify and finish](#verify-and-finish) and [Observations, validation and p
 
 ## CLI Recovery
 
-Read [Interruption and independent recovery](../../../rules/cloudformation.md#interruption-and-independent-recovery). Recheck fixed inputs/caller, original Stack/ChangeSet/name/tokens, full events and unfinished requests with direct CLI. Lost Create inspects the original unique name; lost Execute reconciles the same ID/token events. An old COMPLETE, AVAILABLE or missing event alone cannot settle a request. Missing evidence, replacement, UNKNOWN or competitor activity stops new mutations and retains tracking. No unconditional resend, replacement token, SDK recovery, rollback/delete or signed repair shortcut. Resume only the operation supported by current evidence, retaining original scope and consent boundaries.
+Read [Interruption and independent recovery](../../../rules/cloudformation.md#interruption-and-independent-recovery). Recheck fixed inputs/caller, original Stack/ChangeSet/name/tokens, full events and unfinished requests with direct CLI. Lost Create inspects the original unique name; lost Execute reconciles the same ID/token events. An old COMPLETE, AVAILABLE or missing event alone cannot settle a request. Missing evidence, replacement, UNKNOWN or competitor activity stops new mutations and retains tracking. No unconditional resend, replacement token, SDK recovery or rollback/delete. Resume only the operation supported by current evidence, retaining original scope and consent boundaries.
 
 ## Correct this Task's preparation omissions
 
@@ -119,7 +119,7 @@ python3 -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md -
 他の阻害がないと確認したときだけ、既存の`--resume`を使い失敗した検査から再開する。
 AWS再実行やTask完了は訂正の結果として行わない。元契約原文や固定入力証拠の不足、未確定要求は停止する。
 原本・候補・現在値を検証できるObserved／生成Intentと未確定checkpointは既存復旧処理で保持・継続する。
-証拠不整合、固定済みcheckpoint候補、未完了の証拠、修復Failure／handoff、同時変更は停止・保持する。
+証拠不整合、固定済みcheckpoint候補、未完了の証拠、Deploy失敗証跡、同時変更は停止・保持する。
 保存中断のintentが残った場合だけ同じ候補・同じ訂正コマンドで安全性を再検証する。
 未対応の契約訂正や状態を別Taskへの付け替え・無条件再固定・進捗削除で回避しない。
 再開は必要な`sync`／`checkpoint`を使い、確定済みStackを再Deployしない。
@@ -141,14 +141,9 @@ REVIEW_IN_PROGRESS は ChangeSet と合わせて判断する。UPDATE_ROLLBACK_C
 
 Export は共通 Resolver で必要名だけを解決する。既知 Producer は scoped DescribeStacks、未知だけ必要な ListExports を使う。古い Task の Outputs 一致を現在値保存条件にしない。同期や Git 障害を理由に AWS を再実行しない。
 
-## External IaC repair handoff
+## IaC corrections after Deploy failure
 
-この署名付きhandoffはSDK方式専用。CLI失敗からSDK証跡を作り直す経路ではない。
-
-[Controlled deploy repair](../../../rules/cloudformation.md#controlled-deploy-repair)と[Worktree repair lifecycle](../../../../.agents/skills/worktree/SKILL.md#explicit-cloudformation-repair-handoff)が権限・ライフサイクルの正本。子 Worktree 作成には Task 名を渡し、登録・検証・統合には返却された子 Task ID を使う。CloudFormationの現在Taskに`External IaC repair: allowed`がある場合だけ、今回の署名付き失敗証拠、正確なIaCと承認済Modelから原因を診断する。`repairFailure`の存在は修復の証明ではない。
-
-承認待ち・認証/権限・設計不足・依存待ち・送信不明は修復依頼の根拠にしない。未確定要求とローカル保存を確定し、原因・入力・Model の証拠が揃った場合だけ `deploy_handoff.py --help` の手順で依頼を作る。依頼を確認して親 Deploy Task を suspend し、明示承認を得た別の Implement Task で修正する。Deploy は依頼と元の AWS 証跡を保持する。修正後の独立 Deploy には、確認済みの commit 済み IaC と新しい Task 契約を使う。
-
+失敗した Stack の現在状態・エラー・失敗証跡を確認する。IaC の修正が必要なら、承認された独立の Implement Task を通常の Worktree で実施する。検証と統合を終え、再デプロイが必要なら、統合済み IaC と現在の AWS 状態を使って新しい Deploy Task を開始する。
 
 ## Terraform
 

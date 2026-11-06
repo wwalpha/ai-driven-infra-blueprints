@@ -15,7 +15,7 @@ Worktreeケース、独自の直接入口、クラスを定義するスイート
 新しいスイート登録台帳は設けない。既存のWorktree責務表だけは、その実ケースと同期する。
 
 スケジューラは最大2並列。pytestグループも既存の回帰コマンド判定・ログ・失敗伝播・中断処理を通す。
-Repair/Checkpointのケース起動も同時に2つまでとする。ケースID・収集重複・未収集・未実行・skip/xfailを失敗として診断し、pytestの非0終了コードを保持する。
+Checkpointのケース起動も同時に2つまでとする。ケースID・収集重複・未収集・未実行・skip/xfailを失敗として診断し、pytestの非0終了コードを保持する。
 グループでは各ケースの環境変数・cwd・sys.path・sys.argvを戻し、残留した `patch.start()` を停止して当該ケースを失敗させる。
 変更可能なModelやFixtureをケース間で共有しない。
 Worktreeケースの分類はpytestセッション内で、解決済みパス・ソース内容・許可ケース表に結び付けて再利用する。ソースまたは許可ケース表が変われば再分類する。
@@ -33,7 +33,7 @@ ITは正常なCLI・Git・保存・再読込・コンポーネント接続を所
 | lintのschema/protocol/期限/強制回収 | issues-lint-unit | issues-lintの実CLI一致とWorker設定隔離 |
 | DeployのTask別progress、AWS要求、ローカル同期と完了状態 | deploy-worktree-unit、deploy-steps-unit、deploy-runtime-unit、observed-mapping | deploy-worktree、ローカル同期復旧、controller、CloudFormationの正常保存 |
 | Observedのjournal所有者、部分書込、復元順序 | deploy-observed-resume-unit | controllerの別プロセス正常公開（旧observed-recovery ITは削除） |
-| WorktreeのTask ID衝突・失敗時保持、Git所有権、Cleanup、PRの二重作成防止、Deploy修復 | worktree-guard-unit、既存worktree-model-guard-unit | worktree_task、model-operation、Python setup、修復の通常CLI→検証→親統合 |
+| WorktreeのTask ID衝突・失敗時保持、Git所有権、Cleanup、PRの二重作成防止 | worktree-guard-unit、既存worktree-model-guard-unit | worktree_task、model-operation、Python setup |
 | ImportのReview/Scope/入力変更、Schema、保存/Transaction rollback | import-approval-unit、import-model-unit、model_files-unit | import-model、import-cli、import-worktree-contract |
 | Modelのone-use、同時変更、生成/保存失敗、JSON/復元エラー | model-format-v2、sync-model-unit、file_operations-unit、model_files-unit、既存Model/参照UT | model-properties-v2、sync-model、model_templates、model_design |
 | 新規Python起動・import順序・API注釈・CLI help・依存不要の正常入口 | API/引数/型の判定は既存各UT | python-startup（既存pytest/Discovery/Receiptを使用） |
@@ -46,7 +46,6 @@ ITは正常なCLI・Git・保存・再読込・コンポーネント接続を所
 最新baseのPR update/merge応答・失敗Validationはworktree-guard-unitのFakeで保証する。merge/squash/rebaseの引数・応答と後処理は同UTで各方式を確認する。Worktree ITはcloseの代表経路でDraft/Ready・更新・実Gitの祖先関係を確認し、cleanup-first・外部Merge・mergeは独立した公開済みPRで各終了方法と実Gitの状態を確認する。通常作成では同名 Task の別 ID、6 桁 suffix、Primary と Linked の識別、既存 Worktree の保持を確認する。異常系では 20 回の衝突、安全停止、廃止 CLI の拒否、未 Merge の変更と Task 状態の保持を確認する。Deploy owner補正/参照同期の故障は既存contract-correction/observed/generation-resume UTが所有し、ITには正常な範囲指定と承認済み参照同期を残す。
 
 Importの未使用な故障注入Fixture/Mockは削除し、共有 `import_publication_case()` はAPI/CLIの正常公開と管理 Worktree での Display 復旧を扱う。
-修復ITの入口は診断済みの既存Task資料であり、新しいController故障や中断を注入しない。
 実OSでの強制終了・子孫回収をFakeで完全には再現できない。UTは送信signal・handle・保存状態・順序と再開判断を保証し、ITは正常なWorker起動/終了を保証する。
 既存の実Git index/commitを使うTask・retarget境界UTと、最適化Pythonでのcapacity拒否UTは、物理的な契約をMockで同等に証明できない例外として独立起動を維持する。正常なGit/CLI接続のIT保証は別に残す。
 
@@ -56,7 +55,7 @@ Importの未使用な故障注入Fixture/Mockは削除し、共有 `import_publi
 Presentationの追加サービスも同じ初期化に含める。通常の `save()` の即時rebuild、変更後の再読込・参照更新は変えない。
 初期化回数、保存後の再構築、別Modelのbytes不変を関連UTで確認する。共有の万能キャッシュは追加しない。
 
-Runnerの同じcleanup故障をRepair/Checkpointの両スイートで繰り返した直積は、2子を扱う共通UTへ統合する。
+Runnerのcleanup故障は、Checkpointの2子を扱うUTで検証する。
 スイート別dispatch・期限と、4つの合成ケースでも同時起動が2つを超えない判定は別UTに残す。
 Reference/ARN/Projectionの直積は、受信サービスの配線、式の型/欠落/順序、異なるProducerの同一性を区別する。
 同じExpected値やcoverageだけでは、同じ故障を検出する証拠にしない。
@@ -167,7 +166,6 @@ Model / Import / Deploy / Issues / Validation / CloudFormationの業務テスト
 保存能力は `publication_fixtures` で渡し、実Task検証・入力変更検知・保存・生成・rollbackを通す。
 productionの管理所有者確認は維持し、そのfactory/registry境界を専用UT/ITで検証する。
 通常controllerはTask固有のprogress（identity/runContext）と今回の実行証拠を保存する。旧Session/ledgerの保存・再生は行わない。
-外部修復のcheckpoint・child・検証・親統合・cleanupは専用Worktree ITが実行する。
 
 全UT/IT/supportの依存を静的にたどり、直接/間接Import・動的fixture loader・worktree Mockを検出する。
 pytestと公式IT runnerには実操作/管理書込の実行時guardもある。通常Git init/commit/diffとproductionの
@@ -180,7 +178,6 @@ Worktree ITは実Git/Worktree、正常なCLI連携、状態の保存/再読込�
 
 ローカルで長時間ITや性能比較を再実行しない。関連短時間UT・構文・Discovery静的整合性を確認し、ITと時間測定は既存Framework ITに委ねる。30%以上の時間削減は実測前には達成扱いにしない。
 
-Deploy repair ITは通常の子作成・修正・実CLI検証・親統合・cleanupと独立Deployを検証する。拒否・中断・再開判断はWorktree/Deploy UTが所有する。
 
 ## Dependency index（v3のみ）
 
@@ -219,7 +216,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 
-Repair/Checkpointのケース別Python起動は最大2つ。親は実収集とケース別Receiptを照合し、失敗・中断時は子を停止して各ログを保持する。通常修復は1ケース、Checkpointは個別/一括の正常ケースで、固定総数を新しい成功条件にしない。
+Checkpointのケース別Python起動は最大2つ。親は実収集とケース別Receiptを照合し、失敗・中断時は子を停止して各ログを保持する。個別・一括のCheckpointを検証する。
 
 ## IT入口の自動発見と差分レビュー
 
@@ -227,7 +224,7 @@ Repair/Checkpointのケース別Python起動は最大2つ。親は実収集と�
 
 直接呼出しとcallback参照をたどって所有スイートを求める。静的参照は実行の証明にはせず、実行時の正常returnだけがdirect完了となる。孤立入口、実行責務不明な `test_*`、重複定義/alias、不正Decorator、末尾マーカー欠落、解析不能、空Discovery/スイートはFAIL。動的な入口やclass型を黙って推測せず、対応するDiscovery/検証を実装してから導入する。
 
-ケースIDは `相対ファイルパス::関数名` / `::__module__` のまま。pytestは既存 `PytestReceipt` で、期待関数ごとに1件以上の収集と、展開後の全node IDの一度ずつのPASSを確認する。skip/失敗、期待関数全体の未収集、未知/重複node、完了イベントの所有スイート不正、Receipt欠落、非0終了はFAIL。direct関数の正常な繰返し実行は許可する。共有fixture、Worktreeポリシー、assertion guard、並列Repair/Checkpointとbaseline計測は従来のまま。固定総数を成功条件にしない。
+ケースIDは `相対ファイルパス::関数名` / `::__module__` のまま。pytestは既存 `PytestReceipt` で、期待関数ごとに1件以上の収集と、展開後の全node IDの一度ずつのPASSを確認する。skip/失敗、期待関数全体の未収集、未知/重複node、完了イベントの所有スイート不正、Receipt欠落、非0終了はFAIL。direct関数の正常な繰返し実行は許可する。共有fixture、Worktreeポリシー、assertion guard、並列Checkpointとbaseline計測は従来のまま。固定総数を成功条件にしない。
 
 入口・パラメータの削除/縮小をレビューする場合は、信頼するbase checkoutを用意して次の比較専用モードを明示実行する。PRのCIはUTのみとし、この比較とIT collectは行わない。通常のFull Runnerも追加collectを行わない。
 
@@ -399,7 +396,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/func
 共有Python環境の更新は自動実行せず、[明示的メンテナンス手順](../../../.agents/skills/worktree/SKILL.md#explicit-shared-python-maintenance)に従う。
 Formatterの全件適用はこのチェックに含めない。
 
-AWS SDKのセッション・接続・設定生成は `utils/aws_sdk_runtime.py` に分離する。SDKを必要とする機能だけが `utils.aws_sdk.aws_runtime()` の `importlib.import_module("utils.aws_sdk_runtime")` を通してこの実装を起動し、オフライン比較のImport時にはSDKを読み込まない。Taskの検証付き状態遷移とWorktreeのModel検証・修復実装も、標準ライブラリだけの起動処理から分離する。
+AWS SDKのセッション・接続・設定生成は `utils/aws_sdk_runtime.py` に分離する。SDKを必要とする機能だけが `utils.aws_sdk.aws_runtime()` の `importlib.import_module("utils.aws_sdk_runtime")` を通してこの実装を起動し、オフライン比較のImport時にはSDKを読み込まない。Taskの検証付き状態遷移とWorktreeのModel検証も、標準ライブラリだけの起動処理から分離する。
 
 Modelの公開編集・描画APIとCLIコマンド実装も機能モジュールに分離し、読取APIとヘルプ表示では編集・描画実装を初期化しない。Resource構成比較は公開処理に依存しない `model/configuration.py` が共通所有する。
 
@@ -418,11 +415,11 @@ Profile条件表をITへ追加せず、実AWS接続を行わない。
 
 ## Deploy controller processing reduction / 1024v4
 
-controller ITは6関数6フロー。Order 10の2Stack配送・成功・実Model反映後にOrder 20を開始する正常系、配送AccessDenied、承認済RemoveのExecute直後中断、Observed公開I/O失敗とpeer drain、Model部分書込からの起動時復旧、署名済外部修復のcleanup中断/再開を通す。複数peerの最終生成物は最終Modelからsync(False)で整合を確認し、古いplanのbytesを最終期待にしない。
+controller ITは6関数6フロー。Order 10の2Stack配送・成功・実Model反映後にOrder 20を開始する正常系、配送AccessDenied、承認済RemoveのExecute直後中断、Observed公開I/O失敗とpeer drain、Model部分書込からの起動時復旧を通す。複数peerの最終生成物は最終Modelからsync(False)で整合を確認し、古いplanのbytesを最終期待にしない。
 
 `deploy-observed-resume-unit.checks.py` の移管フローは、小さいModel/planとMarkdown/JSONの部分書込journalを使い、実reconcile・所有者検証・publication_lock・復元を通す。controller/AWS/Git/seed/renderer/子processは使わない。小型ITからUTをimportしない。
 
-組み合わせは既存SDK/runtime/observed-resume/handoff UTへ集約し、不足する削除イベント照合、応答喪失と保存状態、guard停止、公開stageのI/O失敗、署名/accept/request/未実行失敗だけ直接呼出しで補強する。
+組み合わせは既存SDK/runtime/observed-resume/failure-evidence UTへ集約し、不足する削除イベント照合、応答喪失と保存状態、guard停止、公開stageのI/O失敗、失敗証跡と未実行失敗だけ直接呼出しで補強する。
 
 seed・Project全生成・Git initは各66→6、初期Gitは330→30、Python子processは100→7の静的見込み。小型ITと新規UTの追加子processは0。既存sleep無効化・skip・xfail・timeout短縮やrunner選別を短縮根拠にしない。Worktree normal/mergeは実checkpoint/child/validation/merge/cleanup/親Task再開とコピー結果・再適用・未記録変更拒否を保持し、追加assertionを共有helperから明示的に呼ぶ。
 
@@ -553,7 +550,7 @@ helperは削除しました。共通 `document_sha256` / `fingerprint` の仕様
 
 ## CloudFormation Export/API reads
 
-`cloudformation-export-resolution` UT owns common Producer identity/status/Outputs, saved Value/Owner comparison, unknown-only discovery, same-boundary sharing and incomplete/ambiguous proof rejection. `aws-client` UT owns Account/Region/API rate budgets shared by eight Threads, single-attempt read transports, Throttling backoff/jitter, deadlines and complete pagination. Caller UTs retain Delivery/Create/Execute freshness, existing dependency graph (direct/transitive/planned/shared Producer/cycles/diamonds), Output/No Change/Recovery, Repair, Secrets ownership/idempotency and Destroy Resume/order/scope guards. Destroy preflight Outputs replace full list-exports; only scoped Exports receive list-imports. All fixtures are offline; local UT success does not prove live AWS throughput or deployment success.
+`cloudformation-export-resolution` UT owns common Producer identity/status/Outputs, saved Value/Owner comparison, unknown-only discovery, same-boundary sharing and incomplete/ambiguous proof rejection. `aws-client` UT owns Account/Region/API rate budgets shared by eight Threads, single-attempt read transports, Throttling backoff/jitter, deadlines and complete pagination. Caller UTs retain Delivery/Create/Execute freshness, existing dependency graph (direct/transitive/planned/shared Producer/cycles/diamonds), Output/No Change/Recovery, Secrets ownership/idempotency and Destroy Resume/order/scope guards. Destroy preflight Outputs replace full list-exports; only scoped Exports receive list-imports. All fixtures are offline; local UT success does not prove live AWS throughput or deployment success.
 
 ## Logical design JSON and AWS execution
 

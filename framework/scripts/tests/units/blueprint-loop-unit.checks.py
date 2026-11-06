@@ -1326,7 +1326,7 @@ def check_it_inventory(tmp_path):
         ]
         == "pytest"
     )
-    for suite in (run_it.REPAIR_SUITE, run_it.CHECKPOINT_SUITE):
+    for suite in run_it.PARALLEL_CASES:
         discovered = {
             path + "::" + name
             for (path, name), mode in discovery.cases.items()
@@ -2030,36 +2030,7 @@ def check_ordinary_validator_keeps_full_path(tmp_path):
     assert not result.issues_save
 
 
-def check_parallel_repair_receipts():
-    receipts = [
-        {
-            "version": 1,
-            "suite": run_it.REPAIR_SUITE,
-            "completed": {},
-            "collected": [case],
-            "passed": [case],
-            "metrics": {"subprocess.Popen": 1},
-        }
-        for case in run_it.REPAIR_CASES
-    ]
-    combined = run_it.repair_receipt(receipts)
-    assert combined["collected"] == combined["passed"] == list(run_it.REPAIR_CASES)
-    TestCase().assertEqual(
-        combined["metrics"], {"subprocess.Popen": len(run_it.REPAIR_CASES)}
-    )
-    cases = _parallel_inventory()[0].cases
-    selected = {
-        key: value for key, value in cases.items() if key[0] == run_it.REPAIR_SUITE
-    }
-    assert not run_it.reachability(selected, [combined], cases)
-    with pytest.raises(ValueError, match="missing"):
-        run_it.repair_receipt(receipts[:-1])
-    duplicate = [{**receipts[0], "passed": []}]
-    with pytest.raises(ValueError, match="incorrect"):
-        run_it.repair_receipt(duplicate)
-    invalid = [{**receipts[0], "suite": "other"}]
-    with pytest.raises(ValueError, match="suite"):
-        run_it.repair_receipt(invalid)
+def check_parallel_checkpoint_receipts():
     checkpoint = [
         {
             "version": 1,
@@ -2071,18 +2042,18 @@ def check_parallel_repair_receipts():
         }
         for case in run_it.CHECKPOINT_CASES
     ]
-    combined = run_it.repair_receipt(
+    combined = run_it.checkpoint_receipt(
         checkpoint, run_it.CHECKPOINT_SUITE, run_it.CHECKPOINT_CASES
     )
     if combined["passed"] != list(run_it.CHECKPOINT_CASES):
         raise ValueError("checkpoint case receipts were not aggregated")
     with pytest.raises(ValueError, match="missing"):
-        run_it.repair_receipt(
+        run_it.checkpoint_receipt(
             checkpoint[:-1], run_it.CHECKPOINT_SUITE, run_it.CHECKPOINT_CASES
         )
 
 
-def check_parallel_repair_selection(tmp_path):
+def check_parallel_checkpoint_selection(tmp_path):
     plugin = run_it.PytestReceipt(tmp_path, "unknown")
     plugin.rootpath = tmp_path
     items = [SimpleNamespace(nodeid=case) for case in run_it.CHECKPOINT_CASES]
@@ -2159,20 +2130,20 @@ def check_checkpoint_keeps_two_process_limit(tmp_path):
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
         patch.object(run_it.tempfile, "mkdtemp", return_value=str(logs)),
     ):
-        run_it.run_parallel_repair(tests / suite, tests, tmp_path)
+        run_it.run_parallel_checkpoint(tests / suite, tests, tmp_path)
     if sorted(path.name for path in logs.glob("case-*.log")) != [
         f"case-{index}.log" for index in range(len(cases))
     ]:
         raise ValueError("checkpoint case logs were not retained")
 
 
-@pytest.mark.parametrize("suite", [run_it.REPAIR_SUITE, run_it.CHECKPOINT_SUITE])
 @pytest.mark.parametrize("mode", ["stale", "fresh", "corrupt"])
-def check_parallel_repair_receipt_freshness(tmp_path, mode, suite):
+def check_parallel_checkpoint_receipt_freshness(tmp_path, mode):
+    suite = run_it.CHECKPOINT_SUITE
     tests = Path(run_it.__file__).parent
     cases = run_it.PARALLEL_CASES[suite]
     for index, case in enumerate(cases):
-        (tmp_path / f"repair-{index}.json").write_text(
+        (tmp_path / f"checkpoint-{index}.json").write_text(
             json.dumps(
                 {
                     "version": 1,
@@ -2196,17 +2167,16 @@ def check_parallel_repair_receipt_freshness(tmp_path, mode, suite):
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
     ):
         if mode == "fresh":
-            result = run_it.run_parallel_repair(tests / state.suite, tests, tmp_path)
+            result = run_it.run_parallel_checkpoint(tests / state.suite, tests, tmp_path)
             assert result["passed"] == list(cases)
         else:
             with pytest.raises(ValueError, match="missing/invalid receipt"):
-                run_it.run_parallel_repair(tests / state.suite, tests, tmp_path)
+                run_it.run_parallel_checkpoint(tests / state.suite, tests, tmp_path)
 
 
-@pytest.mark.parametrize(
-    "suite,limit", [(run_it.REPAIR_SUITE, 300), (run_it.CHECKPOINT_SUITE, 1800)]
-)
-def check_parallel_suite_shared_deadline(tmp_path, suite, limit):
+def check_parallel_suite_shared_deadline(tmp_path):
+    suite = run_it.CHECKPOINT_SUITE
+    limit = 1800
     tests = Path(run_it.__file__).parent
     cases = run_it.PARALLEL_CASES[suite]
     processes = [Mock() for _ in cases]
@@ -2221,7 +2191,7 @@ def check_parallel_suite_shared_deadline(tmp_path, suite, limit):
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
         patch.object(run_it.time, "monotonic", side_effect=clock),
     ):
-        run_it.run_parallel_repair(tests / suite, tests, tmp_path)
+        run_it.run_parallel_checkpoint(tests / suite, tests, tmp_path)
     waits = [
         call.kwargs["timeout"]
         for process in processes
@@ -2231,48 +2201,12 @@ def check_parallel_suite_shared_deadline(tmp_path, suite, limit):
     assert sorted(waits, reverse=True) == list(
         range(limit - 1, limit - len(waits) - 1, -1)
     )
-    if suite == run_it.REPAIR_SUITE:
-        assert limit < 20 * 60
-
-
-def check_parallel_repair_expired_deadline(tmp_path):
-    tests = Path(run_it.__file__).parent
-    processes = [Mock(pid=100 + i) for i in range(len(run_it.REPAIR_CASES))]
-    for process in processes:
-        process.wait.return_value = 0
-        process.poll.return_value = None
-    state = _CallbackState(
-        mode="fresh", suite=run_it.REPAIR_SUITE, processes=processes.copy()
-    )
-    launch = _bind_framework_callback(_callback_parallel_receipt, state)
-    logs = tmp_path / "logs"
-    logs.mkdir()
-    with (
-        patch.object(run_it, "inventory", return_value=_parallel_inventory()),
-        patch.object(run_it.subprocess, "Popen", side_effect=launch),
-        patch.object(
-            run_it.time, "monotonic", side_effect=[100, 2000, 2000, 2000, 2000]
-        ),
-        patch.object(run_it.os, "killpg", create=True) as kill,
-        patch.object(run_it.tempfile, "mkdtemp", return_value=str(logs)),
-        pytest.raises(RuntimeError, match="timed out"),
-    ):
-        run_it.run_parallel_repair(tests / run_it.REPAIR_SUITE, tests, tmp_path)
-    if os.name == "nt":
-        assert all(process.terminate.called for process in processes)
-    else:
-        TestCase().assertEqual(kill.call_count, len(processes))
-    TestCase().assertTrue(
-        all(
-            ((logs / f"case-{i}.log").exists() for i in range(len(run_it.REPAIR_CASES)))
-        )
-    )
 
 
 @pytest.mark.parametrize(
     "failure", ["spawn", "exit", "interrupt", "timeout", "missing", "corrupt"]
 )
-def check_parallel_repair_failure_cleanup(tmp_path, failure):
+def check_parallel_checkpoint_failure_cleanup(tmp_path, failure):
     suite = run_it.CHECKPOINT_SUITE
     tests = Path(run_it.__file__).parent
     cases = run_it.PARALLEL_CASES[suite]
@@ -2305,7 +2239,7 @@ def check_parallel_repair_failure_cleanup(tmp_path, failure):
     ):
         (tmp_path / "logs").mkdir()
         with pytest.raises(expected):
-            run_it.run_parallel_repair(tests / suite, tests, tmp_path)
+            run_it.run_parallel_checkpoint(tests / suite, tests, tmp_path)
         count = (
             1
             if failure == "spawn"
@@ -2323,7 +2257,7 @@ def check_parallel_repair_failure_cleanup(tmp_path, failure):
 
 
 @pytest.mark.parametrize("fault", ["missing", "unknown", "errors"])
-def check_parallel_repair_discovery_mismatch(tmp_path, fault):
+def check_parallel_checkpoint_discovery_mismatch(tmp_path, fault):
     tests = Path(run_it.__file__).parent
     suite = run_it.CHECKPOINT_SUITE
     discovery, errors = _parallel_inventory()
@@ -2338,31 +2272,31 @@ def check_parallel_repair_discovery_mismatch(tmp_path, fault):
         patch.object(run_it.subprocess, "Popen") as launch,
         pytest.raises(ValueError, match="parallel discovery mismatch"),
     ):
-        run_it.run_parallel_repair(tests / suite, tests, tmp_path)
+        run_it.run_parallel_checkpoint(tests / suite, tests, tmp_path)
     launch.assert_not_called()
 
 
-def check_parallel_repair_dispatch(tmp_path):
+def check_parallel_checkpoint_dispatch(tmp_path):
     tests = tmp_path / "framework/scripts/tests"
     integrations = tests / "integrations"
     integrations.mkdir(parents=True)
-    (integrations / "worktree-deploy-repair.checks.py").touch()
+    (integrations / "worktree-deploy-checkpoint.checks.py").touch()
     (integrations / "other.checks.py").touch()
     output = tmp_path / "receipts"
     output.mkdir()
     receipt = {
         "version": 1,
-        "suite": run_it.REPAIR_SUITE,
+        "suite": run_it.CHECKPOINT_SUITE,
         "completed": {},
-        "collected": list(run_it.REPAIR_CASES),
-        "passed": list(run_it.REPAIR_CASES),
+        "collected": list(run_it.CHECKPOINT_CASES),
+        "passed": list(run_it.CHECKPOINT_CASES),
         "metrics": {},
     }
     state = _CallbackState()
     state.codes = [0, 0, 0]
     execute = _bind_framework_callback(_callback_check_ci_workflow_execute, state)
     with (
-        patch.object(run_it, "run_parallel_repair", return_value=receipt) as parallel,
+        patch.object(run_it, "run_parallel_checkpoint", return_value=receipt) as parallel,
         patch.object(run_it.subprocess, "run", side_effect=execute) as launch,
     ):
         rows, receipts = run_it.execute_suites(tests, output, io.StringIO())

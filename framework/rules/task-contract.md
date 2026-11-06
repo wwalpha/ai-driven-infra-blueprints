@@ -33,7 +33,7 @@ own publication checks; this is no continuous concurrent-edit guarantee.
 
 ## Workflow selection
 
-Select from the Human's request before loading a prompt. IaC-only work loads implement without reading `05_update.md`. Model design changes cannot be performed by implement. Retain update branches and one-shot repair/AWS boundaries.
+Select from the Human's request before loading a prompt. IaC-only work loads implement without reading `05_update.md`. Model design changes cannot be performed by implement. Retain update branches and AWS authorization boundaries.
 
 | Request | Skill |
 | --- | --- |
@@ -42,7 +42,7 @@ Select from the Human's request before loading a prompt. IaC-only work loads imp
 | Change Model design values | applicable update branch |
 | Reflect an explicitly requested Model change into IaC and AWS | update infrastructure branch |
 | Deploy only | deploy |
-| Approved IaC repair after Deploy failure | implement through the existing repair handoff |
+| Approved IaC correction after Deploy failure | implement as an independent Task |
 
 ## Task registration
 
@@ -55,7 +55,7 @@ Select from the Human's request before loading a prompt. IaC-only work loads imp
 
 - Finish requested work, successful final validation under [Validation policy](loop-engineering.md#validation-policy), all Requirement ID Acceptance checks and workflow completion conditions before `task_contract.py --task-file tasks/<task-name>.md --complete`. IMPORT retains its scope, Model and Acceptance checks; contract retention follows Task boundary.
 - For a standalone Task, on a stopping check error suspend only the explicitly selected Task. `## Suspension reason` must name the check, file, concrete error and necessary external log path; keep only the current reason. The loop suspends after all checks finish or children stop, including precheck failures. Staged status changes apply only to the snapshot.
-- For Worktree Skill-managed Tasks, preserve the current Task status, Worktree, branch, contract and changes on check failure; report errors and incomplete checks. Do not automatically suspend, resume or recover. Correct and revalidate only under the existing Task authority and Validation rules. If ownership is uncertain, do not change Task status. Deploy Repair retains its dedicated transitions.
+- For Worktree Skill-managed Tasks, preserve the current Task status, Worktree, branch, contract and changes on check failure; report errors and incomplete checks. Do not automatically suspend, resume or recover. Correct and revalidate only under the existing Task authority and Validation rules. If ownership is uncertain, do not change Task status.
 - For standalone Tasks outside the loop, suspend unresolved stopping errors with `task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<concrete problem>'`. Preserve other contracts/changes; do not repair unrelated failures. Safely resolved operation errors may continue under [Self recovery](#self-recovery).
 - While suspended, do not run generation, deploy or loops. `task_contract.py --task-file tasks/<task-name>.md --resume` performs read-only Scope preflight; success sets running/clears the reason, failure retains status/reason. Autonomous resume requires [Self recovery](#self-recovery); other Human approval boundaries remain. It also refreshes a running Task.
 - Read-only calls may select no contract; updates need a selected current contract. Different type/target/Goal means a new Task; saving a chat-only design needs a new `design` Task before writing.
@@ -129,13 +129,11 @@ Cleanup a PR number/URL may be supplied to `pr-close --pr`.
 
 Explicit `cleanup --task-id` discards the owned local Worktree, registration, branch and
 management state regardless of merge, PR or Task status and dirty/uncommitted/ignored files.
-Ownership, symlink and competing-operation locks remain mandatory. A missing checkout with unprovable registration stops removal. Partial removal retains the lifecycle record and reports remaining resources. Unfinished Deploy/Repair evidence is retained/reported,
-not falsely finalized or made a prerequisite for physical removal. Automatic post-merge
-cleanup retains its cleanliness and owned-evidence finalization checks. Cleanup never
+Ownership, symlink and competing-operation locks remain mandatory. A missing checkout with unprovable registration stops removal. Partial removal retains the lifecycle record and reports remaining resources. Deploy evidence outside the Worktree is retained. Automatic post-merge
+cleanup retains its cleanliness and ownership checks. Cleanup never
 changes PRs, remote branches, other Tasks, shared Python or AWS. `branch-delete --branch` takes one explicitly named `codex/worktree/*` ref without Task state and relies on Git to protect branches in use.
 
-Deploy and repair-child PR publication remain separate and reject PR mode before their
-existing operations. See [Worktree PR publication](../../.agents/skills/worktree/SKILL.md#explicit-pr-publication).
+Deploy rejects Worktree PR mode. See [Worktree PR publication](../../.agents/skills/worktree/SKILL.md#explicit-pr-publication).
 
 ## Task boundary
 
@@ -374,11 +372,9 @@ refactor's final verification. Ordinary design Tasks without this declaration re
 all existing behavior. Dependency repair/refactor completion is not a prerequisite for
 a separately authorized deletion. No remaining Resource edit is permitted inside its deletion Task.
 
-## Controlled deploy repair contract
+## Deploy contract permissions
 
-CloudFormation deploy never edits authoritative templates, parameters or artifact sources. An explicitly authorized current contract may contain `- External IaC repair: ` with backtick value `allowed`. `- Runtime recovery: ` independently authorizes guarded AWS recovery. No Deploy repair session or cumulative repair budget is required. Parent Allowed paths remain its permitted observations/generated views and contract.
-
-The supervising LLM follows [External IaC repair handoff](../prompts/codex/deploy/runbook.md#external-iac-repair-handoff): analyze current failure evidence, settle unknown operations/publication, issue one pinned request/checkpoint, suspend the parent, create a separate implement child using its generated Task ID, validate it and ff-only integrate exact permitted IaC transitions. Child AWS APIs/mutation/deploy are forbidden. Current Task and one-shot commit/byte evidence replace Workflow Ledger attribution; other Task authority checks remain mandatory. Keep at most 3 static cycles within that child. Discard temporary evidence after integration and active Task attribution after completion; no historical attempts or approvals survive to the next Deploy. Explicit parent resumption starts an independent new run with current IaC and fresh ChangeSet approval. Do not automatically chain unlimited new Deploy invocations.
+CloudFormation Deploy leaves authoritative templates, parameters and artifact sources fixed. The current Task can authorize guarded AWS recovery through `Runtime recovery`. Deploy write authority covers the permitted observations, generated views and its Task contract. IaC corrections use a separate authorized Implement Task.
 
 ## Acceptance contract
 
@@ -453,7 +449,7 @@ final validation and Acceptance. Correction never runs AWS, clears progress or c
 
 ## Retry and stop
 
-- Automatic correction for the same active task, task type, and logical failure class is limited to 3 iterations. The explicitly authorized one-shot CloudFormation Implement handoff keeps static FAILs in the same child, limited to 3 static cycles. No repair count or SAME/NEW history carries across Deploy runs.
+- Automatic correction for the same active task, task type, and logical failure class is limited to 3 iterations.
 - Stop if the same error occurs twice consecutively without material progress.
 - Do not fix missing human input by inventing values.
 - Stop on unresolved out-of-scope file changes. An LLM-owned operation error may be repaired first under Self recovery; preserve other changes, verify scope while suspended, and do not resume or proceed while a scope violation remains.

@@ -9,7 +9,7 @@ from task_contract_core import task_snapshot
 from utils.cloudformation.inputs import Blocked
 from utils.local_evidence import evidence_store
 
-from deploy import handoff, operation_journal
+from deploy import failures, operation_journal
 from deploy import progress as deploy_progress
 
 
@@ -35,7 +35,7 @@ def reclaim(journal, root, *, directory, backend, stacks):
     try:
         task_directory(journal, directory)
         operation_journal.private_path(directory, directory=True)
-        with handoff.repair_lock(root):
+        with failures.failure_lock(root):
             progress = deploy_progress.read_task(root, task_snapshot(root, executable=False, live=True))
             contexts = [backend.run_context]
             if progress:
@@ -62,14 +62,7 @@ def reclaim(journal, root, *, directory, backend, stacks):
             if exceptional:
                 return
             store = evidence_store(root, create=False)
-            if any(
-                next(store.glob(pattern), None)
-                for pattern in (
-                    "deploy-failure-*",
-                    "deploy-repair-*",
-                    "deploy-cleanup-*",
-                )
-            ):
+            if next(store.glob("deploy-failure-*"), None):
                 return
             for context in contexts:
                 if any(

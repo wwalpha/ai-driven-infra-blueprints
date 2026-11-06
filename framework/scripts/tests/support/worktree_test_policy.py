@@ -90,8 +90,6 @@ WORKTREE_CASES = {
         "check_base_selection",
         "check_lifecycle_layout",
         "check_metadata_symlinks",
-        "check_checkpoint_observed_barrier",
-        "check_checkpoint_uses_scoped_barrier_under_ordered_locks",
         "check_pr_cli_and_special_routes",
         "check_pr_repository_url",
         "check_pr_remote_identity",
@@ -121,8 +119,6 @@ WORKTREE_CASES = {
         "check_pr_intent_reconciles_without_duplicate_publication",
         "check_lifecycle_lock_refuses_busy",
         "check_pr_prepare_refuses_unvalidated_candidate",
-        "check_repair_merge_intent_reconciles_once",
-        "check_repair_static_failure_preserves_inputs",
     ),
     "units/worktree_python-unit.checks.py": (
         "check_worktree_commands_use_current_interpreter",
@@ -191,9 +187,6 @@ WORKTREE_CASES = {
     "integrations/import-worktree-contract.checks.py": (
         "check_import_managed_contract_boundaries",
         "check_model_source_context_worktree_boundary",
-    ),
-    "integrations/worktree-deploy-repair.checks.py": (
-        "check_external_implement_round_trip",
     ),
     "integrations/worktree-deploy-checkpoint.checks.py": (
         "check_parallel_checkpoint_and_restart",

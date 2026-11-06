@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Use for authorized infrastructure deployment through the existing SDK controller or independent LLM-direct AWS CLI procedures, unfinished operation recovery and the SDK one-shot Implement handoff.
+description: Use for authorized infrastructure deployment through the existing SDK controller or independent LLM-direct AWS CLI procedures, and unfinished operation recovery.
 ---
 
 Use only the Human-authorized Deploy scope. **SDK is the default; CLI requires an explicit Human choice.** Fix `Deploy execution method: sdk` or `cli` in the CloudFormation Task before preparation/AWS access (existing Tasks without the field remain SDK). Never switch methods on resume, failure, observation or publication. No method selection grants AWS authority.
@@ -61,4 +61,4 @@ Read only the applicable procedure. Failure or a null/missing command means stop
 | Unapproved Remove / Replacement True or Conditional | [Approval](../../../framework/prompts/codex/deploy/runbook.md#confirm-unapproved-deletereplacement); after full consent add `--approve-change-set <actual-approved-ID>` to the same Task/target/scope turn |
 | Interrupted or uncertain AWS operation | [SDK recovery](../../../framework/prompts/codex/deploy/runbook.md#unfinished-aws-operation-recovery) or [CLI recovery](../../../framework/prompts/codex/deploy/runbook.md#cli-recovery), matching the fixed method |
 | Proven Task preparation omission | [Contract correction](../../../framework/prompts/codex/deploy/runbook.md#correct-this-tasks-preparation-omissions) |
-| Preauthorized one-shot IaC repair | [Repair](../../../framework/prompts/codex/deploy/runbook.md#external-iac-repair-handoff); never investigate Framework source to diagnose it |
+| Failed Deploy | Review the AWS state and failure evidence. Use a separate authorized Implement Task for IaC corrections. |

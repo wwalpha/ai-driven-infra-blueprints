@@ -57,7 +57,6 @@ PUBLIC_API_MODULES = (
     "deploy.scheduler",
     "deploy.run_context",
     "deploy.controller",
-    "deploy.handoff",
     "deploy.failures",
     "model.sources",
     "model.operations",

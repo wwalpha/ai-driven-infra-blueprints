@@ -71,4 +71,4 @@ Run exactly one final scoped loop:
 python framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md
 ```
 
-Do not run cfn-lint, validate-template, change sets, deploy_preparation.py, template/parameter/artifact validation/upload, clean IaC revision checks, deploy repair or full repository/validation digest guards. No additional full regression from this workflow. After PASS and successful terminal/sync evidence, complete only this contract. On failure apply task-contract stop rules and report proven deleted, failed, already absent, retained and unexecuted stacks. Finish without scenario tests or next tasks.
+Do not run cfn-lint, validate-template, change sets, deploy_preparation.py, template/parameter/artifact validation/upload, clean IaC revision checks or full repository/validation digest guards. No additional full regression from this workflow. After PASS and successful terminal/sync evidence, complete only this contract. On failure apply task-contract stop rules and report proven deleted, failed, already absent, retained and unexecuted stacks. Finish without scenario tests or next tasks.

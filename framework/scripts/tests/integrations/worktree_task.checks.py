@@ -696,7 +696,6 @@ def check_unpublished_pr_intent_base_sync_preserves_candidate():
         "prUpdate",
         "githubMerged",
         "verified",
-        "deployRepair",
         "latestBaseSync",
         "setup-lock",
         "python_setup",

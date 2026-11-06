@@ -613,32 +613,20 @@ def check_worktree_commands_use_current_interpreter(tmp_path, monkeypatch):
     (root / ".git").write_text("gitdir: synthetic", encoding="utf-8")
     monkeypatch.delenv("PYTHONHOME", raising=False)
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
-    task = "tasks/parent's task.md"
     plan = root / "approved plan's $(ignored).json"
-    reports = [
-        G.preparation_result(root, plan, True),
-        G.handoff_result(
-            {"repository": str(root), "taskFile": task, "requestId": "reviewed-id"}
-        ),
+    report = G.preparation_result(root, plan, True)
+    cd, invocation = report["nextAction"]["command"].split(" && ", 1)
+    assert shlex.split(cd) == ["cd", str(root)]
+    argv = shlex.split(invocation)
+    index = argv.index(sys.executable)
+    assert argv[index + 1:] == [
+        "-B",
+        str(ROOT / "framework/scripts/deploy_preparation.py"),
+        "--repository-root",
+        str(root),
+        "--run-controller",
+        str(plan),
     ]
-    for report in reports:
-        cd, invocation = report["nextAction"]["command"].split(" && ", 1)
-        assert shlex.split(cd) == ["cd", str(root)]
-        argv = shlex.split(invocation)
-        index = argv.index(sys.executable)
-        assert argv[index + 1] == "-B"
-        assert argv[index + 2] == str(
-            ROOT
-            / "framework/scripts"
-            / {
-                "REGISTRATION": "deploy_preparation.py",
-                "HANDOFF": "task_contract.py",
-            }[report["stage"]]
-        )
-        if report["stage"] == "REGISTRATION":
-            assert argv[-2:] == ["--run-controller", str(plan)]
-        else:
-            assert "BLUEPRINT_TASK_FILE=" + task in argv
 
 
 @pytest.mark.parametrize("defect", ["pythonhome", "path", "repository"])

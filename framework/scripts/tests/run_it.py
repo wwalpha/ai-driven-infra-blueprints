@@ -7,7 +7,6 @@ import json
 import math
 import os
 import runpy
-import shutil
 import signal
 import subprocess
 import sys
@@ -42,8 +41,6 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 TESTS = Path(__file__).resolve().parent
-REPAIR_SUITE = "integrations/worktree-deploy-repair.checks.py"
-REPAIR_CASES = (REPAIR_SUITE + "::check_external_implement_round_trip",)
 CHECKPOINT_SUITE = "integrations/worktree-deploy-checkpoint.checks.py"
 CHECKPOINT_CASES = tuple(
     CHECKPOINT_SUITE + "::" + name
@@ -52,7 +49,7 @@ CHECKPOINT_CASES = tuple(
         "check_combined_checkpoint_after_peer_completion",
     )
 )
-PARALLEL_CASES = {REPAIR_SUITE: REPAIR_CASES, CHECKPOINT_SUITE: CHECKPOINT_CASES}
+PARALLEL_CASES = {CHECKPOINT_SUITE: CHECKPOINT_CASES}
 
 
 def inventory(tests):
@@ -138,9 +135,9 @@ class PytestReceipt:
         found = [self.key(item.nodeid) for item in items]
         cases = PARALLEL_CASES.get(self.case_id.split("::", 1)[0], ())
         if self.case_id not in cases:
-            raise ValueError(f"unknown repair case: {self.case_id}")
+            raise ValueError(f"unknown checkpoint case: {self.case_id}")
         if len(found) != len(cases) or set(found) != set(cases):
-            raise ValueError(f"repair collection mismatch: {found}")
+            raise ValueError(f"checkpoint collection mismatch: {found}")
         selected = [item for item in items if self.key(item.nodeid) == self.case_id]
         deselected = [item for item in items if self.key(item.nodeid) != self.case_id]
         config.hook.pytest_deselected(items=deselected)
@@ -289,7 +286,7 @@ def reachability(cases, receipts, registered=None, owners=None):
     return errors
 
 
-def repair_receipt(receipts, suite=REPAIR_SUITE, cases=REPAIR_CASES):
+def checkpoint_receipt(receipts, suite, cases):
     combined = {
         "version": 1,
         "suite": suite,
@@ -299,7 +296,7 @@ def repair_receipt(receipts, suite=REPAIR_SUITE, cases=REPAIR_CASES):
         "metrics": {},
     }
     if len(receipts) != len(cases):
-        raise ValueError("missing repair case receipt")
+        raise ValueError("missing checkpoint case receipt")
     metrics = Counter()
     completed = Counter()
     for case, receipt in zip(cases, receipts, strict=True):
@@ -317,7 +314,7 @@ def repair_receipt(receipts, suite=REPAIR_SUITE, cases=REPAIR_CASES):
     return combined
 
 
-def run_parallel_repair(suite, tests, output):
+def run_parallel_checkpoint(suite, tests, output):
     suite_key = suite.relative_to(tests).as_posix()
     cases = PARALLEL_CASES[suite_key]
     discovery, errors = inventory(tests)
@@ -328,11 +325,10 @@ def run_parallel_repair(suite, tests, output):
     }
     if errors or selected != set(cases):
         raise ValueError(f"parallel discovery mismatch: {selected}; {errors}")
-    logs = Path(tempfile.mkdtemp(prefix="framework-repair-it-logs-"))
+    logs = Path(tempfile.mkdtemp(prefix="framework-checkpoint-it-logs-"))
     children = []
-    success = False
     try:
-        deadline = time.monotonic() + (300 if suite_key == REPAIR_SUITE else 1800)
+        deadline = time.monotonic() + 1800
         for index, case in enumerate(cases):
             if index >= 2:
                 previous_case, previous, _log, _receipt = children[index - 2]
@@ -342,7 +338,7 @@ def run_parallel_repair(suite, tests, output):
                     raise RuntimeError(f"{previous_case}: process timed out") from error
                 if code:
                     raise RuntimeError(f"{previous_case}: process exited {code}")
-            receipt = output / f"repair-{index}.json"
+            receipt = output / f"checkpoint-{index}.json"
             receipt.unlink(missing_ok=True)
             log = (logs / f"case-{index}.log").open("w", encoding="utf-8")
             environment = os.environ.copy()
@@ -391,16 +387,13 @@ def run_parallel_repair(suite, tests, output):
                 raise RuntimeError(f"{case}: process timed out") from error
             if code:
                 raise RuntimeError(f"{case}: process exited {code}")
-        if suite_key == REPAIR_SUITE and time.monotonic() > deadline:
-            raise RuntimeError("repair suite: process timed out")
         receipts = []
         for case, _process, _log, receipt in children:
             try:
                 receipts.append(json.loads(receipt.read_text(encoding="utf-8")))
             except (OSError, ValueError) as error:
                 raise ValueError(f"{case}: missing/invalid receipt: {error}") from error
-        result = repair_receipt(receipts, suite_key, cases)
-        success = True
+        result = checkpoint_receipt(receipts, suite_key, cases)
         return result
     finally:
         for _case, process, _log, _receipt in children:
@@ -429,11 +422,7 @@ def run_parallel_repair(suite, tests, output):
                 ),
                 flush=True,
             )
-        if success and suite_key != CHECKPOINT_SUITE:
-            shutil.rmtree(logs)
-        else:
-            label = "Checkpoint" if suite_key == CHECKPOINT_SUITE else "Repair"
-            print(f"{label} case logs retained: {logs}", file=sys.stderr, flush=True)
+        print(f"Checkpoint case logs retained: {logs}", file=sys.stderr, flush=True)
 
 
 def execute_suites(tests, output, summary, baseline=False):
@@ -450,7 +439,7 @@ def execute_suites(tests, output, summary, baseline=False):
             receipt.unlink(missing_ok=True)
         try:
             if not baseline and suite.relative_to(tests).as_posix() in PARALLEL_CASES:
-                data = run_parallel_repair(suite, tests, output)
+                data = run_parallel_checkpoint(suite, tests, output)
                 receipt.write_text(json.dumps(data), encoding="utf-8")
                 code = 0
             else:
@@ -938,7 +927,7 @@ def main():
                 args.suite.resolve().relative_to(args.tests.resolve()).as_posix(), ()
             )
         ):
-            raise ValueError(f"unknown repair case: {args.case_id}")
+            raise ValueError(f"unknown checkpoint case: {args.case_id}")
         run_child(args.suite, args.tests, args.receipt, args.baseline, args.case_id)
         return 0
     if args.compare_root:
