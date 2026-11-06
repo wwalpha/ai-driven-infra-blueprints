@@ -222,7 +222,7 @@ Worktree Cleanup are separate; either may run first. No PR operation deletes rem
 
 ## Failures and cleanup
 
-Exit 0 with `status: ok` indicates success. `needs_sync` and `needs_validation` request the normal base synchronization and validation steps. Exit 1 with `status: blocked` reports the error and retained resources when available. Invalid arguments exit 2. On failure, report the concrete error and retain the Task contract, Worktree, branch and unmerged changes. The Worktree helper leaves Task status as it was.
+Exit 0 with `status: ok` indicates success. `needs_sync` and `needs_validation` request the normal base synchronization and validation steps. Exit 1 with `status: blocked` reports the error and retained resources when available. Invalid arguments exit 2. On failure, report the concrete error and retain the Task contract, Worktree, branch and unmerged changes. Worktree-managed Task checks preserve the current Task status and do not automatically suspend, resume or recover. Report errors and incomplete checks; preserve the Worktree, branch, Task contract and changed files. Apply necessary corrections and revalidation under the existing Task authority and Validation rules. Deploy Repair retains its dedicated transitions.
 
 Automatic cleanup follows a verified local FF merge or a GitHub merge confirmed by `pr-merge` or `pr-status`. It checks completion, ownership, locks, cleanliness and Deploy/Repair evidence. Merge success stays recorded if cleanup fails. The task publication lock precedes the lifecycle lock.
 

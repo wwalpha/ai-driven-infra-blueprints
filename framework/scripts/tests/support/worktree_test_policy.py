@@ -74,6 +74,9 @@ WORKTREE_CASES = {
         "check_managed_success_while_peer_running",
     ),
     "units/worktree-guard-unit.checks.py": (
+        "check_loop_failure_suspends_only_selected",
+        "check_loop_suspension_real_worktree_ownership",
+        "check_managed_loop_failure_preserves_task_and_artifacts",
         "check_pr_update_failure_retains_candidate",
         "check_pr_merge_response_is_reconciled_without_repeating",
         "check_pr_merge_methods",

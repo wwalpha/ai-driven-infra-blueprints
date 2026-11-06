@@ -3,7 +3,7 @@
 
 import copy
 import sys
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +22,8 @@ import pytest
 import worktree_pr as pr
 import worktree_state
 import worktree_task as wt
-from support.worktree_task_fixtures import contract
+from support.blueprint_loop_fixtures import CLI, MODULE, SCRIPT, tasks
+from support.worktree_task_fixtures import contract, fixture, start
 from utils.git_changes import GitWorkingPaths
 from validation import loop
 
@@ -2477,6 +2478,178 @@ def check_synchronized_framework_continuation_guards(tmp_path, case):
                 wt._commit_preconditions(
                     tmp_path, state, changed, "task", None, scope_paths=changed
                 )
+
+
+
+@pytest.mark.parametrize("result", [1, 130])
+def check_loop_failure_suspends_only_selected(tmp_path, result):
+    check = TestCase()
+    root = tmp_path / "repository"
+    root.mkdir()
+    selected, other = "tasks/selected.md", "tasks/other.md"
+    for name in (selected, other):
+        tasks.start(
+            root,
+            name,
+            f"## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Required changes\n- [R1] Synthetic task\n## Acceptance checks\n- [R1] `exists:{name}`\n## Validation scope\n- `framework`\n## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n",
+        )
+    before = (root / other).read_bytes()
+    with (
+        patch.object(Path, "cwd", return_value=root),
+        patch.object(MODULE, "active_scope", return_value={"framework"}),
+        patch.object(MODULE, "changed_paths", return_value=set()),
+        patch.object(MODULE, "run_commands", return_value=result),
+        patch.object(
+            MODULE, "failure_reason", return_value="synthetic validator failure"
+        ),
+        patch.object(MODULE, "utf8_preflight"),
+        patch.object(MODULE.worktree_state, "task_start_commit", return_value=None),
+        patch.object(
+            MODULE.worktree_state, "repository", return_value=(root, root, root)
+        ),
+        patch.object(
+            MODULE.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, "", ""),
+        ),
+        patch.object(
+            sys,
+            "argv",
+            [
+                str(SCRIPT),
+                "--mode",
+                "task",
+                "--task-file",
+                selected,
+                "--log-dir",
+                str(tmp_path / "logs"),
+            ],
+        ),
+    ):
+        check.assertEqual(CLI.main(), result)
+    check.assertEqual(
+        tasks.status((root / selected).read_text(encoding="utf-8")), "suspend"
+    )
+    check.assertEqual((root / other).read_bytes(), before)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["preflight", "discovery", "validation", "interrupt", "exception", "unknown"],
+)
+def check_managed_loop_failure_preserves_task_and_artifacts(tmp_path, failure):
+    root = tmp_path / "repository"
+    root.mkdir()
+    selected = "tasks/selected.md"
+    tasks.start(
+        root,
+        selected,
+        f"## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Required changes\n- [R1] Synthetic task\n## Acceptance checks\n- [R1] `exists:{selected}`\n## Validation scope\n- `framework`\n## Modified files\n- `{selected}`\n## Allowed paths\n- `{selected}`\n",
+    )
+    contract = root / selected
+    artifact = root / "candidate.txt"
+    artifact.write_text("candidate\n", encoding="utf-8")
+    other = root / "tasks/other.md"
+    other.write_text("other task\n", encoding="utf-8")
+    before = [path.read_bytes() for path in (contract, artifact, other)]
+    options = SimpleNamespace(
+        staged=False,
+        write=False,
+        base=None,
+        task_file=selected,
+        all=False,
+        mode="full" if failure == "discovery" else "task",
+        log_dir=tmp_path,
+        jobs=1,
+        validation_jobs=1,
+        fresh=False,
+        profile=False,
+    )
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch.object(
+                MODULE,
+                "active_scope",
+                side_effect=ValueError("preflight") if failure == "preflight" else None,
+                return_value={"framework"},
+            )
+        )
+        stack.enter_context(patch.object(MODULE, "changed_paths", return_value=set()))
+        stack.enter_context(
+            patch.object(
+                MODULE.worktree_state,
+                "task_start_commit",
+                side_effect=ValueError("unknown ownership")
+                if failure == "unknown"
+                else None,
+                return_value="boundary",
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                MODULE.worktree_state, "repository", return_value=(root, root, root)
+            )
+        )
+        if failure == "discovery":
+            stack.enter_context(
+                patch.object(
+                    MODULE, "select_checks", side_effect=ValueError("discovery")
+                )
+            )
+        stack.enter_context(
+            patch.object(
+                MODULE,
+                "utf8_preflight",
+                side_effect=KeyboardInterrupt()
+                if failure == "interrupt"
+                else RuntimeError("runtime")
+                if failure == "exception"
+                else None,
+            )
+        )
+        stack.enter_context(patch.object(MODULE, "run_commands", return_value=1))
+        stack.enter_context(
+            patch.object(MODULE, "failure_reason", return_value="validation failed")
+        )
+        stack.enter_context(
+            patch.object(
+                MODULE.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0, "", ""),
+            )
+        )
+        if failure == "preflight":
+            with pytest.raises(ValueError, match="preflight"):
+                MODULE.run_loop(root, options)
+        else:
+            assert MODULE.run_loop(root, options) == (
+                130
+                if failure == "interrupt"
+                else 2
+                if failure in {"discovery", "exception"}
+                else 1
+            )
+    assert [path.read_bytes() for path in (contract, artifact, other)] == before
+    assert tasks.status(contract.read_text(encoding="utf-8")) == "running"
+
+
+def check_loop_suspension_real_worktree_ownership():
+    with fixture() as primary:
+        root, state = start(primary)
+        selected = state["task_file"]
+        contract_path = root / selected
+        lifecycle = (
+            primary / ".worktrees/.blueprint/tasks" / (state["task_id"] + ".json")
+        )
+        before = contract_path.read_bytes(), lifecycle.read_bytes()
+        loop.suspend_selected(root, selected, "failure")
+        assert (contract_path.read_bytes(), lifecycle.read_bytes()) == before
+        # A different checkout selecting the managed Task cannot suspend it either.
+        (primary / "tasks").mkdir(exist_ok=True)
+        (primary / selected).write_bytes(before[0])
+        loop.suspend_selected(primary, selected, "failure")
+        assert (primary / selected).read_bytes() == before[0]
+        assert lifecycle.read_bytes() == before[1]
 
 
 if __name__ == "__main__":

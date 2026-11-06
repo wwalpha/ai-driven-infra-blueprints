@@ -23,6 +23,7 @@ from types import SimpleNamespace
 
 import task_contract_core as _imports_task_contract
 import validation.runner as _imports_validation_runner
+import worktree_state
 from task_contract_core import (
     SELECTOR,
     issues_save_only,
@@ -562,12 +563,23 @@ def suspend_selected(root, selected, reason):
     if not selected:
         return  # Never guess which task to release when selection failed.
     try:
+        boundary = worktree_state.task_start_commit(root, selected)
+        _, _, primary = worktree_state.repository(root)
+        state = worktree_state.state_path(primary, Path(selected).stem)
+        if boundary is not None:
+            return
+        try:
+            state.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            return
         if suspend(root, selected, reason):
             print(
                 f"Task suspended: {selected}; reason recorded in the contract.",
                 flush=True,
             )
-    except (OSError, ValueError) as error:
+    except Exception as error:
         try:
             print(
                 f"Task suspension/notification failed: {selected}: {error}",

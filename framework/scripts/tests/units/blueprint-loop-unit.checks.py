@@ -282,54 +282,6 @@ def check_failed_commands_continue_and_keep_diagnostics(tmp_path):
     check.assertNotIn(tasks.SELECTOR, child.call_args_list[1].kwargs["env"])
 
 
-@pytest.mark.parametrize("result", [1, 130])
-def check_loop_failure_suspends_only_selected(tmp_path, result):
-    check = TestCase()
-    root = tmp_path / "repository"
-    root.mkdir()
-    selected, other = "tasks/selected.md", "tasks/other.md"
-    for name in (selected, other):
-        tasks.start(
-            root,
-            name,
-            f"## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Required changes\n- [R1] Synthetic task\n## Acceptance checks\n- [R1] `exists:{name}`\n## Validation scope\n- `framework`\n## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n",
-        )
-    before = (root / other).read_bytes()
-    with (
-        patch.object(Path, "cwd", return_value=root),
-        patch.object(MODULE, "active_scope", return_value={"framework"}),
-        patch.object(MODULE, "changed_paths", return_value=set()),
-        patch.object(MODULE, "run_commands", return_value=result),
-        patch.object(
-            MODULE, "failure_reason", return_value="synthetic validator failure"
-        ),
-        patch.object(MODULE, "utf8_preflight"),
-        patch.object(
-            MODULE.subprocess,
-            "run",
-            return_value=subprocess.CompletedProcess([], 0, "", ""),
-        ),
-        patch.object(
-            sys,
-            "argv",
-            [
-                str(SCRIPT),
-                "--mode",
-                "task",
-                "--task-file",
-                selected,
-                "--log-dir",
-                str(tmp_path / "logs"),
-            ],
-        ),
-    ):
-        check.assertEqual(CLI.main(), result)
-    check.assertEqual(
-        tasks.status((root / selected).read_text(encoding="utf-8")), "suspend"
-    )
-    check.assertEqual((root / other).read_bytes(), before)
-
-
 def check_index_conflict_stops_snapshot(tmp_path):
     source = tmp_path / "source-index"
     source.write_bytes(b"synthetic index")
@@ -1726,10 +1678,8 @@ def check_startup_diagnostics(tmp_path, phase):
         ]
         assert history[-1]["event"] == "error"
     text = (root / selected).read_text(encoding="utf-8")
-    assert (
-        tasks.status(text) == "suspend"
-        and str(directory / "startup-error.json") in text
-    )
+    assert tasks.status(text) == "running"  # The fixture has no provable Git ownership.
+    assert "## Suspension reason" not in text
     assert (root / other).read_bytes() == untouched
 
 

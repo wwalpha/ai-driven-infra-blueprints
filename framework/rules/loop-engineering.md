@@ -145,7 +145,7 @@ readback or regeneration.
 
 `--staged --write` and framework-only `--write` are rejected before Model discovery.
 `--mode full` does not expand generation scope. On a nonzero integrated validator exit,
-start no subsequent UT or Git checks; retain diagnostics and suspend the selected Task.
+start no subsequent UT or Git checks; retain diagnostics and follow the Task failure rules in [Common transitions](task-contract.md#common-transitions).
 Read-only loops retain diagnostic aggregation. Without `--write`, the loop and standalone
 validator remain read-only; `sync-model.py --write` remains the generation-only
 entrypoint. IMPORT's dedicated flow, AWS post-operation verification and independently

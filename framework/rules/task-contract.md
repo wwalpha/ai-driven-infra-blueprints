@@ -54,8 +54,9 @@ Select from the Human's request before loading a prompt. IaC-only work loads imp
 ## Common transitions
 
 - Finish requested work, successful final validation under [Validation policy](loop-engineering.md#validation-policy), all Requirement ID Acceptance checks and workflow completion conditions before `task_contract.py --task-file tasks/<task-name>.md --complete`. IMPORT retains its scope, Model and Acceptance checks; contract retention follows Task boundary.
-- On a stopping check error, suspend only the explicitly selected Task, regardless of cause/ownership. `## Suspension reason` must name the check, file, concrete error and necessary external log path; keep only the current reason. The loop suspends after all checks finish or children stop, including precheck failures. Staged status changes apply only to the snapshot.
-- Outside the loop, suspend unresolved stopping errors with `task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<concrete problem>'`. Preserve other contracts/changes; do not repair unrelated failures. Safely resolved operation errors may continue under [Self recovery](#self-recovery).
+- For a standalone Task, on a stopping check error suspend only the explicitly selected Task. `## Suspension reason` must name the check, file, concrete error and necessary external log path; keep only the current reason. The loop suspends after all checks finish or children stop, including precheck failures. Staged status changes apply only to the snapshot.
+- For Worktree Skill-managed Tasks, preserve the current Task status, Worktree, branch, contract and changes on check failure; report errors and incomplete checks. Do not automatically suspend, resume or recover. Correct and revalidate only under the existing Task authority and Validation rules. If ownership is uncertain, do not change Task status. Deploy Repair retains its dedicated transitions.
+- For standalone Tasks outside the loop, suspend unresolved stopping errors with `task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<concrete problem>'`. Preserve other contracts/changes; do not repair unrelated failures. Safely resolved operation errors may continue under [Self recovery](#self-recovery).
 - While suspended, do not run generation, deploy or loops. `task_contract.py --task-file tasks/<task-name>.md --resume` performs read-only Scope preflight; success sets running/clears the reason, failure retains status/reason. Autonomous resume requires [Self recovery](#self-recovery); other Human approval boundaries remain. It also refreshes a running Task.
 - Read-only calls may select no contract; updates need a selected current contract. Different type/target/Goal means a new Task; saving a chat-only design needs a new `design` Task before writing.
 - Do not change type/phase during retry, start another Task after success, automatically proceed to scenarios after infrastructure changes, or repair failed tests by changing design/IaC or redeploying. Follow [Retry and stop](#retry-and-stop).
@@ -402,7 +403,7 @@ Modified files and Allowed paths. Do not expand authority merely to make a check
 Validate the contract and actual change scope after repair. If resolved, continue the
 same Task with its existing validation and Acceptance checks.
 
-A standalone task/local loop still suspends on failure. The Worktree final-candidate loop preserves the current Task status and stops on failure. If already suspended, inspect the recorded
+A standalone task/local loop still suspends on failure. Worktree Skill-managed Task loops preserve the current Task status and stop on failure. If already suspended, inspect the recorded
 reason and current state. Restore the erroneous changes and register each necessary
 file in Modified files and Allowed paths only when justified by the unchanged Task Goal.
 Run `task_contract.py --task-file tasks/<task-name>.md --check-resume-scope` for a
