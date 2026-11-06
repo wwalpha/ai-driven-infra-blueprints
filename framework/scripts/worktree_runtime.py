@@ -95,7 +95,7 @@ def prepare_integration(where: Path, task_id: str) -> wt.FinalCandidate:
                         + ": "
                         + ", ".join(sorted(remaining & requested))
                     )
-        latest = wt._prepare_commit(root, path, state, target, None)
+        latest = wt._prepare_commit(root, path, state, target)
         active_scope = _imports_validation_scope.active_scope
         scope = (
             set() if framework else active_scope(target, task_file=state["task_file"])

@@ -24,6 +24,7 @@ import worktree_state
 import worktree_task as wt
 from support.worktree_task_fixtures import contract
 from utils.git_changes import GitWorkingPaths
+from validation import loop
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -37,9 +38,8 @@ def _callback_check_registered_guard_process_missing_parent_dependency(
     return real_import(name, *args, **kwargs)
 
 
-@pytest.mark.parametrize("approved", [False, True])
 @pytest.mark.parametrize("outcome", ["success", "reject", "launch", "runtime"])
-def check_registered_guard_process(tmp_path, capsys, approved, outcome):
+def check_registered_guard_process(tmp_path, capsys, outcome):
     check = TestCase()
     task = "tasks/selected.md"
     (tmp_path / "tasks").mkdir()
@@ -74,13 +74,13 @@ def check_registered_guard_process(tmp_path, capsys, approved, outcome):
         if outcome == "runtime":
             runtime.side_effect = ValueError("stale runtime")
             with pytest.raises(ValueError, match="stale runtime"):
-                wt._run_model_guard(tmp_path, task, approved)
+                wt._run_model_guard(tmp_path, task)
             runtime.side_effect = None
             runtime.return_value = None
             with pytest.raises(
                 wt.Blocked, match="registered Python runtime is missing"
             ):
-                wt._run_model_guard(tmp_path, task, approved)
+                wt._run_model_guard(tmp_path, task)
         elif outcome == "launch":
             with (
                 patch.object(
@@ -88,15 +88,15 @@ def check_registered_guard_process(tmp_path, capsys, approved, outcome):
                 ),
                 pytest.raises(OSError),
             ):
-                wt._run_model_guard(tmp_path, task, approved)
+                wt._run_model_guard(tmp_path, task)
         elif outcome == "reject":
             with pytest.raises(wt.Blocked) as caught:
-                wt._run_model_guard(tmp_path, task, approved)
+                wt._run_model_guard(tmp_path, task)
             assert caught.value.diagnostics["returncode"] == 1
             assert caught.value.diagnostics["stdout"] == "stdout diagnostic\n"
             assert "guard rejection" in caught.value.diagnostics["stderr"]
         else:
-            wt._run_model_guard(tmp_path, task, approved)
+            wt._run_model_guard(tmp_path, task)
             output = capsys.readouterr()
             assert output.out == ""
             assert (
@@ -107,7 +107,7 @@ def check_registered_guard_process(tmp_path, capsys, approved, outcome):
             command = child.call_args.args[0]
             check.assertEqual(command[:3], [sys.executable, "-B", "-c"])
             check.assertEqual(
-                command[4:], [task, "approved" if approved else "normal", "null"]
+                command[4:], [task, "null"]
             )
             check.assertEqual(
                 child.call_args.kwargs,
@@ -213,7 +213,7 @@ def check_prepare_rejects_before_git_write(tmp_path, violation):
         patch.object(wt, "git", side_effect=AssertionError("Git write reached")),
     ):
         with pytest.raises(wt.Blocked):
-            wt._prepare_commit(tmp_path, tmp_path / "state.json", state, tmp_path, None)
+            wt._prepare_commit(tmp_path, tmp_path / "state.json", state, tmp_path)
         assert called.call_count == (
             0
             if violation
@@ -223,6 +223,72 @@ def check_prepare_rejects_before_git_write(tmp_path, violation):
     assert state["commit"] == (
         "tip" if violation in ("unverified", "committed-dirty") else None
     )
+
+
+@pytest.mark.parametrize("args", [
+    ["branches"],
+    ["recover", "--task-id", "example"],
+    ["pr-retry-create", "--task-id", "example"],
+    ["finalize", "--task-id", "example", "--finish-recovery"],
+    ["finalize", "--task-id", "example", "--repin-recovery"],
+    ["finalize", "--task-id", "example", "--expected-task-base", "base"],
+    ["finalize", "--task-id", "example", "--human-approved-validation-failure", "approval"],
+    ["create", "--task-id", "example"],
+    ["deploy-start", "--task-id", "example"],
+    ["finalize", "--task-name", "example"],
+])
+def check_removed_lifecycle_cli(args):
+    with patch.object(sys, "argv", ["worktree_task.py", *args]), pytest.raises(SystemExit) as error:
+        wt.main()
+    assert error.value.code == 2
+
+
+def check_creation_failure_reports_retained_task(tmp_path, capsys):
+    creation = {
+        "task_name": "example", "task_id": "example-000000",
+        "primary": str(tmp_path), "worktree": str(tmp_path / "retained"),
+        "branch": "codex/worktree/example-000000", "task_file": "tasks/example-000000.md",
+    }
+    Path(creation["worktree"]).mkdir()
+    error = wt.Blocked("failed to save lifecycle")
+    error.creation = creation
+    with (
+        patch.object(sys, "argv", ["worktree_task.py", "create", "--task-name", "example"]),
+        patch.object(wt, "create", side_effect=error) as create,
+        patch.object(wt, "load", side_effect=wt.Blocked("missing lifecycle")),
+        patch.object(wt, "branch_exists", return_value=True),
+    ):
+        assert wt.main() == 1
+    assert create.call_count == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "blocked" and output["error"] == str(error)
+    assert output["task_id"] == creation["task_id"]
+    assert output["remaining_worktree"] == creation["worktree"]
+    assert output["remaining_branch"] == creation["branch"]
+
+
+def check_integration_failure_preserves_running_task(tmp_path):
+    task = "tasks/example.md"
+    (tmp_path / "tasks").mkdir()
+    text = contract("example", ["file.txt"])
+    (tmp_path / task).write_text(text)
+    change = tmp_path / "file.txt"
+    change.write_text("retain candidate")
+    candidate = wt.FinalCandidate(tmp_path, tmp_path, task, text, "base", "head", frozenset({"file.txt"}), frozenset())
+    with (
+        patch.object(wt, "prepare_integration", return_value=candidate),
+        patch.object(wt, "changed_paths", return_value=set()),
+        patch.object(wt, "output", return_value="head"),
+        patch.object(loop, "task_path", side_effect=ValueError("validation preflight failed")),
+        patch.object(loop, "suspend_selected") as suspend_selected,
+        patch.object(wt.tasks, "suspend") as suspend,
+        pytest.raises(wt.Blocked, match="validation preflight failed"),
+    ):
+        wt._integrate_model(tmp_path, "example")
+    suspend.assert_not_called()
+    suspend_selected.assert_not_called()
+    assert (tmp_path / task).read_text() == text
+    assert change.read_text() == "retain candidate"
 
 
 def check_cli_failure_diagnostics(tmp_path, capsys):
@@ -242,118 +308,23 @@ def check_cli_failure_diagnostics(tmp_path, capsys):
     assert result["cleanup"] == error.cleanup
 
 
-def _cleanup_output(common, case, /, root, *args):
-    if args[-1] == "--git-common-dir":
-        return str(
-            common / "foreign" if case == "common" and "--git-dir" in args else common
-        )
-    if "symbolic-ref" in args:
-        return "refs/heads/codex/worktree/example"
-    if args[-1] == "HEAD":
-        return "changed" if case == "git_head" else "tip"
-    if "diff-index" in args:
-        if case == "index_error":
-            raise wt.Blocked("cannot read index")
-        return "staged\0" if case == "dirty" else ""
-    raise AssertionError(args)
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        "clean",
-        "locked",
-        "branch",
-        "head",
-        "merged",
-        "unverified",
-        "ambiguous",
-        "missing_index",
-        "index_link",
-        "lock",
-        "common",
-        "git_head",
-        "operation",
-        "index_error",
-        "dirty",
-    ],
-)
 @pytest.mark.parametrize("discard", [False, True])
-def check_cleanup_missing_worktree(tmp_path, case, discard):
+def check_cleanup_missing_worktree(tmp_path, discard):
     target = tmp_path / ".worktrees/example"
-    common = tmp_path / ".git"
-    directory = common / "worktrees/example"
-    directory.mkdir(parents=True)
-    for name, value in [
-        ("gitdir", str(target / ".git") + "\n"),
-        ("HEAD", "tip"),
-        ("index", "index"),
-    ]:
-        (directory / name).write_text(value)
-    state = dict(
-        worktree=str(target),
-        branch="codex/worktree/example",
-        tip="tip",
-        merged="tip",
-        commit="tip",
-        verified=True,
-    )
-    entry = dict(
-        worktree=str(target),
-        HEAD="tip",
-        branch="refs/heads/codex/worktree/example",
-        prunable="missing",
-    )
-    if case == "locked":
-        entry["locked"] = ""
-    if case in {"branch", "head"}:
-        entry["HEAD" if case == "head" else "branch"] = "other"
-    if case == "merged":
-        state["merged"] = "other"
-    if case == "unverified":
-        state["verified"] = False
-    if case == "ambiguous":
-        duplicate = common / "worktrees/duplicate"
-        duplicate.mkdir()
-        (duplicate / "gitdir").write_text(str(target / ".git") + "\n")
-    if case == "missing_index":
-        (directory / "index").unlink()
-    if case == "lock":
-        (directory / "index.lock").write_text("owned by another process")
+    state = dict(worktree=str(target), branch="codex/worktree/example",
+                 base="main", merged="tip", commit="tip")
+    path = tmp_path / "example.json"
+    path.write_text("retained")
     with (
-        patch.object(
-            wt,
-            "output",
-            side_effect=_bind_framework_callback(_cleanup_output, common, case),
-        ),
-        patch.object(
-            Path,
-            "is_symlink",
-            autospec=True,
-            side_effect=lambda path: case == "index_link"
-            and path == directory / "index",
-        ),
-        patch.object(
-            worktree_state,
-            "idle_operations",
-            side_effect=wt.Blocked("unfinished operation")
-            if case == "operation"
-            else None,
-        ) as idle,
+        patch.object(wt, "ancestor", return_value=True),
+        patch.object(wt, "branch_exists", return_value=True),
+        patch.object(wt, "git") as git,
+        pytest.raises(wt.Blocked, match="exact Git registration") as caught,
     ):
-        if (
-            case == "clean"
-            or discard
-            and case in {"head", "merged", "unverified", "dirty", "index_error"}
-        ):
-            if case == "head":
-                entry["HEAD"] = "tip"
-            wt.cleanup_missing_worktree(tmp_path, state, entry, discard=discard)
-            assert idle.call_args.kwargs["runner"].keywords == {"directory": directory}
-        else:
-            with pytest.raises(wt.Blocked):
-                wt.cleanup_missing_worktree(tmp_path, state, entry, discard=discard)
-    assert (directory / "HEAD").read_text() == "tip" and not target.exists()
+        wt.cleanup_state(tmp_path, path, state, discard=discard)
+    git.assert_not_called()
+    assert caught.value.cleanup["remaining"]["git_registration"] is None
+    assert path.read_text() == "retained"
 
 
 @pytest.mark.parametrize(
@@ -385,9 +356,8 @@ def check_cleanup_stops_before_removal(tmp_path, case):
         commit="tip",
         task_file="tasks/example.md",
     )
-    entry = dict(
-        worktree=str(target), HEAD="tip", branch="refs/heads/codex/worktree/example"
-    )
+    for name in ("HEAD", "index"):
+        (target / name).touch()
     if case == "setup_busy":
         path.with_suffix(".setup-lock").mkdir()
     with (
@@ -397,7 +367,8 @@ def check_cleanup_stops_before_removal(tmp_path, case):
             side_effect=[True, False] if case == "rewritten" else None,
             return_value=True,
         ),
-        patch.object(wt, "worktrees", return_value=[entry]),
+        patch.object(worktree_state, "_repository_identity", return_value=(tmp_path, tmp_path / ".git")),
+        patch.object(worktree_state, "task_git_directory", return_value=target),
         patch.object(
             wt,
             "task_worktree",
@@ -411,9 +382,11 @@ def check_cleanup_stops_before_removal(tmp_path, case):
             side_effect=lambda path: case == "symlink" and path == target,
         ),
         patch.object(wt, "integration_task"),
-        patch.object(wt, "cleanup_missing_worktree"),
         patch.object(
-            wt, "output", return_value="changed" if case == "branch_changed" else "tip"
+            wt, "output", side_effect=lambda root, *args: str(target)
+            if args[0] == "for-each-ref" else
+            "changed" if case == "branch_changed" else
+            (_ for _ in ()).throw(wt.Blocked("missing branch")) if case == "missing_branch" else "tip"
         ),
         patch.object(
             wt, "changed_paths", return_value={"dirty"} if case == "dirty" else set()
@@ -438,8 +411,6 @@ def check_cleanup_stops_before_removal(tmp_path, case):
         branch=case != "missing_branch",
         task_state=True,
     )
-    assert details["next_action"] == "resolve_stop_reason_then_retry"
-    assert details["retry_command"].endswith("cleanup --task-id example")
     assert path.read_text() == "preserve state" and target.is_dir()
 
 
@@ -459,7 +430,6 @@ def check_cleanup_preflight_diagnostics(tmp_path, capsys, command):
         ),
         patch.object(wt, "load", return_value=(tmp_path, None, path, state)),
         patch.object(wt, command, side_effect=wt.Blocked("worktree lifecycle busy")),
-        patch.object(wt, "worktrees", return_value=[]),
         patch.object(wt, "branch_exists", return_value=True),
     ):
         assert wt.main() == 1
@@ -469,7 +439,7 @@ def check_cleanup_preflight_diagnostics(tmp_path, capsys, command):
         result["cleanup"]["stop_reason"] == result["error"] == "worktree lifecycle busy"
     )
     assert result["cleanup"]["remaining"] == dict(
-        worktree=False, git_registration=False, branch=True, task_state=True
+        worktree=False, git_registration=None, branch=True, task_state=True
     )
 
 
@@ -576,122 +546,8 @@ def _check_idle_markers(root, directory, state):
     wt.idle_git(root)
 
 
-def _callback_check_repin_rejects_before_state_write_output(
-    base, candidate, latest, violation, /, root, *args
-):
-    if args[0] == "rev-parse":
-        return (
-            ("0" * 40 if violation == "base" else latest) if root == base else candidate
-        )
-    if args[1] == "--count":
-        return "2" if violation == "count" else "1"
-    return "a merge" if violation == "merge" else ""
-
-
-@pytest.mark.parametrize(
-    "violation",
-    [
-        "dirty",
-        "suspend",
-        "count",
-        "merge",
-        "scope",
-        "history",
-        "head",
-        "base",
-        "unverified",
-        "type",
-        "receipt",
-        "descendant",
-    ],
-)
-def check_repin_rejects_before_state_write(tmp_path, violation):
-    old, latest, candidate = "1" * 40, "2" * 40, "3" * 40
-    task = "tasks/example.md"
-    text = contract("example", ["file.txt"])
-    if violation == "suspend":
-        text = (
-            text.replace("`running`", "`suspend`") + "\n## Suspension reason\nfixture\n"
-        )
-    if violation == "type":
-        text = text.replace("`governance`", "`migration`")
-    (tmp_path / "tasks").mkdir()
-    (tmp_path / task).write_text(text, encoding="utf-8")
-    state = dict(
-        task_file=task,
-        merged=None,
-        verified=violation != "unverified",
-        recovery=dict(commit="4" * 40, base=old, count="1"),
-    )
-    if violation == "receipt":
-        del state["recovery"]
-    original = copy.deepcopy(state)
-    base = tmp_path / "base"
-
-    output = _bind_framework_callback(
-        _callback_check_repin_rejects_before_state_write_output,
-        base,
-        candidate,
-        latest,
-        violation,
-    )
-
-    with (
-        patch.object(
-            wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", state)
-        ),
-        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
-        patch.object(wt, "task_worktree", return_value=tmp_path),
-        patch.object(wt, "base_worktree", return_value=base),
-        patch.object(wt, "output", side_effect=output),
-        patch.object(
-            wt,
-            "git",
-            side_effect=lambda root, *args, **kwargs: SimpleNamespace(
-                returncode=int(
-                    violation == "history"
-                    and args[-1] == candidate
-                    or violation == "descendant"
-                    and args[-1] == latest
-                )
-            ),
-        ),
-        patch.object(
-            wt,
-            "changed_paths",
-            return_value={"file.txt"} if violation == "dirty" else set(),
-        ),
-        patch.object(
-            wt,
-            "paths",
-            return_value={"outside.txt"} if violation == "scope" else {"file.txt"},
-        ),
-        patch.object(wt, "save") as save,
-    ):
-        with pytest.raises(wt.Blocked):
-            wt.recover(
-                tmp_path,
-                "example",
-                "0" * 40 if violation == "head" else candidate,
-                latest,
-                repin=True,
-            )
-        save.assert_not_called()
-    assert state == original
-
-
-@pytest.mark.parametrize(
-    "status,approval,accepted",
-    [
-        ("running", None, False),
-        ("suspend", None, False),
-        ("completed", None, True),
-        ("running", "accepted failure", False),
-        ("suspend", " ", False),
-        ("suspend", "accepted failure", True),
-    ],
-)
-def check_integration_status(tmp_path, status, approval, accepted):
+@pytest.mark.parametrize("status", ["running", "suspend", "completed"])
+def check_integration_status(tmp_path, status):
     task = tmp_path / "tasks/example.md"
     task.parent.mkdir()
     task.write_text(
@@ -703,12 +559,12 @@ def check_integration_status(tmp_path, status, approval, accepted):
         )
     )
     with patch.object(wt, "task_start_commit", return_value="base"):
-        if accepted:
-            wt.integration_task(tmp_path, {"task_file": "tasks/example.md"}, approval)
+        if status == "completed":
+            wt.integration_task(tmp_path, {"task_file": "tasks/example.md"})
         else:
             with pytest.raises(wt.Blocked):
                 wt.integration_task(
-                    tmp_path, {"task_file": "tasks/example.md"}, approval
+                    tmp_path, {"task_file": "tasks/example.md"}
                 )
 
 
@@ -1222,23 +1078,10 @@ def check_pr_candidate_identity(tmp_path, change):
             return_value=(tmp_path, None, path, {} if change == "state" else state),
         ),
         patch.object(
-            wt.worktree_state,
-            "_repository",
-            return_value=(tmp_path, None, tmp_path, []),
-        ),
-        patch.object(
-            wt.worktree_state,
-            "_repository_identity",
-            return_value=(
-                tmp_path / "other" if change == "redirect" else tmp_path,
-                tmp_path if change == "repository" else None,
-            ),
-        ),
-        patch.object(
             wt,
             "task_worktree",
             side_effect=wt.Blocked("worktree changed")
-            if change in {"worktree", "operation"}
+            if change in {"worktree", "operation", "repository", "redirect"}
             else None,
             return_value=tmp_path,
         ),
@@ -1400,109 +1243,71 @@ def check_pr_git_deadline(tmp_path):
             assert "core.sshCommand=ssh -o BatchMode=yes" in git.call_args.args
 
 
-@pytest.mark.parametrize(
-    "failure", ["ignored", "state", "branch", "path", "registered", "repair-child"]
-)
+def _creation_git(failure, target, /, root, *args, **kwargs):
+    assert args[:2] != ("worktree", "list")
+    if args[0] == "check-ignore":
+        return subprocess.CompletedProcess(args, int(failure == "ignored"), "", "")
+    if args[:2] == ("worktree", "add") and str(target) in args:
+        if failure == "registered":
+            return subprocess.CompletedProcess(args, 128, "", f"fatal: '{target}' is a missing but already registered worktree;")
+        if failure == "git":
+            return subprocess.CompletedProcess(args, 128, "", "Permission denied")
+    return subprocess.CompletedProcess(args, 0, "", "")
+
+
+@pytest.mark.parametrize("failure", ["ignored", "state", "publication-lock", "branch", "path", "contract", "registered", "git", "all"])
 def check_create_refusals_before_mutation(tmp_path, failure):
-    check = TestCase()
-    root = tmp_path / "primary"
-    root.mkdir()
-    target = root / ".worktrees/example"
-    state_path = tmp_path / "state.json"
-    if failure == "state":
-        state_path.write_bytes(b"preserve state")
-    if failure == "path":
-        target.mkdir(parents=True)
-        (target / "keep").write_bytes(b"human data")
+    target = tmp_path / ".worktrees/example-000000"
+    state_path = wt.state_path(tmp_path, "example-000000")
+    collision = {
+        "state": state_path,
+        "publication-lock": state_path.with_suffix(".pr-lock"),
+        "path": target / "keep",
+        "contract": tmp_path / "tasks/example-000000.md",
+    }.get(failure)
+    if collision:
+        collision.parent.mkdir(parents=True)
+        collision.write_bytes(b"preserve bytes")
+
     with (
-        patch.object(wt, "repository", return_value=(root, root / ".git", root)),
-        patch.object(wt, "state_path", return_value=state_path),
-        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(wt, "repository", return_value=(tmp_path, tmp_path / ".git", tmp_path)),
         patch.object(wt, "base_branch", return_value="main"),
-        patch.object(wt, "branch_exists", return_value=failure == "branch"),
-        patch.object(
-            wt,
-            "worktrees",
-            return_value=[dict(worktree=str(target), prunable="stale")]
-            if failure == "registered"
-            else [],
-        ),
-        patch.object(
-            wt,
-            "git",
-            return_value=subprocess.CompletedProcess(
-                [], int(failure == "ignored"), "", ""
-            ),
-        ) as git,
-        patch.object(wt, "setup") as setup,
-        patch.object(
-            wt,
-            "deploy_request",
-            return_value=(
-                root,
-                state_path,
-                {"iacRepair": {"childTask": "other"}},
-                {"repository": str(root), "taskFile": "tasks/parent.md"},
-            ),
-        ),
-        patch.object(
-            wt.tasks,
-            "read_task_snapshot",
-            return_value=SimpleNamespace(
-                text="## Task contract\n- Task status: `suspend`\n## Suspension reason\nAuthorized child repair\n"
-            ),
-        ),
+        patch.object(wt, "output", side_effect=lambda root, *args: "start" if args[0] == "rev-parse" else ""),
+        patch.object(wt, "branch_exists", side_effect=lambda root, branch: failure == "all" or (failure == "branch" and branch.endswith("-000000"))),
+        patch.object(wt, "git", side_effect=_bind_framework_callback(_creation_git, failure, target)) as git,
+        patch.object(wt, "setup", side_effect=lambda root, task_id: json.loads(wt.state_path(root, task_id).read_text())) as setup,
+        patch.object(wt.secrets, "randbelow", side_effect=[0] * 20 if failure == "all" else [0, 42]) as random,
     ):
-        with pytest.raises(
-            wt.Blocked, match="ignored|collision|another implement child"
-        ):
-            wt.create(
-                root,
-                "example",
-                tmp_path / "request.json" if failure == "repair-child" else None,
-            )
-    setup.assert_not_called()
-    check.assertEqual(git.call_count, 1)
-    check.assertEqual(
-        state_path.read_bytes() if state_path.exists() else None,
-        b"preserve state" if failure == "state" else None,
-    )
-    if failure == "path":
-        check.assertEqual((target / "keep").read_bytes(), b"human data")
+        if failure in {"ignored", "git", "all"}:
+            with pytest.raises(wt.Blocked, match="ignored|Permission denied|20 collisions"):
+                wt.create(tmp_path, "example")
+            setup.assert_not_called()
+        else:
+            state = wt.create(tmp_path, "example")
+            assert state["task_name"] == "example"
+            assert state["task_id"] == "example-000042"
+        assert random.call_count == (20 if failure == "all" else 1 if failure in {"ignored", "git"} else 2)
+        assert all(call.args == (1_000_000,) for call in random.call_args_list)
+        assert not (tmp_path / ".worktrees/.blueprint/lifecycle.lock").exists()
+        if failure == "all":
+            git.assert_not_called()
+    if collision:
+        assert collision.read_bytes() == b"preserve bytes"
 
 
-@pytest.mark.parametrize(
-    "failure", ["missing", "duplicate", "locked", "prunable", "dirty", "operation"]
-)
+@pytest.mark.parametrize("failure", ["branch", "dirty", "operation"])
 def check_base_worktree_refusals(tmp_path, failure):
-    entries = [dict(branch="refs/heads/main", worktree=str(tmp_path))]
-    if failure == "missing":
-        entries = []
-    elif failure == "duplicate":
-        entries *= 2
-    elif failure in ("locked", "prunable"):
-        entries[0][failure] = "retain"
-    original = copy.deepcopy(entries)
     with (
-        patch.object(wt, "worktrees", return_value=entries),
+        patch.object(wt, "repository", return_value=(tmp_path, tmp_path / ".git", tmp_path)),
+        patch.object(wt, "output", return_value="other" if failure == "branch" else "main"),
         patch.object(
-            wt,
-            "idle_git",
-            side_effect=wt.Blocked("operation in progress")
-            if failure == "operation"
-            else None,
+            wt, "idle_git",
+            side_effect=wt.Blocked("operation in progress") if failure == "operation" else None,
         ),
-        patch.object(
-            wt,
-            "git",
-            return_value=subprocess.CompletedProcess(
-                [], 0, "dirty" if failure == "dirty" else "", ""
-            ),
-        ),
+        patch.object(wt, "git", return_value=subprocess.CompletedProcess([], 0, "dirty", "")),
+        pytest.raises(wt.Blocked, match="primary worktree|dirty|operation"),
     ):
-        with pytest.raises(wt.Blocked, match="available worktree|dirty|operation"):
-            wt.base_worktree(tmp_path, {"base": "main"})
-    TestCase().assertEqual(entries, original)
+        wt.base_worktree(tmp_path, {"base": "main"})
 
 
 def check_shared_records_reject_other_repository(tmp_path):
@@ -1553,43 +1358,36 @@ def check_candidate_rejects_redirect_before_task_read(tmp_path):
             return_value=(tmp_path, common, path, state),
         ),
         patch.object(wt.tasks, "read_task_snapshot") as snapshot,
-        pytest.raises(wt.Blocked, match="another repository"),
+        pytest.raises(wt.Blocked, match="redirected"),
     ):
-        pr.check_candidate(tmp_path, path, state)
+        pr.check_candidate(repository, path, state)
     snapshot.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "change", ["branch", "detached", "locked", "prunable", "operation"]
-)
+@pytest.mark.parametrize("change", ["branch", "detached", "locked", "backlink", "operation"])
 def check_late_task_worktree_refusals(tmp_path, change):
-    state = {"worktree": str(tmp_path), "branch": "codex/worktree/example"}
-    original = {
-        "worktree": str(tmp_path),
-        "branch": "refs/heads/codex/worktree/example",
-    }
-    later = dict(original)
-    if change == "branch":
-        later["branch"] = "refs/heads/other"
-    elif change == "detached":
-        later.pop("branch")
-    elif change in {"locked", "prunable"}:
-        later[change] = "retained"
+    target = tmp_path / ".worktrees/example"
+    common = tmp_path / ".git"
+    directory = common / "worktrees/example"
+    target.mkdir(parents=True)
+    directory.mkdir(parents=True)
+    gitfile = target / ".git"
+    gitfile.write_text(f"gitdir: {directory}\n")
+    (directory / "gitdir").write_text(str(tmp_path if change == "backlink" else gitfile))
+    if change == "locked":
+        (directory / "locked").touch()
+    state = {"worktree": str(target), "branch": "codex/worktree/example"}
+    ref = "refs/heads/codex/worktree/example"
     with (
-        patch.object(worktree_state, "worktrees", return_value=[later]),
-        patch.object(
-            worktree_state,
-            "idle_git",
-            side_effect=[None, wt.Blocked("operation in progress")]
-            if change == "operation"
-            else None,
-        ),
+        patch.object(worktree_state, "_repository_identity", return_value=(target, common)),
+        patch.object(worktree_state, "output", side_effect=[
+            str(directory), {"branch": "refs/heads/other", "detached": ""}.get(change, ref),
+            "head", "head",
+        ]),
+        patch.object(worktree_state, "idle_git", side_effect=wt.Blocked("operation in progress") if change == "operation" else None),
+        pytest.raises(wt.Blocked, match="branch changed|locked or mismatched|operation in progress"),
     ):
-        TestCase().assertEqual(
-            worktree_state.task_worktree(tmp_path, state, records=[original]), tmp_path
-        )
-        with pytest.raises(wt.Blocked, match="worktree missing|operation in progress"):
-            worktree_state.task_worktree(tmp_path, state)
+        worktree_state.task_worktree(tmp_path, state)
 
 
 @pytest.mark.parametrize("changed", [False, True])
@@ -1717,11 +1515,8 @@ def _commit_git(trace, where, *args, **kwargs):
                 1, ["git", *args], stderr="commit failed"
             )
         trace.head, trace.dirty = "commit", False
-    if "rebase" in args and "--abort" not in args:
-        if trace.failure == "rebase":
-            return subprocess.CompletedProcess([], 1, "", "conflict")
-        trace.head = "rebased"
-        trace.dirty = trace.failure == "dirty-rebase"
+    if args[:2] == ("merge-base", "--is-ancestor") and trace.failure == "rewritten":
+        return subprocess.CompletedProcess([], 1, "", "")
     return subprocess.CompletedProcess([], 0, "", "")
 
 
@@ -1744,15 +1539,13 @@ def _commit_output(trace, base, where, *args, **kwargs):
     [
         "commit",
         "altered-commit",
-        "rebase",
-        "dirty-rebase",
         "base-advance",
         "rewritten",
         "whitespace",
         "staged-whitespace",
     ],
 )
-def check_commit_and_rebase_failure_retention(tmp_path, failure):
+def check_commit_failure_retention(tmp_path, failure):
     check = TestCase()
     base, target = tmp_path / "base", tmp_path / "task"
     base.mkdir()
@@ -1767,7 +1560,7 @@ def check_commit_and_rebase_failure_retention(tmp_path, failure):
         task_id="example",
         task_file="tasks/example.md",
         base="main",
-        start="start",
+        start="latest",
         tip="tip",
         commit=None,
         verified=False,
@@ -1800,15 +1593,12 @@ def check_commit_and_rebase_failure_retention(tmp_path, failure):
         ),
         patch.object(wt, "save"),
     ):
-        with pytest.raises((wt.Blocked, subprocess.CalledProcessError)):
+        with pytest.raises((wt.Blocked, wt.NeedsSync, subprocess.CalledProcessError)):
             wt._prepare_commit(
-                base, tmp_path / "state.json", state, target, None, recovery=True
+                base, tmp_path / "state.json", state, target
             )
     check.assertEqual(source.read_bytes(), b"candidate bytes")
     check.assertFalse(any(args[0] == "merge" for args in trace.commands))
-    if failure == "rebase":
-        check.assertIn(("rebase", "--abort"), trace.commands)
-        check.assertEqual(state["tip"], "tip")
     if failure == "altered-commit":
         check.assertEqual(state["commit"], "commit")
         check.assertFalse(state["verified"])
@@ -1820,6 +1610,9 @@ def _cleanup_operation(trace, target, root, *args, **kwargs):
             raise OSError("remove worktree failure")
         target.rmdir()
         trace.removed = True
+        for item in trace.directory.iterdir():
+            item.unlink()
+        trace.directory.rmdir()
     elif args[:2] == ("branch", "-D"):
         if trace.failure == "remove_branch":
             raise OSError("remove branch failure")
@@ -1839,7 +1632,7 @@ def _cleanup_unlink(trace, state_path, original, path, *args, **kwargs):
     "failure",
     ["remove_worktree", "remove_branch", "remove_state"],
 )
-def check_cleanup_operation_failure_and_retry(tmp_path, failure):
+def check_cleanup_operation_failure_retains_state(tmp_path, failure):
     check = TestCase()
     target = tmp_path / ".worktrees/example"
     target.mkdir(parents=True)
@@ -1855,20 +1648,19 @@ def check_cleanup_operation_failure_and_retry(tmp_path, failure):
         commit="tip",
         task_file="tasks/example.md",
     )
-    entry = dict(
-        worktree=str(target), HEAD="tip", branch="refs/heads/codex/worktree/example"
-    )
-    trace = SimpleNamespace(failure=failure, removed=False, branch_removed=False)
+    directory = tmp_path / "registered"
+    directory.mkdir()
+    for name in ("HEAD", "index"):
+        (directory / name).touch()
+    trace = SimpleNamespace(failure=failure, removed=False, branch_removed=False, directory=directory)
     with (
         patch.object(wt, "ancestor", return_value=True),
-        patch.object(
-            wt, "worktrees", side_effect=lambda root: [] if trace.removed else [entry]
-        ),
+        patch.object(worktree_state, "_repository_identity", return_value=(tmp_path, tmp_path / ".git")),
+        patch.object(worktree_state, "task_git_directory", return_value=directory),
         patch.object(wt, "task_worktree", return_value=target),
         patch.object(wt, "deploy_cleanup_task", return_value=None),
-        patch.object(wt, "cleanup_missing_worktree"),
         patch.object(wt, "integration_task"),
-        patch.object(wt, "output", return_value="tip"),
+        patch.object(wt, "output", side_effect=[str(target), "tip"]),
         patch.object(wt, "changed_paths", return_value=set()),
         patch.object(wt, "paths", return_value=set()),
         patch.object(
@@ -1894,292 +1686,8 @@ def check_cleanup_operation_failure_and_retry(tmp_path, failure):
         check.assertEqual(caught.value.cleanup["phase"], failure)
         check.assertEqual(path.read_bytes(), b"preserve state")
         check.assertEqual(state["merged"], "tip")
-        trace.failure = None
-        check.assertTrue(wt.cleanup_state(tmp_path, path, state)["cleaned"])
-    check.assertFalse(path.exists())
-    check.assertTrue(trace.removed and trace.branch_removed)
-
-
-def _recovery_output(trace, base, where, *args, **kwargs):
-    if args[:2] == ("rev-parse", "HEAD"):
-        return trace.base if where == base else trace.head
-    if args[:3] == ("rev-list", "--count", "--merges"):
-        return "0"
-    if args[:2] == ("rev-list", "--count"):
-        return "1"
-    if args[:2] == ("rev-list", "--merges"):
-        return ""
-    raise AssertionError(f"unexpected recovery read: {args}")
-
-
-def _rewritten_recovery_output(primary, latest, violation, head, old, /, where, *args):
-    if args == ("rev-parse", "HEAD"):
-        return latest if where == primary else "4" * 40 if violation == "head" else head
-    if args[:2] == ("rev-list", "--merges"):
-        return "merge" if violation == "merge" else ""
-    if args[:2] == ("rev-list", "--count"):
-        assert args[-1] == old + ".." + head
-        return "2"
-    raise AssertionError(args)
-
-
-def _rewritten_recovery_git(violation, old, latest, head, /, where, *args, **kwargs):
-    assert args[:2] == ("merge-base", "--is-ancestor")
-    result = (
-        int(violation != "descendant")
-        if args[-2:] == (old, latest)
-        else int(violation == "ancestor")
-        if args[-2:] == (old, head)
-        else 0
-    )
-    return subprocess.CompletedProcess([], result, "", "")
-
-
-@pytest.mark.parametrize(
-    "violation",
-    [
-        None,
-        "hash",
-        "recorded",
-        "dirty",
-        "unverified",
-        "head",
-        "type",
-        "pr",
-        "scope",
-        "ancestor",
-        "merge",
-        "descendant",
-        "approval",
-        "deploy",
-        "intent",
-    ],
-)
-def check_rewritten_governance_recovery_guards(tmp_path, violation):
-    old, latest, head = "1" * 40, "2" * 40, "3" * 40
-    (tmp_path / "tasks").mkdir()
-    name = "tasks/example.md"
-    text = contract("example", ["file.txt"]).replace("`running`", "`suspend`")
-    if violation == "type":
-        text = text.replace("`governance`", "`migration`")
-    text += "\n## Suspension reason\nfixture\n"
-    task = tmp_path / name
-    task.write_text(text, encoding="utf-8")
-    state = dict(
-        task_file=name,
-        task_id="example",
-        start="0" * 40,
-        base="main",
-        validation_base=old,
-        tip=head,
-        commit=head,
-        merged=None,
-        verified=violation != "unverified",
-    )
-    if violation == "pr":
-        state["integrationMode"] = "pr"
-    if violation == "approval":
-        state["validation_failure_approval"] = "previous failure approval"
-    if violation == "deploy":
-        state["deployIdentity"] = True
-    if violation == "intent":
-        state["baseSyncIntent"] = {}
-        state["baseSyncIntent"]["head"] = head
-    before = copy.deepcopy(state)
-    primary = tmp_path / "primary"
-
-    output = _bind_framework_callback(
-        _rewritten_recovery_output, primary, latest, violation, head, old
-    )
-
-    git = _bind_framework_callback(
-        _rewritten_recovery_git, violation, old, latest, head
-    )
-
-    with (
-        patch.object(
-            wt, "load", return_value=(primary, None, tmp_path / "state.json", state)
-        ),
-        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
-        patch.object(wt, "task_worktree", return_value=tmp_path),
-        patch.object(wt, "base_worktree", return_value=primary),
-        patch.object(wt, "idle_git"),
-        patch.object(wt, "output", side_effect=output),
-        patch.object(wt, "git", side_effect=git),
-        patch.object(
-            wt,
-            "changed_paths",
-            return_value={"file.txt"} if violation == "dirty" else set(),
-        ),
-        patch.object(
-            wt,
-            "paths",
-            return_value={"outside.txt"} if violation == "scope" else {"file.txt"},
-        ),
-        patch.object(wt, "_prepare_commit") as prepare,
-        patch.object(wt, "save") as save,
-    ):
-        pinned = (
-            "bad"
-            if violation == "hash"
-            else "4" * 40
-            if violation == "recorded"
-            else old
-        )
-        if violation:
-            with pytest.raises(wt.Blocked):
-                wt.recover(primary, "example", head, latest, expected_task_base=pinned)
-            prepare.assert_not_called()
-            save.assert_not_called()
-            assert state == before
-            assert task.read_text(encoding="utf-8") == text
-        else:
-            wt.recover(primary, "example", head, latest, expected_task_base=pinned)
-            assert state["recovery"] == dict(
-                commit=head,
-                base=latest,
-                count="2",
-                count_excludes_merges=True,
-                task_base=old,
-            )
-            assert wt.tasks.status(task.read_text(encoding="utf-8")) == "running"
-            assert state["validation_base"] == old
-            prepare.assert_called_once()
-
-
-@pytest.mark.parametrize("command", ["finalize", "create", "recover"])
-def check_expected_task_base_cli_is_initial_recover_only(command):
-    argv = [
-        "worktree_task.py",
-        command,
-        "--task-id",
-        "example",
-        "--expected-task-base",
-        "1" * 40,
-    ]
-    if command == "recover":
-        argv.append("--finish-recovery")
-    with patch.object(sys, "argv", argv), patch.object(wt, "load") as load:
-        with pytest.raises(SystemExit) as error:
-            wt.main()
-        assert error.value.code == 2
-        load.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "approval", [None, "Human accepts the fixture validation failure"]
-)
-@pytest.mark.parametrize("repin", [False, True])
-def check_reviewed_recovery_transitions(tmp_path, approval, repin):
-    _check_recovery_count_excludes_merges_for_legacy_and_new_receipts()
-    check = TestCase()
-    old, base, reviewed = "1" * 40, "2" * 40, "3" * 40
-    target, primary = tmp_path / "task", tmp_path / "primary"
-    (target / "tasks").mkdir(parents=True)
-    text = contract("example", ["file.txt"])
-    text = text.replace("`running`", "`suspend`" if approval else "`completed`")
-    if approval:
-        text += "\n## Suspension reason\nsynthetic accepted failure\n"
-    task = target / "tasks/example.md"
-    task.write_text(text, encoding="utf-8")
-    state = dict(
-        task_file="tasks/example.md",
-        task_id="example",
-        start="0" * 40,
-        tip=old,
-        commit=old,
-        merged=None,
-        verified=True,
-    )
-    if approval:
-        state["validation_failure_approval"] = approval
-    trace = SimpleNamespace(base=base, head=old)
-    path = tmp_path / "state.json"
-    with (
-        patch.object(wt, "load", return_value=(primary, None, path, state)),
-        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
-        patch.object(wt, "task_worktree", return_value=target),
-        patch.object(wt, "base_worktree", return_value=primary),
-        patch.object(
-            wt,
-            "output",
-            side_effect=_bind_framework_callback(_recovery_output, trace, primary),
-        ),
-        patch.object(
-            wt, "git", return_value=subprocess.CompletedProcess([], 0, "", "")
-        ),
-        patch.object(wt, "changed_paths", return_value=set()),
-        patch.object(wt, "paths", return_value={"file.txt"}),
-        patch.object(wt, "save") as save,
-        patch.object(
-            wt,
-            "_prepare_commit",
-            side_effect=wt.Blocked(
-                "rebase failed and was aborted; human review required"
-            ),
-        ),
-    ):
-        with pytest.raises(wt.Blocked, match="aborted"):
-            wt.recover(primary, "example", old, base)
-        original = copy.deepcopy(state["recovery"])
-        check.assertEqual(
-            (original["commit"], original["base"], original["count"]), (old, base, "1")
-        )
-        trace.head = reviewed
-        if repin:
-            trace.base = "4" * 40
-            wt.recover(primary, "example", reviewed, trace.base, repin=True)
-            check.assertEqual(state["recovery"]["previous"], original)
-            old, base = reviewed, trace.base
-            trace.head = "5" * 40
-        wt.recover(primary, "example", old, base, finish=True)
-    check.assertNotIn("recovery", state)
-    check.assertEqual(
-        (state["tip"], state["commit"], state["validation_base"]),
-        (trace.head, trace.head, base),
-    )
-    check.assertEqual(
-        wt.tasks.status(task.read_text(encoding="utf-8")),
-        "suspend" if approval else "running",
-    )
-    check.assertEqual(state.get("validation_failure_approval"), approval)
-    check.assertEqual(save.call_count, 3 if repin else 2)
-
-
-def _recovery_candidate_output(target, *args, **kwargs):
-    if args == ("rev-parse", "HEAD"):
-        return "new"
-    if args == ("rev-list", "--count", "base..new"):
-        return "2"
-    if args == ("rev-list", "--count", "--merges", "base..old"):
-        return "1"
-    if args == ("rev-list", "--merges", "base..new"):
-        return ""
-    raise AssertionError(args)
-
-
-def _check_recovery_count_excludes_merges_for_legacy_and_new_receipts():
-    legacy = {"base": "base", "commit": "old", "count": "3"}
-    modern = {**legacy, "count": "2", "count_excludes_merges": True}
-    with patch.object(wt, "output", return_value="1") as git_output:
-        assert wt._recovery_count(Path("."), legacy) == "2"
-        assert wt._recovery_count(Path("."), modern) == "2"
-        git_output.assert_called_once_with(
-            Path("."), "rev-list", "--count", "--merges", "base..old"
-        )
-        with pytest.raises(wt.Blocked, match="invalid recovery commit count"):
-            wt._recovery_count(Path("."), {**legacy, "count": "0"})
-    text = contract("example", ["file.txt"])
-
-    with (
-        patch.object(wt, "output", side_effect=_recovery_candidate_output),
-        patch.object(wt, "changed_paths", return_value=set()),
-        patch.object(wt, "paths", return_value={"file.txt"}),
-        patch.object(wt, "git", return_value=subprocess.CompletedProcess([], 0)),
-    ):
-        assert wt._recovery_candidate(Path("."), {}, text, legacy) == "new"
-        with pytest.raises(wt.Blocked, match="unexpected history"):
-            wt._recovery_candidate(Path("."), {}, text, {**legacy, "count": "4"})
+        check.assertEqual(target.exists(), failure == "remove_worktree")
+        check.assertEqual(trace.branch_removed, failure == "remove_state")
 
 
 @pytest.mark.parametrize(
@@ -2215,9 +1723,9 @@ def _pr_resume_push(trace, target, publication):
 
 def _pr_resume_gh(trace, target, host, *args):
     TestCase().assertEqual(args[:2], ("pr", "create"))
-    trace.created = True
+    trace.created = trace.failure != "unknown-create"
     trace.creates += 1
-    if trace.failure == "create" and not trace.failed:
+    if trace.failure in {"create", "unknown-create"} and not trace.failed:
         trace.failed = True
         raise wt.Blocked("lost create response")
     return "https://github.com/team/repo/pull/7"
@@ -2238,7 +1746,7 @@ def _pr_resume_load(trace, root, task_id):
     return root, None, root / "state.json", copy.deepcopy(trace.saved[-1])
 
 
-@pytest.mark.parametrize("failure", ["push", "create", "save"])
+@pytest.mark.parametrize("failure", ["push", "create", "unknown-create", "save"])
 def check_pr_intent_reconciles_without_duplicate_publication(tmp_path, failure):
     check = TestCase()
     publication = _pr_publication()
@@ -2286,8 +1794,12 @@ def check_pr_intent_reconciles_without_duplicate_publication(tmp_path, failure):
             pr.publish(tmp_path, tmp_path / "state.json", state)
         state = copy.deepcopy(trace.saved[-1])
         check.assertTrue(state["prPublication"]["pushIntent"])
-        result = pr.publish(tmp_path, tmp_path / "state.json", state)
-    check.assertEqual(result["prPublication"]["status"], "OPEN")
+        if failure == "unknown-create":
+            with pytest.raises(wt.Blocked, match="creation outcome is unconfirmed"):
+                pr.publish(tmp_path, tmp_path / "state.json", state)
+        else:
+            result = pr.publish(tmp_path, tmp_path / "state.json", state)
+            check.assertEqual(result["prPublication"]["status"], "OPEN")
     check.assertEqual((trace.pushes, trace.creates), (1, 1))
 
 
@@ -2610,7 +2122,6 @@ def check_pr_update_commit_boundary(tmp_path, published, descendant, changed):
         (["finalize", "--task-id", "example", "--create-pr", "--draft"], True),
         (["finalize", "--task-id", "example", "--draft"], False),
         (["cleanup", "--task-id", "example", "--draft"], False),
-        (["branches"], True),
         (["branch-delete", "--branch", "codex/worktree/example"], True),
         (["branch-delete"], False),
         (["pr-close", "--pr", "7"], True),
@@ -2626,7 +2137,6 @@ def check_pr_lifecycle_cli(tmp_path, capsys, arguments, valid):
             wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", {})
         ),
         patch.object(wt, "finalize", return_value={}) as finalize,
-        patch.object(wt, "branches", return_value={}),
         patch.object(wt, "delete_branch", return_value={}),
         patch.object(pr, "close_existing", return_value={}),
     ):

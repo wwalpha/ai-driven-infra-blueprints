@@ -135,9 +135,9 @@ def check_direct_deploy_routes():
     permission = markdown_sections(
         (root / ".agents/skills/worktree/SKILL.md").read_text(encoding="utf-8")
     )["sandbox-permission-approval-and-continuation"]
-    assert "Deploy entry only (`deploy-start`)" in permission
-    assert "do not enter unrelated checkouts" in permission
-    assert "does not change checkpoint, publication, finalize or cleanup" in permission
+    assert "in the relevant checkout only" in permission
+    assert "Python chooses and checks the Task ID under its lock" in permission
+    assert "git worktree list" not in permission
 
 
 def check_deploy_skill_structure_uses_definition_root(tmp_path):

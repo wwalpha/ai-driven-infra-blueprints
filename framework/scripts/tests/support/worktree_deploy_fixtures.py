@@ -76,7 +76,7 @@ def seed(root, state_path, case="orders", **kwargs):
     )
     state = wt.create(root, "deploy")
     target = Path(state["worktree"])
-    start(target, state["task_file"], saved_contract)
+    start(target, state["task_file"], saved_contract.replace("tasks/deploy.md", state["task_file"]))
     rebuild_index(target)
     return target
 

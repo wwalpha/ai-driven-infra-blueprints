@@ -51,7 +51,10 @@ def git(root, *args):
     return wt.output(root, *args)
 
 
-def cli(root, command, task_id="example", success=True, approval=None):
+EXAMPLE_TASK_ID = "example-000000"
+
+
+def cli(root, command, task_id=EXAMPLE_TASK_ID, success=True, *, suffix=None):
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
     # Package setup is covered separately; Git safety cases use an offline stub.
     result = subprocess.run(
@@ -63,17 +66,13 @@ def cli(root, command, task_id="example", success=True, approval=None):
             "import sys; from unittest.mock import patch; "
             f"sys.path.insert(0, {str(SCRIPT.parent)!r}); import worktree_task as wt; "
             "p=patch.object(wt.python_env, 'setup', return_value={'status':'ready'}); p.start(); "
-            "raise SystemExit(wt.main())",
+            + (f"patch.object(wt.secrets, 'randbelow', return_value={suffix}).start(); " if suffix is not None else "")
+            + "raise SystemExit(wt.main())",
             command,
             "--repository-root",
             str(root),
-            "--task-id",
+            "--task-name" if command in {"create", "deploy-start"} else "--task-id",
             task_id,
-            *(
-                ["--human-approved-validation-failure", approval]
-                if approval is not None
-                else []
-            ),
         ],
         cwd=root,
         env=environment,
@@ -88,8 +87,9 @@ def cli(root, command, task_id="example", success=True, approval=None):
     return data
 
 
-def start(root, task_id="example", files=("file.txt",)):
-    state = cli(root, "create", task_id)
+def start(root, task_name="example", files=("file.txt",)):
+    state = cli(root, "create", task_name, suffix=0)
+    task_id = state["task_id"]
     target = Path(state["worktree"])
     assert target == Path(state["primary"]) / ".worktrees" / task_id
     tasks.start(target, state["task_file"], contract(task_id, files))
@@ -107,12 +107,11 @@ def finish_contract(target, state):
 def retained(root, target, state, base_head):
     assert git(root, "rev-parse", f"refs/heads/{state['base']}") == base_head
     assert target.is_dir() and wt.branch_exists(root, state["branch"])
-    assert any(
-        e.get("branch") == f"refs/heads/{state['branch']}" for e in wt.worktrees(root)
-    )
+    assert wt.task_worktree(root, state) == target
 
 
 __all__ = [
+    "EXAMPLE_TASK_ID",
     "Path",
     "SCRIPT",
     "cli",
@@ -141,7 +140,7 @@ def managed_project_workspace(request):
     with fixture() as primary:
         target, state = start(
             primary,
-            task_id=getattr(request, "param", "observation-fixture"),
+            task_name=getattr(request, "param", "observation-fixture"),
             files=("file.txt",),
         )
         with selected_task(target, state["task_file"]):

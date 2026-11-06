@@ -110,14 +110,14 @@ def check_one_parent_model_operation_merge():
             patch.object(wt, "git", wraps=original_git) as calls,
             patch("validation.loop.run_loop", side_effect=final_check) as validation,
         ):
-            wt._integrate_model(target, "parent")
+            wt._integrate_model(target, state["task_id"])
             assert (
                 sum(call.args[1:2] == ("merge",) for call in calls.call_args_list) == 1
             )
             TestCase().assertEqual(validation.call_count, 1)
             assert tasks.status((target / name).read_text()) == "completed"
             assert git(root, "rev-parse", "HEAD") == git(target, "rev-parse", "HEAD")
-        wt.cleanup(root, "parent")
+        wt.cleanup(root, state["task_id"])
         assert not target.exists()
 
 
@@ -206,11 +206,11 @@ def check_cli_candidate_managed_task(tmp_path, aws_pull):
                 _callback_check_one_parent_model_operation_merge_final_check, name,
             )
             with patch("validation.loop.run_loop", side_effect=final_check) as validation:
-                wt._integrate_model(target, "candidate")
+                wt._integrate_model(target, state["task_id"])
             assert validation.call_count == 1
             assert (root / relative).read_bytes() == candidate.read_bytes()
             assert tasks.status((target / name).read_text(encoding="utf-8")) == "completed"
-            wt.cleanup(root, "candidate")
+            wt.cleanup(root, state["task_id"])
             assert not target.exists()
 
 

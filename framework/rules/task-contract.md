@@ -47,7 +47,7 @@ Select from the Human's request before loading a prompt. IaC-only work loads imp
 ## Task registration
 
 - Types: `initialization`, `design`, `infrastructure`, `scenario-test`, `governance`, `catalog-maintenance`, `migration`. The active prompt is the change contract, not permanent design authority.
-- Register `tasks/<task-name>.md` as the first repository change with the requested type/target/Goal. Preserve other contracts and uncommitted changes; clean without a contract is idle.
+- For managed Worktree Tasks, use the generated Task ID and returned `tasks/<task-id>.md`. Register the Task contract as the first repository change with the requested type/target/Goal. Preserve other contracts and uncommitted changes; clean without a contract is idle.
 - Status: `running`/`suspend`/`completed`. `## Modified files` lists exact paths within Allowed paths for this contract, new files, generated outputs, parts and deletions. No globs, directories or other Task contracts.
 - Register with `task_contract.py --task-file tasks/<task-name>.md --source <external-contract-file>`. Select per process with `BLUEPRINT_TASK_FILE` or `--task-file`; selection is mandatory with multiple running Tasks. Before changing a necessary new path, update Modified files/Allowed paths and refresh with the same selector.
 
@@ -70,7 +70,6 @@ If applicability is unknown, read the section before omitting it.
 | Any Issues report save | [Issues report publication](#issues-report-publication) |
 | Independent Deploy or CloudFormation completion | [Deploy task transitions](#deploy-task-transitions) |
 | Framework-only governance/catalog-maintenance/migration with `framework` Validation scope | [Framework final candidates](#framework-final-candidates) |
-| Human-approved concrete validation failures for isolated Git integration | [Human-approved validation failures](#human-approved-validation-failures) |
 | IMPORT acquisition/publication/completion | [Dedicated import boundary](#dedicated-import-boundary) |
 | Operation/check failure, retry or resume | [Self recovery](#self-recovery) and [Retry and stop](#retry-and-stop) |
 
@@ -101,17 +100,16 @@ For Framework-only governance/catalog-maintenance/migration with `framework` Val
 finish edits, required dependency-selected UTs, necessary IT and static checks under
 [Validation policy](loop-engineering.md#validation-policy), then invoke finalize while running.
 [Complete and integrate](../../.agents/skills/worktree/SKILL.md#complete-and-integrate) owns final candidate validation/completion and exact-HEAD ff-only integration (or PR publication without base synchronization); no Consumer service tuple
-is required. Other Task types/approved suspended failures keep their completion order.
+is required. Other Task types keep their completion order.
 
 ## Explicit PR integration
 
 Only a Human request for a PR selects Worktree `finalize --create-pr`; append `--draft`
 for initial Draft publication. Local FF Merge → automatic Cleanup remains the default.
-Existing completion, validation, scope and failure-approval checks apply before initial
+Existing completion, validation and scope checks apply before initial
 publication. The verified candidate is published without local-base merge or cleanup;
 `integrationMode: "pr"` and publication intent retain candidate/base/Task/repository identity,
-PR number/URL, GitHub state and separate Draft state. Retry the same operation and saved
-intent; plain finalize never falls back to merge or implicitly changes Draft status.
+PR number/URL, GitHub state and separate Draft state. Plain finalize preserves the selected integration mode and Draft status.
 
 For an explicitly requested PR, select PR mode before Task validation using the existing
 Worktree lifecycle; selection records intent without inspecting or synchronizing the base.
@@ -121,7 +119,7 @@ validate a new descendant candidate,
 retain old published HEAD/new candidate in the update intent, and use ordinary FF Push
 only when the remote HEAD equals the expected old HEAD. No force Push, published-history
 rebase, new PR or cleanup follows Push. Remote drift or an unconfirmed creation without a
-matching PR requires review; do not discard intents or edit lifecycle JSON to recover.
+matching PR requires review. A recorded create intent prevents a second create request.
 `pr-ready`/`pr-draft`, `pr-merge`, `pr-status` and `pr-close` are independent explicit tools.
 Confirmed GitHub merge (including squash/rebase) triggers guarded automatic Cleanup through
 merge/status, using PR identity and GitHub result rather than original-commit ancestry.
@@ -130,32 +128,13 @@ Cleanup a PR number/URL may be supplied to `pr-close --pr`.
 
 Explicit `cleanup --task-id` discards the owned local Worktree, registration, branch and
 management state regardless of merge, PR or Task status and dirty/uncommitted/ignored files.
-Ownership, symlink and competing-operation locks remain mandatory. State survives partial
-physical removal for retry. Unfinished Deploy/Repair evidence is retained/reported,
+Ownership, symlink and competing-operation locks remain mandatory. A missing checkout with unprovable registration stops removal. Partial removal retains the lifecycle record and reports remaining resources. Unfinished Deploy/Repair evidence is retained/reported,
 not falsely finalized or made a prerequisite for physical removal. Automatic post-merge
 cleanup retains its cleanliness and owned-evidence finalization checks. Cleanup never
-changes PRs, remote branches, other Tasks, shared Python or AWS. `branches` provides read-only
-associations/orphan discovery; `branch-delete --branch` removes only an explicitly named
-orphan `codex/worktree/*` local branch without Task state or any Worktree registration.
+changes PRs, remote branches, other Tasks, shared Python or AWS. `branch-delete --branch` takes one explicitly named `codex/worktree/*` ref without Task state and relies on Git to protect branches in use.
 
 Deploy and repair-child PR publication remain separate and reject PR mode before their
 existing operations. See [Worktree PR publication](../../.agents/skills/worktree/SKILL.md#explicit-pr-publication).
-
-## Reviewed PR creation retry
-
-For an unconfirmed PR creation after a pushed candidate, follow the explicit Human-reviewed
-single retry in [Worktree PR publication](../../.agents/skills/worktree/SKILL.md#explicit-pr-publication).
-Reconcile a matching existing PR first; never reset intent or retry an uncertain request
-without the named review. Preserve candidate, Task and remote identity checks.
-
-## Human-approved validation failures
-
-Only explicit Human approval of concrete failures permits isolated Git integration with
-`worktree_task.py finalize --human-approved-validation-failure "<approval and accepted failures>"`.
-Keep `suspend` and its current Suspension reason; do not use `--complete` or claim validation PASS.
-All requested work/inputs must otherwise be finished. Scope errors,
-Git safety blocks and AWS permission boundaries still stop integration.
-Follow [Complete and integrate](../../.agents/skills/worktree/SKILL.md#complete-and-integrate).
 
 ## Task boundary
 
@@ -398,7 +377,7 @@ a separately authorized deletion. No remaining Resource edit is permitted inside
 
 CloudFormation deploy never edits authoritative templates, parameters or artifact sources. An explicitly authorized current contract may contain `- External IaC repair: ` with backtick value `allowed`. `- Runtime recovery: ` independently authorizes guarded AWS recovery. No Deploy repair session or cumulative repair budget is required. Parent Allowed paths remain its permitted observations/generated views and contract.
 
-The supervising LLM follows [External IaC repair handoff](../prompts/codex/deploy/runbook.md#external-iac-repair-handoff): analyze current failure evidence, settle unknown operations/publication, issue one pinned request/checkpoint, suspend the parent, create/validate a separate implement child and ff-only integrate exact permitted IaC transitions. Child AWS APIs/mutation/deploy are forbidden. Current Task and one-shot commit/byte evidence replace Workflow Ledger attribution; other Task authority checks remain mandatory. Keep at most 3 static cycles within that child. Discard temporary evidence after integration and active Task attribution after completion; no historical attempts or approvals survive to the next Deploy. Explicit parent resumption starts an independent new run with current IaC and fresh ChangeSet approval. Do not automatically chain unlimited new Deploy invocations.
+The supervising LLM follows [External IaC repair handoff](../prompts/codex/deploy/runbook.md#external-iac-repair-handoff): analyze current failure evidence, settle unknown operations/publication, issue one pinned request/checkpoint, suspend the parent, create a separate implement child using its generated Task ID, validate it and ff-only integrate exact permitted IaC transitions. Child AWS APIs/mutation/deploy are forbidden. Current Task and one-shot commit/byte evidence replace Workflow Ledger attribution; other Task authority checks remain mandatory. Keep at most 3 static cycles within that child. Discard temporary evidence after integration and active Task attribution after completion; no historical attempts or approvals survive to the next Deploy. Explicit parent resumption starts an independent new run with current IaC and fresh ChangeSet approval. Do not automatically chain unlimited new Deploy invocations.
 
 ## Acceptance contract
 
@@ -423,7 +402,7 @@ Modified files and Allowed paths. Do not expand authority merely to make a check
 Validate the contract and actual change scope after repair. If resolved, continue the
 same Task with its existing validation and Acceptance checks.
 
-The local loop still suspends on failure. If already suspended, inspect the recorded
+A standalone task/local loop still suspends on failure. The Worktree final-candidate loop preserves the current Task status and stops on failure. If already suspended, inspect the recorded
 reason and current state. Restore the erroneous changes and register each necessary
 file in Modified files and Allowed paths only when justified by the unchanged Task Goal.
 Run `task_contract.py --task-file tasks/<task-name>.md --check-resume-scope` for a
@@ -483,51 +462,6 @@ final validation and Acceptance. Correction never runs AWS, clears progress or c
 
 Human review that uniformly stops every deployment after validate/plan is not required. Plan-specific human confirmation for unapproved delete/replacement and Codex sandbox/OS permission control are separate mechanisms; operations requiring permission follow platform control regardless of repository rules.
 
-## Reviewed governance recovery
-
-After explicit Human authorization to repair a retained, verified governance task,
-`worktree_task.py recover --task-id <id> --expected-commit <full-old-hash>
---expected-base <full-current-base-hash>` reopens its completed contract and prepares
-only declared corrections. It pins both hashes and preserves a recovery receipt;
-normal finalize is blocked until recovery finishes. A failed rebase is aborted.
-If the base advances during recovery, explicitly resume any suspended contract and
-review the clean candidate against the previous pinned base. Use `recover
---repin-recovery --expected-commit <full-current-candidate-hash> --expected-base
-<full-latest-base-hash>` before rebasing again. This retains the previous receipt,
-requires the existing linear commit count and declared paths, and accepts only a
-descendant base. It never rebases, merges or grants validation PASS. The new receipt's
-commit/base become the arguments for the subsequent `--finish-recovery`.
-After reviewing conflicts, rebase manually onto that exact base, resolve and continue,
-then run the same command with `--finish-recovery`. This accepts only a clean linear
-candidate on the unchanged base, with the expected commit count and declared paths.
-The verified recovery base becomes the Task validation baseline; retain the original
-lifecycle start separately, excluding inherited base changes from this Task scope.
-No hand-written lifecycle metadata is permitted. Recovery never merges or grants a
-validation PASS. Run the required IT and Full checks, complete the contract, and use
-normal finalize/cleanup. Model tasks are excluded. A governance task with a recorded
-Human validation-failure approval may use this recovery only after Human review of the
-concrete conflict resolution. Start from its clean verified commit; preserve the exact
-suspended contract, reason and approval throughout recovery and re-pinning. The receipt
-checks those bytes and approval, scope, base and history before registering the candidate.
-The accepted failures remain FAIL; recovery grants no Validation PASS or completion.
-After the reviewed resolution, use the recorded approval for normal finalize/cleanup.
-Any further change beyond the reviewed resolution requires renewed Human review and approval.
-
-If the recorded validation base was rewritten, an explicitly reviewed clean, verified,
-unmerged governance candidate may start `recover` with the additional
-`--expected-task-base <full-recorded-validation-base>` pin. This also accepts a suspended
-Task, avoiding ordinary resume's rewritten-history rejection. Review the old Task-only
-diff and the new base first. The old base must match lifecycle state and have a linear
-candidate history; the Task-only changed paths must match the current contract.
-PR, Deploy/repair, dirty candidates, pending base intents and recorded validation-failure
-approvals are rejected. The original Task start must remain an ancestor of the new base.
-The helper retains a recovery receipt, reopens only this Task and rebases with
-`--onto <new-base> <old-task-base>`, excluding obsolete inherited commits. On conflict,
-retain the aborted candidate and receipt; an authorized manual rebase uses those same
-pins. Finish with the existing `--finish-recovery` without `--expected-task-base`, then
-rerun IT and Full before completion and normal finalize. Ordinary resume/finalize guards
-remain unchanged; never edit lifecycle metadata to bypass them.
-
 ## Task Acceptance exclusions
 
 Investigate every FAIL against Goal, Required changes, Allowed paths, concrete Model
@@ -569,7 +503,3 @@ Model, generated Views, Issues or diagnostic FAILs as PASS or warning. Necessary
 Change Validation, affected references, Git/scope/permission/publication and destructive
 change safeguards remain mandatory. A Task can have Acceptance PASS while raw
 Validation remains FAIL; reports must state both and list accepted and unapproved FAILs.
-
-`--human-approved-validation-failure` retains its different meaning: explicitly
-approved Git integration of a suspended, failed Task. It does not complete the Task or
-serve as an Acceptance exclusion, and cannot bypass required Model corrections.

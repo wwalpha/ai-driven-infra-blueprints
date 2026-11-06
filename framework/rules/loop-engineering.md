@@ -21,7 +21,7 @@ The OS-independent entrypoint is `framework/scripts/blueprint-loop.py`. In examp
 systems when needed. In managed worktrees use `python3 -B framework/scripts/run-python.py`
 (or an available Windows Python 3 launcher) for Python examples and standalone checks/pytest.
 The wrapper selects the registered ready shared Interpreter and sets PATH for children;
-no shell activation is needed. Recover failed/stale setup with `worktree_task.py setup --task-id <task-id>` before execution. Use the ordinary launcher for lifecycle helpers
+no shell activation is needed. Use the returned Task ID for explicit shared Python maintenance with `worktree_task.py setup --task-id <task-id>`. Use the ordinary launcher for lifecycle helpers
 from a surviving checkout.
 
 ## Validation policy
@@ -356,7 +356,7 @@ Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`
 1. Using approved design and service models as input, create/change only IaC specified by the active prompt.
 2. Perform the existing local Model/provider-schema and mapping checks with shared CloudFormation decoding, or `terraform fmt -check`, `terraform init -backend=false`, and `terraform validate` for Terraform.
 3. Do not execute AWS APIs, CloudFormation change sets, Terraform plans, deploy/apply, or observed value updates.
-4. Run the local loop and finish. A deploy-request child uses `worktree_task.py repair-validate` to execute this same scoped task loop, sealing the actual result/dependent-input snapshot for exact parent integration. Keep at most 3 same-child static correction cycles. Handwritten PASS, changed validation inputs and failure-approval integration do not qualify; static PASS alone is not AWS resolution.
+4. Run the local loop and finish. A deploy-request child uses `worktree_task.py repair-validate` to execute this same scoped task loop, sealing the actual result/dependent-input snapshot for exact parent integration. Keep at most 3 same-child static correction cycles. Require a recorded PASS with the same validation inputs; static PASS alone is not AWS resolution.
 
 `deploy` phase:
 
@@ -422,7 +422,7 @@ unresolved mandatory checks and actual failures block integration. Do not add Fu
 Validation to Model updates.
 
 The running /update Model-only parent prepares source and generated views, then finalize
-creates its private candidate commit and rebases onto latest local base. Run the existing
+creates its private candidate commit using the reviewed latest local base. If the base advances, synchronize and revalidate before integration. Run the existing
 classified read-only final loop once on that candidate. Pass its immutable in-call
 FinalCandidate explicitly through run_loop/run_validation/TaskValidation/import checks;
 UT selection, Full guard, Acceptance and whitespace checks all use base→candidate.
@@ -430,9 +430,7 @@ The final meaning check runs once in TaskValidation, not again through source/vi
 Standalone complete retains its own check; integration consumes the successful result
 for status and merge without another loop. The validation interval holds no lifecycle
 lock. Recheck base, HEAD, clean state and exact permitted status transition before merge.
-On FAIL retain candidate/worktree; no auto-regeneration/amend/retry by default.
-For model-delete, the explicitly resumed parent may repair and invoke finalization
-again, retaining the earlier candidate commit and validating the corrected candidate.
+On FAIL retain the candidate, Worktree and Task status. For an authorized model-delete correction, retain the earlier candidate commit and validate the corrected candidate.
 No successful deletion leaf invokes final validation. Require every registered deletion
 before commit preparation; merge only after the single parent final check succeeds. Cleanup runs in the
 surviving ordinary-Python parent after the registered-runtime child exits.
@@ -464,8 +462,7 @@ checks; empty service scope is not a validation bypass. Run related UTs, necessa
 IT and applicable static checks through their existing entrypoints under
 [Validation policy](loop-engineering.md#validation-policy), reassessing dependencies after rebase. The
 scoped loop does not automatically select those tests. Only PASS can complete and
-merge the unchanged candidate; failure retains it and existing suspension/approval
-contracts. Other Task types retain their existing validation and completion order.
+merge the unchanged candidate. Failure retains the candidate and Task status. Other Task types retain their existing validation and completion order.
 
 Managed Task comparisons use the Task creation or verified synchronization boundary,
 checking that boundary is an ancestor of Task HEAD independently of the current base.

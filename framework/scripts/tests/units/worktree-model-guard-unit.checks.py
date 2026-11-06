@@ -74,29 +74,6 @@ def check_finalize_rejects_incomplete_leaves(tmp_path):
             wt.prepare_integration(tmp_path, "parent")
 
 
-@pytest.mark.parametrize("action", ["import-retarget", "model-delete"])
-def check_model_finalize_cannot_bypass_candidate(tmp_path, action):
-    state = {"task_file": "tasks/retarget.md", "task_id": "retarget"}
-    task = tmp_path / state["task_file"]
-    task.parent.mkdir()
-    task.write_text("- Model operation: `" + action + "`\n")
-    with (
-        patch.object(wt, "changed_paths", return_value=set()),
-        patch.object(wt, "committed_task_paths", return_value=set()),
-        patch.object(
-            wt.tasks, "model_operation", return_value=SimpleNamespace(action=action)
-        ),
-    ):
-        with pytest.raises(wt.Blocked, match="successful final candidate"):
-            wt._prepare_commit(
-                tmp_path,
-                tmp_path / "unused-state.json",
-                state,
-                tmp_path,
-                "approval cannot bypass",
-            )
-
-
 @pytest.mark.parametrize(
     ("workflow", "model", "status", "expected", "backslash"),
     [
@@ -158,7 +135,6 @@ def check_finalize_workflow_diagnostic(
         if expected.startswith("current:"):
             message = str(error.value)
             assert "Workflow: update" in message
-            assert "retry" in message
             assert "keep task status running" in message
             assert "\n" not in message
 
@@ -194,7 +170,7 @@ def _check_invalid_model_contract_blocks_finalize_and_prepare(tmp_path):
         for call in (
             lambda: wt._finalize(tmp_path, "example"),
             lambda: wt._prepare_commit(
-                tmp_path, tmp_path / "state.json", state, tmp_path, None
+                tmp_path, tmp_path / "state.json", state, tmp_path
             ),
         ):
             with pytest.raises(
@@ -446,7 +422,7 @@ def check_integration_detects_undeclared_paths(tmp_path, committed, outside):
     ):
         assert wt.integration_changed_paths(tmp_path, name) == {source, outside}
         with pytest.raises(wt.Blocked, match="outside the exact task contract"):
-            wt._prepare_commit(tmp_path, tmp_path / "state.json", state, tmp_path, None)
+            wt._prepare_commit(tmp_path, tmp_path / "state.json", state, tmp_path)
 
 
 if __name__ == "__main__":

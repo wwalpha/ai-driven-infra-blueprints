@@ -519,7 +519,7 @@ Keep this Task's original Stack ID, ChangeSet ID and token when a submission rep
 
 This section describes legacy managed Deploy evidence and its explicit Git recovery.
 Ordinary Deploy uses the calling checkout and its current committed IaC, Task
-contract and Task-local progress. SDK sync saves Observed and Views locally, then
+contract and Task-local progress. An explicitly managed Deploy starts with `worktree_task.py deploy-start --task-name <task-name>`; use the returned Task ID and contract path. SDK sync saves Observed and Views locally, then
 checks the current Task and required Validation. Final sync may complete a settled
 Task with Deploy FAIL unchanged. No Git publication is needed for local completion.
 

@@ -708,7 +708,8 @@ def _run_loop(root, args, final_candidate):
             )
         changed = repository_changed - {".lock"}
     except (OSError, ValueError) as error:
-        suspend_selected(root, selected_name, f"Local loop preflight failed: {error}")
+        if final_candidate is None:
+            suspend_selected(root, selected_name, f"Local loop preflight failed: {error}")
         fail(str(error))
     full_validation = scope is None
     regression = args.mode == "full" or args.all
@@ -718,7 +719,8 @@ def _run_loop(root, args, final_candidate):
         )
     except ValueError as error:
         print(f"Blueprint local loop: ERROR ({error})", file=sys.stderr)
-        suspend_selected(root, selected_name, f"Regression discovery failed: {error}")
+        if final_candidate is None:
+            suspend_selected(root, selected_name, f"Regression discovery failed: {error}")
         return 2
     log_parent = (args.log_dir or Path(tempfile.gettempdir())).expanduser().resolve()
     if log_parent == root or root in log_parent.parents:
@@ -870,25 +872,27 @@ def _run_loop(root, args, final_candidate):
             stop_after_validator_failure=args.write,
             validation_call=validation_call,
         )
-        if result:
+        if result and final_candidate is None:
             suspend_selected(root, selected_name, failure_reason(directory, result))
         return result
     except KeyboardInterrupt as error:
         diagnostics.failure(error)
-        suspend_selected(
-            root,
-            selected_name,
-            f"Local loop interrupted; checks incomplete; logs: {directory}",
-        )
+        if final_candidate is None:
+            suspend_selected(
+                root,
+                selected_name,
+                f"Local loop interrupted; checks incomplete; logs: {directory}",
+            )
         return 130
     except Exception as error:
         details = diagnostics.failure(error)
-        suspend_selected(
-            root,
-            selected_name,
-            f"Local loop error at {details['step']} ({details['api']}): {error}; "
-            f"logs: {directory}; traceback: {directory / 'startup-error.json'}",
-        )
+        if final_candidate is None:
+            suspend_selected(
+                root,
+                selected_name,
+                f"Local loop error at {details['step']} ({details['api']}): {error}; "
+                f"logs: {directory}; traceback: {directory / 'startup-error.json'}",
+            )
         try:
             print(
                 f"Blueprint local loop: ERROR ({error}); logs: {directory}\n{details['traceback']}",

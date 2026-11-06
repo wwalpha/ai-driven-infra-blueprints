@@ -404,13 +404,13 @@ def check_advance_and_status_expose_observed_progress(tmp_path, monkeypatch, cap
     report, aws = tmp_path / "report.json", tmp_path / "aws.json"
     root = managed_seed(tmp_path / "project", report, "orders", same_group=True)
     monkeypatch.chdir(root)
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", f"tasks/{root.name}.md")
     aws_state(aws)
     capsys.readouterr()
     assert invoke_step(root, report, aws, ["--action", "advance"]) == 0
     capsys.readouterr()
     peer = root / "tasks/peer.md"
-    peer.write_bytes((root / "tasks/deploy.md").read_bytes())
+    peer.write_bytes((root / f"tasks/{root.name}.md").read_bytes())
     before = json.loads(aws.read_text())["calls"]
     with selected_task(root, "tasks/peer.md"):
         assert invoke_step(root, report, aws, ["--action", "advance"]) == 2

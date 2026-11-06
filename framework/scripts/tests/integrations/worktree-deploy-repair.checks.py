@@ -53,7 +53,7 @@ def _callback_external_round_trip_lifecycle(command, target, identity, *options)
             command,
             "--repository-root",
             str(target),
-            "--task-id",
+            "--task-name" if command == "create" else "--task-id",
             identity,
             *map(str, options),
         ],
@@ -89,7 +89,7 @@ def validate_parent(parent):
         "--mode",
         "task",
         "--task-file",
-        "tasks/deploy.md",
+        f"tasks/{parent.name}.md",
         "--fresh",
     ]
     checked = subprocess.run(
@@ -102,7 +102,7 @@ def prepared_request(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, dic
     report, aws = tmp_path / "run.json", tmp_path / "aws.json"
     parent = seed(tmp_path / "project", report, "repair")
     monkeypatch.chdir(parent)
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", f"tasks/{parent.name}.md")
     aws_state(aws)
     provider = json.loads(aws.read_text())
     name = "cfn-stack-app-dev-second"
@@ -113,7 +113,7 @@ def prepared_request(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, dic
     aws.write_text(json.dumps(provider))
     relative = "infra/cloudformation/templates/second.yaml"
     model = f"model/dev/{ACCOUNT}/ec2.properties"
-    task = read_task_snapshot(parent, "tasks/deploy.md", live=True)
+    task = read_task_snapshot(parent, f"tasks/{parent.name}.md", live=True)
     target = json.loads((parent / "project.json").read_text())["targets"][0]
     # The normal Implement entrance consumes an already diagnosed failure proof.
     # Controller failure injection and classification belong to UT.
@@ -173,7 +173,7 @@ def prepared_request(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, dic
         patch.object(handoff, "dependency_reader", return_value=reader),
         patch.object(handoff.operation_journal, "location", return_value=journal),
     ):
-        request = wt.deploy_checkpoint(parent, "deploy", request_path)
+        request = wt.deploy_checkpoint(parent, parent.name, request_path)
     return parent, report, aws, request, relative
 
 
@@ -183,9 +183,9 @@ def check_external_implement_round_trip(tmp_path, monkeypatch):
     request, result_path = managed_delivery(parent, request, relative)
     assert git(parent, "rev-parse", "HEAD").strip() == request["commit"]
     assert not result_path.exists() and not request_path.parent.exists()
-    with selected_task(parent, "tasks/deploy.md"):
+    with selected_task(parent, f"tasks/{parent.name}.md"):
         assert accepted_changes(
-            parent, (parent / "tasks/deploy.md").read_text(), {relative}
+            parent, (parent / f"tasks/{parent.name}.md").read_text(), {relative}
         ) == {relative}
     # Independent current-input Deploy is a separate invocation, with no result/session entrance.
     assert drive(parent, report, aws) == 0
@@ -202,7 +202,7 @@ def managed_delivery(
     assert request["parentTip"] == git(parent, "rev-parse", "HEAD").strip()
     suspend(
         parent,
-        "tasks/deploy.md",
+        f"tasks/{parent.name}.md",
         "authorized external implement repair " + request["requestId"],
     )
     child_state = _callback_external_round_trip_lifecycle(
@@ -211,6 +211,10 @@ def managed_delivery(
     child = Path(child_state["worktree"])
     assert git(child, "rev-parse", "HEAD").strip() == request["parentTip"]
     child_task = child_state["task_file"]
+    child_id = child_state["task_id"]
+    assert child_state["task_name"] == "repair-one"
+    assert child_task == f"tasks/{child_id}.md"
+    assert wt.load(parent, parent.name)[3]["iacRepair"]["childTask"] == child_id
     paths = "\n".join("- `" + p + "`" for p in [child_task, relative])
     contract = (
         "## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n"
@@ -242,20 +246,20 @@ def managed_delivery(
         _callback_external_round_trip_lifecycle(
             "repair-validate",
             child,
-            "repair-one",
+            child_id,
             "--repair-request",
             request["requestPath"],
         )
         complete(child, child_task)
-    result = _callback_external_round_trip_lifecycle("finalize", child, "repair-one")
+    result = _callback_external_round_trip_lifecycle("finalize", child, child_id)
     result_path = Path(result["repair_result"])
     assert (
         result_path.is_file()
         and git(parent, "rev-parse", "HEAD").strip() == result["tip"]
     )
-    wt.automatic_cleanup(parent, "repair-one")
+    wt.automatic_cleanup(parent, child_id)
     assert not child.exists()
-    resume(parent, "tasks/deploy.md")
+    resume(parent, f"tasks/{parent.name}.md")
     return {**request, "commit": result["commit"]}, result_path
 
 

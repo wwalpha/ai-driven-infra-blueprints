@@ -20,29 +20,13 @@ def is_deploy(text):
     )
 
 
-def start(where, task_id):
-    """Create a new Deploy Task; existing Tasks continue through their own commands."""
+def start(where, task_name):
+    """Create a new Deploy Task; use its returned ID for subsequent operations."""
     _, _, primary = ws.repository(where)
-    path = ws.state_path(primary, task_id)
-    target = primary / ".worktrees" / task_id
-    contract = primary / f"tasks/{task_id}.md"
-    if (
-        path.exists()
-        or path.is_symlink()
-        or contract.exists()
-        or contract.is_symlink()
-        or wt.branch_exists(primary, f"codex/worktree/{task_id}")
-        or target.exists()
-        or target.is_symlink()
-        or any(
-            Path(entry["worktree"]).resolve() == target
-            for entry in ws.worktrees(primary)
-        )
-    ):
-        raise ws.Blocked("TASK_ID_ALREADY_USED: choose a new Deploy Task ID")
+    ws.state_path(primary, task_name)
     base, head, freshness, upstream = fresh_base(primary)
     state = wt.create(
-        where, task_id, expected_base=(base, head), expected_upstream=upstream
+        where, task_name, expected_base=(base, head), expected_upstream=upstream
     )
     state["baseFreshness"] = freshness
     return state

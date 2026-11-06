@@ -48,7 +48,7 @@ def private_runtime(tmp_path, monkeypatch):
 
 
 def step(target, report, aws, action, names=(), final=False):
-    with selected_task(target, "tasks/deploy.md"):
+    with selected_task(target, f"tasks/{target.name}.md"):
         return invoke(
             target,
             report,
@@ -88,16 +88,16 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch):
     target = seed(tmp_path / "project", report, same_group=True)
     monkeypatch.chdir(target)
     aws_state(aws)
-    primary = Path(wt.load(target, "deploy")[3]["primary"])
+    primary = Path(wt.load(target, target.name)[3]["primary"])
     base = git(primary, "rev-parse", "HEAD").strip()
     models_before = {
         p: p.read_bytes() for p in (target / "model").rglob("*.properties")
     }
     first_success(target, report, aws)
     assert all(p.read_bytes() == raw for p, raw in models_before.items())
-    before_status = deploy_progress.progress_path(target, "tasks/deploy.md").read_bytes()
+    before_status = deploy_progress.progress_path(target, f"tasks/{target.name}.md").read_bytes()
     assert step(target, report, aws, "status") == 0
-    assert deploy_progress.progress_path(target, "tasks/deploy.md").read_bytes() == before_status
+    assert deploy_progress.progress_path(target, f"tasks/{target.name}.md").read_bytes() == before_status
     assert step(target, report, aws, "sync", [FIRST]) == 0
     after_sync = {p: p.read_bytes() for p in models_before}
     TestCase().assertEqual(step(target, report, aws, "sync", [FIRST]), 0)
@@ -105,7 +105,7 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch):
     sha = git(primary, "rev-parse", "HEAD").strip()
     assert sha == base
     assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "0"
-    assert status((target / "tasks/deploy.md").read_text(encoding="utf-8")) == "running"
+    assert status((target / f"tasks/{target.name}.md").read_text(encoding="utf-8")) == "running"
     assert git(primary, "rev-parse", "HEAD").strip() == sha
     assert (
         json.loads(aws.read_text(encoding="utf-8"))["stacks"][SECOND]["status"]
@@ -128,7 +128,7 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch):
     assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "0"
     assert step(target, report, aws, "sync", final=True) == 0
     assert (
-        status((target / "tasks/deploy.md").read_text(encoding="utf-8")) == "completed"
+        status((target / f"tasks/{target.name}.md").read_text(encoding="utf-8")) == "completed"
     )
     assert "`subnet-fixture`" in (
         target / f"model/dev/{ACCOUNT}/ec2.properties"
@@ -208,7 +208,7 @@ def check_update_checkpoint_latest_base():
                 (target / relative).write_text("task\n" + ("middle\n" * 8) + "end\n", encoding="utf-8")
                 git(target, "add", relative)
                 git(target, "commit", "-qm", "saved Task change")
-                _, _, state_path, state = wt.load(root, "example")
+                _, _, state_path, state = wt.load(root, target.name)
                 state["tip"] = git(target, "rev-parse", "HEAD").strip()
                 wt.save(state_path, state)
             before = checkpoints.contracts.validation_snapshot(target)
@@ -360,7 +360,7 @@ def check_update_current_candidate_boundaries():
                     result = checkpoints.update_checkpoint(backend, names)
                     assert all(states[n]["checkpointed"] for n in names)
                     assert "checkpointPending" not in context
-                    assert not wt.load(root, "example")[3].get("deployCheckpoints")
+                    assert not wt.load(root, target.name)[3].get("deployCheckpoints")
                     if scenario == "zero":
                         assert result["A"]["commit"] == initial
                 else:
@@ -372,7 +372,7 @@ def check_update_current_candidate_boundaries():
 
 def check_update_candidate_real_validation(tmp_path, monkeypatch):
     target = seed(tmp_path / "project", tmp_path / "run.json")
-    task_path = target / "tasks/deploy.md"
+    task_path = target / f"tasks/{target.name}.md"
     iac = "infra/cloudformation/templates/first.yaml"
     text = task_path.read_text().replace(
         "Infrastructure phase: `deploy`", "Infrastructure phase: `update`"
@@ -396,9 +396,9 @@ def check_update_candidate_real_validation(tmp_path, monkeypatch):
         ),
         encoding="utf-8",
     )
-    with selected_task(target, "tasks/deploy.md"):
+    with selected_task(target, f"tasks/{target.name}.md"):
         assert sync_runtime.sync(target, True, "dev", ACCOUNT, services=["ec2"]) == 0
-    task = checkpoints.tasks.read_task_snapshot(target, "tasks/deploy.md", live=True)
+    task = checkpoints.tasks.read_task_snapshot(target, f"tasks/{target.name}.md", live=True)
     head = wt.output(target, "rev-parse", "HEAD")
     wt.git(target, "add", "model", "docs/designs")
     tree = wt.output(target, "write-tree")
@@ -409,7 +409,7 @@ def check_update_candidate_real_validation(tmp_path, monkeypatch):
         "stepUnits": [{"name": "A"}],
     }
     checkpoints.validate_update_candidate(target, tree, head, task, context)
-    _, _, state_path, state = wt.load(target, "deploy")
+    _, _, state_path, state = wt.load(target, target.name)
     state["validation_base"] = head
     wt.save(state_path, state)
     assert iac in checkpoints.update_task_iac_paths(target, state, task, context)
@@ -435,7 +435,7 @@ def check_update_candidate_real_validation(tmp_path, monkeypatch):
 
 def check_update_repeated_checkpoint_validation(tmp_path):
     target = seed(tmp_path / "project", tmp_path / "run.json")
-    _, _, state_path, state = wt.load(target, "deploy")
+    _, _, state_path, state = wt.load(target, target.name)
     primary = Path(state["primary"])
     iac = "infra/cloudformation/templates/first.yaml"
     task_path = target / state["task_file"]

@@ -647,14 +647,6 @@ def _check_task_transition_routes(text, entrypoints):
             "necessary IT",
             "no Consumer service tuple",
         ),
-        "human-approved-validation-failures": (
-            "Human-approved concrete validation failures for isolated Git integration",
-            "--human-approved-validation-failure",
-            "Keep `suspend`",
-            "do not use `--complete`",
-            "All requested work/inputs must otherwise be finished",
-            "Git safety blocks and AWS permission boundaries still stop",
-        ),
         "dedicated-import-boundary": (
             "IMPORT acquisition/publication/completion",
             "replaces the design validation/completion rules below",
@@ -709,11 +701,6 @@ def _check_task_transition_routes(text, entrypoints):
             "read-first",
             ("dedicated-import-boundary",),
         ),
-        "recovery": (
-            ".agents/skills/worktree/SKILL.md",
-            "read-before-execution",
-            ("self-recovery", "retry-and-stop"),
-        ),
     }
     for route, (source, read_section, extra) in routes.items():
         entry = entrypoints[source]
@@ -761,7 +748,6 @@ def check_task_transition_readings():
         "[Conditional transitions](#conditional-transitions)",
         "[Deploy task transitions](#deploy-task-transitions)",
         "--suspend-reason",
-        "--human-approved-validation-failure",
         "If applicability is unknown",
         "Preserve AWS FAIL as a separate result",
     ):

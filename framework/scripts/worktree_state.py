@@ -25,7 +25,7 @@ def git(root, *args, check=True, timeout=None):
     # Never route commands through an inherited worktree/private index or prompt.
     environment = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     environment.update(
-        GIT_TERMINAL_PROMPT="0", GIT_EDITOR="true", GIT_SEQUENCE_EDITOR="true"
+        GIT_TERMINAL_PROMPT="0", GIT_EDITOR="true", GIT_SEQUENCE_EDITOR="true", LC_ALL="C"
     )
     result = subprocess.run(
         ["git", *map(str, args)],
@@ -45,18 +45,6 @@ def git(root, *args, check=True, timeout=None):
 def output(root, *args, runner=None):
     runner = runner or git
     return runner(root, *args).stdout.strip()
-
-
-def worktrees(root):
-    records = []
-    for block in git(root, "worktree", "list", "--porcelain", "-z").stdout.split(
-        "\0\0"
-    ):
-        if block:
-            records.append(
-                dict(line.partition(" ")[::2] for line in block.split("\0") if line)
-            )
-    return records
 
 
 def _repository_identity(where: Path) -> tuple[Path, Path]:
@@ -79,20 +67,20 @@ def _repository_identity(where: Path) -> tuple[Path, Path]:
     root = Path(root).resolve()
     if bare != "false":
         raise Blocked("a non-bare Git repository is required")
-    return root, Path(common)
+    return root, Path(common).resolve()
 
 
-def _repository(where: Path) -> tuple[Path, Path, Path, list[dict[str, str]]]:
+def repository(where: Path) -> tuple[Path, Path, Path]:
     root, common = _repository_identity(where)
-    records = worktrees(root)
-    primary = Path(records[0]["worktree"]).resolve()
-    if not primary.is_dir() or "prunable" in records[0]:
-        raise Blocked("primary worktree is missing or stale")
-    return root, common, primary, records
-
-
-def repository(where):
-    return _repository(where)[:3]
+    git_dir = Path(output(root, "rev-parse", "--absolute-git-dir")).resolve()
+    if git_dir == common:
+        return root, common, root
+    if common.name != ".git" or not common.parent.is_dir():
+        raise Blocked("cannot identify the primary checkout from the Git common directory")
+    primary, primary_common = _repository_identity(common.parent)
+    if primary != common.parent or primary_common != common:
+        raise Blocked("Git common directory does not identify a primary checkout")
+    return root, common, primary
 
 
 def metadata_directory(primary):
@@ -202,7 +190,7 @@ def deploy_task_state(
     root: Path, task_file: str, *, required: bool = False, allow_merged: bool = False
 ) -> tuple[str, dict] | None:
     """Read ownership and fixed history once for this authorization operation only."""
-    _, common, primary, records = _repository(root)
+    _, common, primary = repository(root)
     path = state_path(primary, Path(task_file).stem)
     managed = root.resolve().parent == primary / ".worktrees"
     if not path.exists():
@@ -220,7 +208,7 @@ def deploy_task_state(
         and not allow_merged
     ):
         raise Blocked("Deploy Task lifecycle is mismatched or already merged")
-    task_worktree(root, state, records=records)
+    task_worktree(root, state)
     start = output(root, "rev-parse", "--verify", state["start"] + "^{commit}")
     head = output(root, "rev-parse", "HEAD")
     intent = state.get("deployCheckpointIntent")
@@ -279,22 +267,59 @@ def changed_paths(root):
     return set(collect_working_paths(root, runner=git).all_paths)
 
 
-def task_worktree(root, state, *, records=None):
-    target = Path(state["worktree"])
-    entries = [
-        entry
-        for entry in (worktrees(root) if records is None else records)
-        if Path(entry["worktree"]).resolve() == target
-    ]
+def task_git_directory(common, target):
+    """Verify both pointers of the exact checkout's Git registration."""
+    gitfile = target / ".git"
+    admin = common / "worktrees"
     if (
-        len(entries) != 1
-        or "locked" in entries[0]
-        or "prunable" in entries[0]
-        or entries[0].get("branch") != f"refs/heads/{state['branch']}"
-        or not target.is_dir()
+        target.is_symlink()
+        or target.parent.is_symlink()
+        or gitfile.is_symlink()
+        or not gitfile.is_file()
+        or admin.is_symlink()
+    ):
+        raise Blocked("task worktree Git registration is missing or redirected")
+    pointer = gitfile.read_text(encoding="utf-8").removesuffix("\n")
+    if not pointer.startswith("gitdir: "):
+        raise Blocked("task worktree has an invalid Git pointer")
+    directory = target / pointer.removeprefix("gitdir: ")
+    if (
+        directory.resolve().parent != admin
+        or directory.is_symlink()
+        or not directory.is_dir()
+    ):
+        raise Blocked("task worktree belongs to another repository")
+    directory = directory.resolve()
+    backlink = directory / "gitdir"
+    locked = directory / "locked"
+    if (
+        backlink.is_symlink()
+        or not backlink.is_file()
+        or (directory / backlink.read_text(encoding="utf-8").removesuffix("\n")).resolve()
+        != gitfile
+        or locked.exists()
+        or locked.is_symlink()
+    ):
+        raise Blocked("task worktree Git registration is locked or mismatched")
+    return directory
+
+
+def task_worktree(root, state):
+    target = Path(state["worktree"])
+    _, common = _repository_identity(root)
+    directory = task_git_directory(common, target)
+    target_root, target_common = _repository_identity(target)
+    ref = f"refs/heads/{state['branch']}"
+    if (
+        target_root != target
+        or target_common != common
+        or Path(output(target, "rev-parse", "--absolute-git-dir")).resolve() != directory
+        or output(target, "symbolic-ref", "HEAD") != ref
+        or output(target, "rev-parse", "--verify", "HEAD^{commit}")
+        != output(root, "rev-parse", "--verify", ref + "^{commit}")
     ):
         raise Blocked(
-            "task worktree missing, locked, stale or switched; retain it for review"
+            "task worktree Git identity or branch changed; retain it for review"
         )
     idle_git(target)
     return target

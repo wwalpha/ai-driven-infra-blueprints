@@ -1,4 +1,4 @@
-"""Explicit, recoverable PR publication of an already validated worktree candidate."""
+"""Explicit PR publication of an already validated worktree candidate."""
 
 import copy
 import errno
@@ -91,7 +91,7 @@ def select(where, task_id):
         return state
 
 
-def finalize(where, task_id, approval, *, draft=False):
+def finalize(where, task_id, *, draft=False):
     root, _, path, state = wt.load(where, task_id)
     with wt.lifecycle_lock(root):
         root, _, path, state = wt.load(root, task_id)
@@ -109,11 +109,9 @@ def finalize(where, task_id, approval, *, draft=False):
         state["integrationMode"] = "pr"
         wt.save(path, state)
     if not state.get("prPublication"):
-        state = wt._finalize(root, task_id, approval)
+        state = wt._finalize(root, task_id)
         if state.get("status") == "needs_sync":
             return state
-    elif approval is not None and approval != state.get("validation_failure_approval"):
-        raise wt.Blocked("PR candidate approval changed; review required")
     return publish(root, path, state)
 
 
@@ -153,10 +151,7 @@ def check_candidate(root, path, state):
             "PR candidate, Task, lifecycle or local base changed; review required"
         )
     publication = state["prPublication"]
-    target = Path(state["worktree"])
-    target_root, target_common = wt.worktree_state._repository_identity(target)
-    if target_root != target or target_common != current[1]:
-        raise wt.Blocked("task worktree belongs to another repository")
+    target = wt.task_worktree(root, state)
     text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
     if (
         state.get("integrationMode") != "pr"
@@ -174,12 +169,6 @@ def check_candidate(root, path, state):
             "PR candidate, Task, lifecycle or local base changed; review required"
         )
     wt.integration_task(target, state, candidate_common=current[1])
-    _, common, primary, records = wt.worktree_state._repository(root)
-    if common != current[1] or primary != current[0]:
-        raise wt.Blocked(
-            "PR candidate, Task, lifecycle or local base changed; review required"
-        )
-    wt.task_worktree(root, state, records=records)
     return target, text
 
 
@@ -196,28 +185,6 @@ def record(root, path, state, *, finish_update=False, progress_only=False, **val
             state["prPublication"].pop("previousCandidate", None)
             state.pop("prUpdate", None)
         wt.save(path, state)
-
-
-def retry_create(where, task_id, expected_commit):
-    root, _, path, _ = wt.load(where, task_id)
-    with publication_lock(path):
-        root, _, path, state = wt.load(root, task_id)
-        prepared = state.get("prPublication", {})
-        if (
-            state.get("integrationMode") != "pr"
-            or state.get("merged")
-            or state.get("prUpdate")
-            or not expected_commit
-            or expected_commit != state.get("tip")
-            or expected_commit != prepared.get("candidate")
-            or not prepared.get("pushIntent")
-            or not prepared.get("createIntent")
-            or prepared.get("status") not in {"PUSHED", "OPEN"}
-        ):
-            raise wt.Blocked(
-                "PR creation recovery requires the reviewed pushed candidate and creation intent"
-            )
-        return publish(root, path, state, retry_create=True)
 
 
 def repository_identity(url):
@@ -475,7 +442,7 @@ def push_candidate(target, publication):
             ) from None
 
 
-def publish(root, path, state, *, retry_create=False):
+def publish(root, path, state):
     with wt.lifecycle_lock(root):
         target, text = check_candidate(root, path, state)
     publication = state["prPublication"]
@@ -518,13 +485,10 @@ def publish(root, path, state, *, retry_create=False):
     pr = existing_pr(target, publication)
     if pr is None:
         if publication.get("createIntent"):
-            if not retry_create or publication.get("createRetryIntent"):
-                raise wt.Blocked(
-                    "previous PR creation outcome is unconfirmed; retain intent for human review"
-                )
-            record(root, path, state, createRetryIntent=True)
-        else:
-            record(root, path, state, createIntent=True)
+            raise wt.Blocked(
+                "previous PR creation outcome is unconfirmed; retain intent for Human review"
+            )
+        record(root, path, state, createIntent=True)
         with tempfile.TemporaryDirectory(prefix="blueprint-pr-") as directory:
             body = Path(directory) / "body.md"
             body.write_text(
@@ -534,13 +498,7 @@ def publish(root, path, state, *, retry_create=False):
                 + "\n".join(tasks.section(text, "## Required changes"))
                 + "\n\nAcceptance checks\n"
                 + "\n".join(tasks.section(text, "## Acceptance checks"))
-                + (
-                    "\n\nValidation FAIL retained; Human Git integration approval: "
-                    + state["validation_failure_approval"]
-                    if state.get("validation_failure_approval")
-                    else "\n\nRequired Task validation completed before publication."
-                )
-                + "\n",
+                + "\n\nRequired Task validation completed before publication.\n",
                 encoding="utf-8",
             )
             # No shared lifecycle lock is held across gh or Git network calls.
@@ -561,19 +519,14 @@ def publish(root, path, state, *, retry_create=False):
                 "--head",
                 publication["head"],
                 "--title",
-                f"task({state['task_id']}): "
-                + (
-                    "human-approved validation failure"
-                    if state.get("validation_failure_approval")
-                    else "completed task"
-                ),
+                f"task({state['task_id']}): completed task",
                 "--body-file",
                 str(body),
             )
         pr = existing_pr(target, publication)
         if pr is None:
             raise wt.Blocked(
-                "PR creation outcome unconfirmed; retry to reconcile existing PR"
+                "PR creation outcome unconfirmed; retain intent for Human review"
             )
     if remote_base(target, publication) != publication["candidate"]:
         raise wt.Blocked("remote changed during PR publication; retain worktree")
@@ -620,7 +573,7 @@ def update_snapshot(root, state, *, clean=True):
     target = wt.task_worktree(root, state)
     text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
     if tasks.status(text) not in {"running", "completed"}:
-        raise wt.Blocked("PR update requires a running/completed Task; resume it first")
+        raise wt.Blocked("PR update requires a running/completed Task")
     if clean and (
         wt.changed_paths(target)
         or wt.output(target, "rev-parse", "HEAD") != state["prUpdate"]["candidate"]
@@ -790,9 +743,7 @@ def sync_base(where, task_id, expected_base):
             text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
             if tasks.status(text) not in {"running", "completed"}:
                 raise wt.Blocked("remote base sync requires a running/completed Task")
-            if path.with_suffix(".setup-lock").exists() or state.get(
-                "validation_failure_approval"
-            ):
+            if path.with_suffix(".setup-lock").exists():
                 raise wt.Blocked(
                     "remote base sync requires ready setup and successful validation"
                 )
@@ -822,7 +773,7 @@ def sync_base(where, task_id, expected_base):
             if sync is None:
                 if wt.output(target, "rev-parse", "HEAD") != state["tip"]:
                     raise wt.Blocked("unexpected PR candidate commits; review required")
-                wt._prepare_commit(root, path, state, target, None, pr_update=True)
+                wt._prepare_commit(root, path, state, target, pr_update=True)
             head = wt.output(target, "rev-parse", "HEAD")
             if (
                 (head != state["tip"] and (not sync or sync["head"] != state["tip"]))
@@ -1017,9 +968,7 @@ def update(where, task_id):
                     "candidate"
                 ] and not wt.changed_paths(target):
                     raise wt.Blocked("PR update requires a new descendant candidate")
-                if path.with_suffix(".setup-lock").exists() or state.get(
-                    "validation_failure_approval"
-                ):
+                if path.with_suffix(".setup-lock").exists():
                     raise wt.Blocked(
                         "PR update requires ready setup and successful new validation"
                     )
@@ -1041,7 +990,7 @@ def update(where, task_id):
                 ).text
                 if tasks.status(text) not in {"running", "completed"}:
                     raise wt.Blocked(
-                        "PR update requires a running/completed Task; resume it first"
+                        "PR update requires a running/completed Task"
                     )
                 head_now = wt.output(target, "rev-parse", "HEAD")
                 changed = wt.changed_paths(target)
@@ -1051,8 +1000,8 @@ def update(where, task_id):
                     or head_now != intent["candidate"]
                 ):
                     if intent.get("pushConfirmed"):
-                        raise wt.Blocked("published candidate changed during recovery")
-                    wt._prepare_commit(root, path, state, target, None, pr_update=True)
+                        raise wt.Blocked("published candidate changed after confirmation")
+                    wt._prepare_commit(root, path, state, target, pr_update=True)
                     if state["tip"] == intent["previousCandidate"]:
                         raise wt.Blocked(
                             "PR update requires a new descendant candidate"

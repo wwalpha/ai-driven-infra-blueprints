@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -41,7 +42,7 @@ from support.deploy_controller_fixtures import ACCOUNT, aws_state, invoke
 from support.model_sources import write_model
 from support.pytest_cli import run
 from support.worktree_deploy_fixtures import pin_progress, seed
-from support.worktree_task_fixtures import fixture, git
+from support.worktree_task_fixtures import cli, fixture, git
 from task_contract import main as task_main
 from task_contract_core import read_task_snapshot, selected_task, set_status, start
 from utils.local_evidence import read_sealed
@@ -122,7 +123,7 @@ def deploy_contract(name, files):
 """
 
 
-def check_start_creates_fresh_worktree_and_rejects_reused_id(monkeypatch):
+def check_start_creates_fresh_worktrees_for_the_same_name(monkeypatch):
     with (
         fixture() as primary,
         patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
@@ -130,15 +131,19 @@ def check_start_creates_fresh_worktree_and_rejects_reused_id(monkeypatch):
             wt.python_env, "runtime", return_value=(sys.executable, dict(os.environ))
         ),
     ):
-        state = worktree.start(primary, "deploy")
+        state = cli(primary, "deploy-start", "deploy", suffix=0)
+        assert state["task_id"] == "deploy-000000"
         assert state["baseFreshness"] == "LOCAL_ONLY"
         root = Path(state["worktree"])
         start(
             root, state["task_file"], deploy_contract(state["task_file"], ["file.txt"])
         )
-        with pytest.raises(ws.Blocked, match="TASK_ID_ALREADY_USED"):
-            worktree.start(primary, "deploy")
-        assert len(ws.worktrees(primary)) == 2
+        peer = worktree.start(root, "deploy")
+        assert state["task_name"] == peer["task_name"] == "deploy"
+        assert state["task_id"] != peer["task_id"]
+        assert re.fullmatch(r"deploy-[0-9]{6}", state["task_id"])
+        assert ws.task_worktree(primary, state) == root
+        assert ws.task_worktree(primary, peer) == Path(peer["worktree"])
         (primary / "file.txt").write_text("main advanced\n")
         git(primary, "add", "file.txt")
         git(primary, "commit", "-qm", "Advance")
@@ -151,8 +156,8 @@ def check_start_creates_fresh_worktree_and_rejects_reused_id(monkeypatch):
             == state["start"]
         )
         with selected_task(root, state["task_file"]):
-            TestCase().assertEqual(worktree.require(root)["task_id"], "deploy")
-        assert wt.cleanup(primary, "deploy")["cleaned"]
+            TestCase().assertEqual(worktree.require(root)["task_id"], state["task_id"])
+        assert wt.cleanup(primary, state["task_id"])["cleaned"]
         assert worktree.start(primary, "deploy")["start"] == git(
             primary, "rev-parse", "HEAD"
         )
@@ -223,8 +228,8 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     report, aws = tmp_path / "report.json", tmp_path / "aws.json"
     root = seed(tmp_path / "project", report, "orders")
     monkeypatch.chdir(root)
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
-    path = root / "tasks/deploy.md"
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", f"tasks/{root.name}.md")
+    path = root / f"tasks/{root.name}.md"
     omitted = f"docs/designs/dev/{ACCOUNT}/s3/s3-bucket-001-bucket-policy.json"
     old = path.read_text(encoding="utf-8")
     assert old.count(f"- `{omitted}`\n") == 2
@@ -243,7 +248,7 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     )
     calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
     transitions.suspend(
-        root, "tasks/deploy.md", "omitted necessary generated JSON path"
+        root, f"tasks/{root.name}.md", "omitted necessary generated JSON path"
     )
     suspended = path.read_text(encoding="utf-8")
     candidate = suspended.replace(
@@ -251,25 +256,25 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     ).replace("## Allowed paths\n", f"## Allowed paths\n- `{omitted}`\n")
     source = tmp_path / "corrected-contract.md"
     source.write_text(candidate, encoding="utf-8")
-    before = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))["runContext"]
+    before = deploy_progress.read_task(root, read_task_snapshot(root, f"tasks/{root.name}.md", live=True))["runContext"]
     with patch.object(
         sys,
         "argv",
         [
             "task_contract.py",
             "--task-file",
-            "tasks/deploy.md",
+            f"tasks/{root.name}.md",
             "--correct-deploy-contract",
             str(source),
         ],
     ):
         assert task_main() == 0
     assert json.loads(aws.read_text(encoding="utf-8"))["calls"] == calls
-    progress = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))["runContext"]
+    progress = deploy_progress.read_task(root, read_task_snapshot(root, f"tasks/{root.name}.md", live=True))["runContext"]
     assert progress["states"] == before["states"]
     assert progress["inputIdentities"] == before["inputIdentities"]
-    assert read_task_snapshot(root, "tasks/deploy.md", live=True).status == "suspend"
-    transitions.resume(root, "tasks/deploy.md")
+    assert read_task_snapshot(root, f"tasks/{root.name}.md", live=True).status == "suspend"
+    transitions.resume(root, f"tasks/{root.name}.md")
     assert run_controller(root, report, aws) == 0
     saved = json.loads(report.read_text(encoding="utf-8"))
     assert all(
@@ -278,7 +283,7 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     )
     assert saved["snapshotValidation"] == "PASS"
     assert "gitPublication" not in saved
-    assert read_task_snapshot(root, "tasks/deploy.md", live=True).task_digest == progress["taskDigest"]
+    assert read_task_snapshot(root, f"tasks/{root.name}.md", live=True).task_digest == progress["taskDigest"]
     assert not any(
         op in {"create_change_set", "execute_change_set"}
         for _, op, _ in json.loads(aws.read_text(encoding="utf-8"))["calls"][
@@ -307,8 +312,8 @@ def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
     with patch.object(worktree_deploy_fixtures, "seed_project", seed_unrelated_service):
         root = seed(tmp_path / "project", report, "orders")
     monkeypatch.chdir(root)
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
-    path = root / "tasks/deploy.md"
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", f"tasks/{root.name}.md")
+    path = root / f"tasks/{root.name}.md"
     unrelated = root / f"model/dev/{ACCOUNT}/dynamodb.properties"
     unrelated_before = unrelated.read_bytes()
     text = path.read_text(encoding="utf-8")
@@ -340,7 +345,7 @@ def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
     )
     aws_state(aws)
     assert invoke(root, report, aws, ["--action", "advance"]) != 0
-    before = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))["runContext"]
+    before = deploy_progress.read_task(root, read_task_snapshot(root, f"tasks/{root.name}.md", live=True))["runContext"]
     failure = Path(before["currentFailure"])
     assert failure.is_file()
     assert any(
@@ -351,21 +356,21 @@ def check_scope_failure_correction_round_trip(tmp_path, monkeypatch):
     from_evidence = read_sealed(root, failure)
     assert from_evidence["states"]
     calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
-    transitions.suspend(root, "tasks/deploy.md", "missing owning service")
+    transitions.suspend(root, f"tasks/{root.name}.md", "missing owning service")
     candidate = path.read_text(encoding="utf-8").replace(
         "## Validation scope\n", "## Validation scope\n" + scope
     )
     source = tmp_path / "owner-correction.md"
     source.write_text(candidate, encoding="utf-8")
-    transitions.correct_deploy_contract(root, "tasks/deploy.md", source)
-    after = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))["runContext"]
+    transitions.correct_deploy_contract(root, f"tasks/{root.name}.md", source)
+    after = deploy_progress.read_task(root, read_task_snapshot(root, f"tasks/{root.name}.md", live=True))["runContext"]
     assert before["inputIdentities"] == after["inputIdentities"]
     assert "currentFailure" not in after and after["resolvedScopeFailures"][0][
         "evidence"
     ] == str(failure)
     assert failure.read_bytes() == failure_bytes
     assert json.loads(aws.read_text(encoding="utf-8"))["calls"] == calls
-    transitions.resume(root, "tasks/deploy.md")
+    transitions.resume(root, f"tasks/{root.name}.md")
     assert run_controller(root, report, aws) == 0
     saved = json.loads(report.read_text(encoding="utf-8"))
     assert saved["snapshotValidation"] == "PASS"
@@ -414,18 +419,23 @@ def managed_repository(tracked_contract=False, untracked_contract=False):
         for path in inputs.deployment_input_paths(primary, "dev", "app", {}, units):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("immutable input", encoding="utf-8")
-        name = "tasks/deploy.md"
-        contract = deploy_contract(name, [relative])
-        if tracked_contract:
-            (primary / name).parent.mkdir()
-            (primary / name).write_text(contract, encoding="utf-8")
-            git(primary, "add", "-f", name)
         git(primary, "add", "model", "infra")
         git(primary, "commit", "-qm", "Stepwise synthetic inputs")
         state = wt.create(primary, "deploy")
         root = Path(state["worktree"])
-        if not tracked_contract:
-            start(root, name, contract)
+        name = state["task_file"]
+        start(root, name, deploy_contract(name, [relative]))
+        if tracked_contract:
+            # Simulate a retained legacy managed snapshot that tracked its contract.
+            path = primary / name
+            path.parent.mkdir()
+            path.write_bytes((root / name).read_bytes())
+            git(primary, "add", "-f", name)
+            git(primary, "commit", "-qm", "Legacy tracked contract")
+            (root / name).unlink()
+            git(root, "merge", "--ff-only", state["base"])
+            state.update(start=git(root, "rev-parse", "HEAD").strip(), tip=git(root, "rev-parse", "HEAD").strip())
+            wt.save(wt.state_path(primary, state["task_id"]), state)
         with selected_task(root, name):
             task = read_task_snapshot(root, name, live=True)
             identity = worktree.bind(
@@ -517,7 +527,7 @@ def check_managed_checkpoint_publication_isolation():
         candidate = (root / relative).read_bytes()
         index = git(root, "write-tree")
         first_main = git(primary, "rev-parse", "HEAD")
-        result = publication.publish(root, "deploy")
+        result = publication.publish(root, root.name)
         assert result["status"] == "SUCCESS"
         assert git(primary, "rev-parse", "HEAD") == first_main
         assert git(root, "rev-parse", "HEAD") == saved
@@ -529,11 +539,11 @@ def check_managed_checkpoint_publication_isolation():
         backend.run_context.pop("pendingObserved", None)
         backend.run_context.pop("pendingGeneration", None)
         checkpoints.snapshot_checkpoint(backend, ["B"])
-        result = publication.publish(root, "deploy")
+        result = publication.publish(root, root.name)
         merged = git(primary, "rev-parse", "HEAD")
         assert result["status"] == "SUCCESS" and result["commit"] == merged
         assert not result["nextActions"]
-        assert publication.publish(root, "deploy")["commit"] == merged
+        assert publication.publish(root, root.name)["commit"] == merged
         assert git(primary, "rev-parse", "HEAD") == merged
         assert (primary / relative).read_bytes() == candidate
 
@@ -544,10 +554,10 @@ def check_managed_final_contract_checkpoint(tracked):
         root = backend.root
         synchronized_candidate(backend, relative, "A")
         checkpoints.snapshot_checkpoint(backend, ["A"])
-        publication.publish(root, "deploy")
+        publication.publish(root, root.name)
         synchronized_candidate(backend, relative, "B")
         pending = backend.run_context["checkpointPending"]
-        snapshot = read_task_snapshot(root, "tasks/deploy.md", live=True)
+        snapshot = read_task_snapshot(root, f"tasks/{root.name}.md", live=True)
         pending["final"] = {
             "taskBefore": snapshot.text,
             "taskAfter": set_status(snapshot.text, "completed"),
@@ -571,18 +581,18 @@ def check_managed_final_contract_checkpoint(tracked):
             )
         else:
             assert not git(root, "ls-files", snapshot.name)
-        assert publication.publish(root, "deploy")["status"] == "SUCCESS"
-        result = publication.finalize(root, "deploy")
+        assert publication.publish(root, root.name)["status"] == "SUCCESS"
+        result = publication.finalize(root, root.name)
         assert result["verified"] and git(root, "rev-parse", "HEAD").strip() == source
-        assert wt.automatic_cleanup(primary, "deploy")["cleaned"]
+        assert wt.automatic_cleanup(primary, root.name)["cleaned"]
 
 
 def check_managed_success_while_peer_running(tmp_path, monkeypatch):
     report, aws = tmp_path / "report.json", tmp_path / "aws.json"
     root = seed(tmp_path / "project", report, "orders", same_group=True)
-    primary = Path(ws.load(root, "deploy")[0])
+    primary = Path(ws.load(root, root.name)[0])
     monkeypatch.chdir(root)
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", f"tasks/{root.name}.md")
     monkeypatch.setenv("TMPDIR", tempfile.gettempdir())
     aws_state(aws)
     assert invoke(root, report, aws, ["--action", "advance"]) == 0
@@ -613,7 +623,7 @@ def check_managed_success_while_peer_running(tmp_path, monkeypatch):
     assert git(primary, "rev-parse", "HEAD") == before
     assert wt.changed_paths(root)
     assert invoke(root, report, aws, ["--action", "sync", "--final"]) == 0
-    assert read_task_snapshot(root, "tasks/deploy.md", live=True).status == "completed"
+    assert read_task_snapshot(root, f"tasks/{root.name}.md", live=True).status == "completed"
     assert git(primary, "rev-parse", "HEAD") == before
     assert root.is_dir()
 
@@ -627,10 +637,10 @@ def check_final_zero_model_delta_keeps_exact_source_history(mode):
         for name in ("A", "B"):
             synchronized_candidate(backend, relative, name)
             checkpoints.snapshot_checkpoint(backend, [name])
-            publication.publish(backend.root, "deploy")
+            publication.publish(backend.root, backend.root.name)
         root = backend.root
         parent = git(root, "rev-parse", "HEAD").strip()
-        task = read_task_snapshot(root, "tasks/deploy.md", live=True)
+        task = read_task_snapshot(root, f"tasks/{root.name}.md", live=True)
         snapshot = contracts.validation_snapshot(root)
         backend.run_context["checkpointPending"] = {
             "stacks": [],
@@ -651,10 +661,10 @@ def check_final_zero_model_delta_keeps_exact_source_history(mode):
                     root, "diff-tree", "--no-commit-id", "--name-only", "-r", source
                 ).splitlines()
             ) == {task.name}
-        assert publication.publish(root, "deploy")["status"] == "SUCCESS"
-        publication.finalize(root, "deploy")
+        assert publication.publish(root, root.name)["status"] == "SUCCESS"
+        publication.finalize(root, root.name)
         assert git(root, "rev-parse", "HEAD").strip() == source
-        TestCase().assertTrue(wt.cleanup(primary, "deploy")["cleaned"])
+        TestCase().assertTrue(wt.cleanup(primary, root.name)["cleaned"])
 
 
 def seed_reference_consumer(root, report, case, **kwargs):
@@ -725,7 +735,7 @@ def check_order_range_preparation_publication_and_resume(tmp_path, monkeypatch):
     with patch.object(worktree_deploy_fixtures, "seed_project", return_value=primary):
         root = seed(primary, report)
     baseline = git(primary, "rev-parse", "HEAD")
-    contract = root / "tasks/deploy.md"
+    contract = root / f"tasks/{root.name}.md"
     contract.unlink()
     logs = tmp_path / "preparation"
     TestCase().assertEqual(
@@ -742,7 +752,7 @@ def check_order_range_preparation_publication_and_resume(tmp_path, monkeypatch):
                 "--order-to",
                 "50",
                 "--task-file",
-                "tasks/deploy.md",
+                f"tasks/{root.name}.md",
                 "--log-dir",
                 str(logs),
             ]
@@ -780,7 +790,7 @@ def check_order_range_preparation_publication_and_resume(tmp_path, monkeypatch):
         )
     }
     monkeypatch.chdir(root)
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", f"tasks/{root.name}.md")
     aws_state(aws)
     TestCase().assertEqual(run_controller(root, report, aws), 0)
     saved = json.loads(report.read_text(encoding="utf-8"))
@@ -824,8 +834,8 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
         root = seed(tmp_path / "project", report, "orders")
     monkeypatch.chdir(root)
     monkeypatch.setenv("TMPDIR", str(tmp_path))
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
-    path = root / "tasks/deploy.md"
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", f"tasks/{root.name}.md")
+    path = root / f"tasks/{root.name}.md"
     text = path.read_text(encoding="utf-8")
     target = json.loads((root / "project.json").read_text())["targets"][0]
     _, units = inputs.load_units(
@@ -853,7 +863,7 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
     consumer_before = consumer.read_bytes()
     aws_state(aws)
     assert run_controller(root, report, aws) == 0
-    progress = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))
+    progress = deploy_progress.read_task(root, read_task_snapshot(root, f"tasks/{root.name}.md", live=True))
     records = [
         record
         for state in progress["runContext"]["states"].values()
@@ -866,7 +876,7 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
     assert consumer.read_bytes() == consumer_before
     calls = json.loads(aws.read_text())["calls"]
     transitions.suspend(
-        root, "tasks/deploy.md", "Human-approved deferred rds reference synchronization"
+        root, f"tasks/{root.name}.md", "Human-approved deferred rds reference synchronization"
     )
     candidate = path.read_text(encoding="utf-8").replace(
         "## Validation scope\n", f"## Validation scope\n- `dev/{ACCOUNT}/rds`\n"
@@ -879,19 +889,19 @@ def check_deferred_consumer_approved_reference_recovery(tmp_path, monkeypatch):
     external = tmp_path / "reference-correction.md"
     external.write_text(candidate, encoding="utf-8")
     transitions.correct_deploy_contract(
-        root, "tasks/deploy.md", external, [f"dev/{ACCOUNT}/rds"]
+        root, f"tasks/{root.name}.md", external, [f"dev/{ACCOUNT}/rds"]
     )
-    corrected_progress = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))[
+    corrected_progress = deploy_progress.read_task(root, read_task_snapshot(root, f"tasks/{root.name}.md", live=True))[
         "runContext"
     ]
     assert any(
         item.get("consumer") == f"dev/{ACCOUNT}/rds"
         for item in completion.final_blockers(corrected_progress)
     )
-    transitions.resume(root, "tasks/deploy.md")
+    transitions.resume(root, f"tasks/{root.name}.md")
     first = "cfn-stack-app-dev-first"
     assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", first]) == 0
-    saved = deploy_progress.read_task(root, read_task_snapshot(root, "tasks/deploy.md", live=True))["runContext"]
+    saved = deploy_progress.read_task(root, read_task_snapshot(root, f"tasks/{root.name}.md", live=True))["runContext"]
     resolved = [
         record
         for state in saved["states"].values()

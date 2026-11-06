@@ -174,7 +174,8 @@ def task(root):
 
 
 def _callback_snapshot_git(replies, /, root, *args, **kwargs):
-    reply = replies[args]
+    reply = replies.get((root, *args), replies.get(args))
+    assert reply is not None, args
     if isinstance(reply, Exception):
         raise reply
     return SimpleNamespace(stdout=reply, returncode=0)
@@ -224,8 +225,13 @@ def check_snapshot_ignores_base_history(tmp_path, monkeypatch, problem):
         python_setup={"status": "ready"},
         deployIdentity={"taskDigest": snapshot.task_digest},
     )
-    records = f"worktree {primary}\0HEAD main\0branch refs/heads/main\0\0"
-    entry = f"worktree {root}\0HEAD tip\0branch refs/heads/{state['branch']}\0"
+    common = primary / ".git"
+    directory = common / "worktrees/deploy"
+    directory.mkdir(parents=True)
+    gitfile = root / ".git"
+    gitfile.write_text(f"gitdir: {directory}\n")
+    (directory / "gitdir").write_text(str(gitfile))
+    ref = "refs/heads/" + state["branch"]
     replies = {
         ("rev-parse", "--show-toplevel"): str(root),
         ("rev-parse", "--is-bare-repository"): "false",
@@ -234,6 +240,10 @@ def check_snapshot_ignores_base_history(tmp_path, monkeypatch, problem):
         ),
         ("rev-parse", "--verify", "snapshot^{commit}"): "snapshot",
         ("rev-parse", "HEAD"): "tip",
+        ("rev-parse", "--absolute-git-dir"): str(directory),
+        ("symbolic-ref", "HEAD"): ref,
+        ("rev-parse", "--verify", "HEAD^{commit}"): "tip",
+        ("rev-parse", "--verify", ref + "^{commit}"): "tip",
         ("merge-base", "--is-ancestor", "snapshot", "tip"): "",
         ("diff", "--name-only", "--diff-filter=U", "-z"): "",
     }
@@ -244,7 +254,8 @@ def check_snapshot_ignores_base_history(tmp_path, monkeypatch, problem):
         "--path-format=absolute",
         "--git-common-dir",
     )
-    replies[repository_command] = "\n".join((str(root), "false", str(primary / ".git")))
+    replies[repository_command] = "\n".join((str(root), "false", str(common)))
+    replies[(primary, *repository_command)] = "\n".join((str(primary), "false", str(common)))
     if problem == "repository-lines":
         replies[repository_command] = "ambiguous\npath\nfalse\ncommon"
     names = (
@@ -267,11 +278,13 @@ def check_snapshot_ignores_base_history(tmp_path, monkeypatch, problem):
     elif problem == "merged":
         state["merged"] = "published"
     elif problem == "branch":
-        entry = entry.replace(state["branch"], "other")
+        replies[("symbolic-ref", "HEAD")] = "refs/heads/other"
     elif problem == "missing":
-        entry = ""
-    elif problem in {"locked", "stale"}:
-        entry += "locked\0" if problem == "locked" else "prunable stale\0"
+        gitfile.unlink()
+    elif problem == "locked":
+        (directory / "locked").touch()
+    elif problem == "stale":
+        (directory / "gitdir").write_text(str(primary / "wrong"))
     elif problem == "setup":
         state["python_setup"]["status"] = "failed"
     elif problem == "digest":
@@ -312,9 +325,6 @@ def check_snapshot_ignores_base_history(tmp_path, monkeypatch, problem):
                 ("merge-base", "--is-ancestor", "snapshot", "checkpoint"): "",
             }
         )
-    replies[("worktree", "list", "--porcelain", "-z")] = records + (
-        entry + "\0" if entry else ""
-    )
     meta.write_text(json.dumps(state), encoding="utf-8")
     git = Mock(side_effect=partial(_callback_snapshot_git, replies))
     monkeypatch.setattr(ws, "git", git)
@@ -323,20 +333,16 @@ def check_snapshot_ignores_base_history(tmp_path, monkeypatch, problem):
             worktree.require(root, snapshot)
     else:
         assert worktree.require(root, snapshot) == state
-        assert git.call_count == (7 if problem is None else 10)
-        assert (
-            sum(call.args[1:3] == ("worktree", "list") for call in git.call_args_list)
-            == 1
-        )
+        assert all(call.args[1:3] != ("worktree", "list") for call in git.call_args_list)
         if problem is None:
             replies[("rev-parse", "HEAD")] = "unexpected"
             with pytest.raises(ValueError, match="HEAD"):
                 worktree.require(root, snapshot)
             replies[("rev-parse", "HEAD")] = "tip"
-            replies[("worktree", "list", "--porcelain", "-z")] = records
+            gitfile.unlink()
             with pytest.raises(ValueError, match="missing"):
                 worktree.require(root, snapshot)
-            replies[("worktree", "list", "--porcelain", "-z")] = records + entry + "\0"
+            gitfile.write_text(f"gitdir: {directory}\n")
         # A later operation rereads lifecycle bytes rather than reusing authorization.
         state["merged"] = "published"
         meta.write_text(json.dumps(state), encoding="utf-8")

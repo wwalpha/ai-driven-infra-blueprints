@@ -155,7 +155,7 @@ Export は共通 Resolver で必要名だけを解決する。既知 Producer �
 
 この署名付きhandoffはSDK方式専用。CLI失敗からSDK証跡を作り直す経路ではない。
 
-[Controlled deploy repair](../../../rules/cloudformation.md#controlled-deploy-repair)と[Worktree repair lifecycle](../../../../.agents/skills/worktree/SKILL.md#explicit-cloudformation-repair-handoff)が権限・ライフサイクルの正本。CloudFormationの現在Taskに`External IaC repair: allowed`がある場合だけ、今回の署名付き失敗証拠、正確なIaCと承認済Modelから原因を診断する。`repairFailure`の存在は修復の証明ではない。
+[Controlled deploy repair](../../../rules/cloudformation.md#controlled-deploy-repair)と[Worktree repair lifecycle](../../../../.agents/skills/worktree/SKILL.md#explicit-cloudformation-repair-handoff)が権限・ライフサイクルの正本。子 Worktree 作成には Task 名を渡し、登録・検証・統合には返却された子 Task ID を使う。CloudFormationの現在Taskに`External IaC repair: allowed`がある場合だけ、今回の署名付き失敗証拠、正確なIaCと承認済Modelから原因を診断する。`repairFailure`の存在は修復の証明ではない。
 
 承認待ち・認証/権限・設計不足・依存待ち・送信不明は修復依頼の根拠にしない。未確定要求とローカル保存を確定し、原因・入力・Model の証拠が揃った場合だけ `deploy_handoff.py --help` の手順で依頼を作る。依頼を確認して親 Deploy Task を suspend し、明示承認を得た別の Implement Task で修正する。Deploy は依頼と元の AWS 証跡を保持する。修正後の独立 Deploy には、確認済みの commit 済み IaC と新しい Task 契約を使う。
 

@@ -33,7 +33,7 @@ ITは正常なCLI・Git・保存・再読込・コンポーネント接続を所
 | lintのschema/protocol/期限/強制回収 | issues-lint-unit | issues-lintの実CLI一致とWorker設定隔離 |
 | Deployのcheckpoint/receipt、Git競合・公開intent、完了状態 | deploy-worktree-unit、deploy-steps-unit、deploy-runtime-unit、observed-mapping | deploy-worktree、Checkpoint、controller、CloudFormationの正常保存/公開 |
 | Observedのjournal所有者、部分書込、復元順序 | deploy-observed-resume-unit | controllerの別プロセス正常公開（旧observed-recovery ITは削除） |
-| Worktreeの作成拒否、Git引数/競合、cleanup、修復/PR中断と再開 | worktree-guard-unit、既存worktree-model-guard-unit | worktree_task、model-operation、Python setup、修復の通常CLI→検証→親統合 |
+| WorktreeのTask ID衝突・失敗時保持、Git所有権、Cleanup、PRの二重作成防止、Deploy修復 | worktree-guard-unit、既存worktree-model-guard-unit | worktree_task、model-operation、Python setup、修復の通常CLI→検証→親統合 |
 | ImportのReview/Scope/入力変更、Schema、保存/Transaction rollback | import-approval-unit、import-model-unit、model_files-unit | import-model、import-cli、import-worktree-contract |
 | Modelのone-use、同時変更、生成/保存失敗、JSON/復元エラー | model-format-v2、sync-model-unit、file_operations-unit、model_files-unit、既存Model/参照UT | model-properties-v2、sync-model、model_templates、model_design |
 | 新規Python起動・import順序・API注釈・CLI help・依存不要の正常入口 | API/引数/型の判定は既存各UT | python-startup（既存pytest/Discovery/Receiptを使用） |
@@ -43,7 +43,7 @@ ITは正常なCLI・Git・保存・再読込・コンポーネント接続を所
 | 共通assetコピーの部分失敗rollback・symlink・必須引数 | sync-existing-files-unit（既存故障ケースを移動） | sync-existing-filesの実CLIコピー→dry-run→更新 |
 | PDFリンク不正・native依存エラー時の出力保持 | export-design-pdf-unit | export-design-pdfの複数文書bundle |
 
-最新baseのPR update/merge応答・失敗Validationはworktree-guard-unitのFakeで保証する。merge/squash/rebaseの引数・応答と後処理は同UTで各方式を確認する。Worktree ITはcloseの代表経路でDraft/Ready・更新・実Gitの祖先関係を確認し、cleanup-first・外部Merge・mergeは独立した公開済みPRで各終了方法と実Gitの状態を確認する。更新の中断・再開は別の復旧シナリオに残す。Deploy owner補正/参照同期の故障は既存contract-correction/observed/generation-resume UTが所有し、ITには正常な範囲指定と承認済み参照同期を残す。
+最新baseのPR update/merge応答・失敗Validationはworktree-guard-unitのFakeで保証する。merge/squash/rebaseの引数・応答と後処理は同UTで各方式を確認する。Worktree ITはcloseの代表経路でDraft/Ready・更新・実Gitの祖先関係を確認し、cleanup-first・外部Merge・mergeは独立した公開済みPRで各終了方法と実Gitの状態を確認する。通常作成では同名 Task の別 ID、6 桁 suffix、Primary と Linked の識別、既存 Worktree の保持を確認する。異常系では 20 回の衝突、安全停止、廃止 CLI の拒否、未 Merge の変更と Task 状態の保持を確認する。Deploy owner補正/参照同期の故障は既存contract-correction/observed/generation-resume UTが所有し、ITには正常な範囲指定と承認済み参照同期を残す。
 
 Importの未使用な故障注入Fixture/Mockは削除し、共有 `import_publication_case()` はAPI/CLIの正常公開と管理 Worktree での Display 復旧を扱う。
 修復ITの入口は診断済みの既存Task資料であり、新しいController故障や中断を注入しない。

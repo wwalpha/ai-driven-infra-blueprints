@@ -49,13 +49,13 @@ def check_setup():
         ):
             state = wt.create(root, "example")
             TestCase().assertFalse(
-                wt.setup(root, "example")["python_setup"]["installed"]
+                wt.setup(root, state["task_id"])["python_setup"]["installed"]
             )
         directory = py.shared_directory(root)
         TestCase().assertTrue((directory / ".blueprint-owner").is_file())
         TestCase().assertTrue((directory / ".blueprint-ready").is_file())
         TestCase().assertEqual(
-            wt.load(root, "example")[3]["python_setup"]["status"], "ready"
+            wt.load(root, state["task_id"])[3]["python_setup"]["status"], "ready"
         )
         TestCase().assertEqual(
             py.runtime(Path(state["worktree"]))[0], py.python_path(directory)
@@ -113,10 +113,10 @@ def check_venv_fallback():
             wt.tasks.start(
                 target,
                 states[0]["task_file"],
-                checks.contract("first", [py.REQUIREMENTS]),
+                checks.contract(states[0]["task_id"], [py.REQUIREMENTS]),
             )
             checks.finish_contract(target, states[0])
-            assert wt.finalize(root, "first")["cleaned"]
+            assert wt.finalize(root, states[0]["task_id"])["cleaned"]
             assert directory.is_dir() and py.shared_ready(directory)
             assert py.runtime(Path(states[1]["worktree"]))[0] == py.python_path(
                 directory
@@ -154,6 +154,7 @@ def run(command, root, env=None):
             time.sleep(0.01)
     return original(command, root, env)
 py.run = run
+wt.secrets.randbelow = lambda upper: 0
 state = wt.create(Path.cwd(), sys.argv[2])
 import json
 print(json.dumps(state))
@@ -187,7 +188,7 @@ print(json.dumps(state))
                 text=True,
             )
             deadline = time.monotonic() + 10
-            path = root / ".worktrees/.blueprint/tasks/process-b.json"
+            path = root / ".worktrees/.blueprint/tasks/process-b-000000.json"
             contending = waiting.with_name("contending")
             while (
                 not contending.exists()
