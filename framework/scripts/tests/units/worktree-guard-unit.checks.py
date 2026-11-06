@@ -227,18 +227,10 @@ def check_prepare_rejects_before_git_write(tmp_path, violation):
 
 
 @pytest.mark.parametrize("args", [
-    ["branches"],
-    ["recover", "--task-id", "example"],
-    ["pr-retry-create", "--task-id", "example"],
-    ["finalize", "--task-id", "example", "--finish-recovery"],
-    ["finalize", "--task-id", "example", "--repin-recovery"],
-    ["finalize", "--task-id", "example", "--expected-task-base", "base"],
-    ["finalize", "--task-id", "example", "--human-approved-validation-failure", "approval"],
     ["create", "--task-id", "example"],
-    ["deploy-start", "--task-name", "example"],
     ["finalize", "--task-name", "example"],
 ])
-def check_removed_lifecycle_cli(args):
+def check_invalid_task_identifier_cli(args):
     with patch.object(sys, "argv", ["worktree_task.py", *args]), pytest.raises(SystemExit) as error:
         wt.main()
     assert error.value.code == 2

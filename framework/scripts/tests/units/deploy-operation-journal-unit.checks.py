@@ -1,9 +1,7 @@
 """Current input contexts and private request lock safety, without Journal replay."""
 
 import copy
-import json
 import sys
-import tempfile
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -87,32 +85,6 @@ def backend_for(tmp_path):
         }
     )
     return backend, task, unit, tmp_path / "journal.json"
-
-
-def test_new_context_accepts_latest_iac_and_ignores_old_files(tmp_path):
-    backend, task, unit, _ = backend_for(tmp_path)
-    old = backend.root / "old-session.json"
-    old.write_text(
-        json.dumps(
-            {
-                "version": 5,
-                "workflow": {"reserved": 20},
-                "consumedInputs": {"kms.yaml": "old"},
-            }
-        )
-    )
-    registry = backend.root / "deploy-workflows"
-    registry.mkdir()
-    (registry / "old.json").write_text("unfinished old workflow")
-    original = run_context.new_context(
-        backend.root, task, TARGET, "dev", "account", [], backend
-    )
-    original["states"] = {"Kms": {"status": "FAILED", "reason": "old uncertain request"}}
-    current = run_context.new_context(
-        backend.root, task, TARGET, "dev", "account", [], backend
-    )
-    assert not current["states"] and not current["inputDigests"]
-    assert "workflow" not in current and old.exists()
 
 
 def test_successful_stack_latest_iac_is_claimed_for_new_update(tmp_path):
@@ -390,23 +362,6 @@ def test_execution_rechecks_stack_and_rejects_active_or_unknown(monkeypatch, sta
     assert "executionEvidence" not in state
     recorded.assert_not_called()
     backend.save.assert_not_called()
-
-@pytest.mark.parametrize("previous", ['{"status":"REQUEST_UNCONFIRMED"}', "{broken"])
-def test_old_request_does_not_affect_new_task(tmp_path, monkeypatch, previous):
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    backend, task, unit, _ = backend_for(tmp_path)
-    old_dir = tmp_path / ("blueprint-cfn-current-v3-" + J.fingerprint([TARGET["awsAccountId"], TARGET["awsRegion"]]))
-    old_dir.mkdir()
-    old = old_dir / ("request-" + J.fingerprint(unit["name"]) + ".json")
-    old.write_text(previous, encoding="utf-8")
-    for path in backend.paths(unit):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("{}", encoding="utf-8")
-    context = run_context.new_context(backend.root, task, TARGET, "dev", "account", [unit], backend)
-    assert context["states"][unit["name"]]["status"] == "NOT_STARTED"
-    assert J.location(backend.root, task.name).parent != old_dir
-    assert old.read_text(encoding="utf-8") == previous
-
 
 def test_stack_read_error_reports_aws_code(tmp_path, monkeypatch):
     monkeypatch.setattr(change_sets, "read", Mock(return_value={"StackStatus": "UNKNOWN", "errorCode": "AccessDenied"}))

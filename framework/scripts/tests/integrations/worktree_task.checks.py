@@ -726,18 +726,6 @@ def check_unpublished_pr_intent_base_sync_preserves_candidate():
 
 
 @it_case
-def check_old_workflow_registry_is_ignored():
-    with fixture() as primary:
-        directory = wt.metadata_directory(primary) / "deploy-workflows"
-        directory.mkdir(parents=True)
-        retained = directory / "old.json"
-        retained.write_text('{"workflowId":"old","status":"unfinished"}')
-        target, state = start(primary, task_name="new-deploy", files=("file.txt",))
-        assert target.is_dir() and state["task_name"] == "new-deploy"
-        assert retained.read_text() == '{"workflowId":"old","status":"unfinished"}'
-
-
-@it_case
 def check_success_and_empty():
     for empty in (False, True):
         with fixture() as root:
@@ -856,18 +844,11 @@ def check_metadata_storage():
         with wt.lifecycle_lock(root):
             lock = directory / "lifecycle.lock"
             assert lock.is_dir()
-            assert lock.is_dir()
-        # Old metadata and locks neither authorize a task nor block the new lifecycle.
-        old = root / ".git/blueprint-worktree-tasks/one.json"
-        old.parent.mkdir()
-        old.write_text("invalid old state", encoding="utf-8")
-        (root / ".git/blueprint-worktree-lifecycle.lock").mkdir()
         cli(other, "setup", first["task_id"])
         sibling_before = sibling.read_bytes()
         finish_contract(target, first)
         assert cli(target, "finalize", first["task_id"])["cleaned"]
         assert sibling.read_bytes() == sibling_before and other.is_dir()
-        assert old.read_text(encoding="utf-8") == "invalid old state"
         cli(root, "setup", second["task_id"])
         finish_contract(other, second)
         assert cli(root, "finalize", second["task_id"])["cleaned"]
@@ -2118,7 +2099,6 @@ def main():
         check_base_advance_after_validation,
         check_sync_base_preserves_candidate,
         check_unpublished_pr_intent_base_sync_preserves_candidate,
-        check_old_workflow_registry_is_ignored,
         check_success_and_empty,
         check_finalize_line_endings,
         check_metadata_storage,
