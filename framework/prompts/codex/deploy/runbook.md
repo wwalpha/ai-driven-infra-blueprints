@@ -134,7 +134,7 @@ AWS再実行やTask完了は訂正の結果として行わない。元契約原�
 
 ## Unfinished AWS operation recovery
 
-同一 Deploy の応答喪失時は、今回の StackId・ChangeSetId・token と AWS 状態を確認し、結果不明を報告する。無条件に再送しない。別の Deploy は新規 Task を使う。同じ checkout の重複 Stack に未確定要求があれば停止し、要求元の Task で確認する。
+同一 Deploy の応答喪失時は、今回の StackId・ChangeSetId・token と AWS 状態を確認し、結果不明を報告する。無条件に再送しない。別の Deploy は新規 Task を使い、現在の Account・Region・Stack・ChangeSet を確認する。他 Task のローカル progress を開始判断に使わない。AWS が実行中または状態不明なら新規 AWS 操作を送信しない。
 
 REVIEW_IN_PROGRESS は ChangeSet と合わせて判断する。UPDATE_ROLLBACK_COMPLETE は今回失敗と次回更新可否を分ける。ROLLBACK_COMPLETE、rollback failed は AWS 制約に従う。構造化された不存在だけ ABSENT、取得不能は UNKNOWN。Output 欠落、削除履歴、不完全な一覧、保持リソースを不存在と混同しない。
 

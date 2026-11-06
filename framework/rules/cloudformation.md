@@ -512,7 +512,7 @@ retain AWS's actual operation restrictions. REVIEW_IN_PROGRESS is classified wit
 current ChangeSet execution, never by suffix alone. Structured absence is ABSENT;
 read/permission/network failures are UNKNOWN, never absence.
 
-Keep this Task's original Stack ID, ChangeSet ID and token when a submission reply is lost. Report an uncertain outcome without blind resubmission. A new Deploy uses a new Task and current AWS state. Unresolved requests for overlapping Stacks in the same checkout block new SDK submissions and remain owned by their original Task.
+Keep this Task's original Stack ID, ChangeSet ID and token when a submission reply is lost. Report an uncertain outcome without blind resubmission. A new Deploy uses a new Task and checks current AWS Account, Region, Stack and ChangeSet state, without consulting another Task's local progress. Do not submit new AWS operations while AWS is busy or its state is unknown.
 
 ### Local Deploy completion
 

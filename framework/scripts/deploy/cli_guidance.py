@@ -97,7 +97,9 @@ It may recover and save previously persisted unfinished work, including pending 
 values, generated artifacts and progress. It never implicitly starts a new Deploy
 or automatically grants Human approval. Use explicit sync and checkpoint for their
 current observations and saved local recovery.
-Unconfirmed submissions block overlapping new requests in the checkout. Authentication,
+Track this Task's unconfirmed submissions without blind resubmission. A new Task uses
+current AWS Account, Region, Stack and ChangeSet state, not another Task's progress;
+do not submit operations while AWS is busy or its state is unknown. Authentication,
 Task/target/input mismatches and unresolved dependencies stop new starts; peers drain.
 PENDING_DEPLOY is a dependency wait, not proof of an IaC defect. Task completion
 requires a settled attempt, saved observations, required generation and a validated
