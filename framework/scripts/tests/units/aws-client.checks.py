@@ -19,8 +19,14 @@ from unittest.mock import Mock, patch
 
 import boto3
 import pytest
-from botocore.exceptions import ClientError, ParamValidationError, UnknownServiceError
+from botocore.exceptions import (
+    ClientError,
+    EndpointConnectionError,
+    ParamValidationError,
+    UnknownServiceError,
+)
 from botocore.stub import StubResponseError
+from deploy.cli_guidance import stopped
 from model.adapters.aws import AcquisitionError
 from support.aws_sdk_cases import SdkCase
 from support.cloudformation_destroy_fixtures import M as destroy
@@ -850,6 +856,32 @@ def check_sdk_case_pending_responses_fail_on_exit(tmp_path, monkeypatch):
             load_case("aws_sdk", "validate-template")["data"], tmp_path, monkeypatch
         ):
             pass
+
+
+
+def check_sdk_failure_keeps_original_cause_and_traceback(monkeypatch):
+    for original in (
+        EndpointConnectionError(endpoint_url="https://sts.example.invalid"),
+        ClientError({"Error": {"Code": "AccessDenied", "Message": "full AWS detail"}}, "GetCallerIdentity"),
+    ):
+        inner = RuntimeError("underlying transport cause")
+        original.__cause__ = inner
+        monkeypatch.setattr(sdk, "client", lambda *a, original=original, **k: SimpleNamespace(
+            get_caller_identity=Mock(side_effect=original)
+        ))
+        with pytest.raises(sdk.AwsError) as caught:
+            sdk.request((None, "region", "account", None), "sts", "get_caller_identity", {})
+        assert caught.value.__cause__ is original
+        assert original.__cause__ is inner
+        assert original.__traceback__ is not None
+        cause = stopped("AUTHENTICATION", caught.value)["cause"]
+        assert cause["errorType"] == type(original).__name__
+        assert str(original) in cause["traceback"]
+        assert "underlying transport cause" in cause["traceback"]
+        assert "Traceback (most recent call last)" in cause["traceback"]
+        assert "detailDigest" not in cause
+        if isinstance(original, ClientError):
+            assert cause["response"] == repr(original.response)
 
 
 if __name__ == "__main__":

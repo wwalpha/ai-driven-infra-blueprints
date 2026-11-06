@@ -444,9 +444,9 @@ def run(
                 root, args.environment, args.aws_account_id, args.alias, args.profile
             )
         except AwsError as error:
-            if args.action == "advance" or getattr(args, "final", False):
+            if args.action in {"advance", "sync"}:
                 raise
-            target, authentication_error = selected, error.code
+            target, authentication_error = selected, error
         if target[IAC_ENGINE_KEY] != "cloudformation":
             raise Blocked("step operations require CloudFormation")
         directory = args.alias or args.aws_account_id
@@ -477,12 +477,14 @@ def run(
             backend.progress_task_file = task.name
             backend.progress_destination = destination
             if authentication_error:
-                backend.aws = partial(current_state.unavailable, authentication_error)
+                backend.aws = partial(current_state.unavailable, authentication_error.code)
             backend.requested_stacks = args.stack
             backend.action = args.action
             backend.task_status = task.status
             if task.status != "completed":
                 recover_local_publication(backend, task)
+            if authentication_error and args.action == "checkpoint":
+                raise authentication_error
             snapshot = inputs.stack_snapshot(
                 root
                 / "model"
@@ -647,8 +649,14 @@ def run(
                 root, executable=False, live=True
             ).status
             result = describe(backend)
+            if authentication_error:
+                result.update(cli_guidance.stopped("AUTHENTICATION", authentication_error))
+                result["result"] = "STOPPED"
         print(json.dumps(result, indent=2))
-        return 2 if result["result"] == "STOPPED" and args.action == "advance" else 0
+        return 2 if (
+            authentication_error
+            or result["result"] == "STOPPED" and args.action == "advance"
+        ) else 0
     except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
         print(
             json.dumps(

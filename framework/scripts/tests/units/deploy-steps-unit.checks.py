@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+from botocore.exceptions import EndpointConnectionError
 from deploy import (
     cli_guidance,
     completion,
@@ -35,10 +36,13 @@ from model.core import properties, stack_model, validate_model_keys
 from model.observed import verify_observed_outputs
 from model.projection import observed_value
 from support.cloudformation_deploy_fixtures import Fake, advance_group, states, units
+from support.deploy_controller_fixtures import aws_state, seed
+from support.deploy_controller_fixtures import invoke as invoke_step
 from support.fixture_cases import load_case
 from support.pytest_cli import run
 from support.regression_cases import case_ids
 from utils import local_evidence
+from utils.aws import client as sdk
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
 from utils.local_evidence import write_sealed
@@ -1719,6 +1723,38 @@ def handoff_test_replace_file(boundary, replace, *args, **kwargs):
         raise OSError("after replace interrupted")
     return result
 
+
+
+
+
+
+@pytest.mark.parametrize("action", ["advance", "sync", "final", "checkpoint", "status"])
+def check_sts_failure_stops_without_new_observation(tmp_path, monkeypatch, capsys, action):
+    report, aws = tmp_path / "report.json", tmp_path / "aws.json"
+    root = seed(tmp_path / "project", report, "orders", same_group=True)
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    aws_state(aws)
+    original = EndpointConnectionError(endpoint_url="https://sts.example.invalid")
+
+    def fail_auth(*args):
+        try:
+            raise original
+        except EndpointConnectionError as error:
+            raise sdk.AwsError("sts", "get_caller_identity", type(error).__name__) from error
+
+    monkeypatch.setattr(steps.context, "check_deploy_context", fail_auth)
+    options = ["--action", "sync", "--final"] if action == "final" else ["--action", action]
+    if action == "sync":
+        options += ["--sync-stack", "cfn-stack-app-dev-first"]
+    before = json.loads(aws.read_text())["calls"]
+    capsys.readouterr()
+    assert invoke_step(root, report, aws, options) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["result"] == "STOPPED"
+    assert str(original) in result["cause"]["traceback"]
+    assert result["cause"]["errorType"] == "EndpointConnectionError"
+    assert json.loads(aws.read_text())["calls"] == before
 
 
 

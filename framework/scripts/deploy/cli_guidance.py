@@ -8,10 +8,12 @@ import os
 import re
 import shlex
 import sys
+import traceback
 from pathlib import Path
 
 from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED
 from model.core import ReferenceDiagnosticError
+from utils.aws.client import AwsError
 from utils.aws.identity import IdentityError
 from utils.project_targets import DeployContextError
 from utils.reference_contracts import ARN_ATTRIBUTES, REF_ATTRIBUTES
@@ -237,8 +239,17 @@ def guidance(stage, cause, kind, reason, command=None):
 
 
 def safe_error(error):
-    """Accept typed conditions and allowlisted diagnostic fields, never exception prose."""
+    """Show raw SDK errors and allowlisted diagnostics for other errors."""
     code = getattr(error, "code", None)
+    if isinstance(error, AwsError) and error.__cause__ is not None:
+        result = {
+            "errorType": type(error.__cause__).__name__,
+            "code": code,
+            "traceback": "".join(traceback.format_exception(error)),
+        }
+        if hasattr(error.__cause__, "response"):
+            result["response"] = repr(error.__cause__.response)
+        return result
     diagnostics = (
         [safe_diagnostic(d) for d in error.diagnostics if isinstance(d, dict)]
         if isinstance(error, ReferenceDiagnosticError)

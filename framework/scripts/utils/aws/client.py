@@ -197,7 +197,7 @@ def confirmed_current_missing(context, identifier):
 
 
 def request(context, service, operation, arguments, *, deadline=None):
-    """One request, with no application guards and no secret-bearing error text."""
+    """One request, with no application guards."""
     BotoCoreError = aws_runtime().BotoCoreError
     ClientError = aws_runtime().ClientError
     deadline = time.monotonic() + API_BUDGET_SECONDS if deadline is None else deadline
@@ -245,9 +245,9 @@ def request(context, service, operation, arguments, *, deadline=None):
             status,
             stack_absent=absent,
             current_missing=missing,
-        ) from None
+        ) from error
     except BotoCoreError as error:
-        raise AwsError(service, operation, type(error).__name__) from None
+        raise AwsError(service, operation, type(error).__name__) from error
     # A received success is authoritative, especially after a mutation. Continuations
     # have their own deadline; socket timeouts do not cancel an entire SDK operation.
     return response
