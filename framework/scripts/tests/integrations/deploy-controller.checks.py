@@ -42,7 +42,6 @@ from support.deploy_controller_fixtures import invoke as invoke_step
 from support.pytest_cli import run
 from support.worktree_deploy_fixtures import seed as managed_seed
 from task_contract_core import selected_task, status
-from task_contract_runtime import complete
 from validation.findings import Findings
 from validation.task import TaskValidation
 
@@ -224,7 +223,7 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
     task = TaskValidation(root, findings)
     task.task_type = "infrastructure"
     assert not findings.errors and not findings.warnings
-    complete(root, "tasks/deploy.md")
+    assert invoke_step(root, session, aws, ["--action", "sync", "--final"]) == 0
     assert git(root, "rev-parse", "HEAD") == head
     assert git(root, "worktree", "list", "--porcelain") == checkouts
     assert status((root / "tasks/deploy.md").read_text()) == "completed"
@@ -401,43 +400,6 @@ def check_event_read_failure_keeps_running_operation_unconfirmed():
     assert "private-secret" not in json.dumps(report) + json.dumps(state)
 
 
-@pytest.mark.parametrize("stack_status", ["CREATE_COMPLETE", "CREATE_IN_PROGRESS"])
-def check_new_task_reads_aws_despite_other_task_progress(
-    tmp_path, monkeypatch, capsys, stack_status
-):
-    report, aws = tmp_path / "report.json", tmp_path / "aws.json"
-    root = managed_seed(tmp_path / "project", report, "orders", same_group=True)
-    monkeypatch.chdir(root)
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", f"tasks/{root.name}.md")
-    aws_state(aws)
-    assert invoke_step(root, report, aws, ["--action", "advance"]) == 0
-    capsys.readouterr()
-    original = deploy_progress.progress_path(root, f"tasks/{root.name}.md")
-    original_bytes = original.read_bytes()
-    peer = root / "tasks/peer.md"
-    peer.write_text(
-        (root / f"tasks/{root.name}.md").read_text().replace(
-            f"tasks/{root.name}.md", "tasks/peer.md"
-        )
-    )
-    provider = json.loads(aws.read_text())
-    for state in provider["stacks"].values():
-        state["status"] = stack_status
-    before = len(provider["calls"])
-    aws.write_text(json.dumps(provider))
-    with selected_task(root, "tasks/peer.md"):
-        invoke_step(root, report, aws, ["--action", "advance"])
-    captured = capsys.readouterr()
-    result = json.loads(captured.out)
-    calls = json.loads(aws.read_text())["calls"][before:]
-    assert any(op == "describe_stacks" for _, op, _ in calls), (result, captured.err)
-    assert original.read_bytes() == original_bytes
-    assert deploy_progress.progress_path(root, "tasks/peer.md").exists()
-    if stack_status == "CREATE_COMPLETE":
-        assert any(op == "create_change_set" for _, op, _ in calls), (result, captured.err)
-    else:
-        assert not any(op in {"create_change_set", "execute_change_set"} for _, op, _ in calls)
-        assert result["result"] != "SUCCESS"
 
 
 def check_advance_and_status_expose_observed_progress(tmp_path, monkeypatch, capsys):

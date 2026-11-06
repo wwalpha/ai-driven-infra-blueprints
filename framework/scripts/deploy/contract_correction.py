@@ -30,7 +30,6 @@ from deploy import (
     observed_resume,
     operation_journal,
     run_context,
-    worktree,
 )
 from deploy import progress as deploy_progress
 
@@ -85,7 +84,7 @@ def check_candidate(root, task, original, candidate, state, context, approved):
         or tasks.status(candidate) != "suspend"
         or tasks.section(task.text, "## Suspension reason")
         != tasks.section(candidate, "## Suspension reason")
-        or not worktree.is_deploy(original)
+        or not {"- Task type: `infrastructure`", "- Infrastructure phase: `deploy`"}.issubset(tasks.section(original, "## Task contract"))
         or not unchanged_authority(original, task.text)
         or not unchanged_authority(original, candidate)
         or not unchanged_authority(task.text, candidate)

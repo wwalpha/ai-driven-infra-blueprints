@@ -29,7 +29,6 @@ from deploy import (
     recovery,
     scheduler,
     steps,
-    worktree,
 )
 from deploy import progress as deploy_progress
 from model.core import properties, stack_model, validate_model_keys
@@ -42,6 +41,7 @@ from support.regression_cases import case_ids
 from utils import local_evidence
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
+from utils.local_evidence import write_sealed
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -766,7 +766,7 @@ def missing_changeset_aws(event, operation, **arguments):
 
 def save_test_state(case, request, progress, state):
     case.assertTrue(request.exists())
-    worktree.write_sealed(progress.parent, progress, state)
+    write_sealed(progress.parent, progress, state)
 
 
 class TestCurrentState(TestCase):
@@ -1710,7 +1710,7 @@ def check_current_guidance_preserves_safe_recovery_and_final_choices(condition):
 def handoff_test_save(boundary, tmp_path, progress, state):
     if boundary == "save":
         raise OSError("save interrupted")
-    worktree.write_sealed(tmp_path, progress, state)
+    write_sealed(tmp_path, progress, state)
 
 
 def handoff_test_replace_file(boundary, replace, *args, **kwargs):

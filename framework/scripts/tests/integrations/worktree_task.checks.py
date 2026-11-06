@@ -52,7 +52,6 @@ from support.worktree_task_fixtures import (
 from support.worktree_task_fixtures import (
     contract as contract,
 )
-from utils import local_evidence
 from utils.aws_mappings import mapping_alias
 from validation import loop
 from validation.findings import Findings
@@ -1477,11 +1476,6 @@ def check_explicit_disposal_and_orphans():
             (target / "file.txt").write_text("dirty\n", encoding="utf-8")
             (target / "untracked.txt").write_text("discard\n", encoding="utf-8")
             (target / "secret.bin").write_bytes(b"ignored discard")
-            _, _, state_path, state = wt.load(root, EXAMPLE_TASK_ID)
-            state["deployIdentity"] = {"taskFile": state["task_file"]}
-            wt.save(state_path, state)
-            proof = local_evidence.evidence_store(target) / "deploy-progress.json"
-            local_evidence.write_sealed(target, proof, {"task": state["task_file"]})
             shared_marker = wt.python_env.shared_directory(root) / "keep.txt"
             shared_marker.parent.mkdir(parents=True, exist_ok=True)
             shared_marker.write_text("shared environment", encoding="utf-8")
@@ -1490,7 +1484,6 @@ def check_explicit_disposal_and_orphans():
             assert result["cleaned"] and not any(
                 result["cleanup"]["remaining"].values()
             )
-            assert proof.exists() and str(proof) in result["retained_external_evidence"]
             assert peer.exists() and peer_path.read_bytes() == peer_before
             assert shared_marker.read_text(encoding="utf-8") == "shared environment"
             assert git(root, "rev-parse", "HEAD") == before
@@ -1503,7 +1496,6 @@ def check_explicit_disposal_and_orphans():
             with pytest.raises(wt.Blocked, match="used by worktree|checked out"):
                 wt.delete_branch(root, in_use)
             assert wt.branch_exists(root, in_use)
-            proof.unlink()
 
 
 @it_case

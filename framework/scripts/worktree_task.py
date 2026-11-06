@@ -21,7 +21,6 @@ from contracts.repository import PROJECT_FILENAME
 from contracts.target import AWS_ACCOUNT_ID_KEY
 from utils import cli_deploy
 from utils.file_operations import sha
-from utils.local_evidence import evidence_store as local_evidence_store
 from utils.script_loader import module
 from worktree_state import (
     Blocked as Blocked,
@@ -392,18 +391,6 @@ def cleanup_state(root, path, state, *, discard=False):
             raise Blocked("local cleanup is incomplete; retain Task state for review")
         retained_evidence = []
         if discard:
-            try:
-                if state.get("deployIdentity"):
-                    progress = (
-                        local_evidence_store(target, create=False)
-                        / "deploy-progress.json"
-                    )
-                    if progress.exists() or progress.is_symlink():
-                        retained_evidence.append(str(progress))
-            except (OSError, ValueError) as error:
-                retained_evidence.append(
-                    {"external_evidence_inspection_error": str(error)}
-                )
             for key in ("deployRepair", "deployIdentity", "iacRepair"):
                 if state.get(key):
                     retained_evidence.append({key: state[key]})
@@ -791,7 +778,7 @@ def finalize(
     if (
         create_pr
         and not (
-            state.get("deployIdentity") or state.get("deployRepair") or state["merged"]
+            state.get("deployRepair") or state["merged"]
         )
         and cli_deploy.is_cli(
             tasks.read_task_snapshot(
@@ -801,7 +788,7 @@ def finalize(
     ):
         raise Blocked("PR publication is unavailable for Deploy tasks")
     if create_pr and (
-        state.get("deployIdentity") or state.get("deployRepair") or state["merged"]
+        state.get("deployRepair") or state["merged"]
     ):
         raise Blocked(
             "PR publication is unavailable for Deploy, repair or merged tasks"
@@ -809,7 +796,7 @@ def finalize(
     publication = module("worktree_pr.py", "worktree_pr")
     with publication.publication_lock(path):
         state = load(root, task_id)[3]
-        if state.get("deployIdentity") or state.get("deployRepair") or state["merged"]:
+        if state.get("deployRepair") or state["merged"]:
             if create_pr:
                 raise Blocked(
                     "PR publication is unavailable for Deploy, repair or merged tasks"
@@ -1172,7 +1159,6 @@ def sync_latest_base(where, task_id, expected_base):
             if (
                 state.get("prPublication")
                 or state.get("integrationMode") == "pr"
-                or state.get("deployIdentity")
                 or state.get("deployRepair")
                 or state["merged"]
                 or state.get("baseSyncIntent")
@@ -1418,7 +1404,6 @@ def sync_base(where, task_id, expected_base):
         if pr_mode and (
             any(key in state for key in ("prPublication", "prUpdate", "githubMerged"))
             or state.get("verified")
-            or state.get("deployIdentity")
             or state.get("deployRepair")
             or state.get("latestBaseSync")
             or path.with_suffix(".setup-lock").exists()

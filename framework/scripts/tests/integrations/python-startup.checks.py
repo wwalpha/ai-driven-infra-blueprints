@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from deploy import worktree
 from support.framework_input_isolation_fixtures import (
     PUBLIC_API_MODULES,
     VALIDATION_MODULES,
@@ -103,7 +102,7 @@ def check_imports_in_one_process():
     statement = "; ".join((f"import {name}" for name in modules))
     result = subprocess.run(
         [sys.executable, "-B", "-c", statement],
-        env=dict(os.environ, PYTHONPATH=str(ROOT / "framework/scripts")),
+        env=dict(os.environ, PYTHONPATH=str(ROOT / 'framework/scripts')),
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -138,7 +137,7 @@ def check_startup_needs_only_standard_library():
             sys.executable,
             "-S",
             "-c",
-            f"import sys; sys.path.insert(0, {str(Path(worktree.__file__).resolve().parents[1])!r}); from deploy.worktree import start; from deploy.progress import discard_progress; assert 'yaml' not in sys.modules; assert 'boto3' not in sys.modules",
+            f"import sys; sys.path.insert(0, {str(ROOT / 'framework/scripts')!r}); from deploy.progress import progress_path; assert 'yaml' not in sys.modules; assert 'boto3' not in sys.modules",
         ],
         capture_output=True,
         text=True,

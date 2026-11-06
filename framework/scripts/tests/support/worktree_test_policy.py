@@ -46,14 +46,10 @@ WORKTREE_CASES = {
         "check_desired_model_change_is_never_authorized",
     ),
     "units/deploy-worktree-unit.checks.py": (
-        "check_snapshot_ignores_base_history",
-        "check_unmanaged_mutation_is_rejected",
-        "check_managed_task_authority",
         "check_mutation_rechecks_live_authority",
         "check_claim_input_hash_still_blocks",
         "check_progress_uses_fixed_identity_without_git",
         "check_progress_preserves_success_and_omits_unowned_fields",
-        "check_reuse_keeps_exact_identity",
         "check_progress_has_one_mutable_context_and_preserves_recovery",
         "check_corrupt_progress_is_never_empty_success",
     ),
@@ -62,7 +58,6 @@ WORKTREE_CASES = {
         "check_model_publication_across_process",
         "check_failure_evidence_survives_progress_reload_and_status",
         "check_event_read_failure_keeps_running_operation_unconfirmed",
-        "check_new_task_reads_aws_despite_other_task_progress",
         "check_advance_and_status_expose_observed_progress",
     ),
     "integrations/deploy-worktree.checks.py": (

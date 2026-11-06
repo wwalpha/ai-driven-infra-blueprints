@@ -865,7 +865,7 @@ def check_pr_cli_and_special_routes(tmp_path, command):
             wt.main()
         assert error.value.code == 2
         load.assert_not_called()
-    for special in ("deployIdentity", "deployRepair", "merged"):
+    for special in ("deployRepair", "merged"):
         state = {"merged": None, special: "present"}
         with (
             patch.object(

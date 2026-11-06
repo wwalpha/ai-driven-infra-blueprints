@@ -134,6 +134,14 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch):
     assert "`subnet-fixture`" in (
         target / f"model/dev/{ACCOUNT}/ec2.properties"
     ).read_text(encoding="utf-8")
+    task_id = target.name
+    assert task_id.startswith("deploy-") and len(task_id.rsplit("-", 1)[1]) == 6
+    monkeypatch.chdir(primary)
+    result = wt.finalize(primary, task_id)
+    assert result["merged"] and result["cleaned"]
+    assert not target.exists()
+    assert git(primary, "rev-parse", "HEAD").strip() != base
+    assert "`subnet-fixture`" in (primary / f"model/dev/{ACCOUNT}/ec2.properties").read_text(encoding="utf-8")
 
 
 def check_combined_checkpoint_after_peer_completion(tmp_path, monkeypatch):
