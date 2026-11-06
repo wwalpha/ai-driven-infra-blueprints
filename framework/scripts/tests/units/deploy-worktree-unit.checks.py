@@ -1,12 +1,8 @@
 """Deploy-only snapshot, ownership, progress and Git failure boundaries without Git fixtures."""
 
-import copy
-import hashlib
 import json
-import subprocess
 import sys
 from contextlib import nullcontext
-from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,17 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-import worktree_checkpoint as checkpoints
 import worktree_state as ws
 from deploy import (
     controller,
     guards,
-    inputs,
     operation_journal,
     run_context,
     worktree,
 )
-from deploy import git_publication as publication
 from deploy import progress as deploy_progress
 from support.pytest_cli import run
 from task_contract_core import task_digest
@@ -37,133 +30,12 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
-def check_source_scope_shares_deploy_baseline(tmp_path, monkeypatch):
-    start = Mock(return_value="start")
-    observation = Mock()
-    findings = SimpleNamespace(errors=[])
-    task = Mock()
-    monkeypatch.setattr(publication.ws, "deploy_start_commit", start)
-    monkeypatch.setattr(publication, "require_observation_delta", observation)
-    monkeypatch.setattr(publication, "Findings", Mock(return_value=findings))
-    factory = Mock(return_value=task)
-    monkeypatch.setattr(publication, "TaskValidation", factory)
-    publication.check_scope_in_process(tmp_path, "tasks/deploy.md")
-    start.assert_called_once_with(tmp_path, "tasks/deploy.md", required=True)
-    observation.assert_called_once_with(tmp_path, "start")
-    factory.assert_called_once_with(tmp_path, findings, contract_file="tasks/deploy.md")
-    TestCase().assertEqual((task.baseline, task.baseline_fixed), ("start", True))
-    task.check_task_scope.assert_called_once()
-    task.check_task_type_requirements.assert_called_once()
-    findings.errors.append("outside scope")
-    with pytest.raises(ValueError, match="outside scope"):
-        publication.check_scope_in_process(tmp_path, "tasks/deploy.md")
 
 
-def check_zero_delta_checkpoint_returns_head(tmp_path, monkeypatch):
-    snapshot = SimpleNamespace(raw=b"task")
-    monkeypatch.setattr(
-        publication.tasks, "read_task_snapshot", lambda *a, **k: snapshot
-    )
-    monkeypatch.setattr(publication.worktree, "require", lambda *a: None)
-    monkeypatch.setattr(publication.wt, "changed_paths", lambda root: set())
-    output = Mock(return_value="existing-head")
-    git = Mock()
-    monkeypatch.setattr(publication.wt, "output", output)
-    monkeypatch.setattr(publication.wt, "git", git)
-    monkeypatch.setattr(
-        publication.contracts, "validation_snapshot", Mock(return_value={})
-    )
-    scope = Mock()
-    guard = Mock()
-    monkeypatch.setattr(publication, "check_scope", scope)
-    monkeypatch.setattr(publication.wt, "_run_model_guard", guard)
-    preflight = {
-        "task": b"task",
-        "head": "existing-head",
-        "index": "existing-head",
-        "changed": set(),
-        "candidate": {},
-    }
-    TestCase().assertEqual(
-        publication.checkpoint(
-            tmp_path,
-            tmp_path / "state",
-            {"task_file": "tasks/deploy.md"},
-            preflight=preflight,
-        ),
-        "existing-head",
-    )
-    scope.assert_not_called()
-    guard.assert_not_called()
 
 
-@pytest.mark.parametrize("problem", ["task", "head", "index", "candidate", "paths"])
-def check_preflight_change_blocks_checkpoint(tmp_path, monkeypatch, problem):
-    snapshot = SimpleNamespace(raw=b"task")
-    changed = {"model/a.properties"}
-    path = tmp_path / "model/a.properties"
-    path.parent.mkdir()
-    path.write_text("observed", encoding="utf-8")
-    preflight = {
-        "task": b"other" if problem == "task" else b"task",
-        "head": "other" if problem == "head" else "head",
-        "index": "other" if problem == "index" else "index",
-        "candidate": {"model/a.properties": "other"} if problem == "candidate" else {},
-        "changed": set() if problem == "paths" else changed,
-    }
-    monkeypatch.setattr(
-        publication.tasks, "read_task_snapshot", Mock(return_value=snapshot)
-    )
-    monkeypatch.setattr(publication.worktree, "require", Mock())
-    monkeypatch.setattr(publication.wt, "changed_paths", Mock(return_value=changed))
-    monkeypatch.setattr(publication.wt, "output", Mock(side_effect=["head", "index"]))
-    monkeypatch.setattr(
-        publication.contracts, "validation_snapshot", Mock(return_value={})
-    )
-    scope = Mock()
-    guard = Mock()
-    monkeypatch.setattr(publication, "check_scope", scope)
-    monkeypatch.setattr(publication.wt, "_run_model_guard", guard)
-    with pytest.raises(ValueError, match="changed during preflight"):
-        publication.checkpoint(
-            tmp_path,
-            tmp_path / "state",
-            {"task_file": "tasks/deploy.md"},
-            preflight=preflight,
-        )
-    scope.assert_not_called()
-    guard.assert_not_called()
 
 
-def check_outside_change_blocks_snapshot_checkpoint(tmp_path, monkeypatch):
-    target = tmp_path / "deploy"
-    target.mkdir()
-    readme = target / "README.md"
-    readme.write_text("foreign change\n")
-    before = {"model/a.properties": "old"}
-    after = {"model/a.properties": "new"}
-    state = {"deployCheckpoints": {}, "task_file": "tasks/deploy.md"}
-    context = {"checkpointPending": {"stacks": ["A"], "before": before, "after": after}}
-    backend = SimpleNamespace(
-        root=target, run_context=context, states={"A": {"observedSynced": True}}
-    )
-    monkeypatch.setattr(
-        checkpoints.wt, "load", lambda *a: (tmp_path, None, tmp_path / "state", state)
-    )
-    monkeypatch.setattr(checkpoints.wt, "lifecycle_lock", lambda *a: nullcontext())
-    monkeypatch.setattr(checkpoints.worktree, "require", lambda *a: state)
-    monkeypatch.setattr(checkpoints.contracts, "validation_snapshot", lambda *a: after)
-    monkeypatch.setattr(
-        checkpoints.wt, "changed_paths", lambda *a: {"model/a.properties", "README.md"}
-    )
-    git = Mock()
-    monkeypatch.setattr(checkpoints.wt, "git", git)
-    with pytest.raises(ValueError, match="outside synchronized Model/views"):
-        checkpoints.snapshot_checkpoint(backend, ["A"])
-    assert readme.read_text() == "foreign change\n"
-    assert state["deployCheckpoints"] == {}
-    assert context["checkpointPending"]["after"] == after
-    git.assert_not_called()
 
 
 def task(root):
@@ -199,10 +71,6 @@ def _callback_snapshot_git(replies, /, root, *args, **kwargs):
         "conflict",
         "operation",
         "git",
-        "checkpoint",
-        "checkpoint-parent",
-        "checkpoint-tree",
-        "checkpoint-message",
         "repository-lines",
     ],
 )
@@ -304,31 +172,10 @@ def check_snapshot_ignores_base_history(tmp_path, monkeypatch, problem):
         replies[("diff", "--name-only", "--diff-filter=U", "-z")] = "conflict\0"
     elif problem == "operation":
         (root / "MERGE_HEAD").touch()
-    elif problem and problem.startswith("checkpoint"):
-        state["deployCheckpointIntent"] = {
-            "head": "tip",
-            "tree": "tree",
-            "message": "checkpoint",
-        }
-        replies.update(
-            {
-                ("rev-parse", "HEAD"): "checkpoint",
-                ("rev-parse", "HEAD^"): "wrong"
-                if problem == "checkpoint-parent"
-                else "tip",
-                ("rev-parse", "HEAD^{tree}"): "wrong"
-                if problem == "checkpoint-tree"
-                else "tree",
-                ("log", "-1", "--format=%s"): "wrong"
-                if problem == "checkpoint-message"
-                else "checkpoint",
-                ("merge-base", "--is-ancestor", "snapshot", "checkpoint"): "",
-            }
-        )
     meta.write_text(json.dumps(state), encoding="utf-8")
     git = Mock(side_effect=partial(_callback_snapshot_git, replies))
     monkeypatch.setattr(ws, "git", git)
-    if problem not in {None, "checkpoint", "repository-lines"}:
+    if problem not in {None, "repository-lines"}:
         with pytest.raises(ValueError):
             worktree.require(root, snapshot)
     else:
@@ -460,105 +307,8 @@ def check_mutation_rechecks_live_authority(tmp_path, monkeypatch, problem):
 
 
 
-@pytest.fixture
-def checkpoint_evidence(tmp_path, monkeypatch):
-    unit = {"name": "A", "template": "a.yaml", "parameters": "a.json"}
-    identity = {
-        "taskFile": "tasks/deploy.md",
-        "taskDigest": "task",
-        "target": {},
-        "environment": "dev",
-        "stacks": ["A"],
-        "snapshot": "start",
-    }
-    manifest = {}
-    for path in inputs.deployment_input_paths(tmp_path, "dev", "app", {}, [unit]):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("immutable input", encoding="utf-8")
-        manifest[path.relative_to(tmp_path).as_posix()] = hashlib.sha256(
-            path.read_bytes()
-        ).hexdigest()
-    digest = inputs.fingerprint(list(manifest.values()))
-    state = {
-        "task_id": "deploy",
-        "task_file": "tasks/deploy.md",
-        "tip": "checkpoint",
-        "branch": "codex/worktree/deploy",
-        "base": "main",
-        "deployIdentity": identity,
-        "deployCheckpoints": {
-            "A": {
-                "commit": "checkpoint",
-                "tree": "tree",
-                "identity": identity,
-                "taskDigest": "task",
-                "inputDigest": digest,
-                "inputs": manifest,
-                "unit": unit,
-                "stackId": "stack-a",
-                "stackStatus": "CREATE_COMPLETE",
-                "coverage": {"ResourceA": {"status": "MATCHED"}},
-                "services": ["ec2"],
-            }
-        },
-    }
-    progress = {
-        "identity": identity,
-        "runContext": {
-            "stepUnits": [unit],
-            "directory": "app",
-            "states": {
-                "A": {
-                    "status": "SUCCESS",
-                    "observedSynced": True,
-                    "stackId": "stack-a",
-                    "stackStatus": "CREATE_COMPLETE",
-                    "observedCoverage": {"ResourceA": {"status": "MATCHED"}},
-                    "observedServices": ["ec2"],
-                }
-            },
-            "inputDigests": {"A": digest},
-        },
-    }
-    monkeypatch.setattr(publication.wt, "ancestor", Mock(return_value=True))
-    monkeypatch.setattr(publication.wt, "output", Mock(return_value="tree"))
-    monkeypatch.setattr(
-        publication.ws, "subprocess_bytes", Mock(return_value=b"immutable input")
-    )
-    monkeypatch.setattr(publication.wt, "base_worktree", Mock(return_value=tmp_path))
-    return state, progress
 
 
-@pytest.mark.parametrize(
-    "problem",
-    [None, "receipt", "commit", "target", "unit", "digest", "input", "tree", "aws"],
-)
-def check_publication_requires_exact_saved_checkpoint(
-    tmp_path, monkeypatch, checkpoint_evidence, problem
-):
-    state, progress = checkpoint_evidence
-    entry = state["deployCheckpoints"]["A"]
-    if problem == "receipt":
-        state["deployCheckpoints"] = {}
-    elif problem == "commit":
-        state["tip"] = "unverified-commit"
-    elif problem == "target":
-        entry["identity"] = {**entry["identity"], "target": {"awsAccountId": "other"}}
-    elif problem == "unit":
-        entry["unit"] = {"name": "other"}
-    elif problem == "digest":
-        entry["inputDigest"] = "other"
-    elif problem == "input":
-        (tmp_path / next(iter(entry["inputs"]))).write_text("changed", encoding="utf-8")
-    elif problem == "tree":
-        entry["tree"] = "other"
-    elif problem == "aws":
-        progress["runContext"]["states"]["A"]["status"] = "RUNNING"
-    if problem and problem != "aws":
-        with pytest.raises(ValueError):
-            publication.checkpoint_source(tmp_path, state, progress)
-    else:
-        assert publication.checkpoint_source(tmp_path, state, progress) == "checkpoint"
 
 
 
@@ -821,36 +571,6 @@ def check_missing_progress_with_saved_checkpoint_is_not_a_fresh_run(tmp_path):
         )
 
 
-def check_final_source_uses_fixed_inputs_without_intermediate_receipts(
-    tmp_path, monkeypatch, checkpoint_evidence
-):
-    state, progress = checkpoint_evidence
-    task_before = task(tmp_path)
-    snapshot = SimpleNamespace(
-        text=publication.tasks.set_status(task_before.text, "completed"),
-        status="completed",
-        task_digest=task_before.task_digest,
-    )
-    state["deployIdentity"]["taskDigest"] = snapshot.task_digest
-    state["deployPublication"] = {
-        "finalCandidate": {
-            "source": state["tip"],
-            "tree": "tree",
-            "taskBefore": task_before.text,
-            "taskAfter": snapshot.text,
-        }
-    }
-    progress["runContext"]["consumedInputs"] = dict(
-        state["deployCheckpoints"]["A"]["inputs"]
-    )
-    state["deployCheckpoints"] = {}
-    monkeypatch.setattr(
-        publication.tasks, "read_task_snapshot", Mock(return_value=snapshot)
-    )
-    assert publication.checkpoint_source(tmp_path, state, progress) == state["tip"]
-    progress["runContext"]["consumedInputs"].clear()
-    with pytest.raises(ValueError, match="manifest changed"):
-        publication.checkpoint_source(tmp_path, state, progress)
 
 
 
@@ -882,293 +602,36 @@ def atomic_test_transport(
 
 
 
-def _checkpoint_output(trace, root, *args):
-    if args == ("write-tree",) or args == ("rev-parse", "HEAD^{tree}"):
-        return "tree"
-    if args == ("rev-parse", "HEAD^"):
-        return "old"
-    if args == ("rev-parse", "HEAD"):
-        return trace.head
-    raise AssertionError(f"unexpected checkpoint read: {args}")
-
-
-def _checkpoint_git(trace, root, *args, **kwargs):
-    if args[0] == "commit":
-        if trace.failure == "before-commit" and not trace.failed:
-            trace.failed = True
-            raise OSError("interrupted before commit")
-        trace.head, trace.changed = "new", set()
-        trace.commits += 1
-        if trace.failure == "after-commit" and not trace.failed:
-            trace.failed = True
-            raise OSError("interrupted after commit")
-    return subprocess.CompletedProcess([], 0, "", "")
-
-
-def _checkpoint_save(trace, path, state):
-    if (
-        trace.failure == "receipt-save"
-        and not trace.failed
-        and "deployCheckpointIntent" not in state
-    ):
-        trace.failed = True
-        raise OSError("interrupted receipt save")
-    trace.saved.append(copy.deepcopy(state))
-    if trace.failure == "intent-save" and not trace.failed:
-        trace.failed = True
-        raise OSError("interrupted intent acknowledgement")
-
-
-@pytest.mark.parametrize(
-    "failure", ["before-commit", "after-commit", "intent-save", "receipt-save"]
-)
-def check_saved_checkpoint_intent_reconciles_once(tmp_path, monkeypatch, failure):
-    check = TestCase()
-    relative = "model/a.properties"
-    source = tmp_path / relative
-    source.parent.mkdir()
-    source.write_bytes(b"adopted observations")
-    state = dict(task_file="tasks/deploy.md", task_id="deploy", tip="old")
-    trace = SimpleNamespace(
-        failure=failure,
-        failed=False,
-        head="old",
-        changed={relative},
-        commits=0,
-        saved=[],
-    )
-    snapshot = SimpleNamespace(raw=b"task")
-    monkeypatch.setattr(
-        publication.tasks, "read_task_snapshot", Mock(return_value=snapshot)
-    )
-    monkeypatch.setattr(publication.worktree, "require", Mock())
-    monkeypatch.setattr(publication, "output_changes", lambda *a: set(trace.changed))
-    monkeypatch.setattr(
-        publication.contracts,
-        "validation_snapshot",
-        Mock(return_value={relative: "adopted"}),
-    )
-    monkeypatch.setattr(publication.wt, "output", partial(_checkpoint_output, trace))
-    monkeypatch.setattr(publication.wt, "git", partial(_checkpoint_git, trace))
-    monkeypatch.setattr(publication.wt, "save", partial(_checkpoint_save, trace))
-    preflight = dict(
-        task=b"task",
-        head="old",
-        index="tree",
-        changed={relative},
-        candidate={relative: "adopted"},
-    )
-    with pytest.raises(OSError, match="interrupted"):
-        publication.checkpoint(
-            tmp_path, tmp_path / "state.json", state, preflight=preflight
-        )
-    state = copy.deepcopy(trace.saved[-1])
-    check.assertIn("deployCheckpointIntent", state)
-    preflight.update(head=trace.head, changed=set(trace.changed))
-    check.assertEqual(
-        publication.checkpoint(
-            tmp_path, tmp_path / "state.json", state, preflight=preflight
-        ),
-        "new",
-    )
-    check.assertEqual(trace.commits, 1)
-    check.assertNotIn("deployCheckpointIntent", state)
-    check.assertEqual(state["tip"], "new")
-    check.assertEqual(source.read_bytes(), b"adopted observations")
-
-
-def _final_checkpoint_output(trace, root, *args):
-    return trace.head if args == ("rev-parse", "HEAD") else trace.index
-
-
-def _final_checkpoint_change(trace, failure, metadata, root, tree, head, candidate):
-    if failure == "validation":
-        raise ValueError("candidate validation failed")
-    if failure == "task":
-        trace.task = replace(trace.task, raw=b"external Task bytes")
-    elif failure in ("input", "candidate"):
-        trace.snapshot[
-            "infra/parameters.json" if failure == "input" else "model/a.properties"
-        ] = "external"
-    elif failure == "head":
-        trace.head = "external"
-    elif failure == "index":
-        trace.index = "external"
-    else:
-        metadata.write_text(
-            json.dumps({"deployCheckpointIntent": {"foreign": True}}), encoding="utf-8"
-        )
-
-
-@pytest.mark.parametrize(
-    "failure", ["task", "input", "candidate", "head", "index", "intent", "validation"]
-)
-def check_final_checkpoint_rejects_changes_before_adoption(
-    tmp_path, monkeypatch, failure
-):
-    check = TestCase()
-    name = "tasks/deploy.md"
-    text = task(tmp_path).text
-    source = tmp_path / name
-    source.parent.mkdir()
-    source.write_text(text, encoding="utf-8")
-    snapshot = publication.tasks.TaskSnapshot(
-        name,
-        tmp_path,
-        source,
-        text,
-        text.encode(),
-        hashlib.sha256(text.encode()).hexdigest(),
-        (None, None),
-    )
-    after = {"model/a.properties": "new", "infra/parameters.json": "fixed"}
-    pending = dict(
-        stacks=["A"],
-        before={**after, "model/a.properties": "old"},
-        after=dict(after),
-        final=dict(
-            taskBefore=text, taskAfter=publication.tasks.set_status(text, "completed")
-        ),
-    )
-    state = dict(
-        task_file=name,
-        tip="head",
-        deployIdentity=dict(stacks=["A"], taskDigest=snapshot.task_digest),
-    )
-    metadata = tmp_path / "state.json"
-    metadata.write_text("{}", encoding="utf-8")
-    trace = SimpleNamespace(
-        task=snapshot, head="head", index="index", snapshot=dict(after)
-    )
-    backend = SimpleNamespace(
-        root=tmp_path,
-        run_context={"checkpointPending": pending},
-        states={"A": {"status": "SUCCESS"}},
-        target={},
-        save=Mock(),
-        guard=Mock(),
-    )
-    monkeypatch.setattr(
-        checkpoints.tasks, "read_task_snapshot", lambda *a, **k: trace.task
-    )
-    monkeypatch.setattr(checkpoints.completion, "final_blockers", Mock(return_value=[]))
-    monkeypatch.setattr(
-        checkpoints.contracts, "validation_snapshot", lambda *a: dict(trace.snapshot)
-    )
-    monkeypatch.setattr(
-        publication, "output_changes", Mock(return_value={"model/a.properties"})
-    )
-    monkeypatch.setattr(
-        checkpoints.wt, "output", partial(_final_checkpoint_output, trace)
-    )
-    monkeypatch.setattr(publication, "final_tree", Mock(return_value="tree"))
-    monkeypatch.setattr(
-        publication,
-        "validate_candidate",
-        partial(_final_checkpoint_change, trace, failure, metadata),
-    )
-    with (
-        patch.object(checkpoints.tasks, "atomic_files") as adopt,
-        patch.object(publication, "checkpoint") as commit,
-    ):
-        with pytest.raises(
-            ValueError, match="changed during validation|candidate validation failed"
-        ):
-            checkpoints.final_checkpoint(backend, tmp_path, metadata, state, pending)
-    adopt.assert_not_called()
-    commit.assert_not_called()
-    check.assertEqual(source.read_text(encoding="utf-8"), text)
-    check.assertNotIn("validated", pending["final"])
-    check.assertEqual(backend.run_context["snapshotValidation"], "FAIL")
-
-
-def _publication_output(trace, root, *args):
-    return "index" if args == ("write-tree",) else "merged" if trace.merged else "base"
-
-
-def _publication_merge(trace, root, *args, **kwargs):
-    TestCase().assertEqual(args[:2], ("merge", "--ff-only"))
-    if trace.failure == "before-merge" and not trace.failed:
-        trace.failed = True
-        raise OSError("interrupted before merge")
-    trace.merged = True
-    trace.merges += 1
-    if trace.failure == "after-merge" and not trace.failed:
-        trace.failed = True
-        raise OSError("interrupted after merge")
-    return subprocess.CompletedProcess([], 0, "", "")
-
-
-def _publication_save(trace, path, state):
-    if trace.failure == "receipt" and not trace.failed:
-        trace.failed = True
-        raise OSError("interrupted publication receipt")
-    trace.saved = copy.deepcopy(state)
 
 
 
 
-@pytest.mark.parametrize("status", ["SUCCESS", "FAILED", "SETTLED", "NOT_STARTED"])
-def check_checkpoint_receipt_preserves_terminal_facts(tmp_path, monkeypatch, status):
-    relative = "infra/parameters.json"
-    unit = dict(name="A", deployOrder=1)
-    state = dict(deployIdentity={"taskDigest": "task"})
-    saved = dict(
-        status=status,
-        stackId="stack-id",
-        stackStatus="UPDATE_COMPLETE",
-        observedCoverage={"row": "known"},
-        observedServices=["vpc"],
-    )
-    backend = SimpleNamespace(
-        root=tmp_path,
-        states={"A": saved},
-        run_context=dict(
-            stepUnits=[unit],
-            consumedInputs={relative: "hash"},
-            taskDigest="task",
-            inputDigests={"A": "digest"},
-        ),
-        deployment_input_paths=lambda units: [tmp_path / relative],
-    )
-    monkeypatch.setattr(checkpoints.wt, "output", Mock(return_value="tree"))
-    receipt = checkpoints.checkpoint_receipt(backend, state, "A", "commit")
-    TestCase().assertEqual(
-        (receipt["deployStatus"], receipt["stackStatus"], receipt["stackId"]),
-        (status, "UPDATE_COMPLETE", "stack-id"),
-    )
-    TestCase().assertEqual(receipt["inputs"], {relative: "hash"})
-    saved["observedCoverage"]["row"] = "changed"
-    TestCase().assertEqual(receipt["coverage"], {"row": "known"})
-
-
-def _resolution_command(command, **kwargs):
-    return subprocess.CompletedProcess(
-        command, 0, "resolved-tree" if command[1] == "write-tree" else "oid", ""
-    )
 
 
 
 
-def _conflict_publication_output(trace, primary, root, *args):
-    if root == primary:
-        return trace["head"]
-    if args == ("write-tree",):
-        return "index"
-    if args[:1] == ("commit-tree",):
-        return "candidate"
-    return "source" if args == ("rev-parse", "HEAD") else "base-tree"
 
 
-def _conflict_publication_git(trace, primary, root, *args, **kwargs):
-    if args[0] == "merge-tree":
-        return subprocess.CompletedProcess(
-            [], 1, "conflict-tree\0model/dev/team/ec2.properties\0\0", ""
-        )
-    if root == primary and args[:2] == ("merge", "--ff-only"):
-        trace["head"] = args[-1]
-        trace["merges"] += 1
-    return subprocess.CompletedProcess([], 0, "", "")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

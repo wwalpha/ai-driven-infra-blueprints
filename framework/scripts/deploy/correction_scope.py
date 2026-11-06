@@ -1,13 +1,10 @@
 """Prove omitted services from fixed ownership and retained typed references."""
 
 import base64
-import hashlib
 
 import task_contract_core as tasks
-import worktree_state as ws
 from contracts.model import key_parts, row_resource
 from model.format import parse
-from model.observed import verify_observed_outputs
 from model.render import owned_artifacts
 from model.sources import load_model, source_scope
 from utils.cloudformation.inputs import Blocked
@@ -164,29 +161,3 @@ def pending_outputs(root, state, context, consumers, plan=None):
             if (snapshot.scope.service, logical) not in owners:
                 foreign[key] = value
         deferred.check_updates(root, snapshot.scope.path, foreign, consumers)
-
-
-def checkpoint_models(root, state, context, before, current, consumers):
-    outputs, originals = {}, {}
-    for relative, digest in current.items():
-        if not relative.startswith("model/") or before.get(relative) == digest:
-            continue
-        if context.get("modelInputs", {}).get(relative) != digest:
-            continue
-        raw = ws.subprocess_bytes(root, state["tip"], relative)
-        if hashlib.sha256(raw).hexdigest() != before.get(relative):
-            raise ValueError(
-                "checkpoint original Model bytes are not proven by its Git source: "
-                + relative
-            )
-        path = root / relative
-        text = path.read_text(encoding="utf-8")
-        verify_observed_outputs({path: raw}, {path: text})
-        outputs[relative], originals[relative] = (
-            text,
-            base64.b64encode(raw).decode("ascii"),
-        )
-    pending_outputs(
-        root, state, context, consumers, dict(outputs=outputs, originals=originals)
-    )
-    return {relative: current[relative] for relative in outputs}

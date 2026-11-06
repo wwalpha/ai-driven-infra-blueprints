@@ -13,7 +13,6 @@ from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_st
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from types import SimpleNamespace
 
 import task_contract_core as tasks
 import worktree_python as python_env
@@ -468,7 +467,6 @@ def _run_model_guard(
     task_file,
     *,
     sources=None,
-    deploy_scope=False,
     validation_base=None,
 ):
     runtime = python_env.runtime(target)
@@ -484,17 +482,11 @@ def _run_model_guard(
         "-c",
         f"import sys, json; from pathlib import Path; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); "
         "import task_contract_core as tasks; from import_guard import require_import_changes; "
-        + (
-            "from deploy.git_publication import check_scope_in_process; "
-            if deploy_scope
-            else ""
-        )
-        + "root = Path.cwd()\n"
+        "root = Path.cwd()\n"
         "options = {}\n"
         'if sys.argv[2] != "null": options["supplied"] = set(json.loads(sys.argv[2]))\n'
         "with tasks.selected_task(root, sys.argv[1]):\n"
-        + ("    check_scope_in_process(root, sys.argv[1])\n" if deploy_scope else "")
-        + "    text = tasks.read_task_snapshot(root, sys.argv[1], live=True).text\n"
+        "    text = tasks.read_task_snapshot(root, sys.argv[1], live=True).text\n"
         "    if '- Workflow: `import`' in tasks.section(text, '## Task contract'):\n"
         "        from task_contract_runtime import check_import\n"
         "        check_import(root, sys.argv[1], supplied=options.get('supplied'), integration=True)\n"
@@ -1085,12 +1077,6 @@ def deploy_request(where, request_path):
 
 def deploy_checkpoint(where, task_id, session_path):
     return _worktree_runtime().deploy_checkpoint(where, task_id, session_path)
-
-
-def deploy_stack_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
-    return module("worktree_checkpoint.py", "worktree_checkpoint").checkpoint(
-        backend, names
-    )
 
 
 def deploy_child_contract(target, state, request):

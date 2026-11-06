@@ -211,14 +211,7 @@ def deploy_task_state(
     task_worktree(root, state)
     start = output(root, "rev-parse", "--verify", state["start"] + "^{commit}")
     head = output(root, "rev-parse", "HEAD")
-    intent = state.get("deployCheckpointIntent")
-    # Only the checkpoint helper may finish an interrupted, exactly recorded commit.
-    if head != state["tip"] and not (
-        intent
-        and output(root, "rev-parse", "HEAD^") == intent["head"] == state["tip"]
-        and output(root, "rev-parse", "HEAD^{tree}") == intent["tree"]
-        and output(root, "log", "-1", "--format=%s") == intent["message"]
-    ):
+    if head != state["tip"]:
         raise Blocked("unexpected Deploy worktree HEAD; retain snapshot for review")
     if git(root, "merge-base", "--is-ancestor", start, head, check=False).returncode:
         raise Blocked("Deploy snapshot start is not an ancestor of its HEAD")

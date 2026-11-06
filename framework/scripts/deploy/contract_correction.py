@@ -28,7 +28,6 @@ from deploy import (
     correction_scope,
     deferred,
     generation_resume,
-    git_publication,
     handoff,
     inputs,
     observed_resume,
@@ -269,47 +268,8 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         raise ws.Blocked(
             "generationError has no retained generation Intent; safe correction cannot be proven"
         )
-    pending = context.get("checkpointPending")
-    if pending:
-        if (
-            not pending["stacks"]
-            or not set(pending["stacks"]) <= set(identity["stacks"])
-            or pending.get("final")
-            or pending.get("after") is not None
-        ):
-            raise ws.Blocked(
-                "checkpointPending already has a fixed/final candidate; finish existing checkpoint/publication before correction"
-            )
-        current = contracts.validation_snapshot(root)
-        explained = {}
-        plans = list(context.get("pendingGeneration", {}).values())
-        if context.get("pendingObserved"):
-            plans.append(context["pendingObserved"])
-        for plan in plans:
-            for relative, digest in plan.get("afterManifest", {}).items():
-                explained.setdefault(relative, set()).add(digest)
-            outputs = plan.get("generated", {}).get("outputs") or {}
-            for relative, text in outputs.items():
-                explained.setdefault(relative, set()).add(
-                    hashlib.sha256(text.encode("utf-8")).hexdigest()
-                )
-        if (
-            pending["before"].keys() - current.keys()
-            or current.keys() - pending["before"].keys() - explained.keys()
-        ):
-            raise ws.Blocked("checkpointPending before manifest file set changed")
-        for relative, digest in correction_scope.checkpoint_models(
-            root, state, context, pending["before"], current, consumers
-        ).items():
-            explained.setdefault(relative, set()).add(digest)
-        if any(
-            digest != pending["before"].get(relative)
-            and digest not in explained.get(relative, ())
-            for relative, digest in current.items()
-        ):
-            raise ws.Blocked(
-                "checkpointPending bytes are not explained by retained publication Intents"
-            )
+    if context.get("checkpointPending") or state.get("deployCheckpoints"):
+        raise ws.Blocked("legacy Git checkpoint evidence requires review")
     store = evidence_store(root, create=False)
     retained = set()
     history = context.get("resolvedScopeFailures", [])
@@ -413,12 +373,7 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
             and context["inputDigests"][unit["name"]] != digest
         ):
             raise ws.Blocked("fixed execution digest changed: " + unit["name"])
-    if state.get("deployCheckpoints"):
-        git_publication.checkpoint_source(root, state, progress)
-    if "start" in state:
-        git_publication.require_observation_delta(root, state["start"])
-    else:
-        completion.verify_observation_delta(root)
+    completion.verify_observation_delta(root, state.get("start", "HEAD"))
 
 
 def pending_identity(root, task, candidate, state, saved, consumers, *, journal=None):
@@ -676,11 +631,6 @@ def correct_legacy(root, name, source, approved=()):
                     if deferred.key(record) == deferred.key(consumer):
                         record.update(consumer, approved=True)
         saved["runContext"]["snapshotValidation"] = "NOT_RUN"
-        for receipt in revised.get("deployCheckpoints", {}).values():
-            receipt.update(
-                identity=copy.deepcopy(new_identity),
-                taskDigest=new_identity["taskDigest"],
-            )
         after_progress = sealed(root, saved)
         tasks.verify_snapshot(task)
         if (

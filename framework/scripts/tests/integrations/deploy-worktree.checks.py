@@ -1,33 +1,24 @@
 """Real managed Git lifecycle, plus synthetic AWS controller/Model publication integration."""
 
 import json
-import os
 import sys
 import tempfile
-from contextlib import contextmanager
-from functools import partial
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 import task_contract_runtime as transitions
-import worktree_checkpoint as checkpoints
 import worktree_state as ws
 import worktree_task as wt
 from deploy import (
     completion,
-    contracts,
     inputs,
-    operation_journal,
     preparation,
-    worktree,
 )
-from deploy import git_publication as publication
 from deploy import progress as deploy_progress
 from model.format import parse
 from model.render import stack_markdown
@@ -40,10 +31,10 @@ from support import (
 from support.deploy_controller_fixtures import ACCOUNT, aws_state, invoke
 from support.model_sources import write_model
 from support.pytest_cli import run
-from support.worktree_deploy_fixtures import pin_progress, seed
-from support.worktree_task_fixtures import fixture, git
+from support.worktree_deploy_fixtures import seed
+from support.worktree_task_fixtures import git
 from task_contract import main as task_main
-from task_contract_core import read_task_snapshot, selected_task, start
+from task_contract_core import read_task_snapshot
 from utils.local_evidence import read_sealed
 
 if not __debug__:
@@ -56,70 +47,10 @@ def private_evidence(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
 
 
-class RequestProbe:
-    def __init__(self):
-        self.tokens = []
-        self.finished = False
-
-    def aws(self, operation, **arguments):
-        name = arguments["StackName"]
-        if operation == "describe_stacks":
-            return {"Stacks": [{"StackId": name, "StackStatus": "UPDATE_COMPLETE"}]}
-        if operation == "describe_change_set":
-            return {
-                "Status": "CREATE_COMPLETE" if self.finished else "CREATE_IN_PROGRESS",
-                "ChangeSetId": arguments["ChangeSetName"],
-                "StackId": name,
-                "ExecutionStatus": "EXECUTE_COMPLETE" if self.finished else "AVAILABLE",
-            }
-        if operation == "describe_stack_events":
-            token = next(
-                (token for stack, token in reversed(self.tokens) if stack == name), None
-            )
-            return {
-                "StackEvents": [
-                    {
-                        "StackId": name,
-                        "PhysicalResourceId": name,
-                        "ClientRequestToken": token,
-                        "ResourceType": "AWS::CloudFormation::Stack",
-                        "ResourceStatus": "UPDATE_COMPLETE",
-                    }
-                ]
-                if self.finished and token
-                else []
-            }
-        raise ValueError(operation)
-
-    def send(self, runtime, service, operation, arguments):
-        key = (
-            arguments["StackName"],
-            arguments.get("ClientRequestToken", arguments.get("ClientToken")),
-        )
-        if key not in self.tokens:
-            self.tokens.append(key)
-        return {"Id": arguments.get("ChangeSetName"), "StackId": arguments["StackName"]}
 
 
 
 
-def deploy_contract(name, files):
-    listed = "\n".join(f"- `{p}`" for p in [name, *files])
-    return f"""## Task contract
-- Task type: `infrastructure`
-- Task status: `running`
-- Infrastructure phase: `deploy`
-## Required changes
-- [R1] Publish observations
-## Acceptance checks
-- [R1] `exists:{files[0]}`
-## Validation scope
-- `dev/123456789012/ec2`
-## Modified files
-{listed}
-## Allowed paths
-{listed}
-"""
 
 
 def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
@@ -283,132 +214,8 @@ def run_controller(root, report, aws):
     return deploy_controller_fixtures.drive(root, report, aws)
 
 
-@contextmanager
-def managed_repository(tracked_contract=False, untracked_contract=False):
-    with (
-        fixture() as primary,
-        patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
-        patch.object(
-            wt.python_env, "runtime", return_value=(sys.executable, dict(os.environ))
-        ),
-        patch.object(publication, "check_scope"),
-        patch.object(wt, "_run_model_guard"),
-        patch.object(publication, "validate_candidate"),
-        patch.object(checkpoints, "validate"),
-    ):
-        if untracked_contract:
-            ignore = primary / ".gitignore"
-            ignore.write_text(
-                ignore.read_text(encoding="utf-8").replace("tasks/**\n", ""),
-                encoding="utf-8",
-            )
-            git(primary, "add", ".gitignore")
-        relative = "model/dev/app/ec2.properties"
-        text = (
-            "# model-format: 2\nobserved.a.value=`before`\nobserved.b.value=`before`\n"
-        )
-        source = primary / relative
-        source.parent.mkdir(parents=True)
-        source.write_text(text, encoding="utf-8")
-        units = [
-            {"name": name, "template": name + ".yaml", "parameters": name + ".json"}
-            for name in ["A", "B"]
-        ]
-        for path in inputs.deployment_input_paths(primary, "dev", "app", {}, units):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("immutable input", encoding="utf-8")
-        git(primary, "add", "model", "infra")
-        git(primary, "commit", "-qm", "Stepwise synthetic inputs")
-        state = wt.create(primary, "deploy")
-        root = Path(state["worktree"])
-        name = state["task_file"]
-        start(root, name, deploy_contract(name, [relative]))
-        if tracked_contract:
-            # Simulate a retained legacy managed snapshot that tracked its contract.
-            path = primary / name
-            path.parent.mkdir()
-            path.write_bytes((root / name).read_bytes())
-            git(primary, "add", "-f", name)
-            git(primary, "commit", "-qm", "Legacy tracked contract")
-            (root / name).unlink()
-            git(root, "merge", "--ff-only", state["base"])
-            state.update(start=git(root, "rev-parse", "HEAD").strip(), tip=git(root, "rev-parse", "HEAD").strip())
-            wt.save(wt.state_path(primary, state["task_id"]), state)
-        with selected_task(root, name):
-            task = read_task_snapshot(root, name, live=True)
-            identity = worktree.bind(
-                root,
-                task,
-                {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
-                "dev",
-                ["A", "B"],
-            )
-            context = {
-                "taskFile": name,
-                "taskDigest": task.task_digest,
-                "directory": "app",
-                "stepUnits": units,
-                "inputDigests": {},
-                "consumedInputs": {},
-                "states": {
-                    n: {
-                        "status": "RUNNING",
-                        "stackId": "stack-" + n,
-                        "stackStatus": "CREATE_COMPLETE",
-                    }
-                    for n in ["A", "B"]
-                },
-            }
-            for unit in units:
-                paths = inputs.deployment_input_paths(root, "dev", "app", {}, [unit])
-                digests = [inputs.file_digest({}, p, fresh=True) for p in paths]
-                context["inputDigests"][unit["name"]] = inputs.fingerprint(digests)
-                context["consumedInputs"].update(
-                    {
-                        p.relative_to(root).as_posix(): digest
-                        for p, digest in zip(paths, digests, strict=True)
-                    }
-                )
-            backend = SimpleNamespace(
-                root=root,
-                phase="deploy",
-                run_context=context,
-                states=context["states"],
-                guard=Mock(),
-                deployment_input_paths=partial(
-                    inputs.deployment_input_paths, root, "dev", "app", {}
-                ),
-            )
-            pin_progress(backend, identity)
-            backend.save = partial(
-                deploy_progress.save_progress, backend, operation_journal.OPERATION_FIELDS
-            )
-            backend.save()
-            yield primary, backend, relative
 
 
-def synchronized_candidate(backend, relative, name):
-    root, context = backend.root, backend.run_context
-    before = contracts.validation_snapshot(root)
-    source = root / relative
-    source.write_text(
-        source.read_text(encoding="utf-8").replace(
-            "observed." + name.lower() + ".value=`before`",
-            "observed." + name.lower() + ".value=`aws`",
-        ),
-        encoding="utf-8",
-    )
-    backend.states[name].update(
-        status="SUCCESS",
-        observedSynced=True,
-        currentStack={"StackStatus": "UPDATE_COMPLETE"},
-    )
-    context["checkpointPending"] = {
-        "stacks": [name],
-        "before": before,
-        "after": contracts.validation_snapshot(root),
-    }
-    backend.save()
 
 
 

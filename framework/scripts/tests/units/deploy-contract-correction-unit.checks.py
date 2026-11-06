@@ -149,6 +149,8 @@ def case(tmp_path, monkeypatch):
     monkeypatch.setattr(correction.wt, "output", Mock(return_value="head"))
     monkeypatch.setattr(correction.wt, "paths", Mock(return_value=set()))
     monkeypatch.setattr(correction.wt, "changed_paths", Mock(return_value=set()))
+    monkeypatch.setattr(correction.completion, "collect_working_paths", Mock(return_value=SimpleNamespace(all_paths=set())))
+    monkeypatch.setattr(correction.completion.contracts, "paths", Mock(return_value=set()))
     monkeypatch.setattr(
         correction.ws,
         "git",
@@ -577,30 +579,6 @@ class InterruptedSave:
         raise OSError("process interrupted after partial save")
 
 
-def check_closed_checkpoint_is_verified_before_rebinding(case, monkeypatch):
-    state = copy.deepcopy(case.state)
-    state["deployCheckpoints"] = {
-        "A": dict(
-            identity=state["deployIdentity"],
-            taskDigest=state["deployIdentity"]["taskDigest"],
-            commit="old-checkpoint",
-            unit=case.units[0],
-        )
-    }
-    state["deployPublication"] = dict(
-        status="SUCCESS", publishedSource="head", commit="published"
-    )
-    correction.wt.save(case.path, state)
-    check = Mock()
-    monkeypatch.setattr(correction.git_publication, "checkpoint_source", check)
-    correction.correct(case.root, case.name, case.source)
-    check.assert_called_once()
-    after = read_state(case.root, case.name)[3]
-    receipt = after["deployCheckpoints"]["A"]
-    assert receipt["identity"] == after["deployIdentity"]
-    assert receipt["taskDigest"] == tasks.task_digest(case.candidate)
-    assert receipt["commit"] == "old-checkpoint" and receipt["unit"] == case.units[0]
-    assert after["deployPublication"] == state["deployPublication"]
 
 
 def check_resume_cannot_adopt_unreconciled_digest(case, monkeypatch):
@@ -1045,9 +1023,9 @@ def check_desired_model_change_is_never_authorized(case, monkeypatch):
         case.root / relative
     )
     write_sealed(case.root, case.progress_path, progress)
-    monkeypatch.setattr(correction.wt, "paths", Mock(return_value={relative}))
+    monkeypatch.setattr(correction.completion.contracts, "paths", Mock(return_value={relative}))
     monkeypatch.setattr(
-        correction.ws, "subprocess_bytes", Mock(return_value=old.encode("utf-8"))
+        correction.completion.contracts, "subprocess_bytes", Mock(return_value=old.encode("utf-8"))
     )
     original = [p.read_bytes() for p in (case.task.path, case.progress_path, case.path)]
     with pytest.raises(ValueError, match="non-observed authority"):

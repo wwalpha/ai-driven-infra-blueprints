@@ -362,7 +362,6 @@ def refresh(backend, units):
             current
         ):
             state.pop("observedSynced", None)
-            state.pop("checkpointed", None)
             if state["status"] == DEPLOY_SUCCESS:
                 state["needsCurrentReview"] = True
         state["currentStack"] = observation(current)

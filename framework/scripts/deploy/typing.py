@@ -41,7 +41,6 @@ class DeployRunContext(TypedDict, total=False):
     deployResult: str
     snapshotValidation: str
     stepUnits: list[StackUnit]
-    checkpointPending: JsonObject
     currentFailure: str | None
     repository: str
     taskFile: str

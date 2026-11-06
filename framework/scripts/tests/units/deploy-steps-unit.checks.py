@@ -31,9 +31,6 @@ from deploy import (
     steps,
     worktree,
 )
-from deploy import (
-    git_publication as publication,
-)
 from deploy import progress as deploy_progress
 from model.core import properties, stack_model, validate_model_keys
 from model.observed import verify_observed_outputs
@@ -110,9 +107,6 @@ def save_test_snapshot(saved, state, path):
     saved.append((dict(state), path.exists()))
 
 
-def candidate_test_git(root, *args):
-    if args[0] == "clone":
-        Path(args[-1]).mkdir()
 
 
 
@@ -1478,65 +1472,8 @@ def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, lev
         deploy_progress.progress_path(root, create=True)
 
 
-def check_candidate_validation_displays_report_once(tmp_path, monkeypatch, capsys):
-    task = SimpleNamespace(
-        name="tasks/a.md", text="task", scope=set(), status="running"
-    )
-    monkeypatch.setattr(publication.tasks, "selected_task", lambda *a: nullcontext())
-    monkeypatch.setattr(publication.tasks, "task_snapshot", lambda *a, **k: task)
-    monkeypatch.setattr(publication, "require_observation_delta", lambda *a: None)
-    monkeypatch.setattr(publication, "definition_root", lambda root: root)
-    monkeypatch.setattr(publication.wt, "paths", lambda *a: set())
-    validator = Mock()
-    validator.display_report.side_effect = lambda: (
-        print("specific failure\nTask Acceptance: FAIL"),
-        1,
-    )[1]
-    monkeypatch.setattr(publication, "Validator", lambda *a, **k: validator)
-    assert (
-        publication.validate_snapshot(tmp_path, tmp_path, "base", "tree", task.name)
-        == 1
-    )
-    assert "specific failure" in capsys.readouterr().out
-    validator.run.assert_called_once()
-    validator.display_report.assert_called_once()
 
 
-@pytest.mark.parametrize("returncode", [0, 1])
-def check_candidate_subprocess_result_and_resolved_root(
-    tmp_path, monkeypatch, returncode
-):
-    real = tmp_path / "real"
-    real.mkdir()
-    alias = tmp_path / "alias"
-    alias.symlink_to(real, target_is_directory=True)
-    monkeypatch.setattr(
-        publication.tempfile,
-        "TemporaryDirectory",
-        lambda **kwargs: nullcontext(str(alias)),
-    )
-    monkeypatch.setattr(
-        publication.wt.python_env, "runtime", lambda root: (sys.executable, {})
-    )
-    monkeypatch.setattr(publication.wt, "git", candidate_test_git)
-    result = SimpleNamespace(
-        returncode=returncode,
-        stdout="specific failure\nTask Acceptance: FAIL",
-        stderr="diagnostic stderr",
-    )
-    run = Mock(return_value=result)
-    monkeypatch.setattr(publication.subprocess, "run", run)
-    task = SimpleNamespace(name="tasks/a.md", raw=b"task")
-    if returncode:
-        with pytest.raises(
-            Exception,
-            match="(?s)specific failure.*Task Acceptance: FAIL.*diagnostic stderr",
-        ):
-            publication.validate_candidate(tmp_path, "tree", "base", task)
-    else:
-        publication.validate_candidate(tmp_path, "tree", "base", task)
-    assert run.call_args.kwargs["cwd"] == (real / "repository").resolve()
-    assert run.call_args.kwargs["capture_output"] is True
 
 
 
@@ -1712,41 +1649,6 @@ def check_refresh_only_reads_selected_sync_stacks_once():
 
 
 
-def check_final_acceptance_includes_earlier_task_checkpoints(tmp_path, monkeypatch):
-    task = SimpleNamespace(
-        name="tasks/a.md", text="completed Task", scope=set(), status="completed"
-    )
-    monkeypatch.setattr(publication.tasks, "selected_task", lambda *a: nullcontext())
-    monkeypatch.setattr(publication.tasks, "task_snapshot", lambda *a, **k: task)
-    monkeypatch.setattr(publication, "require_observation_delta", lambda *a: None)
-    monkeypatch.setattr(publication, "definition_root", lambda root: root)
-    monkeypatch.setattr(
-        publication.ws, "deploy_start_commit", Mock(return_value="fixed-start")
-    )
-    paths = Mock(
-        side_effect=[{"tasks/a.md"}, {"model/earlier.properties", "tasks/a.md"}]
-    )
-    monkeypatch.setattr(publication.wt, "paths", paths)
-    validator = Mock()
-    validator.display_report.return_value = 0
-    factory = Mock(return_value=validator)
-    monkeypatch.setattr(publication, "Validator", factory)
-    assert (
-        publication.validate_snapshot(
-            tmp_path, tmp_path / "private", "latest-base", "final-tree", task.name
-        )
-        == 0
-    )
-    candidate = factory.call_args.kwargs["final_candidate"]
-    assert candidate.changed_paths == frozenset(
-        {"tasks/a.md", "model/earlier.properties"}
-    )
-    assert (
-        candidate.base_commit == "latest-base"
-        and candidate.deploy_source_root == tmp_path
-    )
-    assert paths.call_args_list[1].args[0] == tmp_path
-    assert paths.call_args_list[1].args[-1] == "HEAD"
 
 
 

@@ -16,7 +16,6 @@ import model.format as _imports_model_format
 import model.sources as model_sources
 import support.repository_fixtures as _fixture_publication_workspace
 from deploy import controller as deploy_controller
-from deploy import git_publication as scope_publication
 from deploy import observed as deploy_observed
 from deploy import preparation as offline_preparation
 from deploy import scope as execution_scope
@@ -1732,7 +1731,6 @@ def test_range_preparation_controller_save_and_resume(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     session, aws = tmp_path / "session.json", tmp_path / "aws.json"
     root = controller_fixtures.seed(tmp_path / "project", session)
-    baseline = git(root, "rev-parse", "HEAD")
     (root / "tasks/deploy.md").unlink()
     logs = tmp_path / "preparation"
     TestCase().assertEqual(
@@ -1787,12 +1785,7 @@ def test_range_preparation_controller_save_and_resume(tmp_path, monkeypatch):
     TestCase().assertEqual(
         set(json.loads(session.read_text(encoding="utf-8"))["states"]), set(selected)
     )
-    TestCase().assertEqual(
-        scope_publication.validate_snapshot(
-            root, root, baseline, git(root, "rev-parse", "HEAD"), "tasks/deploy.md"
-        ),
-        0,
-    )
+
 
 
 def check_codebuild_observation_publication_and_resync(project_workspace, monkeypatch):

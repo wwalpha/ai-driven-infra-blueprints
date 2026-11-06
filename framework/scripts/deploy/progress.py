@@ -141,7 +141,6 @@ def save_progress(backend, fields, require=None):
             if key in fields
             or key
             in {
-                "checkpointed",
                 "currentStack",
                 "reason",
             }
