@@ -1398,7 +1398,7 @@ def check_import_registered_acceptance(outcome, integration):
             "## Task contract\n",
             "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
         )
-        text = text.replace("`changed:file.txt`", "`check:framework.rule-readings`")
+        text = text.replace("`changed:file.txt`", "`check:framework.task-type-dispatch`")
         tasks.start(root, name, text)
         (root / "file.txt").write_text("changed")
         handler = Mock(
@@ -1407,7 +1407,7 @@ def check_import_registered_acceptance(outcome, integration):
             else None
         )
         registered = (
-            {"framework.rule-readings": handler} if outcome != "missing" else {}
+            {"framework.task-type-dispatch": handler} if outcome != "missing" else {}
         )
         with (
             patch.object(

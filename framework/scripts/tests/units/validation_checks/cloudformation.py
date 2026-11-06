@@ -7,7 +7,7 @@ from functools import partial as _bind_framework_callback
 from types import SimpleNamespace as _CallbackState
 
 import model.render as _imports_model_render
-from support.validator import MODULE, SCRIPT
+from support.validator import MODULE
 from support.validator import project as project
 from support.validator import write as write
 
@@ -735,11 +735,3 @@ def check_stack_mapping_targets():
             ],
         )
         assert not validator.errors, validator.errors
-    prompt = (SCRIPT.parents[2] / "framework/prompts/codex/03_implement.md").read_text(
-        encoding="utf-8"
-    )
-    assert "framework/scripts/model/cli.py observed --environment" in prompt
-    assert (
-        "After generation/changes as well" in prompt
-        and "Do not automatically fill missing identifier rows" in prompt
-    )

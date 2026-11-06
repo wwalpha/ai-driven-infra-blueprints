@@ -429,18 +429,6 @@ def check_security_naming():
 
 
 def check_security_group_and_glue_catalog_naming():
-    text = "\n".join(
-        path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT)
-    )
-    group_pattern = (
-        "{{application}}-{{environment}}-{{service}}-{{purpose}}[-{{number}}]-sg"
-    )
-    assert f"| `EC2.SecurityGroup` | `GroupName` | `{group_pattern}` |" in text
-    assert f"| `EC2.SecurityGroup` | Name tag | `{group_pattern}` |" in text
-    assert (
-        "| `Glue.Catalog` | `Name` | `glct-{{application}}-{{environment}}-{{purpose}}` |"
-        in text
-    )
     for kind, fields in (
         ("EC2.SecurityGroup", [("GroupName", "app-dev-glue-data-sg")]),
         ("EC2.SecurityGroup", [("GroupName", "app-dev-glue-data-01-sg")]),
@@ -1103,39 +1091,6 @@ def check_optional_naming_suffix():
 
 
 def check_secret_naming_values():
-    secret_rules = naming_rule_files(ROOT, "SecretsManager")
-    assert [path.name for path in secret_rules] == [
-        "aws-resource-naming.md",
-        "SecretsManager.md",
-    ]
-    rules = secret_rules[1].read_text(encoding="utf-8")
-    assert (
-        "| `SecretsManager.Secret` | `Name` | `{{application}}/{{environment}}/{{purpose_path}}` |"
-        in rules
-    )
-    for constraint in (
-        "`application` as the first level",
-        "`environment` as the second level",
-        "one or more levels",
-        "no upper limit on the number of levels",
-        "do not force distinct purposes into the third level",
-        "lower-kebab-case",
-        "CREATE `SecretsManager.Secret.Name` must not end in ASCII `-`",
-        "Empty components, `//`, and leading or trailing `/` are prohibited",
-        "1–512 characters",
-        "ASCII letters, numbers, and `/_+=.@-`",
-        "Do not reject names solely for ending in a hyphen followed by 6 characters",
-        "IMPORT retains actual/current names",
-    ):
-        assert constraint in rules
-    for invalid in (
-        "app/dev/credentials-",
-        "app/dev/snowflake/keypair-",
-        "app/dev//keypair",
-        "/app/dev/credentials",
-        "app/dev/credentials/",
-    ):
-        assert f"`{invalid}`" in rules.partition("Invalid examples:")[2]
     schema = DesignSchemaCatalog(ROOT)
     for name in (
         "sample/dev/db-credentials",

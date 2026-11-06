@@ -1147,25 +1147,6 @@ class Validator:
             definitions_root=self.definitions_root,
         )
 
-    def check_framework_active_task_transition(self) -> None:
-        return framework_contracts.check_framework_active_task_transition(
-            self.findings, self.definitions_root
-        )
-
-    def check_framework_rule_readings(self) -> None:
-        return framework_contracts.check_framework_rule_readings(
-            self.findings, self.definitions_root
-        )
-
-    def check_framework_design_handoff(self) -> None:
-        return framework_contracts.check_framework_design_handoff(
-            self.findings, self.definitions_root
-        )
-
-    def check_framework_task_completion_contract(self) -> None:
-        return framework_contracts.check_framework_task_completion_contract(
-            self.findings, self.definitions_root
-        )
 
     def check_framework_task_type_dispatch(self) -> None:
         return framework_contracts.check_framework_task_type_dispatch(
@@ -1295,10 +1276,6 @@ class Validator:
         return self.task.check_task_type_requirements()
 
     acceptance_stages = {
-        "framework.active-task-transition": "common",
-        "framework.rule-readings": "common",
-        "framework.design-handoff": "common",
-        "framework.task-completion-contract": "common",
         "framework.task-type-dispatch": "common",
         "framework.focused-check-runner": "common",
         "framework.resource-layout": "common",
@@ -1311,10 +1288,6 @@ class Validator:
 
     def registered_checks(self):
         checks = {
-            "framework.active-task-transition": self.check_framework_active_task_transition,
-            "framework.rule-readings": self.check_framework_rule_readings,
-            "framework.design-handoff": self.check_framework_design_handoff,
-            "framework.task-completion-contract": self.check_framework_task_completion_contract,
             "framework.task-type-dispatch": self.check_framework_task_type_dispatch,
             "framework.focused-check-runner": self.check_framework_focused_check_runner,
             "framework.generated-service-model": self._check_generated_service_models,

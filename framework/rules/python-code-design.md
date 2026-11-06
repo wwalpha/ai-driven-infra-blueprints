@@ -23,3 +23,11 @@ Use these guidelines when newly implementing Python code, substantially changing
 ## Preserve behavior
 
 When refactoring, generally preserve the public API, inputs and outputs, processing order, exception types and handling, diagnostics, side effects, and existing safety and validation conditions. Consider existing consumers that depend on function location or name, including AST inspection, name references, and code generation. Handle necessary behavior changes separately from refactoring.
+
+## Test and Validation Design Policy
+
+Tests and validation must exercise executable behavior or data contracts; explain the behavior or contract each new test verifies. Review natural-language documentation in code review, not with static phrase matching. Do not add document-only validators.
+
+Do not create tests or validators that fix the wording of Skills, Prompts, Rules, Runbooks, README, AGENTS.md or other natural-language documents; their headings, sections, anchors, command examples or ordering; LLM instructions; read routing or required phrases. Do not use document mutation tests to prove instructions correct, restore removed checks under another name or location, or test this policy through Markdown string matching.
+
+Permitted checks include Python results, return values, exceptions and state transitions; actual SDK/CLI behavior; Model, Schema, IaC and configuration data contracts; runtime security, Human consent and AWS mutation controls; required file existence; parsing, generation and validation of structured Markdown data actually consumed by the software; and resolution of entrypoints and references needed at runtime.

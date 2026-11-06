@@ -4,7 +4,7 @@ import json
 import shutil
 from functools import partial as _bind_framework_callback
 
-from support.validator import MODULE, SCRIPT, project, write
+from support.validator import MODULE, project, write
 from validation.terraform import blocks, module_directory, root_directory
 
 
@@ -195,24 +195,6 @@ def check_configuration():
         assert snapshot == {
             p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()
         }
-        for name in ("01_initialize.md", "02_add-target.md"):
-            prompt = (SCRIPT.parents[2] / "framework/prompts/codex" / name).read_text()
-            assert "infra/<target-directory>/terraform/<environment>/.gitkeep" in prompt
-            assert "do not create per-environment copies" in prompt
-            if name == "01_initialize.md":
-                assert (
-                    "If `project.json` already exists, treat the repository as initialized. Stop without changing files"
-                    in prompt
-                )
-            else:
-                assert (
-                    "The target-directory alias or AWS account ID does not exist in the same environment"
-                    in prompt
-                )
-                assert (
-                    "Stop without changes for missing, invalid, duplicate, or contradictory values."
-                    in prompt
-                )
         expect(
             "T15",
             _callback_check_configuration_validate(accounts, root, initialized=True),

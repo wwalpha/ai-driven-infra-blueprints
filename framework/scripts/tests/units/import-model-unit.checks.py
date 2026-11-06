@@ -3392,30 +3392,6 @@ def check_overwrite_reference_permission_is_property_scoped():
         verify_values(expansion(old), expansion(new), chosen, schema_for)
 
 
-def check_import_llm_choice_contract():
-    prompt = (m.ROOT / "framework/prompts/codex/08_import.md").read_text(
-        encoding="utf-8"
-    )
-    assert "Environment and service must be explicit. Ask for missing inputs" in prompt
-    for condition in (
-        "Same physical ID on IMPORT",
-        "Different ID of the same IMPORT type",
-        "No existing Resources",
-        "Same physical ID on CREATE",
-        "Existing IMPORT physical ID unknown",
-        "Multiple matches",
-    ):
-        assert condition in prompt
-    assert (
-        "fixed destination" in prompt
-        and "publish the combined service candidate once" in prompt
-    )
-    assert (
-        "sequentially" in prompt
-        and "independent Task/acquisition/publication" in prompt
-    )
-
-
 def _callback_check_refactor_json_value_structure_encoded(field, /, value):
     raw = json.dumps(value, separators=(",", ":"))
     return "`" + raw + "`" if field == "value" else raw

@@ -1370,29 +1370,6 @@ def check_unanswered_review_cannot_be_approved():
         approval.review_binding(result, data[0])
 
 
-def check_conversational_consent_contract():
-    root = Path(__file__).resolve().parents[4]
-    skill = (root / ".agents/skills/import/SKILL.md").read_text(encoding="utf-8")
-    prompt = (root / "framework/prompts/codex/08_import.md").read_text(encoding="utf-8")
-    rule = (root / "framework/rules/model-information.md").read_text(encoding="utf-8")
-    assert "explicit Human final consent in chat" in skill
-    for required in (
-        "全件承認して反映",
-        "一部修正",
-        "キャンセル",
-        "「確認しました」「了解」",
-        "Proceed to Publish only after explicit consent",
-        "rebuild and present",
-        "renewed explicit final consent",
-        "Direct CLI execution can bypass",
-        "After merge the Human also",
-    ):
-        assert required in prompt
-    assert "Python verifies change integrity, not the identity or existence" in rule
-    assert "Host approval, issuers, Human authentication tokens/signatures" in rule
-    assert "verify_host_approval" not in prompt + rule
-
-
 def check_review_reports_every_canonical_change():
     acquisition, selection, _, proposed, risks = proposal()
     selection["resources"][0]["action"] = "add"
