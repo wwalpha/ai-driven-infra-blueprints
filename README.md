@@ -407,19 +407,34 @@ Ordinary local loops validate snapshot/properties correspondence without network
 
 ## Validation
 
-After ordinary Model edits, generate and validate with one command:
+For ordinary Model-only corrections in a managed Worktree, save the authoritative
+Model through the existing guarded Model API, then generate the necessary Markdown/JSON
+once with the selected Task and exact Change Impact scope:
+
+```console
+BLUEPRINT_TASK_FILE=tasks/<task-id>.md \
+python3 -B framework/scripts/run-python.py -B framework/scripts/sync-model.py --write --scope <environment/target/service>
+```
+
+Use the Task ID returned by the Worktree Skill and repeat `--scope` for each required
+service. Review the diff and related checks, then run Worktree `finalize` while the Task
+is running. Finalize performs Change Validation on the final candidate, completes the
+Task and integrates the validated candidate. No separate final loop or `--complete`
+is required before finalize.
+
+For a standalone Design Task, generate and validate after the Model save using the
+existing integrated loop:
 
 ```console
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
 ```
 
-Generation and content validation run once per selected candidate/responsibility in one
-validator process. All targets pass the single pre-save input comparison before any
-output saves; input changes stop the whole publication without retry. Normal saving has
-no verification regeneration, output-wide readback or final input rescan. Without
-`--write`, validation remains read-only. `sync-model.py --write` retains generation-only
-compatibility; IMPORT and AWS post-operation workflows retain their dedicated checks.
+The integrated loop performs candidate generation and content validation, the all-target
+pre-save input comparison, publication and output-dependent checks. Input changes stop
+publication without retry; normal saving has no verification regeneration, output-wide
+readback or final input rescan. Without `--write`, validation remains read-only.
 `--staged --write` and framework-only write are invalid; Full retains explicit scope.
+IMPORT, Infrastructure and AWS post-operation workflows retain their dedicated paths.
 Follow [Selection and publication](framework/rules/task-contract.md#selection-and-publication)
 for same-worktree editing and concurrent read-only investigation.
 
@@ -648,7 +663,8 @@ Run commands through the managed worktree launcher:
 python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py read model/dev/cde/iam.properties
 python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py trace model/dev/cde/iam.properties desired.row.001-001.value
 python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/dev/cde/iam.properties 001
-python3 -B framework/scripts/run-python.py -B framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
+BLUEPRINT_TASK_FILE=tasks/<task-id>.md \
+python3 -B framework/scripts/run-python.py -B framework/scripts/sync-model.py --write --scope <environment/target/service>
 ```
 
 New data and parts start with `# model-format: 2`. Small services use one file;

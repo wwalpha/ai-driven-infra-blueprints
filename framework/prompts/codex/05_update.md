@@ -39,10 +39,13 @@ through the existing APIs. Complete and integrate only the verified final candid
 For a managed worktree, generate necessary Markdown/JSON after the guarded Model save:
 
 ```console
+BLUEPRINT_TASK_FILE=tasks/<task-id>.md \
 python3 -B framework/scripts/run-python.py -B framework/scripts/sync-model.py --write --scope <environment/target/service>
 ```
 
-Repeat `--scope` for each required Change Impact/Task-scope service. Alternatively use
+Use the Task ID returned by the Worktree Skill to select this Task, including with the
+alternative selectors below; do not rely on implicit selection. Repeat `--scope` for each
+required Change Impact/Task-scope service. Alternatively use
 `--environment` with `--alias` or `--aws-account-id` and repeat `--service` for the
 selected services. Review the diff and run necessary related tests, then invoke worktree
 `finalize` on the running Task. Its final candidate Change Validation and completion
