@@ -183,7 +183,15 @@ def check_json_boundaries(tmp_path):
     assert path.read_bytes() == before and not view.exists()
 
 
-def check_identifier_schema():
+@pytest.mark.parametrize(
+    "mode,kind,prop",
+    [
+        ("name", "S3.Bucket", "S3.Bucket.BucketName"),
+        ("identifier", "EC2.VPC", "EC2.VPC.VpcId"),
+    ],
+    ids=["name", "identifier"],
+)
+def check_reference_schema(mode, kind, prop):
     key = "desired.row.008-001.value"
     values = resource(
         "008", "EC2.VPCEndpoint", "consumer", [("PolicyDocument", "saved")]
@@ -195,12 +203,12 @@ def check_identifier_schema():
             "saved",
             "vpc",
             "001",
-            "EC2.VPC",
-            mode="identifier",
-            prop="EC2.VPC.VpcId",
+            kind,
+            mode=mode,
+            prop=prop,
         )
     )
-    assert declarations(values)["fixed"]["format"] == "identifier"
+    assert declarations(values)["fixed"]["format"] == mode
     for fields, phrase in [
         ({"format": "unknown"}, "format/scope"),
         ({"labelPolicy": "fixed"}, "labelPolicy none"),
