@@ -261,7 +261,7 @@ def check_implementation_preflight_prompt() -> None:
         "additional_permissions.file_system.write",
         "Avoid granting the entire repository",
         'sandbox_permissions: "require_escalated"',
-        "do not invent unsupported capabilities",
+        "Do not invent unsupported capabilities",
         "never use escalation to bypass them",
         "one escalated reexecution per denied invocation",
         "Never delete a lock",
