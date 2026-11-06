@@ -77,7 +77,7 @@ Use `/worktree <task-name> <child skill/task and inputs>` with [the worktree ski
 
 For `/import`, an explicit Human request may select the current checkout instead; follow [08_import](framework/prompts/codex/08_import.md).
 
-Use `worktree_task.py create --task-name <task-name>` to create a new Task Worktree. Deploy uses the calling checkout; when a Worktree is needed, use the same ordinary create and returned Task ID. The helper appends a six-digit random suffix and returns both `task_name` and `task_id` in JSON. It checks only the candidate ID and retries up to 20 times on collisions. Use the returned ID for `setup`, `finalize`, `cleanup` and other later operations with `--task-id`. Ordinary local integration uses the base checked out in primary. Errors stop the operation and report retained Task resources. See the [Worktree Skill](.agents/skills/worktree/SKILL.md).
+Use `worktree_task.py create --task-name <task-name>` to create a new Task Worktree. For every new Deploy, first invoke the Worktree Skill and use this Create; start Deploy only after Python Setup reports ready, using the returned Worktree root and new Task ID. Do not search for or reuse past Tasks or Worktrees. The helper appends a six-digit random suffix and returns both `task_name` and `task_id` in JSON. It checks only the candidate ID and retries up to 20 times on collisions. Use the returned ID for `setup`, `finalize`, `cleanup` and other later operations with `--task-id`. Ordinary local integration uses the base checked out in primary. Errors stop the operation and report retained Task resources. See the [Worktree Skill](.agents/skills/worktree/SKILL.md).
 
 Create uses one fixed shared venv at `<primary>/.worktrees/.blueprint/python-env/`. Initial setup creates it at that final path, installs the primary checkout’s `framework/scripts/requirements.txt`, verifies isolation/core imports/pinned versions and runs `pip check`, then writes a completion marker. Create/setup/runtime compare the canonical requirements SHA-256 with `.blueprint-requirements-sha256`. Matching hashes reuse the environment without dependency-check Python children, pip or imports. Changed/missing hashes trigger one installed-version query; matching versions only record the hash, while missing/different versions use the existing pip install and verification before recording success. `.blueprint-owner` and `.blueprint-ready` retain their ownership/completion roles. Global packages are never used as a managed dependency fallback or modified. `python_setup.kind` is `shared`; `installed` is true only for the installing call. No Task-local venv is created.
 
@@ -607,13 +607,13 @@ automatically switches to SDK. Common approval/order/Snapshot/Model/Validation r
 guaranteed and detected competition stops CLI starts.
 
 CLI uses ordinary non-AWS observation/generation/scoped validation, then
-`task_contract.py --complete` in the calling checkout. Git integration is separate
+`task_contract.py --complete` through the shared Python wrapper in the returned Worktree. Git integration is separate
 from Task completion, which does not require SDK progress/receipts; local reference
 projection uses the CLI Task's STS-confirmed execution account/Region/Partition.
 AWS success, Model save, Snapshot Validation, Git publication and Task completion
 remain separate. The LLM must settle all AWS requests before completion; local
 validation is not AWS verification. Existing SDK Tasks cannot switch to this route.
-Repository development environments and Worktree setup remain unchanged.
+All Deploy Python commands use `python3 -B framework/scripts/run-python.py` in the returned Worktree; AWS CLI remains direct. Worktree Skill owns Git integration and Cleanup. Unknown AWS outcomes retain the Worktree and original Task evidence for same-Task recovery without blind resubmission.
 
 The controller passes templates directly as before when the submitted template is at most 51,200 bytes; above that through 1 MiB, upload to the specified bucket and create change sets from S3 URLs. Stop above 1 MiB. Small templates require no placement bucket configuration.
 

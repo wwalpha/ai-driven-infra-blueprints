@@ -75,9 +75,9 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py
 
 If contract registration is rejected, report the error and retain the Task Worktree. Register exact necessary paths before editing. Select validation under [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy), including dependency-selected checks for Framework changes. Run lifecycle commands with the ordinary launcher from a surviving checkout. Worktrees start from committed base inputs. Place the Human’s intended input in the selected Worktree before starting a child workflow that needs an uncommitted Model diff.
 
-## Optional Deploy use
+## Deploy use
 
-Independent `/deploy` uses its calling checkout and does not require a Worktree. If the LLM determines a Worktree is needed, use ordinary `create --task-name <task-name>` and pass its returned Task ID and local root to Deploy. Deploy owns its preparation, AWS execution, observation and View synchronization, validation and Task completion; ordinary Worktree lifecycle operations are separate. AWS authority and Human approvals remain governed by the Deploy Task.
+For each new `/deploy`, invoke this Skill first and use ordinary Create. Start Deploy only after Create and Python Setup succeed with `python_setup.status: ready`, using the returned Worktree root and new Task ID. Do not search for or reuse a past Task or Worktree. Deploy owns its preparation, AWS execution, observation and View synchronization, validation and Task completion; this Skill retains Git integration and Cleanup ownership. Keep the Worktree and the same Task's execution evidence when an AWS result is unknown, and follow Deploy's existing same-Task recovery. AWS authority and Human approvals remain governed by the Deploy Task.
 
 ## Complete and integrate
 

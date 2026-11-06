@@ -1,15 +1,15 @@
 # Deploy operation runbook
 
-Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. Normal SDK advance is in the Skill; this runbook supplies conditional SDK saves/finish, Human-selected CLI and exceptions.
+Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. Use the Worktree and ready shared Python environment required by the Skill for all Deploy Python commands; invoke AWS CLI directly. Normal SDK advance is in the Skill; this runbook supplies conditional SDK saves/finish, Human-selected CLI and exceptions.
 
 ## SDK saves
 
 Read [Observation reads](#observation-reads) before collecting observations. Use the same Task/Target and every fixed `--stack` on all actions, even when saving one Stack. Keep configured `--profile`, or use `--aws-account-id` instead of `--alias` where applicable.
 
 ```console
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --sync-stack <StackName>
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action checkpoint --sync-stack <StackName>
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action status
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --sync-stack <StackName>
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action checkpoint --sync-stack <StackName>
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action status
 ```
 
 `sync --sync-stack` saves current facts for any outcome, generates available services, validates and saves locally. Repeat `--sync-stack` for the exact observation scope; intermediate saves keep the Task running. `checkpoint` resumes a saved local sync without resubmitting an AWS request; it is not a Git checkpoint. Use saved scope, including when resuming a final intent. `status` is only for independent inspection/interruption/uncertain requests through [SDK recovery](#unfinished-aws-operation-recovery), never a mechanical call before `advance`.
@@ -19,7 +19,7 @@ env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudfor
 When ending the Task, use the final command below, retaining full Stack scope. Add only needed `--sync-stack` observations; omit when already saved. The controller validates the local Model/View and Task Acceptance before setting the Task to completed. Failure retains the Task and its local evidence. Use the same intent on retry. Local completion is separate from any Git integration.
 
 ```console
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --final
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action sync --final
 ```
 
 Before ending read [Verify and finish](#verify-and-finish) for Validation/Acceptance and reporting. Active or uncertain requests, pending approvals and incomplete saves or checks prevent completion.
@@ -68,13 +68,13 @@ outputs.update(observed_outputs(source_path, values))
 publish_observed_candidates(repository_root, outputs, original_inputs)
 ```
 
-Use registered Python with `framework/scripts` on its process-local import path for these existing APIs. Do not add a new writer CLI or fall back to direct properties writes/SDK sync. If the consumed input set, safe call context or exact Row mapping cannot be established, retain the evidence/candidate and stop; a dedicated public writer command is a separate follow-up, not part of this Issue.
+Use the Worktree wrapper and registered shared Python with `framework/scripts` on its process-local import path for these existing APIs. Do not add a new writer CLI or fall back to direct properties writes/SDK sync. If the consumed input set, safe call context or exact Row mapping cannot be established, retain the evidence/candidate and stop; a dedicated public writer command is a separate follow-up, not part of this Issue.
 
 After the guarded Model save, generate only authorized affected services and run the scoped task loop:
 
 ```console
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/sync-model.py --environment <environment> --alias <alias> --service <service-id> --write
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-id>.md
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/sync-model.py --environment <environment> --alias <alias> --service <service-id> --write
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-id>.md
 ```
 
 Repeat `--service` for exact affected services, or use confirmed `--scope <environment/target-directory/service>`; use `--aws-account-id` when no alias exists. Generation failure retains saved Model and successful Views; stale required Views/validation failure block completion. Intermediate saves keep running. Finish only through [CLI Finish](#cli-finish).
@@ -85,7 +85,7 @@ Read [Validation policy](../../../rules/loop-engineering.md#validation-policy), 
 
 ## CLI Finish
 
-Read [Verify and finish](#verify-and-finish) and [Observations, validation and publication](../../../rules/cloudformation.md#observations-validation-and-publication). Once all AWS requests are settled and required Model/View/loop work passed, run `python3 -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete` from the calling root. Retain CLI request evidence in its original Task.
+Read [Verify and finish](#verify-and-finish) and [Observations, validation and publication](../../../rules/cloudformation.md#observations-validation-and-publication). Once all AWS requests are settled and required Model/View/loop work passed, run `python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete` from the returned Worktree root. Retain CLI request evidence in its original Task.
 
 ## CLI Recovery
 
@@ -111,8 +111,8 @@ Human同意の拡大は訂正扱いしない。ハッシュ一致は意味判断
 内部状態を手動変更せず、次を使う。
 
 ```console
-python3 -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --correct-deploy-contract <absolute-candidate.md>
-python3 -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --check-resume-scope
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --correct-deploy-contract <absolute-candidate.md>
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-name>.md --check-resume-scope
 ```
 
 成功してもsuspendを維持する。全停止原因が安全に訂正済みの自分の準備ミスだけであり、

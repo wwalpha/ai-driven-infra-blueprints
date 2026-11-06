@@ -200,8 +200,7 @@ API, Controller, SDK Scheduler/Journal or shared AWS lock participates. Do not a
 a shared backend/interface/state/lock or silently fall back to SDK. AWS CLI's own
 bundled implementation does not authorize importing its Python internals.
 
-Keep the Worktree Skill unchanged; repository development/setup is separate from
-the Deploy execution method. CLI AWS execution needs AWS CLI, not a Python SDK.
+New Deploys first use the Worktree Skill's Create and successful Python Setup; the returned root and Task ID are used throughout the Task. Run Deploy-related Python commands through `framework/scripts/run-python.py` in that Worktree. CLI AWS execution invokes AWS CLI directly and needs no Python SDK.
 Existing non-AWS Model/generation/validation/Git utilities remain usable. CLI Task
 completion uses the ordinary `task_contract.py --complete` local validator rather
 than SDK local progress/final-save receipts. Task completion and any later Git integration are separate.
@@ -218,7 +217,7 @@ state cannot be converted to CLI; preserve the original Task and request evidenc
    Region and expected execution account under project configuration. Verify STS;
    never change credentials after failure. A missing CLI/option or mismatched
    profile/account/Region stops before mutation.
-2. Register/select the same infrastructure/deploy Task in the calling repository.
+2. Register/select the same infrastructure/deploy Task in the returned Worktree.
    Confirm allowed AWS actions, exact StackNames, Model/View output paths and
    destructive-change consent. Before fixing the Snapshot, record the following
    Task context from the configured target and verified STS response; Partition
@@ -476,7 +475,7 @@ its independent procedure and non-AWS completion path are defined above.
 
 ### LLM-controlled short operations
 
-Use `cloudformation-deploy.py --action status|advance|sync|checkpoint` from the calling repository root, with the same current Task, Target and complete Stack scope.
+Use `cloudformation-deploy.py --action status|advance|sync|checkpoint` from the returned Worktree root, with the same current Task, Target and complete Stack scope.
 Only the LLM chooses sync timing and explicit `--sync-stack` names. Do not use Sub Agents,
 a background Model writer, fixed-period sync or Python-driven agent control.
 
@@ -516,12 +515,7 @@ Keep this Task's original Stack ID, ChangeSet ID and token when a submission rep
 
 ### Local Deploy completion
 
-Use the calling checkout for Preparation, AWS execution, Observed and View synchronization,
-Validation and Task completion. A Worktree is optional; when needed, use ordinary
-`create --task-name` and its returned Task ID and root. `sync --final` completes the
-local Task only after settled requests, required saves, Views and Validation. Git
-integration is separate and is not a completion condition. A settled failed attempt
-may complete with Deploy FAIL unchanged; active or uncertain requests prevent completion.
+Use the new Worktree and Task ID returned by the Worktree Skill for Preparation, AWS execution, Observed and View synchronization, Validation and Task completion. Python Setup must be ready before Deploy; no past Task or Worktree search or reuse is part of a new Deploy. Use the shared Python wrapper for Deploy Python commands. `sync --final` completes the local Task only after settled requests, required saves, Views and Validation. Worktree Skill owns Git integration and Cleanup. A settled failed attempt may complete with Deploy FAIL unchanged; active or uncertain requests prevent completion and retain the Worktree and original execution evidence for same-Task recovery.
 
 A settled request may have an UNKNOWN attempt outcome while its current Snapshot is
 saved and validated independently. Never persist UNKNOWN as an identifier. Exact root

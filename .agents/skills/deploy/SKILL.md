@@ -17,19 +17,21 @@ Select only the fixed method: SDK follows the sections below directly. Read only
 
 ## Local entry
 
-The standard standalone path uses the calling checkout for Deploy Preparation, AWS execution, Observed / View synchronization, Validation and Task completion. Use the calling repository root and an unused Task ID. Register its exact Task contract locally. Use the current Python environment with the Framework dependencies. CloudFormation SDK progress and recovery are tied to the current Task. Each new Deploy uses a new Task and checks the current AWS Account, Region, Stack and ChangeSets; do not use another Task’s local progress to decide whether to start. If AWS is busy or its state is unknown, do not submit new AWS operations. Existing legacy Git recovery is separate.
+For every new Deploy, first invoke the [Worktree Skill](../worktree/SKILL.md) and run its ordinary `create --task-name <task-name>`. Proceed only when Create succeeds and `python_setup.status` is `ready`. Use the returned Worktree root and new Task ID for Deploy registration, Preparation, AWS operations, Observed / View synchronization, Validation and Task completion. Do not search for or reuse a past Task or Worktree. If Create or Setup fails, stop before Deploy and retain resources as directed by the Worktree Skill.
 
-A Worktree is optional. When the LLM determines one is needed, use the ordinary `/worktree` create with `create --task-name <task-name>` and use the returned six-digit-suffixed Task ID for subsequent operations. Treat its returned local root as the calling repository root. Deploy itself does not create, set up, finalize or clean up a Worktree, or automatically commit, merge, push or publish Git changes.
+Run every Deploy-related Python command in that Worktree through `python3 -B framework/scripts/run-python.py`, including Preparation, Controller, observation, Validation and Task Contract commands. It uses the existing registered shared Python environment; missing, failed or stale setup blocks execution, with no system dependency fallback. Invoke AWS CLI directly. Worktree Skill owns Git integration and Cleanup; Deploy adds no Git lifecycle operations.
+
+CloudFormation progress and recovery remain tied to this same Task. Retain its Worktree and execution evidence, including original StackId, ChangeSetId and token, while an AWS result is unknown; follow the fixed method's existing recovery without blind resubmission. Each new Deploy checks current AWS Account, Region, Stack and ChangeSets, without using another Task's local progress. If AWS is busy or its state is unknown, do not submit new AWS operations.
 
 ## SDK preparation
 
-Use the calling repository root. The first repository change is registration of `tasks/<task-id>.md`. Model, Template, Parameters and Stack definitions are execution authority; generated detailed-design prose is not. Preparation is offline and does not authorize deployment.
+Use the returned Worktree root. The first repository change is registration of `tasks/<task-id>.md`. Model, Template, Parameters and Stack definitions are execution authority; generated detailed-design prose is not. Preparation is offline and does not authorize deployment.
 
 Offline preparation produces an external contract and summary; inspect the original contract, exact StackNames, Resource owners, Validation scope and Model/View paths before registering:
 
 ```console
-python3 -B framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> --task-file tasks/<task-id>.md
-python3 -B framework/scripts/deploy_preparation.py --register <absolute-preparation.json>
+python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> --task-file tasks/<task-id>.md
+python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_preparation.py --register <absolute-preparation.json>
 ```
 
 Repeat `--stack`, or use inclusive `--order-from`/`--order-to` instead; never combine the selectors. Optional `--service` checks the discovered owners and grants no additional services. Use `--aws-account-id` instead of `--alias` when no alias exists and the configured `--profile` when set. Missing/invalid scope, changed inputs or ambiguous ownership stop registration. Preserve this invocation’s registered Snapshot and fixed StackNames for its operations. External consumers are deferred without Model/View authority.
@@ -39,7 +41,7 @@ Repeat `--stack`, or use inclusive `--order-from`/`--order-to` instead; never co
 Keep the same Task/Target and repeat `--stack` for **every fixed StackName** on all actions, including when saving only one Stack. Use `--aws-account-id` instead of `--alias` where applicable, configured `--profile` when set; `--sequential` can only lower concurrency.
 
 ```console
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action advance
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action advance
 ```
 
 Use `advance` for the first or continuing ordinary turn; no unconditional status-before-advance call. Retain full scope and configured concurrency: independent same-Order peers may continue after one failure; later Orders require earlier success. Only the LLM chooses save timing, never fixed-period sync.

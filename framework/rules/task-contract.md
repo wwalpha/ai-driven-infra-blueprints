@@ -88,7 +88,7 @@ Ordinary Tasks/worktree integration retain Git/input safety rules.
 
 ## Deploy task transitions
 
-Independent `/deploy` uses the calling repository and an explicit Task contract.
+A new independent `/deploy` first uses the Worktree Skill Create and successful Python Setup, then registers its explicit Task contract in the returned Worktree with the returned Task ID.
 SDK completion requires settled request evidence, saved Observed and required Views,
 local validation and Task Acceptance. Preserve AWS FAIL as a separate result.
 Direct CLI keeps its own scoped evidence and local completion procedure. Legacy
