@@ -79,7 +79,6 @@ def reclaim(journal, root, *, directory, backend, stacks):
                         "pendingObserved",
                         "pendingGeneration",
                         "generationError",
-                        "checkpointPending",
                     )
                 ):
                     return

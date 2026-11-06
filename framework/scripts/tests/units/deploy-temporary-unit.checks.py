@@ -69,7 +69,6 @@ def check_saved_delivery_is_retained(tmp_path, status):
         "pendingObserved",
         "pendingGeneration",
         "generationError",
-        "checkpointPending",
     ],
 )
 def check_pending_work_retains_inputs(tmp_path, pending):

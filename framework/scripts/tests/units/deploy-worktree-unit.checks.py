@@ -1,6 +1,5 @@
 """Deploy-only snapshot, ownership, progress and Git failure boundaries without Git fixtures."""
 
-import json
 import sys
 from contextlib import nullcontext
 from functools import partial
@@ -28,33 +27,11 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
-
-
-
-
-
-
-
-
 def task(root):
     text = "## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n- Infrastructure phase: `deploy`\n"
     return SimpleNamespace(
         name="tasks/deploy.md", text=text, task_digest=task_digest(text)
     )
-
-
-def _callback_snapshot_git(replies, /, root, *args, **kwargs):
-    reply = replies.get((root, *args), replies.get(args))
-    assert reply is not None, args
-    if isinstance(reply, Exception):
-        raise reply
-    return SimpleNamespace(stdout=reply, returncode=0)
-
-
-
-
-
-
 
 
 @pytest.mark.parametrize(
@@ -112,20 +89,6 @@ def check_mutation_rechecks_live_authority(tmp_path, monkeypatch, problem):
     assert mutation.call_count == 1
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def check_claim_input_hash_still_blocks(tmp_path):
     source = tmp_path / "infra/template.yaml"
     source.parent.mkdir()
@@ -143,8 +106,6 @@ def check_claim_input_hash_still_blocks(tmp_path):
         run_context._callback_claim_inputs(
             tmp_path, context, backend, Mock(), {"name": "A"}
         )
-
-
 
 
 def progress_backend(root, context):
@@ -250,10 +211,6 @@ def check_progress_preserves_success_and_omits_unowned_fields(tmp_path, monkeypa
     TestCase().assertNotIn("arbitrary", progress["runContext"]["states"]["A"])
 
 
-
-
-
-
 def check_progress_has_one_mutable_context_and_preserves_recovery(tmp_path):
     context = {
         "states": {
@@ -323,75 +280,6 @@ def check_corrupt_progress_is_never_empty_success(tmp_path, damage):
     deploy_progress.write_sealed(tmp_path, backend.progress_destination, saved)
     with pytest.raises(ValueError, match="incomplete or corrupt"):
         deploy_progress.read_progress(tmp_path, {"deployIdentity": backend.progress_identity})
-
-
-
-
-
-
-
-
-
-
-
-
-def atomic_test_save(tmp_path, progress, state, request, saves):
-    deploy_progress.write_sealed(tmp_path, progress, state)
-    saves.append(
-        (
-            json.loads(request.read_text()) if request.exists() else None,
-            json.loads(json.dumps(state)),
-        )
-    )
-
-
-def atomic_test_transport(
-    calls, request, missing_stack, stack, _runtime, _service, operation, arguments
-):
-    calls.append((operation, dict(arguments), json.loads(request.read_text())))
-    return (
-        {"StackId": None if missing_stack else stack}
-        if operation == "create_change_set"
-        else {}
-    )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 if __name__ == "__main__":

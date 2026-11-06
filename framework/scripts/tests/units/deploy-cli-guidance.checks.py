@@ -78,12 +78,7 @@ def check_error_secret_guard_precedes_snapshot(monkeypatch):
 def check_local_completion_guidance():
     assert "Git integration is separate" in G.CONTROLLER_HELP
     assert "not a Git checkpoint" in G.CONTROLLER_HELP
-    legacy = G.DeployStepBlocked(
-        "completed Deploy cannot advance; use deploy-publish for saved Git work or finalize after publication"
-    )
-    report = G.stopped("STEP", legacy)
-    assert "deploy-publish" not in json.dumps(report)
-    assert report["nextAction"]["command"] is None
+
 
 
 def check_missing_template_safe_diagnostic():

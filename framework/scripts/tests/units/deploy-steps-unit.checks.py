@@ -150,14 +150,12 @@ def checkpoint_pending_is_unfinished_even_after_observed_case(monkeypatch, case)
         run_context={
             **data["context"],
             "states": states,
-            "gitPublication": copy.deepcopy(data["publication"]),
         },
     )
     backend.run_context["syncPending"] = {"stacks": ["A"], "final": True}
     report = steps.describe(backend)
     assert report["result"] != "COMPLETE"
     assert report["states"]["A"]["attempt"] == "SUCCESS"
-    assert "gitPublication" not in report
     return report
 
 
@@ -174,7 +172,7 @@ def check_checkpoint_pending_is_unfinished_even_after_observed(
 
 def intermediate_sync_does_not_finish_unattempted_deploy_case(case):
     data = case["data"]
-    saved = {"status": data["status"], "observedSynced": True, "checkpointed": True}
+    saved = {"status": data["status"], "observedSynced": True}
     state = {"A": saved}
     backend = SimpleNamespace(
         states=state, run_context={"states": state, "snapshotValidation": "PASS"}

@@ -2,13 +2,10 @@ version: 1
 cases:
   checkpoint-pending:
     data:
-      states: &id001
+      states:
         A:
           status: SUCCESS
           observedSynced: true
-          checkpointed: true
-      publication:
-        status: CONFLICT
       context:
         snapshotValidation: PASS
         taskFile: tasks/deploy.md
@@ -20,15 +17,12 @@ cases:
         A:
           status: SUCCESS
           observedSynced: true
-          checkpointed: true
         B:
           status: FAILED
           observedSynced: true
-          checkpointed: true
         C:
           status: NOT_STARTED
           observedSynced: true
-          checkpointed: true
       context:
         deployResult: FAIL
         snapshotValidation: PASS

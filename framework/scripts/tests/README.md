@@ -31,7 +31,7 @@ ITは正常なCLI・Git・保存・再読込・コンポーネント接続を所
 | Runnerの中断、子終了、収集/Receipt、全選択、2並列 | blueprint-loop-unit | blueprint-loop、既存run_it Receipt |
 | Issuesの入力、revision、Lock、保存失敗 | issues-review-progress-unit、issues-snapshot-unit | issues-review-progress、issues_scan |
 | lintのschema/protocol/期限/強制回収 | issues-lint-unit | issues-lintの実CLI一致とWorker設定隔離 |
-| Deployのcheckpoint/receipt、Git競合・公開intent、完了状態 | deploy-worktree-unit、deploy-steps-unit、deploy-runtime-unit、observed-mapping | deploy-worktree、Checkpoint、controller、CloudFormationの正常保存/公開 |
+| DeployのTask別progress、AWS要求、ローカル同期と完了状態 | deploy-worktree-unit、deploy-steps-unit、deploy-runtime-unit、observed-mapping | deploy-worktree、ローカル同期復旧、controller、CloudFormationの正常保存 |
 | Observedのjournal所有者、部分書込、復元順序 | deploy-observed-resume-unit | controllerの別プロセス正常公開（旧observed-recovery ITは削除） |
 | WorktreeのTask ID衝突・失敗時保持、Git所有権、Cleanup、PRの二重作成防止、Deploy修復 | worktree-guard-unit、既存worktree-model-guard-unit | worktree_task、model-operation、Python setup、修復の通常CLI→検証→親統合 |
 | ImportのReview/Scope/入力変更、Schema、保存/Transaction rollback | import-approval-unit、import-model-unit、model_files-unit | import-model、import-cli、import-worktree-contract |
