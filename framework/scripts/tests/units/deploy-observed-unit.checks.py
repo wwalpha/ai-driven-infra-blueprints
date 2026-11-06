@@ -2059,8 +2059,8 @@ def test_partial_identifiers_only_propagate_confirmed_reference(tmp_path, monkey
     consumer.write_text("existing", encoding="utf-8")
     target = ("dev", "team", "ec2", "EC2_SecurityGroup_001")
 
-    def usage(attribute, row):
-        return SimpleNamespace(
+    items = [
+        SimpleNamespace(
             attribute=attribute,
             metadata_id=None,
             producer_kind="resource",
@@ -2068,10 +2068,10 @@ def test_partial_identifiers_only_propagate_confirmed_reference(tmp_path, monkey
             logical_id=target[-1],
             consumer_key=row,
         )
-
-    items = [
-        usage("GroupId", "desired.row.001-001.value"),
-        usage("VpcId", "desired.row.001-002.value"),
+        for attribute, row in (
+            ("GroupId", "desired.row.001-001.value"),
+            ("VpcId", "desired.row.001-002.value"),
+        )
     ]
     snapshot = SimpleNamespace(authoritative={"desired.reference.001.consumerKey": "x"})
     monkeypatch.setattr(observed_adapter, "model_paths", lambda *a, **k: [consumer])

@@ -799,6 +799,30 @@ def resolve_resources(
     )
 
 
+def _eligible_reference(usage, values, identifiers, confirmed_properties):
+    target = (*usage.producer_scope.split("/"), usage.logical_id)
+    if target not in identifiers:
+        return False
+    if not confirmed_properties or target not in confirmed_properties:
+        return True
+    kind, confirmed, unconfirmed = confirmed_properties[target]
+    attribute = usage.attribute or values.get(
+        f"desired.reference.{usage.metadata_id}.property", ""
+    ).removeprefix(kind + ".")
+    if not attribute:
+        return False
+    returned = reference_attribute(kind, attribute)
+    field = RETURN_ATTRIBUTE_PROPERTIES.get((kind, returned), returned)
+    dependencies = {kind + "." + field}
+    if kind in ARN_SHAPES and returned == reference_attribute(kind, "Arn"):
+        shape = ARN_SHAPES[kind][0]
+        dependencies.update(
+            kind + "." + field
+            for field in (shape if isinstance(shape, dict) else (shape,))
+        )
+    return bool(dependencies & confirmed) and not dependencies & unconfirmed
+
+
 def propagate_references(
     root,
     loaded,
@@ -816,29 +840,6 @@ def propagate_references(
 
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
     # This is link discovery, not validation of unrelated prod/service designs.
-    def eligible(usage, values):
-        target = (*usage.producer_scope.split("/"), usage.logical_id)
-        if target not in identifiers:
-            return False
-        if not confirmed_properties or target not in confirmed_properties:
-            return True
-        kind, confirmed, unconfirmed = confirmed_properties[target]
-        attribute = usage.attribute or values.get(
-            f"desired.reference.{usage.metadata_id}.property", ""
-        ).removeprefix(kind + ".")
-        if not attribute:
-            return False
-        returned = reference_attribute(kind, attribute)
-        field = RETURN_ATTRIBUTE_PROPERTIES.get((kind, returned), returned)
-        dependencies = {kind + "." + field}
-        if kind in ARN_SHAPES and returned == reference_attribute(kind, "Arn"):
-            shape = ARN_SHAPES[kind][0]
-            dependencies.update(
-                kind + "." + field
-                for field in (shape if isinstance(shape, dict) else (shape,))
-            )
-        return bool(dependencies & confirmed) and not dependencies & unconfirmed
-
     reads, typed_usages = FileReads(), {}
     shared = source_models.session_reads(root)
     paths = (
@@ -888,12 +889,17 @@ def propagate_references(
                 and usage.producer_kind == "resource"
                 and usage.logical_id
             ]
-            linked = any(eligible(usage, values) for usage in typed_usages[path])
+            linked = any(
+                _eligible_reference(usage, values, identifiers, confirmed_properties)
+                for usage in typed_usages[path]
+            )
         if linked and outside:
             if deferred is not None:
                 for usage in typed_usages[path]:
                     target = (*usage.producer_scope.split("/"), usage.logical_id)
-                    if eligible(usage, values):
+                    if _eligible_reference(
+                        usage, values, identifiers, confirmed_properties
+                    ):
                         record = {
                             "consumer": "/".join(service),
                             "consumerKey": usage.consumer_key,
@@ -931,7 +937,7 @@ def propagate_references(
             ]
         for usage in typed_usages.get(path, ()):
             target = (*usage.producer_scope.split("/"), usage.logical_id)
-            if eligible(usage, values):
+            if _eligible_reference(usage, values, identifiers, confirmed_properties):
                 changes.setdefault(path, {})
                 if by_identifier is not None:
                     by_identifier.setdefault(target, {}).setdefault(path, {})
