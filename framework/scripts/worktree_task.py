@@ -391,7 +391,7 @@ def cleanup_state(root, path, state, *, discard=False):
             raise Blocked("local cleanup is incomplete; retain Task state for review")
         retained_evidence = []
         if discard:
-            for key in ("deployRepair", "deployIdentity", "iacRepair"):
+            for key in ("deployRepair", "iacRepair"):
                 if state.get(key):
                     retained_evidence.append({key: state[key]})
         else:

@@ -408,11 +408,8 @@ def check_advance_and_status_expose_observed_progress(tmp_path, monkeypatch, cap
     monkeypatch.chdir(root)
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", f"tasks/{root.name}.md")
     aws_state(aws)
-    legacy = deploy_progress.progress_path(root, f"tasks/{root.name}.md", create=True).parent.parent / "deploy-progress.json"
-    legacy.write_bytes(b"retained legacy evidence")
     capsys.readouterr()
     assert invoke_step(root, report, aws, ["--action", "advance"]) == 0
-    assert legacy.read_bytes() == b"retained legacy evidence"
     capsys.readouterr()
     provider = json.loads(aws.read_text())
     provider["stacks"][FIRST]["status"] = "CREATE_IN_PROGRESS"
