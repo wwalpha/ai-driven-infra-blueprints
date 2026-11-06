@@ -257,11 +257,7 @@ def setup(where, task_id):
 def integration_task(target, state, *, candidate_common=None):
     snapshot = tasks.read_task_snapshot(target, state["task_file"], live=True)
     text = snapshot.text
-    if "- Infrastructure phase: `deploy`" in text.splitlines():
-        worktree_state.deploy_start_commit(
-            target, state["task_file"], allow_merged=True
-        )
-    elif candidate_common is None:
+    if candidate_common is None:
         task_start_commit(target, state["task_file"])
     else:
         _, common = worktree_state._repository_identity(target)
@@ -324,39 +320,6 @@ def cleanup_progress(
     }
 
 
-def deploy_cleanup_task(target, state):
-    """Only the published final receipt may restore/remove its own untracked contract."""
-    if not state.get("deployIdentity"):
-        return None
-    publication = state.get("deployPublication", {})
-    final = publication.get("finalCandidate")
-    name = state["task_file"]
-    if not final or name in paths(target, "ls-files", "--cached", "-z", "--", name):
-        return None
-    before, after = final.get("taskBefore", ""), final.get("taskAfter", "")
-    if (
-        publication.get("status") != "SUCCESS"
-        or publication.get("publishedSource") != state["tip"]
-        or publication.get("commit") != state["merged"]
-        or final.get("source") != state["tip"]
-        or final.get("tree") != output(target, "rev-parse", state["tip"] + "^{tree}")
-        or tasks.status(before) != "running"
-        or tasks.status(after) != "completed"
-        or tasks.set_status(before, "completed") != after
-        or tasks.task_digest(after) != state["deployIdentity"]["taskDigest"]
-    ):
-        raise Blocked(
-            "untracked Deploy Task differs from its published final candidate"
-        )
-    path = tasks.safe_path(target, name)
-    if not path.exists():
-        tasks.atomic_files({path: after}, staging_directory=target)
-        tasks.invalidate_task_reads(target)
-    if path.read_bytes() != after.encode("utf-8"):
-        raise Blocked("untracked Deploy Task changed before cleanup")
-    return path
-
-
 def cleanup_state(root, path, state, *, discard=False):
     phase = "verify_merge"
     directory = None
@@ -397,17 +360,13 @@ def cleanup_state(root, path, state, *, discard=False):
         if checkout and Path(checkout).resolve() != target:
             raise Blocked("task branch is used by another worktree; cleanup refused")
         tip = output(root, "rev-parse", "--verify", ref)
-        untracked_task = None
         if not discard:
             if tip != state["tip"] or (
                 not state.get("githubMerged") and not ancestor(root, tip, state["base"])
             ):
                 raise Blocked("temporary branch changed or is unmerged; cleanup refused")
-            untracked_task = deploy_cleanup_task(target, state)
             integration_task(target, state)
             changed = changed_paths(target)
-            if untracked_task is not None:
-                changed.discard(state["task_file"])
             if changed:
                 raise Blocked("task worktree is dirty; cleanup refused")
             ignored = paths(
@@ -425,8 +384,6 @@ def cleanup_state(root, path, state, *, discard=False):
                     + ", ".join(sorted(extras))
                 )
         phase = "remove_worktree"
-        if untracked_task is not None and state["task_file"] in changed_paths(target):
-            deploy_cleanup_task(target, state).unlink()
         git(root, "worktree", "remove", *(["--force"] if discard else []), str(target))
         phase = "remove_branch"
         git(root, "branch", "-D", state["branch"])
@@ -455,9 +412,6 @@ def cleanup_state(root, path, state, *, discard=False):
             phase = "remove_repair_proof"
             if state.get("deployRepair"):
                 _worktree_runtime().deploy_handoff.discard_request(state)
-            if state.get("deployIdentity"):
-                phase = "remove_deploy_progress"
-                module("deploy/progress.py", "deploy.progress").discard_progress(state)
         phase = "remove_state"
         path.unlink()
         return {
@@ -882,9 +836,6 @@ def finalize(
 
 def _finalize(where, task_id):
     root, common, path, state = load(where, task_id)
-    if state.get("deployIdentity") and not state.get("merged"):
-        run_deploy_publication(where, task_id, finish=True)
-        return automatic_cleanup(root, task_id, publication_held=True)
     if state.get("deployRepair"):
         return deploy_finalize(where, task_id)
     if not state["merged"]:
@@ -1628,38 +1579,6 @@ def _worktree_runtime():
     return module("worktree_runtime.py", "worktree_runtime")
 
 
-def run_deploy_publication(where, task_id, resolution=None, *, finish=False):
-    """Keep the ordinary launcher dependency-free; publication uses registered Python."""
-    state = load(where, task_id)[3]
-    target = Path(state["worktree"])
-    interpreter, environment = python_env.runtime(target)
-    environment[tasks.SELECTOR] = state["task_file"]
-    result = subprocess.run(
-        [
-            str(interpreter),
-            "-B",
-            "-c",
-            f"import sys,json; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); "
-            "from deploy import git_publication; "
-            "operation=git_publication.finalize if sys.argv[1]=='finalize' else git_publication.publish; "
-            "print(json.dumps(operation(sys.argv[2],sys.argv[3], *([sys.argv[4]] if sys.argv[4] else []))))",
-            "finalize" if finish else "publish",
-            str(where),
-            task_id,
-            str(resolution) if resolution else "",
-        ],
-        cwd=target,
-        env=environment,
-        capture_output=True,
-        encoding="utf-8",
-    )
-    if result.returncode:
-        raise Blocked(
-            "Deploy Git publication retained: " + result.stderr + result.stdout
-        )
-    return json.loads(result.stdout)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1682,7 +1601,6 @@ def main():
             "repair-validate",
             "sync-base",
             "sync-latest-base",
-            "deploy-publish",
         ),
     )
     parser.add_argument("--repository-root", type=Path, default=Path.cwd())
@@ -1709,11 +1627,6 @@ def main():
     )
     parser.add_argument("--repair-request", type=Path)
     parser.add_argument("--expected-base")
-    parser.add_argument(
-        "--publication-resolution",
-        type=Path,
-        help="External JSON with explicit Human approval, current base/source and resolved conflict files; Git only",
-    )
     args = parser.parse_args()
     creating = args.command == "create"
     if creating:
@@ -1741,8 +1654,6 @@ def main():
         parser.error("--merge-method requires pr-merge")
     if args.create_pr and args.command != "finalize":
         parser.error("--create-pr is only valid with finalize")
-    if args.publication_resolution and args.command != "deploy-publish":
-        parser.error("--publication-resolution requires deploy-publish")
     if args.expected_base and args.command not in {"sync-base", "sync-latest-base", "pr-sync-base"}:
         parser.error("--expected-base requires a base synchronization command")
     if args.repair_request and args.command not in {"create", "repair-checkpoint", "repair-validate"}:
@@ -1770,12 +1681,6 @@ def main():
                     args.command,
                     method=args.merge_method or "squash",
                 )
-        elif args.command == "deploy-publish":
-            state = {
-                "git_publication": run_deploy_publication(
-                    where, args.task_id, args.publication_resolution
-                )
-            }
         elif args.command == "sync-base":
             state = sync_base(where, args.task_id, args.expected_base)
         elif args.command == "sync-latest-base":

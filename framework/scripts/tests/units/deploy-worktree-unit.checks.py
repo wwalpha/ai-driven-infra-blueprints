@@ -456,102 +456,8 @@ def check_mutation_rechecks_live_authority(tmp_path, monkeypatch, problem):
     require.assert_not_called()
 
 
-def check_git_failure_preserves_stack_success(tmp_path, monkeypatch):
-    states = {
-        "A": {"status": "SUCCESS", "observedSynced": True},
-        "B": {"status": "NOT_STARTED"},
-    }
-    backend = SimpleNamespace(
-        root=tmp_path,
-        phase="deploy",
-        run_context={"taskFile": "tasks/deploy.md", "states": states},
-        save=Mock(),
-    )
-    original = copy.deepcopy(states)
-    monkeypatch.setattr(
-        publication, "publish", Mock(side_effect=ValueError("base dirty"))
-    )
-    publication.sync(backend)
-    assert backend.publication_error == "base dirty"
-    assert "gitPublication" not in backend.run_context
-    assert states == original
-    assert not getattr(backend, "sync_failed", False)
-    backend.save.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "pending",
-    [
-        None,
-        "pendingObserved",
-        "pendingGeneration",
-        "generationError",
-        "checkpointPending",
-        "aws",
-        "final",
-        "task",
-    ],
-)
-def check_completion_keeps_states_separate(tmp_path, monkeypatch, pending):
-    snapshot = task(tmp_path)
-    before = snapshot.text
-    snapshot.text = publication.tasks.set_status(before, "completed")
-    context = {
-        "states": {
-            "A": {
-                "status": "FAILED",
-                "observedSynced": True,
-                "currentStack": {"StackStatus": "UPDATE_ROLLBACK_COMPLETE"},
-            },
-            "B": {
-                "status": "SUCCESS",
-                "observedSynced": True,
-                "checkpointed": True,
-                "currentStack": {"StackStatus": "CREATE_COMPLETE"},
-            },
-        },
-        "snapshotValidation": "PASS",
-    }
-    final = {
-        "source": "tip",
-        "tree": "tree",
-        "taskBefore": before,
-        "taskAfter": snapshot.text,
-    }
-    state = {
-        "tip": "tip",
-        "deployIdentity": {"stacks": ["A", "B"]},
-        "deployPublication": {"status": "CONFLICT", "finalCandidate": final},
-    }
-    if pending in {"pendingObserved", "pendingGeneration", "checkpointPending"}:
-        context[pending] = {"candidate": "retained"}
-    elif pending == "generationError":
-        context[pending] = "generation failed"
-    elif pending == "aws":
-        context["states"]["A"]["status"] = "RUNNING"
-    elif pending == "final":
-        state["deployPublication"].pop("finalCandidate")
-    elif pending == "task":
-        final["taskAfter"] += "changed authority\n"
-    monkeypatch.setattr(worktree, "require", Mock(return_value=state))
-    monkeypatch.setattr(
-        deploy_progress, "read_progress", Mock(return_value={"runContext": context})
-    )
-    monkeypatch.setattr(worktree.wt, "output", Mock(return_value="tree"))
-    if pending:
-        with pytest.raises(ValueError):
-            worktree.require_complete(tmp_path, snapshot)
-    else:
-        worktree.require_complete(tmp_path, snapshot)
-    TestCase().assertEqual(
-        context["states"]["B"],
-        {
-            "status": "SUCCESS",
-            "observedSynced": True,
-            "checkpointed": True,
-            "currentStack": {"StackStatus": "CREATE_COMPLETE"},
-        },
-    )
 
 
 @pytest.fixture
@@ -655,93 +561,10 @@ def check_publication_requires_exact_saved_checkpoint(
         assert publication.checkpoint_source(tmp_path, state, progress) == "checkpoint"
 
 
-def check_final_completion_rechecks_saved_checkpoint_evidence(
-    tmp_path, monkeypatch, checkpoint_evidence
-):
-    state, progress = checkpoint_evidence
-    snapshot = task(tmp_path)
-    monkeypatch.setattr(worktree, "require", Mock(return_value=state))
-    monkeypatch.setattr(deploy_progress, "read_progress", Mock(return_value=progress))
-    with pytest.raises(ValueError, match="final candidate"):
-        worktree.require_complete(tmp_path, snapshot)
 
 
-def check_publication_without_receipt_never_creates_checkpoint(
-    tmp_path, monkeypatch, checkpoint_evidence
-):
-    state, progress = checkpoint_evidence
-    state["worktree"] = str(tmp_path)
-    state["deployCheckpoints"] = {}
-    monkeypatch.setattr(
-        publication.wt,
-        "load",
-        Mock(return_value=(tmp_path, None, tmp_path / "state", state)),
-    )
-    monkeypatch.setattr(
-        publication.wt, "lifecycle_lock", Mock(return_value=nullcontext())
-    )
-    monkeypatch.setattr(
-        publication.tasks, "read_task_snapshot", Mock(return_value=task(tmp_path))
-    )
-    monkeypatch.setattr(worktree, "require", Mock(return_value=state))
-    monkeypatch.setattr(deploy_progress, "read_progress", Mock(return_value=progress))
-    checkpoint = Mock()
-    monkeypatch.setattr(publication, "checkpoint", checkpoint)
-    with pytest.raises(
-        ValueError,
-        match="checkpoint evidence",
-    ):
-        publication.publish(tmp_path, "deploy")
-    checkpoint.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "status", ["PENDING", "CONFLICT", "SUCCESS", "UNKNOWN", "INTENT", "CHECKPOINT"]
-)
-def check_publication_guidance_only_offers_proven_git_retry(
-    tmp_path, monkeypatch, checkpoint_evidence, status
-):
-    state, progress = checkpoint_evidence
-    state["deployPublication"] = {
-        "status": status,
-        "publishedSource": "checkpoint" if status == "SUCCESS" else "start",
-        "commit": "main-commit",
-        "base": "base",
-        "source": "checkpoint",
-        "conflicts": [{"path": "model/dev/app/ec2.properties"}],
-    }
-    if status == "CHECKPOINT":
-        state["deployPublication"]["status"] = "PENDING"
-        progress["runContext"]["checkpointPending"] = {"stacks": ["B"]}
-    if status == "UNKNOWN":
-        progress = None
-    if status == "INTENT":
-        state["deployPublication"].update(
-            status="PENDING",
-            intent={"source": "checkpoint", "commit": "unverified", "base": "base"},
-        )
-    result = publication.describe(tmp_path, state, progress)
-    if status == "PENDING":
-        assert result["retryable"]
-        assert result["nextActions"][0]["command"][-3:] == [
-            "deploy-publish",
-            "--task-id",
-            "deploy",
-        ]
-        assert result["nextActions"][0]["source"] == "checkpoint"
-        assert result["checkpointRequired"] == []
-    elif status == "CONFLICT":
-        assert result["humanApprovalRequired"]
-        assert result["nextActions"][0]["command"] is None
-        assert (
-            result["nextActions"][0]["conflicts"]
-            == state["deployPublication"]["conflicts"]
-        )
-    else:
-        assert not result["nextActions"] and not result["retryable"]
-        assert result["status"] == (
-            "PENDING" if status in {"UNKNOWN", "INTENT", "CHECKPOINT"} else "SUCCESS"
-        )
 
 
 def check_claim_input_hash_still_blocks(tmp_path):
@@ -763,29 +586,6 @@ def check_claim_input_hash_still_blocks(tmp_path):
         )
 
 
-@pytest.mark.parametrize("deleted", [False, True])
-def check_conflict_records_model_values(tmp_path, monkeypatch, deleted):
-    files = {
-        "old": "# model-format: 2\nobserved.row.001-001.value=`before`\n",
-        "main": "# model-format: 2\nobserved.row.001-001.value=`main`\n",
-        "task": "# model-format: 2\nobserved.row.001-001.value=`aws`\n",
-    }
-    if deleted:
-        files["main"] = None
-    monkeypatch.setattr(
-        publication, "blob", lambda root, revision, relative: files[revision]
-    )
-    result = publication.conflicts(
-        tmp_path, "old", "main", "task", ["model/dev/a/ec2.properties"]
-    )
-    assert result[0]["items"] == [
-        {
-            "key": "observed.row.001-001.value",
-            "snapshot": "`before`",
-            "base": None if deleted else "`main`",
-            "deployed": "`aws`",
-        }
-    ]
 
 
 def progress_backend(root, context):
@@ -932,21 +732,6 @@ def check_reuse_keeps_exact_identity(tmp_path, monkeypatch, changed):
     saved.assert_called_once()
 
 
-@pytest.mark.parametrize("engine", ["cloudformation", "terraform"])
-def check_other_engine_retains_its_completion(tmp_path, monkeypatch, engine):
-    snapshot = task(tmp_path)
-    snapshot.scope = {("dev", "123456789012", "ec2")}
-    monkeypatch.setattr(worktree, "require", Mock(return_value={}))
-    monkeypatch.setattr(deploy_progress, "read_progress", Mock(return_value=None))
-    monkeypatch.setattr(
-        worktree, "load_target_directory", Mock(return_value={"iacEngine": engine})
-    )
-    if engine == "terraform":
-        worktree.require_complete(tmp_path, snapshot)
-        deploy_progress.read_progress.assert_not_called()
-    else:
-        with pytest.raises(ValueError, match="no fixed identity"):
-            worktree.require_complete(tmp_path, snapshot)
 
 
 def check_progress_has_one_mutable_context_and_preserves_recovery(tmp_path):
@@ -1027,30 +812,6 @@ def check_corrupt_progress_is_never_empty_success(tmp_path, damage):
         deploy_progress.read_progress(tmp_path, {"deployIdentity": backend.progress_identity})
 
 
-def check_git_display_uses_latest_lifecycle_without_progress_copy(
-    tmp_path, monkeypatch, checkpoint_evidence
-):
-    backend = SimpleNamespace(
-        root=tmp_path, phase="deploy", run_context={"taskFile": "tasks/deploy.md"}
-    )
-    state, progress = checkpoint_evidence
-    state["deployPublication"] = {"status": "PENDING"}
-    monkeypatch.setattr(
-        publication.wt, "load", Mock(side_effect=lambda *a: (None, None, None, state))
-    )
-    monkeypatch.setattr(
-        deploy_progress,
-        "read_progress",
-        Mock(return_value=progress),
-    )
-    assert publication.display(backend)["status"] == "PENDING"
-    state["deployPublication"] = {
-        "status": "SUCCESS",
-        "publishedSource": state["tip"],
-        "commit": "merged",
-    }
-    assert publication.display(backend)["status"] == "SUCCESS"
-    assert "gitPublication" not in backend.run_context
 
 
 def check_missing_progress_with_saved_checkpoint_is_not_a_fresh_run(tmp_path):
@@ -1092,64 +853,6 @@ def check_final_source_uses_fixed_inputs_without_intermediate_receipts(
         publication.checkpoint_source(tmp_path, state, progress)
 
 
-@pytest.mark.parametrize(
-    "problem",
-    [None, "missing", "changed", "tracked", "source", "digest", "publication", "tree"],
-)
-def check_untracked_cleanup_uses_only_published_exact_task(
-    tmp_path, monkeypatch, problem
-):
-    before = task(tmp_path).text
-    after = publication.tasks.set_status(before, "completed")
-    path = tmp_path / "tasks/deploy.md"
-    path.parent.mkdir()
-    if problem != "missing":
-        path.write_text(
-            after + ("foreign change" if problem == "changed" else ""), encoding="utf-8"
-        )
-    final = {
-        "source": "source",
-        "tree": "tree",
-        "taskBefore": before,
-        "taskAfter": after,
-    }
-    state = {
-        "task_file": "tasks/deploy.md",
-        "tip": "source",
-        "merged": "merged",
-        "deployIdentity": {"taskDigest": task_digest(after)},
-        "deployPublication": {
-            "status": "SUCCESS",
-            "publishedSource": "source",
-            "commit": "merged",
-            "finalCandidate": final,
-        },
-    }
-    if problem == "source":
-        final["source"] = "other"
-    elif problem == "digest":
-        state["deployIdentity"]["taskDigest"] = "other"
-    elif problem == "publication":
-        state["deployPublication"]["status"] = "PENDING"
-    elif problem == "tree":
-        final["tree"] = "other"
-    monkeypatch.setattr(
-        publication.wt,
-        "paths",
-        Mock(return_value={"tasks/deploy.md"} if problem == "tracked" else set()),
-    )
-    monkeypatch.setattr(publication.wt, "output", Mock(return_value="tree"))
-    original = path.read_bytes() if path.exists() else None
-    if problem in {"changed", "source", "digest", "publication", "tree"}:
-        with pytest.raises(ValueError):
-            publication.wt.deploy_cleanup_task(tmp_path, state)
-        assert path.read_bytes() == original
-    elif problem == "tracked":
-        assert publication.wt.deploy_cleanup_task(tmp_path, state) is None
-        assert path.read_bytes() == original
-    else:
-        assert publication.wt.deploy_cleanup_task(tmp_path, state) == path
-        assert path.read_text(encoding="utf-8") == after
 
 
 
@@ -1403,66 +1106,6 @@ def _publication_save(trace, path, state):
     trace.saved = copy.deepcopy(state)
 
 
-@pytest.mark.parametrize("failure", ["before-merge", "after-merge", "receipt"])
-def check_publication_merge_intent_reconciles_once(tmp_path, monkeypatch, failure):
-    check = TestCase()
-    state = dict(
-        worktree=str(tmp_path),
-        task_file="tasks/deploy.md",
-        branch="deploy",
-        base="main",
-        start="start",
-        tip="source",
-        deployPublication=dict(
-            status="PENDING",
-            publishedSource="start",
-            intent=dict(commit="merged", base="base", source="source"),
-        ),
-    )
-    trace = SimpleNamespace(
-        failure=failure,
-        failed=False,
-        merged=False,
-        merges=0,
-        saved=copy.deepcopy(state),
-    )
-    monkeypatch.setattr(
-        publication.wt,
-        "load",
-        lambda *a: (tmp_path, None, tmp_path / "state.json", state),
-    )
-    monkeypatch.setattr(
-        publication.wt, "lifecycle_lock", Mock(return_value=nullcontext())
-    )
-    monkeypatch.setattr(publication.worktree, "require", Mock())
-    monkeypatch.setattr(
-        publication.tasks, "read_task_snapshot", Mock(return_value=task(tmp_path))
-    )
-    monkeypatch.setattr(
-        publication.deploy_progress, "read_progress", Mock(return_value={"runContext": {}})
-    )
-    monkeypatch.setattr(publication, "checkpoint_source", Mock(return_value="source"))
-    monkeypatch.setattr(
-        publication.contracts, "validation_snapshot", Mock(return_value={})
-    )
-    monkeypatch.setattr(publication, "require_checkpoint_intent", Mock())
-    monkeypatch.setattr(publication.wt, "base_worktree", Mock(return_value=tmp_path))
-    monkeypatch.setattr(publication.wt, "output", partial(_publication_output, trace))
-    monkeypatch.setattr(publication.wt, "ancestor", lambda *a: trace.merged)
-    monkeypatch.setattr(publication.wt, "git", partial(_publication_merge, trace))
-    monkeypatch.setattr(publication.wt, "save", partial(_publication_save, trace))
-    monkeypatch.setattr(
-        publication, "describe", lambda *a: dict(state["deployPublication"])
-    )
-    with pytest.raises(OSError, match="interrupted"):
-        publication.publish(tmp_path, "deploy")
-    state = copy.deepcopy(trace.saved)
-    check.assertIn("intent", state["deployPublication"])
-    result = publication.publish(tmp_path, "deploy")
-    check.assertEqual(result["status"], "SUCCESS")
-    check.assertEqual(result["publishedSource"], "source")
-    check.assertNotIn("intent", state["deployPublication"])
-    check.assertEqual(trace.merges, 1)
 
 
 @pytest.mark.parametrize("status", ["SUCCESS", "FAILED", "SETTLED", "NOT_STARTED"])
@@ -1505,90 +1148,6 @@ def _resolution_command(command, **kwargs):
     )
 
 
-@pytest.mark.parametrize(
-    "failure",
-    [
-        "approval",
-        "base",
-        "source",
-        "files",
-        "location",
-        "mode",
-        "iac",
-        "transport",
-        "none",
-    ],
-)
-def check_reviewed_conflict_tree_uses_private_index(tmp_path, failure):
-    check = TestCase()
-    root = tmp_path / "repo"
-    root.mkdir()
-    relative = (
-        "infra/template.yaml" if failure == "iac" else "model/dev/team/ec2.properties"
-    )
-    review = tmp_path / "review.json"
-    document = dict(
-        approval="" if failure == "approval" else "Human accepts observation delta",
-        base="other" if failure == "base" else "base",
-        source="other" if failure == "source" else "source",
-        files={} if failure == "files" else {relative: "reviewed contents"},
-    )
-    review.write_text(json.dumps(document))
-    original = review.read_bytes()
-    record = dict(conflictTree="conflict-tree", conflicts=[dict(path=relative)])
-    with (
-        patch.object(
-            publication.ws, "repository", return_value=(root, root / ".git", root)
-        ),
-        patch.object(
-            publication.wt.python_env,
-            "runtime",
-            return_value=(sys.executable, {"GIT_DIR": "must-not-propagate"}),
-        ),
-        patch.object(
-            publication.wt,
-            "output",
-            return_value="120000 blob" if failure == "mode" else "100644 blob",
-        ),
-        patch.object(publication, "blob", return_value="original IaC"),
-        patch.object(
-            publication.subprocess,
-            "run",
-            side_effect=OSError("transport")
-            if failure == "transport"
-            else _resolution_command,
-        ) as git,
-    ):
-        if failure == "none":
-            check.assertEqual(
-                publication.resolved_tree(root, "base", "source", record, review),
-                "resolved-tree",
-            )
-            environments = [
-                call.kwargs["env"]
-                for call in git.call_args_list
-                if "env" in call.kwargs
-            ]
-            check.assertTrue(
-                all(
-                    "GIT_DIR" not in env
-                    and not Path(env["GIT_INDEX_FILE"]).is_relative_to(root)
-                    for env in environments
-                )
-            )
-        else:
-            with pytest.raises(OSError if failure == "transport" else ValueError):
-                publication.resolved_tree(
-                    root,
-                    "base",
-                    "source",
-                    record,
-                    Path("relative.json") if failure == "location" else review,
-                )
-    if failure in {"approval", "base", "source", "files", "location"}:
-        git.assert_not_called()
-    check.assertEqual(review.read_bytes(), original)
-    check.assertEqual(list(root.iterdir()), [])
 
 
 def _conflict_publication_output(trace, primary, root, *args):
@@ -1612,87 +1171,6 @@ def _conflict_publication_git(trace, primary, root, *args, **kwargs):
     return subprocess.CompletedProcess([], 0, "", "")
 
 
-def check_conflict_review_publishes_without_repeating_aws(tmp_path, monkeypatch):
-    check = TestCase()
-    primary, root = tmp_path / "primary", tmp_path / "task"
-    primary.mkdir()
-    root.mkdir()
-    state = dict(
-        worktree=str(root), task_file="tasks/deploy.md", start="start", base="main"
-    )
-    progress = {
-        "runContext": {
-            "states": {
-                "A": {
-                    "status": "SUCCESS",
-                    "executionEvidence": {"clientToken": "fixed"},
-                }
-            }
-        }
-    }
-    before = copy.deepcopy(progress)
-    task = SimpleNamespace(name="tasks/deploy.md", raw=b"contract")
-    trace = dict(head="base", merges=0)
-    monkeypatch.setattr(
-        publication.wt,
-        "load",
-        Mock(return_value=(primary, None, tmp_path / "state.json", state)),
-    )
-    monkeypatch.setattr(
-        publication.wt, "lifecycle_lock", Mock(return_value=nullcontext())
-    )
-    monkeypatch.setattr(
-        publication.tasks, "read_task_snapshot", Mock(return_value=task)
-    )
-    monkeypatch.setattr(publication.worktree, "require", Mock())
-    monkeypatch.setattr(
-        publication.deploy_progress, "read_progress", Mock(return_value=progress)
-    )
-    monkeypatch.setattr(publication, "checkpoint_source", Mock(return_value="source"))
-    monkeypatch.setattr(
-        publication.contracts, "validation_snapshot", Mock(return_value={})
-    )
-    monkeypatch.setattr(publication.wt, "base_worktree", Mock(return_value=primary))
-    monkeypatch.setattr(
-        publication.wt,
-        "output",
-        Mock(side_effect=partial(_conflict_publication_output, trace, primary)),
-    )
-    monkeypatch.setattr(
-        publication.wt,
-        "git",
-        Mock(side_effect=partial(_conflict_publication_git, trace, primary)),
-    )
-    monkeypatch.setattr(publication.wt, "save", Mock())
-    monkeypatch.setattr(publication.wt, "ancestor", Mock(return_value=False))
-    monkeypatch.setattr(publication.wt, "changed_paths", Mock(return_value=set()))
-    monkeypatch.setattr(
-        publication.wt, "paths", Mock(return_value={"model/dev/team/ec2.properties"})
-    )
-    monkeypatch.setattr(
-        publication,
-        "conflicts",
-        Mock(return_value=[{"path": "model/dev/team/ec2.properties"}]),
-    )
-    monkeypatch.setattr(
-        publication, "describe", lambda *args: state["deployPublication"].copy()
-    )
-    validate, resolve = Mock(), Mock(return_value="resolved-tree")
-    monkeypatch.setattr(publication, "validate_candidate", validate)
-    monkeypatch.setattr(publication, "resolved_tree", resolve)
-    check.assertEqual(publication.publish(root, "deploy")["status"], "CONFLICT")
-    check.assertEqual(trace["merges"], 0)
-    validate.assert_not_called()
-    resolve.assert_not_called()
-    check.assertEqual(
-        publication.publish(root, "deploy", tmp_path / "review.json")["status"],
-        "SUCCESS",
-    )
-    check.assertEqual(trace["merges"], 1)
-    validate.assert_called_once()
-    resolve.assert_called_once()
-    check.assertEqual(progress, before)
-    check.assertNotIn("conflicts", state["deployPublication"])
 
 
 if __name__ == "__main__":

@@ -6,8 +6,6 @@ from pathlib import Path
 import task_contract_core as tasks
 import worktree_state as ws
 import worktree_task as wt
-from contracts.target import IAC_ENGINE_KEY
-from utils.project_targets import load_target_directory
 
 
 def is_deploy(text):
@@ -60,33 +58,3 @@ def bind(root, task, target, environment, stacks):
         state.setdefault("deployContract", task.text)
         wt.save(path, state)
         return copy.deepcopy(identity)
-
-
-def prepare_complete(root, task):
-    require_complete(root, task)
-
-
-def require_complete(root, task):
-    if not is_deploy(task.text):
-        return
-    state = require(root, task)
-    if not state.get("deployIdentity"):
-        targets = {
-            (environment, directory) for environment, directory, _ in task.scope or ()
-        }
-        if (
-            len(targets) == 1
-            and load_target_directory(root, *next(iter(targets)))[IAC_ENGINE_KEY]
-            == "terraform"
-        ):
-            return
-        raise ws.Blocked("managed Deploy has no fixed identity")
-    progress = wt.module("deploy/progress.py", "deploy.progress")
-    completion = wt.module("deploy/completion.py", "deploy.completion")
-    saved = progress.read_progress(root, state)
-    if completion.candidate_incomplete(
-        task, state, saved, lambda: wt.output(root, "rev-parse", state["tip"] + "^{tree}")
-    ):
-        raise ws.Blocked(
-            "Deploy final candidate is incomplete; use sync --final or resume the saved checkpoint"
-        )

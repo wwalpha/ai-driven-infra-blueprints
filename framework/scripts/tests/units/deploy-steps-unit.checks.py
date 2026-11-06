@@ -115,7 +115,6 @@ def candidate_test_git(root, *args):
         Path(args[-1]).mkdir()
 
 
-prepare_complete = worktree.prepare_complete
 
 
 def check_advance_returns_with_running_peers_without_sync():
@@ -149,8 +148,6 @@ def check_advance_retains_original_execute_after_interruption():
 
 def checkpoint_pending_is_unfinished_even_after_observed_case(monkeypatch, case):
     data = case["data"]
-    display = Mock(return_value=copy.deepcopy(data["publication"]))
-    monkeypatch.setattr(publication, "display", display)
     states = copy.deepcopy(data["states"])
     backend = SimpleNamespace(
         phase=data["phase"],
@@ -167,7 +164,6 @@ def checkpoint_pending_is_unfinished_even_after_observed_case(monkeypatch, case)
     assert report["result"] != "COMPLETE"
     assert report["states"]["A"]["attempt"] == "SUCCESS"
     assert "gitPublication" not in report
-    display.assert_not_called()
     return report
 
 
@@ -224,54 +220,6 @@ def failed_attempt_cannot_finish_with_unstarted_stack_case(case):
 def check_failed_attempt_cannot_finish_with_unstarted_stack(case_runner, case_id):
     case_runner.run(
         "deploy_steps", case_id, failed_attempt_cannot_finish_with_unstarted_stack_case
-    )
-
-
-def git_next_actions_are_exposed_until_publication_succeeds_case(monkeypatch, case):
-    data = case["data"]
-    status = data["status"]
-    monkeypatch.setattr(
-        publication,
-        "display",
-        lambda backend: copy.deepcopy(backend.run_context["gitPublication"]),
-    )
-    states = copy.deepcopy(data["states"])
-    states["A"]["currentStack"] = {"StackStatus": "CREATE_COMPLETE"}
-    actions = copy.deepcopy(data["actions"])
-    backend = SimpleNamespace(
-        phase="deploy",
-        task_status="completed",
-        states=states,
-        run_context={
-            "states": states,
-            "snapshotValidation": "PASS",
-            "taskFile": "tasks/deploy.md",
-            "gitPublication": {"status": status, "nextActions": actions},
-        },
-    )
-    report = steps.describe(backend)
-    assert report["result"] == "COMPLETE"
-    assert report["nextActions"] == []
-    assert "gitPublication" not in report
-    backend.run_context["syncPending"] = {"stacks": ["A"], "final": True}
-    pending_report = steps.describe(backend)
-    assert pending_report["result"] != "COMPLETE"
-    backend.run_context.pop("syncPending")
-    states["A"]["status"] = "FAILED"
-    assert steps.describe(backend)["deployResult"] == "FAIL"
-    return {"report": report, "pendingCheckpoint": pending_report, "failedAttempt": steps.describe(backend)}
-
-
-@pytest.mark.parametrize("case_id", case_ids("deploy_steps", prefix="git-"))
-def check_git_next_actions_are_exposed_until_publication_succeeds(
-    monkeypatch, case_runner, case_id
-):
-    case_runner.run(
-        "deploy_steps",
-        case_id,
-        partial(
-            git_next_actions_are_exposed_until_publication_succeeds_case, monkeypatch
-        ),
     )
 
 
@@ -1100,16 +1048,6 @@ class TestCurrentState(TestCase):
         self.assertTrue(completion.attempts_finished({"A": state}, "UNKNOWN"))
         self.assertEqual(state["attemptResult"], "UNKNOWN")
 
-    def test_explicit_completion_requires_the_saved_final_candidate(self):
-        task = SimpleNamespace(
-            text=load_case("deploy_steps", "completion-task-input")["files"]["task.md"]
-        )
-        with patch.object(
-            worktree, "require_complete", side_effect=Blocked("use sync --final")
-        ) as required:
-            with self.assertRaisesRegex(Blocked, "sync --final"):
-                prepare_complete(Path("/synthetic"), task)
-            required.assert_called_once()
 
 
 
@@ -1848,8 +1786,7 @@ def check_current_guidance_preserves_safe_recovery_and_final_choices(condition):
         task_status="running",
     )
     original = copy.deepcopy(context)
-    with patch.object(publication, "display", return_value=None):
-        report = steps.describe(backend)
+    report = steps.describe(backend)
     actions = report["nextActions"]
     assert bool([a for a in actions if a.get("final")]) == (
         condition in {"approval", "authorization", "ended-unknown"}

@@ -849,7 +849,6 @@ def check_checkpoint_uses_scoped_barrier_under_ordered_locks(tmp_path, case):
         "repair-checkpoint",
         "repair-validate",
         "sync-base",
-        "deploy-publish",
     ],
 )
 def check_pr_cli_and_special_routes(tmp_path, command):
@@ -1657,7 +1656,6 @@ def check_cleanup_operation_failure_retains_state(tmp_path, failure):
         patch.object(worktree_state, "_repository_identity", return_value=(tmp_path, tmp_path / ".git")),
         patch.object(worktree_state, "task_git_directory", return_value=directory),
         patch.object(wt, "task_worktree", return_value=target),
-        patch.object(wt, "deploy_cleanup_task", return_value=None),
         patch.object(wt, "integration_task"),
         patch.object(wt, "output", side_effect=[str(target), "tip"]),
         patch.object(wt, "changed_paths", return_value=set()),

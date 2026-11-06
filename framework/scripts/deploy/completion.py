@@ -158,19 +158,3 @@ def finish_local(root, task, validated):
     verify_local_inputs(root, task, validated)
     tasks.atomic_files({task.path: tasks.set_status(task.text, "completed")}, staging_directory=root)
     tasks.invalidate_task_reads(root)
-
-
-def candidate_incomplete(task, state, saved, candidate_tree):
-    final = state.get("deployPublication", {}).get("finalCandidate")
-    return (
-        saved is None
-        or final_blockers(saved["runContext"])
-        or saved["runContext"].get("checkpointPending")
-        or saved["runContext"].get("snapshotValidation") != VALIDATION_PASS
-        or not final
-        or final.get("taskAfter") != task.text
-        or final.get("source") != state["tip"]
-        or final.get("tree") != candidate_tree()
-        or final.get("taskAfter")
-        != tasks.set_status(final.get("taskBefore", ""), "completed")
-    )

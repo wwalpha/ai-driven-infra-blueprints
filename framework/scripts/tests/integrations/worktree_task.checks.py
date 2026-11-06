@@ -773,6 +773,18 @@ def check_success_and_empty():
                     == "task(example-000000): completed task"
                 )
                 assert not wt.paths(root, "ls-files", "-z", "tasks")
+    with fixture() as root:
+        target, state = start(root)
+        task_path = target / state["task_file"]
+        text = task_path.read_text(encoding="utf-8").replace(
+            "- Task type: `governance`",
+            "- Task type: `infrastructure`\n- Infrastructure phase: `deploy`",
+        )
+        task_path.write_text(tasks.set_status(text, "completed"), encoding="utf-8")
+        (target / "file.txt").write_text("deploy result\n", encoding="utf-8")
+        result = cli(target, "finalize")
+        assert result["cleaned"] and result["merged"] == result["commit"]
+        assert (root / "file.txt").read_text(encoding="utf-8") == "deploy result\n"
     print("Normal/zero-change lifecycle: PASS")
 
 

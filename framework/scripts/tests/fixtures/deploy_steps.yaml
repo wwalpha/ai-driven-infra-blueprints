@@ -45,29 +45,6 @@ cases:
   intermediate-ready:
     data:
       status: READY
-  git-pending:
-    data:
-      status: PENDING
-      actions:
-      - action: deploy-publish
-        command:
-        - python3
-        - worktree_task.py
-        - deploy-publish
-      states: *id001
-  git-conflict:
-    data:
-      status: CONFLICT
-      actions:
-      - action: review-publication-conflict
-        command: null
-        humanApprovalRequired: true
-      states: *id001
-  git-success:
-    data:
-      status: SUCCESS
-      actions: []
-      states: *id001
   request-identity-input:
     data:
       record:

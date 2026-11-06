@@ -43,7 +43,7 @@ from support.pytest_cli import run
 from support.worktree_deploy_fixtures import pin_progress, seed
 from support.worktree_task_fixtures import fixture, git
 from task_contract import main as task_main
-from task_contract_core import read_task_snapshot, selected_task, set_status, start
+from task_contract_core import read_task_snapshot, selected_task, start
 from utils.local_evidence import read_sealed
 
 if not __debug__:
@@ -411,78 +411,8 @@ def synchronized_candidate(backend, relative, name):
     backend.save()
 
 
-def check_managed_checkpoint_publication_isolation():
-    with managed_repository() as (primary, backend, relative):
-        root = backend.root
-        synchronized_candidate(backend, relative, "A")
-        checkpoints.snapshot_checkpoint(backend, ["A"])
-        saved = git(root, "rev-parse", "HEAD")
-        publication.sync(backend)
-        assert publication.display(backend)["status"] == "SUCCESS"
-        # B edits the same Model file; A's Git retry must preserve B's staged candidate.
-        synchronized_candidate(backend, relative, "B")
-        git(root, "add", relative)
-        candidate = (root / relative).read_bytes()
-        index = git(root, "write-tree")
-        first_main = git(primary, "rev-parse", "HEAD")
-        result = publication.publish(root, root.name)
-        assert result["status"] == "SUCCESS"
-        assert git(primary, "rev-parse", "HEAD") == first_main
-        assert git(root, "rev-parse", "HEAD") == saved
-        assert (
-            git(root, "write-tree") == index
-            and (root / relative).read_bytes() == candidate
-        )
-        assert "observed.b.value=`before`" in (primary / relative).read_text()
-        backend.run_context.pop("pendingObserved", None)
-        backend.run_context.pop("pendingGeneration", None)
-        checkpoints.snapshot_checkpoint(backend, ["B"])
-        result = publication.publish(root, root.name)
-        merged = git(primary, "rev-parse", "HEAD")
-        assert result["status"] == "SUCCESS" and result["commit"] == merged
-        assert not result["nextActions"]
-        assert publication.publish(root, root.name)["commit"] == merged
-        assert git(primary, "rev-parse", "HEAD") == merged
-        assert (primary / relative).read_bytes() == candidate
 
 
-@pytest.mark.parametrize("tracked", [False, True])
-def check_managed_final_contract_checkpoint(tracked):
-    with managed_repository(tracked_contract=tracked) as (primary, backend, relative):
-        root = backend.root
-        synchronized_candidate(backend, relative, "A")
-        checkpoints.snapshot_checkpoint(backend, ["A"])
-        publication.publish(root, root.name)
-        synchronized_candidate(backend, relative, "B")
-        pending = backend.run_context["checkpointPending"]
-        snapshot = read_task_snapshot(root, f"tasks/{root.name}.md", live=True)
-        pending["final"] = {
-            "taskBefore": snapshot.text,
-            "taskAfter": set_status(snapshot.text, "completed"),
-        }
-        backend.save()
-        parent = git(root, "rev-parse", "HEAD")
-        checkpoints.snapshot_checkpoint(backend, ["B"])
-        source = git(root, "rev-parse", "HEAD").strip()
-        assert (
-            git(root, "rev-list", "--count", parent.strip() + "..HEAD").strip() == "1"
-        )
-        paths = set(
-            git(
-                root, "diff-tree", "--no-commit-id", "--name-only", "-r", source
-            ).splitlines()
-        )
-        assert relative in paths and ((snapshot.name in paths) == tracked)
-        if tracked:
-            assert "- Task status: `completed`" in git(
-                root, "show", source + ":" + snapshot.name
-            )
-        else:
-            assert not git(root, "ls-files", snapshot.name)
-        assert publication.publish(root, root.name)["status"] == "SUCCESS"
-        result = publication.finalize(root, root.name)
-        assert result["verified"] and git(root, "rev-parse", "HEAD").strip() == source
-        assert wt.automatic_cleanup(primary, root.name)["cleaned"]
 
 
 def check_managed_success_while_peer_running(tmp_path, monkeypatch):
@@ -526,43 +456,6 @@ def check_managed_success_while_peer_running(tmp_path, monkeypatch):
     assert root.is_dir()
 
 
-@pytest.mark.parametrize("mode", ["tracked", "ignored", "untracked"])
-def check_final_zero_model_delta_keeps_exact_source_history(mode):
-    tracked = mode == "tracked"
-    with managed_repository(
-        tracked_contract=tracked, untracked_contract=mode == "untracked"
-    ) as (primary, backend, relative):
-        for name in ("A", "B"):
-            synchronized_candidate(backend, relative, name)
-            checkpoints.snapshot_checkpoint(backend, [name])
-            publication.publish(backend.root, backend.root.name)
-        root = backend.root
-        parent = git(root, "rev-parse", "HEAD").strip()
-        task = read_task_snapshot(root, f"tasks/{root.name}.md", live=True)
-        snapshot = contracts.validation_snapshot(root)
-        backend.run_context["checkpointPending"] = {
-            "stacks": [],
-            "before": snapshot,
-            "after": snapshot,
-            "final": {
-                "taskBefore": task.text,
-                "taskAfter": set_status(task.text, "completed"),
-            },
-        }
-        backend.save()
-        checkpoints.snapshot_checkpoint(backend, [])
-        source = git(root, "rev-parse", "HEAD").strip()
-        assert (source != parent) == tracked
-        if tracked:
-            assert set(
-                git(
-                    root, "diff-tree", "--no-commit-id", "--name-only", "-r", source
-                ).splitlines()
-            ) == {task.name}
-        assert publication.publish(root, root.name)["status"] == "SUCCESS"
-        publication.finalize(root, root.name)
-        assert git(root, "rev-parse", "HEAD").strip() == source
-        TestCase().assertTrue(wt.cleanup(primary, root.name)["cleaned"])
 
 
 def seed_reference_consumer(root, report, case, **kwargs):
