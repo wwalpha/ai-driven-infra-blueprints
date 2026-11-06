@@ -111,10 +111,6 @@ def save_test_snapshot(saved, state, path):
     saved.append((dict(state), path.exists()))
 
 
-
-
-
-
 def check_advance_returns_with_running_peers_without_sync():
     scoped = units(10, 10, 20)
     state = states(scoped)
@@ -524,7 +520,7 @@ def check_observed_resource_progress_deduplicates_and_marks_uncertainty(stack_st
     "output,physical,expected",
     [
         ("fl-new", "fl-new", "`fl-new`"),
-        (None, "fl-new", "`fl-new`"),
+        (None, "fl-new", None),
         ("fl-other", "fl-new", None),
     ],
 )
@@ -582,7 +578,8 @@ def check_flowlog_observed_identifier(tmp_path, output, physical, expected):
     ):
         observed.collect_successful(backend, [{"name": "A"}], state)
     assert (
-        destinations.call_args.args[4][source]["observed.row.001-001.value"] == expected
+        destinations.call_args.args[4][source].get("observed.row.001-001.value")
+        == expected
     )
     assert state["A"]["observedCoverage"]["Flow"]["status"] == (
         "UPDATED" if expected else "UNCONFIRMED"
@@ -664,7 +661,7 @@ def check_every_identifier_is_confirmed(tmp_path, missing, already_matches):
     ):
         backend.run_context = {}
         observed.sync_successful(backend, [{"name": "A"}], state)
-        TestCase().assertTrue(state["A"]["observedSynced"])
+        TestCase().assertEqual(state["A"]["observedSynced"], not bool(missing))
         TestCase().assertEqual(state["A"]["stackStatus"], "CREATE_COMPLETE")
         if missing == "wrong-type":
             TestCase().assertEqual(
@@ -673,7 +670,7 @@ def check_every_identifier_is_confirmed(tmp_path, missing, already_matches):
         TestCase().assertNotIn("cloudformation-stacks", state["A"]["observedServices"])
         if missing:
             TestCase().assertIsNone(
-                destinations.call_args.args[4][source]["observed.row.001-001.value"]
+                destinations.call_args.args[4][source].get("observed.row.001-001.value")
             )
         TestCase().assertEqual(
             state["A"]["observedCoverage"]["Vpc"]["status"],
@@ -751,7 +748,8 @@ def test_queue_policy_getatt_observation(tmp_path, output, expected):
     ):
         observed.sync_successful(backend, [{"name": "A"}], state)
     assert (
-        destinations.call_args.args[4][source]["observed.row.001-001.value"] == expected
+        destinations.call_args.args[4][source].get("observed.row.001-001.value")
+        == expected
     )
     assert state["A"]["observedCoverage"]["Policy"]["status"] == (
         "UPDATED" if output else "UNCONFIRMED"
@@ -772,7 +770,6 @@ def save_test_state(case, request, progress, state):
 
 
 class TestCurrentState(TestCase):
-
     def test_restarting_clears_unexecuted_reason(self):
         scoped = units(10)
         state = states(scoped)
@@ -782,9 +779,6 @@ class TestCurrentState(TestCase):
         state["A"]["unexecutedReason"] = "stale"
         current_state.record_attempt(state["A"], "UPDATE_COMPLETE")
         self.assertNotIn("unexecutedReason", state["A"])
-
-
-
 
     def test_settled_revalidation_allows_next_order_without_reexecuting(self):
         scoped = units(10, 20)
@@ -975,7 +969,7 @@ class TestCurrentState(TestCase):
                 ),
             )
             with (
-                    patch.object(observed, "collect_successful"),
+                patch.object(observed, "collect_successful"),
             ):
                 controller.current_satisfied(backend, unit)
                 backend.verify_object.assert_called_once_with(obj)
@@ -1027,7 +1021,6 @@ class TestCurrentState(TestCase):
             with self.assertRaises(Blocked):
                 controller.check_imports(backend, consumer)
 
-
     def test_settled_unknown_is_terminal_without_reexecution(self):
         state = {
             "status": "SETTLED",
@@ -1043,15 +1036,6 @@ class TestCurrentState(TestCase):
         backend.execute.assert_not_called()
         self.assertTrue(completion.attempts_finished({"A": state}, "UNKNOWN"))
         self.assertEqual(state["attemptResult"], "UNKNOWN")
-
-
-
-
-
-
-
-
-
 
     def test_next_order_requires_aws_success_without_observed_or_git(self):
         scoped = units(10, 20)
@@ -1109,7 +1093,6 @@ class TestCurrentState(TestCase):
         self.assertEqual(state["status"], "SUCCESS")
         self.assertTrue(state["needsCurrentReview"])
         self.assertEqual(state["status"], "SUCCESS")
-
 
     def test_status_classes_are_distinct(self):
         cases = {
@@ -1202,9 +1185,6 @@ class TestCurrentState(TestCase):
                 StackName="A",
             )
 
-
-
-
     def test_all_pages_and_incomplete_listing(self):
         aws = Mock(
             side_effect=[
@@ -1239,8 +1219,6 @@ class TestCurrentState(TestCase):
                 "StackResourceSummaries",
                 StackName="Example",
             )
-
-
 
     def test_attempt_events_do_not_replace_current_stack_observation(self):
         for current, event_status, expected in [
@@ -1282,9 +1260,6 @@ class TestCurrentState(TestCase):
         current_state.record_attempt(failed, "UNCONFIRMED")
         self.assertEqual(failed["status"], "BLOCKED")
 
-
-
-
     def test_unknown_identifier_does_not_render_an_old_id(self):
         row = {
             "property": "EC2.VPC.VpcId",
@@ -1305,7 +1280,6 @@ class TestCurrentState(TestCase):
             validate_model_keys(properties(after))
         stack_model(properties(before))
 
-
     def test_update_refreshes_only_unclaimed_input_identities(self):
         unit = {"name": "A"}
         saved = {
@@ -1321,7 +1295,9 @@ class TestCurrentState(TestCase):
             with (
                 self.subTest(phase=phase),
                 patch.object(
-                    steps.deploy_progress, "read_task", return_value={"runContext": saved}
+                    steps.deploy_progress,
+                    "read_task",
+                    return_value={"runContext": saved},
                 ),
             ):
                 backend = SimpleNamespace(
@@ -1340,7 +1316,9 @@ class TestCurrentState(TestCase):
                 )
 
     def test_local_publication_guard_does_not_require_old_execution_inputs(self):
-        task = SimpleNamespace(name="tasks/deploy.md", status="running", task_digest="current")
+        task = SimpleNamespace(
+            name="tasks/deploy.md", status="running", task_digest="current"
+        )
         target = {"awsAccountId": "123456789012", "awsRegion": "region"}
         backend = SimpleNamespace(
             root=Path("/synthetic"),
@@ -1364,11 +1342,13 @@ class TestCurrentState(TestCase):
         backend.file_digest.assert_not_called()
         backend.input_digest.assert_not_called()
 
-
-
     def test_generation_is_independent_of_deploy_result(self):
         states = {
-            "A": {"status": "FAILED", "observedSynced": True, "currentStack": {"StackStatus": "ROLLBACK_COMPLETE"}}
+            "A": {
+                "status": "FAILED",
+                "observedSynced": True,
+                "currentStack": {"StackStatus": "ROLLBACK_COMPLETE"},
+            }
         }
         backend = SimpleNamespace(
             states=states,
@@ -1413,7 +1393,9 @@ def progress_backend(root, context):
         progress_task_file=identity["taskFile"],
         progress_root=root.resolve(),
         progress_directory=context.get("directory"),
-        progress_destination=deploy_progress.progress_path(root, "tasks/deploy.md", create=True),
+        progress_destination=deploy_progress.progress_path(
+            root, "tasks/deploy.md", create=True
+        ),
     )
 
 
@@ -1421,7 +1403,9 @@ def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
     monkeypatch.setattr(local_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
     old = os.umask(0o022)
     try:
-        path = deploy_progress.progress_path(tmp_path / "project", "tasks/deploy.md", create=True)
+        path = deploy_progress.progress_path(
+            tmp_path / "project", "tasks/deploy.md", create=True
+        )
         for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
             assert stat.S_IMODE(directory.stat().st_mode) == 0o700
         context = {
@@ -1466,25 +1450,9 @@ def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, lev
                 wrong_owner, original_lstat=original_lstat, directory=directory
             ),
         )
-    expected = (
-        "private and owned|unsafe local evidence"
-        if unsafe == "owner"
-        else None
-    )
+    expected = "private and owned|unsafe local evidence" if unsafe == "owner" else None
     with pytest.raises((ValueError, Blocked), match=expected):
         deploy_progress.progress_path(root, "tasks/deploy.md", create=True)
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @pytest.mark.parametrize("action", ["advance", "checkpoint", "status"])
@@ -1504,8 +1472,6 @@ def check_final_cli_rejected_before_action(action):
             ]
         )
     run_step.assert_not_called()
-
-
 
 
 @pytest.mark.parametrize(
@@ -1545,12 +1511,12 @@ def check_pending_generation_sync_preserves_candidate_scope(
         if not final and "A" in names and (names == ["A"] or generation):
             with pytest.raises(RuntimeError, match="selected snapshot"):
                 steps.sync(backend, names)
-            TestCase().assertEqual(backend.run_context["syncPending"]["stacks"], sorted(names))
+            TestCase().assertEqual(
+                backend.run_context["syncPending"]["stacks"], sorted(names)
+            )
             backend.save.assert_called_once()
         else:
-            with pytest.raises(
-                steps.Blocked, match="Stack scope"
-            ):
+            with pytest.raises(steps.Blocked, match="Stack scope"):
                 steps.sync(backend, names)
             TestCase().assertEqual(pending["stacks"], ["A"])
             backend.save.assert_not_called()
@@ -1560,6 +1526,7 @@ def check_pending_generation_sync_preserves_candidate_scope(
 def finish_or_collect(context, collected, _backend, units, _states):
     if context.get("pendingObserved"):
         context.pop("pendingObserved")
+        _states["A"]["observedSynced"] = True
         collected.append(["saved A"])
     else:
         collected.append([unit["name"] for unit in units])
@@ -1643,17 +1610,19 @@ def check_missing_execution_identity_cannot_adopt_current_success():
 def check_refresh_only_reads_selected_sync_stacks_once():
     backend = SimpleNamespace(
         units=[{"name": "A"}, {"name": "B"}],
-        states={"A": {"status": "NOT_STARTED"}, "B": {"status": "SUCCESS", "observedSynced": True}},
-        aws=Mock(return_value={"Stacks": [{"StackId": "a", "StackStatus": "UPDATE_COMPLETE"}]}),
+        states={
+            "A": {"status": "NOT_STARTED"},
+            "B": {"status": "SUCCESS", "observedSynced": True},
+        },
+        aws=Mock(
+            return_value={
+                "Stacks": [{"StackId": "a", "StackStatus": "UPDATE_COMPLETE"}]
+            }
+        ),
     )
     current_state.refresh(backend, [backend.units[0]])
     backend.aws.assert_called_once_with("describe_stacks", StackName="A")
     assert backend.states["B"] == {"status": "SUCCESS", "observedSynced": True}
-
-
-
-
-
 
 
 @pytest.mark.parametrize(
@@ -1707,8 +1676,6 @@ def check_current_guidance_preserves_safe_recovery_and_final_choices(condition):
         assert report["deployResult"] == "UNKNOWN" and report["task"] == "running"
 
 
-
-
 def handoff_test_save(boundary, tmp_path, progress, state):
     if boundary == "save":
         raise OSError("save interrupted")
@@ -1722,10 +1689,6 @@ def handoff_test_replace_file(boundary, replace, *args, **kwargs):
     if boundary == "after_replace":
         raise OSError("after replace interrupted")
     return result
-
-
-
-
 
 
 def fail_auth(original, *args):
@@ -1758,6 +1721,97 @@ def check_sts_failure_stops_without_new_observation(tmp_path, monkeypatch, capsy
     assert json.loads(aws.read_text())["calls"] == before
 
 
-
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+def test_final_blockers_reject_unconfirmed_coverage_even_if_flag_is_stale():
+    context = {
+        "states": {
+            "A": {
+                "status": "SUCCESS",
+                "observedSynced": True,
+                "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
+                "observedCoverage": {"Vpc": {"status": "UNCONFIRMED"}},
+            }
+        }
+    }
+    assert any(
+        blocker.get("stack") == "A"
+        for blocker in steps.completion.final_blockers(context)
+    )
+
+
+def test_collect_mixed_identifiers_keeps_confirmed_reference_scope(tmp_path):
+    source = tmp_path / "model/dev/app/ec2.properties"
+    resource = {
+        "resourceType": "EC2.SecurityGroup",
+        "logicalId": "EC2_SecurityGroup_001",
+    }
+    rows = [
+        ("001-001", {"property": "EC2.SecurityGroup.Id"}),
+        ("001-002", {"property": "EC2.SecurityGroup.VpcId"}),
+    ]
+    mapped = {
+        "A": {
+            "Group": (
+                source,
+                "001",
+                resource,
+                rows,
+                {"EC2.SecurityGroup.Id", "EC2.SecurityGroup.VpcId"},
+            )
+        }
+    }
+    stack = {"StackId": "stack", "StackStatus": "CREATE_COMPLETE"}
+    backend = SimpleNamespace(
+        root=tmp_path,
+        environment="dev",
+        directory="app",
+        target={"awsRegion": "region", "awsAccountId": "account"},
+        templates={
+            "A": ({"Resources": {"Group": {"Type": "AWS::EC2::SecurityGroup"}}}, {})
+        },
+        run_context={},
+        aws=Mock(),
+    )
+    loaded = {
+        source: {
+            "observed.row.001-001.value": "`sg-old`",
+            "observed.row.001-002.value": "`vpc-old`",
+        }
+    }
+    states = {"A": {}}
+    actual = [
+        {
+            "LogicalResourceId": "Group",
+            "ResourceType": "AWS::EC2::SecurityGroup",
+            "ResourceStatus": "CREATE_COMPLETE",
+            "PhysicalResourceId": "sg-new",
+        }
+    ]
+    with (
+        patch.object(observed, "DesignSchemaCatalog"),
+        patch.object(observed, "resolve_resources", return_value=(loaded, mapped)),
+        patch.object(observed.current_state, "read", return_value=stack),
+        patch.object(observed.current_state, "pages", return_value=actual),
+        patch.object(
+            observed, "identifier_source", side_effect=[(True, []), (False, [])]
+        ),
+        patch.object(observed, "physical_identifier_source", return_value=False),
+        patch.object(observed, "cloudcontrol_source", return_value=None),
+        patch.object(observed, "permission_source", return_value=False),
+        patch.object(observed, "own_key", return_value="owner"),
+        patch.object(observed, "propagate_references") as propagate,
+        patch.object(
+            observed, "observed_destinations", return_value=({}, [], None)
+        ) as dest,
+    ):
+        observed.collect_successful(backend, [{"name": "A"}], states)
+    assert dest.call_args.args[4][source] == {"observed.row.001-001.value": "`sg-new`"}
+    assert propagate.call_args.kwargs["confirmed_properties"]["owner"] == (
+        "EC2.SecurityGroup",
+        {"EC2.SecurityGroup.Id"},
+        {"EC2.SecurityGroup.VpcId"},
+    )
+    assert states["A"]["observedCoverage"]["Group"]["status"] == "UNCONFIRMED"

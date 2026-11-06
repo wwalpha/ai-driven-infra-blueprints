@@ -65,7 +65,9 @@ def restore(backend: SimpleNamespace, task: TaskSnapshot) -> None:
             != digest
         }
         if changed_inputs:
-            raise Blocked("fixed execution inputs changed; retain current AWS request evidence")
+            raise Blocked(
+                "fixed execution inputs changed; retain current AWS request evidence"
+            )
         current_identities = backend.run_context.get("inputIdentities", {})
         backend.run_context.update(copy.deepcopy(saved))
         if backend.phase == "update":
@@ -158,24 +160,35 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
     if final:
         preview = {**context, "states": copy.deepcopy(backend.states)}
         completion.end_unexecuted(preview)
-        if not completion.attempts_finished(preview["states"], context.get("deployResult")) or any(
-            deploy_progress.unresolved_request(item) for item in preview["states"].values()
+        if not completion.attempts_finished(
+            preview["states"], context.get("deployResult")
+        ) or any(
+            deploy_progress.unresolved_request(item)
+            for item in preview["states"].values()
         ):
-            raise Blocked("final sync requires settled AWS requests; continue the current Task")
+            raise Blocked(
+                "final sync requires settled AWS requests; continue the current Task"
+            )
         missing = [
             name
             for name, state in backend.states.items()
             if not state.get("observedSynced") and name not in names
         ]
         if missing:
-            raise Blocked("final sync needs --sync-stack for current observations: " + ", ".join(missing))
+            raise Blocked(
+                "final sync needs --sync-stack for current observations: "
+                + ", ".join(missing)
+            )
     pending = context.get("syncPending")
     if pending is not None and (
         pending["final"] != final
         or not set(pending["stacks"]) <= set(names)
-        or set(pending["stacks"]) != set(names) and not context.get("pendingGeneration")
+        or set(pending["stacks"]) != set(names)
+        and not context.get("pendingGeneration")
     ):
-        raise Blocked("resume the saved sync without changing its final intent or Stack scope")
+        raise Blocked(
+            "resume the saved sync without changing its final intent or Stack scope"
+        )
     context["snapshotValidation"] = "NOT_RUN"
     for unit in units:
         if unit["name"] not in context["inputDigests"]:
@@ -201,7 +214,12 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
         generation_resume.recover_publications(backend)
     if resumed_observation:
         observed.sync_successful(backend, units, backend.states)
-        units = [unit for unit in units if unit["name"] not in saved_observed]
+        units = [
+            unit
+            for unit in units
+            if unit["name"] not in saved_observed
+            or not backend.states[unit["name"]].get("observedSynced")
+        ]
     if units:
         observed.sync_successful(backend, units, backend.states)
     if context.get("pendingGeneration"):
@@ -212,14 +230,18 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
         completion.end_unexecuted(context)
         blockers = completion.final_blockers(context)
         if blockers:
-            if not context.get("pendingObserved") and not context.get("pendingGeneration"):
+            if not context.get("pendingObserved") and not context.get(
+                "pendingGeneration"
+            ):
                 context.pop("syncPending")
             backend.save()
             raise Blocked("final sync requires: " + json.dumps(blockers))
     context["snapshotValidation"] = VALIDATION_FAIL
     backend.save()
     with publication_lock(backend.root, read_only=True):
-        validated = completion.validate_local(backend.root, task, deploy=backend.phase == "deploy")
+        validated = completion.validate_local(
+            backend.root, task, deploy=backend.phase == "deploy"
+        )
         backend.guard()
         context["snapshotValidation"] = VALIDATION_PASS
         context.pop("syncPending")
@@ -234,11 +256,18 @@ def next_actions(backend, complete, can_advance):
     if complete:
         return []
     if getattr(backend, "task_status", "running") == "completed":
-        return [{"action": "review", "reason": "completed Task has incomplete Deploy evidence"}]
+        return [
+            {
+                "action": "review",
+                "reason": "completed Task has incomplete Deploy evidence",
+            }
+        ]
     if pending:
         if context.get("generationError") and not context.get("pendingGeneration"):
             return [{"action": "review", "reason": context["generationError"]}]
-        return [{"action": "sync", "stacks": pending["stacks"], "final": pending["final"]}]
+        return [
+            {"action": "sync", "stacks": pending["stacks"], "final": pending["final"]}
+        ]
     actions = [{"action": "advance"}] if can_advance else []
     actions += [
         {"action": "sync", "stacks": [name]}
@@ -271,10 +300,9 @@ def next_actions(backend, complete, can_advance):
 def describe(backend: SimpleNamespace) -> dict:
     context = backend.run_context
     states = backend.states
-    complete = (
-        getattr(backend, "task_status", "running") == "completed"
-        and completion.local_ready(context)
-    )
+    complete = getattr(
+        backend, "task_status", "running"
+    ) == "completed" and completion.local_ready(context)
     uncertain = any(
         s.get("pollReadFailures") or s.get("schedulerError") for s in states.values()
     )
@@ -434,9 +462,7 @@ def run(
             or phase != "deploy"
             or selected[IAC_ENGINE_KEY] != "cloudformation"
         ):
-            raise Blocked(
-                "--final requires CloudFormation Deploy --action sync"
-            )
+            raise Blocked("--final requires CloudFormation Deploy --action sync")
         fixed = deploy_progress.identity(task, selected, args.environment, args.stack)
         authentication_error = None
         try:
@@ -477,7 +503,9 @@ def run(
             backend.progress_task_file = task.name
             backend.progress_destination = destination
             if authentication_error:
-                backend.aws = partial(current_state.unavailable, authentication_error.code)
+                backend.aws = partial(
+                    current_state.unavailable, authentication_error.code
+                )
             backend.requested_stacks = args.stack
             backend.action = args.action
             backend.task_status = task.status
@@ -501,7 +529,9 @@ def run(
             backend.run_context = run_context.new_context(
                 root, task, target, args.environment, directory, units, backend
             )
-            backend.run_context.update(stepUnits=copy.deepcopy(units), deployContract=task.text)
+            backend.run_context.update(
+                stepUnits=copy.deepcopy(units), deployContract=task.text
+            )
             backend.states = backend.run_context["states"]
             restore(backend, task)
             run = backend.run_context
@@ -642,7 +672,11 @@ def run(
                 if args.action == "checkpoint":
                     if pending is None:
                         raise Blocked("no local sync to resume; use --action sync")
-                    sync(backend, args.sync_stack or pending["stacks"], final=pending["final"])
+                    sync(
+                        backend,
+                        args.sync_stack or pending["stacks"],
+                        final=pending["final"],
+                    )
                 else:
                     sync(backend, args.sync_stack, final=getattr(args, "final", False))
             backend.task_status = task_snapshot(
@@ -650,13 +684,20 @@ def run(
             ).status
             result = describe(backend)
             if authentication_error:
-                result.update(cli_guidance.stopped("AUTHENTICATION", authentication_error))
+                result.update(
+                    cli_guidance.stopped("AUTHENTICATION", authentication_error)
+                )
                 result["result"] = "STOPPED"
         print(json.dumps(result, indent=2))
-        return 2 if (
-            authentication_error
-            or result["result"] == "STOPPED" and args.action == "advance"
-        ) else 0
+        return (
+            2
+            if (
+                authentication_error
+                or result["result"] == "STOPPED"
+                and args.action == "advance"
+            )
+            else 0
+        )
     except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
         print(
             json.dumps(

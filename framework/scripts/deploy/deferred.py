@@ -140,10 +140,21 @@ def model_saved(context, plan):
     stacks = set(plan["evidence"])
     for state in context["states"].values():
         for record in state.get("deferredConsumers", []):
+            owner = context["states"][record["stack"]]
+            incomplete = owner.get("observedSynced") is False or any(
+                item.get("status") == "UNCONFIRMED"
+                for item in owner.get("observedCoverage", {}).values()
+            )
             if record["stack"] in stacks:
-                record["ownerObservedSynced"] = True
+                record["ownerObservedSynced"] = not incomplete
                 record["referenceSynced"] = False
-            if record.get("approved") and record["consumer"].split("/")[-1] in services:
+                if incomplete:
+                    record["referenceObservedSynced"] = False
+            if (
+                record.get("approved")
+                and record["consumer"].split("/")[-1] in services
+                and not incomplete
+            ):
                 record["referenceObservedSynced"] = True
 
 

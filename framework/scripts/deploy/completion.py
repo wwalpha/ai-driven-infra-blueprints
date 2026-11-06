@@ -33,10 +33,12 @@ def end_unexecuted(context):
         if item["status"] == "FAILED" and name in units
     ]
     for name, item in context["states"].items():
-        if (
-            item["status"] in {"READY", "NOT_STARTED", "BLOCKED", "CHANGESET_CREATING"}
-            and not item.get("clientToken")
-        ):
+        if item["status"] in {
+            "READY",
+            "NOT_STARTED",
+            "BLOCKED",
+            "CHANGESET_CREATING",
+        } and not item.get("clientToken"):
             order = int(units[name]["deployOrder"])
             item.update(
                 status="NOT_STARTED",
@@ -65,7 +67,14 @@ def final_blockers(context):
                         "reason": "approved reference synchronization needs sync",
                     }
                 )
-        if not item.get("observedSynced") or not item.get("currentStack"):
+        if (
+            not item.get("observedSynced")
+            or not item.get("currentStack")
+            or any(
+                coverage.get("status") == "UNCONFIRMED"
+                for coverage in item.get("observedCoverage", {}).values()
+            )
+        ):
             blockers.append({"stack": name, "reason": "current observation needs sync"})
         if current_category(item) in {"RUNNING", "UNKNOWN"}:
             blockers.append(
@@ -84,8 +93,6 @@ def current_category(item):
     return current_state.category(item.get("currentStack", {}))
 
 
-
-
 def local_ready(context):
     return (
         not final_blockers(context)
@@ -97,7 +104,9 @@ def local_ready(context):
 def require_local(root, task):
     if task.status != "running":
         raise Blocked("only a running Deploy Task can complete")
-    targets = {(environment, directory) for environment, directory, _ in task.scope or ()}
+    targets = {
+        (environment, directory) for environment, directory, _ in task.scope or ()
+    }
     if len(targets) != 1:
         raise Blocked("Deploy completion requires one explicit Target")
     environment, directory = next(iter(targets))
@@ -113,19 +122,30 @@ def require_local(root, task):
         or saved["runContext"].get("repository") != str(root)
         or not local_ready(saved["runContext"])
     ):
-        raise Blocked("Deploy completion requires settled requests and validated local sync")
+        raise Blocked(
+            "Deploy completion requires settled requests and validated local sync"
+        )
 
 
 def verify_observation_delta(root, baseline="HEAD"):
     changed = set(collect_working_paths(root).all_paths)
     if baseline != "HEAD":
-        changed.update(contracts.paths(root, "diff", "--no-renames", "--name-only", "-z", baseline, "HEAD"))
+        changed.update(
+            contracts.paths(
+                root, "diff", "--no-renames", "--name-only", "-z", baseline, "HEAD"
+            )
+        )
     if "project.json" in changed or any(p.startswith("infra/") for p in changed):
         raise ValueError("Deploy cannot change project configuration or IaC")
     sources = {root / p for p in changed if p.startswith("model/")}
     observed = module("model/observed.py", "model.observed")
     observed.verify_observed_outputs(
-        {p: contracts.subprocess_bytes(root, baseline, p.relative_to(root).as_posix()) for p in sources},
+        {
+            p: contracts.subprocess_bytes(
+                root, baseline, p.relative_to(root).as_posix()
+            )
+            for p in sources
+        },
         {p: p.read_text(encoding="utf-8") for p in sources},
     )
 
@@ -137,7 +157,9 @@ def validate_local(root, task, *, deploy=True):
     tasks.verify_snapshot(task)
     if deploy:
         verify_observation_delta(root, head)
-    validator = validator_type(root, set(task.scope), cache=False, model_validation="change")
+    validator = validator_type(
+        root, set(task.scope), cache=False, model_validation="change"
+    )
     validator.run()
     if validator.report():
         validator.display_report()
@@ -149,12 +171,16 @@ def validate_local(root, task, *, deploy=True):
 def verify_local_inputs(root, task, validated):
     head, manifest = validated
     tasks.verify_snapshot(task)
-    if head != contracts.output(root, "rev-parse", "HEAD") or manifest != contracts.validation_snapshot(root):
+    if head != contracts.output(
+        root, "rev-parse", "HEAD"
+    ) or manifest != contracts.validation_snapshot(root):
         raise Blocked("local Deploy inputs changed during validation")
 
 
 def finish_local(root, task, validated):
     require_local(root, task)
     verify_local_inputs(root, task, validated)
-    tasks.atomic_files({task.path: tasks.set_status(task.text, "completed")}, staging_directory=root)
+    tasks.atomic_files(
+        {task.path: tasks.set_status(task.text, "completed")}, staging_directory=root
+    )
     tasks.invalidate_task_reads(root)

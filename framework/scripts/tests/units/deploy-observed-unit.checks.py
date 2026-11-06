@@ -23,7 +23,9 @@ from model.adapters.observed import (
     propagate_references,
     resolve_resources,
 )
+from model.core import properties
 from model.files import read_model
+from model.format import parse
 from support import model_reference_fixtures
 from support.cloudformation_deploy_fixtures import TARGET
 from support.model_sources import allocate_fixture, write_model
@@ -935,10 +937,10 @@ def test_cloudcontrol_config_rule_evidence(project_workspace, fault):
     "previous,output,expected,denied",
     [
         (None, None, "UPDATED", False),
-        ("rule-id", "rule-id", "MATCHED", "template"),
+        ("rule-id", "rule-id", "UNCONFIRMED", "template"),
         ("rule-id", None, "MATCHED", False),
         (None, "different", "UNCONFIRMED", False),
-        ("rule-id", "rule-id", "MATCHED", True),
+        ("rule-id", "rule-id", "UNCONFIRMED", True),
     ],
 )
 def test_config_rule_collects_checked_api_value(
@@ -1015,9 +1017,10 @@ def test_config_rule_collects_checked_api_value(
     states = {"producer": {}}
     deploy_observed.collect_successful(backend, [unit], states)
     assert states["producer"]["observedCoverage"]["Resource001"]["status"] == expected
-    assert captured[scope.path]["observed.row.001-001.value"] == (
-        None if output == "different" else "`rule-id`"
-    )
+    if expected == "UNCONFIRMED":
+        assert "observed.row.001-001.value" not in captured[scope.path]
+    else:
+        assert captured[scope.path]["observed.row.001-001.value"] == "`rule-id`"
 
 
 @pytest.mark.parametrize(
@@ -1397,7 +1400,7 @@ def test_unsupported_observation_reports_and_remains_unconfirmed(
     )
     states = {"producer": {}}
     deploy_observed.collect_successful(backend, [{"name": "producer"}], states)
-    assert captured[scope.path]["observed.row.001-001.value"] is None
+    assert "observed.row.001-001.value" not in captured[scope.path]
     coverage = states["producer"]["observedCoverage"]["Resource001"]
     assert coverage["status"] == "UNCONFIRMED"
     assert (
@@ -1898,7 +1901,7 @@ def test_evidence_if_uses_only_confirmed_branch(project_workspace):
         ("missing", "old", None, "UNCONFIRMED"),
         ("incomplete", "old", None, "UNCONFIRMED"),
         ("denied", "old", None, "UNCONFIRMED"),
-        ("output-denied", "old", "`project`", "UPDATED"),
+        ("output-denied", "old", None, "UNCONFIRMED"),
         ("changed", "old", None, "UNCONFIRMED"),
         ("account", "old", None, "UNCONFIRMED"),
         ("region", "old", None, "UNCONFIRMED"),
@@ -1995,7 +1998,11 @@ def test_codebuild_id_from_api_without_output(
     )
     states = {"producer": {}}
     deploy_observed.collect_successful(backend, [unit], states)
-    assert captured[scope.path]["observed.row.001-001.value"] == expected
+    if expected is None:
+        assert "observed.row.001-001.value" not in captured[scope.path]
+        assert "`old`" in scope.path.read_text(encoding="utf-8")
+    else:
+        assert captured[scope.path]["observed.row.001-001.value"] == expected
     assert states["producer"]["observedCoverage"]["Resource001"]["status"] == status
 
 
@@ -2043,3 +2050,154 @@ def _codebuild_sync_read(reads, stack, case, *args):
         if case == "changed" and len(reads) > 2
         else stack
     )
+
+
+def test_partial_identifiers_only_propagate_confirmed_reference(tmp_path, monkeypatch):
+    producer = tmp_path / "model/dev/team/ec2.properties"
+    consumer = tmp_path / "model/dev/team/app.properties"
+    consumer.parent.mkdir(parents=True)
+    consumer.write_text("existing", encoding="utf-8")
+    target = ("dev", "team", "ec2", "EC2_SecurityGroup_001")
+
+    def usage(attribute, row):
+        return SimpleNamespace(
+            attribute=attribute,
+            metadata_id=None,
+            producer_kind="resource",
+            producer_scope="dev/team/ec2",
+            logical_id=target[-1],
+            consumer_key=row,
+        )
+
+    items = [
+        usage("GroupId", "desired.row.001-001.value"),
+        usage("VpcId", "desired.row.001-002.value"),
+    ]
+    snapshot = SimpleNamespace(authoritative={"desired.reference.001.consumerKey": "x"})
+    monkeypatch.setattr(observed_adapter, "model_paths", lambda *a, **k: [consumer])
+    monkeypatch.setattr(observed_adapter, "raw_model", lambda *a, **k: snapshot)
+    monkeypatch.setattr(observed_adapter, "usages", lambda *a, **k: items)
+    monkeypatch.setattr(observed_adapter, "read_model", lambda *a: {})
+    monkeypatch.setattr(observed_adapter, "properties", lambda *a: {})
+    changes = {}
+    records = [
+        dict(
+            consumer="dev/team/app",
+            consumerKey=item.consumer_key,
+            producer="/".join(target),
+        )
+        for item in items
+    ]
+    propagate_references(
+        tmp_path,
+        {producer: {}},
+        changes,
+        {target: "sg-123"},
+        confirmed_properties={
+            target: (
+                "EC2.SecurityGroup",
+                {"EC2.SecurityGroup.Id"},
+                {"EC2.SecurityGroup.VpcId"},
+            )
+        },
+        reference_consumers=records,
+    )
+    assert changes[consumer] == {"observed.row.001-001.value": None}
+    assert consumer.read_text(encoding="utf-8") == "existing"
+
+
+def test_partial_reference_publication_preserves_unconfirmed_model(project_workspace):
+    root = project_workspace
+    model_reference_fixtures.project_configuration(root)
+    producer, values = model_reference_fixtures.resource_values(
+        root, "ec2", "EC2.SecurityGroup", attribute="Id", observed="sg-old"
+    )
+    logical = "EC2_SecurityGroup_001"
+    values.update(
+        {
+            "desired.row.001-002.property": "EC2.SecurityGroup.VpcId",
+            "desired.row.001-002.value": "`vpc-old`",
+            "desired.row.001-002.comment": "synthetic",
+            "observed.row.001-002.value": "`vpc-old`",
+        }
+    )
+    model_reference_fixtures.write(producer, values)
+    consumer, cv = model_reference_fixtures.resource_values(
+        root, "lambda", "Lambda.Function", attribute="FunctionName"
+    )
+    for number, attribute in (("002", "GroupId"), ("003", "VpcId")):
+        cv.update(
+            {
+                f"desired.row.001-{number}.property": "Lambda.Function.Description",
+                f"desired.row.001-{number}.value": "`"
+                + json.dumps(model_reference_fixtures.reference(logical, attribute))
+                + "`",
+                f"desired.row.001-{number}.comment": "synthetic",
+                f"observed.row.001-{number}.value": "`old-consumer-" + number + "`",
+            }
+        )
+    model_reference_fixtures.write(consumer, cv)
+    target = ("qa", "team", "ec2", logical)
+    changes = {producer.path: {"observed.row.001-001.value": "`sg-new`"}}
+    records = [
+        {
+            "consumer": "qa/team/lambda",
+            "consumerKey": f"desired.row.001-{n}.value",
+            "producer": "/".join(target),
+        }
+        for n in ("002", "003")
+    ]
+    propagate_references(
+        root,
+        {producer.path: values},
+        changes,
+        {target: "sg-new"},
+        confirmed_properties={
+            target: (
+                "EC2.SecurityGroup",
+                {"EC2.SecurityGroup.Id"},
+                {"EC2.SecurityGroup.VpcId"},
+            )
+        },
+        reference_consumers=records,
+    )
+    assert changes[consumer.path] == {"observed.row.001-002.value": None}
+    loaded = {
+        path: properties(read_model(path)) for path in (producer.path, consumer.path)
+    }
+    outputs, _, _ = observed_adapter.observed_destinations(
+        root, "qa", "team", loaded, changes, check_scope=False
+    )
+    for path, text in outputs.items():
+        path.write_text(text, encoding="utf-8")
+    updated = parse(producer.path.read_text(encoding="utf-8")).values
+    consumer_updated = parse(consumer.path.read_text(encoding="utf-8")).values
+    assert updated["observed.row.001-001.value"] == "`sg-new`"
+    assert updated["observed.row.001-002.value"] == "`vpc-old`"
+    assert "observed.row.001-002.value" not in consumer_updated
+    assert consumer_updated["observed.row.001-003.value"] == "`old-consumer-003`"
+
+
+def test_deferred_reference_stays_pending_while_owner_is_unconfirmed():
+    record = dict(
+        stack="producer", consumer="qa/team/iam", approved=True, referenceSynced=False
+    )
+    context = {
+        "states": {
+            "producer": {
+                "deferredConsumers": [record],
+                "observedCoverage": {"Resource": {"status": "UNCONFIRMED"}},
+            }
+        },
+        "pendingGeneration": {},
+    }
+    plan = {"services": ["iam"], "evidence": {"producer": {}}}
+    deferred.model_saved(context, plan)
+    deferred.views_saved(context)
+    assert not record["ownerObservedSynced"]
+    assert not record.get("referenceObservedSynced")
+    assert not record["referenceSynced"]
+    context["states"]["producer"]["observedCoverage"]["Resource"]["status"] = "MATCHED"
+    deferred.model_saved(context, plan)
+    deferred.views_saved(context)
+    assert record["referenceSynced"]

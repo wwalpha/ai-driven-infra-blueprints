@@ -44,7 +44,12 @@ from utils.cloudformation.inputs import (
 from utils.iac_values import cfn_resource_identity
 from utils.input_cache import input_scope
 from utils.project_targets import load_target_directory as load_target
-from utils.reference_contracts import REF_ATTRIBUTES
+from utils.reference_contracts import (
+    ARN_SHAPES,
+    REF_ATTRIBUTES,
+    RETURN_ATTRIBUTE_PROPERTIES,
+    reference_attribute,
+)
 from utils.source_reads import FileReads
 from validation_scope import active_scope
 
@@ -802,13 +807,38 @@ def propagate_references(
     by_identifier=None,
     *,
     reset_references=(),
+    confirmed_properties=None,
     allowed_services=None,
     deferred=None,
     reference_consumers=(),
 ):
     """Discover incoming links mechanically; both deploy and destroy use this scanner."""
+
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
     # This is link discovery, not validation of unrelated prod/service designs.
+    def eligible(usage, values):
+        target = (*usage.producer_scope.split("/"), usage.logical_id)
+        if target not in identifiers:
+            return False
+        if not confirmed_properties or target not in confirmed_properties:
+            return True
+        kind, confirmed, unconfirmed = confirmed_properties[target]
+        attribute = usage.attribute or values.get(
+            f"desired.reference.{usage.metadata_id}.property", ""
+        ).removeprefix(kind + ".")
+        if not attribute:
+            return False
+        returned = reference_attribute(kind, attribute)
+        field = RETURN_ATTRIBUTE_PROPERTIES.get((kind, returned), returned)
+        dependencies = {kind + "." + field}
+        if kind in ARN_SHAPES and returned == reference_attribute(kind, "Arn"):
+            shape = ARN_SHAPES[kind][0]
+            dependencies.update(
+                kind + "." + field
+                for field in (shape if isinstance(shape, dict) else (shape,))
+            )
+        return bool(dependencies & confirmed) and not dependencies & unconfirmed
+
     reads, typed_usages = FileReads(), {}
     shared = source_models.session_reads(root)
     paths = (
@@ -858,15 +888,12 @@ def propagate_references(
                 and usage.producer_kind == "resource"
                 and usage.logical_id
             ]
-            linked = any(
-                (*usage.producer_scope.split("/"), usage.logical_id) in identifiers
-                for usage in typed_usages[path]
-            )
+            linked = any(eligible(usage, values) for usage in typed_usages[path])
         if linked and outside:
             if deferred is not None:
                 for usage in typed_usages[path]:
                     target = (*usage.producer_scope.split("/"), usage.logical_id)
-                    if target in identifiers:
+                    if eligible(usage, values):
                         record = {
                             "consumer": "/".join(service),
                             "consumerKey": usage.consumer_key,
@@ -904,7 +931,7 @@ def propagate_references(
             ]
         for usage in typed_usages.get(path, ()):
             target = (*usage.producer_scope.split("/"), usage.logical_id)
-            if target in identifiers:
+            if eligible(usage, values):
                 changes.setdefault(path, {})
                 if by_identifier is not None:
                     by_identifier.setdefault(target, {}).setdefault(path, {})

@@ -1413,7 +1413,7 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
     fallback = states(selected)
     deploy_observed.collect_successful(backend, selected, fallback)
     TestCase().assertEqual(
-        fallback["A"]["observedCoverage"]["Key"]["status"], "MATCHED"
+        fallback["A"]["observedCoverage"]["Key"]["status"], "UNCONFIRMED"
     )
     outputs.insert(0, {**missing, "OutputValue": "wrong-key"})
     uncertain = states(selected)
@@ -1462,8 +1462,9 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
     TestCase().assertEqual(
         session["states"]["A"]["observedCoverage"]["Key"]["status"], "UNCONFIRMED"
     )
-    TestCase().assertNotIn(
-        "observed.row.001-001.value", properties(read_model(model / "kms.properties"))
+    TestCase().assertEqual(
+        properties(read_model(model / "kms.properties"))["observed.row.001-001.value"],
+        "`12345678-1234-1234-1234-123456789abc`",
     )
     print(
         "Secrets Manager ARN identifiers: PASS (no required ARN Outputs/storage/propagation, logical parent, JSON, KMS guards, DeployOrder barrier)"

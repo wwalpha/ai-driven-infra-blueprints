@@ -24,7 +24,7 @@ from task_contract_core import (
 from task_contract_core import task_digest as task_digest
 from utils.cloudformation.inputs import Blocked
 
-from deploy import deferred, generation_resume
+from deploy import current_state, deferred, generation_resume
 from model import dependency_index
 
 
@@ -62,6 +62,18 @@ EVIDENCE_FIELDS = (
     "clientToken",
     "executionEvidence",
 )
+
+
+def confirmed(state):
+    return (
+        current_state.category(state.get("currentStack", {})) != "UNKNOWN"
+        and state.get("currentStack", {}).get("reason")
+        not in {"RESOURCE_READ_FAILED", "INCOMPLETE_RESOURCE_OR_OUTPUT_RESPONSE"}
+        and all(
+            item.get("status") != "UNCONFIRMED"
+            for item in state.get("observedCoverage", {}).values()
+        )
+    )
 
 
 def evidence(states, names):
@@ -648,7 +660,9 @@ def finish(backend, units):
     generation_resume.enqueue(backend, plan)
     # The journal saves the Model barrier and generation ownership in one revision.
     for name in plan["evidence"]:
-        run_context["states"][name]["observedSynced"] = True
+        run_context["states"][name]["observedSynced"] = confirmed(
+            run_context["states"][name]
+        )
     deferred.model_saved(run_context, plan)
     run_context.pop("pendingObserved")
     backend.save()

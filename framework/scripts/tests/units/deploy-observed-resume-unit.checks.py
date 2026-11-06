@@ -62,6 +62,7 @@ def check_execution_identity(field):
         "status": "SUCCESS",
         "stackId": "stack",
         "stackStatus": "UPDATE_COMPLETE",
+                "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
         "changeSetId": "change",
         "changeDigest": "digest",
         "clientToken": "token",
@@ -162,6 +163,7 @@ def proposal(tmp_path):
                 "status": "SUCCESS",
                 "stackId": "stack",
                 "stackStatus": "UPDATE_COMPLETE",
+                "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
             }
         },
         "pendingObserved": {
@@ -172,6 +174,7 @@ def proposal(tmp_path):
                         "status": "SUCCESS",
                         "stackId": "stack",
                         "stackStatus": "UPDATE_COMPLETE",
+                "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
                     }
                 },
                 ["A"],
@@ -297,6 +300,7 @@ def check_direct_writer_keeps_noop_source_snapshot(tmp_path):
             "status": "SUCCESS",
             "stackId": "stack",
             "stackStatus": "UPDATE_COMPLETE",
+                "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
         }
     }
     backend = SimpleNamespace(
@@ -974,6 +978,7 @@ def check_generated_journal_recovery_uses_observed_owner(tmp_path, monkeypatch):
         "status": "SUCCESS",
         "stackId": "stack",
         "stackStatus": "UPDATE_COMPLETE",
+                "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
         "changeSetId": "change",
         "clientToken": "token",
         "changeDigest": "digest",
@@ -1062,3 +1067,19 @@ def check_generated_journal_recovery_uses_observed_owner(tmp_path, monkeypatch):
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+def test_confirmation_requires_readable_complete_observation():
+    state = {
+        "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
+        "observedCoverage": {"Vpc": {"status": "MATCHED"}},
+    }
+    assert M.confirmed(state)
+    state["observedCoverage"]["Key"] = {"status": "UNCONFIRMED"}
+    assert not M.confirmed(state)
+    state["observedCoverage"]["Key"] = {"status": "NO_IDENTIFIER"}
+    assert M.confirmed(state)
+    state["currentStack"]["reason"] = "RESOURCE_READ_FAILED"
+    assert not M.confirmed(state)
+    state["currentStack"] = {"StackStatus": "UNKNOWN"}
+    assert not M.confirmed(state)

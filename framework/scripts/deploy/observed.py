@@ -1263,7 +1263,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
         states[unit["name"]]["observedServices"] = sorted(
             {entry[0].stem for entry in mapped[unit["name"]].values()}
         )
-    changes, identifiers = {}, {}
+    changes, identifiers, partial_identifiers = {}, {}, {}
     for unit in units:
         name = unit["name"]
         state = states[name]
@@ -1335,7 +1335,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
                 coverage[logical] = {"status": "NO_IDENTIFIER"}
                 continue
             unknown, updated, absent = False, False, False
-            reasons = {}
+            reasons, confirmed_properties = {}, set()
             if logical in removed.get(name, {}) and complete:
                 try:
                     absent = deleted_resource(
@@ -1357,7 +1357,18 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     in {"DELETE_COMPLETE", "DELETE_SKIPPED"}
                 )
             ):
-                coverage[logical] = {"status": "UNCONFIRMED"}
+                reasons = {
+                    row[
+                        "property"
+                    ]: "deletion evidence or resource identity unconfirmed"
+                    for _, row in rows
+                    if row["property"] in selected_outputs
+                }
+                _, _, unconfirmed = partial_identifiers.setdefault(
+                    own_key(path, resource), (resource[RESOURCE_TYPE_KEY], set(), set())
+                )
+                unconfirmed.update(reasons)
+                coverage[logical] = {"status": "UNCONFIRMED", "reasons": reasons}
                 continue
             for rid, row in rows:
                 prop = row["property"]
@@ -1430,8 +1441,10 @@ def collect_successful(backend, units, states, *, generated_views=None):
                         value = None
                     elif values and len(values) == len(keys):
                         value = values[0]
-                    else:
+                    elif not keys:
                         value = physical
+                    if keys and len(values) != len(keys):
+                        reasons[prop] = "declared Outputs are incomplete"
                     source = cloudcontrol_source(backend.root, catalog, resource, prop)
                     if source is not None and (not primary or bool(keys)):
                         api_value, reason = cloudcontrol_observation(
@@ -1445,29 +1458,8 @@ def collect_successful(backend, units, states, *, generated_views=None):
                             catalog,
                         )
                         if reason:
-                            unavailable = reason.startswith(
-                                (
-                                    "cloudcontrol.get_resource: ",
-                                    "CloudFormation evidence API: ",
-                                )
-                            ) and any(
-                                word in reason.lower()
-                                for word in (
-                                    "accessdenied",
-                                    "unauthorized",
-                                    "timeout",
-                                    "timedout",
-                                    "deadlineexceeded",
-                                )
-                            )
-                            if not (
-                                unavailable
-                                and values
-                                and len(values) == len(keys)
-                                and value is not None
-                            ):
-                                value = None
-                                reasons[prop] = reason
+                            value = None
+                            reasons[prop] = reason
                         elif (
                             values
                             and (
@@ -1496,27 +1488,8 @@ def collect_successful(backend, units, states, *, generated_views=None):
                             name,
                         )
                         if reason:
-                            unavailable = reason.startswith(
-                                "codebuild.batch_get_projects: "
-                            ) and any(
-                                word in reason.lower()
-                                for word in (
-                                    "accessdenied",
-                                    "unauthorized",
-                                    "timeout",
-                                    "timedout",
-                                    "deadlineexceeded",
-                                )
-                            )
-                            if not (
-                                unavailable
-                                and values
-                                and len(values) == len(keys)
-                                and value is not None
-                                and value == actual.get("PhysicalResourceId")
-                            ):
-                                value = None
-                                reasons[prop] = reason
+                            value = None
+                            reasons[prop] = reason
                         elif values and (
                             len(values) != len(keys)
                             or any(candidate != api_value for candidate in values)
@@ -1553,6 +1526,8 @@ def collect_successful(backend, units, states, *, generated_views=None):
                         reasons[prop] = (
                             "no verified Output, physical identifier, or supported API getter"
                         )
+                    if keys and len(values) != len(keys):
+                        value = None
                     if (
                         not isinstance(value, str)
                         or not value
@@ -1569,8 +1544,11 @@ def collect_successful(backend, units, states, *, generated_views=None):
                         prop,
                         stack.get("reason", "resource identity or state unconfirmed"),
                     )
+                if value is None:
+                    unknown = True
+                    continue
                 key = f"observed.row.{rid}.value"
-                raw = f"`{value}`" if value is not None else None
+                raw = f"`{value}`"
                 changed = loaded[path].get(key) != raw or (key in loaded[path]) != (
                     raw is not None
                 )
@@ -1578,6 +1556,14 @@ def collect_successful(backend, units, states, *, generated_views=None):
                 unknown |= value is None
                 changes.setdefault(path, {})[key] = raw
                 identifiers[own_key(path, resource)] = value
+                confirmed_properties.add(prop)
+            if confirmed_properties or unknown:
+                _, confirmed, unconfirmed = partial_identifiers.setdefault(
+                    own_key(path, resource), (resource[RESOURCE_TYPE_KEY], set(), set())
+                )
+                confirmed.update(confirmed_properties)
+                unconfirmed.update(reasons)
+
             coverage[logical] = {
                 **({"reasons": reasons} if reasons else {}),
                 "status": "UNCONFIRMED"
@@ -1612,6 +1598,9 @@ def collect_successful(backend, units, states, *, generated_views=None):
         loaded,
         changes,
         identifiers,
+        confirmed_properties={
+            key: value for key, value in partial_identifiers.items() if value[2]
+        },
         reset_references=deleted_identifiers,
         allowed_services=active_scope(root)
         if task_snapshot(root, required=False) is not None
@@ -1645,7 +1634,9 @@ def sync_successful(backend, units, states):
             )
             destinations = _dependency_deploy_observed_resume.finish(backend, units)
     for name in names:
-        states[name]["observedSynced"] = True
+        states[name]["observedSynced"] = _dependency_deploy_observed_resume.confirmed(
+            states[name]
+        )
     return destinations or None
 
 
