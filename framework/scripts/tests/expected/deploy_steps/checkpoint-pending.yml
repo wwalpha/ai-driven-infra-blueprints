@@ -1,3 +1,4 @@
+currentFailure: null
 deployResult: SUCCESS
 finalBlockers:
 - reason: current observation needs sync
@@ -9,7 +10,6 @@ nextActions:
 - action: review
   reason: completed Task has incomplete Deploy evidence
 pendingGeneration: {}
-repairFailure: null
 result: PENDING
 snapshotValidation: PASS
 states:

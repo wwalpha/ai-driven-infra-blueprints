@@ -333,7 +333,7 @@ def describe(backend: SimpleNamespace) -> dict:
         if all(s.get("observedSynced") for s in states.values())
         else "PENDING",
         "snapshotValidation": context.get("snapshotValidation", "NOT_RUN"),
-        "repairFailure": context.get("currentFailure"),
+        "currentFailure": context.get("currentFailure"),
         "states": {
             name: {
                 "aws": current_state.category(state.get("currentStack", {})),

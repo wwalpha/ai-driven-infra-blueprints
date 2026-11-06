@@ -1,4 +1,5 @@
 initial:
+  currentFailure: null
   deployResult: PENDING
   finalBlockers:
   - reason: current observation needs sync
@@ -10,7 +11,6 @@ initial:
   nextActions:
   - action: advance
   pendingGeneration: {}
-  repairFailure: null
   result: PENDING
   snapshotValidation: PASS
   states:
@@ -37,6 +37,7 @@ initial:
       unexecutedReason: null
   task: running
 unknownPeer:
+  currentFailure: null
   deployResult: UNKNOWN
   finalBlockers:
   - reason: current observation needs sync
@@ -52,7 +53,6 @@ unknownPeer:
   nextActions:
   - action: advance
   pendingGeneration: {}
-  repairFailure: null
   result: PENDING
   snapshotValidation: PASS
   states:

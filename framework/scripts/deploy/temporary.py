@@ -7,7 +7,6 @@ from pathlib import Path
 
 from task_contract_core import task_snapshot
 from utils.cloudformation.inputs import Blocked
-from utils.local_evidence import evidence_store
 
 from deploy import failures, operation_journal
 from deploy import progress as deploy_progress
@@ -60,9 +59,6 @@ def reclaim(journal, root, *, directory, backend, stacks):
                 directory.rmdir()
                 return
             if exceptional:
-                return
-            store = evidence_store(root, create=False)
-            if next(store.glob("deploy-failure-*"), None):
                 return
             for context in contexts:
                 if any(

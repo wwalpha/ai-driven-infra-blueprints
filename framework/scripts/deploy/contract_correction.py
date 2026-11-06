@@ -2,6 +2,7 @@
 
 import copy
 import hashlib
+import json
 import re
 from functools import partial
 from types import SimpleNamespace
@@ -125,6 +126,41 @@ def check_candidate(root, task, original, candidate, state, context, approved):
     return consumers
 
 
+def check_resolved_failures(root, identity, task_name, context):
+    store = evidence_store(root, create=False)
+    retained = set()
+    history = context.get("resolvedScopeFailures", [])
+    if not isinstance(history, list):
+        raise ws.Blocked("resolved scope failure history is invalid")
+    for entry in history:
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"evidence", "sha256", "taskDigest", "correctedTaskDigest"}
+            or not all(isinstance(value, str) and value for value in entry.values())
+        ):
+            raise ws.Blocked("resolved scope failure history is inconsistent")
+        retained_path = failures.external_evidence_path(root, entry["evidence"])
+        if retained_path.parent != store or retained_path in retained:
+            raise ws.Blocked("resolved scope failure evidence location is invalid")
+        try:
+            operation_journal.private_path(retained_path)
+            retained_record = read_sealed(root, retained_path)
+            digest = sha(retained_path)
+        except OSError as error:
+            raise ws.Blocked("resolved scope failure evidence is missing") from error
+        if (
+            digest != entry["sha256"]
+            or retained_record.get("taskDigest") != entry["taskDigest"]
+            or retained_record.get("taskFile") != task_name
+            or retained_record.get("repository") != str(root)
+            or retained_record.get("target") != identity["target"]
+            or retained_record.get("environment") != identity["environment"]
+            or retained_record.get("directory") != context["directory"]
+        ):
+            raise ws.Blocked("resolved scope failure evidence changed")
+        retained.add(retained_path)
+
+
 def check_state(root, state, progress, task, consumers=(), candidate=None):
     identity = state["deployIdentity"]
     context = progress["runContext"] if progress else None
@@ -244,42 +280,7 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         raise ws.Blocked(
             "generationError has no retained generation Intent; safe correction cannot be proven"
         )
-    store = evidence_store(root, create=False)
-    retained = set()
-    history = context.get("resolvedScopeFailures", [])
-    if not isinstance(history, list):
-        raise ws.Blocked("resolved scope failure history is invalid")
-    for entry in history:
-        if (
-            not isinstance(entry, dict)
-            or set(entry) != {"evidence", "sha256", "taskDigest", "correctedTaskDigest"}
-            or not all(isinstance(value, str) and value for value in entry.values())
-        ):
-            raise ws.Blocked("resolved scope failure history is inconsistent")
-        retained_path = failures.external_evidence_path(root, entry["evidence"])
-        if retained_path.parent != store or retained_path in retained:
-            raise ws.Blocked("resolved scope failure evidence location is invalid")
-        try:
-            operation_journal.private_path(retained_path)
-            retained_record = read_sealed(root, retained_path)
-            digest = sha(retained_path)
-        except OSError as error:
-            raise ws.Blocked("resolved scope failure evidence is missing") from error
-        if (
-            digest != entry["sha256"]
-            or retained_record.get("taskDigest") != entry["taskDigest"]
-            or retained_record.get("taskFile") != task.name
-            or retained_record.get("repository") != str(root)
-            or retained_record.get("target") != identity["target"]
-            or retained_record.get("environment") != identity["environment"]
-            or retained_record.get("directory") != context["directory"]
-        ):
-            raise ws.Blocked("resolved scope failure evidence changed")
-        retained.add(retained_path)
-    if any(
-        p != failure_path and p not in retained for p in store.glob("deploy-failure-*")
-    ):
-        raise ws.Blocked("retain and review failure evidence before correction")
+    check_resolved_failures(root, identity, task.name, context)
     if context.get("repository") != str(root):
         raise ws.Blocked("saved progress repository changed")
     plan = context.get("pendingObserved") or {}
@@ -443,7 +444,6 @@ def guard_snapshot(root, state):
         for k, v in contracts.validation_snapshot(root).items()
         if k != state["task_file"]
     }
-    store = evidence_store(root, create=False)
     return {
         "head": contracts.output(root, "rev-parse", "HEAD"),
         "index": ws.git(root, "ls-files", "--stage", "-z").stdout,
@@ -452,11 +452,6 @@ def guard_snapshot(root, state):
             p: file_revision(root / p) if (root / p).is_file() else None
             for p in manifest
         },
-        # Keep the key used by already-saved correction intents.
-        "repairEvidence": sorted(
-            [p.name, sha(p) if p.is_file() else None]
-            for p in store.glob("deploy-failure-*")
-        ),
     }
 
 
@@ -471,9 +466,13 @@ def local_state(saved):
 def recover_local_correction(root, name, source, path, intent_path):
     intent = read_sealed(root, intent_path)
     task_path = tasks.safe_path(root, name)
+    saved = json.loads(intent["afterProgress"])["payload"]
+    check_resolved_failures(root, saved["identity"], name, saved["runContext"])
+    guard = dict(intent["guard"])
+    guard.pop("repairEvidence", None)
     if (
         intent["afterTask"] != source
-        or guard_snapshot(root, {"task_file": name}) != intent["guard"]
+        or guard_snapshot(root, {"task_file": name}) != guard
         or task_path.read_bytes().decode("utf-8") not in (intent["beforeTask"], source)
         or path.read_bytes().decode("utf-8") not in (intent["beforeProgress"], intent["afterProgress"])
     ):
@@ -514,7 +513,16 @@ def correct_local(root, name, source, path, approved):
         with publication_lock(root, recovery_check=partial(recover_local_publication, recovery)):
             guard = guard_snapshot(root, {"task_file": name})
             before = path.read_bytes().decode("utf-8")
+            current = json.loads(before)["payload"]["runContext"].get("currentFailure")
+            current_path = failures.external_evidence_path(root, current) if isinstance(current, str) else None
+            if current_path:
+                if current_path.parent != evidence_store(root, create=False):
+                    raise ws.Blocked("currentFailure evidence location is unknown")
+                operation_journal.private_path(current_path)
+            current_digest = sha(current_path) if current_path else None
             task, saved, consumers = recovery()
+            if current_path and sha(current_path) != current_digest:
+                raise ws.Blocked("currentFailure evidence changed during correction")
             context = saved["runContext"]
             identity = saved["identity"]
             revised = tasks.task_digest(candidate)
@@ -534,6 +542,7 @@ def correct_local(root, name, source, path, approved):
             identity["taskDigest"] = revised
             context.update(taskDigest=revised, deployContract=candidate, snapshotValidation="NOT_RUN")
             after = sealed(root, saved)
+            check_resolved_failures(root, identity, name, context)
             tasks.verify_snapshot(task)
             if (
                 source.read_bytes() != source_raw

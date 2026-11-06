@@ -16,6 +16,7 @@ events:
   - A
   - UNRECOGNIZED
 report:
+  currentFailure: null
   deployResult: UNKNOWN
   finalBlockers:
   - reason: current observation needs sync
@@ -30,7 +31,6 @@ report:
     stacks:
     - A
   pendingGeneration: {}
-  repairFailure: null
   result: PENDING
   snapshotValidation: NOT_RUN
   states:

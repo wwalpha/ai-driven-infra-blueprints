@@ -109,14 +109,17 @@ def check_unsafe_files_retained(tmp_path, kind):
     assert directory.exists()
 
 
-def check_failure_evidence_and_failure_lock_retain_inputs(tmp_path):
+def check_other_task_failure_does_not_retain_inputs(tmp_path):
     root, journal, directory, template, backend = setup_case(tmp_path)
-    store = temporary.evidence_store(root)
-    failure = store / "deploy-failure-current.json"
+    failure = evidence_store(root) / "deploy-failure-prior.json"
     failure.write_text("unverified")
     cleanup(root, journal, directory, backend)
-    assert template.exists()
-    failure.unlink()
+    assert not directory.exists()
+    assert failure.exists()
+
+
+def check_failure_lock_retains_inputs(tmp_path):
+    root, journal, directory, template, backend = setup_case(tmp_path)
     with temporary.failures.failure_lock(root):
         cleanup(root, journal, directory, backend)
     assert template.exists()
@@ -167,7 +170,7 @@ def check_unreferenced_empty_directory_removed(tmp_path, status, exceptional):
     root, journal, directory, template, backend = setup_case(tmp_path)
     template.unlink()
     backend.run_context["states"] = {"App": {"status": status}}
-    (temporary.evidence_store(root) / "deploy-failure-current.json").write_text(
+    (evidence_store(root) / "deploy-failure-current.json").write_text(
         "unverified"
     )
     if exceptional:

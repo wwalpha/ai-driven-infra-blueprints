@@ -302,7 +302,6 @@ def check_unproven_paths_refused(case, added):
         "pendingGeneration",
         "generationError",
         "currentFailure",
-        "failure-evidence",
         "running",
         "token",
         "region",
@@ -354,8 +353,6 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
         "currentFailure",
     }:
         context[problem] = {"retained": True}
-    elif problem == "failure-evidence":
-        (evidence_store(case.root) / "deploy-failure-retained.json").write_text("unverified")
     elif problem == "running":
         context["states"]["A"]["currentStack"]["StackStatus"] = "UPDATE_IN_PROGRESS"
     elif problem == "token":
@@ -616,6 +613,46 @@ def scope_failure_case(case, monkeypatch):
     return state, progress, candidate, Path(failure)
 
 
+def check_other_task_failure_does_not_block_correction(case):
+    evidence = evidence_store(case.root) / "deploy-failure-prior.json"
+    evidence.write_text("unverified")
+    correction.correct(case.root, case.name, case.source)
+    assert evidence.read_text() == "unverified"
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def check_interrupted_scope_failure_rejects_changed_evidence(case, monkeypatch, missing):
+    _, _, _, evidence = scope_failure_case(case, monkeypatch)
+    atomic = correction.atomic_files
+    monkeypatch.setattr(correction, "atomic_files", InterruptedSave("Task"))
+    with pytest.raises(OSError):
+        correction.correct(case.root, case.name, case.source)
+    monkeypatch.setattr(correction, "atomic_files", atomic)
+    if missing:
+        evidence.unlink()
+    else:
+        write_sealed(case.root, evidence, {"changed": True})
+    with pytest.raises((ValueError, OSError)):
+        correction.correct(case.root, case.name, case.source)
+    assert deploy_progress.correction_path(case.progress_path).exists()
+
+
+def check_scope_failure_changed_during_review_is_rejected(case, monkeypatch):
+    _, _, _, evidence = scope_failure_case(case, monkeypatch)
+    review = correction.review_local_correction
+
+    def change_after_review(*args, **kwargs):
+        result = review(*args, **kwargs)
+        record = read_sealed(case.root, evidence)
+        record["states"]["A"]["reason"] = "changed"
+        write_sealed(case.root, evidence, record)
+        return result
+
+    monkeypatch.setattr(correction, "review_local_correction", change_after_review)
+    with pytest.raises(ValueError, match="currentFailure evidence changed"):
+        correction.correct(case.root, case.name, case.source)
+
+
 def check_scope_failure_is_retained_and_transferred(case, monkeypatch):
     state, progress, candidate, evidence = scope_failure_case(case, monkeypatch)
     original = evidence.read_bytes()
@@ -670,8 +707,9 @@ def check_scope_failure_is_retained_and_transferred(case, monkeypatch):
 
 
 @pytest.mark.parametrize("boundary", ["Task", "Progress", "both"])
+@pytest.mark.parametrize("legacy", [False, True])
 def check_interrupted_scope_failure_correction_preserves_evidence(
-    case, monkeypatch, boundary
+    case, monkeypatch, boundary, legacy
 ):
     _state, _progress, _candidate, evidence = scope_failure_case(case, monkeypatch)
     original = evidence.read_bytes()
@@ -680,6 +718,12 @@ def check_interrupted_scope_failure_correction_preserves_evidence(
     with pytest.raises(OSError, match="process interrupted"):
         correction.correct(case.root, case.name, case.source)
     assert evidence.read_bytes() == original
+    (evidence_store(case.root) / "deploy-failure-new-other.json").write_text("unverified")
+    if legacy:
+        intent_path = deploy_progress.correction_path(case.progress_path)
+        intent = read_sealed(case.root, intent_path)
+        intent["guard"]["repairEvidence"] = [[evidence.name, file_operations.sha(evidence)], ["deploy-failure-other.json", "old"]]
+        write_sealed(case.root, intent_path, intent)
     monkeypatch.setattr(correction, "atomic_files", atomic)
     correction.correct(case.root, case.name, case.source)
     revised = correction.local_state(read_sealed(case.root, case.progress_path))
@@ -961,7 +1005,7 @@ def check_desired_model_change_is_never_authorized(case, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "changed", ["progress", "inputs", "head", "failure-evidence"]
+    "changed", ["progress", "inputs", "head"]
 )
 def check_interrupted_correction_external_edit_is_retained(case, monkeypatch, changed):
     atomic = correction.atomic_files
@@ -977,8 +1021,6 @@ def check_interrupted_correction_external_edit_is_retained(case, monkeypatch, ch
             "validation_snapshot",
             Mock(return_value={"project.json": "external change"}),
         )
-    elif changed == "failure-evidence":
-        (evidence_store(case.root) / "deploy-failure-new.json").write_text("unverified")
     else:
         monkeypatch.setattr(
             correction.contracts,

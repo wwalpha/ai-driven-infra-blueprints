@@ -1,3 +1,4 @@
+currentFailure: null
 deployResult: FAIL
 finalBlockers:
 - reason: current observation needs sync
@@ -17,7 +18,6 @@ modelSave: COMPLETE
 nextActions:
 - action: advance
 pendingGeneration: {}
-repairFailure: null
 result: PENDING
 snapshotValidation: PASS
 states:
