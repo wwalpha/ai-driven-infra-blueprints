@@ -22,6 +22,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import task_contract_core as _imports_task_contract
+import task_contract_runtime
 import validation.runner as _imports_validation_runner
 import worktree_state
 from task_contract_core import (
@@ -542,10 +543,7 @@ def staged_snapshot(root, args, directory, environment):
     metadata.update(returncode=result)
     if not issues_save_only(snapshot, text=captured.text):
         current_tree = index_tree(root, directory)
-        unchanged = (
-            current_tree == tree
-            and git(root, "rev-parse", "HEAD") == head
-        )
+        unchanged = current_tree == tree and git(root, "rev-parse", "HEAD") == head
         metadata.update(source_unchanged=unchanged)
         if not unchanged:
             result = 1
@@ -654,9 +652,13 @@ def _callback__run_loop_validation_call(
     )
     validation_options = SimpleNamespace(
         task_file=selected_name,
+        complete_on_pass=getattr(args, "complete_on_pass", False),
         write=args.write,
         all=full_validation,
-        fresh=args.fresh or args.mode == "full" or args.all,
+        fresh=args.fresh
+        or args.mode == "full"
+        or args.all
+        or getattr(args, "complete_on_pass", False),
         jobs=args.validation_jobs,
         repository_wide_iac=args.mode == "full" or args.all,
         model_validation="full"
@@ -691,6 +693,16 @@ def _callback__run_loop_validation_call(
 
 def _run_loop(root, args, final_candidate):
     fail = __run_loop_fail
+    complete_on_pass = getattr(args, "complete_on_pass", False)
+    if complete_on_pass and (
+        args.mode != "task"
+        or args.write
+        or args.all
+        or args.staged
+        or args.base
+        or final_candidate is not None
+    ):
+        fail("--complete-on-pass requires read-only task mode")
     if args.staged and args.write or args.staged != bool(args.base):
         fail("invalid staged/write/base options")
     if cache_directory := os.environ.get("BLUEPRINT_VALIDATION_CACHE_DIR"):
@@ -704,6 +716,17 @@ def _run_loop(root, args, final_candidate):
             if selected is not None:
                 selected_name = selected.relative_to(root).as_posix()
         scope = active_scope(root, args.all) if not args.staged else set()
+        if complete_on_pass:
+            if not selected_name or scope == set():
+                raise ValueError("--complete-on-pass requires a scoped Task contract")
+            snapshot = task_snapshot(root, selected_name, executable=False, live=True)
+            contract = _imports_task_contract.section(snapshot.text, "## Task contract")
+            if (
+                "- Task type: `infrastructure`" not in contract
+                or "- Infrastructure phase: `implement`" not in contract
+            ):
+                raise ValueError("--complete-on-pass requires infrastructure/implement")
+            worktree_state.managed_task_state(root, selected_name)
         if args.write and (scope == set() or args.all and active_scope(root) == set()):
             raise ValueError(
                 "--write requires service scope; framework scope cannot generate Models"
@@ -720,8 +743,10 @@ def _run_loop(root, args, final_candidate):
             )
         changed = repository_changed - {".lock"}
     except (OSError, ValueError) as error:
-        if final_candidate is None:
-            suspend_selected(root, selected_name, f"Local loop preflight failed: {error}")
+        if final_candidate is None and not complete_on_pass:
+            suspend_selected(
+                root, selected_name, f"Local loop preflight failed: {error}"
+            )
         fail(str(error))
     full_validation = scope is None
     regression = args.mode == "full" or args.all
@@ -731,8 +756,10 @@ def _run_loop(root, args, final_candidate):
         )
     except ValueError as error:
         print(f"Blueprint local loop: ERROR ({error})", file=sys.stderr)
-        if final_candidate is None:
-            suspend_selected(root, selected_name, f"Regression discovery failed: {error}")
+        if final_candidate is None and not complete_on_pass:
+            suspend_selected(
+                root, selected_name, f"Regression discovery failed: {error}"
+            )
         return 2
     log_parent = (args.log_dir or Path(tempfile.gettempdir())).expanduser().resolve()
     if log_parent == root or root in log_parent.parents:
@@ -874,22 +901,42 @@ def _run_loop(root, args, final_candidate):
                     "--",
                 ]
             ]
-        result = run_commands(
-            root,
-            commands,
-            environment,
-            directory,
-            jobs=args.jobs,
-            diagnostics=diagnostics,
-            stop_after_validator_failure=args.write,
-            validation_call=validation_call,
-        )
+
+        def run_checks():
+            return run_commands(
+                root,
+                commands,
+                environment,
+                directory,
+                jobs=args.jobs,
+                diagnostics=diagnostics,
+                stop_after_validator_failure=args.write,
+                validation_call=validation_call,
+            )
+
+        if complete_on_pass:
+
+            def validate():
+                if run_checks():
+                    raise ValueError("Task validation or Git diff check failed")
+
+            try:
+                task_contract_runtime.complete_selected(
+                    root, selected_name, validate=validate
+                )
+            except ValueError as error:
+                if str(error) != "Task validation or Git diff check failed":
+                    raise
+                return 1
+            result = 0
+        else:
+            result = run_checks()
         if result and final_candidate is None:
             suspend_selected(root, selected_name, failure_reason(directory, result))
         return result
     except KeyboardInterrupt as error:
         diagnostics.failure(error)
-        if final_candidate is None:
+        if final_candidate is None and not complete_on_pass:
             suspend_selected(
                 root,
                 selected_name,
@@ -898,7 +945,7 @@ def _run_loop(root, args, final_candidate):
         return 130
     except Exception as error:
         details = diagnostics.failure(error)
-        if final_candidate is None:
+        if final_candidate is None and not complete_on_pass:
             suspend_selected(
                 root,
                 selected_name,

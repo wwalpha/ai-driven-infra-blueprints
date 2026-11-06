@@ -96,6 +96,8 @@ never finalize separately: one parent Worktree contains all resource saves, foll
 one generation phase and one final-candidate validation/merge/cleanup on success. The commands
 below describe other workflows and independent completion, not Model-only sequencing.
 
+For infrastructure/implement, use the child workflow’s `--complete-on-pass` final loop; on PASS proceed directly to `finalize` without a separate `--complete`.
+
 Finish all requested work and all required inputs/approvals under the child's existing workflow. Proceed only after successful final validation selected by [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy) and all other mandatory completion conditions:
 
 ```console

@@ -28,6 +28,7 @@ from support.blueprint_loop_fixtures import (
     io,
     json,
     make_project_fixture,
+    make_service_loop_fixture,
     os,
     patch,
     pytest,
@@ -892,7 +893,7 @@ def check_run_it_dispatch(tmp_path, monkeypatch):
             patch.object(
                 run_it, "source_snapshot", return_value="unchanged"
             ) as snapshot,
-                patch.object(
+            patch.object(
                 MODULE, "select_checks", return_value=([SCRIPT], "all requested")
             ) as discover,
             patch.object(
@@ -920,7 +921,6 @@ def check_run_it_dispatch(tmp_path, monkeypatch):
         it_dispatch.assert_called_once()
         assert it_dispatch.call_args.args[0] == run_it.TESTS
         assert it_dispatch.call_args.kwargs == {}
-
 
 
 @pytest.mark.parametrize(
@@ -1790,7 +1790,6 @@ def check_snapshot_guards(tmp_path, monkeypatch, change, issue_only):
             assert metadata["source_unchanged"] is (change == "lock")
 
 
-
 def _snapshot_guard_git(source, change, root, *args, **kwargs):
     if args == ("rev-parse", "HEAD"):
         return (
@@ -2063,9 +2062,10 @@ def check_parallel_checkpoint_selection(tmp_path):
     plugin.case_id = run_it.CHECKPOINT_CASES[1]
     plugin.pytest_collection_modifyitems(None, config, items)
     assert [item.nodeid for item in items] == [plugin.case_id]
-    assert len(config.hook.pytest_deselected.call_args.kwargs["items"]) == len(
-        run_it.CHECKPOINT_CASES
-    ) - 1
+    assert (
+        len(config.hook.pytest_deselected.call_args.kwargs["items"])
+        == len(run_it.CHECKPOINT_CASES) - 1
+    )
     with pytest.raises(ValueError, match="collection mismatch"):
         plugin.pytest_collection_modifyitems(None, config, items)
 
@@ -2167,7 +2167,9 @@ def check_parallel_checkpoint_receipt_freshness(tmp_path, mode):
         patch.object(run_it.subprocess, "Popen", side_effect=launch),
     ):
         if mode == "fresh":
-            result = run_it.run_parallel_checkpoint(tests / state.suite, tests, tmp_path)
+            result = run_it.run_parallel_checkpoint(
+                tests / state.suite, tests, tmp_path
+            )
             assert result["passed"] == list(cases)
         else:
             with pytest.raises(ValueError, match="missing/invalid receipt"):
@@ -2296,7 +2298,9 @@ def check_parallel_checkpoint_dispatch(tmp_path):
     state.codes = [0, 0, 0]
     execute = _bind_framework_callback(_callback_check_ci_workflow_execute, state)
     with (
-        patch.object(run_it, "run_parallel_checkpoint", return_value=receipt) as parallel,
+        patch.object(
+            run_it, "run_parallel_checkpoint", return_value=receipt
+        ) as parallel,
         patch.object(run_it.subprocess, "run", side_effect=execute) as launch,
     ):
         rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
@@ -2506,6 +2510,74 @@ def check_unit_timing_data_integrity(tmp_path, mode):
         run_it.display_unit_timing(result, summary)
         assert "UT timing: INCOMPLETE" in summary.getvalue()
 
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--write"],
+        ["--all"],
+        ["--staged", "--base", "HEAD"],
+        ["--mode", "full"],
+        ["--mode", "local"],
+    ],
+)
+def check_complete_on_pass_rejects_options(tmp_path, options):
+    argv = ["blueprint-loop.py", "--mode", "task", "--complete-on-pass", *options]
+    with patch.object(sys, "argv", argv), pytest.raises(SystemExit) as error:
+        CLI.main()
+    assert error.value.code == 2
+
+
+@pytest.mark.parametrize("phase", [None, "deploy", "update", "destroy"])
+def check_complete_on_pass_rejects_other_tasks(tmp_path, phase):
+    root = tmp_path / "repository"
+    make_service_loop_fixture(root)
+    contract = root / "tasks/example.md"
+    if phase:
+        contract.write_text(contract.read_text(encoding="utf-8").replace(
+            "- Task type: `design`\n- Workflow: `update`",
+            f"- Task type: `infrastructure`\n- Infrastructure phase: `{phase}`",
+        ), encoding="utf-8")
+    with (
+        patch.object(Path, "cwd", return_value=root),
+        patch.object(
+            sys,
+            "argv",
+            [
+                "blueprint-loop.py",
+                "--mode",
+                "task",
+                "--task-file",
+                "tasks/example.md",
+                "--complete-on-pass",
+            ],
+        ),
+        pytest.raises(ValueError, match="infrastructure/implement"),
+    ):
+        CLI.main()
+    assert (
+        tasks.status((root / "tasks/example.md").read_text(encoding="utf-8"))
+        == "running"
+    )
+
+
+
+def check_complete_on_pass_rejects_unmanaged(tmp_path):
+    root = tmp_path / "repository"
+    make_service_loop_fixture(root)
+    contract = root / "tasks/example.md"
+    contract.write_text(contract.read_text(encoding="utf-8").replace(
+        "- Task type: `design`\n- Workflow: `update`",
+        "- Task type: `infrastructure`\n- Infrastructure phase: `implement`",
+    ), encoding="utf-8")
+    before = contract.read_bytes()
+    with (
+        patch.object(Path, "cwd", return_value=root),
+        patch.object(sys, "argv", ["blueprint-loop.py", "--mode", "task", "--task-file", "tasks/example.md", "--complete-on-pass"]),
+        pytest.raises(ValueError),
+    ):
+        CLI.main()
+    assert contract.read_bytes() == before
 
 if __name__ == "__main__":
     raise SystemExit(pytest_run(__file__))

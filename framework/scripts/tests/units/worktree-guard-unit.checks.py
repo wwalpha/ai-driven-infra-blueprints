@@ -22,10 +22,17 @@ import pytest
 import worktree_pr as pr
 import worktree_state
 import worktree_task as wt
-from support.blueprint_loop_fixtures import CLI, MODULE, SCRIPT, tasks
+from support.blueprint_loop_fixtures import (
+    CLI,
+    MODULE,
+    SCRIPT,
+    make_service_loop_fixture,
+    tasks,
+)
 from support.worktree_task_fixtures import contract, fixture, start
 from utils.git_changes import GitWorkingPaths
 from validation import loop
+from validation import runner as validation_runner
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -2300,6 +2307,62 @@ def check_loop_suspension_real_worktree_ownership():
         loop.suspend_selected(primary, selected, "failure")
         assert (primary / selected).read_bytes() == before[0]
         assert lifecycle.read_bytes() == before[1]
+
+
+
+@pytest.mark.parametrize("outcome", ["pass", "validator", "acceptance", "diff", "staged_diff"])
+def check_implement_complete_on_pass(tmp_path, outcome):
+    root = tmp_path / "repository"
+    make_service_loop_fixture(root)
+    name = "tasks/example.md"
+    contract = root / name
+    contract.write_text(
+        contract.read_text(encoding="utf-8").replace(
+            "- Task type: `design`\n- Workflow: `update`",
+            "- Task type: `infrastructure`\n- Infrastructure phase: `implement`",
+        ),
+        encoding="utf-8",
+    )
+    if outcome in {"diff", "staged_diff"}:
+        with (root / "README.md").open("a", encoding="utf-8") as stream:
+            stream.write("bad whitespace   \n")
+        if outcome == "staged_diff":
+            subprocess.run(["git", "add", "README.md"], cwd=root, check=True)
+    fake = Mock()
+    fake.display_report.return_value = int(outcome in {"validator", "acceptance"})
+    with (
+        patch.object(Path, "cwd", return_value=root),
+        patch.object(MODULE.worktree_state, "managed_task_state"),
+        patch.object(
+            MODULE.task_contract_runtime._imports_import_guard, "require_import_changes"
+        ),
+        patch.object(validation_runner, "Validator", return_value=fake) as factory,
+        patch.object(
+            validation_runner._imports_deploy_inputs,
+            "task_deployment_input_paths",
+            return_value=[],
+        ),
+        patch.object(
+            sys,
+            "argv",
+            [
+                "blueprint-loop.py",
+                "--mode",
+                "task",
+                "--task-file",
+                name,
+                "--complete-on-pass",
+            ],
+        ),
+    ):
+        result = CLI.main()
+    assert result == (0 if outcome == "pass" else 1)
+    fake.run.assert_called_once_with()
+    assert factory.call_args.kwargs["fresh"] is True
+    assert factory.call_args.kwargs["iac_paths"] is None
+    assert tasks.status(contract.read_text(encoding="utf-8")) == (
+        "completed" if outcome == "pass" else "running"
+    )
 
 
 if __name__ == "__main__":

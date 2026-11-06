@@ -68,7 +68,12 @@ def main() -> int:
         "--base",
         help="Explicit comparison commit for --staged (including incoming changes)",
     )
+    parser.add_argument("--complete-on-pass", action="store_true")
     args = parser.parse_args()
+    if args.complete_on_pass and (
+        args.mode != "task" or args.write or args.all or args.staged or args.base
+    ):
+        parser.error("--complete-on-pass requires read-only task mode")
     if args.staged and args.write:
         parser.error("--staged cannot be combined with --write")
     if args.staged != bool(args.base):

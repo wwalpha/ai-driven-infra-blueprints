@@ -1147,7 +1147,6 @@ class Validator:
             definitions_root=self.definitions_root,
         )
 
-
     def check_framework_task_type_dispatch(self) -> None:
         return framework_contracts.check_framework_task_type_dispatch(
             self.findings, self.task_type
@@ -1706,7 +1705,9 @@ def run_validation(
             fresh=options.fresh or options.all,
             workers=options.jobs,
             iac_paths=None
-            if options.all or options.repository_wide_iac
+            if options.all
+            or options.repository_wide_iac
+            or getattr(options, "complete_on_pass", False)
             else deployment_paths,
             task_iac_paths=deployment_paths,
             write=options.write,

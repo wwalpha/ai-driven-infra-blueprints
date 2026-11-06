@@ -197,7 +197,9 @@ def refresh(root, name, resuming=False):
 
 def complete(root, name):
     snapshot = task_snapshot(root, name, executable=False, live=True)
-    if "- Infrastructure phase: `deploy`" in section(snapshot.text, "## Task contract") and not cli_deploy.is_cli(snapshot.text):
+    if "- Infrastructure phase: `deploy`" in section(
+        snapshot.text, "## Task contract"
+    ) and not cli_deploy.is_cli(snapshot.text):
         path = deploy_progress.progress_path(root, snapshot.name, create=True)
         with (
             operation_journal.locked(path),
@@ -215,7 +217,7 @@ def complete(root, name):
     return complete_selected(root, name)
 
 
-def complete_selected(root, name):
+def complete_selected(root, name, *, validate=None):
     snapshot = task_snapshot(root, name, executable=False, live=True)
     name = snapshot.name
     text = snapshot.text
@@ -241,21 +243,24 @@ def complete_selected(root, name):
                 require_import_changes(root, set())
             else:
                 require_import_changes(root)
-            validator = Validator(
-                root,
-                set(snapshot.scope) if snapshot.scope is not None else None,
-                cache=False,
-                issues_save=issues_save_only(root, text=text),
-                model_validation="change",
-            )
-            validator.run()
-            if validator.report():
-                raise ValueError(
-                    "Task Acceptance FAIL: "
-                    + "; ".join(
-                        item["reason"] for item in validator.findings.failures()
-                    )
+            if validate is not None:
+                validate()
+            else:
+                validator = Validator(
+                    root,
+                    set(snapshot.scope) if snapshot.scope is not None else None,
+                    cache=False,
+                    issues_save=issues_save_only(root, text=text),
+                    model_validation="change",
                 )
+                validator.run()
+                if validator.report():
+                    raise ValueError(
+                        "Task Acceptance FAIL: "
+                        + "; ".join(
+                            item["reason"] for item in validator.findings.failures()
+                        )
+                    )
         finally:
             if previous is None:
                 os.environ.pop(SELECTOR, None)
