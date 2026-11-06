@@ -1477,8 +1477,37 @@ def check_explicit_disposal_and_orphans():
             assert wt.branch_exists(root, in_use)
 
 
+def _check_automatic_cleanup_ruff_cache():
+    for cache_path, unknown in ((".ruff_cache", False), ("nested/.ruff_cache", False),
+                                ("nested/.ruff_cache", True)):
+        with fixture() as root:
+            with (root / ".gitignore").open("a", encoding="utf-8") as ignored:
+                ignored.write(".ruff_cache/\n")
+            git(root, "add", ".gitignore")
+            git(root, "commit", "-qm", "ignore Ruff cache")
+            target, state = start(root)
+            (target / "file.txt").write_text("changed\n", encoding="utf-8")
+            finish_contract(target, state)
+            cache = target / cache_path / "version" / "entry"
+            cache.parent.mkdir(parents=True)
+            cache.write_text("cache", encoding="utf-8")
+            if unknown:
+                (target / "secret.bin").write_text("preserve", encoding="utf-8")
+                result = cli(root, "finalize", success=False)
+                assert "ignored files need preservation" in result["error"]
+                assert cache.exists() and (target / "secret.bin").read_text() == "preserve"
+                assert wt.branch_exists(root, state["branch"])
+                (target / "secret.bin").unlink()
+                result = wt.automatic_cleanup(root, state["task_id"])
+            else:
+                result = cli(root, "finalize")
+            assert result["cleaned"] and not target.exists()
+            assert not wt.branch_exists(root, state["branch"])
+
+
 @it_case
 def check_pr_update_and_operations():
+    _check_automatic_cleanup_ruff_cache()
     for ending in (
         "close",
         "cleanup-first",
@@ -1486,7 +1515,15 @@ def check_pr_update_and_operations():
         "merge",
     ):
         with fixture() as root:
+            with (root / ".gitignore").open("a", encoding="utf-8") as ignored:
+                ignored.write(".ruff_cache/\n")
+            git(root, "add", ".gitignore")
+            git(root, "commit", "-qm", "ignore Ruff cache")
             target, state = start(root, files=("framework/scripts/candidate.txt",))
+            if ending in {"external", "merge"}:
+                cache = target / "nested/.ruff_cache/entry"
+                cache.parent.mkdir(parents=True)
+                cache.write_text("cache", encoding="utf-8")
             source = target / "framework/scripts/candidate.txt"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text("initial\n", encoding="utf-8")

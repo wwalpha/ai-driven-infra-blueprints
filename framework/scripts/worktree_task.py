@@ -346,6 +346,7 @@ def cleanup_state(root, path, state, *, discard=False):
                 for p in ignored
                 if p != state["task_file"]
                 and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))
+                and ".ruff_cache" not in Path(p).parts[:-1]
             }
             if extras:
                 raise Blocked(
