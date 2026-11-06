@@ -1718,6 +1718,8 @@ def check_sts_failure_stops_without_new_observation(tmp_path, monkeypatch, capsy
     assert result["result"] == "STOPPED"
     assert str(original) in result["cause"]["traceback"]
     assert result["cause"]["errorType"] == "EndpointConnectionError"
+    assert result["cause"]["message"] == str(original)
+    assert "detailDigest" not in result["cause"]
     assert json.loads(aws.read_text())["calls"] == before
 
 

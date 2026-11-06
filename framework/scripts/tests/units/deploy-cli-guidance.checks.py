@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+from botocore.exceptions import ClientError, EndpointConnectionError
 from deploy import cli_guidance as G
 from deploy import controller, failures, preparation
 from model.core import ReferenceResolutionError
@@ -283,6 +284,56 @@ def check_known_error_details(error, code, details):
     assert details.items() <= report["cause"].items()
     assert report["cause"]["detailDigest"]
     assert "private-secret" not in json.dumps(report)
+    assert report["nextAction"]["command"] is None
+
+
+@pytest.mark.parametrize(
+    "original",
+    [
+        EndpointConnectionError(endpoint_url="https://service.example.invalid"),
+        ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "raw client message"}},
+            "DescribeStacks",
+        ),
+    ],
+)
+def check_aws_errors_show_raw_exception(original):
+    try:
+        raise original
+    except Exception as cause:
+        try:
+            raise G.AwsError(
+                "cloudformation", "describe_stacks", type(cause).__name__
+            ) from cause
+        except G.AwsError as error:
+            report = G.stopped("POLL", error)
+
+    rendered = json.dumps(report)
+    assert report["stage"] == "POLL"
+    assert report["cause"]["errorType"] == type(original).__name__
+    assert report["cause"]["message"] == str(original)
+    assert str(original) in report["cause"]["traceback"]
+    assert "detailDigest" not in report["cause"]
+    if isinstance(original, ClientError):
+        assert "raw client message" in rendered
+        assert "response" in report["cause"]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        G.AwsError("cloudformation", "describe_stacks", "OperationDeadlineExceeded"),
+        G.AwsError("cloudformation", "describe_stacks", "AccessDenied"),
+    ],
+)
+def check_aws_errors_without_cause_show_raw_message(error):
+    report = G.stopped("POLL", error)
+    assert report["stage"] == "POLL"
+    assert report["cause"]["errorType"] == "AwsError"
+    assert report["cause"]["message"] == str(error)
+    assert report["cause"]["message"] in report["cause"]["traceback"]
+    assert report["cause"]["code"] == error.code
+    assert "detailDigest" not in report["cause"]
     assert report["nextAction"]["command"] is None
 
 

@@ -239,15 +239,17 @@ def guidance(stage, cause, kind, reason, command=None):
 
 
 def safe_error(error):
-    """Show raw SDK errors and allowlisted diagnostics for other errors."""
+    """Show raw AWS errors and allowlisted diagnostics for other errors."""
     code = getattr(error, "code", None)
-    if isinstance(error, AwsError) and error.__cause__ is not None:
+    if isinstance(error, AwsError):
+        original = error.__cause__ or error
         result = {
-            "errorType": type(error.__cause__).__name__,
+            "errorType": type(original).__name__,
+            "message": str(original),
             "code": code,
             "traceback": "".join(traceback.format_exception(error)),
         }
-        if hasattr(error.__cause__, "response"):
+        if error.__cause__ is not None and hasattr(error.__cause__, "response"):
             result["response"] = repr(error.__cause__.response)
         return result
     diagnostics = (
