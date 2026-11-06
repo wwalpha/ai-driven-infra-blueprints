@@ -2,7 +2,6 @@
 
 import json
 import os
-import re
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -42,7 +41,7 @@ from support.deploy_controller_fixtures import ACCOUNT, aws_state, invoke
 from support.model_sources import write_model
 from support.pytest_cli import run
 from support.worktree_deploy_fixtures import pin_progress, seed
-from support.worktree_task_fixtures import cli, fixture, git
+from support.worktree_task_fixtures import fixture, git
 from task_contract import main as task_main
 from task_contract_core import read_task_snapshot, selected_task, set_status, start
 from utils.local_evidence import read_sealed
@@ -121,107 +120,6 @@ def deploy_contract(name, files):
 ## Allowed paths
 {listed}
 """
-
-
-def check_start_creates_fresh_worktrees_for_the_same_name(monkeypatch):
-    with (
-        fixture() as primary,
-        patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
-        patch.object(
-            wt.python_env, "runtime", return_value=(sys.executable, dict(os.environ))
-        ),
-    ):
-        state = cli(primary, "deploy-start", "deploy", suffix=0)
-        assert state["task_id"] == "deploy-000000"
-        assert state["baseFreshness"] == "LOCAL_ONLY"
-        root = Path(state["worktree"])
-        start(
-            root, state["task_file"], deploy_contract(state["task_file"], ["file.txt"])
-        )
-        peer = worktree.start(root, "deploy")
-        assert state["task_name"] == peer["task_name"] == "deploy"
-        assert state["task_id"] != peer["task_id"]
-        assert re.fullmatch(r"deploy-[0-9]{6}", state["task_id"])
-        assert ws.task_worktree(primary, state) == root
-        assert ws.task_worktree(primary, peer) == Path(peer["worktree"])
-        (primary / "file.txt").write_text("main advanced\n")
-        git(primary, "add", "file.txt")
-        git(primary, "commit", "-qm", "Advance")
-        assert (
-            ws.deploy_start_commit(root, state["task_file"], required=True)
-            == state["start"]
-        )
-        assert (
-            ws.deploy_start_commit(root, state["task_file"], required=True)
-            == state["start"]
-        )
-        with selected_task(root, state["task_file"]):
-            TestCase().assertEqual(worktree.require(root)["task_id"], state["task_id"])
-        assert wt.cleanup(primary, state["task_id"])["cleaned"]
-        assert worktree.start(primary, "deploy")["start"] == git(
-            primary, "rev-parse", "HEAD"
-        )
-
-
-@pytest.mark.parametrize(
-    "condition", ["fast-forward", "dirty", "diverged", "unavailable"]
-)
-def check_new_start_verifies_upstream_without_touching_existing_tasks(
-    tmp_path, condition
-):
-    with (
-        fixture() as primary,
-        patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
-    ):
-        remote = tmp_path / "origin.git"
-        peer = tmp_path / "peer"
-        git(primary, "init", "--bare", str(remote))
-        git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
-        git(primary, "remote", "add", "origin", str(remote))
-        git(primary, "push", "-u", "origin", "main")
-        git(primary, "clone", str(remote), str(peer))
-        git(peer, "config", "user.name", "Fixture")
-        git(peer, "config", "user.email", "fixture@example.invalid")
-        (peer / "upstream.txt").write_text("new upstream\n")
-        git(peer, "add", "upstream.txt")
-        git(peer, "commit", "-qm", "Advance upstream")
-        git(peer, "push", "origin", "main")
-        expected = git(peer, "rev-parse", "HEAD")
-        if condition == "dirty":
-            (primary / "file.txt").write_text("keep local edit\n")
-        elif condition == "diverged":
-            (primary / "file.txt").write_text("local commit\n")
-            git(primary, "add", "file.txt")
-            git(primary, "commit", "-qm", "Local divergence")
-        elif condition == "unavailable":
-            git(primary, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
-        before = git(primary, "rev-parse", "HEAD")
-        if condition == "fast-forward":
-            state = worktree.start(primary, "fresh-deploy")
-            assert state["start"] == expected == git(primary, "rev-parse", "HEAD")
-            assert state["baseFreshness"] == "UPSTREAM_VERIFIED"
-        else:
-            with pytest.raises(ws.Blocked):
-                worktree.start(primary, "fresh-deploy")
-            assert git(primary, "rev-parse", "HEAD") == before
-            assert not (primary / ".worktrees" / "fresh-deploy").exists()
-            if condition == "dirty":
-                assert (primary / "file.txt").read_text() == "keep local edit\n"
-
-
-def check_verified_base_change_refuses_worktree_creation():
-    with fixture() as primary:
-        with pytest.raises(ws.Blocked, match="base changed"):
-            wt.create(primary, "fresh-deploy", expected_base=("main", "0" * 40))
-        with pytest.raises(ws.Blocked, match="upstream changed"):
-            wt.create(
-                primary,
-                "fresh-deploy",
-                expected_base=("main", git(primary, "rev-parse", "HEAD")),
-                expected_upstream=[["origin"], ["refs/heads/main"]],
-            )
-        assert not (primary / ".worktrees" / "fresh-deploy").exists()
-        assert not wt.branch_exists(primary, "codex/worktree/fresh-deploy")
 
 
 def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):

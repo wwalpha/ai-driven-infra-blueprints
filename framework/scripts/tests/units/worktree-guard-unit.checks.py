@@ -234,7 +234,7 @@ def check_prepare_rejects_before_git_write(tmp_path, violation):
     ["finalize", "--task-id", "example", "--expected-task-base", "base"],
     ["finalize", "--task-id", "example", "--human-approved-validation-failure", "approval"],
     ["create", "--task-id", "example"],
-    ["deploy-start", "--task-id", "example"],
+    ["deploy-start", "--task-name", "example"],
     ["finalize", "--task-name", "example"],
 ])
 def check_removed_lifecycle_cli(args):
@@ -849,7 +849,6 @@ def check_checkpoint_uses_scoped_barrier_under_ordered_locks(tmp_path, case):
         "repair-checkpoint",
         "repair-validate",
         "sync-base",
-        "deploy-start",
         "deploy-publish",
     ],
 )

@@ -96,16 +96,6 @@ def base_branch(root):
     raise Blocked("no configured base, main or master branch exists")
 
 
-def base_upstream_config(root, base):
-    values = []
-    for key in ("remote", "merge"):
-        result = git(root, "config", "--get-all", f"branch.{base}.{key}", check=False)
-        if result.returncode not in {0, 1}:
-            raise Blocked("Deploy base upstream configuration could not be read")
-        values.append(result.stdout.splitlines())
-    return values
-
-
 def save(path, state):
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
@@ -179,9 +169,7 @@ def _new_worktree(primary, task_name, base, start, creation):
     raise Blocked(f"could not reserve a Task ID for {task_name} after 20 collisions")
 
 
-def create(
-    where, task_name, repair_request=None, *, expected_base=None, expected_upstream=None
-):
+def create(where, task_name, repair_request=None):
     _, _, primary = repository(where)
     state_path(primary, task_name)  # Apply the same lower-kebab-case rule as Task IDs.
     repair_lock = nullcontext()
@@ -209,7 +197,8 @@ def create(
                     raise Blocked("repair parent belongs to another repository")
             base = request["parentBranch"] if request else base_branch(primary)
             start = output(primary, "rev-parse", f"refs/heads/{base}")
-            _check_creation_base(primary, base, start, expected_base, expected_upstream, request)
+            if request and start != request["parentTip"]:
+                raise Blocked("repair parent tip changed")
             state_file, state = _new_worktree(primary, task_name, base, start, creation)
             if request:
                 state["deployRepair"] = request["requestPath"]
@@ -225,20 +214,6 @@ def create(
             error = Blocked("worktree creation interrupted")
         error.creation = creation
         raise error
-
-
-def _check_creation_base(primary, base, start, expected_base, expected_upstream, request):
-    if expected_base is not None and (base, start) != expected_base:
-        raise Blocked(
-            "Deploy base changed between verification and worktree creation"
-        )
-    if (
-        expected_upstream is not None
-        and base_upstream_config(primary, base) != expected_upstream
-    ):
-        raise Blocked("Deploy base upstream changed before worktree creation")
-    if request and start != request["parentTip"]:
-        raise Blocked("repair parent tip changed")
 
 
 def setup(where, task_id):
@@ -1707,7 +1682,6 @@ def main():
             "repair-validate",
             "sync-base",
             "sync-latest-base",
-            "deploy-start",
             "deploy-publish",
         ),
     )
@@ -1741,12 +1715,12 @@ def main():
         help="External JSON with explicit Human approval, current base/source and resolved conflict files; Git only",
     )
     args = parser.parse_args()
-    creating = args.command in {"create", "deploy-start"}
+    creating = args.command == "create"
     if creating:
         if not args.task_name or args.task_id is not None:
-            parser.error("create and deploy-start require --task-name instead of --task-id")
+            parser.error("create requires --task-name instead of --task-id")
     elif args.task_name is not None:
-        parser.error("--task-name requires create or deploy-start")
+        parser.error("--task-name requires create")
     elif args.command == "branch-delete" or args.pr:
         if args.task_id is not None:
             parser.error("branch-delete and explicit --pr do not accept --task-id")
@@ -1796,10 +1770,6 @@ def main():
                     args.command,
                     method=args.merge_method or "squash",
                 )
-        elif args.command == "deploy-start":
-            state = module("deploy/worktree.py", "deploy.worktree").start(
-                where, args.task_name
-            )
         elif args.command == "deploy-publish":
             state = {
                 "git_publication": run_deploy_publication(

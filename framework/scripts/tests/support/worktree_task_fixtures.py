@@ -71,7 +71,7 @@ def cli(root, command, task_id=EXAMPLE_TASK_ID, success=True, *, suffix=None):
             command,
             "--repository-root",
             str(root),
-            "--task-name" if command in {"create", "deploy-start"} else "--task-id",
+            "--task-name" if command == "create" else "--task-id",
             task_id,
         ],
         cwd=root,

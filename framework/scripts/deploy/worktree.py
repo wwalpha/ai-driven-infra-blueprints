@@ -1,8 +1,6 @@
 """Deploy selection and fixed managed-worktree authority, independent of local base."""
 
 import copy
-import re
-import subprocess
 from pathlib import Path
 
 import task_contract_core as tasks
@@ -18,127 +16,6 @@ def is_deploy(text):
         "- Task type: `infrastructure`" in lines
         and "- Infrastructure phase: `deploy`" in lines
     )
-
-
-def start(where, task_name):
-    """Create a new Deploy Task; use its returned ID for subsequent operations."""
-    _, _, primary = ws.repository(where)
-    ws.state_path(primary, task_name)
-    base, head, freshness, upstream = fresh_base(primary)
-    state = wt.create(
-        where, task_name, expected_base=(base, head), expected_upstream=upstream
-    )
-    state["baseFreshness"] = freshness
-    return state
-
-
-def fresh_base(primary):
-    base = wt.base_branch(primary)
-    initial = wt.output(primary, "rev-parse", f"refs/heads/{base}")
-    values = wt.base_upstream_config(primary, base)
-    if values == [[], []]:
-        return base, initial, "LOCAL_ONLY", values
-    if any(len(value) != 1 for value in values):
-        raise ws.Blocked(
-            "Deploy base upstream configuration is incomplete or ambiguous"
-        )
-    remote, ref = values[0][0], values[1][0]
-    if (
-        not remote
-        or remote == "."
-        or remote.startswith("-")
-        or not ref.startswith("refs/heads/")
-        or wt.git(primary, "check-ref-format", ref, check=False).returncode
-    ):
-        raise ws.Blocked("Deploy base upstream must be a remote branch")
-    try:
-        before = wt.git(
-            primary,
-            "ls-remote",
-            "--exit-code",
-            "--heads",
-            remote,
-            ref,
-            check=False,
-            timeout=60,
-        )
-        fetched = (
-            wt.git(
-                primary,
-                "fetch",
-                "--no-tags",
-                "--no-write-fetch-head",
-                remote,
-                ref,
-                check=False,
-                timeout=60,
-            )
-            if before.returncode == 0
-            else None
-        )
-        after = (
-            wt.git(
-                primary,
-                "ls-remote",
-                "--exit-code",
-                "--heads",
-                remote,
-                ref,
-                check=False,
-                timeout=60,
-            )
-            if fetched and fetched.returncode == 0
-            else None
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        raise ws.Blocked(
-            "Deploy base upstream check failed; no Task was created"
-        ) from None
-    match = (
-        re.fullmatch(r"([0-9a-f]{40,64})\s+" + re.escape(ref), before.stdout.strip())
-        if before.returncode == 0
-        else None
-    )
-    if (
-        not match
-        or not fetched
-        or fetched.returncode
-        or not after
-        or after.returncode
-        or after.stdout != before.stdout
-    ):
-        raise ws.Blocked(
-            "Deploy base upstream unavailable or changed; no Task was created"
-        )
-    remote_head = match.group(1)
-    with wt.lifecycle_lock(primary):
-        if (
-            wt.base_branch(primary) != base
-            or wt.output(primary, "rev-parse", f"refs/heads/{base}") != initial
-            or wt.base_upstream_config(primary, base) != values
-        ):
-            raise ws.Blocked("Deploy base changed during upstream verification")
-        if initial != remote_head:
-            if wt.git(
-                primary,
-                "merge-base",
-                "--is-ancestor",
-                initial,
-                remote_head,
-                check=False,
-            ).returncode:
-                raise ws.Blocked(
-                    "Deploy base is ahead of or diverged from its upstream"
-                )
-            if wt.output(primary, "branch", "--show-current") != base or wt.output(
-                primary, "status", "--porcelain", "--untracked-files=all"
-            ):
-                raise ws.Blocked(
-                    "Deploy base checkout must be clean and checked out in primary for fast-forward"
-                )
-            wt.idle_git(primary)
-            wt.git(primary, "merge", "--ff-only", remote_head)
-    return base, remote_head, "UPSTREAM_VERIFIED", values
 
 
 def require(root, snapshot=None):

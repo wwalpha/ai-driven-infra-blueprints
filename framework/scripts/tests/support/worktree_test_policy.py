@@ -91,9 +91,6 @@ WORKTREE_CASES = {
     "integrations/deploy-worktree.checks.py": (
         "check_order_range_preparation_publication_and_resume",
         "check_deferred_consumer_approved_reference_recovery",
-        "check_start_creates_fresh_worktrees_for_the_same_name",
-        "check_new_start_verifies_upstream_without_touching_existing_tasks",
-        "check_verified_base_change_refuses_worktree_creation",
         "check_contract_preparation_correction_round_trip",
         "check_scope_failure_correction_round_trip",
         "check_managed_checkpoint_publication_isolation",
