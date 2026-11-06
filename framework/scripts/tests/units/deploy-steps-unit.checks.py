@@ -1728,6 +1728,13 @@ def handoff_test_replace_file(boundary, replace, *args, **kwargs):
 
 
 
+def fail_auth(original, *args):
+    try:
+        raise original
+    except EndpointConnectionError as error:
+        raise sdk.AwsError("sts", "get_caller_identity", type(error).__name__) from error
+
+
 @pytest.mark.parametrize("action", ["advance", "sync", "final", "checkpoint", "status"])
 def check_sts_failure_stops_without_new_observation(tmp_path, monkeypatch, capsys, action):
     report, aws = tmp_path / "report.json", tmp_path / "aws.json"
@@ -1737,13 +1744,7 @@ def check_sts_failure_stops_without_new_observation(tmp_path, monkeypatch, capsy
     aws_state(aws)
     original = EndpointConnectionError(endpoint_url="https://sts.example.invalid")
 
-    def fail_auth(*args):
-        try:
-            raise original
-        except EndpointConnectionError as error:
-            raise sdk.AwsError("sts", "get_caller_identity", type(error).__name__) from error
-
-    monkeypatch.setattr(steps.context, "check_deploy_context", fail_auth)
+    monkeypatch.setattr(steps.context, "check_deploy_context", partial(fail_auth, original))
     options = ["--action", "sync", "--final"] if action == "final" else ["--action", action]
     if action == "sync":
         options += ["--sync-stack", "cfn-stack-app-dev-first"]

@@ -637,18 +637,18 @@ def check_interrupted_scope_failure_rejects_changed_evidence(case, monkeypatch, 
     assert deploy_progress.correction_path(case.progress_path).exists()
 
 
+def change_after_review(review, root, evidence, *args, **kwargs):
+    result = review(*args, **kwargs)
+    record = read_sealed(root, evidence)
+    record["states"]["A"]["reason"] = "changed"
+    write_sealed(root, evidence, record)
+    return result
+
+
 def check_scope_failure_changed_during_review_is_rejected(case, monkeypatch):
     _, _, _, evidence = scope_failure_case(case, monkeypatch)
     review = correction.review_local_correction
-
-    def change_after_review(*args, **kwargs):
-        result = review(*args, **kwargs)
-        record = read_sealed(case.root, evidence)
-        record["states"]["A"]["reason"] = "changed"
-        write_sealed(case.root, evidence, record)
-        return result
-
-    monkeypatch.setattr(correction, "review_local_correction", change_after_review)
+    monkeypatch.setattr(correction, "review_local_correction", partial(change_after_review, review, case.root, evidence))
     with pytest.raises(ValueError, match="currentFailure evidence changed"):
         correction.correct(case.root, case.name, case.source)
 
