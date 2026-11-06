@@ -36,6 +36,19 @@ with the selected Task. The old baseline records bytes and file sets,
 without `load_model` or fixed-field/layout validation. The candidate must pass structure,
 ID and reference checks. Never manually persist generated views; generate and validate
 through the existing APIs. Complete and integrate only the verified final candidate.
+For a managed worktree, generate necessary Markdown/JSON after the guarded Model save:
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/sync-model.py --write --scope <environment/target/service>
+```
+
+Repeat `--scope` for each required Change Impact/Task-scope service. Alternatively use
+`--environment` with `--alias` or `--aws-account-id` and repeat `--service` for the
+selected services. Review the diff and run necessary related tests, then invoke worktree
+`finalize` on the running Task. Its final candidate Change Validation and completion
+replace a separate pre-finalize final loop or `--complete`; merge only the validated HEAD.
+Standalone design and dedicated operations retain their existing generation and validation paths.
+
 Dedicated merge/delete/retarget operations below retain their limited declarations and
 raw-value preservation checks; none requires the whole old Model to pass `load_model`.
 
@@ -116,8 +129,8 @@ stopping; the following leaves own their exact editing procedures:
    requested single leaf returns after that operation. No per-step reapproval for an
    already requested overall integration.
 2. Each successful leaf may save raw sources in the worktree, leaving an unfinished
-   intermediate Model. Stop on failure and retain prior successful saves; the parent
-   may use the existing suspend transition. Never auto-rollback the whole workflow.
+   intermediate Model. Stop on failure and retain prior successful saves and the managed
+   parent Task status. Never auto-rollback the whole workflow.
 3. Only after all leaves complete, use existing prepare_generation/validate_generation/publish_generation to prepare,
    validate and save the required views. Generation does not decide merge completeness.
 4. Use worktree finalize: prepare the private commit and rebase onto latest local base,
@@ -131,8 +144,8 @@ stopping; the following leaves own their exact editing procedures:
 Standalone validation/complete retain their own final checking responsibility. Ordinary
 non-managed completed-candidate publication retains its previous IMPORT guard. A failed
 final check retains the private commit/worktree without merge, automatic regeneration,
-amend or loop retry by default. For model-delete, explicitly resume/repair in the same
-parent and call finalization again after the correction; retain the earlier candidate
+amend or loop retry by default. For model-delete, explicitly repair under the existing
+authority in the same parent and call finalization again after the correction; retain the earlier candidate
 commit and revalidate the new candidate. Never merge a failed candidate. This repair
 retry is distinct from forbidden per-Resource final validation. Report leaf saves and
 final validation/integration separately.

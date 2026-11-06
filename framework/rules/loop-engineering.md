@@ -125,11 +125,20 @@ input-comparison, atomic-save/rollback and Import/Deploy authority boundaries re
 
 ## Local loop execution
 
-For ordinary Model edits use one command:
+For standalone ordinary Model edits use one command:
 
 ```console
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
 ```
+
+For ordinary managed Model-only /update, use `sync-model.py --write` for the required
+Change Impact and Task-scope Views, review the diff and run related checks, then invoke
+worktree `finalize` on the running Task. Finalize runs the final candidate Change
+Validation and completes the Task; do not run the write loop or a separate final
+validation/`--complete` first. Use `--scope <environment/target/service>` (repeatable),
+or `--environment` plus `--alias` or `--aws-account-id` and repeatable `--service`.
+Dedicated Model operations retain their generation APIs; standalone and infrastructure
+flows retain their own validation paths.
 
 Explicit `--write` passes generation to the leading validator. Under the publication lock,
 compare consumed inputs, file sets and selected contract before any save; changed inputs or
@@ -343,8 +352,8 @@ Before design questions, on resume, target changes, before design contract regis
 
 1. Update authoritative environment-specific properties inputs specified by the active prompt. Only when existing-resource retrieval is specified, validate read-only AWS context before repository changes and directly reflect differences in selected properties of human-selected resources to current values.
 2. For existing-resource retrieval, reflect only necessary non-ARN current identifiers in observed.row.*.value. Do not save secrets, generated ARNs, or resource provenance.
-3. Save confirmed design values in the corresponding properties through Change Validation. New Resources require mandatory root properties; existing Resources select only rules related to changed fields and affected reference contracts. The integrated task loop with `--write` projects the required Views without View quality gates or physical-value readiness requirements. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for services whose generation fails and save successful services in the same coherent change. Report Model save and View synchronization separately; unresolved required Views prevent Task completion.
-4. Run `python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` once to generate and perform final validation.
+3. Save confirmed design values in the corresponding properties through Change Validation. New Resources require mandatory root properties; existing Resources select only rules related to changed fields and affected reference contracts. Generate required Views without View quality gates or physical-value readiness requirements. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for services whose generation fails and save successful services in the same coherent change. Report Model save and View synchronization separately; unresolved required Views prevent Task completion.
+4. For ordinary managed Model-only /update, generate with `sync-model.py --write` and invoke finalize as described in [Local loop execution](#local-loop-execution). For standalone design, run `python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` once to generate and perform final validation. Dedicated operations retain their own generation APIs.
 5. Finish the task without changing IaC, AWS mutation, scenarios, or results.
 
 ## Infrastructure task completion

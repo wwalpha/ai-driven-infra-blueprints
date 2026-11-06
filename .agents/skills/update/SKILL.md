@@ -29,6 +29,13 @@ The Model-only branch composes model-transfer, model-retarget and model-delete u
 one parent Task; each leaf's own skill is its procedure authority. Worktree finalization
 owns the post-rebase final validation/completion/merge sequence.
 
+For ordinary managed Model-only corrections, save through the existing guarded Model
+API, generate required Views with `sync-model.py --write` using the exact Change Impact
+and Task scope, review the diff and run related checks, then invoke worktree `finalize`
+while the Task is running. Finalize validates the actual candidate and completes it;
+do not run a separate final loop or Task `--complete` first. Dedicated operations retain
+their own generation APIs and contracts. Standalone and infrastructure flows are unchanged.
+
 For an explicit Human one-or-more-Resource deletion request, register and validate the
 `model-delete` parent. Retain Model safety checks, forbidden AWS/deploy and unchanged
 issue inventories. Apply [Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics)
