@@ -36,8 +36,6 @@ def reference_write(root, task, change, row, mapped, target, authority_root):
             "reference synchronization Task differs from publication authority"
         )
     progress = deploy_progress.read_task(authority_root, source_task)
-    if progress is None and authority_root != root:
-        progress = deploy_progress.read_legacy_task(authority_root, source_task)
     if progress is None:
         return False
     records = deferred.approved(progress["runContext"])

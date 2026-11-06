@@ -43,7 +43,6 @@ def main(argv=None):
             return 0
         failure = read_sealed(root, handoff.external(root, args.failure))
         with (
-            operation_journal.locked(deploy_progress.progress_path(root, create=True)),
             operation_journal.locked(deploy_progress.progress_path(root, failure["taskFile"], create=True)),
             handoff.repair_lock(root),
         ):

@@ -336,9 +336,10 @@ def check_failure_evidence_survives_progress_reload_and_status(tmp_path):
         phase="deploy",
         run_context=context,
         progress_identity=identity,
+        progress_task_file=identity["taskFile"],
         progress_root=root.resolve(),
         progress_directory=None,
-        progress_destination=deploy_progress.progress_path(root, create=True),
+        progress_destination=deploy_progress.progress_path(root, identity["taskFile"], create=True),
     )
     deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
     loaded = deploy_progress.read_progress(root, {"deployIdentity": identity})["runContext"]
@@ -445,8 +446,11 @@ def check_advance_and_status_expose_observed_progress(tmp_path, monkeypatch, cap
     monkeypatch.chdir(root)
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", f"tasks/{root.name}.md")
     aws_state(aws)
+    legacy = deploy_progress.progress_path(root, f"tasks/{root.name}.md", create=True).parent.parent / "deploy-progress.json"
+    legacy.write_bytes(b"retained legacy evidence")
     capsys.readouterr()
     assert invoke_step(root, report, aws, ["--action", "advance"]) == 0
+    assert legacy.read_bytes() == b"retained legacy evidence"
     capsys.readouterr()
     provider = json.loads(aws.read_text())
     provider["stacks"][FIRST]["status"] = "CREATE_IN_PROGRESS"

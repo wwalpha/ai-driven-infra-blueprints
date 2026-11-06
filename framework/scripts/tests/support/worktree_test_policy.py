@@ -56,7 +56,6 @@ WORKTREE_CASES = {
         "check_reuse_keeps_exact_identity",
         "check_progress_has_one_mutable_context_and_preserves_recovery",
         "check_corrupt_progress_is_never_empty_success",
-        "check_missing_progress_with_saved_checkpoint_is_not_a_fresh_run",
     ),
     "integrations/deploy-controller.checks.py": (
         "check_ordered_delivery_and_observed",

@@ -277,7 +277,7 @@ def require_settled(
     task = task_snapshot(root, request["taskFile"], executable=False, live=True)
     if task.task_digest != request["taskDigest"]:
         raise Blocked("repair request differs from the selected Task")
-    progress = deploy_progress.read_task(root, task) or deploy_progress.read_legacy_task(root, task)
+    progress = deploy_progress.read_task(root, task)
     if progress:
         context = progress["runContext"]
         if any(

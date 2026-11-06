@@ -1,7 +1,6 @@
 """Deploy progress evidence and its fixed identity."""
 
 import copy
-from pathlib import Path
 
 import worktree_state as ws
 from task_contract_core import normalize_selector
@@ -10,9 +9,7 @@ from utils.local_evidence import evidence_store, read_sealed, write_sealed
 from utils.script_loader import module
 
 
-def progress_path(root, task_file=None, *, create=False):
-    if task_file is None:
-        return evidence_store(root, create=create) / "deploy-progress.json"
+def progress_path(root, task_file, *, create=False):
     operation_journal = module("deploy/operation_journal.py", "deploy.operation_journal")
     task_file = normalize_selector(task_file)
     if create:
@@ -60,24 +57,6 @@ def require_no_correction(path):
         raise ws.Blocked("unfinished Deploy contract correction; retry --correct-deploy-contract")
 
 
-def read_legacy_task(root, task):
-    path = progress_path(root)
-    if not (path.exists() or path.is_symlink()):
-        return None
-    fixed = read_sealed(root, path)["identity"]
-    if fixed["taskFile"] != task.name:
-        return None
-    if fixed["taskDigest"] != task.task_digest:
-        raise ws.Blocked("legacy Deploy progress differs from the selected Task")
-    return read_progress(root, {"deployIdentity": fixed})
-
-
-def require_no_legacy_task(root, task_file):
-    legacy = progress_path(root)
-    if (legacy.exists() or legacy.is_symlink()) and read_sealed(root, legacy)["identity"]["taskFile"] == task_file:
-        raise ws.Blocked("legacy Deploy evidence exists for this Task; retain it and use explicit legacy recovery")
-
-
 def unresolved_request(state):
     status = state["status"]
     return (
@@ -90,50 +69,30 @@ def unresolved_request(state):
     )
 
 
-def progress_state(backend, require):
-    state = require(backend.root)
-    if state is not None:
-        return state
-    return {
-        "deployIdentity": {
-            "taskFile": backend.run_context["taskFile"],
-            "taskDigest": backend.run_context["taskDigest"],
-            "target": backend.target,
-            "environment": backend.environment,
-            "stacks": sorted(backend.states),
-        }
-    }
-
-
-def save_progress(backend, fields, require=None):
+def save_progress(backend, fields):
     if getattr(backend, "phase", None) not in {"deploy", "update"}:
         return
     context = backend.run_context
-    task_file = getattr(backend, "progress_task_file", None)
-    if backend.phase == "deploy" or task_file is not None:
-        identity = backend.progress_identity
-        if (
-            backend.root.resolve() != backend.progress_root
-            or task_file is not None and task_file != identity["taskFile"]
-            or context.get("repository") != str(backend.progress_root)
-            or context.get("taskFile") != identity["taskFile"]
-            or context.get("taskDigest") != identity["taskDigest"]
-            or context.get("target") != identity["target"]
-            or context.get("environment") != identity["environment"]
-            or context.get("directory") != backend.progress_directory
-            or set(context["states"]) != set(identity["stacks"])
-        ):
-            raise ws.Blocked("Deploy progress differs from its fixed identity")
-        path = progress_path(backend.root, task_file, create=True)
-        if path != backend.progress_destination:
-            raise ws.Blocked("Deploy progress destination changed")
-        if path.exists() or path.is_symlink():
-            read_progress(backend.root, {"deployIdentity": identity}, task_file)
-    else:
-        identity = progress_state(backend, require)["deployIdentity"]
-        path = progress_path(backend.root, task_file, create=True)
+    identity = backend.progress_identity
+    task_file = backend.progress_task_file
+    if (
+        backend.root.resolve() != backend.progress_root
+        or task_file != identity["taskFile"]
+        or context.get("repository") != str(backend.progress_root)
+        or context.get("taskFile") != identity["taskFile"]
+        or context.get("taskDigest") != identity["taskDigest"]
+        or context.get("target") != identity["target"]
+        or context.get("environment") != identity["environment"]
+        or context.get("directory") != backend.progress_directory
+        or set(context["states"]) != set(identity["stacks"])
+    ):
+        raise ws.Blocked("Deploy progress differs from its fixed identity")
+    path = progress_path(backend.root, task_file, create=True)
+    if path != backend.progress_destination:
+        raise ws.Blocked("Deploy progress destination changed")
+    if path.exists() or path.is_symlink():
+        read_progress(backend.root, {"deployIdentity": identity}, task_file)
     saved = copy.deepcopy(context)
-    saved.pop("gitPublication", None)
     saved["states"] = {
         name: {
             key: copy.deepcopy(value)
@@ -152,16 +111,8 @@ def save_progress(backend, fields, require=None):
 
 
 def read_progress(root, state, task_file=None):
-    path = progress_path(root, task_file)
+    path = progress_path(root, task_file or state["deployIdentity"]["taskFile"])
     if not path.exists() and not path.is_symlink():
-        if (
-            state.get("deployCheckpoints")
-            or state.get("deployCheckpointIntent")
-            or state.get("deployPublication")
-        ):
-            raise ws.Blocked(
-                "saved Deploy progress is missing; retain checkpoint and request evidence"
-            )
         return None
     progress = read_sealed(root, path)
     if not isinstance(progress, dict) or progress.get("identity") != state.get(
@@ -186,7 +137,7 @@ def read_progress(root, state, task_file=None):
         or not isinstance(context.get("stepUnits"), list)
         or any(
             key in context and not isinstance(context[key], dict)
-            for key in ("pendingObserved", "pendingGeneration", "checkpointPending", "syncPending")
+            for key in ("pendingObserved", "pendingGeneration", "syncPending")
         )
     ):
         raise ws.Blocked("Deploy progress recovery context is incomplete or corrupt")
@@ -201,35 +152,4 @@ def read_progress(root, state, task_file=None):
             or not isinstance(sync["final"], bool)
         ):
             raise ws.Blocked("Deploy sync intent is corrupt")
-    pending = context.get("checkpointPending")
-    if "checkpointPending" in context and (
-        not isinstance(pending.get("stacks"), list)
-        or not isinstance(pending.get("before"), dict)
-        or "after" not in pending
-        or pending["after"] is not None
-        and not isinstance(pending["after"], dict)
-        or "final" in pending
-        and not isinstance(pending["final"], dict)
-    ):
-        raise ws.Blocked(
-            "Deploy progress checkpoint candidate is incomplete or corrupt"
-        )
     return progress
-
-
-def discard_progress(state):
-    root = Path(state["worktree"])
-    path = evidence_store(root, create=False) / "deploy-progress.json"
-    if path.exists():
-        progress = read_sealed(root, path)
-        if (
-            progress["identity"] != state["deployIdentity"]
-            or progress["runContext"].get("pendingObserved")
-            or progress["runContext"].get("pendingGeneration")
-            or progress["runContext"].get("generationError")
-            or progress["runContext"].get("checkpointPending")
-        ):
-            raise ws.Blocked(
-                "Deploy progress changed or is incomplete; retain cleanup state"
-            )
-        path.unlink()

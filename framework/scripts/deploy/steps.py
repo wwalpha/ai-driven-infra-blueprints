@@ -458,10 +458,8 @@ def run(
             redirect_stdout(sys.stderr),
         ):
             destination = deploy_progress.progress_path(root, task.name, create=True)
-            resources.enter_context(operation_journal.locked(deploy_progress.progress_path(root, create=True)))
             resources.enter_context(operation_journal.locked(destination))
             deploy_progress.require_no_correction(destination)
-            deploy_progress.require_no_legacy_task(root, task.name)
             saved = deploy_progress.read_task(root, task)
             if saved is not None and saved["identity"] != fixed:
                 raise Blocked("Deploy Task/Target/Stack identity changed")

@@ -361,9 +361,10 @@ def progress_backend(root, context):
         phase="deploy",
         run_context=context,
         progress_identity=identity,
+        progress_task_file=identity["taskFile"],
         progress_root=root.resolve(),
         progress_directory=context.get("directory"),
-        progress_destination=deploy_progress.progress_path(root, create=True),
+        progress_destination=deploy_progress.progress_path(root, identity["taskFile"], create=True),
     )
 
 
@@ -372,8 +373,7 @@ def check_progress_uses_fixed_identity_without_git(tmp_path):
     isolated.mkdir()
     first = deploy_progress.progress_path(isolated, "tasks/first.md", create=True)
     second = deploy_progress.progress_path(isolated, "tasks/second.md", create=True)
-    legacy = deploy_progress.progress_path(isolated, create=True)
-    assert first != second and legacy not in {first, second}
+    assert first != second
     assert first.parent == operation_journal.location(isolated, "tasks/first.md").parent
     identity = {"taskFile": "tasks/first.md", "taskDigest": "digest", "target": {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}, "environment": "dev", "stacks": ["A"]}
     backend = progress_backend(isolated, {"states": {"A": {"status": "RUNNING", "clientToken": "token"}}, "inputDigests": {}})
@@ -382,13 +382,11 @@ def check_progress_uses_fixed_identity_without_git(tmp_path):
     backend.progress_task_file = identity["taskFile"]
     backend.progress_destination = first
     deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
-    legacy.write_text("legacy", encoding="utf-8")
     with operation_journal.locked(first), operation_journal.locked(second):
         with pytest.raises(DeployBlocked, match="lock busy"):
             with operation_journal.locked(first):
                 pass
     assert deploy_progress.read_progress(isolated, {"deployIdentity": identity}, identity["taskFile"])["runContext"]["states"]["A"]["clientToken"] == "token"
-    assert legacy.read_text(encoding="utf-8") == "legacy"
     assert not second.exists()
 
 
@@ -498,16 +496,10 @@ def check_progress_has_one_mutable_context_and_preserves_recovery(tmp_path):
             "candidate": "after",
         },
         "pendingGeneration": {"ec2": {"candidate": "view", "producers": ["A"]}},
-        "checkpointPending": {
-            "stacks": ["A"],
-            "before": {"model": "before"},
-            "after": {"model": "after"},
-            "final": {"taskBefore": "running", "taskAfter": "completed"},
-        },
+        "syncPending": {"stacks": ["A"], "final": True},
         "generationError": "failed generation",
         "snapshotValidation": "FAIL",
         "deployResult": "FAIL",
-        "gitPublication": {"status": "stale"},
     }
     backend = progress_backend(tmp_path, context)
     deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
@@ -515,19 +507,18 @@ def check_progress_has_one_mutable_context_and_preserves_recovery(tmp_path):
         tmp_path, {"deployIdentity": backend.progress_identity}
     )
     assert set(saved) == {"identity", "runContext"}
-    assert "gitPublication" not in saved["runContext"]
     for key in (
         "states",
         "inputDigests",
         "pendingObserved",
         "pendingGeneration",
-        "checkpointPending",
+        "syncPending",
         "generationError",
         "snapshotValidation",
         "deployResult",
     ):
         assert saved["runContext"][key] == context[key]
-    for key in ("pendingObserved", "pendingGeneration", "checkpointPending"):
+    for key in ("pendingObserved", "pendingGeneration", "syncPending"):
         assert isinstance(saved["runContext"][key], dict)
 
 
@@ -564,11 +555,6 @@ def check_corrupt_progress_is_never_empty_success(tmp_path, damage):
 
 
 
-def check_missing_progress_with_saved_checkpoint_is_not_a_fresh_run(tmp_path):
-    with pytest.raises(ValueError, match="progress is missing"):
-        deploy_progress.read_progress(
-            tmp_path, {"deployCheckpoints": {"A": {"commit": "saved"}}}
-        )
 
 
 

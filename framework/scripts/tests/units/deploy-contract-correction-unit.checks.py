@@ -6,6 +6,7 @@ import json
 import sys
 import tempfile
 from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -16,13 +17,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 import task_contract_core as tasks
 import task_contract_runtime as runtime
+import worktree_task as wt
 from deploy import (
     change_sets,
     correction_scope,
     deferred,
     observed_resume,
     steps,
-    worktree,
 )
 from deploy import contract_correction as correction
 from deploy import progress as deploy_progress
@@ -31,7 +32,7 @@ from support.pytest_cli import run
 from support.repository_fixtures import transition_contract
 from utils import file_operations
 from utils.json_format import fingerprint
-from utils.local_evidence import write_sealed
+from utils.local_evidence import evidence_store, read_sealed, write_sealed
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -139,16 +140,17 @@ def case(tmp_path, monkeypatch):
         deployIdentity=identity,
         deployContract=text,
     )
+    context["deployContract"] = text
     path = primary / "state.json"
-    correction.wt.save(path, state)
-    progress_path = deploy_progress.progress_path(root, create=True)
+    wt.save(path, state)
+    progress_path = deploy_progress.progress_path(root, name, create=True)
     write_sealed(root, progress_path, dict(identity=identity, runContext=context))
     monkeypatch.setattr(correction.ws, "load", read_state)
     monkeypatch.setattr(correction.ws, "deploy_task_state", read_deploy_state)
-    monkeypatch.setattr(correction.wt, "lifecycle_lock", Mock(side_effect=nullcontext))
-    monkeypatch.setattr(correction.wt, "output", Mock(return_value="head"))
-    monkeypatch.setattr(correction.wt, "paths", Mock(return_value=set()))
-    monkeypatch.setattr(correction.wt, "changed_paths", Mock(return_value=set()))
+    monkeypatch.setattr(wt, "lifecycle_lock", Mock(side_effect=nullcontext))
+    monkeypatch.setattr(wt, "output", Mock(return_value="head"))
+    monkeypatch.setattr(wt, "paths", Mock(return_value=set()))
+    monkeypatch.setattr(wt, "changed_paths", Mock(return_value=set()))
     monkeypatch.setattr(correction.completion, "collect_working_paths", Mock(return_value=SimpleNamespace(all_paths=set())))
     monkeypatch.setattr(correction.completion.contracts, "paths", Mock(return_value=set()))
     monkeypatch.setattr(
@@ -207,16 +209,15 @@ def assert_preserved(case, task, progress, state):
 def check_correction_and_resume_preserve_execution(case, monkeypatch):
     before = copy.deepcopy(case.context)
     correction.correct(case.root, case.name, case.source)
-    state = read_state(case.root, case.name)[3]
+    state = correction.local_state(read_sealed(case.root, case.progress_path))
     assert state["deployIdentity"]["taskDigest"] == tasks.task_digest(case.candidate)
     assert state["deployContract"] == case.candidate
-    assert "deployContractUpdate" not in state
     assert (
         tasks.status((case.root / case.name).read_text(encoding="utf-8")) == "suspend"
     )
     saved = deploy_progress.read_progress(case.root, state)["runContext"]
     before.update(
-        taskDigest=state["deployIdentity"]["taskDigest"], snapshotValidation="NOT_RUN"
+        taskDigest=state["deployIdentity"]["taskDigest"], deployContract=case.candidate, snapshotValidation="NOT_RUN"
     )
     assert saved == before
     monkeypatch.setattr(runtime, "TaskValidation", case.scope)
@@ -305,12 +306,7 @@ def check_unproven_paths_refused(case, added):
         "pendingObserved",
         "pendingGeneration",
         "generationError",
-        "checkpointPending",
         "currentFailure",
-        "deployCheckpointIntent",
-        "deployIntegrationIntent",
-        "iacRepair",
-        "publication",
         "handoff",
         "running",
         "token",
@@ -321,9 +317,7 @@ def check_unproven_paths_refused(case, added):
         "input-set",
         "model",
         "scope",
-        "corrupt",
         "run-input-digest",
-        "snapshot",
         "bound-account",
     ],
 )
@@ -332,7 +326,7 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
     progress = deploy_progress.read_progress(case.root, state)
     context = progress["runContext"]
     if problem == "missing-original":
-        state.pop("deployContract")
+        context.pop("deployContract")
         monkeypatch.setattr(
             correction.ws,
             "git",
@@ -355,7 +349,7 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
             "target"
         ] = target
     elif problem == "bad-original":
-        state["deployContract"] += "new authority"
+        context["deployContract"] += "new authority"
     elif problem == "wrong-progress":
         progress["identity"]["taskDigest"] = "other"
     elif problem in {
@@ -365,18 +359,8 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
         "currentFailure",
     }:
         context[problem] = {"retained": True}
-    elif problem == "checkpointPending":
-        context[problem] = dict(stacks=["A"], before={}, after={})
-    elif problem in {
-        "deployCheckpointIntent",
-        "deployIntegrationIntent",
-        "iacRepair",
-    }:
-        state[problem] = {"retained": True}
-    elif problem == "publication":
-        state["deployPublication"] = {"status": "PENDING"}
     elif problem == "handoff":
-        (case.progress_path.parent / "deploy-repair-retained").mkdir()
+        (evidence_store(case.root) / "deploy-repair-retained").mkdir()
     elif problem == "running":
         context["states"]["A"]["currentStack"]["StackStatus"] = "UPDATE_IN_PROGRESS"
     elif problem == "token":
@@ -409,7 +393,7 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
             "Findings",
             Mock(return_value=SimpleNamespace(errors=["outside Task scope"])),
         )
-    correction.wt.save(case.path, state)
+    wt.save(case.path, state)
     write_sealed(case.root, case.progress_path, progress)
     if problem == "missing-progress":
         case.progress_path.unlink()
@@ -426,13 +410,6 @@ def check_inconsistent_states_refused(case, monkeypatch, problem):
     with pytest.raises(ValueError):
         runtime.correct_deploy_contract(case.root, case.name, case.source)
     assert_preserved(case, *original)
-    if problem in {"missing-original", "bad-original"}:
-        with pytest.raises(
-            correction_scope.Blocked, match="fixed Deploy contract evidence"
-        ):
-            correction_scope.ownership(case.root, state, context)
-    if problem == "missing-original":
-        correction.ws.git.assert_not_called()
 
 
 @pytest.mark.parametrize("file_number", [1, 2, 3])
@@ -471,65 +448,22 @@ class SaveFailure:
         return self.replace(source, destination)
 
 
-@pytest.mark.parametrize(
-    "changed", ["contract", "progress", "index", "lifecycle", "candidate"]
-)
+def edit_during_review(review, path, *args, **kwargs):
+    result = review(*args, **kwargs)
+    path.write_text(path.read_text(encoding="utf-8") + "external edit\n", encoding="utf-8")
+    return result
+
+
+@pytest.mark.parametrize("changed", ["contract", "progress", "candidate"])
 def check_concurrent_edits_preserved(case, monkeypatch, changed):
-    save = correction.wt.save
+    path = {"contract": case.task.path, "progress": case.progress_path, "candidate": case.source}[changed]
     monkeypatch.setattr(
-        correction.wt, "save", ConcurrentEdit(save, case, changed, monkeypatch)
+        correction, "review_local_correction", partial(edit_during_review, correction.review_local_correction, path)
     )
     with pytest.raises(ValueError):
         correction.correct(case.root, case.name, case.source)
-    assert (
-        read_state(case.root, case.name)[3]["deployIdentity"]["taskDigest"]
-        == case.state["deployIdentity"]["taskDigest"]
-    )
-    if changed == "contract":
-        assert (
-            (case.root / case.name)
-            .read_text(encoding="utf-8")
-            .endswith("external edit\n")
-        )
-    elif changed == "progress":
-        assert case.progress_path.read_text(encoding="utf-8").endswith(
-            "external edit\n"
-        )
+    assert path.read_text(encoding="utf-8").endswith("external edit\n")
     case.aws.assert_not_called()
-
-
-class ConcurrentEdit:
-    def __init__(self, save, case, changed, monkeypatch):
-        self.save, self.case, self.changed, self.monkeypatch = (
-            save,
-            case,
-            changed,
-            monkeypatch,
-        )
-
-    def __call__(self, path, state):
-        self.save(path, state)
-        if "deployContractUpdate" not in state:
-            return
-        if self.changed in {"contract", "progress", "candidate"}:
-            file = {
-                "contract": self.case.task.path,
-                "progress": self.case.progress_path,
-                "candidate": self.case.source,
-            }[self.changed]
-            file.write_text(
-                file.read_text(encoding="utf-8") + "external edit\n", encoding="utf-8"
-            )
-        elif self.changed == "index":
-            self.monkeypatch.setattr(
-                correction.ws,
-                "git",
-                Mock(
-                    return_value=SimpleNamespace(stdout="changed index", returncode=0)
-                ),
-            )
-        else:
-            self.save(path, dict(state, externalEdit=True))
 
 
 @pytest.mark.parametrize("boundary", ["Task", "Progress", "both"])
@@ -543,18 +477,15 @@ def check_interrupted_correction_retries_same_operation(
     monkeypatch.setattr(correction, "atomic_files", InterruptedSave(boundary))
     with pytest.raises(OSError, match="process interrupted"):
         correction.correct(case.root, case.name, case.source)
-    assert read_state(case.root, case.name)[3].get("deployContractUpdate")
+    intent = deploy_progress.correction_path(case.progress_path)
+    assert intent.exists()
     with pytest.raises(ValueError, match="unfinished Deploy contract correction"):
-        worktree.require(
-            case.root, tasks.read_task_snapshot(case.root, case.name, live=True)
-        )
+        deploy_progress.read_task(case.root, case.task)
     monkeypatch.setattr(correction, "atomic_files", atomic)
     correction.correct(case.root, case.name, case.source)
-    state = read_state(case.root, case.name)[3]
-    assert "deployContractUpdate" not in state
-    assert (
-        deploy_progress.read_progress(case.root, state)["identity"] == state["deployIdentity"]
-    )
+    assert not intent.exists()
+    saved = read_sealed(case.root, case.progress_path)
+    assert saved["identity"]["taskDigest"] == tasks.task_digest(case.candidate)
     assert (
         tasks.status((case.root / case.name).read_text(encoding="utf-8")) == "suspend"
     )
@@ -614,7 +545,8 @@ def fixed_owner_case(case, monkeypatch):
     progress = deploy_progress.read_progress(case.root, case.state)
     progress["identity"] = state["deployIdentity"]
     progress["runContext"]["taskDigest"] = state["deployIdentity"]["taskDigest"]
-    correction.wt.save(case.path, state)
+    progress["runContext"]["deployContract"] = original
+    wt.save(case.path, state)
     write_sealed(case.root, case.progress_path, progress)
     monkeypatch.setattr(
         correction_scope.preparation,
@@ -646,7 +578,7 @@ def fixed_owner_case(case, monkeypatch):
 def check_missing_owner_is_added_inside_fixed_execution(case, monkeypatch):
     state, progress, candidate = fixed_owner_case(case, monkeypatch)
     correction.correct(case.root, case.name, case.source)
-    revised = read_state(case.root, case.name)[3]
+    revised = correction.local_state(read_sealed(case.root, case.progress_path))
     saved = deploy_progress.read_progress(case.root, revised)
     assert tasks.section(candidate, "## Execution scope") == tasks.section(
         state["deployContract"], "## Execution scope"
@@ -657,8 +589,7 @@ def check_missing_owner_is_added_inside_fixed_execution(case, monkeypatch):
         == progress["runContext"]["consumedInputs"]
     )
     assert (
-        revised["start"] == state["start"]
-        and tasks.status(revised["deployContract"]) == "suspend"
+        tasks.status(revised["deployContract"]) == "suspend"
     )
 
 
@@ -694,7 +625,7 @@ def check_scope_failure_is_retained_and_transferred(case, monkeypatch):
     state, progress, candidate, evidence = scope_failure_case(case, monkeypatch)
     original = evidence.read_bytes()
     correction.correct(case.root, case.name, case.source)
-    revised = read_state(case.root, case.name)[3]
+    revised = correction.local_state(read_sealed(case.root, case.progress_path))
     saved = deploy_progress.read_progress(case.root, revised)["runContext"]
     assert "currentFailure" not in saved
     assert evidence.read_bytes() == original
@@ -756,7 +687,7 @@ def check_interrupted_scope_failure_correction_preserves_evidence(
     assert evidence.read_bytes() == original
     monkeypatch.setattr(correction, "atomic_files", atomic)
     correction.correct(case.root, case.name, case.source)
-    revised = read_state(case.root, case.name)[3]
+    revised = correction.local_state(read_sealed(case.root, case.progress_path))
     saved = deploy_progress.read_progress(case.root, revised)["runContext"]
     assert "currentFailure" not in saved
     assert saved["resolvedScopeFailures"][0]["evidence"] == str(evidence)
@@ -844,7 +775,8 @@ def check_added_owner_rejects_unproven_authority(case, monkeypatch, problem):
         state["deployIdentity"]["taskDigest"] = tasks.task_digest(original)
         progress["identity"] = state["deployIdentity"]
         progress["runContext"]["taskDigest"] = state["deployIdentity"]["taskDigest"]
-        correction.wt.save(case.path, state)
+        progress["runContext"]["deployContract"] = original
+        wt.save(case.path, state)
         write_sealed(case.root, case.progress_path, progress)
         case.task.path.write_text(
             tasks.set_status(original, "suspend")
@@ -938,7 +870,7 @@ def pending_case(case, *, generation=False):
 def check_pending_intent_identity_is_migrated_without_discard(case, generation):
     before = pending_case(case, generation=generation)
     correction.correct(case.root, case.name, case.source)
-    state = read_state(case.root, case.name)[3]
+    state = correction.local_state(read_sealed(case.root, case.progress_path))
     saved = deploy_progress.read_progress(case.root, state)
     key = "pendingGeneration" if generation else "pendingObserved"
     prior = (
@@ -1023,7 +955,7 @@ def check_desired_model_change_is_never_authorized(case, monkeypatch):
         case.root / relative
     )
     write_sealed(case.root, case.progress_path, progress)
-    monkeypatch.setattr(correction.completion.contracts, "paths", Mock(return_value={relative}))
+    monkeypatch.setattr(correction.completion, "collect_working_paths", Mock(return_value=SimpleNamespace(all_paths={relative})))
     monkeypatch.setattr(
         correction.completion.contracts, "subprocess_bytes", Mock(return_value=old.encode("utf-8"))
     )
@@ -1034,7 +966,7 @@ def check_desired_model_change_is_never_authorized(case, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "changed", ["progress", "inputs", "branch", "handoff"]
+    "changed", ["progress", "inputs", "head", "handoff"]
 )
 def check_interrupted_correction_external_edit_is_retained(case, monkeypatch, changed):
     atomic = correction.atomic_files
@@ -1051,12 +983,12 @@ def check_interrupted_correction_external_edit_is_retained(case, monkeypatch, ch
             Mock(return_value={"project.json": "external change"}),
         )
     elif changed == "handoff":
-        (case.progress_path.parent / "deploy-repair-new").mkdir()
+        (evidence_store(case.root) / "deploy-repair-new").mkdir()
     else:
         monkeypatch.setattr(
-            correction.ws,
-            "deploy_task_state",
-            Mock(side_effect=ValueError("unexpected branch")),
+            correction.contracts,
+            "output",
+            Mock(return_value="changed-head"),
         )
     original = [p.read_bytes() for p in (case.task.path, case.progress_path, case.path)]
     with pytest.raises(ValueError):

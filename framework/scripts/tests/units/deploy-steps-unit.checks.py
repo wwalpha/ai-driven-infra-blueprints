@@ -1408,9 +1408,10 @@ def progress_backend(root, context):
         phase="deploy",
         run_context=context,
         progress_identity=identity,
+        progress_task_file=identity["taskFile"],
         progress_root=root.resolve(),
         progress_directory=context.get("directory"),
-        progress_destination=deploy_progress.progress_path(root, create=True),
+        progress_destination=deploy_progress.progress_path(root, "tasks/deploy.md", create=True),
     )
 
 
@@ -1418,7 +1419,7 @@ def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
     monkeypatch.setattr(local_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
     old = os.umask(0o022)
     try:
-        path = deploy_progress.progress_path(tmp_path / "project", create=True)
+        path = deploy_progress.progress_path(tmp_path / "project", "tasks/deploy.md", create=True)
         for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
             assert stat.S_IMODE(directory.stat().st_mode) == 0o700
         context = {
@@ -1429,7 +1430,7 @@ def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
         with operation_journal.locked(path):
             deploy_progress.save_progress(backend, operation_journal.OPERATION_FIELDS)
         with operation_journal.locked(
-            deploy_progress.progress_path(backend.root, create=True)
+            deploy_progress.progress_path(backend.root, "tasks/deploy.md", create=True)
         ):
             assert (
                 deploy_progress.read_progress(
@@ -1446,7 +1447,7 @@ def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
 def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, level):
     monkeypatch.setattr(local_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
     root = tmp_path / "project"
-    path = deploy_progress.progress_path(root, create=True)
+    path = deploy_progress.progress_path(root, "tasks/deploy.md", create=True)
     directory = (path.parent.parent.parent, path.parent.parent, path.parent)[level]
     if unsafe == "permissions":
         directory.chmod(0o755)
@@ -1464,12 +1465,12 @@ def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, lev
             ),
         )
     expected = (
-        "unsafe local evidence"
+        "private and owned|unsafe local evidence"
         if unsafe == "owner"
         else None
     )
-    with pytest.raises(ValueError, match=expected):
-        deploy_progress.progress_path(root, create=True)
+    with pytest.raises((ValueError, Blocked), match=expected):
+        deploy_progress.progress_path(root, "tasks/deploy.md", create=True)
 
 
 

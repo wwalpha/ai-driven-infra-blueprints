@@ -214,7 +214,7 @@ def workspace(tmp_path):
 
 
 def reclaim_under_progress_lock(actual, target_backend, *args, **kwargs):
-    progress = steps.deploy_progress.progress_path(target_backend.root)
+    progress = target_backend.progress_destination
     with pytest.raises(Blocked, match="lock busy"):
         with J.locked(progress):
             raise AssertionError("cleanup ran after releasing progress lock")
@@ -323,7 +323,7 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         assert output["cause"]["errno"] == 2
         assert "private secret" not in json.dumps(output)
         backend.aws.assert_not_called()
-    with J.locked(steps.deploy_progress.progress_path(root)):
+    with J.locked(steps.deploy_progress.progress_path(root, task.name)):
         pass
     TestCase().assertTrue(failure.exists() and prior_template.exists())
     with J.locked(journal):

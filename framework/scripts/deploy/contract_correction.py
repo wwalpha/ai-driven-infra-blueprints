@@ -2,15 +2,12 @@
 
 import copy
 import hashlib
-import json
 import re
-from contextlib import ExitStack
 from functools import partial
 from types import SimpleNamespace
 
 import task_contract_core as tasks
 import worktree_state as ws
-import worktree_task as wt
 from contracts.deploy import DEPLOY_SUCCESS
 from contracts.target import AWS_ACCOUNT_ID_KEY, IAC_ENGINE_KEY
 from model.dependency_index import revision as file_revision
@@ -136,7 +133,6 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         raise ws.Blocked("saved fixed execution input evidence is missing")
     if (
         identity.get("taskFile") != task.name
-        or "start" in state and identity.get("snapshot") != state["start"]
         or {(env, directory) for env, directory, _ in task.scope or ()}
         != {(identity["environment"], context.get("directory"))}
         or identity["target"].get(IAC_ENGINE_KEY) != "cloudformation"
@@ -154,24 +150,6 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         [str(root), identity["target"], identity["environment"], context["stepUnits"]]
     ):
         raise ws.Blocked("saved run input identity is inconsistent")
-    for key in (
-        "deployCheckpointIntent",
-        "deployRepair",
-        "deployIntegrationIntent",
-        "iacRepair",
-    ):
-        if state.get(key):
-            raise ws.Blocked("contract correction blocked by " + key)
-    publication = state.get("deployPublication", {})
-    if publication and (
-        publication.get("status") != "SUCCESS"
-        or publication.get("intent")
-        or publication.get("finalCandidate")
-        or publication.get("publishedSource") != state["tip"]
-    ):
-        raise ws.Blocked(
-            "finish or review saved Git publication before contract correction"
-        )
     failure_path = None
     if context.get("currentFailure"):
         failure = context["currentFailure"]
@@ -226,7 +204,6 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
                 if key in operation_journal.OPERATION_FIELDS
                 or key
                 in {
-                    "checkpointed",
                     "currentStack",
                     "reason",
                 }
@@ -268,8 +245,6 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
         raise ws.Blocked(
             "generationError has no retained generation Intent; safe correction cannot be proven"
         )
-    if context.get("checkpointPending") or state.get("deployCheckpoints"):
-        raise ws.Blocked("legacy Git checkpoint evidence requires review")
     store = evidence_store(root, create=False)
     retained = set()
     history = context.get("resolvedScopeFailures", [])
@@ -373,7 +348,7 @@ def check_state(root, state, progress, task, consumers=(), candidate=None):
             and context["inputDigests"][unit["name"]] != digest
         ):
             raise ws.Blocked("fixed execution digest changed: " + unit["name"])
-    completion.verify_observation_delta(root, state.get("start", "HEAD"))
+    completion.verify_observation_delta(root)
 
 
 def pending_identity(root, task, candidate, state, saved, consumers, *, journal=None):
@@ -470,32 +445,6 @@ def pending_identity(root, task, candidate, state, saved, consumers, *, journal=
                 )
 
 
-def recover_publication(root, name, initial, candidate, approved, record):
-    """The existing journal may restore bytes only after proving corrected ownership."""
-    _, state = ws.deploy_task_state(root, name, required=True)
-    if state != initial or state.get("deployContractUpdate"):
-        raise ws.Blocked(
-            "lifecycle changed before publication recovery; retain all evidence"
-        )
-    task = tasks.read_task_snapshot(root, name, live=True)
-    progress = deploy_progress.read_progress(root, state)
-    if progress is None:
-        raise ws.Blocked("publication journal has no saved Deploy progress")
-    consumers = check_candidate(
-        root,
-        task,
-        original_contract(state),
-        candidate,
-        state,
-        progress["runContext"],
-        approved,
-    )
-    check_state(root, state, progress, task, consumers, candidate)
-    pending_identity(
-        root, task, candidate, state, copy.deepcopy(progress), consumers, journal=record
-    )
-
-
 def guard_snapshot(root, state):
     manifest = {
         k: v
@@ -518,165 +467,6 @@ def guard_snapshot(root, state):
         ),
     }
 
-
-def recover_update(root, path, state, candidate):
-    intent = state["deployContractUpdate"]
-    before = intent["state"]
-    if (
-        candidate != intent["afterTask"]
-        or state != dict(before, deployContractUpdate=intent)
-        or guard_snapshot(root, before) != intent["guard"]
-    ):
-        raise ws.Blocked(
-            "unfinished contract correction inputs changed; retain all evidence"
-        )
-    task_path, progress_path = (
-        tasks.safe_path(root, before["task_file"]),
-        deploy_progress.progress_path(root),
-    )
-    for file, key in ((task_path, "Task"), (progress_path, "Progress")):
-        if file.read_bytes().decode("utf-8") not in (
-            intent["before" + key],
-            intent["after" + key],
-        ):
-            raise ws.Blocked(
-                "concurrent edit during interrupted contract correction: " + str(file)
-            )
-    atomic_files(
-        {
-            task_path: intent["beforeTask"],
-            progress_path: intent["beforeProgress"],
-            path: json.dumps(before, indent=2) + "\n",
-        }
-    )
-    tasks.invalidate_task_reads(root)
-
-
-def correct_legacy(root, name, source, approved=()):
-    source = source.resolve()
-    if source.is_relative_to(root):
-        raise ws.Blocked("contract correction candidate must be outside the repository")
-    source_raw = source.read_bytes()
-    candidate = source_raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
-    primary, _, path, initial = ws.load(
-        root, tasks.normalize_selector(name).removeprefix("tasks/").removesuffix(".md")
-    )
-    identity = initial.get("deployIdentity")
-    if not identity or initial["worktree"] != str(root):
-        raise ws.Blocked("correction requires this managed fixed Deploy Task")
-    with ExitStack() as locks:
-        locks.enter_context(
-            operation_journal.locked(deploy_progress.progress_path(root, create=True))
-        )
-        locks.enter_context(handoff.repair_lock(root))
-        locks.enter_context(
-            publication_lock(
-                root,
-                recovery_check=partial(
-                    recover_publication, root, name, initial, candidate, approved
-                ),
-            )
-        )
-        locks.enter_context(wt.lifecycle_lock(primary))
-        state = ws.load(root, initial["task_id"])[3]
-        if state != initial:
-            raise ws.Blocked("Deploy lifecycle changed before correction locks")
-        ws.deploy_task_state(root, name, required=True)
-        if state.get("deployContractUpdate"):
-            recover_update(root, path, state, candidate)
-        _, state = ws.deploy_task_state(root, name, required=True)
-        if state.get("python_setup", {}).get("status") != "ready":
-            raise ws.Blocked("Deploy requires successful managed Python setup")
-        task = tasks.read_task_snapshot(root, name, live=True)
-        original = original_contract(state)
-        guard = guard_snapshot(root, state)
-        progress_path = deploy_progress.progress_path(root)
-        before_progress = (
-            progress_path.read_text(encoding="utf-8")
-            if progress_path.is_file()
-            else None
-        )
-        progress = deploy_progress.read_progress(root, state)
-        if progress is None:
-            raise ws.Blocked("saved fixed execution input evidence is missing")
-        consumers = check_candidate(
-            root,
-            task,
-            original,
-            candidate,
-            state,
-            progress["runContext"] if progress else {},
-            approved,
-        )
-        check_state(root, state, progress, task, consumers, candidate)
-        revised, saved = copy.deepcopy(state), copy.deepcopy(progress)
-        new_identity = dict(identity, taskDigest=tasks.task_digest(candidate))
-        failure = saved["runContext"].pop("currentFailure", None)
-        if failure:
-            saved["runContext"].setdefault("resolvedScopeFailures", []).append(
-                {
-                    "evidence": failure,
-                    "sha256": sha(handoff.external(root, failure)),
-                    "taskDigest": identity["taskDigest"],
-                    "correctedTaskDigest": new_identity["taskDigest"],
-                }
-            )
-        revised.update(deployIdentity=new_identity, deployContract=candidate)
-        saved["identity"] = new_identity
-        pending_identity(root, task, candidate, state, saved, consumers)
-        # Approval belongs to the sealed progress in the same correction batch.
-        for item in saved["runContext"]["states"].values():
-            for record in item.get("deferredConsumers", []):
-                for consumer in consumers:
-                    if deferred.key(record) == deferred.key(consumer):
-                        record.update(consumer, approved=True)
-        saved["runContext"]["snapshotValidation"] = "NOT_RUN"
-        after_progress = sealed(root, saved)
-        tasks.verify_snapshot(task)
-        if (
-            source.read_bytes() != source_raw
-            or ws.load(root, state["task_id"])[3] != state
-            or deploy_progress.read_progress(root, state) != progress
-            or progress_path.read_text(encoding="utf-8") != before_progress
-            or guard_snapshot(root, state) != guard
-        ):
-            raise ws.Blocked("contract correction inputs changed before save")
-        intent = dict(
-            state=state,
-            guard=guard,
-            beforeTask=task.raw.decode("utf-8"),
-            afterTask=candidate,
-            beforeProgress=before_progress,
-            afterProgress=after_progress,
-        )
-        saving = dict(state, deployContractUpdate=intent)
-        wt.save(path, saving)
-        try:
-            tasks.verify_snapshot(task)
-            if (
-                progress_path.read_text(encoding="utf-8") != before_progress
-                or guard_snapshot(root, state) != guard
-                or source.read_bytes() != source_raw
-                or ws.load(root, state["task_id"])[3] != saving
-            ):
-                raise ws.Blocked("contract correction inputs changed during save")
-            atomic_files(
-                {
-                    task.path: candidate,
-                    progress_path: after_progress,
-                    path: json.dumps(revised, indent=2) + "\n",
-                }
-            )
-        except BaseException:
-            if (
-                task.path.read_bytes() == task.raw
-                and progress_path.read_text(encoding="utf-8") == before_progress
-                and ws.load(root, state["task_id"])[3] == saving
-            ):
-                wt.save(path, state)
-            raise
-        finally:
-            tasks.invalidate_task_reads(root)
 
 def local_state(saved):
     return {
@@ -723,7 +513,6 @@ def correct_local(root, name, source, path, approved):
     candidate = source_raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
     intent_path = deploy_progress.correction_path(path)
     with (
-        operation_journal.locked(deploy_progress.progress_path(root, create=True)),
         operation_journal.locked(path),
         handoff.repair_lock(root),
     ):
@@ -778,6 +567,4 @@ def correct(root, name, source, approved=()):
     path = deploy_progress.progress_path(root, name)
     if path.exists() or path.is_symlink() or deploy_progress.correction_path(path).exists():
         return correct_local(root, name, source, path, approved)
-    if deploy_progress.progress_path(root).exists():
-        return correct_legacy(root, name, source, approved)
     raise ws.Blocked("saved fixed Deploy progress evidence is missing")

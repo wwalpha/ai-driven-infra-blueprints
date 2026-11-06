@@ -29,8 +29,7 @@ import sync_files as _imports_sync_files
 import sync_runtime
 import utils.cloudformation.inputs as _imports_cfn_inputs
 from botocore.exceptions import ClientError
-from deploy import operation_journal, steps
-from deploy import progress as deploy_progress
+from deploy import steps
 from deploy.controller import main
 from model.core import properties, stack_model
 from model.dependency_index import rebuild as rebuild_index
@@ -944,13 +943,6 @@ def child_environment():
         "AWS_ACCESS_KEY_ID": "synthetic",
         "AWS_SECRET_ACCESS_KEY": "synthetic",
     }
-
-
-def recover_owned_lock(root, child):
-    assert child.returncode is not None  # subprocess.run has reaped this exact child.
-
-    with operation_journal.locked(deploy_progress.progress_path(root)):
-        pass
 
 
 def ordinary_base(root, name):

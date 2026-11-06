@@ -85,11 +85,7 @@ def require_local_completion(root, snapshot, *, base=None):
     if base is None:
         progress = module("deploy/progress.py", "deploy.progress")
         path = progress.progress_path(root, snapshot.name)
-        legacy = progress.progress_path(root)
-        if path.exists() or path.is_symlink() or (
-            (legacy.exists() or legacy.is_symlink())
-            and progress.read_sealed(root, legacy)["identity"]["taskFile"] == snapshot.name
-        ):
+        if path.exists() or path.is_symlink():
             raise ValueError("SDK-bound Tasks cannot switch to CLI completion")
         completion = module("deploy/completion.py", "deploy.completion")
         completion.verify_observation_delta(root)
