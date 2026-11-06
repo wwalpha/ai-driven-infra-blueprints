@@ -1610,7 +1610,10 @@ def check_explicit_disposal_and_orphans():
             (target / "file.txt").write_text("dirty\n", encoding="utf-8")
             (target / "untracked.txt").write_text("discard\n", encoding="utf-8")
             (target / "secret.bin").write_bytes(b"ignored discard")
-            proof = local_evidence.shared_store(target) / "example.json"
+            _, _, state_path, state = wt.load(root, "example")
+            state["deployIdentity"] = {"taskFile": state["task_file"]}
+            wt.save(state_path, state)
+            proof = local_evidence.evidence_store(target) / "deploy-progress.json"
             local_evidence.write_sealed(target, proof, {"task": state["task_file"]})
             shared_marker = wt.python_env.shared_directory(root) / "keep.txt"
             shared_marker.parent.mkdir(parents=True, exist_ok=True)
