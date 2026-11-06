@@ -462,8 +462,6 @@ def run(
             resources.enter_context(operation_journal.locked(destination))
             deploy_progress.require_no_correction(destination)
             deploy_progress.require_no_legacy_task(root, task.name)
-            if args.action == "advance":
-                deploy_progress.require_no_pending_peer(root, destination, selected, args.stack)
             saved = deploy_progress.read_task(root, task)
             if saved is not None and saved["identity"] != fixed:
                 raise Blocked("Deploy Task/Target/Stack identity changed")

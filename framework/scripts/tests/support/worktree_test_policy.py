@@ -85,6 +85,7 @@ WORKTREE_CASES = {
         "check_model_publication_across_process",
         "check_failure_evidence_survives_progress_reload_and_status",
         "check_event_read_failure_keeps_running_operation_unconfirmed",
+        "check_new_task_reads_aws_despite_other_task_progress",
         "check_advance_and_status_expose_observed_progress",
     ),
     "integrations/deploy-worktree.checks.py": (

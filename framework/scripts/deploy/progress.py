@@ -78,25 +78,6 @@ def require_no_legacy_task(root, task_file):
         raise ws.Blocked("legacy Deploy evidence exists for this Task; retain it and use explicit legacy recovery")
 
 
-def require_no_pending_peer(root, path, target, stacks):
-    """Call while holding the repository request lock, before any new AWS request."""
-    operation_journal = module("deploy/operation_journal.py", "deploy.operation_journal")
-    legacy = progress_path(root)
-    for candidate in (legacy, *legacy.parent.glob("inputs-*/progress.json")):
-        if candidate == path or not (candidate.exists() or candidate.is_symlink()):
-            continue
-        operation_journal.private_path(candidate.parent, directory=True)
-        saved = read_sealed(root, candidate)
-        context = saved["runContext"]
-        other_target = saved["identity"]["target"]
-        if operation_journal.target_identity(other_target) != operation_journal.target_identity(target):
-            continue
-        for name in set(stacks) & context["states"].keys():
-            state = context["states"][name]
-            if unresolved_request(state):
-                raise ws.Blocked("unresolved AWS request belongs to another Deploy Task: " + name)
-
-
 def unresolved_request(state):
     status = state["status"]
     return (

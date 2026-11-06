@@ -6,11 +6,6 @@ import stat
 from contextlib import contextmanager
 from pathlib import Path
 
-from contracts.target import (
-    AWS_ACCOUNT_ID_KEY,
-    AWS_EXECUTION_ACCOUNT_ID_KEY,
-    AWS_REGION_KEY,
-)
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 from utils.local_evidence import evidence_store
@@ -129,13 +124,6 @@ def locked(path):
         yield
     finally:
         os.close(descriptor)
-
-
-def target_identity(target):
-    return (
-        target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY]),
-        target[AWS_REGION_KEY],
-    )
 
 
 def publication_paths(context):
