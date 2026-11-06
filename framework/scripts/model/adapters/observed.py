@@ -192,12 +192,16 @@ def active_outputs(document, parameters, pseudo):
 
 
 def identifier_source(catalog, resource, outputs, logical, prop, values):
-    attribute = prop.removeprefix(resource[RESOURCE_TYPE_KEY] + ".")
+    kind = resource[RESOURCE_TYPE_KEY]
+    attribute = prop.removeprefix(kind + ".")
+    primary_fields = ["/properties/" + attribute]
+    if kind == "Glue.Connection":
+        # CloudFormation Ref and the stack physical ID contain the connection name.
+        primary_fields.insert(0, "/properties/CatalogId")
     primary = (
-        resource[RESOURCE_TYPE_KEY] != "SQS.QueuePolicy"
-        and catalog.schema(resource[RESOURCE_TYPE_KEY]).get("primaryIdentifier", [])
-        == ["/properties/" + attribute]
-        and REF_ATTRIBUTES.get(resource[RESOURCE_TYPE_KEY]) == attribute
+        kind != "SQS.QueuePolicy"
+        and catalog.schema(kind).get("primaryIdentifier", []) == primary_fields
+        and REF_ATTRIBUTES.get(kind) == attribute
     )
     keys = []
     for key, value in values.items():

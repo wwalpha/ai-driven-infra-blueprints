@@ -1445,24 +1445,34 @@ def test_security_group_physical_id_contract():
 
 
 @pytest.mark.parametrize(
-    "kind,physical,expected",
+    "kind,physical,output,expected",
     [
-        ("SecurityGroup", "sg-0123abcd", "sg-0123abcd"),
-        ("SecurityGroupIngress", "sgr-0123abcd", "sgr-0123abcd"),
-        ("SecurityGroupEgress", "sgr-0123abcd", "sgr-0123abcd"),
-        ("SecurityGroupIngress", "sg-0123abcd", None),
+        ("EC2.SecurityGroup", "sg-0123abcd", None, "sg-0123abcd"),
+        ("EC2.SecurityGroupIngress", "sgr-0123abcd", None, "sgr-0123abcd"),
+        ("EC2.SecurityGroupEgress", "sgr-0123abcd", None, "sgr-0123abcd"),
+        ("EC2.SecurityGroupIngress", "sg-0123abcd", None, None),
+        ("Glue.Connection", "connection", None, "connection"),
+        ("Glue.Connection", "connection", "connection", "connection"),
+        ("Glue.Connection", "connection", "other", None),
     ],
 )
-def test_security_group_physical_fallback_collects_without_output(
-    project_workspace, monkeypatch, kind, physical, expected
+def test_stack_physical_identifier_observation(
+    project_workspace, monkeypatch, kind, physical, output, expected
 ):
     root = project_workspace
     model_reference_fixtures.project_configuration(root)
-    scope, values = model_reference_fixtures.resource_values(
-        root, "security-group", f"EC2.{kind}", attribute="Id"
+    service, attribute = (
+        ("glue", "Name") if kind == "Glue.Connection" else ("security-group", "Id")
     )
+    scope, values = model_reference_fixtures.resource_values(
+        root, service, kind, attribute=attribute
+    )
+    values["desired.row.001-001.property"] = f"{kind}.{attribute}"
     model_reference_fixtures.write(scope, values)
-    document = {"Resources": {"Resource001": {"Type": f"AWS::EC2::{kind}"}}}
+    cfn_type = "AWS::" + kind.replace(".", "::")
+    document = {"Resources": {"Resource001": {"Type": cfn_type}}}
+    if output is not None:
+        document["Outputs"] = {"ResourceName": {"Value": {"Ref": "Resource001"}}}
     unit = {"name": "producer"}
     _, mapped = resolve_resources(
         root,
@@ -1477,7 +1487,9 @@ def test_security_group_physical_fallback_collects_without_output(
     stack = {
         "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique",
         "StackStatus": "CREATE_COMPLETE",
-        "Outputs": [],
+        "Outputs": (
+            [] if output is None else [{"OutputKey": "ResourceName", "OutputValue": output}]
+        ),
     }
     backend = SimpleNamespace(
         root=root,
@@ -1503,7 +1515,7 @@ def test_security_group_physical_fallback_collects_without_output(
         lambda *a, **k: [
             {
                 "LogicalResourceId": "Resource001",
-                "ResourceType": f"AWS::EC2::{kind}",
+                "ResourceType": cfn_type,
                 "ResourceStatus": "CREATE_COMPLETE",
                 "PhysicalResourceId": physical,
             }
