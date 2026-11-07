@@ -419,9 +419,8 @@ def test_quicksight_embedded_sdk_validation(monkeypatch):
     )
     monkeypatch.setattr(
         generator,
-        "AUDIT_QUICKSIGHT_SHAPE",
-        generator.audit_sdk_shape(output),
-        raising=False,
+        "AUDIT_SDK_SHAPES",
+        {("quicksight", "describe_group"): generator.audit_sdk_shape(output)},
     )
     getter = {"service": "quicksight", "operation": "describe_group"}
     valid = {"Group": {"Arn": "arn", "GroupName": "group"}, "Status": 200}
@@ -448,7 +447,7 @@ def test_guardduty_prefix_shapes_generated():
     assert_result(actual, fixture)
 
 
-def _endpoint_responses(dns, endpoints):
+def _endpoint_responses(dns, endpoints, zone="Z"):
     return {
         ("ec2", "describe-vpc-endpoints"): {"VpcEndpoints": endpoints},
         ("route53", "list-resource-record-sets"): {
@@ -458,7 +457,7 @@ def _endpoint_responses(dns, endpoints):
                     "Type": "A",
                     "AliasTarget": {
                         "DNSName": dns,
-                        "HostedZoneId": "Z",
+                        "HostedZoneId": zone,
                         "EvaluateTargetHealth": False,
                     },
                 }
@@ -509,6 +508,15 @@ def test_route53_alias_producer_observation():
                             "`" + json.dumps(expression) + "`",
                             None,
                         ),
+                        (
+                            "AliasTarget.HostedZoneId",
+                            "`"
+                            + json.dumps(
+                                {"Fn::Select": [0, expression["Fn::Select"][1]]}
+                            )
+                            + "`",
+                            None,
+                        ),
                     ],
                 )
             ],
@@ -537,12 +545,12 @@ def test_route53_alias_producer_observation():
             "State": "available",
             "DnsEntries": [{"HostedZoneId": "Z", "DnsName": "producer.example"}],
         }
-        for actual, producers, status in [
-            ("producer.example", [endpoint_record], "match"),
-            ("different.example", [endpoint_record], "difference"),
-            ("producer.example", [], "design_unresolved"),
+        for actual, zone, producers, status in [
+            ("producer.example", "Z", [endpoint_record], "match"),
+            ("different.example", "Z-OTHER", [endpoint_record], "difference"),
+            ("producer.example", "Z", [], "design_unresolved"),
         ]:
-            cli = CLI(responses(actual, producers))
+            cli = CLI(responses(actual, producers, zone))
             records = namespace["audit"](snap, cli_runner=cli)[2]
             item = next(
                 x
@@ -554,15 +562,24 @@ def test_route53_alias_producer_observation():
                 assert "EC2_VPCEndpoint_001.DnsEntries" in item["reason"], item
             else:
                 assert item["designValue"] == "producer.example", item
-            assert any(
-                call[0] == ("ec2", "describe-vpc-endpoints") for call in cli.calls
+            zone_item = next(
+                x
+                for x in records
+                if x["propertiesKey"] == "Route53.RecordSet.AliasTarget.HostedZoneId"
             )
-        route["desired.row.001-005.property"] = "Route53.RecordSet.ResourceRecords"
-        route["desired.row.001-005.value"] = "`" + json.dumps([expression]) + "`"
-        route["desired.row.001-005.comment"] = "fixture"
+            assert zone_item["status"] == status, zone_item
+            if status != "design_unresolved":
+                assert zone_item["designValue"] == "Z", zone_item
+            assert (
+                sum(call[0] == ("ec2", "describe-vpc-endpoints") for call in cli.calls)
+                == 1
+            )
+        route["desired.row.001-006.property"] = "Route53.RecordSet.ResourceRecords"
+        route["desired.row.001-006.value"] = "`" + json.dumps([expression]) + "`"
+        route["desired.row.001-006.comment"] = "fixture"
         write_model(root / "model/dev/cde/route53.properties", route)
         array_snap = snapshot(generator.generate(root, "dev", "cde", "route53")[0])
-        array_row = array_snap["referenceRows"]["dev/cde/route53"]["001-005"]
+        array_row = array_snap["referenceRows"]["dev/cde/route53"]["001-006"]
         assert array_row["producer"]["endpointId"] == "vpce-123", array_row
         assert array_row["expression"] == [expression], array_row
         audit_runtime.resolve_endpoint_aliases(
@@ -902,7 +919,7 @@ def test_generated_boundaries():
                 TestCase().assertIn(
                     (
                         "EC2.VPC.VpcId",
-                        "observed identifier missing, unresolved or ambiguous",
+                        "observed identifier is PENDING_DEPLOY; outcome depends on AWS",
                     ),
                     unsupported,
                 )

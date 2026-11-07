@@ -20,6 +20,9 @@ getters:
   replication:
     kind: adapter
     resources: [S3.Bucket]
+  notifications:
+    kind: adapter
+    resources: [S3.Bucket]
   sdk-s3-bucket:
     kind: sdk
     service: s3
@@ -200,7 +203,7 @@ resourceTypes:
         model: {include: false}
         display: {show: false, name: NotificationConfiguration.EventBridgeConfiguration.EventBridgeEnabled}
         access: [read-write]
-        aws: {getter: provider-s3-bucket, path: NotificationConfiguration.EventBridgeConfiguration.EventBridgeEnabled, normalize: typed}
+        aws: {getter: notifications, path: EventBridgeEnabled, normalize: typed}
       NotificationConfiguration.LambdaConfigurations[].Event:
         model: {include: false}
         display: {show: false, name: 'NotificationConfiguration.LambdaConfigurations[].Event'}

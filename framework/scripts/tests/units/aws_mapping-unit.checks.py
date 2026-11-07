@@ -189,7 +189,7 @@ def check_v3_registry():
         getters,
         len(apis),
         len(set(apis)),
-    ) == (179, 53, 50, 65, 85, 84)
+    ) == (179, 53, 50, 66, 86, 85)
     stack = m.service_module("cloudformation-stacks")
     assert stack.STACK_TYPE == "CloudFormation.Stack"
     assert all(
@@ -232,6 +232,15 @@ def check_v3_registry():
     }
     assert sum(map(len, tgw_properties.values())) == 18
     baseline_properties = deepcopy(properties)
+    for leaf in (
+        "InputTransformer.InputPathsMap",
+        "InputTransformer.InputTemplate",
+        "RoleArn",
+    ):
+        path = f"Targets[].{leaf}"
+        field = baseline_properties["eventbridge"]["Events.Rule"][path]["aws"]
+        assert field == {"getter": "targets", "path": path, "normalize": "typed"}
+        field["getter"] = "provider-events-rule"
     namespace = baseline_properties["codepipeline"]["CodePipeline.Pipeline"][
         "Stages[].Actions[].Namespace"
     ]
@@ -372,6 +381,22 @@ def check_v3_registry():
     policy_id["constraint"] = (
         "SQS has no independent QueuePolicy resource ID; GetQueueAttributes returns only the queue policy document."
     )
+    notifications_path = (
+        "NotificationConfiguration.EventBridgeConfiguration.EventBridgeEnabled"
+    )
+    notifications = baseline_properties["s3"]["S3.Bucket"][notifications_path]["aws"]
+    assert notifications == {
+        "getter": "notifications",
+        "path": "EventBridgeEnabled",
+        "normalize": "typed",
+    }
+    notifications.update(getter="provider-s3-bucket", path=notifications_path)
+    assert definitions["s3"].pop("notifications") == {
+        "kind": "adapter",
+        "resources": ["S3.Bucket"],
+    }
+    assert metadata["s3"]["GETTERS"].pop("notifications") == ("S3.Bucket",)
+    metadata["s3"]["APIS"].remove(("s3", "get_bucket_notification_configuration"))
     assert definitions["s3"].pop("replication") == {
         "kind": "adapter",
         "resources": ["S3.Bucket"],
@@ -1105,6 +1130,7 @@ class ReplicationResource:
 
 
 class ReplicationContext:
+    root = ROOT
     target = {"awsAccountId": "111111111111", "awsExecutionAccountId": "222222222222"}
 
     def __init__(self, response):

@@ -11,9 +11,11 @@ import json
 import os
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 
+from model.importing.cli import model_literal
 from support.it_case_receipt import it_case
-from support.model_test_runner import load_fixture, prepare, snapshot
+from support.model_test_runner import CLI, generated, load_fixture, prepare, snapshot
 from validation.findings import Findings
 from validation.scenario import check_results
 
@@ -102,8 +104,85 @@ def check_audit_roundtrip():
         assert not findings.errors, findings.errors
 
 
+@it_case
+def check_eventbridge_target_audit():
+    inputs, _ = load_fixture("audit/base")
+    kind = "Events.Rule"
+    target = {
+        "Id": "fixture-target",
+        "Arn": "arn:aws:lambda:ap-northeast-1:123456789012:function:fixture",
+        "RoleArn": "arn:aws:iam::123456789012:role/fixture",
+        "InputTransformer": {"InputPathsMap": {"id": "$.id"}, "InputTemplate": "<id>"},
+    }
+    rows = {
+        "Name": "fixture-rule",
+        "Targets[].Id": target["Id"],
+        "Targets[].Arn": target["Arn"],
+        "Targets[].RoleArn": target["RoleArn"],
+        "Targets[].InputTransformer.InputPathsMap": target["InputTransformer"][
+            "InputPathsMap"
+        ],
+        "Targets[].InputTransformer.InputTemplate": target["InputTransformer"][
+            "InputTemplate"
+        ],
+    }
+    inputs["service"] = "eventbridge"
+    inputs.pop("models", None)
+    inputs["model"] = {
+        "desired.service.eventbridge.serviceId": "eventbridge",
+        "desired.service.eventbridge.ownedCatalogResourceTypes": kind,
+        "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
+        "desired.resource.001.resourceType": kind,
+        "desired.resource.001.resourceMode": "IMPORT",
+        "desired.resource.001.logicalId": "Events_Rule_001",
+    }
+    for index, (prop, value) in enumerate(rows.items(), 1):
+        key = f"desired.row.001-{index:03}."
+        inputs["model"].update(
+            {
+                key + "property": kind + "." + prop,
+                key + "value": model_literal(value),
+                key + "comment": "fixture",
+            }
+        )
+    targets_api = ("events", "list-targets-by-rule")
+    with tempfile.TemporaryDirectory(prefix="audit-eventbridge-") as directory:
+        root = Path(directory)
+        standalone = generated(prepare(root, inputs), root)
+        snap = standalone["SNAPSHOT"]
+        for variant, expected_code in (("match", 0), ("different", 1), ("denied", 2)):
+            actual = copy.deepcopy(target)
+            if variant == "different":
+                actual.update(
+                    RoleArn=target["RoleArn"] + "-different",
+                    InputTransformer={
+                        "InputPathsMap": {"id": "$.other"},
+                        "InputTemplate": "<other>",
+                    },
+                )
+            runner = CLI(
+                {
+                    ("events", "describe-rule"): {"Name": "fixture-rule"},
+                    targets_api: {"Targets": [actual]},
+                },
+                fail=targets_api if variant == "denied" else None,
+            )
+            _, account, records = standalone["audit"](snap, cli_runner=runner)
+            report, code = standalone["report"](
+                snap, None, account, records, datetime.now(timezone.utc)
+            )
+            assert code == expected_code, report
+            state = {0: "OK", 1: "NG", 2: "ERROR"}[expected_code]
+            for field in list(rows)[-3:]:
+                assert f"[{state}] {kind} | fixture-rule | {field}" in report, report
+            assert [
+                (api, request) for api, request, _ in runner.calls if api == targets_api
+            ] == [(targets_api, {"Rule": "fixture-rule", "EventBusName": "default"})]
+
+
 FAKE_AWS = 'import json, os, pathlib, sys\napi = sys.argv[1:3]\nrequest = json.loads(sys.argv[sys.argv.index("--cli-input-json") + 1])\nsettings = json.loads(pathlib.Path(os.environ["AUDIT_RESPONSES"]).read_text(encoding="utf-8"))\nwith pathlib.Path(os.environ["AUDIT_CALLS"]).open("a", encoding="utf-8") as handle:\n    handle.write(json.dumps([api, request]) + "\\n")\nif api == ["sts", "get-caller-identity"]:\n    assert request == {}\n    value = {"Account": settings.get("account", "123456789012"), "Arn": "arn:aws:iam::123456789012:user/offline"}\nelse:\n    route = next(item for item in settings["responses"] if item["api"] == api)\n    assert request == route["inputs"], (request, route)\n    value = route["response"]\nprint(json.dumps(value))\n'
 
 
 if __name__ == "__main__":
     check_audit_roundtrip()
+    check_eventbridge_target_audit()

@@ -31,6 +31,7 @@ from contracts import repository as _repository_contract
 from contracts import target as _target_contract
 from contracts.model import (
     CFN_LOGICAL_ID_KEY,
+    MODEL_PENDING_DEPLOY,
     MODEL_REF_KEY,
     REFERENCE_LOGICAL_ID_KEY,
     REFERENCE_UNRESOLVED,
@@ -70,7 +71,7 @@ from model.render import display_name
 from model.sources import load_model, model_paths, publication_lock
 
 ROOT = Path(__file__).resolve().parents[3]
-AUDIT_QUICKSIGHT_SHAPE = {}
+AUDIT_SDK_SHAPES = {}
 AUDIT_PARTITION = AUDIT_REGION = ""
 
 
@@ -259,6 +260,15 @@ def audit_sdk_shape(shape):
         result["members"] = {
             name: audit_sdk_shape(child) for name, child in shape.members.items()
         }
+        status_fields = [
+            name
+            for name, child in shape.members.items()
+            if child.serialization.get("location") == "statusCode"
+        ]
+        if status_fields:
+            result["statusFields"] = status_fields
+    elif shape.type_name == "list":
+        result["member"] = audit_sdk_shape(shape.member)
     elif shape.type_name not in {"string", "integer"}:
         raise ValueError(
             "unsupported standalone SDK response shape: " + shape.type_name
@@ -277,28 +287,34 @@ def audit_sdk_valid(value, schema):
             key in schema["members"] and audit_sdk_valid(item, schema["members"][key])
             for key, item in value.items()
         )
+    if kind == "list":
+        return (
+            isinstance(value, list)
+            and len(value) >= schema.get("min", 0)
+            and all(audit_sdk_valid(item, schema["member"]) for item in value)
+        )
     if kind == "string":
         return isinstance(value, str) and len(value) >= schema.get("min", 0)
     return type(value) is int and value >= schema.get("min", value)
 
 
 def sdk_response(root, getter, response):
-    if getter != {
-        "service": "quicksight",
-        "operation": "describe_group",
-    } or not isinstance(response, dict):
+    shape = AUDIT_SDK_SHAPES.get((getter["service"], getter["operation"]))
+    if shape is None or not isinstance(response, dict):
         return False
     metadata = response.get("ResponseMetadata", {})
     if not isinstance(metadata, dict):
         return False
-    statuses = [response["Status"]] if "Status" in response else []
+    statuses = [
+        response[key] for key in shape.get("statusFields", ()) if key in response
+    ]
     if "HTTPStatusCode" in metadata:
         statuses.append(metadata["HTTPStatusCode"])
     return all(
         type(status) is int and 200 <= status < 300 for status in statuses
     ) and audit_sdk_valid(
         {key: value for key, value in response.items() if key != "ResponseMetadata"},
-        AUDIT_QUICKSIGHT_SHAPE,
+        shape,
     )
 
 
@@ -601,12 +617,15 @@ def reference_rows(root, models):
                 row["property"]
                 in {
                     "Route53.RecordSet.AliasTarget.DNSName",
+                    "Route53.RecordSet.AliasTarget.HostedZoneId",
                     "Route53.RecordSet.ResourceRecords",
                 }
                 and len(references) == 1
             ):
                 node = references[0]
                 producer = {"logicalId": node.logical_id, "attribute": node.attribute}
+                if row["property"] == "Route53.RecordSet.AliasTarget.HostedZoneId":
+                    producer["hostedZone"] = True
                 if statuses in (["logical_only"], ["unresolved"]) and all(
                     d.get("category") == REFERENCE_UNRESOLVED for d in diagnostics
                 ):
@@ -1025,23 +1044,39 @@ def _build(root, environment, selector, service, standalone):
             f"{name} = {getattr(contract, name)!r}\n" for name in names
         )
     engine += contract_bindings
+    sdk_shapes = {}
+    for service_name, operation, sdk_name in (
+        ("quicksight", "describe_group", "DescribeGroup"),
+        ("s3", "get_bucket_replication", "GetBucketReplication"),
+        (
+            "s3",
+            "get_bucket_notification_configuration",
+            "GetBucketNotificationConfiguration",
+        ),
+    ):
+        if service_name in mappings:
+            shape = (
+                aws_runtime()
+                .sdk_session()
+                .get_service_model(service_name)
+                .operation_model(sdk_name)
+                .output_shape
+            )
+            sdk_shapes[service_name, operation] = audit_sdk_shape(shape)
+    if sdk_shapes:
+        engine += "AUDIT_SDK_SHAPES = " + repr(sdk_shapes) + "\n"
+        engine += definitions(
+            scripts / "model/audit.py", ["audit_sdk_valid", "sdk_response"]
+        )
     if "quicksight" in mappings:
         session = aws_runtime().sdk_session()
-        shape = (
-            session.get_service_model("quicksight")
-            .operation_model("DescribeGroup")
-            .output_shape
-        )
-        engine += "AUDIT_QUICKSIGHT_SHAPE = " + repr(audit_sdk_shape(shape)) + "\n"
         engine += "AUDIT_REGION = " + repr(target[AWS_REGION_KEY]) + "\n"
         engine += (
             "AUDIT_PARTITION = "
             + repr(session.get_partition_for_region(target[AWS_REGION_KEY]))
             + "\n"
         )
-        engine += definitions(
-            scripts / "model/audit.py", ["audit_sdk_valid", "sdk_response", "sdk_for"]
-        )
+        engine += definitions(scripts / "model/audit.py", ["sdk_for"])
     engine += definitions(
         scripts / "validation/diagnostics.py", ["InputValidationError"]
     )
@@ -1371,15 +1406,22 @@ def _build(root, environment, selector, service, standalone):
                 if len(rows) == 1
                 else None
             )
-            if (
+            if len(rows) > 1:
+                reason = "observed identifier is ambiguous"
+            elif observed is None or not observed.strip():
+                reason = "observed identifier is missing"
+            elif m.literal(observed).strip() == MODEL_PENDING_DEPLOY:
+                reason = "observed identifier is PENDING_DEPLOY; outcome depends on AWS"
+            elif (
                 observed_identifier(
                     observed, m.literal, confirmed_display_name, confirmed
                 )
                 is None
             ):
-                unsupported.append(
-                    (prop, "observed identifier missing, unresolved or ambiguous")
-                )
+                reason = "observed identifier is unresolved or invalid"
+            else:
+                continue
+            unsupported.append((prop, reason))
     return result, files, sorted(set(unsupported))
 
 
@@ -1432,7 +1474,7 @@ def main(argv=None):
                     atomic_files({output: source})
             print(f"Generated: {relative} (syntax OK; AWS not contacted)")
             for key, reason in unsupported:
-                print(f"  ERROR check: {key}: {reason}")
+                print(f"  Check note: {key}: {reason}")
             return 0
     except (OSError, ValueError, KeyError) as error:
         print(f"Model test generation: FAIL: {error}")

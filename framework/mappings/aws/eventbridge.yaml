@@ -178,12 +178,12 @@ resourceTypes:
         model: {include: false}
         display: {show: false, name: 'Targets[].InputTransformer.InputPathsMap'}
         access: [read-write]
-        aws: {getter: provider-events-rule, path: 'Targets[].InputTransformer.InputPathsMap', normalize: typed}
+        aws: {getter: targets, path: 'Targets[].InputTransformer.InputPathsMap', normalize: typed}
       Targets[].InputTransformer.InputTemplate:
         model: {include: false}
         display: {show: false, name: 'Targets[].InputTransformer.InputTemplate'}
         access: [read-write]
-        aws: {getter: provider-events-rule, path: 'Targets[].InputTransformer.InputTemplate', normalize: typed}
+        aws: {getter: targets, path: 'Targets[].InputTransformer.InputTemplate', normalize: typed}
       Targets[].RetryPolicy.MaximumEventAgeInSeconds:
         model: {include: true}
         display: {show: true, name: 'Targets[].RetryPolicy.MaximumEventAgeInSeconds'}
@@ -198,7 +198,7 @@ resourceTypes:
         model: {include: false}
         display: {show: false, name: 'Targets[].RoleArn'}
         access: [read-write]
-        aws: {getter: provider-events-rule, path: 'Targets[].RoleArn', normalize: typed}
+        aws: {getter: targets, path: 'Targets[].RoleArn', normalize: typed}
   Scheduler.Schedule:
     identity:
       getter: schedule

@@ -249,7 +249,7 @@ def engine(snapshot):
 
 def reference_result(m, snapshot, resource, item):
     if (
-        item["propertiesKey"] == "SQS.QueuePolicy.Id"
+        item["propertiesKey"] in {"SQS.QueuePolicy.Id", "LakeFormation.Resource.Id"}
         and item["status"] == "sdk_unavailable"
     ):
         return item
@@ -528,7 +528,11 @@ def identifier_result(m, ctx, resource, item):
 
 def classify_exclusion(m, snapshot, resource, item, *, resource_confirmed=False):
     prop = item["propertiesKey"]
-    if prop == "SQS.QueuePolicy.Id" and item["status"] == "sdk_unavailable":
+    if item["status"] == "sdk_unavailable" and (
+        prop == "SQS.QueuePolicy.Id"
+        or prop == "LakeFormation.Resource.Id"
+        and resource_confirmed
+    ):
         return {**item, "status": "excluded"}
     reason = snapshot.get("exclusions", {}).get(prop)
     if (
@@ -627,10 +631,14 @@ def resolve_endpoint_aliases(m, ctx, snapshot):
                     "attribute": "DnsEntries",
                 }
             }
+            hosted_zone = producer.get("hostedZone") is True
             expression = {
-                "Fn::Select": [1, {"Fn::Split": [":", {"Fn::Select": [0, ref]}]}]
+                "Fn::Select": [
+                    0 if hosted_zone else 1,
+                    {"Fn::Split": [":", {"Fn::Select": [0, ref]}]},
+                ]
             }
-            array = row.get("expression") == [expression]
+            array = not hosted_zone and row.get("expression") == [expression]
             if row.get("expression") != expression and not array:
                 row["reason"] = "unsupported Producer DNS selection"
                 continue
@@ -679,9 +687,9 @@ def resolve_endpoint_aliases(m, ctx, snapshot):
                     ]
                     if not region or matches != [0]:
                         raise ValueError("Producer DnsEntries selection is ambiguous")
-                name = entries[0].get("DnsName")
+                value = entries[0]["HostedZoneId" if hosted_zone else "DnsName"]
                 row.update(
-                    status="resolved", value=[name] if array else name, reason=""
+                    status="resolved", value=[value] if array else value, reason=""
                 )
             except (
                 m.AcquisitionError,
@@ -917,7 +925,9 @@ def report(snapshot, profile, account, records, timestamp):
         if item["status"] == "resource_missing":
             attribute += " (resource missing)"
         line(f"[{state}] {kind} | {name} | {attribute}")
-        expected = "PENDING_DEPLOY" if pending else masked(item.get("designValue"), prop)
+        expected = (
+            "PENDING_DEPLOY" if pending else masked(item.get("designValue"), prop)
+        )
         actual = masked(item.get("awsValue"), prop)
         line("  Design: " + json.dumps(expected, ensure_ascii=False, sort_keys=True))
         line(

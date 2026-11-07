@@ -1318,8 +1318,12 @@ def test_lakeformation_generated_response_and_cache():
             )
             == statuses
         )
-        assert records["Id"] == "design_unresolved"
-        assert "PENDING_DEPLOY" in result["report"]
+        id_status = (
+            "excluded" if records["ResourceArn"] == "match" else "sdk_unavailable"
+        )
+        assert records["Id"] == id_status
+        id_state = "INFO" if id_status == "excluded" else "ERROR"
+        assert f"[{id_state}] LakeFormation.Resource" in result["report"]
         assert (
             "DescribeResource does not return the CloudFormation Id."
             in result["report"]

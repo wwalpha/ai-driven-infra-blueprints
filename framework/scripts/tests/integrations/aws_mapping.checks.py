@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from aws_mapping_compare import value as mapping_value
+from model.audit import generate
 from model.importing import cli, inventory
 from model.importing.adapter_contract_cases import core, fake_sdk
 from support.aws_mapping_fixtures import (
@@ -34,6 +35,7 @@ from support.aws_mapping_fixtures import (
     write_model,
 )
 from support.it_case_receipt import it_case
+from support.model_test_runner import CLI, generated
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -603,6 +605,9 @@ class ReplicationClient:
     def get_bucket_location(self, **inputs):
         return {"LocationConstraint": "ap-northeast-1"}
 
+    def get_bucket_notification_configuration(self, **inputs):
+        return {"EventBridgeConfiguration": {}}
+
     def get_bucket_replication(self, **inputs):
         self.replication_calls.append(inputs)
         return copy.deepcopy(self.payload)
@@ -779,8 +784,12 @@ def check_s3_replication():
             "desired.resource.001.resourceMode": "IMPORT",
             "desired.resource.001.logicalId": "S3_Bucket_001",
         }
+        notifications_key = (
+            "NotificationConfiguration.EventBridgeConfiguration.EventBridgeEnabled"
+        )
         rows = {
             "BucketName": "fixture-bucket",
+            notifications_key: True,
             **{prefix + key: value for key, value in expected.items()},
         }
         for index, (name, value) in enumerate(rows.items(), 1):
@@ -806,6 +815,7 @@ def check_s3_replication():
             results = m.compare_resource(ctx, ctx.model(path).resources[0])
             selected = {row["propertiesKey"]: row["status"] for row in results}
             assert selected[kind + "." + prefix + "Rules[].Status"] == expected_status
+            assert selected[kind + "." + notifications_key] == "match"
             if not changed:
                 assert all(
                     selected[kind + "." + prefix + key] == "match" for key in expected
@@ -824,6 +834,47 @@ def check_s3_replication():
             assert client.replication_calls == [
                 {"Bucket": "fixture-bucket", "ExpectedBucketOwner": "123456789012"}
             ]
+
+        source, _, _ = generate(root, "dev", "fixture", "s3")
+        standalone = generated(source, root)
+        property_key = kind + "." + prefix + "Rules[].Status"
+        notifications_api = ("s3api", "get-bucket-notification-configuration")
+        for replication, notifications, expected_status in (
+            (payload, {"EventBridgeConfiguration": {}}, "match"),
+            (response, {}, "difference"),
+            (
+                {"ReplicationConfiguration": {"Rules": "invalid"}},
+                {"EventBridgeConfiguration": False},
+                "acquisition_failed",
+            ),
+        ):
+            runner = CLI(
+                {
+                    ("s3api", "list-buckets"): ReplicationClient(
+                        payload
+                    ).list_buckets(),
+                    ("s3api", "get-bucket-location"): ReplicationClient(
+                        payload
+                    ).get_bucket_location(),
+                    ("s3api", "get-bucket-replication"): replication,
+                    notifications_api: notifications,
+                }
+            )
+            _, _, results = standalone["audit"](
+                standalone["SNAPSHOT"], cli_runner=runner
+            )
+            by_key = {row["propertiesKey"]: row for row in results}
+            for key in (property_key, kind + "." + notifications_key):
+                result = by_key[key]
+                assert result["status"] == expected_status, result
+                if expected_status == "acquisition_failed":
+                    assert result["reason"] == "InvalidResponse", result
+            for operation in (("s3api", "get-bucket-replication"), notifications_api):
+                assert [
+                    request for api, request, _ in runner.calls if api == operation
+                ] == [
+                    {"Bucket": "fixture-bucket", "ExpectedBucketOwner": "123456789012"}
+                ]
 
         ctx, _ = core.fixture_context(ROOT, "s3", fake_sdk.DirectCalls, {})
         fake = ReplicationImportCalls(payload)

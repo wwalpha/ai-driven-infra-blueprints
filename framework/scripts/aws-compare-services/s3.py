@@ -2,14 +2,14 @@
 
 from copy import deepcopy
 
-from botocore.validate import ParamValidator
 from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
 from model.adapters.aws import MISSING, AcquisitionError, Field, one
-from utils.aws_sdk import Sdk
+from model.importing.limitations import sdk_response
 
 APIS = {
     ("s3", "get_bucket_policy"),
     ("s3", "get_bucket_replication"),
+    ("s3", "get_bucket_notification_configuration"),
     ("s3", "get_bucket_lifecycle_configuration"),
     ("s3", "get_bucket_encryption"),
     ("s3", "get_public_access_block"),
@@ -19,8 +19,6 @@ APIS = {
     ("s3", "get_bucket_ownership_controls"),
     ("s3", "get_bucket_location"),
 }
-
-SDK = Sdk()
 
 MODEL_FIELDS = {"S3.Bucket.Region": Field("base", "BucketRegion", default=MISSING)}
 
@@ -72,6 +70,7 @@ def fetch(ctx, r, getter):
         "encryption": "get_bucket_encryption",
         "lifecycle": "get_bucket_lifecycle_configuration",
         "replication": "get_bucket_replication",
+        "notifications": "get_bucket_notification_configuration",
         "ownership": "get_bucket_ownership_controls",
         "public": "get_public_access_block",
         "versioning": "get_bucket_versioning",
@@ -104,7 +103,14 @@ def fetch(ctx, r, getter):
             return {}
         raise
     if getter == "replication":
-        return normalize_replication(result)
+        return normalize_replication(ctx.root, result)
+    if getter == "notifications":
+        operation = operations[getter]
+        if not sdk_response(
+            ctx.root, {"service": "s3", "operation": operation}, result
+        ):
+            raise AcquisitionError("s3." + operation, "InvalidResponse")
+        return {"EventBridgeEnabled": "EventBridgeConfiguration" in result}
     if getter == "encryption":
         return {
             "ServerSideEncryptionConfiguration": result[
@@ -123,15 +129,16 @@ def fetch(ctx, r, getter):
     return result
 
 
-def normalize_replication(result):
+def normalize_replication(root, result):
     api = "s3.get_bucket_replication"
     if not isinstance(result, dict) or not isinstance(
         result.get("ReplicationConfiguration"), dict
     ):
         raise AcquisitionError(api, "InvalidResponse")
-    shape = SDK.service_model("s3").operation_model("GetBucketReplication").output_shape
     payload = {key: value for key, value in result.items() if key != "ResponseMetadata"}
-    if ParamValidator().validate(payload, shape).has_errors():
+    if not sdk_response(
+        root, {"service": "s3", "operation": "get_bucket_replication"}, payload
+    ):
         raise AcquisitionError(api, "InvalidResponse")
     result = deepcopy(result)
     config = result["ReplicationConfiguration"]
