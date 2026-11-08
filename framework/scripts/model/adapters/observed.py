@@ -678,7 +678,7 @@ def resolve_resources(
 
     Unrelated authorities are not expanded or diagnosed. No naming inference is used.
     """
-    wanted, required_types = set(), set()
+    wanted, required_types, inactive_removals = set(), set(), set()
     target = target or (
         load_target(root, environment, directory)
         if (root / PROJECT_FILENAME).is_file()
@@ -703,6 +703,11 @@ def resolve_resources(
         for logical in selected.get(unit["name"], ()):
             definition = definitions.get(logical, {})
             deleting = logical in (removed or {}).get(unit["name"], {})
+            desired = document.get("Resources", {}).get(logical)
+            if deleting and desired is not None and not condition_active(
+                document, parameters, pseudo, desired
+            ):
+                inactive_removals.add((unit["name"], logical))
             if not deleting and not condition_active(
                 document, parameters, pseudo, definition
             ):
@@ -787,6 +792,16 @@ def resolve_resources(
         # The index has no type/mode metadata to prove IMPORT-only for other types.
         if required_types - mapped_types:
             loaded = models(root, environment, directory)
+    direct = resource_index(loaded, catalog)
+    # Inactive removals with no remaining Model have no observation destination.
+    selected = {
+        name: {
+            logical
+            for logical in logicals
+            if (name, logical) not in inactive_removals or (name, logical) in direct
+        }
+        for name, logicals in selected.items()
+    }
     return _mappings(
         root,
         environment,

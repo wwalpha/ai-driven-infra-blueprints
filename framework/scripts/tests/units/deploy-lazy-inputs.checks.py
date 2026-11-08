@@ -1036,6 +1036,50 @@ def check_readiness_removal_and_ready_execution(tmp_path, monkeypatch):
         assert aws.call_args.args[0] == "execute_change_set"
 
 
+@pytest.mark.parametrize("modeled", [False, True])
+@pytest.mark.parametrize("desired", ["inactive", "active", "absent"])
+def check_removed_model_observation_destinations(tmp_path, monkeypatch, modeled, desired):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    _, backend = readiness_fixture(tmp_path)
+    dependency_index.rebuild(tmp_path)
+    name = "fixture"
+    logical = "OriginalVpc" if modeled else "RetiredVpc"
+    document, parameters = backend.templates[name]
+    document["Conditions"] = {"Never": {"Fn::Equals": ["dev", "stg"]}}
+    if desired == "absent":
+        document["Resources"].pop(logical, None)
+    else:
+        document["Resources"][logical] = {"Type": "AWS::EC2::VPC"}
+        if desired == "inactive":
+            document["Resources"][logical]["Condition"] = "Never"
+    units = [{"name": name}]
+    removal = {
+        "Action": "Remove", "LogicalResourceId": logical,
+        "ResourceType": "AWS::EC2::VPC", "PolicyAction": "Delete",
+        "PhysicalResourceId": "vpc-retired",
+    }
+    removed = observed.removed_resources(units, {name: {"changes": [removal]}})
+    selected = observed.selected_resources(document, parameters, {}, removed[name], set())
+    before = {path: path.read_bytes() for path in (tmp_path / "model").rglob("*.properties")}
+    with sources.model_session(RunModels(tmp_path, {})):
+        if not modeled and desired != "inactive":
+            with pytest.raises(ValueError, match="explicit mapping required"):
+                observed.resolve_resources(
+                    tmp_path, backend.environment, backend.directory,
+                    backend.templates, units, {name: selected}, removed,
+                    target=backend.target,
+                )
+        else:
+            _, mapped = observed.resolve_resources(
+                tmp_path, backend.environment, backend.directory,
+                backend.templates, units, {name: selected}, removed,
+                target=backend.target,
+            )
+            assert (logical in mapped[name]) is modeled
+            assert set(mapped[name]) == {"OriginalVpc"}
+    assert all(path.read_bytes() == content for path, content in before.items())
+
+
 @pytest.mark.parametrize(
     "policy", ["Retain", "RetainExceptOnCreate", "Delete", "Snapshot", None]
 )
