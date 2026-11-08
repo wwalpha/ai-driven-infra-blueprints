@@ -28,7 +28,7 @@ SECRET_PROP = "Glue.Connection.ConnectionInput.AuthenticationConfiguration.Secre
 ATHENA_PROP = "Glue.Connection.ConnectionInput.AthenaProperties"
 
 
-def glue_snapshot(root, observed=SECRET_ARN, attribute="Arn"):
+def glue_snapshot(root, observed=SECRET_ARN, attribute="Arn", duplicate=False):
     project = load_fixture("audit/base")[0]["project"]
     (root / "project.json").write_text(json.dumps(project), encoding="utf-8")
     consumer = ReferenceFixture.model(
@@ -54,6 +54,16 @@ def glue_snapshot(root, observed=SECRET_ARN, attribute="Arn"):
     )
     if observed is not None:
         producer["observed.row.001-002.value"] = "`" + observed + "`"
+    if duplicate:
+        for key, value in list(producer.items()):
+            if key.startswith(("desired.resource.001.", "desired.row.001-001.")):
+                producer[key.replace(".001", ".002", 1)] = value
+        producer["desired.resource.002.logicalId"] = "SecretsManager_Secret_002"
+        producer["desired.resource.002.anchor"] = "fixture-other"
+        producer["desired.resource.002.cfn-logicalId"] = "fixture-Other"
+        producer["desired.service.identity.lastAllocated"] = json.dumps(
+            {"SecretsManager.Secret": 2}
+        )
     write_model(root / "model/dev/cde/glue.properties", consumer)
     write_model(root / "model/dev/cde/secrets-manager.properties", producer)
     before = {p: p.read_bytes() for p in (root / "model").rglob("*.properties")}
@@ -121,6 +131,7 @@ def test_glue_unconfirmed_secret_remains_error(tmp_path, observed, status):
     assert row["value"] is None
     namespace = generated(source, tmp_path)
     cli = glue_cli({"workgroup": "primary"})
+    cli.fail = ("secretsmanager", "describe-secret")
     _, _, records = namespace["audit"](snapshot, None, cli)
     item = next(r for r in records if r["propertiesKey"] == SECRET_PROP)
     assert item["status"] == "design_unresolved"
@@ -128,7 +139,56 @@ def test_glue_unconfirmed_secret_remains_error(tmp_path, observed, status):
     assert {api for api, _, _ in cli.calls} <= {
         ("sts", "get-caller-identity"),
         ("glue", "get-connection"),
+        ("secretsmanager", "describe-secret"),
     }
+
+
+@pytest.mark.parametrize(
+    "response, actual, fail, expected",
+    [
+        ({"Name": "fixture", "ARN": SECRET_ARN}, SECRET_ARN, None, "match"),
+        (
+            {"Name": "fixture", "ARN": SECRET_ARN},
+            SECRET_ARN + "other",
+            None,
+            "difference",
+        ),
+        ({"Name": "wrong", "ARN": SECRET_ARN}, SECRET_ARN, None, "design_unresolved"),
+        (
+            {"Name": "fixture", "ARN": SECRET_ARN},
+            SECRET_ARN,
+            ("secretsmanager", "describe-secret"),
+            "design_unresolved",
+        ),
+    ],
+)
+def test_glue_runtime_secret_identity(tmp_path, response, actual, fail, expected):
+    source, snapshot = glue_snapshot(tmp_path, observed=None)
+    row = snapshot["referenceRows"]["dev/cde/glue"]["001-005"]
+    assert row["status"] == "logical_only"
+    namespace = generated(source, tmp_path)
+    cli = glue_cli({"workgroup": "primary"}, actual)
+    cli.responses[("secretsmanager", "describe-secret")] = response
+    cli.fail = fail
+    _, _, records = namespace["audit"](snapshot, None, cli)
+    item = next(r for r in records if r["propertiesKey"] == SECRET_PROP)
+    assert item["status"] == expected
+    assert any(
+        api == ("secretsmanager", "describe-secret") and args == {"SecretId": "fixture"}
+        for api, args, _ in cli.calls
+    )
+
+
+def test_glue_ambiguous_secret_name_remains_error(tmp_path):
+    source, snapshot = glue_snapshot(tmp_path, observed=None, duplicate=True)
+    row = snapshot["referenceRows"]["dev/cde/glue"]["001-005"]
+    assert row["status"] == "logical_only"
+    assert not row.get("producer", {}).get("secretName")
+    cli = glue_cli({"workgroup": "primary"})
+    records = generated(source, tmp_path)["audit"](snapshot, None, cli)[2]
+    item = next(r for r in records if r["propertiesKey"] == SECRET_PROP)
+    assert item["status"] == "design_unresolved"
+    assert all(api != ("secretsmanager", "describe-secret") for api, _, _ in cli.calls)
 
 
 @pytest.mark.parametrize(
@@ -191,6 +251,7 @@ def test_glue_standalone_redacts_console_and_log(
     namespace = generated(source, tmp_path)
     script = tmp_path / "tests/dev/cde/glue.py"
     cli = glue_cli({"workgroup": "primary"}, secret)
+    cli.fail = ("secretsmanager", "describe-secret")
     assert namespace["main"]([], cli_runner=cli, script_path=script) == code
     text = capsys.readouterr().out
     logs = list((tmp_path / "tests/results/dev/cde").glob("glue-*.log"))
