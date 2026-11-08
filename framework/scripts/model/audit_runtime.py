@@ -1089,10 +1089,16 @@ def report(snapshot, profile, account, records, timestamp):
         if item["status"] == "resource_missing":
             attribute += " (resource missing)"
         line(f"[{state}] {kind} | {name} | {attribute}")
-        expected = (
-            "PENDING_DEPLOY" if pending else masked(item.get("designValue"), prop)
+        mask_key = (
+            attribute
+            if prop
+            in {"SecretsManager.Secret.Type", "SecretsManager.Secret.Description"}
+            else prop
         )
-        actual = masked(item.get("awsValue"), prop)
+        expected = (
+            "PENDING_DEPLOY" if pending else masked(item.get("designValue"), mask_key)
+        )
+        actual = masked(item.get("awsValue"), mask_key)
         line("  Design: " + json.dumps(expected, ensure_ascii=False, sort_keys=True))
         line(
             "  Verification: NOT_VERIFIABLE"

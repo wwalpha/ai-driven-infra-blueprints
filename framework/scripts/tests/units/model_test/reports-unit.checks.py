@@ -150,5 +150,34 @@ def test_pending_deploy_report_classification():
         assert code == (1 if expected == "NG" else 2)
 
 
+@pytest.mark.parametrize("attribute", ["Type", "Description", "SecretString"])
+def test_secrets_manager_report_masks_only_sensitive_attributes(attribute):
+    snapshot = {
+        "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
+        "service": "secrets-manager",
+        "modelHash": "hash",
+        "names": {},
+    }
+    item = {
+        "resource": "secret",
+        "resourceType": "SecretsManager.Secret",
+        "propertiesKey": "SecretsManager.Secret." + attribute,
+        "status": "difference",
+        "designValue": "design-value",
+        "awsValue": "aws-value",
+    }
+    text, code = audit.report(
+        snapshot, None, "account", [item], datetime.now(timezone.utc)
+    )
+    assert code == 1
+    if attribute == "SecretString":
+        assert "design-value" not in text and "aws-value" not in text
+        assert '"[REDACTED]"' in text
+    else:
+        assert 'Design: "design-value"' in text
+        assert 'AWS:    "aws-value"' in text
+        assert "Diff paths: $" in text
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
