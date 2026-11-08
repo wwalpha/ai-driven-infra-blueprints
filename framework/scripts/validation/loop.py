@@ -691,6 +691,11 @@ def _callback__run_loop_validation_call(
     return result.display_report()
 
 
+def _callback__run_loop_validate(run_checks):
+    if run_checks():
+        raise ValueError("Task validation or Git diff check failed")
+
+
 def _run_loop(root, args, final_candidate):
     fail = __run_loop_fail
     complete_on_pass = getattr(args, "complete_on_pass", False)
@@ -902,24 +907,20 @@ def _run_loop(root, args, final_candidate):
                 ]
             ]
 
-        def run_checks():
-            return run_commands(
-                root,
-                commands,
-                environment,
-                directory,
-                jobs=args.jobs,
-                diagnostics=diagnostics,
-                stop_after_validator_failure=args.write,
-                validation_call=validation_call,
-            )
+        run_checks = _bind_framework_callback(
+            run_commands,
+            root,
+            commands,
+            environment,
+            directory,
+            jobs=args.jobs,
+            diagnostics=diagnostics,
+            stop_after_validator_failure=args.write,
+            validation_call=validation_call,
+        )
 
         if complete_on_pass:
-
-            def validate():
-                if run_checks():
-                    raise ValueError("Task validation or Git diff check failed")
-
+            validate = _bind_framework_callback(_callback__run_loop_validate, run_checks)
             try:
                 task_contract_runtime.complete_selected(
                     root, selected_name, validate=validate
