@@ -903,6 +903,51 @@ def audit(snapshot, profile=None, cli_runner=None):
     return m, account, records
 
 
+def cloudtrail_data_resources(items):
+    prefix = "CloudTrail.Trail.EventSelectors[].DataResources[]."
+    selected = {item.get("propertiesKey"): item for item in items}
+    types, values = (selected.get(prefix + name) for name in ("Type", "Values"))
+    if (
+        not types
+        or not values
+        or any(
+            item["status"] not in {"match", "difference"} for item in (types, values)
+        )
+    ):
+        return
+
+    def grouped(type_lists, value_lists):
+        if not isinstance(type_lists, list) or not isinstance(value_lists, list):
+            raise ValueError("invalid DataResources projection")
+        groups = []
+        for kinds, entries in zip(type_lists, value_lists, strict=True):
+            if not isinstance(kinds, list) or not isinstance(entries, list):
+                raise ValueError("invalid DataResources selector")
+            group = {}
+            for kind, members in zip(kinds, entries, strict=True):
+                if (
+                    not isinstance(kind, str)
+                    or not isinstance(members, list)
+                    or any(not isinstance(member, str) for member in members)
+                ):
+                    raise ValueError("invalid DataResources entry")
+                group.setdefault(kind, set()).update(members)
+            groups.append(group)
+        return groups
+
+    try:
+        desired = grouped(types["designValue"], values["designValue"])
+        actual = grouped(types["awsValue"], values["awsValue"])
+    except (TypeError, ValueError):
+        return
+    types["status"] = (
+        "match"
+        if [set(g) for g in desired] == [set(g) for g in actual]
+        else "difference"
+    )
+    values["status"] = "match" if desired == actual else "difference"
+
+
 def audit_resource(m, snapshot, ctx, resource):
     records = []
     try:
@@ -941,6 +986,8 @@ def audit_resource(m, snapshot, ctx, resource):
             )
             for item in items
         ]
+        if resource.kind == "CloudTrail.Trail":
+            cloudtrail_data_resources(items)
         failed = any(
             item["status"] in {"acquisition_failed", "resource_missing"}
             for item in items

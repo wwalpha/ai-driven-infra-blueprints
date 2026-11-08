@@ -107,6 +107,8 @@ class CloudTrailArrayTests(unittest.TestCase):
             ),
             ("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`"),
             ("EventSelectors[].DataResources[].Values", '`["arn:aws:s3"]`'),
+            ("EventSelectors[].DataResources[].Type", "`AWS::Lambda::Function`"),
+            ("EventSelectors[].DataResources[].Values", '`["arn:aws:lambda:other"]`'),
             ("EventSelectors[].IncludeManagementEvents", "`false`"),
             ("EventSelectors[].ReadWriteType", "`ReadOnly`"),
             ("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`"),
@@ -128,7 +130,10 @@ class CloudTrailArrayTests(unittest.TestCase):
                 "IncludeManagementEvents": True,
                 "ReadWriteType": "All",
                 "DataResources": [
-                    {"Type": "AWS::Lambda::Function", "Values": [arn]},
+                    {
+                        "Type": "AWS::Lambda::Function",
+                        "Values": ["arn:aws:lambda:other", arn],
+                    },
                     {"Type": "AWS::S3::Object", "Values": ["arn:aws:s3"]},
                 ],
             },
@@ -178,7 +183,7 @@ class CloudTrailArrayTests(unittest.TestCase):
                     selectors[1],
                 ],
                 "DataResources[].Values",
-                "difference",
+                "match",
             ),
         ]:
             with self.subTest(prop=prop, expected=expected):
@@ -238,6 +243,34 @@ class CloudTrailArrayTests(unittest.TestCase):
             )
         )
         self.assertNotEqual(result["status"], "match", result)
+
+    def test_data_resource_types_remain_paired_with_values(self):
+        prefix = "CloudTrail.Trail.EventSelectors[].DataResources[]."
+
+        def check(actual_types, actual_values, type_status, value_status):
+            items = [
+                {
+                    "propertiesKey": prefix + "Type",
+                    "status": "difference",
+                    "designValue": [["S3", "Lambda", "Lambda"]],
+                    "awsValue": [actual_types],
+                },
+                {
+                    "propertiesKey": prefix + "Values",
+                    "status": "difference",
+                    "designValue": [[["bucket"], ["a"], ["b"]]],
+                    "awsValue": [actual_values],
+                },
+            ]
+            audit.cloudtrail_data_resources(items)
+            self.assertEqual(
+                [item["status"] for item in items], [type_status, value_status]
+            )
+
+        check(["Lambda", "S3"], [["b", "a"], ["bucket"]], "match", "match")
+        check(["Lambda", "S3"], [["b", "different"], ["bucket"]], "match", "difference")
+        check(["Lambda", "S3"], [["bucket"], ["a", "b"]], "match", "difference")
+        check(["Lambda"], [["a", "b"]], "difference", "difference")
 
     def test_event_selector_membership(self):
         fields = [
@@ -307,7 +340,7 @@ class CloudTrailArrayTests(unittest.TestCase):
                     selectors[1],
                 ],
                 "match",
-                "difference",
+                "match",
             ),
         ]:
             with self.subTest(expected=expected, response=response):
