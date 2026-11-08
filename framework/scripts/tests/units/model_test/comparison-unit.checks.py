@@ -1269,7 +1269,7 @@ def test_lakeformation_generated_response_and_cache():
         ),
         (
             {"ResourceArn": arn, "RoleArn": role},
-            ("match", "match", "excluded", "excluded"),
+            ("match", "match", "excluded", "sdk_unavailable"),
         ),
         (
             {"ResourceArn": arn + "-other", "RoleArn": role},
@@ -1282,7 +1282,11 @@ def test_lakeformation_generated_response_and_cache():
                 {
                     "api": ["lakeformation", "describe-resource"],
                     "response": {"ResourceInfo": info},
-                }
+                },
+                {
+                    "api": ["lakeformation", "list-resources"],
+                    "response": {"ResourceInfoList": []},
+                },
             ],
             "fields": ["propertiesKey", "status"],
         }
@@ -1328,9 +1332,23 @@ def test_lakeformation_generated_response_and_cache():
             "DescribeResource does not return the CloudFormation Id."
             in result["report"]
         )
-        assert result["calls"] == [
-            [["lakeformation", "describe-resource"], {"ResourceArn": arn}]
+        assert result["calls"][0] == [
+            ["lakeformation", "describe-resource"],
+            {"ResourceArn": arn},
         ]
+        if len(result["calls"]) > 1:
+            assert result["calls"][1] == [
+                ["lakeformation", "list-resources"],
+                {
+                    "FilterConditionList": [
+                        {
+                            "Field": "RESOURCE_ARN",
+                            "ComparisonOperator": "EQ",
+                            "StringValueList": [arn],
+                        }
+                    ]
+                },
+            ]
 
 
 def test_lambda_comparison_fixture():

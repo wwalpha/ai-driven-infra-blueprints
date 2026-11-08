@@ -1175,10 +1175,14 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                 results.append(
                     {
                         **item,
-                        "status": "sdk_unavailable",
+                        "status": "acquisition_failed"
+                        if response.get("ListResourcesError")
+                        else "sdk_unavailable",
                         "apis": ctx.trace[start:],
                         "reason": (
-                            "DescribeResource confirmed ResourceArn but omitted WithFederation"
+                            "ListResources failed: " + response["ListResourcesError"]
+                            if response.get("ListResourcesError")
+                            else "DescribeResource confirmed ResourceArn but omitted WithFederation"
                             if prop == "LakeFormation.Resource.WithFederation"
                             and isinstance(response.get("ResourceInfo"), dict)
                             and response["ResourceInfo"].get("ResourceArn")

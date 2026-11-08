@@ -564,13 +564,6 @@ def classify_exclusion(m, snapshot, resource, item, *, resource_confirmed=False)
     ):
         return {**item, "status": "excluded"}
     reason = snapshot.get("exclusions", {}).get(prop)
-    if (
-        prop == "LakeFormation.Resource.WithFederation"
-        and item["status"] == "sdk_unavailable"
-        and item.get("reason")
-        == "DescribeResource confirmed ResourceArn but omitted WithFederation"
-    ):
-        reason = item["reason"]
     if prop == "LakeFormation.Resource.UseServiceLinkedRole":
         reason = (
             "RegisterResource input cannot be recovered from DescribeResource"

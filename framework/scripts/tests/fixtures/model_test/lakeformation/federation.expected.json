@@ -89,8 +89,10 @@
       },
       {
         "propertiesKey": "LakeFormation.Resource.WithFederation",
-        "status": "excluded",
-        "designValue": true
+        "status": "sdk_unavailable",
+        "designValue": [
+          "`true`"
+        ]
       }
     ],
     "calls": [
@@ -104,12 +106,13 @@
         }
       ]
     ],
-    "code": 0,
+    "code": 2,
     "report": {
       "contains": [
         "[INFO] LakeFormation.Resource",
         "Verification: NOT_VERIFIABLE",
-        "| UseServiceLinkedRole"
+        "| UseServiceLinkedRole",
+        "[ERROR]"
       ]
     }
   },
@@ -240,6 +243,23 @@
         ],
         {
           "ResourceArn": "arn:aws:s3:::fixture-bucket"
+        }
+      ],
+      [
+        [
+          "lakeformation",
+          "list-resources"
+        ],
+        {
+          "FilterConditionList": [
+            {
+              "Field": "RESOURCE_ARN",
+              "ComparisonOperator": "EQ",
+              "StringValueList": [
+                "arn:aws:s3:::fixture-bucket"
+              ]
+            }
+          ]
         }
       ]
     ],

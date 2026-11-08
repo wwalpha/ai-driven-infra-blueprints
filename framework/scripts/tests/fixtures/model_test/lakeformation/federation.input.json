@@ -145,6 +145,15 @@
           "response": {
             "ResourceInfo": {}
           }
+        },
+        {
+          "api": [
+            "lakeformation",
+            "list-resources"
+          ],
+          "response": {
+            "ResourceInfoList": []
+          }
         }
       ]
     },

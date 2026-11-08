@@ -106,6 +106,101 @@ def check_audit_roundtrip():
 
 
 @it_case
+def check_lakeformation_list_identity():
+    inputs, _ = load_fixture("lakeformation/federation")
+    arn = "arn:aws:s3:::fixture-bucket"
+    inputs["model"].update(
+        {
+            "desired.row.001-004.property": "LakeFormation.Resource.Id",
+            "desired.row.001-004.value": '`{"$modelRef":{"logicalId":"LakeFormation_Resource_001","attribute":"Id"}}`',
+            "desired.row.001-004.comment": "fixture",
+            "observed.row.001-004.value": "`PENDING_DEPLOY`",
+            "desired.row.001-005.property": "LakeFormation.Resource.RoleArn",
+            "desired.row.001-005.value": "`arn:aws:iam::123456789012:role/expected`",
+            "desired.row.001-005.comment": "fixture",
+        }
+    )
+    with tempfile.TemporaryDirectory(prefix="audit-lakeformation-") as directory:
+        root = Path(directory)
+        standalone = generated(prepare(root, inputs), root)
+        for entries, expected in (
+            (
+                [{"ResourceArn": arn, "WithFederation": True}],
+                ("match", "excluded", "match"),
+            ),
+            (
+                [{"ResourceArn": arn, "WithFederation": False}],
+                ("match", "excluded", "difference"),
+            ),
+            ([{"ResourceArn": arn}], ("match", "excluded", "sdk_unavailable")),
+            (
+                [{"ResourceArn": arn + "-other", "WithFederation": True}],
+                ("sdk_unavailable", "sdk_unavailable", "sdk_unavailable"),
+            ),
+            (
+                [{"ResourceArn": arn}, {"ResourceArn": arn}],
+                ("sdk_unavailable", "sdk_unavailable", "sdk_unavailable"),
+            ),
+            ([], ("sdk_unavailable", "sdk_unavailable", "sdk_unavailable")),
+        ):
+            runner = CLI(
+                {
+                    ("lakeformation", "describe-resource"): {
+                        "ResourceInfo": {
+                            "RoleArn": "arn:aws:iam::123456789012:role/fixture"
+                        }
+                    },
+                    ("lakeformation", "list-resources"): {"ResourceInfoList": entries},
+                }
+            )
+            _, _, records = standalone["audit"](
+                standalone["SNAPSHOT"], cli_runner=runner
+            )
+            statuses = {
+                item["propertiesKey"].rsplit(".", 1)[-1]: item["status"]
+                for item in records
+            }
+            assert (
+                tuple(
+                    statuses[key]
+                    for key in ("ResourceArn", "UseServiceLinkedRole", "WithFederation")
+                )
+                == expected
+            )
+            assert statuses["Id"] == (
+                "excluded" if expected[0] == "match" else "sdk_unavailable"
+            )
+            assert runner.calls[-1][1] == {
+                "FilterConditionList": [
+                    {
+                        "Field": "RESOURCE_ARN",
+                        "ComparisonOperator": "EQ",
+                        "StringValueList": [arn],
+                    }
+                ]
+            }
+        runner = CLI(
+            {
+                ("lakeformation", "describe-resource"): {
+                    "ResourceInfo": {
+                        "RoleArn": "arn:aws:iam::123456789012:role/fixture"
+                    }
+                }
+            },
+            fail=("lakeformation", "list-resources"),
+        )
+        _, _, records = standalone["audit"](standalone["SNAPSHOT"], cli_runner=runner)
+        statuses = {
+            item["propertiesKey"].rsplit(".", 1)[-1]: item["status"] for item in records
+        }
+        assert statuses["ResourceArn"] == "acquisition_failed"
+        assert statuses["WithFederation"] == "acquisition_failed"
+        assert statuses["RoleArn"] == "difference"
+        assert statuses["UseServiceLinkedRole"] == "sdk_unavailable"
+        assert statuses["Id"] == "sdk_unavailable"
+
+
+@it_case
 def check_eventbridge_target_audit():
     inputs, _ = load_fixture("audit/base")
     kind = "Events.Rule"
@@ -251,5 +346,6 @@ FAKE_AWS = 'import json, os, pathlib, sys\napi = sys.argv[1:3]\nrequest = json.l
 
 if __name__ == "__main__":
     check_audit_roundtrip()
+    check_lakeformation_list_identity()
     check_eventbridge_target_audit()
     check_hidden_secret_reference_audit()
