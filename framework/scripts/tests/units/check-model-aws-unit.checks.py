@@ -915,6 +915,67 @@ def check_context_branches(tmp_path):
         )
 
 
+def test_ec2_instance_profile_and_cloudformation_tags(tmp_path):
+    directory = tmp_path / "model/dev" / ACCOUNT
+    directory.mkdir(parents=True)
+    (tmp_path / "project.json").write_text(json.dumps({"targets": [TARGET]}))
+    path = directory / "ec2.properties"
+    write_model(
+        path,
+        model_text(
+            "EC2.Instance",
+            [
+                (
+                    "EC2.Instance.InstanceId",
+                    '`{"$modelRef":{"logicalId":"EC2_Instance_001","attribute":"InstanceId"}}`',
+                ),
+                ("EC2.Instance.IamInstanceProfile", "`fixture`"),
+                ("EC2.Instance.Tags[].Key", "`Name`"),
+                ("EC2.Instance.Tags[].Value", "`server`"),
+            ],
+        )
+        + "observed.row.001-001.value=i-fixture\n",
+    )
+    for profile, tags, expected in [
+        (
+            f"arn:aws:iam::{ACCOUNT}:instance-profile/path/fixture",
+            [
+                {"Key": "Name", "Value": "server"},
+                {"Key": "aws:cloudformation:stack-name", "Value": "stack"},
+            ],
+            ("match", "match", "match"),
+        ),
+        (
+            f"arn:aws:iam::{ACCOUNT}:instance-profile/other",
+            [{"Key": "Name", "Value": "wrong"}],
+            ("difference", "match", "difference"),
+        ),
+        (
+            "arn:aws:iam::999999999999:instance-profile/fixture",
+            [{"Key": "Name", "Value": "server"}, {"Key": "custom", "Value": "stack"}],
+            ("difference", "difference", "difference"),
+        ),
+    ]:
+        patches = copy.deepcopy(PATCHES)
+        patches[("ec2", "describe_instances")] = {
+            "Reservations.Instances.IamInstanceProfile.Arn": profile,
+            "Reservations.Instances.Tags": tags,
+        }
+        with patch.dict(PATCHES, patches, clear=True):
+            ctx = SchemaOffline(tmp_path)
+            ctx.egress = False
+            ctx.verified = True
+            records = m.compare_resource(ctx, ctx.model(path).resources[0])
+        statuses = {item["propertiesKey"]: item["status"] for item in records}
+        assert (
+            tuple(
+                statuses["EC2.Instance." + key]
+                for key in ("IamInstanceProfile", "Tags[].Key", "Tags[].Value")
+            )
+            == expected
+        )
+
+
 def check_association_values(tmp_path):
     root = tmp_path
     directory = root / "model/dev" / ACCOUNT

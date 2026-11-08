@@ -1242,6 +1242,20 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                     raise AcquisitionError(
                         "lambda.GetFunction", "InvalidFunctionResponse"
                     )
+            if prop in {
+                "EC2.Instance.Tags[].Key",
+                "EC2.Instance.Tags[].Value",
+            } and isinstance(response.get("Tags"), list):
+                tags = [
+                    tag
+                    for tag in response["Tags"]
+                    if not (
+                        isinstance(tag, dict)
+                        and isinstance(tag.get("Key"), str)
+                        and tag["Key"].startswith("aws:cloudformation:")
+                    )
+                ]
+                value = select({"Tags": tags}, prop.removeprefix("EC2.Instance."))
             if prop in outputs:
                 if value == MISSING:
                     raise Unresolved("generated identifier is absent from SDK response")
@@ -1338,12 +1352,27 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
             )
             continue
         desired, aws = select(expected, prop), select(actual, prop)
+        profile = (
+            re.fullmatch(
+                r"arn:[a-z0-9-]+:iam::([0-9]{12}):instance-profile/(?:[A-Za-z0-9+=,.@_-]+/)*([A-Za-z0-9+=,.@_-]+)",
+                aws,
+            )
+            if prop == "EC2.Instance.IamInstanceProfile" and isinstance(aws, str)
+            else None
+        )
+        equivalent_profile = bool(
+            profile
+            and profile.group(1) == ctx.target.get(AWS_ACCOUNT_ID_KEY)
+            and desired == profile.group(2)
+        )
         # Never reveal variable plaintext; retain equality diagnostics only.
         hidden = resource.module.sensitive(prop)
         results.append(
             {
                 **item,
-                "status": "match" if stable(desired) == stable(aws) else "difference",
+                "status": "match"
+                if equivalent_profile or stable(desired) == stable(aws)
+                else "difference",
                 "designValue": "[REDACTED]" if hidden else redacted(desired),
                 "awsValue": "[REDACTED]" if hidden else redacted(aws),
             }
