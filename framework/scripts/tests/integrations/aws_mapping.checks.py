@@ -876,6 +876,51 @@ def check_s3_replication():
                     {"Bucket": "fixture-bucket", "ExpectedBucketOwner": "123456789012"}
                 ]
 
+        # Exercise the generated CLI path with the actual empty stdout representation.
+        for desired, expected in ((True, "difference"), (False, "match")):
+            notification_row = next(
+                key
+                for key, value in values.items()
+                if key.endswith(".property") and value == kind + "." + notifications_key
+            )
+            values[notification_row.replace(".property", ".value")] = cli.model_literal(
+                desired
+            )
+            write_model(path, values)
+            source, _, _ = generate(root, "dev", "fixture", "s3")
+            standalone = generated(source, root)
+            runner = CLI(
+                {
+                    ("s3api", "list-buckets"): ReplicationClient(
+                        payload
+                    ).list_buckets(),
+                    ("s3api", "get-bucket-location"): ReplicationClient(
+                        payload
+                    ).get_bucket_location(),
+                    ("s3api", "get-bucket-replication"): payload,
+                    notifications_api: {},
+                }
+            )
+
+            def empty_notification(command, _runner=runner, **kwargs):
+                result = _runner(command, **kwargs)
+                if tuple(command[1:3]) == notifications_api:
+                    result.stdout = ""
+                return result
+
+            _, _, results = standalone["audit"](
+                standalone["SNAPSHOT"], cli_runner=empty_notification
+            )
+            selected = next(
+                row
+                for row in results
+                if row["propertiesKey"] == kind + "." + notifications_key
+            )
+            assert selected["status"] == expected, selected
+            assert [
+                request for api, request, _ in runner.calls if api == notifications_api
+            ] == [{"Bucket": "fixture-bucket", "ExpectedBucketOwner": "123456789012"}]
+
         ctx, _ = core.fixture_context(ROOT, "s3", fake_sdk.DirectCalls, {})
         fake = ReplicationImportCalls(payload)
         ctx.call, ctx.pages = fake.call, fake.pages

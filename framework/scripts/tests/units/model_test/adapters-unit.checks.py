@@ -87,6 +87,23 @@ class SdkErrorTests(unittest.TestCase):
             )
         )
 
+    def test_cli_empty_notification_is_scoped_to_successful_operation(self):
+        target = {"awsAccountId": "123456789012", "awsRegion": "us-east-1"}
+        reply = SimpleNamespace(returncode=0, stdout="", stderr="")
+        ctx = m.Context(
+            Path.cwd(), target, cli_runner=Mock(return_value=reply), services=[]
+        )
+        self.assertEqual(ctx.cli("s3", "get_bucket_notification_configuration", {}), {})
+        with self.assertRaises(ValueError):
+            ctx.cli("s3", "get_bucket_replication", {})
+        for raw in (" ", "{", "[]", "null"):
+            reply.stdout = raw
+            with self.assertRaises(ValueError):
+                ctx.cli("s3", "get_bucket_notification_configuration", {})
+        reply.stdout, reply.returncode, reply.stderr = "", 1, '{"Code":"AccessDenied"}'
+        with self.assertRaises(AcquisitionError):
+            ctx.cli("s3", "get_bucket_notification_configuration", {})
+
     def test_cli_errors_do_not_recover_codes(self):
         for code in (
             "ResourceNotFoundException",

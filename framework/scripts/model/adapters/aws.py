@@ -480,6 +480,11 @@ class Context:
                 result.returncode, command[:3], stderr=result.stderr
             )
             raise sdk_error(service + "." + operation, error, None) from None
+        if (service, operation) == (
+            "s3",
+            "get_bucket_notification_configuration",
+        ) and result.stdout == "":
+            return {}
         response = policy_json(result.stdout)
         if not isinstance(response, dict):
             raise ValueError("AWS CLI response must be a JSON object")
