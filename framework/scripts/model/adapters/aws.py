@@ -1242,20 +1242,60 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                     raise AcquisitionError(
                         "lambda.GetFunction", "InvalidFunctionResponse"
                     )
-            if prop in {
-                "EC2.Instance.Tags[].Key",
-                "EC2.Instance.Tags[].Value",
-            } and isinstance(response.get("Tags"), list):
-                tags = [
+            tag_property = prop.removeprefix(resource.kind + ".")
+            if tag_property in {
+                "Tags[].Key",
+                "Tags[].Value",
+                "HostedZoneTags[].Key",
+                "HostedZoneTags[].Value",
+            } and isinstance(value, list):
+                key_prop = prop.rsplit(".", 1)[0] + ".Key"
+                if tag_property.endswith(".Key"):
+                    keys = value
+                else:
+                    key_definition = property_map.get(key_prop)
+                    if (
+                        key_definition is None
+                        or key_definition.field.classification != "supported"
+                        or key_definition.field.getter != field.getter
+                    ):
+                        raise Unresolved(
+                            "tag keys unavailable for CloudFormation tag comparison"
+                        )
+                    _, keys = mapped_value(
+                        ctx, resource, mapping, key_definition, key_prop
+                    )
+                    if keys == MISSING:
+                        keys = key_definition.field.copy_default()
+                if not isinstance(keys, list) or len(keys) != len(value):
+                    raise Unresolved("tag keys and values do not correspond")
+                value = [
+                    item
+                    for key, item in zip(keys, value, strict=True)
+                    if not (
+                        isinstance(key, str) and key.startswith("aws:cloudformation:")
+                    )
+                ]
+            elif (
+                tag_property == "Tags" and isinstance(value, dict) and value != MISSING
+            ):
+                value = {
+                    key: item
+                    for key, item in value.items()
+                    if not (
+                        isinstance(key, str) and key.startswith("aws:cloudformation:")
+                    )
+                }
+            elif tag_property == "Tags" and isinstance(value, list):
+                value = [
                     tag
-                    for tag in response["Tags"]
+                    for tag in value
                     if not (
                         isinstance(tag, dict)
                         and isinstance(tag.get("Key"), str)
                         and tag["Key"].startswith("aws:cloudformation:")
                     )
                 ]
-                value = select({"Tags": tags}, prop.removeprefix("EC2.Instance."))
             if prop in outputs:
                 if value == MISSING:
                     raise Unresolved("generated identifier is absent from SDK response")

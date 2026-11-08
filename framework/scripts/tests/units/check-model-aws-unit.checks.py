@@ -976,6 +976,148 @@ def test_ec2_instance_profile_and_cloudformation_tags(tmp_path):
         )
 
 
+@pytest.mark.parametrize(
+    "service,kind,tag_root",
+    [
+        ("codebuild", "CodeBuild.Project", "Tags"),
+        ("vpc-endpoint", "EC2.VPCEndpoint", "Tags"),
+        ("route53", "Route53.HostedZone", "HostedZoneTags"),
+    ],
+)
+@pytest.mark.parametrize("value_only", [False, True])
+def test_cloudformation_tags_shared_array_comparison(
+    tmp_path, service, kind, tag_root, value_only
+):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    resource = FakeResource(ctx, service, kind)
+    key_prop, value_prop = (
+        kind + "." + tag_root + "[]." + leaf for leaf in ("Key", "Value")
+    )
+    resource.rows = (
+        [] if value_only else [("001-001", {"property": key_prop, "value": "`Name`"})]
+    ) + [("001-002", {"property": value_prop, "value": "`server`"})]
+    resource.parse = lambda row, norm: row["value"].strip("`")
+    field = SimpleNamespace(
+        classification="supported",
+        getter="tags",
+        norm="typed",
+        copy_default=lambda: m.MISSING,
+    )
+    ctx.comparison = lambda service: (
+        None,
+        {
+            key_prop: SimpleNamespace(field=field),
+            value_prop: SimpleNamespace(field=field),
+        },
+    )
+    for ordinary_value, extra, expected in [
+        ("server", False, "match"),
+        ("wrong", False, "difference"),
+        ("server", True, "difference"),
+    ]:
+        keys = ["Name", "aws:cloudformation:stack-id"] + (["user"] if extra else [])
+        values = [ordinary_value, "stack"] + (["extra"] if extra else [])
+
+        def mapped(ctx, resource, mapping, definition, prop, *, keys=keys, values=values):
+            return {}, keys if prop == key_prop else values
+
+        with patch.object(m._imports_aws_mapping_compare, "value", side_effect=mapped):
+            records = m.compare_resource(ctx, resource)
+        assert (
+            next(
+                item["status"]
+                for item in records
+                if item["propertiesKey"] == value_prop
+            )
+            == expected
+        )
+        if not value_only:
+            assert next(
+                item["status"] for item in records if item["propertiesKey"] == key_prop
+            ) == ("difference" if extra else "match")
+
+
+def test_cloudformation_tag_value_requires_corresponding_keys(tmp_path):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    kind = "CodeBuild.Project"
+    resource = FakeResource(ctx, "codebuild", kind, kind + ".Tags[].Value", "server")
+    key_prop = kind + ".Tags[].Key"
+    value_prop = kind + ".Tags[].Value"
+    field = SimpleNamespace(
+        classification="supported",
+        getter="tags",
+        norm="typed",
+        copy_default=lambda: m.MISSING,
+    )
+    ctx.comparison = lambda service: (
+        None,
+        {
+            key_prop: SimpleNamespace(field=field),
+            value_prop: SimpleNamespace(field=field),
+        },
+    )
+
+    def mapped(ctx, resource, mapping, definition, prop):
+        return {}, ["Name", "aws:cloudformation:stack-id"] if prop == key_prop else [
+            "server"
+        ]
+
+    with patch.object(m._imports_aws_mapping_compare, "value", side_effect=mapped):
+        assert m.compare_resource(ctx, resource)[0]["status"] == "design_unresolved"
+
+
+def test_cloudformation_tags_real_codebuild_mapping(tmp_path):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    resource = FakeResource(ctx, "codebuild", "CodeBuild.Project")
+    resource.rows = [
+        ("001-001", {"property": "CodeBuild.Project.Tags[].Key", "value": "`Name`"}),
+        (
+            "001-002",
+            {"property": "CodeBuild.Project.Tags[].Value", "value": "`server`"},
+        ),
+    ]
+    resource.parse = lambda row, norm: row["value"].strip("`")
+    response = {
+        "projects": [
+            {
+                "tags": [
+                    {"key": "Name", "value": "server"},
+                    {"key": "aws:cloudformation:stack-name", "value": "stack"},
+                ]
+            }
+        ]
+    }
+    with patch.object(ctx, "fetch", return_value=response):
+        records = m.compare_resource(ctx, resource)
+    assert [item["status"] for item in records] == ["match", "match"]
+
+
+def test_cloudformation_tags_shared_map_comparison(tmp_path):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    prop = "Glue.Job.Tags"
+    resource = FakeResource(ctx, "glue", "Glue.Job", prop, desired={"Name": "server"})
+    field = SimpleNamespace(
+        classification="supported",
+        getter="tags",
+        norm="typed",
+        copy_default=lambda: m.MISSING,
+    )
+    ctx.comparison = lambda service: (None, {prop: SimpleNamespace(field=field)})
+    for tags, expected in [
+        ({"Name": "server", "aws:cloudformation:stack-name": "stack"}, "match"),
+        ({"Name": "wrong", "aws:cloudformation:stack-name": "stack"}, "difference"),
+        ({"Name": "server", "user": "extra"}, "difference"),
+    ]:
+        with patch.object(
+            m._imports_aws_mapping_compare, "value", return_value=({}, tags)
+        ):
+            assert m.compare_resource(ctx, resource)[0]["status"] == expected
+
+
 def check_association_values(tmp_path):
     root = tmp_path
     directory = root / "model/dev" / ACCOUNT
