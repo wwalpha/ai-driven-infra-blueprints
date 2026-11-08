@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from model.importing.cli import model_literal
 from support.it_case_receipt import it_case
+from support.model_test_references import ReferenceFixture
 from support.model_test_runner import CLI, generated, load_fixture, prepare, snapshot
 from validation.findings import Findings
 from validation.scenario import check_results
@@ -110,7 +111,7 @@ def check_eventbridge_target_audit():
     kind = "Events.Rule"
     target = {
         "Id": "fixture-target",
-        "Arn": "arn:aws:lambda:ap-northeast-1:123456789012:function:fixture",
+        "Arn": "arn:aws:codepipeline:ap-northeast-1:123456789012:fixture-pipeline",
         "RoleArn": "arn:aws:iam::123456789012:role/fixture",
         "InputTransformer": {"InputPathsMap": {"id": "$.id"}, "InputTemplate": "<id>"},
     }
@@ -127,7 +128,19 @@ def check_eventbridge_target_audit():
         ],
     }
     inputs["service"] = "eventbridge"
-    inputs.pop("models", None)
+    inputs["models"] = {
+        "dev/cde/codepipeline": ReferenceFixture.model(
+            "CodePipeline.Pipeline",
+            "CodePipeline_Pipeline_001",
+            {"Name": "fixture-pipeline"},
+        )
+    }
+    rows["Targets[].Arn"] = {
+        "Fn::Sub": [
+            "arn:aws:codepipeline:ap-northeast-1:123456789012:${PipelineName}",
+            {"PipelineName": ReferenceFixture.ref("CodePipeline_Pipeline_001", "Name")},
+        ]
+    }
     inputs["model"] = {
         "desired.service.eventbridge.serviceId": "eventbridge",
         "desired.service.eventbridge.ownedCatalogResourceTypes": kind,
@@ -154,6 +167,7 @@ def check_eventbridge_target_audit():
             actual = copy.deepcopy(target)
             if variant == "different":
                 actual.update(
+                    Arn=target["Arn"] + "-different",
                     RoleArn=target["RoleArn"] + "-different",
                     InputTransformer={
                         "InputPathsMap": {"id": "$.other"},
@@ -173,7 +187,7 @@ def check_eventbridge_target_audit():
             )
             assert code == expected_code, report
             state = {0: "OK", 1: "NG", 2: "ERROR"}[expected_code]
-            for field in list(rows)[-3:]:
+            for field in ["Targets[].Arn", *list(rows)[-3:]]:
                 assert f"[{state}] {kind} | fixture-rule | {field}" in report, report
             assert [
                 (api, request) for api, request, _ in runner.calls if api == targets_api

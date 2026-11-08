@@ -520,6 +520,44 @@ class ReferenceTests(ReferenceFixture, unittest.TestCase):
         self.assertIn("MODEL_REF_TYPE_MISMATCH", row["reason"])
 
     @input_scope
+    def test_reference_intrinsics_only_resolve_proven_values(self):
+        reference = self.ref("Logs_LogGroup_001", "LogGroupName")
+        for expression, expected in (
+            (
+                {"Fn::Sub": ["prefix-${Name}", {"Name": reference}]},
+                "prefix-/aws/vpc/flowlogs/fixture",
+            ),
+            (
+                {"Fn::Sub": ["${Name}-${Unknown}", {"Name": reference}]},
+                {
+                    "Fn::Sub": [
+                        "${Name}-${Unknown}",
+                        {"Name": "/aws/vpc/flowlogs/fixture"},
+                    ]
+                },
+            ),
+            (
+                {"Fn::Join": ["-", [reference, {"Fn::GetAtt": ["Unknown", "Arn"]}]]},
+                {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            "/aws/vpc/flowlogs/fixture",
+                            {"Fn::GetAtt": ["Unknown", "Arn"]},
+                        ],
+                    ]
+                },
+            ),
+        ):
+            with self.subTest(expression=expression):
+                self.consumer["desired.row.001-002.value"] = (
+                    "`" + json.dumps(expression) + "`"
+                )
+                self.save()
+                row = self.snapshot()["referenceRows"]["dev/cde/vpc"]["001-002"]
+                self.assertEqual(row["value"], expected)
+
+    @input_scope
     def test_nested_native_values_and_stable_row_ids(self):
         document = {
             "items": [

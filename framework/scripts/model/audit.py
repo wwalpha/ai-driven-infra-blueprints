@@ -663,10 +663,10 @@ def reference_rows(root, models):
                         _callback_reference_rows_value, resolutions
                     ),
                 )
+                value = execution_document(
+                    value, root, property_name=row["property"], scope=data.scope
+                )
                 if producer:
-                    value = execution_document(
-                        value, root, property_name=row["property"], scope=data.scope
-                    )
                     if row["property"] == "Route53.RecordSet.AliasTarget.DNSName" and (
                         not isinstance(value, str) or not value
                     ):
