@@ -1576,8 +1576,13 @@ def collect_successful(backend, units, states, *, generated_views=None):
             }
         for logical in document.get("Resources", {}) | removed.get(name, {}):
             if logical not in coverage:
-                if logical in selected[name] and not static_export_handle(
-                    document, logical, parameters, pseudo
+                if (
+                    logical in selected[name]
+                    and not static_export_handle(document, logical, parameters, pseudo)
+                    and _imports_cfn_inputs.condition_active(
+                        document, parameters, pseudo,
+                        document.get("Resources", {}).get(logical, {}),
+                    )
                 ):
                     ambiguous(f"{name}/{logical}: selected resource was not mapped")
                 coverage[logical] = {

@@ -1077,6 +1077,17 @@ def check_removed_model_observation_destinations(tmp_path, monkeypatch, modeled,
             )
             assert (logical in mapped[name]) is modeled
             assert set(mapped[name]) == {"OriginalVpc"}
+            if not modeled:
+                states = {name: {"changes": [removal]}}
+                with patch.object(
+                    observed.current_state, "read", return_value={"StackStatus": "UNKNOWN"}
+                ), patch.object(backend, "aws", create=True) as aws:
+                    observed.collect_successful(backend, units, states)
+                    aws.assert_not_called()
+                assert states[name]["observedCoverage"][logical] == {
+                    "status": "EXCLUDED",
+                    "reason": "Condition inactive or static/retained scaffold",
+                }
     assert all(path.read_bytes() == content for path, content in before.items())
 
 
