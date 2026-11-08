@@ -36,6 +36,7 @@ from sync_runtime import publish_generation
 from utils.input_cache import input_scope
 from validation import acceptance
 from validation.findings import Findings
+from validation.scenario import audit_log_address
 from validation.task import TaskValidation
 from validation_scope import active_scope
 
@@ -1398,7 +1399,9 @@ def check_import_registered_acceptance(outcome, integration):
             "## Task contract\n",
             "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
         )
-        text = text.replace("`changed:file.txt`", "`check:framework.task-type-dispatch`")
+        text = text.replace(
+            "`changed:file.txt`", "`check:framework.task-type-dispatch`"
+        )
         tasks.start(root, name, text)
         (root / "file.txt").write_text("changed")
         handler = Mock(
@@ -1735,6 +1738,46 @@ def check_registration_preserves_legacy_diagnosis(tmp_path, state):
             with pytest.raises(ValueError, match="no Acceptance check"):
                 task_runtime.resume(root, name)
             assert path.read_text(encoding="utf-8") == text
+
+
+@pytest.mark.parametrize(
+    "task_type", ["migration", "governance", "catalog-maintenance", "initialization"]
+)
+@pytest.mark.parametrize(
+    "scope",
+    [frozenset({("dev", "team", "vpc")}), frozenset({("dev", "other", "vpc")}), None],
+)
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/results/dev/team/vpc-20261108-093236-716564.log",
+        "tests/results/dev/team/vpc-20261108-093236.log",
+        "tests/results/dev/team/vpc-20260230-093236.log",
+        "tests/results/dev/team/vpc-invalid.log",
+        "tests/results/scenario/dev/team/result.md",
+        "tests/scenarios/dev/team/vpc-20261108-093236.log",
+    ],
+)
+def test_audit_log_archive_boundary(tmp_path, task_type, scope, path):
+    findings = Findings(tmp_path)
+    validation = TaskValidation(tmp_path, findings)
+    validation.task_type = task_type
+    validation.changed_paths = {path}
+    valid = path in {
+        "tests/results/dev/team/vpc-20261108-093236-716564.log",
+        "tests/results/dev/team/vpc-20261108-093236.log",
+    }
+    expected = (
+        task_type == "migration"
+        and valid
+        and scope == frozenset({("dev", "team", "vpc")})
+    )
+    with patch(
+        "validation.task.task_snapshot", return_value=SimpleNamespace(scope=scope)
+    ):
+        validation.check_task_boundary(tmp_path / "tasks/archive.md")
+    assert bool(findings.errors) is not expected
+    assert bool(audit_log_address(path)) is valid
 
 
 if __name__ == "__main__":

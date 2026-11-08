@@ -25,6 +25,7 @@ from support.repository_fixtures import transition_contract as contract
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from validation import acceptance
 from validation.findings import Findings
+from validation.scenario import check_results as _check_result_files
 from validation.task import TaskValidation
 
 if not __debug__:
@@ -212,6 +213,37 @@ def check_self_recovery_resume():
             findings = Findings(root)
             TaskValidation(root, findings).check_task_scope()
         assert not findings.errors, findings.errors
+
+
+def check_archive_audit_log_contract_and_result(tmp_path):
+    name = "tasks/archive.md"
+    path = "tests/results/dev/team/cloudwatch-logs-20261108-093236-716564.log"
+    prompt = tmp_path / name
+    prompt.parent.mkdir()
+    prompt.write_text(
+        contract(name, [path]).replace("`framework`", "`dev/team/cloudwatch-logs`"),
+        encoding="utf-8",
+    )
+    destination = tmp_path / path
+    destination.parent.mkdir(parents=True)
+    destination.write_text("synthetic audit evidence\n", encoding="utf-8")
+    findings = Findings(tmp_path)
+    validation = TaskValidation(tmp_path, findings)
+    validation.task_type = "migration"
+    validation.changed_paths = {path}
+    validation.check_task_boundary(prompt)
+    assert not findings.errors, findings.errors
+    missing = Findings(tmp_path)
+    _check_result_files(tmp_path, {("dev", "team"): {}}, False, {}, missing)
+    assert any("missing generated test" in error for error in missing.errors), (
+        missing.errors
+    )
+    standalone = tmp_path / "tests/dev/team/cloudwatch-logs.py"
+    standalone.parent.mkdir(parents=True)
+    standalone.write_text("# synthetic standalone audit\n", encoding="utf-8")
+    complete = Findings(tmp_path)
+    _check_result_files(tmp_path, {("dev", "team"): {}}, False, {}, complete)
+    assert not complete.errors, complete.errors
 
 
 if __name__ == "__main__":

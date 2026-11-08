@@ -27,6 +27,7 @@ from task_contract_core import TASK_TYPES as TASK_TYPES
 from utils.git_changes import GitWorkingPaths, collect_working_paths, read_paths
 from utils.input_cache import input_text
 from validation import acceptance
+from validation.scenario import audit_log_address
 
 
 class TaskValidation:
@@ -281,6 +282,16 @@ class TaskValidation:
                 forbidden = self.under(changed, "tests/scenarios") or self.under(
                     changed, "tests/results"
                 )
+                address = (
+                    audit_log_address(changed)
+                    if self.task_type == "migration"
+                    else None
+                )
+                if forbidden and address is not None:
+                    scope = task_snapshot(
+                        self.root, prompt_path, executable=False
+                    ).scope
+                    forbidden = scope is None or address not in scope
                 self.check(
                     not forbidden,
                     f"{self.task_type} task boundary violation: {changed}",

@@ -147,6 +147,21 @@ def check_result_metadata(
             )
 
 
+def audit_log_address(path):
+    match = re.fullmatch(
+        r"tests/results/([a-z0-9]+(?:-[a-z0-9]+)*)/([a-z0-9]+(?:-[a-z0-9]+)*)/"
+        r"([a-z0-9]+(?:-[a-z0-9]+)*)-([0-9]{8}-[0-9]{6})(?:-[0-9]{6})?\.log",
+        path,
+    )
+    if match is None:
+        return None
+    try:
+        datetime.strptime(match[4], "%Y%m%d-%H%M%S")
+    except ValueError:
+        return None
+    return match[1], match[2], match[3]
+
+
 def check_audit_logs(repository, directory, accounts, template_mode, findings):
     environment = directory.name
     for target in sorted(input_select(directory)):
@@ -163,24 +178,19 @@ def check_audit_logs(repository, directory, accounts, template_mode, findings):
             f"template mode cannot contain audit logs: {findings.relative(target)}",
         )
         for path in sorted(input_select(target)):
-            match = re.fullmatch(
-                r"([a-z0-9]+(?:-[a-z0-9]+)*)-([0-9]{8}-[0-9]{6})(?:-[0-9]{6})?\.log",
-                path.name,
-            )
+            address = audit_log_address(path.relative_to(repository).as_posix())
             valid = (
-                input_is_file(path) and not input_is_symlink(path) and match is not None
+                input_is_file(path)
+                and not input_is_symlink(path)
+                and address is not None
             )
             if valid:
-                try:
-                    datetime.strptime(match[2], "%Y%m%d-%H%M%S")
-                except ValueError:
-                    valid = False
-                valid = valid and input_is_file(
+                valid = input_is_file(
                     repository
                     / "tests"
-                    / environment
-                    / target.name
-                    / (match[1] + ".py")
+                    / address[0]
+                    / address[1]
+                    / (address[2] + ".py")
                 )
             findings.check(
                 valid,
