@@ -154,7 +154,12 @@ def audit_log_address(path):
         path,
     )
     if match is None:
-        return None
+        match = re.fullmatch(
+            r"tests/results/([a-z0-9]+(?:-[a-z0-9]+)*)/([a-z0-9]+(?:-[a-z0-9]+)*)/"
+            r"([a-z0-9]+(?:-[a-z0-9]+)*)\.log",
+            path,
+        )
+        return (match[1], match[2], match[3]) if match else None
     try:
         datetime.strptime(match[4], "%Y%m%d-%H%M%S")
     except ValueError:

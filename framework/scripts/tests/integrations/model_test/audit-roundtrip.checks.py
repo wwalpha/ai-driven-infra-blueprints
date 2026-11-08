@@ -63,7 +63,6 @@ def check_audit_roundtrip():
             }
             settings.write_text(json.dumps(configuration), encoding="utf-8")
             calls.unlink(missing_ok=True)
-            previous = set(log_directory.glob("vpc-*.log"))
             selected = script
             if run.get("flat"):
                 selected = root / "vpc.py"
@@ -91,9 +90,8 @@ def check_audit_roundtrip():
             for text in expected["absent"]:
                 assert text not in process.stdout + process.stderr
             assert not process.stderr, process.stderr
-            saved = set(log_directory.glob("vpc-*.log")) - previous
-            assert len(saved) == 1, saved
-            assert saved.pop().read_text(encoding="utf-8") == process.stdout
+            saved = log_directory / "vpc.log"
+            assert saved.read_text(encoding="utf-8") == process.stdout
             actual_calls = [
                 json.loads(line)
                 for line in calls.read_text(encoding="utf-8").splitlines()

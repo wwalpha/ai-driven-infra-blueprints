@@ -1750,10 +1750,11 @@ def check_registration_preserves_legacy_diagnosis(tmp_path, state):
 @pytest.mark.parametrize(
     "path",
     [
+        "tests/results/dev/team/vpc.log",
         "tests/results/dev/team/vpc-20261108-093236-716564.log",
         "tests/results/dev/team/vpc-20261108-093236.log",
         "tests/results/dev/team/vpc-20260230-093236.log",
-        "tests/results/dev/team/vpc-invalid.log",
+        "tests/results/dev/team/VPC-invalid.log",
         "tests/results/scenario/dev/team/result.md",
         "tests/scenarios/dev/team/vpc-20261108-093236.log",
     ],
@@ -1764,6 +1765,7 @@ def test_audit_log_archive_boundary(tmp_path, task_type, scope, path):
     validation.task_type = task_type
     validation.changed_paths = {path}
     valid = path in {
+        "tests/results/dev/team/vpc.log",
         "tests/results/dev/team/vpc-20261108-093236-716564.log",
         "tests/results/dev/team/vpc-20261108-093236.log",
     }

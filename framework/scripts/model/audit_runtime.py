@@ -1054,13 +1054,15 @@ def report(snapshot, profile, account, records, timestamp):
         ("Environment", target["environment"]),
         ("Alias", target["directory"]),
         ("Service", snapshot["service"]),
-        ("Profile", profile or "(default credential chain)"),
         ("Region", target[AWS_REGION_KEY]),
         ("Account", account),
         ("Design SHA256", snapshot["modelHash"]),
     ]:
         line(f"{label}: {value}")
     line()
+    header = output.getvalue()
+    output.seek(0)
+    output.truncate()
     counts = Counter()
     for item in records:
         state = {
@@ -1129,6 +1131,9 @@ def report(snapshot, profile, account, records, timestamp):
     if not records:
         counts["ERROR"] += 1
         line("[ERROR] No selected desired attributes")
+    details = output.getvalue()
+    output.seek(0)
+    output.truncate()
     line("--------------------------------")
     line(f"Total: {sum(counts.values())}")
     for state in ("OK", "NG", "ERROR", "INFO"):
@@ -1141,7 +1146,7 @@ def report(snapshot, profile, account, records, timestamp):
         else 0
     )
     line("Result: " + ("FAIL" if code else "PASS"))
-    return output.getvalue(), code
+    return header + output.getvalue() + "\n" + details, code
 
 
 def main(argv=None, cli_runner=None, script_path=None):
@@ -1164,14 +1169,9 @@ def main(argv=None, cli_runner=None, script_path=None):
     directory = tests / "results" / target["environment"] / target["directory"]
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        filename = SNAPSHOT["service"] + "-" + timestamp.strftime("%Y%m%d-%H%M%S")
-        path = directory / (filename + ".log")
-        try:
-            handle = path.open("x", encoding="utf-8", newline="\n")
-        except FileExistsError:
-            handle = (directory / (filename + timestamp.strftime("-%f") + ".log")).open(
-                "x", encoding="utf-8", newline="\n"
-            )
+        handle = (directory / (SNAPSHOT["service"] + ".log")).open(
+            "w", encoding="utf-8", newline="\n"
+        )
         with handle:
             _, account, records = audit(SNAPSHOT, args.profile, cli_runner)
             text, code = report(

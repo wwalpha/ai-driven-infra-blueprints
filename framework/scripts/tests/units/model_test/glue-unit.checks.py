@@ -254,7 +254,7 @@ def test_glue_standalone_redacts_console_and_log(
     cli.fail = ("secretsmanager", "describe-secret")
     assert namespace["main"]([], cli_runner=cli, script_path=script) == code
     text = capsys.readouterr().out
-    logs = list((tmp_path / "tests/results/dev/cde").glob("glue-*.log"))
+    logs = list((tmp_path / "tests/results/dev/cde").glob("glue.log"))
     assert len(logs) == 1
     assert logs[0].read_text(encoding="utf-8") == text
     assert "[REDACTED]" in text

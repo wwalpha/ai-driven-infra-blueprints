@@ -57,7 +57,6 @@ conflicting explicit profile before AWS, verifies STS against `awsExecutionAccou
 (or `awsAccountId`), and never changes credentials after failure. Every selected
 attribute receives OK/NG/ERROR. Structured differences include paths; secrets are
 masked. The exact console text is saved under
-`tests/results/<environment>/<alias>/<service>-YYYYMMDD-HHMMSS.log` (a microsecond
-suffix prevents overwriting a same-second run). Exit codes: 0 all OK; 1 any NG;
+`tests/results/<environment>/<alias>/<service>.log`, replacing the previous log for that service. Exit codes: 0 all OK; 1 any NG;
 2 any ERROR. Audit logs are human execution outputs, not generation/validation
 artifacts; keep mock validation logs in temporary directories outside the repository.

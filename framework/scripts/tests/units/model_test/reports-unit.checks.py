@@ -113,6 +113,23 @@ def test_guardduty_secret_failure_before_snapshot():
     TestCase().assertNotIn("hidden", str(caught.value))
 
 
+def test_summary_precedes_details_and_profile_is_omitted():
+    snapshot = {
+        "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
+        "service": "vpc",
+        "modelHash": "hash",
+        "names": {},
+    }
+    record = {"resource": "vpc", "propertiesKey": "EC2.VPC.Id", "status": "match"}
+    text, code = audit.report(
+        snapshot, "profile", "account", [record], datetime.now(timezone.utc)
+    )
+    assert code == 0
+    assert text.index("Total: 1") < text.index("[OK]")
+    assert "OK: 1\nNG: 0\nERROR: 0\nINFO: 0\nResult: PASS" in text
+    assert "Profile:" not in text
+
+
 def test_pending_deploy_report_classification():
     snapshot = {
         "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
