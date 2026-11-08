@@ -194,9 +194,62 @@ def check_eventbridge_target_audit():
             ] == [(targets_api, {"Rule": "fixture-rule", "EventBusName": "default"})]
 
 
+@it_case
+def check_hidden_secret_reference_audit():
+    inputs, _ = load_fixture("audit/base")
+    ref = ReferenceFixture.ref("SecretsManager_Secret_001", "Id")
+    values = ReferenceFixture.model(
+        "SecretsManager.Secret", "SecretsManager_Secret_001", {"Name": "fixture-secret"}
+    )
+    schedule = ReferenceFixture.model(
+        "SecretsManager.RotationSchedule",
+        "SecretsManager_RotationSchedule_001",
+        {"SecretId": ref},
+    )
+    for key, value in schedule.items():
+        if key.startswith(("desired.resource.001.", "desired.row.001-")):
+            values[key.replace(".001", ".002", 1)] = value
+    values["desired.service.identity.lastAllocated"] = json.dumps(
+        {"SecretsManager.Secret": 1, "SecretsManager.RotationSchedule": 1}
+    )
+    values["desired.resource.002.parentReference"] = json.dumps(ref)
+    values["desired.resource.002.parentProperty"] = (
+        "SecretsManager.RotationSchedule.SecretId"
+    )
+    inputs.update(service="secrets-manager", model=values)
+    inputs.pop("models", None)
+    with tempfile.TemporaryDirectory(prefix="audit-secret-") as directory:
+        root = Path(directory)
+        standalone = generated(prepare(root, inputs), root)
+        snap = standalone["SNAPSHOT"]
+        for variant, expected in (
+            ("match", "match"),
+            ("wrong-name", "design_unresolved"),
+            ("denied", "acquisition_failed"),
+        ):
+            response = {
+                "Name": "other" if variant == "wrong-name" else "fixture-secret",
+                "ARN": "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture-secret-Ab12cd",
+            }
+            runner = CLI(
+                {("secretsmanager", "describe-secret"): response},
+                fail=("secretsmanager", "describe-secret")
+                if variant == "denied"
+                else None,
+            )
+            records = standalone["audit"](snap, cli_runner=runner)[2]
+            item = next(
+                item
+                for item in records
+                if item["propertiesKey"] == "SecretsManager.RotationSchedule.SecretId"
+            )
+            assert item["status"] == expected, item
+
+
 FAKE_AWS = 'import json, os, pathlib, sys\napi = sys.argv[1:3]\nrequest = json.loads(sys.argv[sys.argv.index("--cli-input-json") + 1])\nsettings = json.loads(pathlib.Path(os.environ["AUDIT_RESPONSES"]).read_text(encoding="utf-8"))\nwith pathlib.Path(os.environ["AUDIT_CALLS"]).open("a", encoding="utf-8") as handle:\n    handle.write(json.dumps([api, request]) + "\\n")\nif api == ["sts", "get-caller-identity"]:\n    assert request == {}\n    value = {"Account": settings.get("account", "123456789012"), "Arn": "arn:aws:iam::123456789012:user/offline"}\nelse:\n    route = next(item for item in settings["responses"] if item["api"] == api)\n    assert request == route["inputs"], (request, route)\n    value = route["response"]\nprint(json.dumps(value))\n'
 
 
 if __name__ == "__main__":
     check_audit_roundtrip()
     check_eventbridge_target_audit()
+    check_hidden_secret_reference_audit()

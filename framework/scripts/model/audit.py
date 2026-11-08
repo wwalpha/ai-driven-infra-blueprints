@@ -614,6 +614,62 @@ def reference_rows(root, models):
             resolved = not diagnostics and statuses == ["resolved"]
             producer = None
             if (
+                statuses == ["logical_only"]
+                and not diagnostics
+                and len(references) == 1
+                and document
+                == {
+                    MODEL_REF_KEY: {
+                        REFERENCE_LOGICAL_ID_KEY: references[0].logical_id,
+                        "attribute": references[0].attribute,
+                    }
+                }
+                and references[0].attribute in {"Id", "Arn"}
+            ):
+                try:
+                    source, number, spec = resolver.resolve_logical(
+                        references[0].logical_id, data.scope
+                    )
+                    secret_rows = [
+                        (key, item)
+                        for key, item in entries(source.authoritative, "desired.row.")
+                        if key.rpartition("-")[0] == number
+                    ]
+                    names = [
+                        literal(item["value"])
+                        for _, item in secret_rows
+                        if item["property"] == "SecretsManager.Secret.Name"
+                    ]
+                    hidden = [
+                        key
+                        for key, item in secret_rows
+                        if item["property"]
+                        in {"SecretsManager.Secret.Id", "SecretsManager.Secret.Arn"}
+                    ]
+                    all_names = [
+                        literal(item["value"])
+                        for _, item in entries(source.authoritative, "desired.row.")
+                        if item["property"] == "SecretsManager.Secret.Name"
+                    ]
+                    if (
+                        spec[RESOURCE_TYPE_KEY] == "SecretsManager.Secret"
+                        and len(names) == 1
+                        and all_names.count(names[0]) == 1
+                        and re.fullmatch(r"[A-Za-z0-9/_+=.@-]{1,512}", names[0])
+                        and names[0] not in {"UNSET", MODEL_PENDING_DEPLOY}
+                        and not any(
+                            "observed.row." + key + ".value" in source.authoritative
+                            for key in hidden
+                        )
+                    ):
+                        producer = {
+                            "logicalId": references[0].logical_id,
+                            "attribute": references[0].attribute,
+                            "secretName": names[0],
+                        }
+                except ReferenceDiagnosticError:
+                    pass
+            if (
                 row["property"]
                 in {
                     "Route53.RecordSet.AliasTarget.DNSName",
@@ -799,6 +855,18 @@ def _build(root, environment, selector, service, standalone):
     # Typed producers are generation inputs; only legacy references need runtime Models.
     runtime_models = dependencies(root, target, path, model_references=False)
     resolved_rows = reference_rows(root, runtime_models)
+    secret_producers = [
+        row["producer"]
+        for rows in resolved_rows.values()
+        for row in rows.values()
+        if row.get("producer", {}).get("secretName")
+    ]
+    if secret_producers:
+        partition = (
+            aws_runtime().sdk_session().get_partition_for_region(target[AWS_REGION_KEY])
+        )
+        for producer in secret_producers:
+            producer["partition"] = partition
     catalog = DesignSchemaCatalog(ROOT)
     mappings, schemas, outputs, exclusions = {}, {}, {}, {}
     for name in sorted({data.scope.service for data in runtime_models.values()}):
@@ -1206,6 +1274,15 @@ def _build(root, environment, selector, service, standalone):
         for name in sorted(
             set(mappings)
             | {"iam", "kms"}
+            | (
+                {"secrets-manager"}
+                if any(
+                    row.get("producer", {}).get("secretName")
+                    for rows in resolved_rows.values()
+                    for row in rows.values()
+                )
+                else set()
+            )
             | (
                 {"vpc-endpoint"}
                 if any(

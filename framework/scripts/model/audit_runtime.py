@@ -302,6 +302,35 @@ def reference_result(m, snapshot, resource, item):
             "designValue": None,
             "reason": reason,
         }
+    if (
+        item["propertiesKey"] == "SecretsManager.RotationSchedule.SecretId"
+        and item["status"] in {"match", "difference"}
+        and len(resolutions) == 1
+        and resolutions[0]
+        and resolutions[0].get("producer", {}).get("secretName")
+    ):
+        try:
+            actual = resource.ctx.fetch(resource, "rotation").get("ARN")
+            if not isinstance(actual, str) or not actual:
+                raise ValueError("Secret ARN missing from response")
+            expected = resolutions[0]["value"]
+            return {
+                **item,
+                "awsValue": actual,
+                "status": "match" if expected == actual else "difference",
+            }
+        except (
+            m.AcquisitionError,
+            m.Unresolved,
+            ValueError,
+            TypeError,
+            AttributeError,
+        ):
+            return {
+                **item,
+                "status": "acquisition_failed",
+                "reason": "Secret identity unavailable",
+            }
     if item["status"] in {"match", "difference"}:
         return item
     # Acquisition failed before parsing: display fixed values without another AWS call.
@@ -706,6 +735,54 @@ def resolve_endpoint_aliases(m, ctx, snapshot):
                 )
 
 
+def resolve_secret_references(m, ctx, snapshot):
+    for rows in snapshot["referenceRows"].values():
+        for row in rows.values():
+            producer = row.get("producer") or {}
+            name = producer.get("secretName")
+            if row["status"] != "logical_only" or not name:
+                continue
+            try:
+                adapter = m.service_module("secrets-manager")
+                resource = SimpleNamespace(
+                    kind="SecretsManager.Secret", value=lambda prop, name=name: name
+                )
+                record = adapter.fetch(ctx, resource, "base")
+                arn = record.get("ARN")
+                expected = (
+                    "arn:"
+                    + producer["partition"]
+                    + ":secretsmanager:"
+                    + ctx.target[AWS_REGION_KEY]
+                    + ":"
+                    + m.execution_account(ctx.target)
+                    + ":secret:"
+                    + name
+                    + "-"
+                )
+                if (
+                    record.get("Name") != name
+                    or not isinstance(arn, str)
+                    or not arn.startswith(expected)
+                    or re.fullmatch(r"[A-Za-z0-9]{6}", arn[len(expected) :]) is None
+                ):
+                    raise ValueError(
+                        "Secret identity response does not match the Model"
+                    )
+                row.update(status="resolved", value=arn, reason="")
+            except (
+                m.AcquisitionError,
+                m.Unresolved,
+                ValueError,
+                TypeError,
+                KeyError,
+                AttributeError,
+            ) as error:
+                row["reason"] = "Producer observation unavailable: " + getattr(
+                    error, "code", type(error).__name__
+                )
+
+
 def audit_resources(model):
     for resource in model.resources:
         resource = copy.copy(resource)
@@ -777,6 +854,7 @@ def audit(snapshot, profile=None, cli_runner=None):
                 )
         return m, account, records
     resolve_endpoint_aliases(m, ctx, snapshot)
+    resolve_secret_references(m, ctx, snapshot)
     model = ctx.model(
         m.ROOT
         / "model"

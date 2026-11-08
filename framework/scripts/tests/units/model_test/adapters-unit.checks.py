@@ -454,7 +454,7 @@ def _rotation_cli(calls, /, command, **kwargs):
     else:
         result = {
             "Name": "fixture-secret",
-            "ARN": "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture",
+            "ARN": "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture-secret-Ab12cd",
             "RotationRules": {"AutomaticallyAfterDays": 60, "Duration": "2h"},
             "SecretString": "never-print-secret-value",
         }
@@ -531,7 +531,7 @@ def test_secrets_rotation_generated_audit(tmp_path):
         for item in records
         if item["propertiesKey"].startswith("SecretsManager.RotationSchedule.")
     }
-    assert selected["SecretId"]["status"] == "design_unresolved", selected
+    assert selected["SecretId"]["status"] == "match", selected
     assert selected["AutomaticallyAfterDays"]["status"] == "difference", selected
     assert selected["Duration"]["status"] == "match", selected
     assert all(
@@ -545,7 +545,6 @@ def test_secrets_rotation_generated_audit(tmp_path):
     assert "never-print-secret-value" not in report
 
     denied = _bind_framework_callback(_rotation_denied, cli)
-
     failed = audit.audit(snapshot, cli_runner=denied)[2]
     days = next(
         item
@@ -553,7 +552,81 @@ def test_secrets_rotation_generated_audit(tmp_path):
         if item["propertiesKey"].endswith(".AutomaticallyAfterDays")
     )
     assert days["status"] == "acquisition_failed", days
+    assert next(item for item in failed if item["propertiesKey"].endswith(".SecretId"))[
+        "status"
+    ] in {"acquisition_failed", "design_unresolved"}
     report, _ = audit.report(
         snapshot, None, "account", failed, datetime.now(timezone.utc)
     )
     assert "never-print-secret-value" not in report
+
+    duplicate = dict(values)
+    for key, value in values.items():
+        if key.startswith(("desired.resource.001.", "desired.row.001-")):
+            duplicate[key.replace(".001", ".003", 1)] = value
+    duplicate["desired.resource.003.logicalId"] = "SecretsManager_Secret_002"
+    duplicate["desired.resource.003.anchor"] = "fixture-other"
+    duplicate["desired.resource.003.cfn-logicalId"] = "fixture-Other"
+    duplicate["desired.service.identity.lastAllocated"] = json.dumps(
+        {"SecretsManager.Secret": 2, "SecretsManager.RotationSchedule": 1}
+    )
+    write_model(tmp_path / "model/dev/cde/secrets-manager.properties", duplicate)
+    source = generate(tmp_path, "dev", "cde", "secrets-manager")[0]
+    duplicate_snapshot = json.loads(
+        ast.literal_eval(ast.parse(source).body[1].value.args[0])
+    )
+    duplicate_row = duplicate_snapshot["referenceRows"]["dev/cde/secrets-manager"][
+        "002-001"
+    ]
+    assert not duplicate_row.get("producer", {}).get("secretName")
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {
+            "Name": "other",
+            "ARN": "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture-secret-Ab12cd",
+        },
+        {
+            "Name": "fixture-secret",
+            "ARN": "arn:aws-cn:secretsmanager:ap-northeast-1:123456789012:secret:fixture-secret-Ab12cd",
+        },
+        {
+            "Name": "fixture-secret",
+            "ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:fixture-secret-Ab12cd",
+        },
+        {
+            "Name": "fixture-secret",
+            "ARN": "arn:aws:secretsmanager:ap-northeast-1:999999999999:secret:fixture-secret-Ab12cd",
+        },
+        {
+            "Name": "fixture-secret",
+            "ARN": "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture-secret",
+        },
+    ],
+)
+def test_secret_reference_rejects_unconfirmed_identity(response):
+    fetch = Mock(return_value=response)
+    module = SimpleNamespace(
+        service_module=lambda name: SimpleNamespace(fetch=fetch),
+        execution_account=lambda target: "123456789012",
+        AcquisitionError=AcquisitionError,
+        Unresolved=Unresolved,
+    )
+    ctx = SimpleNamespace(target={"awsRegion": "ap-northeast-1"})
+    row = {
+        "status": "logical_only",
+        "producer": {"secretName": "fixture-secret", "partition": "aws"},
+    }
+    audit.resolve_secret_references(
+        module, ctx, {"referenceRows": {"test": {"1": row}}}
+    )
+    assert row["status"] == "logical_only"
+    assert "value" not in row
+    row["status"] = "pending_deploy"
+    fetch.reset_mock()
+    audit.resolve_secret_references(
+        module, ctx, {"referenceRows": {"test": {"1": row}}}
+    )
+    fetch.assert_not_called()
