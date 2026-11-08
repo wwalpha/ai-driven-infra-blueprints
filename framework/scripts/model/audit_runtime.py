@@ -5,12 +5,17 @@ import copy
 import io
 import json
 import re
+import subprocess
 import sys
+import threading
+import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import lru_cache as _runtime_lru_cache
 from functools import partial as _bind_framework_callback
 from functools import partialmethod
+from itertools import groupby
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -855,97 +860,138 @@ def audit(snapshot, profile=None, cli_runner=None):
         / target["directory"]
         / (snapshot["service"] + ".properties")
     )
-    for resource in audit_resources(model):
-        try:
-            items = list(
-                attributes(
-                    m.compare_resource(
+    resources = list(audit_resources(model))
+    if snapshot["service"] != "iam":
+        for resource in resources:
+            records.extend(audit_resource(m, snapshot, ctx, resource))
+        return m, account, records
+
+    # Limit concurrent CLI processes and their start rate; CLI pagination/retries are internal.
+    gate, next_start, local = threading.Lock(), [0.0], threading.local()
+    runner = cli_runner or subprocess.run
+
+    def paced_cli(command, **kwargs):
+        with gate:
+            delay = next_start[0] - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            next_start[0] = time.monotonic() + 0.5
+        return runner(command, **kwargs)
+
+    def role_records(resource):
+        if not hasattr(local, "ctx"):
+            local.ctx = m.Context(m.ROOT, target, cli_runner=paced_cli)
+            local.ctx.verified = True
+            local.ctx.cache.update(ctx.cache)
+        worker = local.ctx
+        worker_model = worker.model(model.path)
+        selected = copy.copy(
+            next(r for r in worker_model.resources if r.number == resource.number)
+        )
+        selected.rows = resource.rows
+        return audit_resource(m, snapshot, worker, selected)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for is_role, group in groupby(resources, key=lambda r: r.kind == "IAM.Role"):
+            group = list(group)
+            if is_role and len(group) > 1:
+                for result in pool.map(role_records, group):
+                    records.extend(result)
+            else:
+                for resource in group:
+                    records.extend(audit_resource(m, snapshot, ctx, resource))
+    return m, account, records
+
+
+def audit_resource(m, snapshot, ctx, resource):
+    records = []
+    try:
+        items = list(
+            attributes(
+                m.compare_resource(
+                    ctx,
+                    resource,
+                    indexed_rows=snapshot.get("cloudtrailIndexedRows", {}).get(
+                        resource.number
+                    )
+                    if resource.kind == "CloudTrail.Trail"
+                    else snapshot.get("pipelineIndexedRows", {}).get(resource.number)
+                    if resource.kind == "CodePipeline.Pipeline"
+                    else None,
+                )
+            )
+        )
+        for item in items:
+            if item["status"] == "design_unresolved":
+                reason = item.get("reason", "")
+                item["pendingDeploy"] = (
+                    reason.startswith("Design reference unresolved: ")
+                    and "REFERENCE_PENDING_DEPLOY" in reason
+                    and "REFERENCE_UNRESOLVED" not in reason
+                ) or (
+                    reason == "design value is unresolved"
+                    and any(
+                        m.literal(row.get("document", row["value"])) == "PENDING_DEPLOY"
+                        for _, row in resource.rows_for(item["propertiesKey"])
+                    )
+                )
+        items = [
+            reference_result(
+                m, snapshot, resource, identifier_result(m, ctx, resource, item)
+            )
+            for item in items
+        ]
+        failed = any(
+            item["status"] in {"acquisition_failed", "resource_missing"}
+            for item in items
+        )
+        resource_confirmed = any(
+            item.get("propertiesKey") == "LakeFormation.Resource.ResourceArn"
+            and item["status"] == "match"
+            for item in items
+        )
+        for item in items:
+            if not failed or item["propertiesKey"] == (
+                "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments"
+            ):
+                item = classify_exclusion(
+                    m,
+                    snapshot,
+                    resource,
+                    item,
+                    resource_confirmed=resource_confirmed,
+                )
+                item = glue_compute_compatibility(m, ctx, resource, item)
+            records.append(item)
+    except Exception as error:
+        # Never turn a new upstream dependency or malformed response into a silent skip.
+        for prop in dict.fromkeys(row["property"] for _, row in resource.rows):
+            records.append(
+                reference_result(
+                    m,
+                    snapshot,
+                    resource,
+                    identifier_result(
+                        m,
                         ctx,
                         resource,
-                        indexed_rows=snapshot.get("cloudtrailIndexedRows", {}).get(
-                            resource.number
-                        )
-                        if resource.kind == "CloudTrail.Trail"
-                        else snapshot.get("pipelineIndexedRows", {}).get(
-                            resource.number
-                        )
-                        if resource.kind == "CodePipeline.Pipeline"
-                        else None,
-                    )
+                        {
+                            "resource": resource.spec[RESOURCE_LOGICAL_ID_KEY],
+                            "propertiesKey": prop,
+                            "status": "design_unresolved",
+                            "reason": "comparison failed: " + type(error).__name__,
+                            "designValue": [
+                                row.get("document", row["value"])
+                                for _, row in resource.rows
+                                if row["property"] == prop
+                            ],
+                            "awsValue": None,
+                            "apis": ctx.trace,
+                        },
+                    ),
                 )
             )
-            for item in items:
-                if item["status"] == "design_unresolved":
-                    reason = item.get("reason", "")
-                    item["pendingDeploy"] = (
-                        reason.startswith("Design reference unresolved: ")
-                        and "REFERENCE_PENDING_DEPLOY" in reason
-                        and "REFERENCE_UNRESOLVED" not in reason
-                    ) or (
-                        reason == "design value is unresolved"
-                        and any(
-                            m.literal(row.get("document", row["value"]))
-                            == "PENDING_DEPLOY"
-                            for _, row in resource.rows_for(item["propertiesKey"])
-                        )
-                    )
-            items = [
-                reference_result(
-                    m, snapshot, resource, identifier_result(m, ctx, resource, item)
-                )
-                for item in items
-            ]
-            failed = any(
-                item["status"] in {"acquisition_failed", "resource_missing"}
-                for item in items
-            )
-            resource_confirmed = any(
-                item.get("propertiesKey") == "LakeFormation.Resource.ResourceArn"
-                and item["status"] == "match"
-                for item in items
-            )
-            for item in items:
-                if not failed or item["propertiesKey"] == (
-                    "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments"
-                ):
-                    item = classify_exclusion(
-                        m,
-                        snapshot,
-                        resource,
-                        item,
-                        resource_confirmed=resource_confirmed,
-                    )
-                    item = glue_compute_compatibility(m, ctx, resource, item)
-                records.append(item)
-        except Exception as error:
-            # Never turn a new upstream dependency or malformed response into a silent skip.
-            for prop in dict.fromkeys(row["property"] for _, row in resource.rows):
-                records.append(
-                    reference_result(
-                        m,
-                        snapshot,
-                        resource,
-                        identifier_result(
-                            m,
-                            ctx,
-                            resource,
-                            {
-                                "resource": resource.spec[RESOURCE_LOGICAL_ID_KEY],
-                                "propertiesKey": prop,
-                                "status": "design_unresolved",
-                                "reason": "comparison failed: " + type(error).__name__,
-                                "designValue": [
-                                    row.get("document", row["value"])
-                                    for _, row in resource.rows
-                                    if row["property"] == prop
-                                ],
-                                "awsValue": None,
-                                "apis": ctx.trace,
-                            },
-                        ),
-                    )
-                )
-    return m, account, records
+    return records
 
 
 def _callback_report_line(output, /, value=""):

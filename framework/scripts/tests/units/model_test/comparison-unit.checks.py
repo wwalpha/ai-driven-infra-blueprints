@@ -3,6 +3,8 @@ import json
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +39,7 @@ from support.model_test_runner import (
     fixture,
     generated,
     load_fixture,
+    prepare,
     snapshot,
 )
 from support.model_test_runtime import runtime
@@ -1702,3 +1705,50 @@ def test_lambda_code_s3_properties_are_not_compared():
     )
     assert "[ERROR]" in results[2]["report"]
     assert "[NG]" in results[3]["report"]
+
+
+def test_iam_parallel_audit_limits_starts_and_preserves_failures(tmp_path):
+    """Two role reads overlap at a paced start rate; an unavailable role stays ERROR."""
+    inputs, _ = load_fixture("iam/inline")
+    model = inputs["model"]
+    for key in list(model):
+        if key.startswith("desired.row.001-002."):
+            del model[key]
+    for key, value in list(model.items()):
+        if key.startswith("desired.resource.001.") or key.startswith(
+            "desired.row.001-001."
+        ):
+            new_key = key.replace(".001.", ".002.").replace(".001-001.", ".002-001.")
+            model[new_key] = value.replace("IAM_Role_001", "IAM_Role_002").replace(
+                "test-role", "second-role"
+            )
+    model["desired.service.identity.lastAllocated"] = '{"IAM.Role": 2}'
+    snap = prepare(tmp_path, inputs, snapshot_only=True)
+    started = []
+    lock = threading.Lock()
+    overlap = threading.Event()
+
+    def cli(command, **kwargs):
+        api = command[1:3]
+        if api == ["sts", "get-caller-identity"]:
+            return subprocess.CompletedProcess(
+                command, 0, '{"Account":"123456789012"}', ""
+            )
+        assert api == ["iam", "get-role"]
+        name = json.loads(command[command.index("--cli-input-json") + 1])["RoleName"]
+        with lock:
+            started.append(time.monotonic())
+            if len(started) == 2:
+                overlap.set()
+        assert overlap.wait(3), "role reads did not overlap"
+        if name == "second-role":
+            raise subprocess.TimeoutExpired(command, 60)
+        return subprocess.CompletedProcess(
+            command, 0, json.dumps({"Role": {"RoleName": name}}), ""
+        )
+
+    _, account, records = audit.audit(snap, cli_runner=cli)
+    assert account == "123456789012"
+    assert [r["status"] for r in records] == ["match", "acquisition_failed"]
+    assert records[1]["reason"] == "TimeoutExpired"
+    assert len(started) == 2 and started[1] - started[0] >= 0.45

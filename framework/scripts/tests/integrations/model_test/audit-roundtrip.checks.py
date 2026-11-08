@@ -341,6 +341,53 @@ def check_hidden_secret_reference_audit():
             assert item["status"] == expected, item
 
 
+@it_case
+def check_iam_parallel_generated_audit():
+    inputs, _ = load_fixture("iam/inline")
+    model = inputs["model"]
+    for key, value in list(model.items()):
+        if key.startswith("desired.resource.001.") or key.startswith(
+            "desired.row.001-"
+        ):
+            new_key = key.replace(".001.", ".002.").replace(".001-", ".002-")
+            model[new_key] = value.replace("IAM_Role_001", "IAM_Role_002").replace(
+                "test-role", "other-role"
+            )
+    model["desired.service.identity.lastAllocated"] = '{"IAM.Role": 2}'
+    with tempfile.TemporaryDirectory(prefix="audit-iam-parallel-") as directory:
+        root = Path(directory)
+        standalone = generated(prepare(root, inputs), root)
+        snap = standalone["SNAPSHOT"]
+        cli = CLI(
+            {
+                ("iam", "get-role"): lambda request: {
+                    "Role": {"RoleName": request["RoleName"]}
+                },
+                ("iam", "list-role-policies"): {"PolicyNames": ["policy"]},
+                ("iam", "get-role-policy"): {"PolicyDocument": {}},
+            }
+        )
+        _, account, records = standalone["audit"](snap, cli_runner=cli)
+        assert account == "123456789012"
+        assert len(records) == 4 and all(
+            item["status"] == "match" for item in records
+        ), records
+        requests = [(api, request) for api, request, _ in cli.calls]
+        for name in ("test-role", "other-role"):
+            assert (
+                requests.count((("iam", "list-role-policies"), {"RoleName": name})) == 2
+            )
+            assert (
+                requests.count(
+                    (
+                        ("iam", "get-role-policy"),
+                        {"RoleName": name, "PolicyName": "policy"},
+                    )
+                )
+                == 1
+            )
+
+
 FAKE_AWS = 'import json, os, pathlib, sys\napi = sys.argv[1:3]\nrequest = json.loads(sys.argv[sys.argv.index("--cli-input-json") + 1])\nsettings = json.loads(pathlib.Path(os.environ["AUDIT_RESPONSES"]).read_text(encoding="utf-8"))\nwith pathlib.Path(os.environ["AUDIT_CALLS"]).open("a", encoding="utf-8") as handle:\n    handle.write(json.dumps([api, request]) + "\\n")\nif api == ["sts", "get-caller-identity"]:\n    assert request == {}\n    value = {"Account": settings.get("account", "123456789012"), "Arn": "arn:aws:iam::123456789012:user/offline"}\nelse:\n    route = next(item for item in settings["responses"] if item["api"] == api)\n    assert request == route["inputs"], (request, route)\n    value = route["response"]\nprint(json.dumps(value))\n'
 
 
@@ -348,4 +395,5 @@ if __name__ == "__main__":
     check_audit_roundtrip()
     check_lakeformation_list_identity()
     check_eventbridge_target_audit()
+    check_iam_parallel_generated_audit()
     check_hidden_secret_reference_audit()
