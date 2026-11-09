@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 from functools import partial
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -689,6 +689,24 @@ def test_codebuild_boolean_generated():
     fixture = load_fixture("codebuild/boolean")
     actual = execute(fixture)
     assert_result(actual, fixture)
+
+
+def test_generated_codebuild_loads_model_with_windows_drive(tmp_path):
+    class WindowsSnapshotPath(PureWindowsPath):
+        def resolve(self):
+            return WindowsSnapshotPath("C:/", self)
+
+        def is_symlink(self):
+            return False
+
+    inputs, _ = load_fixture("codebuild/boolean")
+    namespace = generated(prepare(tmp_path, inputs), tmp_path)
+    embedded = namespace["SNAPSHOT"]
+    with patch("pathlib.Path", WindowsSnapshotPath):
+        engine = namespace["engine"](embedded)
+    context = engine.Context(engine.ROOT, embedded["target"])
+    model = context.model(engine.ROOT / "model/dev/cde/codebuild.properties")
+    assert model.values == embedded["models"]["dev/cde/codebuild"]
 
 
 def test_generated_boundaries():
