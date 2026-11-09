@@ -793,6 +793,29 @@ def audit_resources(model):
         yield resource
 
 
+def _audit_paced_cli(gate, next_start, runner, /, command, **kwargs):
+    with gate:
+        delay = next_start[0] - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        next_start[0] = time.monotonic() + 0.5
+    return runner(command, **kwargs)
+
+
+def _audit_role_records(local, m, target, paced_cli, ctx, model, snapshot, /, resource):
+    if not hasattr(local, "ctx"):
+        local.ctx = m.Context(m.ROOT, target, cli_runner=paced_cli)
+        local.ctx.verified = True
+        local.ctx.cache.update(ctx.cache)
+    worker = local.ctx
+    worker_model = worker.model(model.path)
+    selected = copy.copy(
+        next(r for r in worker_model.resources if r.number == resource.number)
+    )
+    selected.rows = resource.rows
+    return audit_resource(m, snapshot, worker, selected)
+
+
 def audit(snapshot, profile=None, cli_runner=None):
     snapshot = copy.deepcopy(snapshot)
     m = engine(snapshot)
@@ -870,26 +893,10 @@ def audit(snapshot, profile=None, cli_runner=None):
     gate, next_start, local = threading.Lock(), [0.0], threading.local()
     runner = cli_runner or subprocess.run
 
-    def paced_cli(command, **kwargs):
-        with gate:
-            delay = next_start[0] - time.monotonic()
-            if delay > 0:
-                time.sleep(delay)
-            next_start[0] = time.monotonic() + 0.5
-        return runner(command, **kwargs)
-
-    def role_records(resource):
-        if not hasattr(local, "ctx"):
-            local.ctx = m.Context(m.ROOT, target, cli_runner=paced_cli)
-            local.ctx.verified = True
-            local.ctx.cache.update(ctx.cache)
-        worker = local.ctx
-        worker_model = worker.model(model.path)
-        selected = copy.copy(
-            next(r for r in worker_model.resources if r.number == resource.number)
-        )
-        selected.rows = resource.rows
-        return audit_resource(m, snapshot, worker, selected)
+    paced_cli = _bind_framework_callback(_audit_paced_cli, gate, next_start, runner)
+    role_records = _bind_framework_callback(
+        _audit_role_records, local, m, target, paced_cli, ctx, model, snapshot
+    )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         for is_role, group in groupby(resources, key=lambda r: r.kind == "IAM.Role"):
@@ -901,6 +908,26 @@ def audit(snapshot, profile=None, cli_runner=None):
                 for resource in group:
                     records.extend(audit_resource(m, snapshot, ctx, resource))
     return m, account, records
+
+
+def _cloudtrail_grouped(type_lists, value_lists):
+    if not isinstance(type_lists, list) or not isinstance(value_lists, list):
+        raise ValueError("invalid DataResources projection")
+    groups = []
+    for kinds, entries in zip(type_lists, value_lists, strict=True):
+        if not isinstance(kinds, list) or not isinstance(entries, list):
+            raise ValueError("invalid DataResources selector")
+        group = {}
+        for kind, members in zip(kinds, entries, strict=True):
+            if (
+                not isinstance(kind, str)
+                or not isinstance(members, list)
+                or any(not isinstance(member, str) for member in members)
+            ):
+                raise ValueError("invalid DataResources entry")
+            group.setdefault(kind, set()).update(members)
+        groups.append(group)
+    return groups
 
 
 def cloudtrail_data_resources(items):
@@ -916,28 +943,9 @@ def cloudtrail_data_resources(items):
     ):
         return
 
-    def grouped(type_lists, value_lists):
-        if not isinstance(type_lists, list) or not isinstance(value_lists, list):
-            raise ValueError("invalid DataResources projection")
-        groups = []
-        for kinds, entries in zip(type_lists, value_lists, strict=True):
-            if not isinstance(kinds, list) or not isinstance(entries, list):
-                raise ValueError("invalid DataResources selector")
-            group = {}
-            for kind, members in zip(kinds, entries, strict=True):
-                if (
-                    not isinstance(kind, str)
-                    or not isinstance(members, list)
-                    or any(not isinstance(member, str) for member in members)
-                ):
-                    raise ValueError("invalid DataResources entry")
-                group.setdefault(kind, set()).update(members)
-            groups.append(group)
-        return groups
-
     try:
-        desired = grouped(types["designValue"], values["designValue"])
-        actual = grouped(types["awsValue"], values["awsValue"])
+        desired = _cloudtrail_grouped(types["designValue"], values["designValue"])
+        actual = _cloudtrail_grouped(types["awsValue"], values["awsValue"])
     except (TypeError, ValueError):
         return
     types["status"] = (

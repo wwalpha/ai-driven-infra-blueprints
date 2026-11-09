@@ -91,6 +91,13 @@ def _callback_check_config_context(
     return ctx, calls
 
 
+def _empty_notification(runner, notifications_api, /, command, **kwargs):
+    result = runner(command, **kwargs)
+    if tuple(command[1:3]) == notifications_api:
+        result.stdout = ""
+    return result
+
+
 @it_case
 def check_config():
     mapping = aws_mapping.registry(ROOT, "config")
@@ -902,11 +909,9 @@ def check_s3_replication():
                 }
             )
 
-            def empty_notification(command, _runner=runner, **kwargs):
-                result = _runner(command, **kwargs)
-                if tuple(command[1:3]) == notifications_api:
-                    result.stdout = ""
-                return result
+            empty_notification = _bind_framework_callback(
+                _empty_notification, runner, notifications_api
+            )
 
             _, _, results = standalone["audit"](
                 standalone["SNAPSHOT"], cli_runner=empty_notification

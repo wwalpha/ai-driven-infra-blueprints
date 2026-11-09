@@ -7,6 +7,7 @@ import threading
 import time
 import unittest
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -62,6 +63,28 @@ def _sg_sdk_error(code):
     error = Exception()
     error.response = {"Error": {"Code": code}}
     return sdk_error("ec2.describe_security_group_rules", error, {})
+
+
+def _check_data_resource_types(self, actual_types, actual_values, type_status, value_status):
+    prefix = "CloudTrail.Trail.EventSelectors[].DataResources[]."
+    items = [
+        {
+            "propertiesKey": prefix + "Type",
+            "status": "difference",
+            "designValue": [["S3", "Lambda", "Lambda"]],
+            "awsValue": [actual_types],
+        },
+        {
+            "propertiesKey": prefix + "Values",
+            "status": "difference",
+            "designValue": [[["bucket"], ["a"], ["b"]]],
+            "awsValue": [actual_values],
+        },
+    ]
+    audit.cloudtrail_data_resources(items)
+    self.assertEqual(
+        [item["status"] for item in items], [type_status, value_status]
+    )
 
 
 class CloudTrailArrayTests(unittest.TestCase):
@@ -251,27 +274,7 @@ class CloudTrailArrayTests(unittest.TestCase):
         self.assertNotEqual(result["status"], "match", result)
 
     def test_data_resource_types_remain_paired_with_values(self):
-        prefix = "CloudTrail.Trail.EventSelectors[].DataResources[]."
-
-        def check(actual_types, actual_values, type_status, value_status):
-            items = [
-                {
-                    "propertiesKey": prefix + "Type",
-                    "status": "difference",
-                    "designValue": [["S3", "Lambda", "Lambda"]],
-                    "awsValue": [actual_types],
-                },
-                {
-                    "propertiesKey": prefix + "Values",
-                    "status": "difference",
-                    "designValue": [[["bucket"], ["a"], ["b"]]],
-                    "awsValue": [actual_values],
-                },
-            ]
-            audit.cloudtrail_data_resources(items)
-            self.assertEqual(
-                [item["status"] for item in items], [type_status, value_status]
-            )
+        check = partial(_check_data_resource_types, self)
 
         check(["Lambda", "S3"], [["b", "a"], ["bucket"]], "match", "match")
         check(["Lambda", "S3"], [["b", "different"], ["bucket"]], "match", "difference")
@@ -1746,6 +1749,26 @@ def test_lambda_code_s3_properties_are_not_compared():
     assert "[NG]" in results[3]["report"]
 
 
+def _parallel_audit_cli(started, lock, overlap, /, command, **kwargs):
+    api = command[1:3]
+    if api == ["sts", "get-caller-identity"]:
+        return subprocess.CompletedProcess(
+            command, 0, '{"Account":"123456789012"}', ""
+        )
+    assert api == ["iam", "get-role"]
+    name = json.loads(command[command.index("--cli-input-json") + 1])["RoleName"]
+    with lock:
+        started.append(time.monotonic())
+        if len(started) == 2:
+            overlap.set()
+    assert overlap.wait(3), "role reads did not overlap"
+    if name == "second-role":
+        raise subprocess.TimeoutExpired(command, 60)
+    return subprocess.CompletedProcess(
+        command, 0, json.dumps({"Role": {"RoleName": name}}), ""
+    )
+
+
 def test_iam_parallel_audit_limits_starts_and_preserves_failures(tmp_path):
     """Two role reads overlap at a paced start rate; an unavailable role stays ERROR."""
     inputs, _ = load_fixture("iam/inline")
@@ -1767,24 +1790,7 @@ def test_iam_parallel_audit_limits_starts_and_preserves_failures(tmp_path):
     lock = threading.Lock()
     overlap = threading.Event()
 
-    def cli(command, **kwargs):
-        api = command[1:3]
-        if api == ["sts", "get-caller-identity"]:
-            return subprocess.CompletedProcess(
-                command, 0, '{"Account":"123456789012"}', ""
-            )
-        assert api == ["iam", "get-role"]
-        name = json.loads(command[command.index("--cli-input-json") + 1])["RoleName"]
-        with lock:
-            started.append(time.monotonic())
-            if len(started) == 2:
-                overlap.set()
-        assert overlap.wait(3), "role reads did not overlap"
-        if name == "second-role":
-            raise subprocess.TimeoutExpired(command, 60)
-        return subprocess.CompletedProcess(
-            command, 0, json.dumps({"Role": {"RoleName": name}}), ""
-        )
+    cli = partial(_parallel_audit_cli, started, lock, overlap)
 
     _, account, records = audit.audit(snap, cli_runner=cli)
     assert account == "123456789012"
@@ -1793,13 +1799,14 @@ def test_iam_parallel_audit_limits_starts_and_preserves_failures(tmp_path):
     assert len(started) == 2 and started[1] - started[0] >= 0.45
 
 
+def _numeric_policy_document(operator, value):
+    return {"Statement": [{"Condition": {operator: {"s3:TlsVersion": value}}}]}
+
+
 def test_numeric_policy_conditions_shared_and_embedded(tmp_path):
     inputs, _ = load_fixture("audit/base")
     standalone = generated(prepare(tmp_path, inputs), tmp_path)
     embedded = standalone["engine"](standalone["SNAPSHOT"])
-
-    def document(operator, value):
-        return {"Statement": [{"Condition": {operator: {"s3:TlsVersion": value}}}]}
 
     for compare in (policy, embedded.policy):
         for operator in (
@@ -1820,14 +1827,14 @@ def test_numeric_policy_conditions_shared_and_embedded(tmp_path):
                 (0, "-0"),
                 ([1.2, 2], ["2.0", "1.2"]),
             ):
-                assert compare(document(operator, left)) == compare(
-                    document(operator, right)
+                assert compare(_numeric_policy_document(operator, left)) == compare(
+                    _numeric_policy_document(operator, right)
                 )
-            assert compare(document(operator, 1.2)) != compare(
-                document(operator, "1.3")
+            assert compare(_numeric_policy_document(operator, 1.2)) != compare(
+                _numeric_policy_document(operator, "1.3")
             )
-            assert compare(document(operator, "9007199254740992")) != compare(
-                document(operator, "9007199254740993")
+            assert compare(_numeric_policy_document(operator, "9007199254740992")) != compare(
+                _numeric_policy_document(operator, "9007199254740993")
             )
             for invalid in (
                 True,
@@ -1843,15 +1850,15 @@ def test_numeric_policy_conditions_shared_and_embedded(tmp_path):
                 "1e99999999999999999999",
             ):
                 with pytest.raises((Unresolved, embedded.Unresolved)):
-                    compare(document(operator, invalid))
+                    compare(_numeric_policy_document(operator, invalid))
         for operator in (
             "StringEquals",
             "StringLessThan",
             "NumericUnknown",
             "Other:NumericEquals",
         ):
-            assert compare(document(operator, 1.2)) != compare(
-                document(operator, "1.2")
+            assert compare(_numeric_policy_document(operator, 1.2)) != compare(
+                _numeric_policy_document(operator, "1.2")
             )
         assert compare({"NumericEquals": {"key": 1.2}}) != compare(
             {"NumericEquals": {"key": "1.2"}}

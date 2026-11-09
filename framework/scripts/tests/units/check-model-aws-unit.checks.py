@@ -1019,8 +1019,7 @@ def test_cloudformation_tags_shared_array_comparison(
         keys = ["Name", "aws:cloudformation:stack-id"] + (["user"] if extra else [])
         values = [ordinary_value, "stack"] + (["extra"] if extra else [])
 
-        def mapped(ctx, resource, mapping, definition, prop, *, keys=keys, values=values):
-            return {}, keys if prop == key_prop else values
+        mapped = _bind_framework_callback(_mapped_tag_values, key_prop, keys, values)
 
         with patch.object(m._imports_aws_mapping_compare, "value", side_effect=mapped):
             records = m.compare_resource(ctx, resource)
@@ -1036,6 +1035,16 @@ def test_cloudformation_tags_shared_array_comparison(
             assert next(
                 item["status"] for item in records if item["propertiesKey"] == key_prop
             ) == ("difference" if extra else "match")
+
+
+def _mapped_missing_tag_values(key_prop, /, ctx, resource, mapping, definition, prop):
+    return {}, ["Name", "aws:cloudformation:stack-id"] if prop == key_prop else [
+        "server"
+    ]
+
+
+def _mapped_tag_values(key_prop, keys, values, /, ctx, resource, mapping, definition, prop):
+    return {}, keys if prop == key_prop else values
 
 
 def test_cloudformation_tag_value_requires_corresponding_keys(tmp_path):
@@ -1059,10 +1068,7 @@ def test_cloudformation_tag_value_requires_corresponding_keys(tmp_path):
         },
     )
 
-    def mapped(ctx, resource, mapping, definition, prop):
-        return {}, ["Name", "aws:cloudformation:stack-id"] if prop == key_prop else [
-            "server"
-        ]
+    mapped = _bind_framework_callback(_mapped_missing_tag_values, key_prop)
 
     with patch.object(m._imports_aws_mapping_compare, "value", side_effect=mapped):
         assert m.compare_resource(ctx, resource)[0]["status"] == "design_unresolved"

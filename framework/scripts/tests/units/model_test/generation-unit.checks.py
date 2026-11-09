@@ -691,14 +691,15 @@ def test_codebuild_boolean_generated():
     assert_result(actual, fixture)
 
 
+class WindowsSnapshotPath(PureWindowsPath):
+    def resolve(self):
+        return WindowsSnapshotPath("C:/", self)
+
+    def is_symlink(self):
+        return False
+
+
 def test_generated_codebuild_loads_model_with_windows_drive(tmp_path):
-    class WindowsSnapshotPath(PureWindowsPath):
-        def resolve(self):
-            return WindowsSnapshotPath("C:/", self)
-
-        def is_symlink(self):
-            return False
-
     inputs, _ = load_fixture("codebuild/boolean")
     namespace = generated(prepare(tmp_path, inputs), tmp_path)
     embedded = namespace["SNAPSHOT"]
