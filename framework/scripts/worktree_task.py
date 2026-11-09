@@ -568,7 +568,13 @@ def _commit_preconditions(
             raise Blocked("PR update must descend from the published HEAD")
     elif not ordinary_model and head != state["tip"]:
         raise Blocked("unexpected commits on task branch; review required")
-    if published_head is None and not ordinary_model and state["commit"] and changed:
+    if (
+        published_head is None
+        and not ordinary_model
+        and state["commit"]
+        and changed
+        and not (state["commit"] == head == state.get("validation_base"))
+    ):
         synchronized_framework = (
             state.get("validation_base")
             and state["commit"] == head

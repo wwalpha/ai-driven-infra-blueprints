@@ -2100,7 +2100,7 @@ def check_pr_merge_response_is_reconciled_without_repeating(tmp_path, merged):
 
 
 @pytest.mark.parametrize(
-    "case", ["accepted", "no_base", "wrong_commit", "not_framework", "not_ancestor"]
+    "case", ["accepted", "base_only", "no_base", "wrong_commit", "not_framework", "not_ancestor"]
 )
 def check_synchronized_framework_continuation_guards(tmp_path, case):
     state = {
@@ -2109,7 +2109,7 @@ def check_synchronized_framework_continuation_guards(tmp_path, case):
         "commit": "candidate" if case != "wrong_commit" else "other",
         "verified": True,
         "task_file": "tasks/example.md",
-        "validation_base": None if case == "no_base" else "base",
+        "validation_base": None if case == "no_base" else "candidate" if case == "base_only" else "base",
     }
     changed = {"framework/example.py"}
     with (
@@ -2118,12 +2118,12 @@ def check_synchronized_framework_continuation_guards(tmp_path, case):
         patch.object(wt.tasks, "paths_in", return_value=changed),
         patch.object(wt.tasks, "matches", return_value=True),
         patch.object(
-            wt.tasks, "final_framework_task", return_value=case != "not_framework"
+            wt.tasks, "final_framework_task", return_value=case not in {"not_framework", "base_only"}
         ),
         patch.object(wt, "output", return_value="candidate"),
         patch.object(wt, "ancestor", return_value=case != "not_ancestor"),
     ):
-        if case == "accepted":
+        if case in {"accepted", "base_only"}:
             TestCase().assertEqual(
                 wt._commit_preconditions(
                     tmp_path, state, changed, "task", None, scope_paths=changed
