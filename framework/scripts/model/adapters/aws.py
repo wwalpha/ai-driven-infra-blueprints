@@ -20,6 +20,7 @@ from collections import Counter, defaultdict
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from threading import RLock
@@ -315,7 +316,43 @@ def stable(value):
     )
 
 
+def _recursive_policy_number(value):
+    if isinstance(value, list):
+        return sorted([_recursive_policy_number(v) for v in value], key=stable)
+    if type(value) not in (str, int, float) or not re.fullmatch(
+        r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", str(value)
+    ):
+        raise Unresolved("numeric policy condition requires a finite number")
+    try:
+        number = Decimal(str(value))
+    except InvalidOperation:
+        raise Unresolved("numeric policy condition requires a finite number") from None
+    sign, digits, exponent = number.as_tuple()
+    digits = list(digits)
+    if not number:
+        sign, digits, exponent = 0, [0], 0
+    else:
+        while digits[-1] == 0:
+            digits.pop()
+            exponent += 1
+    return {"number": [sign, digits, exponent]}
+
+
 def _recursive_policy_walk(item, name=""):
+    if name == "Condition" and isinstance(item, dict):
+        return {
+            operator: {
+                key: _recursive_policy_number(value)
+                for key, value in conditions.items()
+            }
+            if re.fullmatch(
+                r"(?:ForAnyValue:|ForAllValues:)?Numeric(?:Equals|NotEquals|LessThan|LessThanEquals|GreaterThan|GreaterThanEquals)(?:IfExists)?",
+                operator,
+            )
+            and isinstance(conditions, dict)
+            else _recursive_policy_walk(conditions, operator)
+            for operator, conditions in item.items()
+        }
     if name in {
         "Statement",
         "Action",

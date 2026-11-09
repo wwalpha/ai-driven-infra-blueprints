@@ -1072,6 +1072,7 @@ def _build(root, environment, selector, service, standalone):
         "from copy import deepcopy\nfrom threading import RLock\nfrom concurrent.futures import Future\n"
         "from functools import partial as _bind_framework_callback\n"
         "from itertools import combinations\n"
+        "from decimal import Decimal, InvalidOperation\n"
         "from dataclasses import dataclass\nfrom pathlib import Path, PurePosixPath\nfrom types import SimpleNamespace\nfrom urllib.parse import unquote\n"
         'ROOT = Path("/model-test-snapshot").resolve()\n'
         'LINK = re.compile(r"^\\[([^\\]]+)\\]\\(([^)]*?)#([^)]+)\\)$")\n'

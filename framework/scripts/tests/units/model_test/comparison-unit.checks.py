@@ -20,7 +20,13 @@ from types import SimpleNamespace as _CallbackState
 from unittest import TestCase
 
 from design.layout import confirmed_display_name
-from model.adapters.aws import AcquisitionError, Unresolved, sdk_error, service_module
+from model.adapters.aws import (
+    AcquisitionError,
+    Unresolved,
+    policy,
+    sdk_error,
+    service_module,
+)
 from model.audit import (
     build_snapshot,
     generate,
@@ -1785,3 +1791,68 @@ def test_iam_parallel_audit_limits_starts_and_preserves_failures(tmp_path):
     assert [r["status"] for r in records] == ["match", "acquisition_failed"]
     assert records[1]["reason"] == "TimeoutExpired"
     assert len(started) == 2 and started[1] - started[0] >= 0.45
+
+
+def test_numeric_policy_conditions_shared_and_embedded(tmp_path):
+    inputs, _ = load_fixture("audit/base")
+    standalone = generated(prepare(tmp_path, inputs), tmp_path)
+    embedded = standalone["engine"](standalone["SNAPSHOT"])
+
+    def document(operator, value):
+        return {"Statement": [{"Condition": {operator: {"s3:TlsVersion": value}}}]}
+
+    for compare in (policy, embedded.policy):
+        for operator in (
+            "NumericEquals",
+            "NumericNotEquals",
+            "NumericLessThan",
+            "NumericLessThanEquals",
+            "NumericGreaterThan",
+            "NumericGreaterThanEquals",
+            "NumericLessThanIfExists",
+            "ForAnyValue:NumericEquals",
+            "ForAllValues:NumericGreaterThanEqualsIfExists",
+        ):
+            for left, right in (
+                (1.2, "1.2"),
+                (1.2, "1.20"),
+                (120, "1.2e2"),
+                (0, "-0"),
+                ([1.2, 2], ["2.0", "1.2"]),
+            ):
+                assert compare(document(operator, left)) == compare(
+                    document(operator, right)
+                )
+            assert compare(document(operator, 1.2)) != compare(
+                document(operator, "1.3")
+            )
+            assert compare(document(operator, "9007199254740992")) != compare(
+                document(operator, "9007199254740993")
+            )
+            for invalid in (
+                True,
+                False,
+                "true",
+                "bad",
+                "NaN",
+                "Infinity",
+                float("inf"),
+                "1_2",
+                "",
+                None,
+                "1e99999999999999999999",
+            ):
+                with pytest.raises((Unresolved, embedded.Unresolved)):
+                    compare(document(operator, invalid))
+        for operator in (
+            "StringEquals",
+            "StringLessThan",
+            "NumericUnknown",
+            "Other:NumericEquals",
+        ):
+            assert compare(document(operator, 1.2)) != compare(
+                document(operator, "1.2")
+            )
+        assert compare({"NumericEquals": {"key": 1.2}}) != compare(
+            {"NumericEquals": {"key": "1.2"}}
+        )
