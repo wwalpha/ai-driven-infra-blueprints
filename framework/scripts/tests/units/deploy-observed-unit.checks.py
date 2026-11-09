@@ -1954,8 +1954,11 @@ def test_codebuild_id_from_api_without_output(
     if case in {"output", "output-mismatch", "output-denied"}:
         document["Outputs"] = {"Project": {"Value": {"Ref": "Resource001"}}}
     if case == "unrelated-unicode":
+        document["Conditions"] = {"OtherAbsent": {"Fn::Equals": [1, 2]}}
         document["Resources"]["Other"] = {
-            "Type": "AWS::SNS::Topic", "Properties": {"DisplayName": "承認"}
+            "Type": "AWS::SNS::Topic",
+            "Condition": "OtherAbsent",
+            "Properties": {"DisplayName": "承認"},
         }
     unit = {"name": "producer"}
     _, mapped = resolve_resources(
