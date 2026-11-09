@@ -189,7 +189,7 @@ def check_v3_registry():
         getters,
         len(apis),
         len(set(apis)),
-    ) == (179, 53, 50, 66, 86, 85)
+    ) == (179, 53, 50, 66, 87, 86)
     stack = m.service_module("cloudformation-stacks")
     assert stack.STACK_TYPE == "CloudFormation.Stack"
     assert all(
@@ -283,6 +283,10 @@ def check_v3_registry():
     set_identifier["aws"]["getter"] = "provider-route53-recordset"
     del baseline_properties["lake-formation"]["LakeFormation.Resource"]
     del definitions["lake-formation"]["sdk-lakeformation-resource"]
+    assert metadata["lake-formation"]["APIS"] == [
+        ("lakeformation", "describe_resource"),
+        ("lakeformation", "list_resources"),
+    ]
     del metadata["lake-formation"]
     assert metadata.pop("datazone") == {
         "RESOURCE_TYPES": [],
@@ -403,6 +407,17 @@ def check_v3_registry():
     }
     assert metadata["s3"]["GETTERS"].pop("replication") == ("S3.Bucket",)
     metadata["s3"]["APIS"].remove(("s3", "get_bucket_replication"))
+    plan_id = baseline_properties["guardduty"]["GuardDuty.MalwareProtectionPlan"]["MalwareProtectionPlanId"]["aws"]
+    assert plan_id["getter"] == "provider-guardduty-plan"
+    plan_id["getter"] = "plan"
+    assert definitions["guardduty"].pop("provider-guardduty-plan") == {
+        "kind": "cloudcontrol",
+        "service": "cloudcontrol",
+        "operation": "get_resource",
+        "result": "ResourceDescription.Properties",
+        "resourceType": "GuardDuty.MalwareProtectionPlan",
+        "identifier": ["/properties/MalwareProtectionPlanId"],
+    }
     for name in ("Tags[].Key", "Tags[].Value"):
         field = baseline_properties["guardduty"]["GuardDuty.MalwareProtectionPlan"][
             name
