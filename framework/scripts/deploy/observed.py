@@ -599,7 +599,15 @@ def codebuild_observation(
             deployed, errors = _imports_cfn_format.decode(deployed)
             if errors:
                 return None, "deployed template unavailable"
-        if deployed != document or document.get("Transform"):
+        if not isinstance(deployed, dict) or document.get("Transform"):
+            return None, "deployed template mismatch"
+        # GetTemplate can corrupt Unicode in unrelated resources; keep identity evidence exact.
+        expected = dict(document, Resources={logical: definition})
+        current = dict(
+            deployed,
+            Resources={logical: deployed.get("Resources", {}).get(logical)},
+        )
+        if current != expected:
             return None, "deployed template mismatch"
         expressions = (
             [{"Condition": definition["Condition"]}]

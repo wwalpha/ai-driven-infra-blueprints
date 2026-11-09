@@ -1914,6 +1914,10 @@ def test_evidence_if_uses_only_confirmed_branch(project_workspace):
 @pytest.mark.parametrize(
     "case,old,expected,status",
     [
+        ("unrelated-unicode", "old", "`project`", "UPDATED"),
+        ("selected-template", "old", None, "UNCONFIRMED"),
+        ("missing-template-resource", "old", None, "UNCONFIRMED"),
+        ("template-conditions", "old", None, "UNCONFIRMED"),
         ("no-output", "old", "`project`", "UPDATED"),
         ("omitted", "old", "`project`", "UPDATED"),
         ("not-found", "old", None, "UNCONFIRMED"),
@@ -1949,6 +1953,10 @@ def test_codebuild_id_from_api_without_output(
     document = {"Resources": {"Resource001": {"Type": "AWS::CodeBuild::Project"}}}
     if case in {"output", "output-mismatch", "output-denied"}:
         document["Outputs"] = {"Project": {"Value": {"Ref": "Resource001"}}}
+    if case == "unrelated-unicode":
+        document["Resources"]["Other"] = {
+            "Type": "AWS::SNS::Topic", "Properties": {"DisplayName": "承認"}
+        }
     unit = {"name": "producer"}
     _, mapped = resolve_resources(
         root,
@@ -2035,7 +2043,16 @@ def test_codebuild_id_from_api_without_output(
 
 def _codebuild_sync_aws(document, case, operation, **kwargs):
     if operation == "get_template":
-        return {"TemplateBody": document}
+        deployed = json.loads(json.dumps(document))
+        if case == "unrelated-unicode":
+            deployed["Resources"]["Other"]["Properties"]["DisplayName"] = "??"
+        if case == "selected-template":
+            deployed["Resources"]["Resource001"]["Properties"] = {"Name": "other"}
+        if case == "missing-template-resource":
+            deployed["Resources"].pop("Resource001")
+        if case == "template-conditions":
+            deployed["Conditions"] = {"Enabled": {"Fn::Equals": [1, 2]}}
+        return {"TemplateBody": deployed}
     if operation == "batch_get_projects":
         assert kwargs == {"service": "codebuild", "names": ["project"]}
         if case in {"denied", "output-denied"}:
