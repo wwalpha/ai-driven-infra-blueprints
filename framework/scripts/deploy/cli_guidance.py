@@ -276,6 +276,7 @@ def safe_error(error):
     if isinstance(error, DeployStepBlocked):
         reason = str(error)
         safe_reasons = {
+            "final sync prerequisites are incomplete; inspect --action status finalBlockers and coverage",
             "base advanced; review retained commit",
             "local Deploy save belongs to different fixed inputs",
             "fixed execution inputs changed without verified implement authority",

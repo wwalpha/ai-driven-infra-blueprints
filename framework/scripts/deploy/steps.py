@@ -235,7 +235,7 @@ def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
             ):
                 context.pop("syncPending")
             backend.save()
-            raise Blocked("final sync requires: " + json.dumps(blockers))
+            raise Blocked("final sync prerequisites are incomplete; inspect --action status finalBlockers and coverage")
     context["snapshotValidation"] = VALIDATION_FAIL
     backend.save()
     with publication_lock(backend.root, read_only=True):

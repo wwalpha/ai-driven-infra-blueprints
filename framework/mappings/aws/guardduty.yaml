@@ -11,6 +11,13 @@ getters:
     result: ResourceDescription.Properties
     resourceType: GuardDuty.Detector
     identifier: [/properties/Id]
+  provider-guardduty-plan:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: GuardDuty.MalwareProtectionPlan
+    identifier: [/properties/MalwareProtectionPlanId]
   plan:
     kind: adapter
     resources: [GuardDuty.MalwareProtectionPlan]
@@ -93,7 +100,7 @@ resourceTypes:
         model: {include: true}
         display: {show: true, name: MalwareProtectionPlanId}
         access: [read-only]
-        aws: {getter: plan, path: MalwareProtectionPlanId, normalize: typed}
+        aws: {getter: provider-guardduty-plan, path: MalwareProtectionPlanId, normalize: typed}
       Actions.Tagging.Status:
         model: {include: true}
         display: {show: true, name: Actions.Tagging.Status}

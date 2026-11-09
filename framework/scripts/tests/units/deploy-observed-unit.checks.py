@@ -1543,6 +1543,7 @@ def test_stack_physical_identifier_observation(
     [
         ("Route53Resolver.ResolverEndpoint", "ResolverEndpointId", "rslvr-in-0123"),
         ("CloudFront.OriginAccessControl", "Id", "E123456789"),
+        ("GuardDuty.MalwareProtectionPlan", "MalwareProtectionPlanId", "0123456789abcdef0123"),
     ],
 )
 def test_provider_confirms_single_identifier_without_output(

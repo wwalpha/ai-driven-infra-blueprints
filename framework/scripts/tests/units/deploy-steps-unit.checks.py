@@ -263,6 +263,8 @@ def check_step_diagnostics_do_not_expose_unknown_error_values():
     known = cli_guidance.safe_error(
         cli_guidance.DeployStepBlocked("base advanced; review retained commit")
     )
+    reason = "final sync prerequisites are incomplete; inspect --action status finalBlockers and coverage"
+    assert cli_guidance.safe_error(cli_guidance.DeployStepBlocked(reason))["reason"] == reason
     assert known["code"] == "DEPLOY_STEP_BLOCKED"
     assert known["reason"] == "base advanced; review retained commit"
     assert "private-value" not in json.dumps(

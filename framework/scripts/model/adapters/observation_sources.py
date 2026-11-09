@@ -34,6 +34,7 @@ def cloudcontrol_source(root, catalog, resource, prop):
             REF_ATTRIBUTES.get(kind)
             or {
                 "CloudFront.OriginAccessControl": "Id",
+                "GuardDuty.MalwareProtectionPlan": "MalwareProtectionPlanId",
                 "Route53Resolver.ResolverEndpoint": "ResolverEndpointId",
             }.get(kind, "")
         )
