@@ -23,7 +23,9 @@ Register a `migration` contract listing only this contract and
 in Validation scope. For framework implementation tasks,
 framework-only governance scope remains available under the existing rules.
 
-Run from repository root with the managed Python launcher:
+Run from repository root through `run-python.py`. On Windows, replace `python3`
+with `python` when it runs the intended Python 3 interpreter, such as in an
+activated virtual environment, or with `py -3` when using the Windows launcher.
 
 ```console
 python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py audit --environment dev --target cde --service vpc --task-file tasks/<task-name>.md
@@ -46,7 +48,8 @@ The standalone file uses only Python stdlib and AWS CLI; no repository imports a
 needed at execution. If copied outside the generated directory layout, logs use the
 current working directory's `tests/results/` tree. Expectations stay fixed until regeneration.
 
-Human execution example (do not run this as part of this Skill):
+Human execution example using `python` in an activated virtual environment,
+including PowerShell. The Human runs this command separately from generation.
 
 ```console
 python tests/dev/cde/vpc.py --profile dev-profile
