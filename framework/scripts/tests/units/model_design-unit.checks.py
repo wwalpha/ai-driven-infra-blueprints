@@ -38,6 +38,7 @@ from design.layout import (
     stack_design,
 )
 from design.layout_schema import resource_anchor as resource_anchor
+from design.services.ec2.display import ec2_formal_rows
 from model.core import entries, stack_model, validate_model_keys
 from model.display import ReferenceTable
 from model.format import parse, serialize
@@ -730,8 +731,6 @@ def compact_ec2_restored(values, rows, expected, actual):
 
 @pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
 def test_iam_name_tag_display(kind):
-    from design.services.ec2.display import ec2_formal_rows
-
     source = [
         ["1", kind + ".Tags[].Key", "`Name`", "name key"],
         ["2", kind + ".Tags[].Value", "`example`", "name value"],
