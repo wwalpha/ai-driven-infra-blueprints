@@ -743,8 +743,8 @@ def test_tag_table_rows(kind, packed):
     resource = {"resourceType": kind, "resourceMode": "IMPORT" if packed else "CREATE"}
     rendered = model_design.resource_table_lines(resource, "fixture", source, [], ROOT)
     assert rendered[2:] == [
-        "| 1 | Tags[1] | `owner` = `team` | Key<br>Value |",
-        "| 2 | Tags[2] | `project` = `data` | Key<br>Value |",
+        "| 1 | Tags.owner | `team` | Key<br>Value |",
+        "| 2 | Tags.project | `data` | Key<br>Value |",
     ]
     semantic = tuple(row_table(source))
     baseline = model_design.resource_table_lines(
@@ -766,7 +766,7 @@ def test_tag_table_rows(kind, packed):
 ])
 def test_tag_collection_rows(prop, value):
     assert compact_tag_rows([["1", prop, value, "tag"]]) == [
-        ["1", prop.removesuffix("[]") + "[]", "`owner` = `team`", "tag"]
+        ["1", prop.removesuffix("[]") + ".owner", "`team`", "tag"]
     ]
 
 

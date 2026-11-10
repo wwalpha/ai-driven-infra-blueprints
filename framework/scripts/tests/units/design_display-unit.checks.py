@@ -1096,7 +1096,7 @@ def instance(tmp_path):
         yield tmp_path, values, path, expected
 
 
-@pytest.mark.parametrize("change", ["value", "comment", "index", "number"])
+@pytest.mark.parametrize("change", ["value", "comment", "key", "number"])
 @pytest.mark.parametrize(
     "heading,name",
     [
@@ -1118,8 +1118,8 @@ def test_unrelated_array_display_cannot_block_saved_name(
     replacements = {
         "value": ("`original`", "`changed`"),
         "comment": ("`original` | タグ", "`original` | 変更"),
-        "index": ("Tags[2] |", "Tags[7] |"),
-        "number": ("| 2 | Tags[2] |", "| 9 | Tags[2] |"),
+        "key": ("Tags.Purpose |", "Tags.Changed |"),
+        "number": ("| 2 | Tags.Purpose |", "| 9 | Tags.Purpose |"),
     }
     old, new = replacements[change]
     assert old in text
@@ -1290,7 +1290,7 @@ def indexed_name_tags(tmp_path, request):
         path = tmp_path / f"docs/designs/qa/team/{service}.md"
         path.parent.mkdir(parents=True)
         expected = generate_markdown(path, values, FRAMEWORK)
-        assert f"{tags}[2] | `Name` = `saved-name` |" in expected
+        assert f"{tags}.Name | `saved-name` |" in expected
         yield tmp_path, service, kind, values, path, expected, tags, prop, value
 
 
@@ -1310,7 +1310,7 @@ def test_indexed_name_tags_ignore_unrelated_properties(
 ):
     root, service, kind, values, path, expected, tags, prop, value = indexed_name_tags
     text = expected.replace(f"### {kind}: saved-name", f"### {kind}: {heading}")
-    text = text.replace("`Name` = `saved-name`", f"`Name` = `{name}`")
+    text = text.replace(f"{tags}.Name | `saved-name`", f"{tags}.Name | `{name}`")
     if change != "none":
         raw = f"{prop} | `{value}` | 設定値"
         replacement = (
@@ -1361,7 +1361,17 @@ def test_indexed_name_tags_ignore_unrelated_properties(
 )
 def test_indexed_name_tags_reject_broken_pairs(indexed_name_tags, damage):
     root, service, kind, values, path, expected, tags, _, _ = indexed_name_tags
-    tag = next(line for line in expected.splitlines() if f"{tags}[2] |" in line)
+    if damage in {"wrong-index", "zero", "negative", "leading-zero", "text", "unknown-field", "value-first"}:
+        # Keep checking damage in Markdown saved with the older indexed display.
+        expected = expected.replace(
+            f"{tags}.Environment | `dev`", f"{tags}[1] | `Environment` = `dev`"
+        ).replace(
+            f"{tags}.Name | `saved-name`", f"{tags}[2] | `Name` = `saved-name`"
+        )
+    tag = next(
+        line for line in expected.splitlines()
+        if f"{tags}.Name |" in line or f"{tags}[2] |" in line
+    )
     if damage in {"wrong-index", "zero", "negative", "leading-zero", "text"}:
         index = {
             "wrong-index": "3",
@@ -1374,9 +1384,9 @@ def test_indexed_name_tags_reject_broken_pairs(indexed_name_tags, damage):
     elif damage == "duplicate":
         text = expected.replace(tag, tag + "\n" + tag)
     elif damage == "missing":
-        text = expected.replace(tag, tag.replace(" = `saved-name`", ""))
+        text = expected.replace(tag, tag.replace("`saved-name`", ""))
     elif damage == "missing-key":
-        text = expected.replace(tag, tag.replace("`Name` = ", ""))
+        text = expected.replace(tag, tag.replace(f"{tags}.Name", f"{tags}."))
     elif damage == "unknown-field":
         text = expected.replace(f"{tags}[2] |", f"{tags}[2].Unknown |")
     elif damage == "value-first":
@@ -1386,7 +1396,7 @@ def test_indexed_name_tags_reject_broken_pairs(indexed_name_tags, damage):
             f"| 3 | {tags}[2].Key | `Name` | 設定値 |",
         )
     else:
-        text = expected.replace("`Environment`", "`Name`")
+        text = expected.replace(f"{tags}.Environment", f"{tags}.Name")
     path.write_text(text, encoding="utf-8")
     findings = Findings(root)
     design.check_resource_names(

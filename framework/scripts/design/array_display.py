@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import re
 from pathlib import Path
@@ -118,6 +119,17 @@ def _tag_collection(value):
             pass  # A literal tag value can start with a bracket.
 
 
+def _display_tag_key(key):
+    if re.fullmatch(r"[A-Za-z0-9.:/@+=-]+", key) or LINK.fullmatch(key):
+        return key
+    escaped = html.escape(key, quote=False).translate(
+        str.maketrans(
+            {"|": "&#124;", "[": "&#91;", "]": "&#93;", "\n": "&#10;", "\r": "&#13;"}
+        )
+    )
+    return f"<code>{escaped}</code>"
+
+
 def compact_tag_rows(rows):
     """Show one row per tag without replacing the formal source rows."""
     result = []
@@ -147,9 +159,9 @@ def compact_tag_rows(rows):
                 ):
                     result.append(row)
                     continue
-                items = [(code(k), code(v)) for k, v in zip(keys, values, strict=True)]
+                items = zip(keys, values, strict=True)
             else:
-                items = [(code(literal(key)), code(literal(val)))]
+                items = [(literal(key), literal(val))]
             comment = "<br>".join(dict.fromkeys(filter(None, (comment, value_comment))))
             index += 1
         else:
@@ -168,9 +180,13 @@ def compact_tag_rows(rows):
             ):
                 result.append(row)
                 continue
-            items = [(code(key), code(val)) for key, val in pairs]
-            tag_prop = prop if prop.endswith("[]") else prop + "[]"
-        result.extend([identity, tag_prop, f"{key} = {val}", comment] for key, val in items)
+            items = pairs
+            tag_prop = prop
+        prefix = tag_prop.removesuffix("[]")
+        result.extend(
+            [identity, f"{prefix}.{_display_tag_key(key)}", code(val), comment]
+            for key, val in items
+        )
     return result
 
 
@@ -187,6 +203,19 @@ def expand_saved_tag_rows(rows, kind):
                 [
                     [number, prop + ".Key", pair[1], comment],
                     [number, prop + ".Value", pair[2], comment],
+                ]
+            )
+        elif re.match(r"(?:Tags|HostedZoneTags)\.", field):
+            tag_field, _, key = field.partition(".")
+            if key.startswith("<code>") and key.endswith("</code>"):
+                key = html.unescape(key[6:-7])
+            if not key or not value:
+                raise ValueError("tag display requires a key and value")
+            tags = prop.removesuffix(field) + tag_field + "[]"
+            result.extend(
+                [
+                    [number, tags + ".Key", code(key), comment],
+                    [number, tags + ".Value", value, comment],
                 ]
             )
         else:

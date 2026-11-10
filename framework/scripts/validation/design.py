@@ -511,7 +511,13 @@ def _callback_check_resource_names_check_name(
                 not direct_name
                 or "[]" in field
                 and resource_type in _dependency_design_layout.REQUIRED_NAME_TAG_TYPES
-            ) and re.match(r"(?:Tags|HostedZoneTags)(?:$|\[)", field):
+            ) and re.match(r"(?:Tags|HostedZoneTags)(?:$|[.\[])", field):
+                if (
+                    resource_type in _dependency_design_layout.REQUIRED_NAME_TAG_TYPES
+                    and field.startswith("Tags.")
+                    and field != "Tags.Name"
+                ):
+                    continue
                 saved_rows.append(row)
         name_unavailable = None
         try:

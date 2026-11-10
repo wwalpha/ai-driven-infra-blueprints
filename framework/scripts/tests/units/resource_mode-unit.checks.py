@@ -171,7 +171,7 @@ def check_resource_mode_conditions():
             {"$modelRef": {"logicalId": "EC2_VPCEndpoint_001", "attribute": "Id"}}
         ).join(("`", "`"))
         assert not (error := check(tagged)), error
-        assert "| Tags[1] | `name` = `LEGACY_NAME_01` |" in path.read_text(encoding="utf-8")
+        assert "| Tags.name | `LEGACY_NAME_01` |" in path.read_text(encoding="utf-8")
 
         # A mixed service must not exempt its CREATE neighbour.
         mixed = model(name="LEGACY_NAME_01", mode="IMPORT")
