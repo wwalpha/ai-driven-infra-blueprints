@@ -1,5 +1,7 @@
 """Fixed iam design definitions; no display-engine dependencies."""
 
+NAME_TAG_DISPLAY_TYPES = {"IAM.Role", "IAM.User"}
+
 POLICY_FORMATS = {
     "IAM.ManagedPolicy.PolicyDocument": "statement",
     "IAM.Role.AssumeRolePolicyDocument": "statement",
