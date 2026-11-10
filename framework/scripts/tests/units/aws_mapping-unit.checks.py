@@ -432,6 +432,10 @@ def check_v3_registry():
         "resourceType": "GuardDuty.MalwareProtectionPlan",
         "identifier": ["/properties/MalwareProtectionPlanId"],
     }
+    project_id = baseline_properties["codebuild"]["CodeBuild.Project"]["Id"]
+    assert project_id["model"]["include"] is True
+    assert project_id["display"]["show"] is False
+    project_id["display"]["show"] = True
     assert "AvailabilityZone" not in properties["ec2"]["EC2.Instance"]
     # Environment mappings add CodePipeline SDK fields and expose ECS/Lambda values.
     for values, expected in [

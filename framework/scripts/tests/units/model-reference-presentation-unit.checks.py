@@ -382,7 +382,9 @@ def test_positions_glue_equal_names_escaping_and_roundtrip(models):
         )
         assert "| `shared-name` |" in literal_line
         descriptions = [
-            line for line in markdown.splitlines() if "| Description |" in line
+            line
+            for line in markdown.splitlines()
+            if "| Description |" in line and not line.startswith("| No. |")
         ]
         assert len(descriptions) == 2
         assert all(

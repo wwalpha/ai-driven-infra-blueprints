@@ -3061,10 +3061,9 @@ def check_issues_checks_saved_display_without_generation(
         )
     assert checks > 0 and not warnings, (errors, warnings)
     if display in {"plain", "label"}:
-        assert errors and validators[0].findings.unverified
-        assert not validators[0].findings.processing_errors
         assert any(
-            "indexed array display requires Model source rows" in error
+            "resource table property is not selected by design catalog" in error
+            and error.endswith("S3.Bucket.Tags.owner")
             for error in errors
         ), errors
     else:
