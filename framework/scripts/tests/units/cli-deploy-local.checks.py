@@ -386,5 +386,36 @@ def check_cli_pr_refused_before_publication(tmp_path):
             wt.finalize(tmp_path, "cli-example", create_pr=True)
 
 
+def test_generation_task_reuses_snapshot_and_restores_scope(tmp_path):
+    target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
+    path = tmp_path / NAME
+    path.parent.mkdir()
+    path.write_text(contract(), encoding="utf-8")
+    snapshot = cli.tasks.task_snapshot(tmp_path, executable=False)
+    with patch.object(
+        cli.tasks, "validate_contract", wraps=cli.tasks.validate_contract
+    ) as validate:
+        with pytest.raises(RuntimeError, match="fixture"):
+            with cli.generation_task(tmp_path, snapshot):
+                for _ in range(10):
+                    assert cli.partition(tmp_path, target) == "aws"
+                assert (
+                    cli.partition(
+                        tmp_path,
+                        target,
+                        text=contract().replace("method: `cli`", "method: `sdk`"),
+                    )
+                    is None
+                )
+                with pytest.raises(ValueError, match="context"):
+                    cli.partition(tmp_path, {**target, "awsRegion": "wrong"})
+                assert validate.call_count == 0
+                raise RuntimeError("fixture")
+        assert cli.partition(tmp_path, target) == "aws"
+        assert validate.call_count > 0
+    with cli.generation_task(tmp_path, None):
+        assert cli.partition(tmp_path, target) is None
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__, message="CLI Deploy local checks: PASS"))

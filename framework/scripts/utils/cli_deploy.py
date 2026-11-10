@@ -15,6 +15,7 @@ from utils.project_targets import load_target_directory
 from utils.script_loader import module
 
 _staged_roots = ContextVar("cli_deploy_staged_roots", default=None)
+_generation_task = ContextVar("cli_deploy_generation_task", default=None)
 
 
 @contextmanager
@@ -24,6 +25,15 @@ def staged_root(stage, root):
         yield
     finally:
         _staged_roots.reset(token)
+
+
+@contextmanager
+def generation_task(root, snapshot):
+    token = _generation_task.set((root.resolve(), snapshot))
+    try:
+        yield
+    finally:
+        _generation_task.reset(token)
 
 
 def field(text, name):
@@ -55,9 +65,16 @@ def is_cli(text):
 def partition(root, target, *, text=None):
     root = (_staged_roots.get() or {}).get(root.resolve(), root)
     if text is None:
-        if tasks.task_path(root, required=False) is None:
-            return None
-        text = tasks.task_snapshot(root, executable=False).text
+        current = _generation_task.get()
+        if current is not None and current[0] == root.resolve():
+            snapshot = current[1]
+            if snapshot is None:
+                return None
+            text = snapshot.text
+        else:
+            if tasks.task_path(root, required=False) is None:
+                return None
+            text = tasks.task_snapshot(root, executable=False).text
     if not is_cli(text):
         return None
     account = target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, target.get(AWS_ACCOUNT_ID_KEY))

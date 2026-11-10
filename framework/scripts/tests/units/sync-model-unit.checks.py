@@ -51,7 +51,7 @@ from validation.findings import CheckResult, Findings
 from validation.task import TaskValidation
 from validation_cache import PassCache
 
-from model import projection
+from model import change_scope, projection, sources
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -1694,6 +1694,50 @@ def check_sidecar_output_difference(tmp_path, state):
         assert view.read_bytes() == b"unchanged\n"
     finally:
         snapshot.close()
+
+
+def check_generation_stage_reads_are_scoped(tmp_path):
+    observed = []
+
+    def inspect(stage, root, *args, **kwargs):
+        first = sources._invocation_reads(stage)
+        assert first is sources._invocation_reads(stage)
+        assert change_scope.inputs_for(root)[1] is None
+        observed.append(first)
+        return {}
+
+    with (
+        patch.object(sync_runtime, "stage_inputs"),
+        patch.object(sync_runtime, "generate_views", side_effect=inspect),
+    ):
+        for _ in range(2):
+            plan = sync_runtime.prepare_generation(tmp_path, None, write=False)
+            plan.close()
+            assert change_scope.inputs_for(plan.stage)[1] is None
+    assert observed[0] is not observed[1]
+
+
+@pytest.mark.parametrize("during_generation", [False, True])
+def check_generation_rejects_declared_symlink(tmp_path, during_generation):
+    root = tmp_path / "root"
+    declared = root / "unused" / "declared.txt"
+    declared.parent.mkdir(parents=True)
+    declared.write_text("original", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    with issue_task(root, ["iam"], allowed=["unused/declared.txt"]):
+        with ExitStack() as lifetime:
+            if during_generation:
+                plan = sync_runtime.prepare_generation(root, None, write=False)
+                lifetime.callback(plan.close)
+            declared.parent.rename(root / "old-unused")
+            declared.parent.symlink_to(outside, target_is_directory=True)
+            with pytest.raises(ValueError, match="task path must not use symlinks"):
+                if during_generation:
+                    sync_runtime.publish_generation(plan)
+                else:
+                    sync_runtime.prepare_generation(root, None, write=False)
+    assert declared.parent.is_symlink()
 
 
 @pytest.mark.parametrize("missing", ["model", "view"])
