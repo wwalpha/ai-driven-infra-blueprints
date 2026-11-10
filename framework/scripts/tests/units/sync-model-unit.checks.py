@@ -1696,16 +1696,17 @@ def check_sidecar_output_difference(tmp_path, state):
         snapshot.close()
 
 
+def _inspect_generation_stage_reads(observed, /, stage, root, *args, **kwargs):
+    first = sources._invocation_reads(stage)
+    assert first is sources._invocation_reads(stage)
+    assert change_scope.inputs_for(root)[1] is None
+    observed.append(first)
+    return {}
+
+
 def check_generation_stage_reads_are_scoped(tmp_path):
     observed = []
-
-    def inspect(stage, root, *args, **kwargs):
-        first = sources._invocation_reads(stage)
-        assert first is sources._invocation_reads(stage)
-        assert change_scope.inputs_for(root)[1] is None
-        observed.append(first)
-        return {}
-
+    inspect = _bind_framework_callback(_inspect_generation_stage_reads, observed)
     with (
         patch.object(sync_runtime, "stage_inputs"),
         patch.object(sync_runtime, "generate_views", side_effect=inspect),
