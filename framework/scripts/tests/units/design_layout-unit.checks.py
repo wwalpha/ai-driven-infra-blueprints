@@ -650,8 +650,8 @@ def _callback_check_codebuild_variable_display_errors(
 
 def check_codebuild_variable_display(tmp_path, catalog) -> None:
     codebuild = CODEBUILD.replace(
-        "| 6 | Environment.Variables.SECOND | `cde` | 環境変数の値 |",
-        "| 6 | Environment.Variables.SECOND | [venus-dev-snowflake-cicd-keypair-cde](secretsmanager.md#secretsmanager-snowflakekey) | <!-- codebuild-variable-type: SECRETS_MANAGER --> 環境変数の参照先 |",
+        "| 5 | Environment.Variables.SECOND | `cde` | 環境変数の値 |",
+        "| 5 | Environment.Variables.SECOND | [venus-dev-snowflake-cicd-keypair-cde](secretsmanager.md#secretsmanager-snowflakekey) | <!-- codebuild-variable-type: SECRETS_MANAGER --> 環境変数の参照先 |",
     )
     root = tmp_path
     path = root / "docs/designs/dev/123456789012/codebuild.md"
@@ -707,7 +707,9 @@ def check_codebuild_variable_display(tmp_path, catalog) -> None:
     assert "\n".join(expanded_display_rows(path.read_text().splitlines())) == model
     assert any(
         "must omit heading resource type" in error
-        for error in errors(short.replace("| 2 | Id |", "| 2 | CodeBuild.Project.Id |"))
+        for error in errors(
+            short.replace("| 2 | Artifacts.Type |", "| 2 | CodeBuild.Project.Artifacts.Type |")
+        )
     )
     assert errors(short.replace("Artifacts.Type", "Artifacts.Unknown"))
     assert errors(codebuild.replace("Variables.SECOND", "Variables.FIRST"))
@@ -791,9 +793,9 @@ def _callback_check_codebuild_vpc_display_errors(
 
 
 def check_codebuild_vpc_display(tmp_path, catalog) -> None:
-    vpc_rows = """| 11 | VpcConfig.Subnets[1] | [subnet-00000000000000001](vpc.md#vpc-sbnt-one) | 1つ目のprivate subnet |
-| 12 | VpcConfig.Subnets[2] | [subnet-00000000000000002](vpc.md#vpc-sbnt-two) | 2つ目のprivate subnet |
-| 13 | VpcConfig.SecurityGroupIds[1] | [PENDING_DEPLOY](security-group.md#security-group-codebuild-sg) | buildに適用するSecurity Group |
+    vpc_rows = """| 10 | VpcConfig.Subnets[1] | [subnet-00000000000000001](vpc.md#vpc-sbnt-one) | 1つ目のprivate subnet |
+| 11 | VpcConfig.Subnets[2] | [subnet-00000000000000002](vpc.md#vpc-sbnt-two) | 2つ目のprivate subnet |
+| 12 | VpcConfig.SecurityGroupIds[1] | [PENDING_DEPLOY](security-group.md#security-group-codebuild-sg) | buildに適用するSecurity Group |
 """
     design_text = CODEBUILD + vpc_rows
     lines = design_text.splitlines()
@@ -802,9 +804,9 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
     other = expanded_display_rows(CODEBUILD.splitlines())
     semantic = other[other.index("| No. | Property | Value | Description |") :]
     semantic += [
-        "| 11 | CodeBuild.Project.VpcConfig.Subnets | [subnet-00000000000000001](vpc.md#vpc-sbnt-one) | 1つ目のprivate subnet |",
-        "| 12 | CodeBuild.Project.VpcConfig.Subnets | [subnet-00000000000000002](vpc.md#vpc-sbnt-two) | 2つ目のprivate subnet |",
-        "| 13 | CodeBuild.Project.VpcConfig.SecurityGroupIds | [PENDING_DEPLOY](security-group.md#security-group-codebuild-sg) | buildに適用するSecurity Group |",
+        "| 10 | CodeBuild.Project.VpcConfig.Subnets | [subnet-00000000000000001](vpc.md#vpc-sbnt-one) | 1つ目のprivate subnet |",
+        "| 11 | CodeBuild.Project.VpcConfig.Subnets | [subnet-00000000000000002](vpc.md#vpc-sbnt-two) | 2つ目のprivate subnet |",
+        "| 12 | CodeBuild.Project.VpcConfig.SecurityGroupIds | [PENDING_DEPLOY](security-group.md#security-group-codebuild-sg) | buildに適用するSecurity Group |",
     ]
     table = ReferenceTable(
         "codebuild-buildproject", (), baseline, tuple(semantic), baseline

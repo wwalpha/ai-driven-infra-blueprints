@@ -25,7 +25,7 @@ resourceTypes:
         aws: {getter: base, path: name, normalize: typed}
       Id:
         model: {include: true}
-        display: {show: true, name: Id}
+        display: {show: false, name: Id}
         access: [read-only]
         aws: {getter: base, path: name, normalize: typed}
       Artifacts.ArtifactIdentifier:

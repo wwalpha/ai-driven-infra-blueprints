@@ -112,6 +112,15 @@ def check_validation_projection_scope(tmp_path):
             assert display._validation_projections.get() is None
 
 
+
+def test_codebuild_project_id_is_hidden_only_from_display():
+    rows = [
+        ["001-001", "CodeBuild.Project.Name", "`build`", ""],
+        ["001-002", "CodeBuild.Project.Id", "`project-id`", ""],
+    ]
+    assert display.selected_rows(rows) == rows[:1]
+    assert rows[1][2] == "`project-id`"
+
 def check_indexed_mapping():
     for kind, field in (
         ("CodePipeline.Pipeline", "Stages[1].Name"),

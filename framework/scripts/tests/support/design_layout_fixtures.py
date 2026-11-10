@@ -124,15 +124,14 @@ CODEBUILD = """# CodeBuild 詳細設計
 | No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `build-project` | projectの名前 |
-| 2 | Id | `PENDING_DEPLOY` | projectのID |
-| 3 | Artifacts.Type | `NO_ARTIFACTS` | artifactの種類 |
-| 4 | Environment.ComputeType | `BUILD_GENERAL1_SMALL` | 実行環境の容量 |
-| 5 | Environment.Variables.FIRST | `hello:world` | 環境変数の値 |
-| 6 | Environment.Variables.SECOND | `cde` | 環境変数の値 |
-| 7 | Environment.Image | `aws/codebuild/standard:7.0` | 実行環境のimage |
-| 8 | Environment.Type | `LINUX_CONTAINER` | 実行環境の種類 |
-| 9 | ServiceRole | `role-name` | 使用するrole |
-| 10 | Source.Type | `NO_SOURCE` | sourceの種類 |
+| 2 | Artifacts.Type | `NO_ARTIFACTS` | artifactの種類 |
+| 3 | Environment.ComputeType | `BUILD_GENERAL1_SMALL` | 実行環境の容量 |
+| 4 | Environment.Variables.FIRST | `hello:world` | 環境変数の値 |
+| 5 | Environment.Variables.SECOND | `cde` | 環境変数の値 |
+| 6 | Environment.Image | `aws/codebuild/standard:7.0` | 実行環境のimage |
+| 7 | Environment.Type | `LINUX_CONTAINER` | 実行環境の種類 |
+| 8 | ServiceRole | `role-name` | 使用するrole |
+| 9 | Source.Type | `NO_SOURCE` | sourceの種類 |
 """
 
 GUARDDUTY = """# GuardDuty 詳細設計

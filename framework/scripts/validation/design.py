@@ -134,9 +134,16 @@ def catalog_design_properties(
     resource_types = set(types)
     property_owners = {key: set(value) for key, value in owners.items()}
     identifier_outputs = {
-        key: set(value) - HIDDEN_PROPERTIES
+        key: visible
         for key, value in outputs.items()
-        if value - HIDDEN_PROPERTIES
+        if (
+            visible := {
+                prop
+                for prop in value - HIDDEN_PROPERTIES
+                if _imports_aws_mapping_display.show(prop, root)
+                or _imports_aws_mapping_display.structural(prop)
+            }
+        )
     }
     for resource_type, property_name in REQUIRED_NAME_PROPERTIES.items():
         if resource_type in resource_types:
