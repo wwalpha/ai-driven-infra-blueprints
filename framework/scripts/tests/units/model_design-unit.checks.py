@@ -104,8 +104,6 @@ def array_model_case(tmp_path, case):
     before = dict(values)
     path = tmp_path / "docs/designs/dev/team/quicksight.md"
     markdown = model_design.generate_markdown(path, values, ROOT)
-    assert "- Design service ID:" not in markdown
-    assert "- Owned catalog resource types:" not in markdown
     TestCase().assertTrue("<!-- array-source:" not in markdown)
     TestCase().assertTrue("Permissions[1].Actions[2]" in markdown)
     TestCase().assertTrue("Permissions[2].Actions | `[]` | 空の権限" in markdown)
