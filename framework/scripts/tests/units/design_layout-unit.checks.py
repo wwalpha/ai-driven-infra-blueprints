@@ -461,9 +461,9 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
 | No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `app-dev-key` | secretの名前 |
-| 2 | SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate | `false` | <a id="resource-SecretsManager_RotationSchedule_001"></a><!-- logical-id: SecretsManager_RotationSchedule_001 --> app-dev-key_rotate：更新直後のrotation実行設定 |
-| 3 | SecretsManager.RotationSchedule.RotationRules.AutomaticallyAfterDays | `30` | rotationの間隔日数 |
-| 4 | SecretsManager.RotationSchedule.SecretId | [app-dev-key](#secretsmanager-app-dev-key) | 対象secretのID |
+| 2 | RotationSchedule.RotateImmediatelyOnUpdate | `false` | <a id="resource-SecretsManager_RotationSchedule_001"></a><!-- logical-id: SecretsManager_RotationSchedule_001 --> app-dev-key_rotate：更新直後のrotation実行設定 |
+| 3 | RotationSchedule.RotationRules.AutomaticallyAfterDays | `30` | rotationの間隔日数 |
+| 4 | RotationSchedule.SecretId | [app-dev-key](#secretsmanager-app-dev-key) | 対象secretのID |
 
 <!-- resource-logical-id: SecretsManager_Secret_002 -->
 <a id="secretsmanager-app-dev-token"></a>
@@ -592,8 +592,8 @@ desired.row.003-001.comment=secretの名前
         == csv_view
     )
     assert (
-        "HostedRotationLambda.VpcSubnetIds[1]" in csv_view
-        and "HostedRotationLambda.VpcSubnetIds[2]" in csv_view
+        "| RotationSchedule.HostedRotationLambda.VpcSubnetIds[1] |" in csv_view
+        and "| RotationSchedule.HostedRotationLambda.VpcSubnetIds[2] |" in csv_view
     )
     write_model(root / "model/dev/123456789012/secretsmanager.properties", values)
     for invalid, message in (
@@ -615,7 +615,7 @@ desired.row.003-001.comment=secretの名前
                 "[app-dev-key](#secretsmanager-app-dev-key)",
                 "[app-dev-token](#secretsmanager-app-dev-token)",
             ),
-            " / SecretsManager.RotationSchedule.SecretId:",
+            " / RotationSchedule.SecretId:",
         ),
         (
             text.replace(
@@ -915,11 +915,11 @@ def _callback_check_subnet_list_links_content(kind, prop, /, value):
                             ["1", "Name", "`key`", "secretの名称"],
                             [
                                 "2",
-                                "SecretsManager.RotationSchedule.SecretId",
+                                "RotationSchedule.SecretId",
                                 "[key](#secretsmanager-key)",
                                 '<a id="resource-KeyRotation"></a><!-- logical-id: KeyRotation --> key-rotation：対象secret',
                             ],
-                            ["4", kind + "." + shown[0][1], shown[0][2], shown[0][3]],
+                            ["4", "RotationSchedule." + shown[0][1], *shown[0][2:]],
                         ]
                     ),
                 ]

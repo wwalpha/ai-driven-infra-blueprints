@@ -1247,6 +1247,10 @@ def formal_property(display: str, resource_type: str, root: Path | None = None) 
         return formal
     if resource_type == "Lambda.Function" and display.startswith("Permission."):
         return "Lambda." + display
+    if resource_type == "SecretsManager.Secret" and display.startswith(
+        "RotationSchedule."
+    ):
+        return "SecretsManager." + display
     if display.startswith(RESOURCE_PROPERTY_PREFIXES):
         return display
     return resource_type + "." + display if resource_type else display

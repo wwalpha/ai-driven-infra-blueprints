@@ -2536,7 +2536,7 @@ def check_rotation_inputs():
                 "\n".join(
                     line
                     for line in output.splitlines()
-                    if "SecretsManager.RotationSchedule" + ".SecretId" not in line
+                    if "| RotationSchedule.SecretId |" not in line
                 ),
                 "required property missing",
             ),
@@ -2550,7 +2550,12 @@ def check_rotation_inputs():
                 output.replace("app-dev-secret-1_rotate：", ""),
                 "confirmed display name required",
             ),
-            (output.replace("SecretsManager.Secret:", "S3.Bucket:"), "wrong parent"),
+            (
+                output.replace("SecretsManager.Secret:", "S3.Bucket:").replace(
+                    "| RotationSchedule.", "| SecretsManager.RotationSchedule."
+                ),
+                "wrong parent",
+            ),
             (
                 output.replace(
                     "<!-- logical-id: SecretsManager_RotationSchedule_002 -->",
@@ -2566,7 +2571,7 @@ def check_rotation_inputs():
             )
         lines = output.splitlines()
         child_rows = [
-            line for line in lines if "SecretsManager.RotationSchedule" + "." in line
+            line for line in lines if "| RotationSchedule." in line
         ][:3]
         second_child = [
             line.replace("secret-1_rotate", "secret-3_rotate").replace(

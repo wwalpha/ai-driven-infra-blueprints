@@ -525,6 +525,10 @@ def resource_table_lines(
             display += child_display
         if not formal and indexed:
             display = _dependency_array_display.indexed_rows(display, kind, root)
+        if not formal and kind == "SecretsManager.Secret":
+            for row in display:
+                if row[1].startswith(ROTATION_SCHEDULE + "."):
+                    row[1] = row[1].removeprefix("SecretsManager.")
         output += _dependency_model_display.row_table(display)
     if Counter(consumed) != expected:
         raise ValueError(
