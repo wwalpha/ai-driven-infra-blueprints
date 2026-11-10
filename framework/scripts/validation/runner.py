@@ -646,11 +646,16 @@ class Validator:
                 self.check_changed_inputs,
                 isolate=True,
             )
+        views = (
+            self.change_view_scope()
+            if self.model_validation == "change"
+            else self.scope
+        )
         if self.findings.status != VALIDATION_PASS:
             return
         plan = prepare_generation(
             self.root,
-            self.change_plan.views if self.model_validation == "change" else self.scope,
+            views,
             snapshot=snapshot,
             definitions_root=self.definitions_root,
         )
@@ -1201,15 +1206,12 @@ class Validator:
 
     def check_changed_designs(self):
         self.check_changed_inputs()
-        if (
-            self.errors
-            or self.infrastructure_phase == "deploy"
-            or not self.change_plan.views
-        ):
+        views = self.change_view_scope()
+        if self.errors or self.infrastructure_phase == "deploy" or not views:
             return
         generator = Validator(
             self.root,
-            set(self.change_plan.views),
+            views,
             workers=self.workers,
             definitions_root=self.definitions_root,
             model_validation="change",
@@ -1225,6 +1227,30 @@ class Validator:
             [("framework.generated-service-model", generator.scope)],
         )
         self.generated_models_checked = True
+
+    def change_view_scope(self):
+        if self.task_type != "migration":
+            return set(self.change_plan.views)
+        # Declared migration outputs can be stale even with no Model changes.
+        views = set()
+        for name in _imports_task_contract.paths_in(
+            self.task.contract_text or "", "## Modified files"
+        ):
+            path = Path(name)
+            if not path.is_relative_to(DESIGNS_DIRECTORY):
+                continue
+            parts = path.relative_to(DESIGNS_DIRECTORY).parts
+            if len(parts) == 3 and path.suffix == ".md":
+                views.add((*parts[:2], path.stem))
+            elif len(parts) >= 4 and path.suffix == ".json":
+                views.add(parts[:3])
+        if self.scope is not None:
+            for entry in sorted(views - self.scope):
+                self.check(
+                    False,
+                    f"migration View is outside Validation scope: {'/'.join(entry)}",
+                )
+        return self.change_plan.views | views
 
     def check_framework_cloudformation_schema_catalog(self) -> None:
         return framework_contracts.check_framework_cloudformation_schema_catalog(

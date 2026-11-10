@@ -140,6 +140,12 @@ or `--environment` plus `--alias` or `--aws-account-id` and repeatable `--servic
 Dedicated Model operations retain their generation APIs; standalone and infrastructure
 flows retain their own validation paths.
 
+For View-only `migration`, declare the exact generated Markdown/JSON paths in
+Modified files and Allowed paths, with their service addresses in Validation scope.
+The task loop includes those services in generation with `--write` and in saved
+View equality validation without it, including when the Model change plan is empty.
+Use the existing Models as read-only inputs.
+
 Explicit `--write` passes generation to the leading validator. Under the publication lock,
 compare consumed inputs, file sets and selected contract before any save; changed inputs or
 common integrity failures stop all saves. Save only changed projected bytes. Unresolved

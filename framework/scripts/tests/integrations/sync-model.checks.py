@@ -37,7 +37,7 @@ from support.model_sources import write_model as write_model
 from support.model_templates_fixtures import config_model, fixture, write_fixture
 from support.pytest_cli import run
 from support.sync_model_fixtures import MODULE
-from support.validator import diagnostics, load
+from support.validator import commit, diagnostics, load
 from utils.aws_mappings import definition_root, mapping_alias, mappings_for
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_scope, memo_table
@@ -1056,34 +1056,7 @@ def check_integrated_validator(generated_policy, initial):
             "- [R1] `check:framework.policy-tables`\n- [R1] `exists:docs/designs/dev/123456789012/iam.md`\n",
         )
     )
-    for name in ("AGENTS.md", "README.md", "docs/system-overview.md"):
-        p = root / name
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text("# Independent fixture\n")
-    for name in (
-        "infra/cloudformation/parameters/dev/123456789012",
-        "tests/scenarios",
-        "tests/results",
-    ):
-        (root / name).mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(["git", "add", "."], cwd=root, check=True)
-    subprocess.run(
-        [
-            "git",
-            "-c",
-            "user.name=Fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "-qm",
-            "Fixture",
-        ],
-        cwd=root,
-        check=True,
-    )
+    start_validator_repository(root)
     originals = {path: path.read_bytes() for path in (design, artifact)}
     if initial:
         shutil.rmtree(design.parent)
@@ -1167,6 +1140,63 @@ def check_integrated_validator(generated_policy, initial):
     assert values["desired.note.001.text"] in design.read_text()
     assert design.read_bytes() != originals[design]
     assert artifact.read_bytes() == originals[artifact]
+    assert {path: path.read_bytes() for path in source_bytes} == source_bytes
+
+
+def start_validator_repository(root):
+    for name in ("AGENTS.md", "README.md", "docs/system-overview.md"):
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# Independent fixture\n", encoding="utf-8")
+    for name in (
+        "infra/cloudformation/parameters/dev/123456789012",
+        "tests/scenarios",
+        "tests/results",
+    ):
+        (root / name).mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    commit(root, ["."], "Fixture")
+
+
+@pytest.mark.parametrize("suffix", [".md", ".json"])
+def check_view_only_migration(generated_policy, suffix):
+    root, model, _, design, artifact, _ = generated_policy
+    output = design if suffix == ".md" else artifact
+    expected = output.read_bytes()
+    stale = expected + b"\n"
+    output.write_bytes(stale)
+    start_validator_repository(root)
+    source_bytes = {path: path.read_bytes() for path in load_model(model).files}
+    name = "tasks/view-refresh.md"
+    relative = output.relative_to(root).as_posix()
+    listed = f"- `{name}`\n- `{relative}`"
+    tasks.start(
+        root,
+        name,
+        "## Task contract\n- Task type: `migration`\n- Task status: `running`\n"
+        "## Validation scope\n- `dev/123456789012/iam`\n"
+        "## Required changes\n- [R1] Refresh saved View\n"
+        f"## Acceptance checks\n- [R1] `exists:{relative}`\n"
+        f"## Modified files\n{listed}\n## Allowed paths\n{listed}\n",
+    )
+    scope = {("dev", "123456789012", "iam")}
+    with tasks.selected_task(root, name):
+        validator = validation_runner.Validator(root, scope, model_validation="change")
+        assert validator.run() == 1
+        assert any(
+            f"is stale or missing: {relative}" in error for error in validator.errors
+        )
+        assert output.read_bytes() == stale
+
+        validator = validation_runner.Validator(
+            root, scope, model_validation="change", write=True
+        )
+        assert validator.run() == 0, validator.errors
+        assert output.read_bytes() == expected
+
+        validator = validation_runner.Validator(root, scope, model_validation="change")
+        assert validator.run() == 0, validator.errors
+        assert not validator.change_plan.views
     assert {path: path.read_bytes() for path in source_bytes} == source_bytes
 
 

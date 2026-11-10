@@ -40,6 +40,7 @@ Select from the Human's request before loading a prompt. IaC-only work loads imp
 | Implement IaC from approved Model | implement |
 | Correct IaC without changing Model, including Model/IaC mismatches on the IaC side | implement |
 | Change Model design values | applicable update branch |
+| Regenerate Markdown/JSON after a Framework display change with unchanged Models | service-scoped `migration` with exact generated outputs in Modified files and Allowed paths |
 | Reflect an explicitly requested Model change into IaC and AWS | update infrastructure branch |
 | Deploy only | deploy |
 | Approved IaC correction after Deploy failure | implement as an independent Task |
