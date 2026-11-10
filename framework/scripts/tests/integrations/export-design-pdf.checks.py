@@ -49,7 +49,11 @@ def main() -> None:
             '## リソース詳細\n\n<a id="iam-role"></a>\n### IAM.Role: Role\n\n'
             "| No. | Property |\n| ---: | --- |\n| 1 | RoleName |\n\n"
             '<a id="iam-role-two"></a>\n### IAM.Role: RoleTwo\n\n'
-            '<a id="iam-policy"></a>\n### IAM.Policy: Policy\n',
+            '<a id="iam-policy"></a>\n### IAM.Policy: Policy\n\n'
+            "#### IAM Policy: Example\n\n<details>\n"
+            "<summary>Policy JSON・参照情報を表示</summary>\n\n"
+            '```json\n{"Action": "s3:GetObject"}\n```\n\n'
+            "| No. | Action |\n| ---: | --- |\n| 1 | s3:GetObject |\n\n</details>\n",
             encoding="utf-8",
         )
         vpc.write_text(
@@ -77,6 +81,24 @@ def main() -> None:
             "appendix-dev-cde-vpc-policy": 2,
             "stg-non-cde-vpc-a": 2,
         }, expected
+        assert "<details>" not in merged
+        assert '"Action": "s3:GetObject"' in merged
+        pdf_root = root / "pdf-project"
+        pdf_source = pdf_root / "docs/designs/dev/cde/iam.md"
+        pdf_source.parent.mkdir(parents=True)
+        pdf_source.write_text(
+            "# IAM\n\n#### IAM Policy: Example\n\n<details>\n"
+            "<summary>Policy JSON・参照情報を表示</summary>\n\n"
+            '```json\n{"Action": "s3:GetObject"}\n```\n\n'
+            "| No. | Action |\n| ---: | --- |\n| 1 | s3:GetObject |\n\n</details>\n",
+            encoding="utf-8",
+        )
+        pdf = root / "design.pdf"
+        MODULE.export(pdf_root, pdf)
+        extracted = "\n".join(
+            page.extract_text() for page in MODULE._imports_pypdf.PdfReader(pdf).pages
+        )
+        assert extracted.count("s3:GetObject") >= 2
         assert "[Role](#dev-cde-iam-role)" in merged
         assert "[A](#dev-cde-vpc-a)" in merged
         assert "[A](#stg-non-cde-vpc-a)" in merged
