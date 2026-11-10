@@ -336,9 +336,6 @@ def check_design_service_ownership(
     for markdown_path in markdown_paths:
         relative = markdown_path.relative_to(docs_base)
         model_path = (model_base / relative).with_suffix(".properties")
-        markdown_metadata = markdown_service_metadata(
-            markdown_path, catalog_types, findings=findings
-        )
         model_metadata = (
             model_service_metadata(
                 model_path,
@@ -349,20 +346,14 @@ def check_design_service_ownership(
             if _dependency_model_sources.model_exists(model_path)
             else None
         )
-        if markdown_metadata is None or model_metadata is None:
+        if model_metadata is None:
             continue
-        findings.check(
-            markdown_metadata == model_metadata,
-            f"Markdown/model service metadata mismatch: {findings.relative(markdown_path)}",
-            source_path=markdown_path,
-            cause_kind="input_invalid",
-        )
-        metadata[markdown_path] = markdown_metadata
+        metadata[markdown_path] = model_metadata
 
         target = relative.parts[:2]
         if len(target) != 2:
             continue
-        for resource_type in markdown_metadata[1]:
+        for resource_type in model_metadata[1]:
             owner_key = (target[0], target[1], resource_type)
             previous = owners.get(owner_key)
             findings.check(

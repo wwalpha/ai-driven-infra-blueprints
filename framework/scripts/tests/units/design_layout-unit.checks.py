@@ -442,9 +442,6 @@ def _callback_check_secret_rotation_display_errors(catalog, path, root, /, conte
 def check_secret_rotation_display(tmp_path, catalog) -> None:
     text = """# Secrets Manager 詳細設計
 
-- Design service ID: `secretsmanager`
-- Owned catalog resource types: `SecretsManager.Secret`, `SecretsManager.RotationSchedule`
-
 ## リソース一覧
 
 ### SecretsManager.Secret

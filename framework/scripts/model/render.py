@@ -717,16 +717,9 @@ def render_markdown(
     reference_tables=None,
     presentation=None,
 ):
-    service = path.stem
     children = {item[0] for items in grouped.values() for item in items}
     independent = [item for item in details if item[0] not in children]
-    output = [
-        values["display.service.title"],
-        "",
-        f"- Design service ID: `{service}`",
-        "- Owned catalog resource types: " + ", ".join(f"`{kind}`" for kind in owned),
-    ]
-    output += ["", "## リソース一覧"]
+    output = [values["display.service.title"], "", "## リソース一覧"]
     for kind in dict.fromkeys(item[1][RESOURCE_TYPE_KEY] for item in independent):
         items = [item for item in independent if item[1][RESOURCE_TYPE_KEY] == kind]
         output += [

@@ -19,15 +19,6 @@ See [common detailed design rules](detailed-design.md) for each example's applic
 | 2 | 10 | cfn-stack-app-dev-job-monthly | job.yaml | job-monthly.json | 月次集計jobを配置するstack |
 ```
 
-<a id="service-metadata"></a>
-
-## Service metadata
-
-```md
-- Design service ID: `vpc`
-- Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`, `EC2.FlowLog`
-```
-
 <a id="resource-overview"></a>
 
 ## Resource overview
@@ -89,9 +80,6 @@ Example with no name property, selected Name tag, or existing confirmed display 
 
 ```md
 # AWS Security Hub 詳細設計
-
-- Design service ID: `securityhub`
-- Owned catalog resource types: `SecurityHub.Hub`
 
 ## リソース一覧
 

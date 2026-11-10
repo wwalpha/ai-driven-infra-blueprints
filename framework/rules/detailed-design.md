@@ -92,16 +92,14 @@ Hide `MaxConcurrentStacks` (integer 1 or greater) in rendered Markdown; do not o
 
 [CloudFormation stack detailed design example](detailed-design-samples.md#cloudformation-stack)
 
-For generic validators to determine service ownership, include exactly 1 of each of the following machine-readable service metadata in each Markdown.
-
-[Service metadata example](detailed-design-samples.md#service-metadata)
+Generic validators determine service ownership from the authoritative Model. Do not output Design service ID or Owned catalog resource types in Markdown.
 
 - Owned catalog resource types include only resource types present in `framework/materials/aws/*.properties` or `framework/materials/api/*.properties` that this service file owns.
 - Multiple service files within the same environment/target directory must not own the same catalog resource type.
 
 ## Markdown structure
 
-Saved Markdown consists, in principle, only of H1 titles, service metadata, `## リソース一覧`, `## リソース詳細`, explicit anchors per resource, resource headings, and resource-detail tables. Security Groups use the attribute-aggregating listings and horizontal rules tables with Direction described below. Resources with policy JSON also have Statement tables or configuration tables generated from JSON as described below. Only when tables cannot represent the content may minimal necessary implementation notes be added.
+Saved Markdown consists, in principle, only of H1 titles, `## リソース一覧`, `## リソース詳細`, explicit anchors per resource, resource headings, and resource-detail tables. Security Groups use the attribute-aggregating listings and horizontal rules tables with Direction described below. Resources with policy JSON also have Statement tables or configuration tables generated from JSON as described below. Only when tables cannot represent the content may minimal necessary implementation notes be added.
 
 - Descriptive text, including titles, headings, implementation notes, and `Description`, must be written in Japanese. Values whose meanings change if translated, such as formal AWS service/resource/property names, logical IDs, code, and JSON keys, may remain in the original language.
 - Place exactly 1 `## リソース詳細` after listings and before the first resource anchor. Place all resource details in this section; separate listings and details at the same H2 level.
