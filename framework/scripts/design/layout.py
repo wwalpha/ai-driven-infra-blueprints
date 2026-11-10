@@ -957,7 +957,9 @@ def expanded_display_rows(
             rows = design.services.codepipeline.pipeline_display_rows(rows)
             changed = True
             kind = "CodePipeline"
-        if resource_type in REQUIRED_NAME_TAG_TYPES:
+        if resource_type in REQUIRED_NAME_TAG_TYPES or resource_type in {
+            "IAM.Role", "IAM.User"
+        }:
             rows = ec2_formal_rows(rows, resource_type)
             changed = True
             kind = resource_type

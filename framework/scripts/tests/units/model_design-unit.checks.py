@@ -728,6 +728,45 @@ def compact_ec2_restored(values, rows, expected, actual):
     )
 
 
+@pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
+def test_iam_name_tag_display(kind):
+    from design.services.ec2.display import ec2_formal_rows
+
+    source = [
+        ["1", kind + ".Tags[].Key", "`Name`", "name key"],
+        ["2", kind + ".Tags[].Value", "`example`", "name value"],
+        ["3", kind + ".Tags[].Key", "`owner`", "owner key"],
+        ["4", kind + ".Tags[].Value", "`team`", "owner value"],
+    ]
+    shown = display_rows(kind, source)
+    assert [(row[1], row[2]) for row in shown] == [
+        ("Name", "`example`"), ("Tags[].Key", "`owner`"), ("Tags[].Value", "`team`")
+    ]
+    assert [row[1] for row in indexed_rows(shown, kind)] == [
+        "Name", "Tags[2].Key", "Tags[2].Value"
+    ]
+    restored = ec2_formal_rows(
+        [[row[0], kind + "." + row[1], *row[2:]] for row in shown], kind
+    )
+    assert [row[1:] for row in restored] == [row[1:] for row in source]
+    expected = row_table(indexed_rows(shown, kind))
+    table = ReferenceTable("", (), tuple(expected), tuple(row_table(source)), tuple(row_table(shown)))
+    lines = [f"### {kind}: example", *expected]
+    expanded_display_rows(lines, reference_tables=(table,), modes={"": "CREATE"})
+    with pytest.raises(ValueError):
+        expanded_display_rows(
+            [line.replace("`example`", "`changed`") for line in lines],
+            reference_tables=(table,), modes={"": "CREATE"},
+        )
+    symbolic = [
+        ["5", kind + ".ManagedPolicyArns", '`{"$modelRef":{"logicalId":"X","attribute":"Arn"}}`', "ref"],
+        *source,
+    ]
+    assert display_rows(kind, symbolic)[1][1:3] == ["Name", "`example`"]
+    with pytest.raises(ValueError):
+        display_rows(kind, source[:1])
+
+
 def ec2_compact_case(case):
     data = case["data"]
     name = data["name"]
