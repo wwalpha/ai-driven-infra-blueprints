@@ -614,19 +614,15 @@ def raw_policy_lines(document, policy, *, sort_keys=False):
 
 
 def collapsed_policy_lines(document, policy, lines):
-    """Keep the JSON artifact and linked Statement display in one collapsed section."""
+    """Display the policy JSON in a collapsed section."""
     if policy.property_name not in COLLAPSED_POLICY_DOCUMENTS:
         return lines
-    body = lines[4:]
-    if body and body[0] == "```json":
-        body = []
     return [
         *lines[:4],
         "<details>",
         f"<summary>{html.escape(policy.label if policy.property_name in INLINE_POLICY_DOCUMENTS else Path(policy.label).stem)}</summary>",
         "",
         *raw_policy_lines(document, policy, sort_keys=True)[4:],
-        *(["", "**参照テーブル**", "", *body] if body else []),
         "",
         "</details>",
     ]

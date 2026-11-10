@@ -1356,10 +1356,8 @@ def test_policy_sub_reference_shows_link_and_path_without_changing_json(models):
         "arn:aws:s3:::shared-name/staging/release/*",
         "arn:aws:s3:::shared-name/suffix",
     ]
-    assert "[shared-name](s3.md#s3-saved-anchor)`/staging/release/*`" in files[path], (
-        files[path]
-    )
-    assert "Fn::Sub" in files[path]
+    assert saved[0] in files[path]
+    assert "**参照テーブル**" not in files[path]
     assert values == before
     for file, text in files.items():
         file.parent.mkdir(parents=True, exist_ok=True)
@@ -1416,8 +1414,7 @@ def test_s3_bucket_policy_self_reference_links_only_bucket_arn(models):
     content = files[path].split("<details>\n", 1)[1].split("\n</details>", 1)[0]
     block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
     assert json.loads(block) == json.loads(files[artifact])
-    assert "[shared-name](#s3-saved-anchor)" in content
-    assert "`arn:aws:s3:::shared-name/*`" in files[path]
+    assert "**参照テーブル**" not in content
     assert values == before
     restore(path, files[path], values)
 
@@ -1469,8 +1466,7 @@ def test_s3_policy_kms_condition_uses_name_and_execution_arn(models):
         == "arn:aws:kms:ap-northeast-1:123456789012:key/7c6b3f84-ede1-4f7b-a1e0-32cd6eed9295"
     )
     assert statement["Resource"] == "arn:aws:s3:::shared-name/*"
-    assert "[fixture-app-key](kms.md#saved-001)" in files[path]
-    assert "`arn:aws:s3:::shared-name/*`" in files[path]
+    assert "**参照テーブル**" not in files[path]
     assert values == before
     restore(path, files[path], values)
 
@@ -1521,8 +1517,7 @@ def test_kms_policy_resource_uses_key_name_and_execution_arn(models):
         statement["Condition"]["StringEquals"]["kms:EncryptionContext:aws:s3:arn"]
         == "arn:aws:s3:::shared-name"
     )
-    assert "[fixture-app-key](kms.md#saved-001)" in files[path]
-    assert "[shared-name](s3.md#s3-saved-anchor)" in files[path]
+    assert "**参照テーブル**" not in files[path]
     assert values == before
     restore(path, files[path], values)
 
@@ -1575,7 +1570,7 @@ def test_iam_collapsed_json_matches_artifact(models, kind, field, name_field):
     block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
     assert json.loads(block) == json.loads(files[path.with_suffix("") / "policy.json"])
     assert "](" not in block
-    assert "[shared-name](s3.md#s3-saved-anchor)" in content
+    assert "**参照テーブル**" not in content
     assert markdown.index("#### ") < markdown.index("<details>")
     assert generate_files(path, values, models) == files
     for file, text in files.items():
@@ -1608,7 +1603,7 @@ def test_service_policy_collapsed_json(property_name, fallback):
     content = "\n".join(lines).split("<details>\n", 1)[1].split("\n</details>", 1)[0]
     block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
     assert json.loads(block) == document
-    assert ("**参照テーブル**" in content) != fallback
+    assert "**参照テーブル**" not in content
     assert "s3:GetObject" in content
 
 
@@ -1635,7 +1630,7 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     assert json.loads(files[artifact])["Statement"][0]["Resource"] == (
         "arn:aws:s3:::shared-name"
     )
-    assert "[shared-name](s3.md#s3-saved-anchor)" in files[path]
+    assert "arn:aws:s3:::shared-name" in files[path]
     assert "](" not in files[artifact] and "$modelRef" not in files[artifact]
     for file, text in files.items():
         file.parent.mkdir(parents=True, exist_ok=True)
@@ -1645,7 +1640,7 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     with pytest.raises(ValueError, match="Model expected display"):
         restore(
             path,
-            files[path].replace("s3.md#s3-saved-anchor", "s3.md#wrong-anchor"),
+            files[path].replace("arn:aws:s3:::shared-name", "arn:aws:s3:::wrong-name"),
             values,
         )
     assert values == before
@@ -1662,7 +1657,7 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
             (rid, {"property": policy.property_name, "document": json.dumps(document)})
         ]
     }
-    assert "[shared-name](s3.md#s3-saved-anchor)" in "\n".join(
+    assert "arn:aws:s3:::shared-name" in "\n".join(
         policy_lines(path, policy, presentation=presentation, policy_rows=rows)
     )
     artifact.write_text(json.dumps(document), encoding="utf-8")
@@ -1897,7 +1892,7 @@ def test_policy_enum_reference_is_validated_before_presentation(models):
         }
     )
     files = generate_files(path, values, models)
-    assert "[Allow](codebuild.md#codebuild-saved-anchor)" in files[path]
+    assert '"Effect": "Allow"' in files[path]
     assert (
         json.loads(files[path.with_suffix("") / "policy.json"])["Statement"][0][
             "Effect"

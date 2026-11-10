@@ -233,7 +233,7 @@ without Model changes. Never auto-run issues or repeat AWS acquisition for displ
 
 ## Policy derived views
 
-- Retain policy/configuration JSON bodies as compact JSON in each service model's `desired.row.*.document`. Generate service-owned JSON from JSON artifact links in `desired.row.*.value`, and generate policy tables from that JSON. Do not feed JSON artifacts or tables back as design inputs.
+- Retain policy/configuration JSON bodies as compact JSON in each service model's `desired.row.*.document`. Generate service-owned JSON from JSON artifact links in `desired.row.*.value`, and generate policy displays from that JSON; collapsed policy JSON displays omit reference tables. Do not feed JSON artifacts or tables back as design inputs.
 - Do not duplicate in the model the generated ResourceName/Comment table in the resource listing or displays within `<!-- policy-tables:start -->`–`<!-- policy-tables:end -->` and IAM's `<!-- iam-policy-tables:start -->`–`<!-- iam-policy-tables:end -->`. Do not save policy anchors, headings, trust policy Version tables, Statement tables, or configuration tables as `desired.note.*` or additional resources.
 - Omit separate Property/JSON/Version/Id metadata rows from derived displays for all services. Continue retaining the original configuration row's property and JSON link in the model, and Version/Id in the authoritative `desired.row.*.document`.
 - When changing policies, update model `document` first, then generate and validate JSON artifacts and policy tables with the integrated task loop (`--write`). Independent read-only validation still rejects mismatches among properties, JSON, and displays.

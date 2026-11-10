@@ -190,7 +190,8 @@ def check_iam(tmp_path):
         == baseline_model
     ), "views must not alter the model"
     assert not any("ポリシー：" in line for line in baseline_model)
-    assert rendered.count("| Version |\n| --- |\n| `2012-10-17` |") == 2
+    assert rendered.count('"Version": "2012-10-17"') >= 2
+    assert "**参照テーブル**" not in rendered
     assert rendered.count(START) == 2
     assert rendered.count("\n#### ") == 6
     assert rendered.count("\n## リソース詳細\n") == 1
@@ -202,15 +203,9 @@ def check_iam(tmp_path):
         'id="iam-rolea-inline-logging"' in rendered
         and 'id="iam-roleb-inline-logging"' in rendered
     )
-    assert (
-        "| No. | Sid | Effect | Action | NotAction | Resource | NotResource |"
-        in rendered
-    )
-    assert "`logs:CreateLogStream`<br>`logs:PutLogEvents`" in rendered
-    condition_row = next(
-        line for line in rendered.splitlines() if line.startswith("| 1 | Allow |")
-    )
-    assert "aws:SourceAccount" in condition_row and "aws:SourceArn" in condition_row
+    assert '"logs:CreateLogStream"' in rendered
+    assert '"logs:PutLogEvents"' in rendered
+    assert "aws:SourceAccount" in rendered and "aws:SourceArn" in rendered
 
     errors = _bind_framework_callback(_callback_check_iam_errors, path, root)
 
@@ -220,7 +215,7 @@ def check_iam(tmp_path):
         assert errors(
             rendered.replace(START, START + "\n\n" + metadata + "`legacy`", 1)
         )
-    assert errors(rendered.replace("| `2012-10-17` |", "| `2008-10-17` |", 1)), (
+    assert errors(rendered.replace('"Version": "2012-10-17"', '"Version": "2008-10-17"', 1)), (
         "wrong trust Version must fail"
     )
     assert errors(text), "missing views must fail"
@@ -230,7 +225,7 @@ def check_iam(tmp_path):
     )
     assert errors(
         rendered.replace(
-            "`logs:CreateLogStream`<br>`logs:PutLogEvents`", "`logs:CreateLogStream`", 1
+            '"logs:PutLogEvents"', '"logs:Other"', 1
         )
     )
     assert errors(rendered.replace(START, "", 1))
@@ -349,12 +344,9 @@ def check_iam(tmp_path):
     artifact.write_text(json.dumps(special), encoding="utf-8")
     role = resources_in(without_policy_tables(rendered.splitlines()))[0]
     special_view = "\n".join(policy_lines(path, role.policies[0]))
-    assert (
-        "NotPrincipal.AWS" in special_view and "NotPrincipal.Federated" in special_view
-    )
-    assert "&#124;" in special_view and "&lt;value&gt;" in special_view
-    assert "| Version |" not in special_view, "do not invent an absent Version table"
-    assert "Version：" not in special_view, "do not invent absent Version"
+    block = special_view.split("```json\n", 1)[1].split("\n```", 1)[0]
+    assert json.loads(block) == special
+    assert "**参照テーブル**" not in special_view
     artifact.write_text(json.dumps({**trust, "Unknown": True}), encoding="utf-8")
     assert errors(rendered), "unknown policy elements must never be omitted"
     artifact.write_text(
@@ -590,6 +582,9 @@ def check_service_policy_checks():
                         and "| array | `[]` |" in rendered
                     )
                     assert "&#124;" in rendered and "&lt;b&gt;" in rendered
+            elif prop in _imports_policy_tables.COLLAPSED_POLICY_DOCUMENTS:
+                assert "**参照テーブル**" not in rendered
+                assert '"AllowRead"' in rendered
             else:
                 assert (
                     "| No. | Sid | Effect | Principal | NotPrincipal.AWS | Action | NotAction | Resource | NotResource | Condition |"
