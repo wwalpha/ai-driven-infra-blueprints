@@ -541,10 +541,16 @@ def markdown_for(
     *,
     definitions_root: Path | None = None,
     warnings=None,
+    generated_documents=None,
 ) -> str:
     """Generate a View; Model quality belongs to Change or Full Validation."""
     return render_validated_model(
-        path, values, root, definitions_root=definitions_root, warnings=warnings
+        path,
+        values,
+        root,
+        definitions_root=definitions_root,
+        warnings=warnings,
+        generated_documents=generated_documents,
     )
 
 
@@ -556,9 +562,16 @@ def render_validated_model(
     *,
     definitions_root: Path | None = None,
     warnings=None,
+    generated_documents=None,
 ) -> str:
     """Render structure and references without Model quality validation."""
-    return generate_markdown(path, values, definitions_root or root, warnings=warnings)
+    return generate_markdown(
+        path,
+        values,
+        definitions_root or root,
+        warnings=warnings,
+        generated_documents=generated_documents,
+    )
 
 
 @task_read_scope(root=_task_root)
@@ -571,6 +584,7 @@ def generate_markdown(
     reference_tables=None,
     reference_values=None,
     warnings=None,
+    generated_documents=None,
 ) -> str:
     """Render selected values; reference_values supplies the complete candidate context."""
     reference_values = values if reference_values is None else reference_values
@@ -583,12 +597,20 @@ def generate_markdown(
         reference_tables=reference_tables,
         reference_values=reference_values,
         warnings=warnings,
+        generated_documents=generated_documents,
     )
 
 
 @input_scope
 def _generate_markdown(
-    path, values, root, *, reference_tables=None, reference_values=None, warnings=None
+    path,
+    values,
+    root,
+    *,
+    reference_tables=None,
+    reference_values=None,
+    warnings=None,
+    generated_documents=None,
 ):
     """Draw only values checked by the enclosing public generation entry."""
     reference_display = _imports_model_projection.reference_display
@@ -659,7 +681,9 @@ def _generate_markdown(
         owned,
         details,
         grouped,
-        model_policy_views(values, presentation=presentation),
+        model_policy_views(
+            values, presentation=presentation, generated_documents=generated_documents
+        ),
         references=references,
         reference_tables=reference_tables,
         presentation=presentation,
@@ -835,7 +859,7 @@ def render_markdown(
     return "\n".join(output) + service_note_markdown(values) + "\n"
 
 
-def model_policy_views(values, *, presentation=None):
+def model_policy_views(values, *, presentation=None, generated_documents=None):
     END = _imports_policy_tables.END
     IAM_END = _imports_policy_tables.IAM_END
     IAM_START = _imports_policy_tables.IAM_START
@@ -905,6 +929,46 @@ def model_policy_views(values, *, presentation=None):
                     policy,
                 )
                 lines = presentation.lines(marked_lines, marked_lines)
+            if (
+                prop in _dependency_policy_tables.IAM_POLICY_DOCUMENTS
+                and presentation is not None
+            ):
+                artifact = (
+                    presentation.scope.root
+                    / "docs/designs"
+                    / presentation.scope.environment
+                    / presentation.scope.target
+                    / target
+                ).resolve()
+                if generated_documents is not None and artifact in generated_documents:
+                    document = policy_json(generated_documents[artifact])
+                else:
+                    raw = policy_json(
+                        presentation.values[f"desired.row.{row_id}.document"]
+                    )
+                    source_row = dict(
+                        resource_row_index(presentation.values)[identity]
+                    )[row_id]
+                    document = _imports_model_projection.generated_document(
+                        raw,
+                        presentation.root,
+                        resolver=presentation.resolver,
+                        scope=presentation.scope,
+                        property_name=prop,
+                        logical_id=presentation.values.get(
+                            f"desired.resource.{identity}.logicalId"
+                        ),
+                        model_key=f"desired.row.{row_id}.document",
+                        context=_imports_model_projection.reference_context_for(
+                            presentation.values,
+                            row_id,
+                            source_row,
+                            raw,
+                            "",
+                            presentation.root,
+                        ),
+                    )
+            lines = _dependency_policy_tables.iam_policy_lines(document, policy, lines)
             policies.extend(["", *lines])
         if policies:
             start, end = (
@@ -966,7 +1030,12 @@ def generate_files(path, values, root, *, warnings=None):
         stack_markdown(path, values, root, validate_delivery=False)
         if entries(values, "desired.stack.")
         else _generate_markdown(
-            path, values, root, reference_values=values, warnings=warnings
+            path,
+            values,
+            root,
+            reference_values=values,
+            warnings=warnings,
+            generated_documents=artifacts,
         )
     )
     return artifacts

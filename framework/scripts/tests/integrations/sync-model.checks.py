@@ -557,11 +557,15 @@ def check_changed_sidecar_publication(generated_policy):
         ) as publish,
     ):
         assert MODULE.sync(root, True, "dev", "123456789012", ["iam"]) == 0
-    assert publish.call_count == 1 and set(publish.call_args.args[1]) == {artifact}
+    assert publish.call_count == 1 and set(publish.call_args.args[1]) == {
+        artifact,
+        design,
+    }
     assert json.loads(artifact.read_text()) == json.loads(
         values["desired.row.001-002.document"]
     )
-    assert design.read_bytes() == before, "sidecar-only change must preserve Markdown"
+    assert design.read_bytes() != before
+    assert '"Id": "Changed"' in design.read_text(encoding="utf-8")
 
 
 def _callback_check_incoming_reference_models_check_snapshot(

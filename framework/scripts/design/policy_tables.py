@@ -51,6 +51,12 @@ from design.services.definitions.registry import POLICY_FORMATS as POLICY_FORMAT
 
 START = "<!-- policy-tables:start -->"
 END = "<!-- policy-tables:end -->"
+IAM_POLICY_DOCUMENTS = {
+    "IAM.Role.AssumeRolePolicyDocument",
+    "IAM.Role.Policies[].PolicyDocument",
+    "IAM.User.Policies[].PolicyDocument",
+    "IAM.ManagedPolicy.PolicyDocument",
+}
 JSON_LINK = re.compile(r"\[([^\]]+)\]\(([^)#]+\.json)\)")
 # Exact catalog properties: policy names, ARNs and enum settings are not documents.
 POLICY_KEYS = {"Version", "Id", "Statement"}
@@ -439,13 +445,14 @@ def policy_lines(
             )
             baseline = policy_document_lines(document, policy)
             displayed = presentation.document(rid, "document", document)
-            return presentation.lines(
+            lines = presentation.lines(
                 baseline,
                 policy_document_lines(
                     policy_sub_resources(displayed, policy, presentation.marker_links),
                     policy,
                 ),
             )
+            return iam_policy_lines(projected, policy, lines)
     if any(nodes(document)):
         root = path.parents[4]
         scope = scope_for(
@@ -460,7 +467,7 @@ def policy_lines(
             scope=scope,
             property_name=policy.property_name,
         )
-    return policy_document_lines(document, policy)
+    return iam_policy_lines(document, policy, policy_document_lines(document, policy))
 
 
 def _lambda_validate_policy_document_pending_259(design, intrinsic, /, value):
@@ -583,7 +590,7 @@ def validate_policy_document(document, policy, *, design=False):
                 raise ValueError("policy Condition operator must contain context keys")
 
 
-def raw_policy_lines(document, policy):
+def raw_policy_lines(document, policy, *, sort_keys=False):
     document = project(document, reference_document)
     return [
         f'<a id="{policy.anchor}"></a>',
@@ -591,8 +598,27 @@ def raw_policy_lines(document, policy):
         f"#### {policy.kind}：{policy.label}",
         "",
         "```json",
-        json.dumps(document, ensure_ascii=False, indent=2),
+        json.dumps(document, ensure_ascii=False, indent=2, sort_keys=sort_keys),
         "```",
+    ]
+
+
+def iam_policy_lines(document, policy, lines):
+    """Keep the JSON artifact and linked Statement display in one collapsed section."""
+    if policy.property_name not in IAM_POLICY_DOCUMENTS:
+        return lines
+    body = lines[4:]
+    if body and body[0] == "```json":
+        body = []
+    return [
+        *lines[:4],
+        "<details>",
+        "<summary>Policy JSON・参照情報を表示</summary>",
+        "",
+        *raw_policy_lines(document, policy, sort_keys=True)[4:],
+        *(["", "**参照テーブル**", "", *body] if body else []),
+        "",
+        "</details>",
     ]
 
 

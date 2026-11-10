@@ -1521,6 +1521,54 @@ def test_kms_policy_resource_uses_key_name_and_execution_arn(models):
     restore(path, files[path], values)
 
 
+@pytest.mark.parametrize(
+    ("kind", "field", "name_field"),
+    [
+        ("IAM.Role", "AssumeRolePolicyDocument", "RoleName"),
+        ("IAM.Role", "Policies[].PolicyDocument", "RoleName"),
+        ("IAM.User", "Policies[].PolicyDocument", "UserName"),
+        ("IAM.ManagedPolicy", "PolicyDocument", "ManagedPolicyName"),
+    ],
+)
+def test_iam_collapsed_json_matches_artifact(models, kind, field, name_field):
+    scope, values, path = consumer(models, "iam", kind)
+    values["desired.row.001-001.property"] = kind + "." + name_field
+    number = 2
+    if field.startswith("Policies[]"):
+        add(values, kind, "Policies[].PolicyName", "Access", number=number)
+        number += 1
+    rid = add(values, kind, field, "placeholder", number=number)
+    values[f"desired.row.{rid}.value"] = "[Policy](iam/policy.json)"
+    values[f"desired.row.{rid}.document"] = json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": "s3:GetObject",
+                    "Resource": reference("S3_Bucket_001", "Arn"),
+                }
+            ],
+        }
+    )
+    write(scope, values)
+    files = generate_files(path, values, models)
+    markdown = files[path]
+    content = markdown.split("<details>\n", 1)[1].split("\n</details>", 1)[0]
+    block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
+    assert json.loads(block) == json.loads(files[path.with_suffix("") / "policy.json"])
+    assert "](" not in block
+    assert "[shared-name](s3.md#s3-saved-anchor)" in content
+    assert markdown.index("#### ") < markdown.index("<details>")
+    assert generate_files(path, values, models) == files
+    for file, text in files.items():
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(text, encoding="utf-8")
+    assert rendered_design(path, definitions_root=FRAMEWORK) == markdown
+    with pytest.raises(ValueError, match="Model expected display"):
+        restore(path, markdown.replace("s3:GetObject", "s3:PutObject", 1), values)
+
+
 def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     scope, values, path = consumer(models, "iam", "IAM.ManagedPolicy")
     values["desired.row.001-001.property"] = "IAM.ManagedPolicy.ManagedPolicyName"
@@ -1589,6 +1637,11 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     )
     assert presentation.lines(baseline, marked) == baseline
     assert "```json" in baseline and not any("](" in line for line in baseline)
+    fallback = generate_files(path, values, models)[path]
+    assert fallback.count("```json") == 1
+    assert json.loads(fallback.split("```json\n", 1)[1].split("\n```", 1)[0]) == {
+        "Unsupported": "arn:aws:s3:::shared-name"
+    }
     path.unlink()
     # Without source authority the artifact renderer keeps ordinary AWS values.
     scope.path.unlink()

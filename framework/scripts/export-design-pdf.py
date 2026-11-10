@@ -187,7 +187,27 @@ def bundle(root: Path) -> tuple[str, dict[str, int]]:
             )
             previous_target = target_key
             first_service = True
-        for line, prose in prose_lines(number_overviews(source_lines(path))):
+        iam_details = False
+        source = list(prose_lines(number_overviews(source_lines(path))))
+        for index, (line, prose) in enumerate(source):
+            if (
+                prose
+                and line == "<details>"
+                and index + 1 < len(source)
+                and source[index + 1][0]
+                == "<summary>Policy JSON・参照情報を表示</summary>"
+            ):
+                iam_details = True
+                continue
+            if (
+                prose
+                and iam_details
+                and line == "<summary>Policy JSON・参照情報を表示</summary>"
+            ):
+                continue
+            if prose and iam_details and line == "</details>":
+                iam_details = False
+                continue
             if prose:
                 line = ANCHOR.sub(
                     lambda match,

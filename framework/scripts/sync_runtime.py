@@ -384,6 +384,7 @@ def generate_views(
                     stage,
                     definitions_root=definitions_root,
                     warnings=display_warnings,
+                    generated_documents=artifacts,
                 ),
                 encoding="utf-8",
                 newline="",
@@ -525,7 +526,9 @@ def _sync(
                 "IMPORT generation is outside selected environment/target/service"
             )
         if write:
-            raise ValueError("IMPORT display recovery requires import recover-display with the original --evidence")
+            raise ValueError(
+                "IMPORT display recovery requires import recover-display with the original --evidence"
+            )
         jobs = 1
     scope = (
         {(environment, target_directory, service) for service in services}
