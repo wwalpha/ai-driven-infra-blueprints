@@ -58,6 +58,12 @@ IAM_POLICY_DOCUMENTS = {
     "IAM.User.Policies[].PolicyDocument",
     "IAM.ManagedPolicy.PolicyDocument",
 }
+COLLAPSED_POLICY_DOCUMENTS = IAM_POLICY_DOCUMENTS | {
+    "S3.BucketPolicy.PolicyDocument",
+    "EC2.VPCEndpoint.PolicyDocument",
+    "KMS.Key.KeyPolicy",
+    "SQS.QueuePolicy.PolicyDocument",
+}
 JSON_LINK = re.compile(r"\[([^\]]+)\]\(([^)#]+\.json)\)")
 # Exact catalog properties: policy names, ARNs and enum settings are not documents.
 POLICY_KEYS = {"Version", "Id", "Statement"}
@@ -456,7 +462,7 @@ def policy_lines(
                     policy,
                 ),
             )
-            return iam_policy_lines(projected, policy, lines)
+            return collapsed_policy_lines(projected, policy, lines)
     if any(nodes(document)):
         root = path.parents[4]
         scope = scope_for(
@@ -471,7 +477,7 @@ def policy_lines(
             scope=scope,
             property_name=policy.property_name,
         )
-    return iam_policy_lines(document, policy, policy_document_lines(document, policy))
+    return collapsed_policy_lines(document, policy, policy_document_lines(document, policy))
 
 
 def _lambda_validate_policy_document_pending_259(design, intrinsic, /, value):
@@ -607,9 +613,9 @@ def raw_policy_lines(document, policy, *, sort_keys=False):
     ]
 
 
-def iam_policy_lines(document, policy, lines):
+def collapsed_policy_lines(document, policy, lines):
     """Keep the JSON artifact and linked Statement display in one collapsed section."""
-    if policy.property_name not in IAM_POLICY_DOCUMENTS:
+    if policy.property_name not in COLLAPSED_POLICY_DOCUMENTS:
         return lines
     body = lines[4:]
     if body and body[0] == "```json":

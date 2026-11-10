@@ -940,7 +940,7 @@ def model_policy_views(values, *, presentation=None, generated_documents=None):
                 )
                 lines = presentation.lines(marked_lines, marked_lines)
             if (
-                prop in _dependency_policy_tables.IAM_POLICY_DOCUMENTS
+                prop in _dependency_policy_tables.COLLAPSED_POLICY_DOCUMENTS
                 and presentation is not None
             ):
                 artifact = (
@@ -978,7 +978,9 @@ def model_policy_views(values, *, presentation=None, generated_documents=None):
                             presentation.root,
                         ),
                     )
-            lines = _dependency_policy_tables.iam_policy_lines(document, policy, lines)
+            lines = _dependency_policy_tables.collapsed_policy_lines(
+                document, policy, lines
+            )
             policies.extend(["", *lines])
         if policies:
             start, end = (

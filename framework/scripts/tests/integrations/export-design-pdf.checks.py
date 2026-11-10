@@ -37,6 +37,7 @@ def main() -> None:
         iam = cde / "iam.md"
         vpc = cde / "vpc.md"
         other = stg / "vpc.md"
+        s3 = cde / "s3.md"
         artifact = cde / "vpc" / "policy.json"
         artifact.parent.mkdir()
         artifact.write_text(
@@ -65,6 +66,13 @@ def main() -> None:
             "~~~md\n[example](missing.md#example)\n~~~\n",
             encoding="utf-8",
         )
+        s3.write_text(
+            "# S3 詳細設計\n\n<!-- policy-tables:start -->\n\n"
+            "<details>\n<summary>BucketPolicy</summary>\n\n"
+            '```json\n{"Action": "s3:PutObject"}\n```\n\n</details>\n\n'
+            "<!-- policy-tables:end -->\n",
+            encoding="utf-8",
+        )
         other.write_text(
             "# VPC 詳細設計\n\n## リソース一覧\n\n"
             "| VPC |\n| --- |\n| [A](#vpc-a) |\n\n"
@@ -83,6 +91,7 @@ def main() -> None:
         }, expected
         assert "<details>" not in merged
         assert '"Action": "s3:GetObject"' in merged
+        assert '"Action": "s3:PutObject"' in merged
         pdf_root = root / "pdf-project"
         pdf_source = pdf_root / "docs/designs/dev/cde/iam.md"
         pdf_source.parent.mkdir(parents=True)

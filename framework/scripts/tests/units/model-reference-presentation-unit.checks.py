@@ -17,6 +17,7 @@ from design.document import DesignIndex
 from design.layout import expanded_display_rows
 from design.policy_tables import (
     Policy,
+    collapsed_policy_lines,
     policy_document_lines,
     policy_lines,
     policy_sub_resource,
@@ -384,7 +385,7 @@ def test_positions_glue_equal_names_escaping_and_roundtrip(models):
         descriptions = [
             line
             for line in markdown.splitlines()
-            if "| Description |" in line and not line.startswith("| No. |")
+            if line.split(" | ")[1:2] == ["Description"]
         ]
         assert len(descriptions) == 2
         assert all(
@@ -1412,7 +1413,10 @@ def test_s3_bucket_policy_self_reference_links_only_bucket_arn(models):
         "arn:aws:s3:::shared-name",
         "arn:aws:s3:::shared-name/*",
     ]
-    assert "[shared-name](#s3-saved-anchor)" in files[path]
+    content = files[path].split("<details>\n", 1)[1].split("\n</details>", 1)[0]
+    block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
+    assert json.loads(block) == json.loads(files[artifact])
+    assert "[shared-name](#s3-saved-anchor)" in content
     assert "`arn:aws:s3:::shared-name/*`" in files[path]
     assert values == before
     restore(path, files[path], values)
@@ -1580,6 +1584,32 @@ def test_iam_collapsed_json_matches_artifact(models, kind, field, name_field):
     assert rendered_design(path, definitions_root=FRAMEWORK) == markdown
     with pytest.raises(ValueError, match="Model expected display"):
         restore(path, markdown.replace("s3:GetObject", "s3:PutObject", 1), values)
+
+
+@pytest.mark.parametrize(
+    "property_name",
+    [
+        "S3.BucketPolicy.PolicyDocument",
+        "EC2.VPCEndpoint.PolicyDocument",
+        "KMS.Key.KeyPolicy",
+        "SQS.QueuePolicy.PolicyDocument",
+    ],
+)
+@pytest.mark.parametrize("fallback", [False, True])
+def test_service_policy_collapsed_json(property_name, fallback):
+    document = {
+        "Version": "2012-10-17",
+        "Statement": [{"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}],
+    }
+    if fallback:
+        document["Other"] = "retained"
+    policy = Policy("ResourcePolicy", "Policy", "policy.json", "policy", property_name)
+    lines = collapsed_policy_lines(document, policy, policy_document_lines(document, policy))
+    content = "\n".join(lines).split("<details>\n", 1)[1].split("\n</details>", 1)[0]
+    block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
+    assert json.loads(block) == document
+    assert ("**参照テーブル**" in content) != fallback
+    assert "s3:GetObject" in content
 
 
 def test_policy_display_artifact_regeneration_and_raw_fallback(models):

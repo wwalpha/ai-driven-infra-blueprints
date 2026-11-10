@@ -187,28 +187,33 @@ def bundle(root: Path) -> tuple[str, dict[str, int]]:
             )
             previous_target = target_key
             first_service = True
-        iam_details = False
+        policy_details = False
+        in_policy_block = False
         source = list(prose_lines(number_overviews(source_lines(path))))
         for index, (line, prose) in enumerate(source):
+            if prose and line == "<!-- policy-tables:start -->":
+                in_policy_block = True
+            elif prose and line == "<!-- policy-tables:end -->":
+                in_policy_block = False
             if (
                 prose
-                and path.stem == "iam"
+                and (path.stem == "iam" or in_policy_block)
                 and line == "<details>"
                 and index + 1 < len(source)
                 and source[index + 1][0].startswith("<summary>")
                 and source[index + 1][0].endswith("</summary>")
             ):
-                iam_details = True
+                policy_details = True
                 continue
             if (
                 prose
-                and iam_details
+                and policy_details
                 and line.startswith("<summary>")
                 and line.endswith("</summary>")
             ):
                 continue
-            if prose and iam_details and line == "</details>":
-                iam_details = False
+            if prose and policy_details and line == "</details>":
+                policy_details = False
                 continue
             if prose:
                 line = ANCHOR.sub(
