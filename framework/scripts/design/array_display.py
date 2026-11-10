@@ -7,14 +7,19 @@ import re
 from pathlib import Path
 
 import aws_mapping_display as _imports_aws_mapping_display
-from model.core import LINK
+from model.core import LINK, literal
 from utils.input_cache import input_scope, memoized
 
 from design.catalog import DesignSchemaCatalog
+from design.common import code
 from design.services import cloudtrail, codebuild, codepipeline, guardduty
 
 ROOT = Path(__file__).resolve().parents[3]
 ARRAY = re.compile(r"\[\]")
+TAG_PROPERTY = re.compile(
+    r"(?:^|\.)(?:[A-Za-z0-9]*Tags|tags)(?:\[\])?(?:\.(Key|Value))?$"
+)
+TAG_CELL = re.compile(r"(`[^`]*`|<code>.*?</code>|\[[^\]]+\]\([^)]*\)) = (.+)")
 ARRAY_TEMPLATES = {
     "CodePipeline.Pipeline": codepipeline.array_template,
     "CloudTrail.Trail": cloudtrail.array_template,
@@ -102,6 +107,91 @@ def numbered_property(prop, states, compact=False):
         states[prefix] = number, seen
         prop = prop[: match.start()] + f"[{number}]" + field
     return prop
+
+
+def _tag_collection(value):
+    raw = literal(value).lstrip()
+    if raw.startswith(("[", "{")):
+        try:
+            return json.loads(raw)
+        except ValueError:
+            pass  # A literal tag value can start with a bracket.
+
+
+def compact_tag_rows(rows):
+    """Show one row per tag without replacing the formal source rows."""
+    result = []
+    index = 0
+    while index < len(rows):
+        identity, prop, value, comment = row = rows[index]
+        index += 1
+        match = TAG_PROPERTY.search(prop)
+        if not match:
+            result.append(row)
+            continue
+        if match[1]:
+            tag_prop = prop.removesuffix(".Key")
+            if (
+                not tag_prop.endswith("[]")
+                or index == len(rows)
+                or rows[index][1] != f"{tag_prop}.Value"
+            ):
+                result.append(row)
+                continue
+            _, _, val, value_comment = rows[index]
+            key = value
+            keys, values = _tag_collection(key), _tag_collection(val)
+            if isinstance(keys, list) and isinstance(values, list):
+                if not keys or len(keys) != len(values) or not all(
+                    isinstance(item, str) for item in keys + values
+                ):
+                    result.append(row)
+                    continue
+                items = [(code(k), code(v)) for k, v in zip(keys, values, strict=True)]
+            else:
+                items = [(code(literal(key)), code(literal(val)))]
+            comment = "<br>".join(dict.fromkeys(filter(None, (comment, value_comment))))
+            index += 1
+        else:
+            collection = _tag_collection(value)
+            if isinstance(collection, dict):
+                pairs = list(collection.items())
+            elif isinstance(collection, list) and all(
+                isinstance(tag, dict) and tag.keys() == {"Key", "Value"}
+                for tag in collection
+            ):
+                pairs = [(tag["Key"], tag["Value"]) for tag in collection]
+            else:
+                pairs = []
+            if not pairs or not all(
+                isinstance(key, str) and isinstance(val, str) for key, val in pairs
+            ):
+                result.append(row)
+                continue
+            items = [(code(key), code(val)) for key, val in pairs]
+            tag_prop = prop if prop.endswith("[]") else prop + "[]"
+        result.extend([identity, tag_prop, f"{key} = {val}", comment] for key, val in items)
+    return result
+
+
+def expand_saved_tag_rows(rows, kind):
+    """Read tag cells for the independent saved resource-name check."""
+    result = []
+    for number, prop, value, comment in rows:
+        field = prop.removeprefix(kind + ".")
+        if re.fullmatch(r"(?:Tags|HostedZoneTags)\[[^]]*\]", field):
+            pair = TAG_CELL.fullmatch(value)
+            if not pair:
+                raise ValueError("tag display requires a key and value")
+            result.extend(
+                [
+                    [number, prop + ".Key", pair[1], comment],
+                    [number, prop + ".Value", pair[2], comment],
+                ]
+            )
+        else:
+            result.append([number, prop, value, comment])
+    return result
 
 
 @input_scope

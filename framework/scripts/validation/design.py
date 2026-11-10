@@ -515,6 +515,7 @@ def _callback_check_resource_names_check_name(
                 saved_rows.append(row)
         name_unavailable = None
         try:
+            saved_rows = _array_display.expand_saved_tag_rows(saved_rows, resource_type)
             if any(
                 re.match(
                     r"(?:Tags|HostedZoneTags)\[(?!\])",

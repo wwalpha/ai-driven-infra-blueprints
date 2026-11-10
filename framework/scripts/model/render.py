@@ -448,6 +448,8 @@ def resource_table_lines(
         )
         if formal:
             consumed.extend(row[0] for row in display)
+        elif indexed:
+            display = _dependency_array_display.compact_tag_rows(display)
         for _, child, child_name, child_rows in children:
             child_rows = _dependency_aws_mapping_display.selected_rows(child_rows, root)
             if not child_rows:
@@ -481,6 +483,8 @@ def resource_table_lines(
             )
             if formal:
                 consumed.extend(row[0] for row in child_display)
+            elif indexed:
+                child_display = _dependency_array_display.compact_tag_rows(child_display)
             if not formal and child[RESOURCE_TYPE_KEY] != ROTATION_SCHEDULE:
                 for row in child_display:
                     row[1] = child[RESOURCE_TYPE_KEY] + "." + row[1]

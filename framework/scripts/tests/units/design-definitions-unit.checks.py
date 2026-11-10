@@ -77,7 +77,6 @@ EXPECTED = {
         "SecretsManager.ResourcePolicy.ResourcePolicy": "statement",
     },
     "REQUIRED_NAME_TAG_TYPES": ["EC2.Instance", "EC2.VPCEndpoint"],
-    "NAME_TAG_DISPLAY_TYPES": ["EC2.Instance", "EC2.VPCEndpoint", "IAM.Role", "IAM.User"],
     "RESOURCE_REFERENCE_PROPERTIES": {
         "Config.ConfigurationRecorder.RoleARN": ["IAM.Role", "RoleName"],
         "KinesisFirehose.DeliveryStream.DeliveryStreamEncryptionConfigurationInput.KeyARN": [
@@ -177,5 +176,5 @@ if __name__ == "__main__":
     check_duplicates()
     check_registration()
     print(
-        "Design definitions: PASS (26 services; 31 policy formats; eight collections; service dependency direction)"
+        "Design definitions: PASS (26 services; 31 policy formats; seven collections; service dependency direction)"
     )

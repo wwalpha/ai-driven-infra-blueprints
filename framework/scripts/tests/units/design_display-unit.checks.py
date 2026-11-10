@@ -1118,8 +1118,8 @@ def test_unrelated_array_display_cannot_block_saved_name(
     replacements = {
         "value": ("`original`", "`changed`"),
         "comment": ("`original` | タグ", "`original` | 変更"),
-        "index": ("Tags[2].Value", "Tags[7].Value"),
-        "number": ("| 3 | Tags[2].Value", "| 9 | Tags[2].Value"),
+        "index": ("Tags[2] |", "Tags[7] |"),
+        "number": ("| 2 | Tags[2] |", "| 9 | Tags[2] |"),
     }
     old, new = replacements[change]
     assert old in text
@@ -1290,7 +1290,7 @@ def indexed_name_tags(tmp_path, request):
         path = tmp_path / f"docs/designs/qa/team/{service}.md"
         path.parent.mkdir(parents=True)
         expected = generate_markdown(path, values, FRAMEWORK)
-        assert f"{tags}[2].Key" in expected
+        assert f"{tags}[2] | `Name` = `saved-name` |" in expected
         yield tmp_path, service, kind, values, path, expected, tags, prop, value
 
 
@@ -1310,7 +1310,7 @@ def test_indexed_name_tags_ignore_unrelated_properties(
 ):
     root, service, kind, values, path, expected, tags, prop, value = indexed_name_tags
     text = expected.replace(f"### {kind}: saved-name", f"### {kind}: {heading}")
-    text = text.replace("| `saved-name` |", f"| `{name}` |")
+    text = text.replace("`Name` = `saved-name`", f"`Name` = `{name}`")
     if change != "none":
         raw = f"{prop} | `{value}` | 設定値"
         replacement = (
@@ -1361,8 +1361,7 @@ def test_indexed_name_tags_ignore_unrelated_properties(
 )
 def test_indexed_name_tags_reject_broken_pairs(indexed_name_tags, damage):
     root, service, kind, values, path, expected, tags, _, _ = indexed_name_tags
-    key = next(line for line in expected.splitlines() if f"{tags}[2].Key" in line)
-    val = next(line for line in expected.splitlines() if f"{tags}[2].Value" in line)
+    tag = next(line for line in expected.splitlines() if f"{tags}[2] |" in line)
     if damage in {"wrong-index", "zero", "negative", "leading-zero", "text"}:
         index = {
             "wrong-index": "3",
@@ -1371,20 +1370,20 @@ def test_indexed_name_tags_reject_broken_pairs(indexed_name_tags, damage):
             "leading-zero": "02",
             "text": "x",
         }[damage]
-        text = expected.replace(f"{tags}[2].Value", f"{tags}[{index}].Value")
+        text = expected.replace(f"{tags}[2] |", f"{tags}[{index}] |")
     elif damage == "duplicate":
-        text = expected.replace(val, val + "\n" + val)
+        text = expected.replace(tag, tag + "\n" + tag)
     elif damage == "missing":
-        text = expected.replace(val + "\n", "")
+        text = expected.replace(tag, tag.replace(" = `saved-name`", ""))
     elif damage == "missing-key":
-        text = expected.replace(key + "\n", "")
+        text = expected.replace(tag, tag.replace("`Name` = ", ""))
     elif damage == "unknown-field":
-        text = expected.replace(f"{tags}[2].Key", f"{tags}[2].Unknown")
+        text = expected.replace(f"{tags}[2] |", f"{tags}[2].Unknown |")
     elif damage == "value-first":
-        text = (
-            expected.replace(key, "PLACEHOLDER")
-            .replace(val, key)
-            .replace("PLACEHOLDER", val)
+        text = expected.replace(
+            tag,
+            f"| 2 | {tags}[2].Value | `saved-name` | 設定値 |\n"
+            f"| 3 | {tags}[2].Key | `Name` | 設定値 |",
         )
     else:
         text = expected.replace("`Environment`", "`Name`")

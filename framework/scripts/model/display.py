@@ -159,16 +159,10 @@ def display_rows(
         # Preserve symbolic rows before compact displays require physical strings.
         if consumed is not None:
             consumed.extend(row[0] for row in rows)
-        result = [
+        return [
             [identity, prop.removeprefix(kind + "."), value, comment]
             for identity, prop, value, comment in rows
         ]
-        return (
-            ec2_display_rows(result)
-            if kind in _display_definitions.NAME_TAG_DISPLAY_TYPES
-            and kind not in _display_definitions.REQUIRED_NAME_TAG_TYPES
-            else result
-        )
     return _display_rows(
         kind,
         rows,
@@ -295,7 +289,7 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
         )
     if kind == "CodePipeline.Pipeline":
         result = design.services.codepipeline.pipeline_rows(result)
-    elif kind in _display_definitions.NAME_TAG_DISPLAY_TYPES:
+    elif kind in _display_definitions.REQUIRED_NAME_TAG_TYPES:
         result = ec2_display_rows(result)
     elif kind == "Glue.Job":
         result = design.services.glue.glue_argument_rows(result, kind)

@@ -94,10 +94,7 @@ from design.services.definitions.lambda_permission import (
     PERMISSION_METADATA as PERMISSION_METADATA,
 )
 from design.services.definitions.registry import HIDDEN_PROPERTIES as HIDDEN_PROPERTIES
-from design.services.definitions.registry import (
-    IMPORT_PENDING_PROPERTIES,
-    NAME_TAG_DISPLAY_TYPES,
-)
+from design.services.definitions.registry import IMPORT_PENDING_PROPERTIES
 from design.services.definitions.registry import (
     REQUIRED_NAME_TAG_TYPES as REQUIRED_NAME_TAG_TYPES,
 )
@@ -960,7 +957,7 @@ def expanded_display_rows(
             rows = design.services.codepipeline.pipeline_display_rows(rows)
             changed = True
             kind = "CodePipeline"
-        if resource_type in NAME_TAG_DISPLAY_TYPES:
+        if resource_type in REQUIRED_NAME_TAG_TYPES:
             rows = ec2_formal_rows(rows, resource_type)
             changed = True
             kind = resource_type

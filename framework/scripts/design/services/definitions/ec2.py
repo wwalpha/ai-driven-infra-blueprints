@@ -3,7 +3,6 @@
 import re
 
 REQUIRED_NAME_TAG_TYPES = {"EC2.VPCEndpoint", "EC2.Instance"}
-NAME_TAG_DISPLAY_TYPES = REQUIRED_NAME_TAG_TYPES
 
 POLICY_FORMATS = {
     "EC2.VPCEndpoint.PolicyDocument": "statement",

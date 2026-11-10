@@ -23,7 +23,7 @@ import sync_runtime
 import sync_views
 import validation.design as design_validation
 import validation.design_tables as design_tables
-from design.array_display import indexed_rows
+from design.array_display import compact_tag_rows, indexed_rows
 from design.catalog import DesignSchemaCatalog
 from design.common import catalog_property_order, subnet_list_items
 from design.document import DesignIndex
@@ -38,7 +38,6 @@ from design.layout import (
     stack_design,
 )
 from design.layout_schema import resource_anchor as resource_anchor
-from design.services.ec2.display import ec2_formal_rows
 from model.core import entries, stack_model, validate_model_keys
 from model.display import ReferenceTable
 from model.format import parse, serialize
@@ -729,41 +728,46 @@ def compact_ec2_restored(values, rows, expected, actual):
     )
 
 
-@pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
-def test_iam_name_tag_display(kind):
-    source = [
-        ["1", kind + ".Tags[].Key", "`Name`", "name key"],
-        ["2", kind + ".Tags[].Value", "`example`", "name value"],
-        ["3", kind + ".Tags[].Key", "`owner`", "owner key"],
-        ["4", kind + ".Tags[].Value", "`team`", "owner value"],
-    ]
-    shown = display_rows(kind, source)
-    assert [(row[1], row[2]) for row in shown] == [
-        ("Name", "`example`"), ("Tags[].Key", "`owner`"), ("Tags[].Value", "`team`")
-    ]
-    assert [row[1] for row in indexed_rows(shown, kind)] == [
-        "Name", "Tags[2].Key", "Tags[2].Value"
-    ]
-    restored = ec2_formal_rows(
-        [[row[0], kind + "." + row[1], *row[2:]] for row in shown], kind
+@pytest.mark.parametrize("kind", ["IAM.Role", "EC2.Instance"])
+@pytest.mark.parametrize("packed", [False, True])
+def test_tag_table_rows(kind, packed):
+    tags = (
+        [('Key', '`["owner","project"]`'), ('Value', '`["team","data"]`')]
+        if packed
+        else [('Key', '`owner`'), ('Value', '`team`'), ('Key', '`project`'), ('Value', '`data`')]
     )
-    assert [row[1:] for row in restored] == [row[1:] for row in source]
-    expected = row_table(indexed_rows(shown, kind))
-    table = ReferenceTable("", (), tuple(expected), tuple(row_table(source)), tuple(row_table(shown)))
-    lines = [f"### {kind}: example", *expected]
-    expanded_display_rows(lines, reference_tables=(table,), modes={"": "CREATE"})
-    with pytest.raises(ValueError):
-        expanded_display_rows(
-            [line.replace("`example`", "`changed`") for line in lines],
-            reference_tables=(table,), modes={"": "CREATE"},
-        )
-    symbolic = [
-        ["5", kind + ".ManagedPolicyArns", '`{"$modelRef":{"logicalId":"X","attribute":"Arn"}}`', "ref"],
-        *source,
+    source = [
+        [str(i), f"{kind}.Tags[].{field}", value, field]
+        for i, (field, value) in enumerate(tags, 1)
     ]
-    assert display_rows(kind, symbolic)[1][1:3] == ["Name", "`example`"]
-    with pytest.raises(ValueError):
-        display_rows(kind, source[:1])
+    resource = {"resourceType": kind, "resourceMode": "IMPORT" if packed else "CREATE"}
+    rendered = model_design.resource_table_lines(resource, "fixture", source, [], ROOT)
+    assert rendered[2:] == [
+        "| 1 | Tags[1] | `owner` = `team` | Key<br>Value |",
+        "| 2 | Tags[2] | `project` = `data` | Key<br>Value |",
+    ]
+    semantic = tuple(row_table(source))
+    baseline = model_design.resource_table_lines(
+        resource, "fixture", source, [], ROOT, indexed=False
+    )
+    table = ReferenceTable("", (), tuple(rendered), semantic, tuple(baseline))
+    heading = f"### {kind}: fixture"
+    assert expanded_display_rows(
+        [heading, *rendered], reference_tables=(table,)
+    ) == [heading, *semantic]
+    changed = [line.replace("`team`", "`wrong`") for line in rendered]
+    with pytest.raises(ValueError, match="differs from Model expected display"):
+        expanded_display_rows([heading, *changed], reference_tables=(table,))
+
+
+@pytest.mark.parametrize("prop, value", [
+    ("Tags", '`{"owner":"team"}`'),
+    ("Target.EcsParameters.Tags[]", '`[{"Key":"owner","Value":"team"}]`'),
+])
+def test_tag_collection_rows(prop, value):
+    assert compact_tag_rows([["1", prop, value, "tag"]]) == [
+        ["1", prop.removesuffix("[]") + "[]", "`owner` = `team`", "tag"]
+    ]
 
 
 def ec2_compact_case(case):
