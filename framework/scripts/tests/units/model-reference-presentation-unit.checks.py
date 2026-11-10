@@ -1555,6 +1555,17 @@ def test_iam_collapsed_json_matches_artifact(models, kind, field, name_field):
     files = generate_files(path, values, models)
     markdown = files[path]
     content = markdown.split("<details>\n", 1)[1].split("\n</details>", 1)[0]
+    suffix = (
+        "trust"
+        if field == "AssumeRolePolicyDocument"
+        else ("inline-access" if field.startswith("Policies[]") else "policy-policy")
+    )
+    assert f"[Policy](#saved-001-{suffix})" in markdown
+    assert f'<a id="saved-001-{suffix}"></a>' in markdown
+    summary = "Access" if field.startswith("Policies[]") else "Policy"
+    assert f"<summary>{summary}</summary>" in content
+    with pytest.raises(ValueError, match="Model expected display"):
+        restore(path, markdown.replace(f"#saved-001-{suffix}", "#wrong", 1), values)
     block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
     assert json.loads(block) == json.loads(files[path.with_suffix("") / "policy.json"])
     assert "](" not in block

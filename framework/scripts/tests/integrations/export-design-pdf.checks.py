@@ -51,7 +51,7 @@ def main() -> None:
             '<a id="iam-role-two"></a>\n### IAM.Role: RoleTwo\n\n'
             '<a id="iam-policy"></a>\n### IAM.Policy: Policy\n\n'
             "#### IAM Policy: Example\n\n<details>\n"
-            "<summary>Policy JSON・参照情報を表示</summary>\n\n"
+            "<summary>ExamplePolicy</summary>\n\n"
             '```json\n{"Action": "s3:GetObject"}\n```\n\n'
             "| No. | Action |\n| ---: | --- |\n| 1 | s3:GetObject |\n\n</details>\n",
             encoding="utf-8",
@@ -87,12 +87,16 @@ def main() -> None:
         pdf_source = pdf_root / "docs/designs/dev/cde/iam.md"
         pdf_source.parent.mkdir(parents=True)
         pdf_source.write_text(
-            "# IAM\n\n#### IAM Policy: Example\n\n<details>\n"
-            "<summary>Policy JSON・参照情報を表示</summary>\n\n"
+            "# IAM\n\n[Policy](#policy)<!-- [Policy](iam/policy.json) -->\n\n"
+            '<a id="policy"></a>\n\n#### IAM Policy: Example\n\n<details>\n'
+            "<summary>ExamplePolicy</summary>\n\n"
             '```json\n{"Action": "s3:GetObject"}\n```\n\n'
             "| No. | Action |\n| ---: | --- |\n| 1 | s3:GetObject |\n\n</details>\n",
             encoding="utf-8",
         )
+        artifact_path = pdf_source.parent / "iam/policy.json"
+        artifact_path.parent.mkdir()
+        artifact_path.write_text('{"Action": "s3:GetObject"}', encoding="utf-8")
         pdf = root / "design.pdf"
         MODULE.export(pdf_root, pdf)
         extracted = "\n".join(

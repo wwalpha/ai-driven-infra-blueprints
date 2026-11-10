@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import html
 import json
 import re
 import sys
@@ -256,6 +257,9 @@ def resources_in(
             if row[1] not in POLICY_FORMATS:
                 continue
             match = JSON_LINK.fullmatch(row[2])
+            if not match and row[1] in IAM_POLICY_DOCUMENTS:
+                hidden = re.fullmatch(r"\[[^\]]+\]\(#[^)]+\)<!-- (.+) -->", row[2])
+                match = JSON_LINK.fullmatch(hidden.group(1)) if hidden else None
             if not match:
                 raise ValueError(
                     f"policy requires a JSON artifact link: {logical_id}: {row[1]}"
@@ -613,7 +617,7 @@ def iam_policy_lines(document, policy, lines):
     return [
         *lines[:4],
         "<details>",
-        "<summary>Policy JSON・参照情報を表示</summary>",
+        f"<summary>{html.escape(policy.label if policy.property_name in INLINE_POLICY_DOCUMENTS else Path(policy.label).stem)}</summary>",
         "",
         *raw_policy_lines(document, policy, sort_keys=True)[4:],
         *(["", "**参照テーブル**", "", *body] if body else []),

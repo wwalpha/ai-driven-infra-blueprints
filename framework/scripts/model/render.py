@@ -674,6 +674,9 @@ def _generate_markdown(
         ).with_suffix(".properties")
     )
     grouped = grouped_resources(reference_values, details, by_anchor, scope=scope)
+    policy_views, policy_links = model_policy_views(
+        values, presentation=presentation, generated_documents=generated_documents
+    )
     return render_markdown(
         path,
         values,
@@ -681,9 +684,8 @@ def _generate_markdown(
         owned,
         details,
         grouped,
-        model_policy_views(
-            values, presentation=presentation, generated_documents=generated_documents
-        ),
+        policy_views,
+        policy_links=policy_links,
         references=references,
         reference_tables=reference_tables,
         presentation=presentation,
@@ -706,6 +708,7 @@ def render_markdown(
     grouped,
     policy_views=None,
     *,
+    policy_links=None,
     references=None,
     reference_tables=None,
     presentation=None,
@@ -763,8 +766,13 @@ def render_markdown(
             "",
         ]
         children = grouped.get(identity, [])
+        links = (policy_links or {}).get(identity, {})
+        display_rows = [
+            [rid, prop, links.get(rid, value), comment]
+            for rid, prop, value, comment in rows
+        ]
         table = resource_table_lines(
-            resource, name, rows, children, root, references=references
+            resource, name, display_rows, children, root, references=references
         )
         if presentation is not None and any(
             ref.link for ref in presentation.references.values()
@@ -772,7 +780,7 @@ def render_markdown(
             marked = resource_table_lines(
                 resource,
                 name,
-                presentation.rows(rows),
+                presentation.rows(display_rows),
                 [
                     (rid, child, child_name, presentation.rows(child_rows))
                     for rid, child, child_name, child_rows in children
@@ -874,6 +882,7 @@ def model_policy_views(values, *, presentation=None, generated_documents=None):
     resource_row_index = _imports_model_files.resource_row_index
 
     result = {}
+    links = {}
     rows_by_resource = resource_row_index(values)
     for identity, resource in entries(values, "desired.resource."):
         policies = []
@@ -918,6 +927,10 @@ def model_policy_views(values, *, presentation=None, generated_documents=None):
             policy = Policy(
                 label, target, resource["anchor"] + "-" + suffix, kind, prop
             )
+            if prop in _dependency_policy_tables.IAM_POLICY_DOCUMENTS:
+                links.setdefault(identity, {})[row_id] = (
+                    f"[{link.group(1)}](#{policy.anchor})<!-- {link.group(0)} -->"
+                )
             document = json.loads(row["document"])
             lines = policy_document_lines(document, policy)
             if presentation is not None:
@@ -977,7 +990,7 @@ def model_policy_views(values, *, presentation=None, generated_documents=None):
                 else (START, END)
             )
             result[identity] = ["", start, *policies, "", end]
-    return result
+    return result, links
 
 
 @task_read_scope(root=_task_root)

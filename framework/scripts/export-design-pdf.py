@@ -192,17 +192,19 @@ def bundle(root: Path) -> tuple[str, dict[str, int]]:
         for index, (line, prose) in enumerate(source):
             if (
                 prose
+                and path.stem == "iam"
                 and line == "<details>"
                 and index + 1 < len(source)
-                and source[index + 1][0]
-                == "<summary>Policy JSON・参照情報を表示</summary>"
+                and source[index + 1][0].startswith("<summary>")
+                and source[index + 1][0].endswith("</summary>")
             ):
                 iam_details = True
                 continue
             if (
                 prose
                 and iam_details
-                and line == "<summary>Policy JSON・参照情報を表示</summary>"
+                and line.startswith("<summary>")
+                and line.endswith("</summary>")
             ):
                 continue
             if prose and iam_details and line == "</details>":

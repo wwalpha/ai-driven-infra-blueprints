@@ -34,6 +34,7 @@ from validation.findings import Findings, FindingsError
 
 import design.array_display as _array_display
 import design.layout as _dependency_design_layout
+import design.policy_tables as _dependency_policy_tables
 import design.services.ec2.security_groups as _dependency_security_group_tables
 import model as _model_api
 from design.layout_schema import (
@@ -175,6 +176,10 @@ def model_reference_tables(path, text, values, root, *, check_document=True):
     snapshots = _model_display.reference_rows(source).values()
     if not any(
         (check_document and item.references)
+        or any(
+            row[1] in _dependency_policy_tables.IAM_POLICY_DOCUMENTS
+            for row in item.rows
+        )
         or item.kind != "EC2.SecurityGroup"
         and any(
             (
