@@ -66,7 +66,7 @@ KMS = """# KMS 詳細設計
 
 ### KMS.Key: KeyOne
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |
 | 2 | EnableKeyRotation | `true` | key materialの自動rotationを有効にする設定 |
@@ -77,7 +77,7 @@ KMS = """# KMS 詳細設計
 
 ### KMS.Key: KeyTwo
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | KeyId | `PENDING_DEPLOY` | KMS keyを識別するID |
 | 2 | KMS.Alias.AliasName | `alias/three` | <a id="resource-AliasThree"></a><!-- logical-id: AliasThree --> KMS keyを識別するalias |
@@ -102,7 +102,7 @@ S3 = """# S3 詳細設計
 
 ### S3.Bucket: app-data
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | BucketName | `app-data` | bucketの名前 |
 | 2 | Region | `us-east-1` | bucketを配置するregion |
@@ -121,7 +121,7 @@ CODEBUILD = """# CodeBuild 詳細設計
 
 ### CodeBuild.Project: BuildProject
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `build-project` | projectの名前 |
 | 2 | Id | `PENDING_DEPLOY` | projectのID |
@@ -146,7 +146,7 @@ GUARDDUTY = """# GuardDuty 詳細設計
 
 ### GuardDuty.Detector: Main
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Id | `PENDING_DEPLOY` | detectorのID |
 | 2 | Enable | `true` | detectorを有効化する設定 |
@@ -210,7 +210,7 @@ def reference_design(service, kind, rows):
                 "## リソース詳細",
                 f'<a id="{service}-resource"></a>',
                 f"### {kind}: Resource",
-                "| No. | Property | Value | Source / Comment |",
+                "| No. | Property | Value | Description |",
                 "| ---: | --- | --- | --- |",
                 *(
                     f"| {n} | {prop} | {value} | 設定する属性 |"

@@ -2019,7 +2019,7 @@ def check_expanded_design_and_json_digest(tmp_path) -> None:
 
 ### EC2.VPC: vpc-app-dev
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
 | 2 | CidrBlock | 10.1.0.0/16 | VPCで使用するIPv4アドレス範囲 |
@@ -2030,7 +2030,7 @@ def check_expanded_design_and_json_digest(tmp_path) -> None:
 
 ### EC2.Subnet: sbnt-app-dev-private-01
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
 | 2 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
@@ -2076,7 +2076,7 @@ def check_expanded_design_and_json_digest(tmp_path) -> None:
 
 ### S3.Bucket: app-dev-data-123456789012
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | BucketName | app-dev-data-123456789012 | application dataを格納するbucketの名前 |
 | 2 | Region | us-east-1 | bucketを配置するAWS region |

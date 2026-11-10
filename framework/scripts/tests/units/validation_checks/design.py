@@ -46,7 +46,7 @@ def check_schema_backed_design_rows() -> None:
 <a id="logs-vpcflowloggroup01"></a>
 ### Logs.LogGroup: VPCFLOWLOGGROUP01
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | KmsKeyId | `not-used` | ログ暗号化に使用するKMSキーのARN |
 | 2 | Encryption | `AWS-managed standard encryption` | ログの暗号化方式 |
@@ -220,7 +220,7 @@ def check_cidr_pending_deploy() -> None:
 
 ### EC2.VPC: vpc-app-stg
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `vpc-app-stg` | VPCの名前 |
 | 2 | VpcId | `PENDING_DEPLOY` | VPCのID |
@@ -402,7 +402,7 @@ def check_event_rule_row_order() -> None:
 
 ### Events.Rule: HulftRetrievalDetectRule
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 """
         rows = [
@@ -492,7 +492,7 @@ def check_description_design_constraints() -> None:
 <a id="iam-app-role"></a>
 ### IAM.Role: app-role
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | RoleName | `app-role` | ロール名 |
 | 2 | AssumeRolePolicyDocument | [Trust](iam/role-one-trust-policy.json) | 信頼ポリシー |
@@ -517,7 +517,7 @@ def check_description_design_constraints() -> None:
 <a id="security-group-app-sg"></a>
 ### EC2.SecurityGroup: app-sg
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Id | `PENDING_DEPLOY` | 一意に識別するID |
 | 2 | GroupDescription | `Application access` | 用途の説明 |
@@ -540,7 +540,7 @@ def check_description_design_constraints() -> None:
             sg_text,
         )
 
-        # Both Japanese overview Comments and Source / Comments remain valid.
+        # Both Japanese overview Comments and Descriptions remain valid.
         assert not validate().errors, validate().errors
         for resource, prop, filename, role_text, group_text in (
             (

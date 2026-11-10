@@ -373,7 +373,7 @@ def main():
 <!-- resource-logical-id: EC2_Subnet_001 -->
 <a id="{anchor}"></a>
 ### EC2.Subnet: subnet-app-{env}-{target}
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `subnet-app-{env}-{target}` | 名前 |
 | 2 | SubnetId | `PENDING_DEPLOY` | ID |

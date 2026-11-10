@@ -434,7 +434,7 @@ def check_no_model_does_not_recover_typed_references(pipeline):
     build = [
         "### CodeBuild.Project: build",
         "",
-        "| No. | Property | Value | Source / Comment |",
+        "| No. | Property | Value | Description |",
         "| ---: | --- | --- | --- |",
         "| 1 | Environment.Variables.SECRET | `unresolved` | <!-- codebuild-variable-type: SECRETS_MANAGER --> 参照 |",
     ]
@@ -709,7 +709,7 @@ def check_ambiguous_service_note_resource_identity_is_not_accepted(noted_policie
         "# 説明\n## 注意\n### IAM.ManagedPolicy: note-example\n#### 詳細",
         '<!-- resource-logical-id: Note_001 -->\n<a id="note"></a>\n\n'
         "### IAM.ManagedPolicy: note-example\n\n"
-        "| No. | Property | Value | Source / Comment |\n"
+        "| No. | Property | Value | Description |\n"
         "| ---: | --- | --- | --- |\n| 1 | Name | `note` | 注記 |",
     ],
 )
@@ -743,7 +743,7 @@ def check_resource_like_service_notes_are_not_resources(noted_policies, note):
 @pytest.mark.parametrize(
     "addition",
     [
-        "| No. | Property | Value | Source / Comment |\n"
+        "| No. | Property | Value | Description |\n"
         "| ---: | --- | --- | --- |\n| 1 | Unknown | `bad` | 不正な属性 |",
         "| 99 | Unknown | `bad` | 不正なRow |",
         "任意の不正な追記",

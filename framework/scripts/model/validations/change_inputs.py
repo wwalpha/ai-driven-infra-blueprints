@@ -232,7 +232,7 @@ def _check_changed_documents(
             findings.check(
                 _imports_validation_design.JAPANESE_TEXT_PATTERN.search(authority[key])
                 is not None,
-                "Source / Comment must be Japanese: " + key.split(".")[2],
+                "Description must be Japanese: " + key.split(".")[2],
             )
     check_policy_settings(selected_rows, findings, path)
     account_rows = change.rows | {

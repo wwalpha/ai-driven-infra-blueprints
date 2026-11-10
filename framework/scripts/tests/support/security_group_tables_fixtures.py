@@ -50,7 +50,7 @@ DESIGN = """# Security Group 詳細設計
 
 ### EC2.SecurityGroup: GroupOne
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Id | `sg-00000001` | 一意に識別するID |
 | 2 | GroupDescription | `Application access` | 用途の説明 |
@@ -74,7 +74,7 @@ DESIGN = """# Security Group 詳細設計
 
 <!-- security-group-tags: [{"Key":"Project","Value":"app"},{"Key":"Environment","Value":"dev"}] -->
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Id | `PENDING_DEPLOY` | 一意に識別するID |
 | 2 | GroupDescription | `No selected rules` | 用途の説明 |
@@ -101,7 +101,7 @@ VPC_DESIGN = """# Amazon VPC 詳細設計
 
 ### EC2.VPC: vpc-app-dev
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | vpc-app-dev | VPCを識別する名前 |
 | 2 | VpcId | `vpc-00000001` | VPCを一意に識別するID |

@@ -224,7 +224,7 @@ def security_group_table_lines(lines: list[str], root=None) -> list[str]:
         if start == -1:
             raise ValueError("Security Group requires a basic property table")
         basic_headers, basic, basic_end = table_at(block, start)
-        if basic_headers != ["No.", "Property", "Value", "Source / Comment"]:
+        if basic_headers != ["No.", "Property", "Value", "Description"]:
             raise ValueError(
                 "Security Group requires a basic property table before rules"
             )

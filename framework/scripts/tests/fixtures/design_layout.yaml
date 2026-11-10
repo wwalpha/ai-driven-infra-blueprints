@@ -19,7 +19,7 @@ cases:
         ### CodeBuild.Project: BuildProject
 
 
-        | No. | Property | Value | Source / Comment |
+        | No. | Property | Value | Description |
 
         | ---: | --- | --- | --- |
 
@@ -78,7 +78,7 @@ cases:
         ### KMS.Key: KeyOne
 
 
-        | No. | Property | Value | Source / Comment |
+        | No. | Property | Value | Description |
 
         | ---: | --- | --- | --- |
 
@@ -99,7 +99,7 @@ cases:
         ### KMS.Key: KeyTwo
 
 
-        | No. | Property | Value | Source / Comment |
+        | No. | Property | Value | Description |
 
         | ---: | --- | --- | --- |
 

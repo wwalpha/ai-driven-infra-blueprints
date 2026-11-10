@@ -529,7 +529,7 @@ def check_service_policy_checks():
             summary = f"| No. | ResourceName | Comment |\n| ---: | --- | --- |\n| 1 | [sample-a](#{service}-sample-a) | 一つ目のresource |\n| 2 | [sample-b](#{service}-sample-b) | 二つ目のresource |"
             original = f"# ポリシー設計\n\n- Design service ID: `{service}`\n- Owned catalog resource types: {metadata}\n\n## リソース一覧\n\n### {owner_type}\n\n{summary}\n\n## リソース詳細\n\n"
             for name in ("sample-a", "sample-b"):
-                original += f'<a id="{service}-{name}"></a>\n\n### {owner_type}: {name}\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n'
+                original += f'<a id="{service}-{name}"></a>\n\n### {owner_type}: {name}\n\n| No. | Property | Value | Description |\n| ---: | --- | --- | --- |\n'
                 rows = []
                 if owner_type == "S3.Bucket":
                     rows = [
@@ -765,7 +765,7 @@ def check_grouping_and_settings_checks():
 
 ### ECR.Repository: Example
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | RepositoryName | `example` | リポジトリの名前 |
 | 2 | RepositoryPolicyText | [Policy](ecr/access.json) | アクセス権限 |
@@ -981,7 +981,7 @@ def check_model_service_note_boundary(tmp_path, service):
             "| **Direction** | IpProtocol | Port |\n| --- | --- | --- |",
             "| _Direction_ | IpProtocol | Port |\n| :--- | ---: | :---: |",
             "Direction | IpProtocol | Port\n--- | --- | ---",
-            "  | **No.** | Property  | Value | Source / Comment |\n  " + ALIGNMENT,
+            "  | **No.** | Property  | Value | Description |\n  " + ALIGNMENT,
         )
     ]
     + [

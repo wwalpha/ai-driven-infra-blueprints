@@ -53,7 +53,7 @@ CHILD = re.compile(
 
 CHILD_NAME = re.compile(r"^([^<>|`\n：]+)：")
 
-HEADER = "| No. | Property | Value | Source / Comment |"
+HEADER = "| No. | Property | Value | Description |"
 
 ALIGNMENT = "| ---: | --- | --- | --- |"
 

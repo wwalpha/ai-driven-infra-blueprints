@@ -93,7 +93,7 @@ def check_identifier_propagation() -> None:
 
 ### EC2.VPC: vpc-app-dev
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | vpc-app-dev | VPCを識別するNameタグの値 |
 | 2 | VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
@@ -102,7 +102,7 @@ def check_identifier_propagation() -> None:
 
 ### EC2.Subnet: sbnt-app-dev-private-01
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
 | 2 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
@@ -286,7 +286,7 @@ def check_s3_bucket_policy_grouping() -> None:
 
 ### KMS.Key: AppDataKey
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |
 | 2 | KMS.Alias.AliasName | `alias/app-data` | <a id="resource-AppDataKeyAlias"></a><!-- logical-id: AppDataKeyAlias --> application data用keyを識別するalias |
@@ -303,7 +303,7 @@ def check_s3_bucket_policy_grouping() -> None:
 
 ### S3.Bucket: app-dev-data-123456789012
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
 | 2 | Region | `ap-northeast-1` | bucketを配置するAWS region |
@@ -376,7 +376,7 @@ def check_s3_bucket_policy_grouping() -> None:
             "| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
             '\n<a id="s3-appdatabucketpolicy"></a>\n\n'
             "### S3.BucketPolicy: AppDataBucketPolicy\n\n"
-            "| No. | Property | Value | Source / Comment |\n"
+            "| No. | Property | Value | Description |\n"
             "| ---: | --- | --- | --- |\n"
             "| 1 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
         )
@@ -561,7 +561,7 @@ def check_resource_overview() -> None:
 
 ### S3.Bucket: app-dev-data-123456789012
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
 """

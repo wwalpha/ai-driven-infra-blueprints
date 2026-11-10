@@ -1,7 +1,7 @@
 errors:
 - 'design must contain exactly one H1 title: docs/designs/dev/123456789012/codebuild.md'
-- 'Source / Comment must be Japanese: docs/designs/dev/123456789012/codebuild.md:
-  English comment'
+- 'Description must be Japanese: docs/designs/dev/123456789012/codebuild.md: English
+  comment'
 - 'docs/designs/dev/123456789012/codebuild.md: Resource=CodeBuild.Project#codebuild-buildproject:
   Name=FIRST, Type=PLAINTEXT, Property=CodeBuild.Project.Environment.EnvironmentVariables[].Value:
   PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)'
@@ -28,7 +28,7 @@ raw: '# CodeBuild 詳細設計
   ### CodeBuild.Project: BuildProject
 
 
-  | No. | Property | Value | Source / Comment |
+  | No. | Property | Value | Description |
 
   | ---: | --- | --- | --- |
 
@@ -59,7 +59,7 @@ raw: '# CodeBuild 詳細設計
   ### CodeBuild.Project: Second
 
 
-  | No. | Property | Value | Source / Comment |
+  | No. | Property | Value | Description |
 
   | ---: | --- | --- | --- |
 
@@ -90,7 +90,7 @@ raw: '# CodeBuild 詳細設計
   ### CodeBuild.Project: Third
 
 
-  | No. | Property | Value | Source / Comment |
+  | No. | Property | Value | Description |
 
   | ---: | --- | --- | --- |
 

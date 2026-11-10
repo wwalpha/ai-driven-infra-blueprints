@@ -327,7 +327,7 @@ def check_invalid_json_links_continue_without_external_reads(tmp_path, invalid):
         invalid = "iam/escaped.json"
     text = (
         '# IAM\n\n## リソース詳細\n\n<a id="iam-policy"></a>\n\n### IAM.ManagedPolicy: Policy\n\n'
-        "| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n"
+        "| No. | Property | Value | Description |\n| ---: | --- | --- | --- |\n"
         f"| 1 | IAM.ManagedPolicy.PolicyDocument | [JSON]({invalid}) | 不正パス |\n"
         "| 2 | IAM.ManagedPolicy.PolicyDocument | [JSON](iam/valid.json) | 正常パス |\n"
     )

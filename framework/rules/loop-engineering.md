@@ -194,7 +194,7 @@ When running a local loop, retain the following checks in its applicable scope. 
 - The minimum Markdown structure, resource tables, row numbering, and saved explicit anchors defined by `framework/rules/detailed-design.md` are valid
 - Service ownership, Markdown/model service metadata, and catalog resource type ownership are consistent; resources from different AWS services are not mixed
 - Prohibited topology/state file metadata and design decisions, out-of-scope, and generated-values sections are absent
-- Resource table `Source / Comment` is written in Japanese
+- Resource table `Description` is written in Japanese
 - Resource tables contain no settings outside the properties selection list, and literals satisfy the corresponding CFn provider schema or API design schema type, enum, pattern, length, and range
 - Policy properties requiring JSON reference valid JSON artifacts under their owning service and match service model artifact paths
 - Each service's policy anchors, owning resources, and all Statement elements or all setting elements match linked JSON, without duplicate persistence of derived displays in models. Omit independent Property, JSON, Version, and Id metadata rows for all policies including IAM. Display trust policy Version in a one-column table only when it exists in JSON, and match it against JSON. Retain formal properties and JSON links in original setting rows, Version/Id in JSON bodies, same-named keys in setting tables, and three-column overviews for all services. Reject missing markers, invalid ownership, and table-only corrections. Registered policy display methods match formal catalog properties and provider schemas

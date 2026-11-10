@@ -2,7 +2,7 @@ create:
 - count: 1
   markdown: '### EC2.Instance: resource
 
-    | No. | Property | Value | Source / Comment |
+    | No. | Property | Value | Description |
 
     | ---: | --- | --- | --- |
 
@@ -30,7 +30,7 @@ create:
     | 11 | Tenancy | `default` | 実行するテナンシー |'
   restored:
   - '### EC2.Instance: resource'
-  - '| No. | Property | Value | Source / Comment |'
+  - '| No. | Property | Value | Description |'
   - '| ---: | --- | --- | --- |'
   - '| 1 | EC2.Instance.BlockDeviceMappings[].DeviceName | `/dev/sda` | デバイス名 |'
   - '| 2 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize | `10` | ディスク容量 |'
@@ -47,7 +47,7 @@ create:
 - count: 5
   markdown: '### EC2.Instance: resource
 
-    | No. | Property | Value | Source / Comment |
+    | No. | Property | Value | Description |
 
     | ---: | --- | --- | --- |
 
@@ -95,7 +95,7 @@ create:
     | 21 | Tenancy | `default` | 実行するテナンシー |'
   restored:
   - '### EC2.Instance: resource'
-  - '| No. | Property | Value | Source / Comment |'
+  - '| No. | Property | Value | Description |'
   - '| ---: | --- | --- | --- |'
   - '| 1 | EC2.Instance.BlockDeviceMappings[].DeviceName | `/dev/sda` | デバイス名 |'
   - '| 2 | EC2.Instance.BlockDeviceMappings[].Ebs.VolumeSize | `10` | ディスク容量 |'
@@ -122,13 +122,13 @@ create:
 import:
   markdown: '### EC2.Instance: resource
 
-    | No. | Property | Value | Source / Comment |
+    | No. | Property | Value | Description |
 
     | ---: | --- | --- | --- |
 
     | 1 | ImageId | `ami-0123456789abcdef0` | 起動するイメージ |'
   restored:
   - '### EC2.Instance: resource'
-  - '| No. | Property | Value | Source / Comment |'
+  - '| No. | Property | Value | Description |'
   - '| ---: | --- | --- | --- |'
   - '| 1 | EC2.Instance.ImageId | `ami-0123456789abcdef0` | 起動するイメージ |'

@@ -328,7 +328,7 @@ Observed collection, model updates, and generated artifact synchronization are o
 After apply succeeds, the Agent performs existing post-apply procedures.
 
 1. Confirm terminal success and resource existence; obtain necessary non-sensitive identifiers from Terraform output. Read state resource attributes read-only only when target outputs are absent; confirm equality if both exist.
-2. Under `observed-values.md`, uniquely map to formal catalog IDENTIFIER_OUTPUT and first update identifier output rows and observed values of all references. Reflect new IDs after replacement and PENDING_DEPLOY after destroy. Do not change human-edited intended design, link target paths/anchors, or Source / Comment. Stop without guessing for missing necessary outputs, ambiguous mappings, or reference mismatches; do not save generated ARNs/secrets.
+2. Under `observed-values.md`, uniquely map to formal catalog IDENTIFIER_OUTPUT and first update identifier output rows and observed values of all references. Reflect new IDs after replacement and PENDING_DEPLOY after destroy. Do not change human-edited intended design, link target paths/anchors, or Description. Stop without guessing for missing necessary outputs, ambiguous mappings, or reference mismatches; do not save generated ARNs/secrets.
 3. Run the above service-scoped `sync-model.py --write` only for services with updated observed values.
 
 Do not treat deploy completion status, resource existence, or observed value collection as application behavior validation or scenario PASS.

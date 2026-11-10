@@ -73,7 +73,7 @@ def check_permission_inputs():
         path.parent.mkdir(parents=True, exist_ok=True)
         role_fixture(root)
         (path.parent / "iam.md").write_text(
-            '# IAM\n\n- Design service ID: `iam`\n- Owned catalog resource types: `IAM.Role`\n\n<a id="iam-app-dev-worker-role"></a>\n### IAM.Role: app-dev-worker-role\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n| 1 | RoleName | `app-dev-worker-role` | ロールの名前 |\n',
+            '# IAM\n\n- Design service ID: `iam`\n- Owned catalog resource types: `IAM.Role`\n\n<a id="iam-app-dev-worker-role"></a>\n### IAM.Role: app-dev-worker-role\n\n| No. | Property | Value | Description |\n| ---: | --- | --- | --- |\n| 1 | RoleName | `app-dev-worker-role` | ロールの名前 |\n',
             encoding="utf-8",
         )
         write_model(
@@ -101,7 +101,7 @@ def check_permission_inputs():
             assert visible.count("Permission.Action") == parents * children
             assert "Permission.Principal" in visible or children == 0
             assert (
-                output.count("| No. | Property | Value | Source / Comment |") == parents
+                output.count("| No. | Property | Value | Description |") == parents
             )
             if children:
                 source = root / "model/dev/123456789012/lambda.properties"

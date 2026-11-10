@@ -388,7 +388,7 @@ def test_escaped_pipe_retains_property_display_evidence(tmp_path, saved):
         "<!-- resource-logical-id: CodePipeline_Pipeline_001 -->\n"
         '<a id="saved-001"></a>\n'
         "### CodePipeline.Pipeline: pipeline\n"
-        "| No. | Property | Value | Source / Comment |\n"
+        "| No. | Property | Value | Description |\n"
         "| ---: | --- | --- | --- |\n"
         f"| 1 | Name | {wanted} | 名前 |\n"
     )
@@ -1016,7 +1016,7 @@ def test_saved_name_evidence_excludes_model_fallback(tmp_path, case, different):
                     "<!-- resource-logical-id: " + kind.replace(".", "_") + "_001 -->",
                     '<a id="saved-001"></a>',
                     f"### {kind}: {heading}",
-                    "| No. | Property | Value | Source / Comment |",
+                    "| No. | Property | Value | Description |",
                     "| ---: | --- | --- | --- |",
                     *rows,
                 ]

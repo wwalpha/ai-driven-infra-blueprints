@@ -1,6 +1,6 @@
 markdown: '### Glue.Job: resource
 
-  | No. | Property | Value | Source / Comment |
+  | No. | Property | Value | Description |
 
   | ---: | --- | --- | --- |
 
@@ -49,7 +49,7 @@ markdown: '### Glue.Job: resource
   | 16 | Command.Name | `glueetl` | 処理ジョブの種類 |'
 restored:
 - '### Glue.Job: resource'
-- '| No. | Property | Value | Source / Comment |'
+- '| No. | Property | Value | Description |'
 - '| ---: | --- | --- | --- |'
 - '| 1 | Glue.Job.Name | `app-dev-outbound` | 処理ジョブの名前 |'
 - '| 2 | Glue.Job.DefaultArguments | `{ "--job-language": "python", "--job-bookmark-option":

@@ -188,7 +188,7 @@ def iam_fixture(root):
 
 ### IAM.Role: {logical_id}
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | RoleName | `{logical_id}` | ロールの名前 |
 | 2 | AssumeRolePolicyDocument | [FlowLogsTrust](iam/{file_id}-trust-policy.json) | 信頼ポリシー |
@@ -202,7 +202,7 @@ def iam_fixture(root):
 
 ### IAM.InstanceProfile: Profile
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | InstanceProfileName | `example` | インスタンスプロファイルの名前 |
 """

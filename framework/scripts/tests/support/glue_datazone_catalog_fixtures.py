@@ -40,7 +40,7 @@ def write_designs(root: Path) -> tuple[Path, Path]:
 
 ### Glue.Catalog: FederatedCatalog
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | CatalogId | PENDING_DEPLOY | federated catalogを識別するID |
 | 2 | FederatedCatalog.ConnectionName | snowflake-connection | Snowflake接続に使用するGlue connection名 |
@@ -62,7 +62,7 @@ def write_designs(root: Path) -> tuple[Path, Path]:
 
 ### DataZone.Domain: Domain
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Id | PENDING_DEPLOY | DataZone domainを識別するID |
 | 2 | DomainVersion | V2 | DataZone domainのversion |
@@ -72,7 +72,7 @@ def write_designs(root: Path) -> tuple[Path, Path]:
 
 ### DataZone.Project: Project
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | DomainId | PENDING_DEPLOY | 所属するDataZone domainのID |
 | 2 | Id | PENDING_DEPLOY | DataZone projectを識別するID |
@@ -83,7 +83,7 @@ def write_designs(root: Path) -> tuple[Path, Path]:
 
 ### DataZone.DataSource: DataSource
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | DomainId | PENDING_DEPLOY | 所属するDataZone domainのID |
 | 2 | Id | PENDING_DEPLOY | DataZone data sourceを識別するID |

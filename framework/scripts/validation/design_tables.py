@@ -567,7 +567,7 @@ def check_raw_design_tables(path, lines, *, findings):
                 check_cidr_value(path, cells[1], cells[2], findings=findings)
                 findings.check(
                     JAPANESE_TEXT_PATTERN.search(cells[3]) is not None,
-                    f"Source / Comment must be Japanese: {findings.relative(path)}: {cells[3]}",
+                    f"Description must be Japanese: {findings.relative(path)}: {cells[3]}",
                     source_path=path,
                     cause_kind="input_invalid",
                 )

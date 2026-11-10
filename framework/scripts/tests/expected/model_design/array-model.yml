@@ -30,7 +30,7 @@ markdown: '# quicksight 詳細設計
   ### QuickSight.DataSource: source
 
 
-  | No. | Property | Value | Source / Comment |
+  | No. | Property | Value | Description |
 
   | ---: | --- | --- | --- |
 
@@ -79,7 +79,7 @@ restored: '# quicksight 詳細設計
   ### QuickSight.DataSource: source
 
 
-  | No. | Property | Value | Source / Comment |
+  | No. | Property | Value | Description |
 
   | ---: | --- | --- | --- |
 

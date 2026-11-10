@@ -62,7 +62,7 @@ IAM Role ResourceName and detail headings display RoleName; retain internal logi
 
 ### IAM.Role: app-dev-worker-role
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | RoleName | `app-dev-worker-role` | workerの実行権限を識別するロール名 |
 | 2 | AssumeRolePolicyDocument | [WorkerTrust](iam/worker-role-trust-policy.json) | workerからの引受を許可する信頼ポリシー |
@@ -74,7 +74,7 @@ IAM Role ResourceName and detail headings display RoleName; retain internal logi
 
 ### Scheduler.Schedule: ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455` | 夜間処理の完了を5分間隔で検知するschedule名 |
 ```
@@ -108,7 +108,7 @@ Example with no name property, selected Name tag, or existing confirmed display 
 
 ### SecurityHub.Hub
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | EnableDefaultStandards | `true` | デフォルトの標準を有効にする設定 |
 ```
@@ -137,7 +137,7 @@ The name components below are example values; actual designs use human-confirmed
 
 ### EC2.VPCEndpoint: vpce-app-dev-s3
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Id | `PENDING_DEPLOY` | Endpointを識別するID |
 | 2 | ServiceName | `com.amazonaws.ap-northeast-1.s3` | 接続先のS3 service |
@@ -171,7 +171,7 @@ Name tag values are examples; actual designs use confirmed values. Retain intern
 
 ### EC2.Instance: dev-app-vulnerability-scan-01
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | InstanceId | `PENDING_DEPLOY` | Instanceを識別するID |
 | 2 | BlockDeviceMappings[1].DeviceName | `/dev/sda1` | 起動ディスクのデバイス名 |
@@ -191,7 +191,7 @@ Setting table `Name` combines formal Tags Key/Value for display; retain 2 model 
 ## Resource-detail table
 
 ```md
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 ```
 
@@ -217,7 +217,7 @@ Setting table `Name` combines formal Tags Key/Value for display; retain 2 model 
 
 ### KMS.Key: venus-dev-s3-file-transfer
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | KeyId | `PENDING_DEPLOY` | 一意に識別するID |
 | 2 | EnableKeyRotation | `true` | key materialの自動rotationを有効にする設定 |

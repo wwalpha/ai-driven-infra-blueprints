@@ -67,7 +67,7 @@ def markdown(values):
 
 ### Macie.Session: session
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | AwsAccountId | `123456789012` | Macieを使用するAWS accountのID |
 | 2 | Status | `ENABLED` | Macieの有効状態 |
@@ -77,7 +77,7 @@ def markdown(values):
 
 ### Macie.ClassificationJob: daily-data-scan
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 """
     order = [
@@ -146,7 +146,7 @@ def quicksight_group_markdown():
 
 ### QuickSight.Group: reader-group
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | AwsAccountId | `123456789012` | QuickSight accountのID |
 | 2 | Namespace | `default` | groupが属するnamespace |

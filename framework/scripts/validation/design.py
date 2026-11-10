@@ -65,7 +65,7 @@ from .diagnostics import (
 )
 from .findings import FindingsError
 
-TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
+TABLE_HEADER = "| No. | Property | Value | Description |"
 TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
 ANCHOR_PATTERN = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
 LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")

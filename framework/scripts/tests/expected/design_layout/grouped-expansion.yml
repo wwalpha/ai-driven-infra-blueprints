@@ -39,7 +39,7 @@ raw: '# KMS 詳細設計
   ### KMS.Key: KeyOne
 
 
-  | No. | Property | Value | Source / Comment |
+  | No. | Property | Value | Description |
 
   | ---: | --- | --- | --- |
 
@@ -60,7 +60,7 @@ raw: '# KMS 詳細設計
   ### KMS.Key: KeyTwo
 
 
-  | No. | Property | Value | Source / Comment |
+  | No. | Property | Value | Description |
 
   | ---: | --- | --- | --- |
 

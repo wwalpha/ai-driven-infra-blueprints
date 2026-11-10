@@ -299,7 +299,7 @@ def check_resource_display_names():
 
 
 def check_cloudtrail_expansion():
-    trail = '# AWS CloudTrail 詳細設計\n\n- Design service ID: `cloudtrail`\n- Owned catalog resource types: `CloudTrail.Trail`\n\n## リソース詳細\n\n<a id="cloudtrail-trail"></a>\n\n### CloudTrail.Trail: Trail\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n| 1 | TrailName | `trail` | 証跡の名前 |\n| 2 | EventSelectors.DataResources[1].S3 | [data-bucket](s3.md#s3-data-bucket) | S3 objectの記録対象 |\n| 3 | EventSelectors.DataResources[2].Lambda | [function-one](lambda.md#lambda-function-one) | Lambda functionの記録対象 |\n| 4 | IsLogging | `true` | event記録の有効化 |\n| 5 | S3BucketName | [data-bucket](s3.md#s3-data-bucket) | ログの配信先bucket |\n'
+    trail = '# AWS CloudTrail 詳細設計\n\n- Design service ID: `cloudtrail`\n- Owned catalog resource types: `CloudTrail.Trail`\n\n## リソース詳細\n\n<a id="cloudtrail-trail"></a>\n\n### CloudTrail.Trail: Trail\n\n| No. | Property | Value | Description |\n| ---: | --- | --- | --- |\n| 1 | TrailName | `trail` | 証跡の名前 |\n| 2 | EventSelectors.DataResources[1].S3 | [data-bucket](s3.md#s3-data-bucket) | S3 objectの記録対象 |\n| 3 | EventSelectors.DataResources[2].Lambda | [function-one](lambda.md#lambda-function-one) | Lambda functionの記録対象 |\n| 4 | IsLogging | `true` | event記録の有効化 |\n| 5 | S3BucketName | [data-bucket](s3.md#s3-data-bucket) | ログの配信先bucket |\n'
     expanded = "\n".join(expanded_display_rows(trail.splitlines()))
     assert expanded.count("CloudTrail.Trail.EventSelectors[].DataResources[].Type") == 2
     assert "`AWS::S3::Object`" in expanded and "`AWS::Lambda::Function`" in expanded
@@ -320,7 +320,7 @@ def _callback_check_pipeline_expansion_design(
                 "## リソース詳細",
                 f'<a id="{service}-{logical_id.lower()}"></a>',
                 f"### {resource_type}: {logical_id}",
-                "| No. | Property | Value | Source / Comment |",
+                "| No. | Property | Value | Description |",
                 "| ---: | --- | --- | --- |",
                 *(
                     f"| {n} | {prop} | {value} | 設定する属性 |"
@@ -461,7 +461,7 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
 
 ### SecretsManager.Secret: app-dev-key
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `app-dev-key` | secretの名前 |
 | 2 | SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate | `false` | <a id="resource-SecretsManager_RotationSchedule_001"></a><!-- logical-id: SecretsManager_RotationSchedule_001 --> app-dev-key_rotate：更新直後のrotation実行設定 |
@@ -473,7 +473,7 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
 
 ### SecretsManager.Secret: app-dev-token
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `app-dev-token` | secretの名前 |
 """
@@ -664,7 +664,7 @@ def check_codebuild_variable_display(tmp_path, catalog) -> None:
         """# Secrets Manager 詳細設計
 <a id="secretsmanager-snowflakekey"></a>
 ### SecretsManager.Secret: SnowflakeKey
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `venus-dev-snowflake-cicd-keypair-cde` | secretの名前 |
 """,
@@ -800,10 +800,10 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
 """
     design_text = CODEBUILD + vpc_rows
     lines = design_text.splitlines()
-    start = lines.index("| No. | Property | Value | Source / Comment |")
+    start = lines.index("| No. | Property | Value | Description |")
     baseline = tuple(lines[start:])
     other = expanded_display_rows(CODEBUILD.splitlines())
-    semantic = other[other.index("| No. | Property | Value | Source / Comment |") :]
+    semantic = other[other.index("| No. | Property | Value | Description |") :]
     semantic += [
         "| 11 | CodeBuild.Project.VpcConfig.Subnets | [subnet-00000000000000001](vpc.md#vpc-sbnt-one) | 1つ目のprivate subnet |",
         "| 12 | CodeBuild.Project.VpcConfig.Subnets | [subnet-00000000000000002](vpc.md#vpc-sbnt-two) | 2つ目のprivate subnet |",
@@ -821,20 +821,20 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
 
 <a id="vpc-main"></a>
 ### EC2.VPC: main
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | VpcId | `vpc-00000000000000001` | VPCのID |
 
 <a id="vpc-sbnt-one"></a>
 ### EC2.Subnet: sbnt-one
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `sbnt-one` | subnetのName |
 | 2 | SubnetId | `subnet-00000000000000001` | subnetのID |
 
 <a id="vpc-sbnt-two"></a>
 ### EC2.Subnet: sbnt-two
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `sbnt-two` | subnetのName |
 | 2 | SubnetId | `subnet-00000000000000002` | subnetのID |
@@ -856,7 +856,7 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
 
 <a id="security-group-codebuild-sg"></a>
 ### EC2.SecurityGroup: CodeBuildSG
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Id | `PENDING_DEPLOY` | Security GroupのID |
 | 2 | GroupDescription | `Build access` | 用途の説明 |
@@ -963,7 +963,7 @@ def _callback_check_subnet_list_links_errors(
             ["3", prop, value, "配置先Subnet"],
         ]
     lines = text.splitlines()
-    start = lines.index("| No. | Property | Value | Source / Comment |")
+    start = lines.index("| No. | Property | Value | Description |")
     expected = tuple(lines[start:])
     table = ReferenceTable(anchor, (), expected, tuple(row_table(formal)), expected)
     validator = VALIDATOR.Validator(root)
@@ -987,7 +987,7 @@ def check_subnet_list_links(prop, tmp_path, catalog):
 
 <a id="subnet-a"></a>
 ### EC2.Subnet: subnet-a
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | SubnetId | `subnet-00000000000000001` | SubnetのID |
 """
@@ -1087,7 +1087,7 @@ def check_cloudtrail_data_resources(tmp_path, catalog) -> None:
 
 ### CloudTrail.Trail: Trail
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | TrailName | `trail` | 証跡の名前 |
 | 2 | EventSelectors.DataResources[1].S3 | [data-bucket](s3.md#s3-data-bucket) | S3 objectの記録対象 |
@@ -1101,7 +1101,7 @@ def check_cloudtrail_data_resources(tmp_path, catalog) -> None:
 
 ### S3.Bucket: data-bucket
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | BucketName | `data-bucket` | bucketの名前 |
 | 2 | Region | `ap-northeast-1` | bucketの配置region |
@@ -1112,7 +1112,7 @@ def check_cloudtrail_data_resources(tmp_path, catalog) -> None:
 
 ### Lambda.Function: function-one
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | FunctionName | `function-one` | functionの名前 |
 | 2 | Role | `arn:aws:iam::123456789012:role/function-one` | 実行用role |
@@ -1204,7 +1204,7 @@ def _callback_check_codepipeline_display_design(
                 "## リソース詳細",
                 f'<a id="{service}-{logical_id.lower()}"></a>',
                 f"### {resource_type}: {logical_id}",
-                "| No. | Property | Value | Source / Comment |",
+                "| No. | Property | Value | Description |",
                 "| ---: | --- | --- | --- |",
                 *(
                     f"| {n} | {prop} | {value} | 設定する属性 |"
@@ -1451,7 +1451,7 @@ def check_resource_name_headings(tmp_path) -> None:
 
 ### Scheduler.Schedule: {name}
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Name | `{name}` | scheduleの名前 |
 """
@@ -1610,7 +1610,7 @@ def check_quicksight_group_principal_reference(tmp_path) -> None:
 
 ### QuickSight.Group: reader-group
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | GroupName | `reader-group` | group name |
 
@@ -1619,7 +1619,7 @@ def check_quicksight_group_principal_reference(tmp_path) -> None:
 
 ### QuickSight.DataSource: source
 
-| No. | Property | Value | Source / Comment |
+| No. | Property | Value | Description |
 | ---: | --- | --- | --- |
 | 1 | Permissions[].Principal | [reader-group](#quicksight-reader-group) | 権限を付与するgroup |
 """
@@ -1683,7 +1683,7 @@ def check_workflow(tmp_path, catalog) -> None:
     policy_rows = [
         '<a id="iam-role"></a>',
         "### IAM.Role: Role",
-        "| No. | Property | Value | Source / Comment |",
+        "| No. | Property | Value | Description |",
         "| ---: | --- | --- | --- |",
         "| 1 | RoleName | `role` | roleの名前 |",
         "| 2 | AssumeRolePolicyDocument | [trust](trust.json) | 信頼policy |",
@@ -1816,7 +1816,7 @@ def check_workflow(tmp_path, catalog) -> None:
         (
             KMS.replace(
                 "| 4 | KMS.Alias.AliasName",
-                "\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n| 4 | KMS.Alias.AliasName",
+                "\n| No. | Property | Value | Description |\n| ---: | --- | --- | --- |\n| 4 | KMS.Alias.AliasName",
             ),
             "exactly one detail table",
         ),
@@ -2079,7 +2079,7 @@ def expansion_raw_case(tmp_path, catalog, case):
     )
     TestCase().assertTrue(
         any(
-            ("Source / Comment must be Japanese" in error for error in validator.errors)
+            ("Description must be Japanese" in error for error in validator.errors)
         )
     )
     TestCase().assertTrue(
@@ -2171,7 +2171,7 @@ def check_expansion_dependency_boundaries(tmp_path, catalog, stage, reference):
     with patch.object(target, function, side_effect=error):
         validator, result = table_validation(tmp_path, catalog, text)
     assert result.status == "FAIL"  # Independent raw error remains an ERROR.
-    assert any("Source / Comment must be Japanese" in item for item in validator.errors)
+    assert any("Description must be Japanese" in item for item in validator.errors)
     assert not any("invalid resource identity" in item for item in validator.errors)
     assert not any(
         "identifier output" in item or "not selected by design catalog" in item
