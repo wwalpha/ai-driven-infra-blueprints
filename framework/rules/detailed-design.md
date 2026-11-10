@@ -92,7 +92,7 @@ Hide `MaxConcurrentStacks` (integer 1 or greater) in rendered Markdown; do not o
 
 [CloudFormation stack detailed design example](detailed-design-samples.md#cloudformation-stack)
 
-Generic validators determine service ownership from the authoritative Model. Do not output Design service ID or Owned catalog resource types in Markdown.
+Generic validators determine service ownership from the authoritative Model.
 
 - Owned catalog resource types include only resource types present in `framework/materials/aws/*.properties` or `framework/materials/api/*.properties` that this service file owns.
 - Multiple service files within the same environment/target directory must not own the same catalog resource type.
