@@ -91,6 +91,21 @@ def check(root):
     validate_views(current, current, [repository_path], {repository_path: repository})
     assert "RepositoryId" not in repository_path.read_text()
     assert repository["desired.row.007-012.value"] == "`kept-hidden-id`"
+    # A hidden project identifier remains in the Model and passes view validation.
+    project = fixture(
+        "codebuild",
+        "CodeBuild.Project",
+        "fixture-build",
+        [("Name", "`fixture-build`"), ("Id", "`kept-project-id`")],
+    )
+    project_path = current / "docs/designs/dev/123456789012/codebuild.md"
+    project_path.write_text(
+        markdown_for(project_path, project, current), encoding="utf-8"
+    )
+    write_model(current / "model/dev/123456789012/codebuild.properties", project)
+    validate_views(current, current, [project_path], {project_path: project})
+    assert "kept-project-id" not in project_path.read_text(encoding="utf-8")
+    assert project["desired.row.007-012.value"] == "`kept-project-id`"
     # EC2 Instance and Subnet use distinct AZ display contracts.
     for kind, rows, expected in (
         (

@@ -1,11 +1,6 @@
 markdown: '# quicksight 詳細設計
 
 
-  - Design service ID: `quicksight`
-
-  - Owned catalog resource types: `QuickSight.DataSource`
-
-
   ## リソース一覧
 
 
@@ -48,11 +43,6 @@ markdown: '# quicksight 詳細設計
 
   '
 restored: '# quicksight 詳細設計
-
-
-  - Design service ID: `quicksight`
-
-  - Owned catalog resource types: `QuickSight.DataSource`
 
 
   ## リソース一覧

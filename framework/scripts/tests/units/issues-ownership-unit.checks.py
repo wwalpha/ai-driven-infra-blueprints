@@ -395,7 +395,7 @@ def check_v6_diagnostic_contract_rejects_misrouting(tmp_path, fault):
 
 
 @pytest.mark.parametrize(
-    "fault", ["syntax", "required", "property-owner", "service-id", "markdown-required"]
+    "fault", ["syntax", "required", "property-owner", "service-id", "markdown-property"]
 )
 def check_real_input_violations_are_never_processing_failures(tmp_path, fault):
     framework = Path(__file__).resolve().parents[4]
@@ -417,10 +417,10 @@ def check_real_input_violations_are_never_processing_failures(tmp_path, fault):
             values["desired.service.s3.serviceId"] = "iam"
             write_model(model, values)
         else:
+            text = view.read_text(encoding="utf-8")
+            assert "| BucketName |" in text
             view.write_text(
-                view.read_text(encoding="utf-8").replace(
-                    "- Design service ID:", "- Missing service ID:"
-                ),
+                text.replace("| BucketName |", "| InvalidFixtureProperty |"),
                 encoding="utf-8",
             )
         validators = []

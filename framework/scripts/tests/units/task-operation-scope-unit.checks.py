@@ -234,11 +234,13 @@ def check_display_and_authorization_results(project):
     values = models["s3"]
     generated = render.generate_markdown(path, values, root)
     assert generated == path.read_text()
+    changed = generated.replace("| `Enabled` |", "| `Suspended` |", 1)
+    assert changed != generated
     for check in (False, True):
         compare = partial(
             model_reference_tables,
             path,
-            generated.replace("`owner`", "`changed`"),
+            changed,
             tuple(values.items()),
             root,
             check_document=check,

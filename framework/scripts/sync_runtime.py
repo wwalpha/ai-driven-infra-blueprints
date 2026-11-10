@@ -694,6 +694,11 @@ def prepare_generation(
         lifetime.enter_context(_imports_model_sources.model_stage(root, stage))
         lifetime.enter_context(change_reads())
         lifetime.enter_context(index_stage(root, stage))
+        generation_scope = lifetime.enter_context(ExitStack())
+        task = _imports_task_contract.task_snapshot(
+            root, required=False, check_paths=True
+        )
+        generation_scope.enter_context(cli_deploy.generation_task(root, task))
         plan = Generation(
             root,
             stage,
@@ -751,7 +756,10 @@ def prepare_generation(
             snapshot,
             definitions_root,
         )
-        with cli_deploy.staged_root(stage, root):
+        with (
+            cli_deploy.staged_root(stage, root),
+            change_reads(stage, _imports_model_sources.FileReads()),
+        ):
             plan.generated = generate_views(
                 stage,
                 root,
@@ -762,6 +770,7 @@ def prepare_generation(
                 unavailable=plan.unavailable,
                 strict=strict,
             )
+        generation_scope.close()
         return plan
     except BaseException:
         lifetime.close()
@@ -802,8 +811,10 @@ def publish_generation(plan):
         all_paths = {
             file for outputs in plan.expected_outputs.values() for file in outputs
         }
-        task_revision(root)
-        task = _imports_task_contract.task_snapshot(root, required=False)
+        # Declared paths may have changed kind even when recorded bytes match.
+        task = _imports_task_contract.task_snapshot(
+            root, required=False, check_paths=True
+        )
         declared = (
             _imports_task_contract.paths_in(task.text, "## Modified files")
             if task

@@ -103,6 +103,30 @@ def check_audit_roundtrip():
         assert not findings.errors, findings.errors
 
 
+def _windows_cli(_command, **kwargs):
+    program = (
+        "import json, os, sys; "
+        "value = json.dumps({'Description': 'ログキー'}, ensure_ascii=False); "
+        "sys.stdout.buffer.write(value.encode(os.environ.get("
+        "'AWS_CLI_OUTPUT_ENCODING', 'cp932')))"
+    )
+    return subprocess.run([sys.executable, "-c", program], **kwargs)
+
+
+@it_case
+def check_japanese_cli_output():
+    inputs, _ = load_fixture("audit/base")
+    with tempfile.TemporaryDirectory(prefix="audit-encoding-") as directory:
+        root = Path(directory)
+        standalone = generated(prepare(root, inputs), root)
+        target = standalone["SNAPSHOT"]["target"]
+
+        ctx = standalone["engine"](standalone["SNAPSHOT"]).Context(
+            root, target, cli_runner=_windows_cli, services=[]
+        )
+        assert ctx.cli("kms", "describe_key", {}) == {"Description": "ログキー"}
+
+
 @it_case
 def check_lakeformation_list_identity():
     inputs, _ = load_fixture("lakeformation/federation")
@@ -391,6 +415,7 @@ FAKE_AWS = 'import json, os, pathlib, sys\napi = sys.argv[1:3]\nrequest = json.l
 
 if __name__ == "__main__":
     check_audit_roundtrip()
+    check_japanese_cli_output()
     check_lakeformation_list_identity()
     check_eventbridge_target_audit()
     check_iam_parallel_generated_audit()

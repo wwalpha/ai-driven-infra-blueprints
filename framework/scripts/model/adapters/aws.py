@@ -497,13 +497,14 @@ class Context:
             command,
             capture_output=True,
             encoding="utf-8",
-            errors="replace",
+            errors="strict",
             timeout=60,
             env={
                 **os.environ,
                 "AWS_CLI_AUTO_PROMPT": "off",
                 "AWS_PAGER": "",
                 "AWS_CLI_ERROR_FORMAT": "json",
+                "AWS_CLI_OUTPUT_ENCODING": "utf-8",
                 **(
                     {"AWS_MAX_ATTEMPTS": "1"}
                     if self.import_mode

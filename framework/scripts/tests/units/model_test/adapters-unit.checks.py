@@ -41,6 +41,13 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+def _invalid_utf8_cli(_command, **kwargs):
+    return subprocess.run(
+        [sys.executable, "-c", "import sys; sys.stdout.buffer.write(bytes([255]))"],
+        **kwargs,
+    )
+
+
 class SdkErrorTests(unittest.TestCase):
     def test_cli_structured_errors_match_sdk(self):
         message = "private secret"
@@ -86,6 +93,13 @@ class SdkErrorTests(unittest.TestCase):
                 )
             )
         )
+
+    def test_cli_rejects_invalid_utf8_instead_of_comparing_corrupted_value(self):
+        target = {"awsAccountId": "123456789012", "awsRegion": "us-east-1"}
+
+        ctx = m.Context(Path.cwd(), target, cli_runner=_invalid_utf8_cli, services=[])
+        with self.assertRaises(UnicodeDecodeError):
+            ctx.cli("kms", "describe_key", {})
 
     def test_cli_empty_notification_is_scoped_to_successful_operation(self):
         target = {"awsAccountId": "123456789012", "awsRegion": "us-east-1"}
