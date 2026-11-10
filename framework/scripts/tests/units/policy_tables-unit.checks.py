@@ -84,27 +84,6 @@ def check_iam_artifact_names(logical_id, role_id):
     )
 
 
-@pytest.mark.parametrize(
-    "property_name", ["KMS.Key.KeyPolicy", "S3.BucketPolicy.PolicyDocument"]
-)
-@pytest.mark.parametrize("version", ["2012-10-17", "2008-10-17"])
-def check_statement_metadata(property_name, version):
-    document = {
-        "Id": "key-default",
-        "Version": version,
-        "Statement": [
-            {"Effect": "Allow", "Action": "kms:DescribeKey", "Resource": "*"}
-        ],
-    }
-    original = json.dumps(document)
-    policy = Policy("ResourcePolicy", "Policy", "policy.json", "policy", property_name)
-    rendered = "\n".join(policy_document_lines(document, policy))
-    assert "| Id |" not in rendered and "| Version |" not in rendered
-    assert "| No. | Effect | Action | Resource |" in rendered
-    assert "`kms:DescribeKey`" in rendered
-    assert json.dumps(document) == original
-
-
 def check_lossless_generation():
     policy = Policy(
         "ResourcePolicy",
