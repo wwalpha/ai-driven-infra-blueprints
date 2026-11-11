@@ -1540,16 +1540,18 @@ def test_iam_collapsed_json_matches_artifact(models, kind, field, name_field):
         number += 1
     rid = add(values, kind, field, "placeholder", number=number)
     values[f"desired.row.{rid}.value"] = "[Policy](iam/policy.json)"
+    statement = {
+        "Condition": {"StringEquals": {"aws:PrincipalAccount": "123456789012"}},
+        "Resource": reference("S3_Bucket_001", "Arn"),
+        "Action": "s3:GetObject",
+        "Effect": "Allow",
+        "Sid": "Read",
+    }
+    singleton = field == "AssumeRolePolicyDocument"
     values[f"desired.row.{rid}.document"] = json.dumps(
         {
             "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Action": "s3:GetObject",
-                    "Resource": reference("S3_Bucket_001", "Arn"),
-                }
-            ],
+            "Statement": statement if singleton else [statement],
         }
     )
     write(scope, values)
@@ -1569,7 +1571,10 @@ def test_iam_collapsed_json_matches_artifact(models, kind, field, name_field):
         restore(path, markdown.replace(f"#saved-001-{suffix}", "#wrong", 1), values)
     block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
     assert set(files) == {path}
-    assert json.loads(block)["Statement"][0]["Resource"] == "arn:aws:s3:::shared-name"
+    saved = json.loads(block)["Statement"]
+    saved_statement = saved if singleton else saved[0]
+    assert list(saved_statement) == ["Sid", "Effect", "Action", "Resource", "Condition"]
+    assert saved_statement == {**statement, "Resource": "arn:aws:s3:::shared-name"}
     assert "](" not in block
     assert "**参照テーブル**" not in content
     assert markdown.index("#### ") < markdown.index("<details>")
@@ -1595,7 +1600,16 @@ def test_iam_collapsed_json_matches_artifact(models, kind, field, name_field):
 def test_service_policy_collapsed_json(property_name, fallback):
     document = {
         "Version": "2012-10-17",
-        "Statement": [{"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}],
+        "Statement": [
+            {
+                "Principal": "*",
+                "Condition": {"StringEquals": {"aws:PrincipalAccount": "123456789012"}},
+                "Resource": "*",
+                "Action": ["s3:GetObject", "s3:PutObject"],
+                "Effect": "Allow",
+                "Sid": "ReadWrite",
+            }
+        ],
     }
     if fallback:
         document["Other"] = "retained"
@@ -1605,7 +1619,16 @@ def test_service_policy_collapsed_json(property_name, fallback):
     )
     content = "\n".join(lines).split("<details>\n", 1)[1].split("\n</details>", 1)[0]
     block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
-    assert json.loads(block) == document
+    saved = json.loads(block)
+    assert saved == document
+    assert list(saved["Statement"][0]) == [
+        "Sid",
+        "Effect",
+        "Action",
+        "Resource",
+        "Condition",
+        "Principal",
+    ]
     assert "**参照テーブル**" not in content
     assert "s3:GetObject" in content
 

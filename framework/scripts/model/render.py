@@ -985,7 +985,7 @@ def document_views(values, documents):
                 f"{resource['anchor']}-{suffix}",
                 f"{kind}：{label}",
                 Path(label).stem,
-                documents[rid],
+                policy_tables.order_policy_statements(documents[rid], prop),
             )
     return result
 

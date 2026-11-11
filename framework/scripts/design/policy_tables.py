@@ -79,6 +79,7 @@ STATEMENT_KEYS = (
     "NotResource",
     "Condition",
 )
+STATEMENT_JSON_KEYS = ("Sid", "Effect", "Action", "Resource")
 
 
 def artifact_id(value: str) -> str:
@@ -603,15 +604,52 @@ def validate_policy_document(document, policy, *, design=False):
                 raise ValueError("policy Condition operator must contain context keys")
 
 
+def order_policy_statements(document, property_name):
+    """Order Statement keys for display while preserving document values."""
+    style = POLICY_FORMATS.get(property_name)
+    if style not in {"statement", "wrapped-statement"} or not isinstance(document, dict):
+        return document
+    wrapped = style == "wrapped-statement"
+    body = document.get("PolicyDocument") if wrapped else document
+    if not isinstance(body, dict) or "Statement" not in body:
+        return document
+
+    def order_statement(statement):
+        if not isinstance(statement, dict):
+            return statement
+        first = {key: statement[key] for key in STATEMENT_JSON_KEYS if key in statement}
+        return first | statement
+
+    statements = body["Statement"]
+    ordered = (
+        [order_statement(statement) for statement in statements]
+        if isinstance(statements, list)
+        else order_statement(statements)
+    )
+    body = {**body, "Statement": ordered}
+    return {**document, "PolicyDocument": body} if wrapped else body
+
+
+def _sorted_json_keys(value):
+    if isinstance(value, dict):
+        return {key: _sorted_json_keys(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        return [_sorted_json_keys(item) for item in value]
+    return value
+
+
 def raw_policy_lines(document, policy, *, sort_keys=False):
     document = project(document, reference_document)
+    if sort_keys:
+        document = _sorted_json_keys(document)
+    document = order_policy_statements(document, policy.property_name)
     return [
         f'<a id="{policy.anchor}"></a>',
         "",
         f"#### {policy.kind}：{policy.label}",
         "",
         "```json",
-        json.dumps(document, ensure_ascii=False, indent=2, sort_keys=sort_keys),
+        json.dumps(document, ensure_ascii=False, indent=2),
         "```",
     ]
 
