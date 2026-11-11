@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import design.catalog as catalog_module
 import design.layout as _imports_design_layout
 import pytest
-from design.services.macie import job_bucket_tables, write_job_bucket_definitions
+from design.services.macie import job_bucket_tables
 from support.design_catalog_fixtures import (
     MACIE_JOB,
     QUICKSIGHT_GROUP,
@@ -26,6 +26,7 @@ from support.design_catalog_fixtures import (
     sys,
     tempfile,
 )
+from validation.design_tables import check_api_design_rows as validate_api_rows
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -253,13 +254,17 @@ def check_macie_inputs_and_tables():
             raise AssertionError("wrong S3 link label accepted")
         s3.unlink()
         design.write_text(text, encoding="utf-8")
-        artifact.write_text(json.dumps({"bucketCriteria": {}}), encoding="utf-8")
-        try:
-            write_job_bucket_definitions(design)
-        except ValueError as error:
-            assert "conflicts with bucketCriteria" in str(error)
-        else:
-            raise AssertionError("bucketCriteria accepted with a fixed bucket table")
+        findings = Mock(errors=[], canonical_root=root)
+        validate_api_rows(
+            design, MACIE_JOB, "daily-data-scan",
+            [["", f"{MACIE_JOB}.s3JobDefinition", "scope"]],
+            findings=findings, schema_catalog=schema,
+            model_documents={"scope": json.dumps({"bucketCriteria": {}})},
+        )
+        assert any(
+            call.args[0] is False and "bucket table requires bucketDefinitions" in call.args[1]
+            for call in findings.check.call_args_list
+        )
     print(
         "design-catalog: PASS (QuickSight display, current Macie schema, 23 invalid inputs, bucket link and JSON conflict guards)"
     )

@@ -235,7 +235,7 @@ def check_reference_projection_without_sdk(tmp_path, wrong_context):
                 view = tmp_path / "docs/designs/qa/team/iam.md"
                 files = generate_files(view, load_model(consumer).values, tmp_path)
                 assert (
-                    json.loads(files[view.with_suffix("") / "policy.json"])[
+                    json.loads(files[view].split("```json\n", 1)[1].split("\n```", 1)[0])[
                         "Statement"
                     ][0]["Resource"]
                     == result.value
