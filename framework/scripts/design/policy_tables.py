@@ -604,6 +604,13 @@ def validate_policy_document(document, policy, *, design=False):
                 raise ValueError("policy Condition operator must contain context keys")
 
 
+def order_statement(statement):
+    if not isinstance(statement, dict):
+        return statement
+    first = {key: statement[key] for key in STATEMENT_JSON_KEYS if key in statement}
+    return first | statement
+
+
 def order_policy_statements(document, property_name):
     """Order Statement keys for display while preserving document values."""
     style = POLICY_FORMATS.get(property_name)
@@ -613,12 +620,6 @@ def order_policy_statements(document, property_name):
     body = document.get("PolicyDocument") if wrapped else document
     if not isinstance(body, dict) or "Statement" not in body:
         return document
-
-    def order_statement(statement):
-        if not isinstance(statement, dict):
-            return statement
-        first = {key: statement[key] for key in STATEMENT_JSON_KEYS if key in statement}
-        return first | statement
 
     statements = body["Statement"]
     ordered = (
