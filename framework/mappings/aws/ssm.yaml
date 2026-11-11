@@ -43,6 +43,48 @@ getters:
     result: ResourceDescription.Properties
     resourceType: SSM.ServiceSetting
     identifier: [/properties/Arn]
+  provider-ssm-cloudconnector:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.CloudConnector
+    identifier: ["/properties/CloudConnectorArn"]
+  provider-ssm-document:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.Document
+    identifier: ["/properties/Name"]
+  provider-ssm-opsitem:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.OpsItem
+    identifier: ["/properties/OpsItemArn"]
+  provider-ssm-parameter:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.Parameter
+    identifier: ["/properties/Name"]
+  provider-ssm-resourcedatasync:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.ResourceDataSync
+    identifier: ["/properties/SyncName"]
+  provider-ssm-resourcepolicy:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.ResourcePolicy
+    identifier: ["/properties/PolicyId", "/properties/ResourceArn"]
 resourceTypes:
   SSM.Association:
     properties:
@@ -616,3 +658,259 @@ resourceTypes:
         display: {show: false, name: SettingValue}
         access: [read-write]
         aws: {getter: provider-ssm-servicesetting, path: SettingValue, normalize: typed}
+  SSM.CloudConnector:
+    properties:
+      DisplayName:
+        model: {include: false}
+        display: {show: false, name: DisplayName}
+        access: [read-write]
+        aws: {getter: provider-ssm-cloudconnector, path: DisplayName, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-ssm-cloudconnector, path: Description, normalize: typed}
+      RoleArn:
+        model: {include: false}
+        display: {show: false, name: RoleArn}
+        access: [create-only]
+        aws: {getter: provider-ssm-cloudconnector, path: RoleArn, normalize: typed}
+      Configuration:
+        model: {include: false}
+        display: {show: false, name: Configuration}
+        access: [read-write]
+        aws: {getter: provider-ssm-cloudconnector, path: Configuration, normalize: typed}
+      ConfigConnectorArn:
+        model: {include: false}
+        display: {show: false, name: ConfigConnectorArn}
+        access: [create-only]
+        aws: {getter: provider-ssm-cloudconnector, path: ConfigConnectorArn, normalize: typed}
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-ssm-cloudconnector, path: Tags, normalize: typed}
+  SSM.Document:
+    properties:
+      DocumentFormat:
+        model: {include: false}
+        display: {show: false, name: DocumentFormat}
+        access: [conditional-create-only]
+        aws: {getter: provider-ssm-document, path: DocumentFormat, normalize: typed}
+      Requires:
+        model: {include: false}
+        display: {show: false, name: Requires}
+        access: [conditional-create-only]
+        aws: {getter: provider-ssm-document, path: Requires, normalize: typed}
+      Content:
+        model: {include: false}
+        display: {show: false, name: Content}
+        access: [conditional-create-only]
+        aws: {getter: provider-ssm-document, path: Content, normalize: typed}
+      TargetType:
+        model: {include: false}
+        display: {show: false, name: TargetType}
+        access: [conditional-create-only]
+        aws: {getter: provider-ssm-document, path: TargetType, normalize: typed}
+      DocumentType:
+        model: {include: false}
+        display: {show: false, name: DocumentType}
+        access: [create-only]
+        aws: {getter: provider-ssm-document, path: DocumentType, normalize: typed}
+      VersionName:
+        model: {include: false}
+        display: {show: false, name: VersionName}
+        access: [conditional-create-only]
+        aws: {getter: provider-ssm-document, path: VersionName, normalize: typed}
+      UpdateMethod:
+        model: {include: false}
+        display: {show: false, name: UpdateMethod}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row SSM.Document.UpdateMethod
+          constraint: Provider schema declares this property write-only; retain the original Model input.
+          classification: local_metadata
+      Attachments:
+        model: {include: false}
+        display: {show: false, name: Attachments}
+        access: [write-only, conditional-create-only]
+        source:
+          kind: model
+          location: desired row SSM.Document.Attachments
+          constraint: Provider schema declares this property write-only; retain the original Model input.
+          classification: local_metadata
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-ssm-document, path: Tags, normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-ssm-document, path: Name, normalize: typed}
+  SSM.OpsItem:
+    properties:
+      Title:
+        model: {include: false}
+        display: {show: false, name: Title}
+        access: [read-write]
+        aws: {getter: provider-ssm-opsitem, path: Title, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [read-write]
+        aws: {getter: provider-ssm-opsitem, path: Description, normalize: typed}
+      Source:
+        model: {include: false}
+        display: {show: false, name: Source}
+        access: [create-only]
+        aws: {getter: provider-ssm-opsitem, path: Source, normalize: typed}
+      Priority:
+        model: {include: false}
+        display: {show: false, name: Priority}
+        access: [read-write]
+        aws: {getter: provider-ssm-opsitem, path: Priority, normalize: typed}
+      Severity:
+        model: {include: false}
+        display: {show: false, name: Severity}
+        access: [read-write]
+        aws: {getter: provider-ssm-opsitem, path: Severity, normalize: typed}
+      Category:
+        model: {include: false}
+        display: {show: false, name: Category}
+        access: [read-write]
+        aws: {getter: provider-ssm-opsitem, path: Category, normalize: typed}
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-ssm-opsitem, path: Tags, normalize: typed}
+  SSM.Parameter:
+    properties:
+      Type:
+        model: {include: false}
+        display: {show: false, name: Type}
+        access: [read-write]
+        aws: {getter: provider-ssm-parameter, path: Type, normalize: typed}
+      Value:
+        model: {include: false}
+        display: {show: false, name: Value}
+        access: [read-write]
+        aws: {getter: provider-ssm-parameter, path: Value, normalize: typed}
+      Description:
+        model: {include: false}
+        display: {show: false, name: Description}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row SSM.Parameter.Description
+          constraint: Provider schema declares this property write-only; retain the original Model input.
+          classification: local_metadata
+      Policies:
+        model: {include: false}
+        display: {show: false, name: Policies}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row SSM.Parameter.Policies
+          constraint: Provider schema declares this property write-only; retain the original Model input.
+          classification: local_metadata
+      AllowedPattern:
+        model: {include: false}
+        display: {show: false, name: AllowedPattern}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row SSM.Parameter.AllowedPattern
+          constraint: Provider schema declares this property write-only; retain the original Model input.
+          classification: local_metadata
+      Tier:
+        model: {include: false}
+        display: {show: false, name: Tier}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row SSM.Parameter.Tier
+          constraint: Provider schema declares this property write-only; retain the original Model input.
+          classification: local_metadata
+      Tags:
+        model: {include: false}
+        display: {show: false, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-ssm-parameter, path: Tags, normalize: typed}
+      DataType:
+        model: {include: false}
+        display: {show: false, name: DataType}
+        access: [read-write]
+        aws: {getter: provider-ssm-parameter, path: DataType, normalize: typed}
+      Name:
+        model: {include: false}
+        display: {show: false, name: Name}
+        access: [create-only]
+        aws: {getter: provider-ssm-parameter, path: Name, normalize: typed}
+  SSM.ResourceDataSync:
+    properties:
+      S3Destination:
+        model: {include: false}
+        display: {show: false, name: S3Destination}
+        access: [create-only]
+        aws: {getter: provider-ssm-resourcedatasync, path: S3Destination, normalize: typed}
+      KMSKeyArn:
+        model: {include: false}
+        display: {show: false, name: KMSKeyArn}
+        access: [create-only]
+        aws: {getter: provider-ssm-resourcedatasync, path: KMSKeyArn, normalize: typed}
+      SyncSource:
+        model: {include: false}
+        display: {show: false, name: SyncSource}
+        access: [read-write]
+        aws: {getter: provider-ssm-resourcedatasync, path: SyncSource, normalize: typed}
+      BucketName:
+        model: {include: false}
+        display: {show: false, name: BucketName}
+        access: [create-only]
+        aws: {getter: provider-ssm-resourcedatasync, path: BucketName, normalize: typed}
+      BucketRegion:
+        model: {include: false}
+        display: {show: false, name: BucketRegion}
+        access: [create-only]
+        aws: {getter: provider-ssm-resourcedatasync, path: BucketRegion, normalize: typed}
+      SyncFormat:
+        model: {include: false}
+        display: {show: false, name: SyncFormat}
+        access: [create-only]
+        aws: {getter: provider-ssm-resourcedatasync, path: SyncFormat, normalize: typed}
+      SyncName:
+        model: {include: false}
+        display: {show: false, name: SyncName}
+        access: [create-only]
+        aws: {getter: provider-ssm-resourcedatasync, path: SyncName, normalize: typed}
+      SyncType:
+        model: {include: false}
+        display: {show: false, name: SyncType}
+        access: [create-only]
+        aws: {getter: provider-ssm-resourcedatasync, path: SyncType, normalize: typed}
+      BucketPrefix:
+        model: {include: false}
+        display: {show: false, name: BucketPrefix}
+        access: [create-only]
+        aws: {getter: provider-ssm-resourcedatasync, path: BucketPrefix, normalize: typed}
+  SSM.ResourcePolicy:
+    properties:
+      ResourceArn:
+        model: {include: false}
+        display: {show: false, name: ResourceArn}
+        access: [create-only]
+        aws: {getter: provider-ssm-resourcepolicy, path: ResourceArn, normalize: typed}
+      Policy:
+        model: {include: false}
+        display: {show: false, name: Policy}
+        access: [read-write]
+        aws: {getter: provider-ssm-resourcepolicy, path: Policy, normalize: typed}
+      PolicyId:
+        model: {include: false}
+        display: {show: false, name: PolicyId}
+        access: [read-only]
+        aws: {getter: provider-ssm-resourcepolicy, path: PolicyId, normalize: typed}

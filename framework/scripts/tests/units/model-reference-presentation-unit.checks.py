@@ -835,9 +835,6 @@ def test_codebuild_variable_connection(models, variable_type, logical, attribute
             value,
             number=number,
         )
-    if variable_type == "PARAMETER_STORE":
-        assert "$modelRef" in generate_markdown(path, values, FRAMEWORK)
-        return
     markdown = generate_markdown(path, values, FRAMEWORK)
     line = next(
         line

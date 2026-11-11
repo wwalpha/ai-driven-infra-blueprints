@@ -1,6 +1,6 @@
 """Static SSM comparison methods; container rules include their recursive contents."""
 
-from ..methods import properties
+from ..methods import UNORDERED, properties
 
 RULES = {
     "SSM.Association": properties(
@@ -184,3 +184,29 @@ RULES = {
         """,
     ),
 }
+
+RULES.update({
+    "SSM.CloudConnector": properties(
+        scalars="DisplayName Description RoleArn ConfigConnectorArn",
+        objects="Configuration", tags="Tags",
+    ),
+    "SSM.Document": properties(
+        scalars="DocumentFormat TargetType DocumentType VersionName UpdateMethod Name",
+        objects="Content", ordered="Requires Attachments", tags="Tags",
+    ),
+    "SSM.OpsItem": properties(
+        scalars="Title Description Source Priority Severity Category", tags="Tags",
+    ),
+    "SSM.Parameter": properties(
+        scalars="Type Value Description Policies AllowedPattern Tier DataType Name",
+        objects="Tags",
+    ),
+    "SSM.ResourceDataSync": properties(
+        scalars="KMSKeyArn BucketName BucketRegion SyncFormat SyncName SyncType BucketPrefix",
+        objects="S3Destination SyncSource",
+    ),
+    "SSM.ResourcePolicy": properties(scalars="ResourceArn", objects="Policy"),
+    "SSM.ServiceSetting": properties(scalars="SettingId SettingValue"),
+})
+for _path in ("Requires", "Attachments"):
+    RULES["SSM.Document"][_path] = UNORDERED

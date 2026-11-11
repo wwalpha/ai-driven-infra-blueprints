@@ -415,6 +415,13 @@ def test_nested_override_and_keyed_evidence():
     assert compare(left, right, keyed("Key"), whole=True).equal is False
 
 
+def test_ssm_document_unordered_provider_arrays():
+    rule = registry.require("SSM.Document", "Requires")
+    first = [{"Name": "one"}, {"Name": "two"}]
+    assert compare(first, list(reversed(first)), rule).equal is True
+    assert compare(first, [{"Name": "one"}], rule).equal is False
+
+
 def test_rulebook_complete_static_coverage():
     catalog, catalogs = DesignSchemaCatalog(ROOT), catalogs_for(ROOT)
     kinds = {
@@ -452,7 +459,7 @@ def test_rulebook_complete_static_coverage():
                 assert rule.whole in {"ORDERED", "UNORDERED", "KEYED"}, (kind, path)
         # Reading the schema here is test-time evidence, never a runtime prerequisite.
         assert catalog.cloudformation_type(kind).startswith("AWS::")
-    assert len(kinds) == 178 and len({k.split(".")[0] for k in kinds}) == 46
+    assert len(kinds) == 185 and len({k.split(".")[0] for k in kinds}) == 46
     assert not set(registry.RULES) - kinds
     assert registry.resource("QuickSight.Group").imported_arn is not None
     assert not (ROOT / "framework/scripts/comparison/services").exists()

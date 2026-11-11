@@ -420,7 +420,7 @@ def test_catalog_and_context_boundaries(models):
     catalog = DesignSchemaCatalog(models)
     for kind in catalog.resource_types:
         assert catalog.schema(kind)["typeName"] == kind
-    assert "AWS::SSM::Parameter" not in catalog.resource_types
+    assert "AWS::SSM::Parameter" in catalog.resource_types
     for prop, (selector, choices) in CONTEXT_PROPERTIES.items():
         assert contract(prop, {}) == {}
         for value, (producer, _) in choices.items():
@@ -798,17 +798,18 @@ def test_unknown_expression_operand_never_matches(models):
     )
 
 
-def test_unsupported_ssm_and_name_id_equivalence(models):
+def test_ssm_parameter_reference_and_name_id_equivalence(models):
     resource(models, "producer", "SSM.Parameter", attribute="Name")
     scope, _ = resource(models, "receiver", "CodeBuild.Project", attribute="Name")
-    with pytest.raises(ValueError, match="Framework unsupported"):
-        resolve(
-            parse(reference("SSM_Parameter_001", "Name")),
-            scope,
-            Resolver(models),
-            field="CodeBuild.Project.Environment.EnvironmentVariables[].Value",
-            context={"Type": "PARAMETER_STORE"},
-        )
+    _, _, producer, attribute = resolve(
+        parse(reference("SSM_Parameter_001", "Name")),
+        scope,
+        Resolver(models),
+        field="CodeBuild.Project.Environment.EnvironmentVariables[].Value",
+        context={"Type": "PARAMETER_STORE"},
+    )
+    assert producer["resourceType"] == "SSM.Parameter"
+    assert attribute == "Name"
     inputs, prepared, _, _ = prepare(
         models,
         "SecretsManager.RotationSchedule",
@@ -915,7 +916,7 @@ def test_inventory_is_exactly_the_supported_framework_types():
         kind.removeprefix("AWS::").replace("::", ".") for kind in catalog.resource_types
     }
     assert set(INVENTORY) == types | set(catalog.api_schemas)
-    assert (len(types), len(catalog.api_schemas)) == (178, 2)
+    assert (len(types), len(catalog.api_schemas)) == (185, 2)
 
 
 @pytest.mark.parametrize("kind", sorted(INVENTORY))

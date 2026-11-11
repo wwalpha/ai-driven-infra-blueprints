@@ -75,6 +75,12 @@ def main() -> None:
                 assert validate({"unmatched": "wrong"})
             assert validate({"fixed": "bad"})
 
+    for kind in ("CloudConnector", "Document", "OpsItem", "Parameter", "ResourceDataSync", "ResourcePolicy"):
+        assert catalog.schema("SSM." + kind)["typeName"] == "AWS::SSM::" + kind
+    assert catalog.required_properties("SSM.Parameter") == {"Type", "Value"}
+    assert not catalog.literal_errors("SSM.Parameter", "Type", "String")
+    assert catalog.literal_errors("SSM.Parameter", "Type", "Invalid")
+
     setting = catalog.schema("SSM.ServiceSetting")
     assert setting["typeName"] == "AWS::SSM::ServiceSetting"
     assert catalog.required_properties("SSM.ServiceSetting") == {"SettingId", "SettingValue"}

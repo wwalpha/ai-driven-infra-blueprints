@@ -1058,14 +1058,7 @@ def test_non_plaintext_model_links_pass(models, variable_type, service, kind):
     )
     write_model(path, values)
     findings = _check_model_inputs(path, values, models, definitions_root=FRAMEWORK)
-    if kind == "SSM.Parameter":
-        TestCase().assertEqual(len(findings.errors), 1, findings.errors)
-        TestCase().assertIn(
-            "Framework unsupported producer ResourceType: SSM.Parameter",
-            findings.errors[0],
-        )
-    else:
-        assert not findings.errors, findings.errors
+    assert not findings.errors, findings.errors
 
 
 if __name__ == "__main__":
