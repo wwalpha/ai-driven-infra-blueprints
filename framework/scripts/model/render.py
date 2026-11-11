@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 from collections import Counter
 from functools import partial as _bind_framework_callback
@@ -59,9 +60,11 @@ import model.sources as _imports_model_sources
 from model.change_scope import change_reads
 from model.core import (
     ARTIFACT_FIELDS,
+    ReferenceDiagnosticError,
     ReferenceResolutionError,
     deployment_settings,
     entries,
+    require_reference_diagnostics,
     stack_model,
 )
 from model.core import (
@@ -69,6 +72,7 @@ from model.core import (
 )
 from model.format import JSON_LINK
 from model.reference_nodes import parse, resolve
+from model.references import _json as parse_reference_field
 
 
 def stack_markdown(
@@ -384,7 +388,18 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
 
 
 def resource_table_lines(
-    resource, name, rows, children, root, *, references=None, formal=False, indexed=True
+    resource,
+    name,
+    rows,
+    children,
+    root,
+    *,
+    references=None,
+    formal=False,
+    indexed=True,
+    json_cells=None,
+    documents=None,
+    presentation=None,
 ):
     sources = references or {}
     source = sources.get(resource.get(RESOURCE_LOGICAL_ID_KEY))
@@ -484,7 +499,9 @@ def resource_table_lines(
             if formal:
                 consumed.extend(row[0] for row in child_display)
             elif indexed:
-                child_display = _dependency_array_display.compact_tag_rows(child_display)
+                child_display = _dependency_array_display.compact_tag_rows(
+                    child_display
+                )
             if not formal and child[RESOURCE_TYPE_KEY] != ROTATION_SCHEDULE:
                 for row in child_display:
                     row[1] = child[RESOURCE_TYPE_KEY] + "." + row[1]
@@ -529,6 +546,10 @@ def resource_table_lines(
             for row in display:
                 if row[1].startswith(ROTATION_SCHEDULE + "."):
                     row[1] = row[1].removeprefix("SecretsManager.")
+        if json_cells is not None:
+            display = collapse_json_cells(
+                display, resource["anchor"], json_cells, documents, presentation
+            )
         output += _dependency_model_display.row_table(display)
     if Counter(consumed) != expected:
         raise ValueError(
@@ -682,9 +703,15 @@ def _generate_markdown(
         ).with_suffix(".properties")
     )
     grouped = grouped_resources(reference_values, details, by_anchor, scope=scope)
-    policy_views, policy_links = model_policy_views(
-        values, presentation=presentation, generated_documents=generated_documents
-    )
+    if generated_documents is None:
+        generated_documents = project_view_documents(
+            presentation.values,
+            presentation.scope,
+            presentation.root,
+            resolver=presentation.resolver,
+            warnings=warnings,
+        )
+    documents = document_views(presentation.values, generated_documents)
     return render_markdown(
         path,
         values,
@@ -692,8 +719,7 @@ def _generate_markdown(
         owned,
         details,
         grouped,
-        policy_views,
-        policy_links=policy_links,
+        documents=documents,
         references=references,
         reference_tables=reference_tables,
         presentation=presentation,
@@ -714,9 +740,8 @@ def render_markdown(
     owned,
     details,
     grouped,
-    policy_views=None,
     *,
-    policy_links=None,
+    documents=None,
     references=None,
     reference_tables=None,
     presentation=None,
@@ -767,29 +792,26 @@ def render_markdown(
             "",
         ]
         children = grouped.get(identity, [])
-        links = (policy_links or {}).get(identity, {})
-        display_rows = [
-            [rid, prop, links.get(rid, value), comment]
-            for rid, prop, value, comment in rows
-        ]
+        json_cells = {}
+        linked = presentation is not None and bool(presentation.marker_links)
         table = resource_table_lines(
-            resource, name, display_rows, children, root, references=references
+            resource,
+            name,
+            presentation.rows(rows) if linked else rows,
+            [
+                (rid, child, child_name, presentation.rows(child_rows))
+                for rid, child, child_name, child_rows in children
+            ]
+            if linked
+            else children,
+            root,
+            references=references,
+            json_cells=json_cells,
+            documents=documents,
+            presentation=presentation if linked else None,
         )
-        if presentation is not None and any(
-            ref.link for ref in presentation.references.values()
-        ):
-            marked = resource_table_lines(
-                resource,
-                name,
-                presentation.rows(display_rows),
-                [
-                    (rid, child, child_name, presentation.rows(child_rows))
-                    for rid, child, child_name, child_rows in children
-                ],
-                root,
-                references=references,
-            )
-            table = presentation.lines(marked, marked)
+        if linked:
+            table = presentation.lines(table, table)
         output += table
         sources = (
             tuple(
@@ -834,7 +856,30 @@ def render_markdown(
                     tuple(baseline),
                 )
             )
-        output += (policy_views or {}).get(identity, [])
+        if json_cells:
+            start, end = (
+                (_imports_policy_tables.IAM_START, _imports_policy_tables.IAM_END)
+                if kind == "IAM.Role"
+                else (_imports_policy_tables.START, _imports_policy_tables.END)
+            )
+            output += ["", start]
+            for anchor, title, label, document in json_cells.values():
+                output += [
+                    "",
+                    f'<a id="{anchor}"></a>',
+                    "",
+                    f"#### {html.escape(title)}",
+                    "",
+                    "<details>",
+                    f"<summary>{html.escape(label)}</summary>",
+                    "",
+                    "```json",
+                    json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False),
+                    "```",
+                    "",
+                    "</details>",
+                ]
+            output += ["", end]
         if kind == "Macie.ClassificationJob":
             definitions = [row for row in rows if row[1] == kind + ".s3JobDefinition"]
             if definitions:
@@ -868,182 +913,164 @@ def render_markdown(
     return "\n".join(output) + service_note_markdown(values) + "\n"
 
 
-def model_policy_views(values, *, presentation=None, generated_documents=None):
-    END = _imports_policy_tables.END
-    IAM_END = _imports_policy_tables.IAM_END
-    IAM_START = _imports_policy_tables.IAM_START
-    INLINE_POLICY_DOCUMENTS = _imports_policy_tables.INLINE_POLICY_DOCUMENTS
-    JSON_LINK = _imports_policy_tables.JSON_LINK
-    POLICY_FORMATS = _imports_policy_tables.POLICY_FORMATS
-    START = _imports_policy_tables.START
-    Policy = _imports_policy_tables.Policy
-    artifact_id = _imports_policy_tables.artifact_id
-    policy_document_lines = _imports_policy_tables.policy_document_lines
+def collapse_json_cells(rows, anchor_prefix, cells, documents, presentation):
+    """Collapse visible JSON cells after applying service-specific table layouts."""
+    result = []
+    for index, (rid, prop, value, comment) in enumerate(rows):
+        if rid in documents:
+            cells[index] = documents[rid]
+        elif presentation is None or not any(
+            marker in value for marker in presentation.marker_links
+        ):
+            raw = _dependency_policy_tables.literal(value)
+            if raw.lstrip().startswith(("{", "[")):
+                try:
+                    raw = policy_json(raw)
+                except json.JSONDecodeError:
+                    pass  # Markdown links and other textual settings may start with '['.
+            if isinstance(raw, (dict, list)):
+                cells[index] = (
+                    f"{anchor_prefix}-json-{rid}-{index + 1}",
+                    f"JSON：{prop}",
+                    prop,
+                    raw,
+                )
+        if index in cells:
+            value = f"[JSON](#{cells[index][0]})"
+        result.append([rid, prop, value, comment])
+    anchors = [cell[0] for cell in cells.values()]
+    if len(anchors) != len(set(anchors)):
+        raise ValueError("duplicate JSON display anchor: " + anchor_prefix)
+    return result
 
-    resource_row_index = _imports_model_files.resource_row_index
 
+def document_views(values, documents):
+    """Retain policy labels and anchors previously shown in generated designs."""
+    policy_tables = _imports_policy_tables
     result = {}
-    links = {}
-    rows_by_resource = resource_row_index(values)
+    rows_by_resource = _imports_model_files.resource_row_index(values)
     for identity, resource in entries(values, "desired.resource."):
-        policies = []
         rows = rows_by_resource[identity]
-        for position, (row_id, row) in enumerate(rows):
-            prop = row["property"]
-            link = JSON_LINK.fullmatch(
-                presentation.values.get(f"desired.row.{row_id}.value", "")
-                if presentation is not None
-                else row.get("value", "")
-            )
-            if prop not in POLICY_FORMATS or not link or "document" not in row:
+        for position, (rid, row) in enumerate(rows):
+            if rid not in documents:
                 continue
-            label, target = link.groups()
+            prop = row["property"]
+            label, target = policy_tables.JSON_LINK.fullmatch(row["value"]).groups()
             trust = prop == "IAM.Role.AssumeRolePolicyDocument"
-            inline = prop in INLINE_POLICY_DOCUMENTS
+            inline = prop in policy_tables.INLINE_POLICY_DOCUMENTS
             if (
                 inline
                 and position
                 and rows[position - 1][1]["property"]
                 == prop.removesuffix("PolicyDocument") + "PolicyName"
             ):
-                label = _dependency_policy_tables.literal(
-                    rows[position - 1][1]["value"]
+                label = policy_tables.literal(rows[position - 1][1]["value"])
+            if trust:
+                suffix, kind = "trust", "信頼ポリシー"
+            elif inline:
+                suffix, kind = (
+                    "inline-" + policy_tables.artifact_id(label),
+                    "インラインポリシー",
                 )
-            suffix = (
-                "trust"
-                if trust
-                else "inline-" + artifact_id(label)
-                if inline
-                else "policy-" + artifact_id(Path(target).stem)
-            )
-            kind = (
-                "信頼ポリシー"
-                if trust
-                else "インラインポリシー"
-                if inline
-                else "ポリシー設定"
-                if POLICY_FORMATS[prop] == "settings"
-                else "ポリシー"
-            )
-            policy = Policy(
-                label, target, resource["anchor"] + "-" + suffix, kind, prop
-            )
-            if prop in _dependency_policy_tables.IAM_POLICY_DOCUMENTS:
-                links.setdefault(identity, {})[row_id] = (
-                    f"[{link.group(1)}](#{policy.anchor})<!-- {link.group(0)} -->"
+            elif prop in policy_tables.POLICY_FORMATS:
+                suffix = "policy-" + policy_tables.artifact_id(Path(target).stem)
+                kind = (
+                    "ポリシー設定"
+                    if policy_tables.POLICY_FORMATS[prop] == "settings"
+                    else "ポリシー"
                 )
-            document = json.loads(row["document"])
-            lines = policy_document_lines(document, policy)
-            if presentation is not None:
-                marked = presentation.document(row_id, "document", document)
-                marked_lines = policy_document_lines(
-                    _dependency_policy_tables.policy_sub_resources(
-                        marked, policy, presentation.marker_links
-                    ),
-                    policy,
+            else:
+                suffix, kind = f"json-{rid}", "JSON"
+            result[rid] = (
+                f"{resource['anchor']}-{suffix}",
+                f"{kind}：{label}",
+                Path(label).stem,
+                documents[rid],
+            )
+    return result
+
+
+def project_view_documents(
+    values, scope, root, *, resolver=None, warnings=None, strict=False
+):
+    """Resolve structured settings in memory and retain Model link ownership checks."""
+    resolver = resolver or _imports_model_projection.reference_resolver(
+        values, scope, root
+    )
+    path = (
+        root
+        / DESIGNS_DIRECTORY
+        / scope.environment
+        / scope.target
+        / (scope.service + ".md")
+    )
+    sources = {}
+    projected_by_path = {}
+    documents = {}
+    diagnostics = []
+    for rid, row in entries(values, "desired.row."):
+        field = "document" if "document" in row else "value"
+        link = JSON_LINK.fullmatch(row["value"])
+        if field == "document" and link is None:
+            raise ValueError(f"JSON document requires an artifact link: {rid}")
+        if link and field != "document":
+            raise ValueError(f"authoritative JSON document missing: {path.name}: {rid}")
+        key = f"desired.row.{rid}.{field}"
+        if link:
+            artifact = (path.parent / link[1]).resolve()
+            _imports_model_sources.safe(root, path.parent / link[1])
+            if artifact.parent != path.with_suffix("").resolve():
+                raise ValueError(f"JSON artifact must belong to owning service: {rid}")
+            raw = policy_json(row[field])
+            if sources.setdefault(artifact, raw) != raw:
+                raise ValueError(
+                    f"conflicting authoritative JSON documents: {artifact.name}"
                 )
-                lines = presentation.lines(marked_lines, marked_lines)
-            if (
-                prop in _dependency_policy_tables.COLLAPSED_POLICY_DOCUMENTS
-                and presentation is not None
-            ):
-                artifact = (
-                    presentation.scope.root
-                    / "docs/designs"
-                    / presentation.scope.environment
-                    / presentation.scope.target
-                    / target
-                ).resolve()
-                if generated_documents is not None and artifact in generated_documents:
-                    document = policy_json(generated_documents[artifact])
-                else:
-                    raw = policy_json(
-                        presentation.values[f"desired.row.{row_id}.document"]
-                    )
-                    source_row = dict(
-                        resource_row_index(presentation.values)[identity]
-                    )[row_id]
-                    document = _imports_model_projection.generated_document(
-                        raw,
-                        presentation.root,
-                        resolver=presentation.resolver,
-                        scope=presentation.scope,
-                        property_name=prop,
-                        logical_id=presentation.values.get(
-                            f"desired.resource.{identity}.logicalId"
-                        ),
-                        model_key=f"desired.row.{row_id}.document",
-                        context=_imports_model_projection.reference_context_for(
-                            presentation.values,
-                            row_id,
-                            source_row,
-                            raw,
-                            "",
-                            presentation.root,
-                        ),
-                    )
-            lines = _dependency_policy_tables.collapsed_policy_lines(
-                document, policy, lines
+        else:
+            if not strict:
+                continue
+            raw, structured = parse_reference_field(key, row[field])
+            if not structured:
+                continue
+        try:
+            projected = _imports_model_projection.generated_document(
+                raw,
+                root,
+                property_name=row["property"],
+                scope=scope,
+                resolver=resolver,
+                logical_id=values.get(
+                    f"desired.resource.{rid.rpartition('-')[0]}.logicalId"
+                ),
+                model_key=key,
+                context=_imports_model_projection.reference_context_for(
+                    values, rid, row, raw, "", root
+                ),
+                warnings=warnings,
             )
-            policies.extend(["", *lines])
-        if policies:
-            start, end = (
-                (IAM_START, IAM_END)
-                if resource[RESOURCE_TYPE_KEY] == "IAM.Role"
-                else (START, END)
-            )
-            result[identity] = ["", start, *policies, "", end]
-    return result, links
+        except ReferenceDiagnosticError as error:
+            diagnostics.extend(error.diagnostics)
+            continue
+        if link:
+            if not isinstance(projected, dict):
+                raise ValueError(f"JSON document must be an object: {rid}")
+            if projected_by_path.setdefault(artifact, projected) != projected:
+                raise ValueError(
+                    f"conflicting projected JSON documents: {artifact.name}"
+                )
+            documents[rid] = projected
+    require_reference_diagnostics(diagnostics)
+    if warnings is not None:
+        warnings.extend(d for d in diagnostics if d not in warnings)
+    return documents
 
 
 @task_read_scope(root=_task_root)
 @change_reads()
 def generate_files(path, values, root, *, warnings=None):
-    """Project AWS JSON in memory without changing authoritative Model references."""
-    safe = _imports_model_sources.safe
-    scope_for = _imports_model_sources.scope_for
-    scope = scope_for(
-        (root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)).with_suffix(
-            ".properties"
-        )
-    )
-    resolver = _imports_model_projection.reference_resolver(values, scope, root)
-    artifacts = {}
-    for identity, row in entries(values, "desired.row."):
-        if "document" not in row:
-            continue
-        match = JSON_LINK.fullmatch(row.get("value", ""))
-        if not match:
-            raise ValueError("JSON document requires an artifact link: " + identity)
-        safe(root, path.parent / match[1])
-        artifact = (path.parent / match[1]).resolve()
-        safe(root, artifact)
-        if artifact.parent != path.with_suffix("").resolve():
-            raise ValueError("JSON artifact must belong to owning service")
-        raw_document = policy_json(row["document"])
-        document = _imports_model_projection.generated_document(
-            raw_document,
-            root,
-            property_name=row["property"],
-            model_key=f"desired.row.{identity}.document",
-            resolver=resolver,
-            scope=scope,
-            logical_id=values.get(
-                f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
-            ),
-            context=_imports_model_projection.reference_context_for(
-                values, identity, row, raw_document, "", root
-            ),
-            warnings=warnings,
-        )
-        if not isinstance(document, dict):
-            raise ValueError("JSON document must be an object: " + identity)
-        content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
-        if artifact in artifacts and artifacts[artifact] != content:
-            raise ValueError("conflicting authoritative JSON documents")
-        artifacts[artifact] = content
-    artifacts[path] = (
-        stack_markdown(path, values, root, validate_delivery=False)
+    """Return the generated Markdown, including its projected JSON settings."""
+    return {
+        path: stack_markdown(path, values, root, validate_delivery=False)
         if entries(values, "desired.stack.")
         else _generate_markdown(
             path,
@@ -1051,10 +1078,8 @@ def generate_files(path, values, root, *, warnings=None):
             root,
             reference_values=values,
             warnings=warnings,
-            generated_documents=artifacts,
         )
-    )
-    return artifacts
+    }
 
 
 def render_model(snapshot, context):
@@ -1074,13 +1099,20 @@ def render_model(snapshot, context):
 
 
 def owned_artifacts(path, values):
-    return {
-        (path.parent / link[1]).resolve()
-        for _, row in entries(values, "desired.row.")
-        if "document" in row
-        and (link := JSON_LINK.fullmatch(row.get("value", "")))
-        and (path.parent / link[1]).resolve().parent == path.with_suffix("").resolve()
-    }
+    """Return existing legacy files that the service may retire during publication."""
+    root = path.parents[4]
+    result = set()
+    for _, row in entries(values, "desired.row."):
+        link = JSON_LINK.fullmatch(row.get("value", ""))
+        if "document" not in row or link is None:
+            continue
+        artifact = path.parent / link[1]
+        if artifact.parent != path.with_suffix(""):
+            continue
+        _imports_model_sources.safe(root, artifact)
+        if input_is_file(artifact):
+            result.add(artifact)
+    return result
 
 
 def view_plan(path, values, root, managed):
@@ -1097,21 +1129,6 @@ def view_plan(path, values, root, managed):
         if file != path and file.parent != path.with_suffix("").resolve():
             raise ValueError("JSON artifact must belong to owning service")
     files = generate_files(path, values, root)
-    if any(
-        file in inputs
-        and file != path
-        and file not in managed
-        and inputs[file] != text.encode("utf-8")
-        for file, text in files.items()
-    ):
-        raise ValueError("unowned JSON output collision")
-    inputs.update(
-        {
-            file: input_bytes(file) if input_is_file(file) else None
-            for file in files
-            if file not in inputs
-        }
-    )
     return {
         **changed_files(files),
         **{file: None for file in managed - files.keys() if file.is_file()},

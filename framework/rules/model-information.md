@@ -36,12 +36,12 @@ If updating the model fails, do not update Markdown/JSON. The model is authorita
 - Store authority in `model/<environment>/<target-directory>/<service-id>.properties` and its indexed parts. Alias takes precedence over awsAccountId; execution account is not a path identifier. Every environment has explicit values.
 - CloudFormation stack detailed designs retain each stack's name, template filename, parameter filename, and positive integer `deployOrder` in `desired.stack.*` of `cloudformation-stacks.properties`, and target policy in `desired.deployment.maxConcurrentStacks` (integer 1 or greater). Generate Markdown with the same stem. `DeployOrder` is a formal design value for each stack instance, not template identity or a dependency field. Do not add policy to `project.json`. Generate listing `No.` and retain `Comment` in `display.stack.*.comment`. Stack execution state is kept in existing execution management and current AWS state is retrieved when needed; it is never saved in the Stack Model.
 - S3 placement may explicitly approve delegation to bucket default encryption using model-only `desired.resource.<id>.deploymentEncryption=default` on `S3.Bucket`. No other value/resource type is permitted. Omission means explicit encryption headers derived from the selected formal BucketEncryption rows; it never means approval to delegate. Retain confirmed default SSEAlgorithm and, for SSE-KMS, KMSMasterKeyID rows in either mode. Validate this approval directly in the authoritative Model, like model-only CFn identity; do not infer it from Markdown, policy, missing rows, or AWS settings.
-- Catalog properties are authoritative for selectable items; model properties are authoritative for desired and observed values. Markdown and JSON artifacts are generated outputs for display and use.
+- Catalog properties are authoritative for selectable items; model properties are authoritative for desired and observed values. Detailed-design Markdown contains generated displays, including folded JSON.
 - Codex saves confirmed designs in environment-specific properties first through the shared Task-authorized Model APIs. Human properties edits are design inputs. Model saving, View generation and final Validation have separate responsibilities: managed ordinary Model-only corrections use `sync-model.py --write` for generation and Worktree finalize for final candidate Change Validation; standalone Design Tasks use the integrated `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md`. Neither generation path overwrites the Model.
 - Generated View publication is restricted to design Markdown and JSON paths; Model authority is saved only through the Task-authorized edit APIs.
 - Fail the local loop for Markdown/Model mismatches. Normal pending deployment uses the existing PENDING_DEPLOY projection to finish required generation, comparison and validation; an unresolved required comparison is a reasoned FAIL.
 - Ordinary saves validate the corrected Model and affected consumers through the common candidate guard. Do not require the old Model to load or preserve its fields. Missing/ambiguous final reference targets and invalid reference types/Properties block final save/completion/integration; pending observations and saved-text differences remain diagnostics. Dedicated operation leaves may save intermediate sources, but their parent must pass final candidate validation.
-- After saving authoritative Model inputs, design tasks generate Markdown and JSON artifacts in the same coherent logical change. When selected existing resources were retrieved read-only, also generate required non-ARN current identifiers in `observed.*`.
+- After saving authoritative Model inputs, design tasks generate detailed-design Markdown in the same coherent logical change. When selected existing resources were retrieved read-only, also generate required non-ARN current identifiers in `observed.*`.
 - Follow [observed-values](observed-values.md) for current identifier update conditions and propagation.
 - The infrastructure `update` phase treats human-changed authoritative service Model inputs as immutable inputs and generates Markdown before deployment. Update observed identifiers and regenerate Markdown only after successful AWS mutations.
 - `framework/rules/detailed-design.md` is authoritative for Markdown structure, service grouping, and generated identifier rows.
@@ -233,10 +233,10 @@ without Model changes. Never auto-run issues or repeat AWS acquisition for displ
 
 ## Policy derived views
 
-- Retain policy/configuration JSON bodies as compact JSON in each service model's `desired.row.*.document`. Generate service-owned JSON from JSON artifact links in `desired.row.*.value`, and generate policy displays from that JSON; collapsed policy JSON displays omit reference tables. Do not feed JSON artifacts or tables back as design inputs.
+- Retain policy/configuration JSON bodies as compact JSON in each service model's `desired.row.*.document`. Existing document links in `desired.row.*.value` identify the documents in the Model. Generate collapsed JSON directly from the Model; the generated Markdown is a display and does not become a design input.
 - Do not duplicate in the model the generated ResourceName/Comment table in the resource listing or displays within `<!-- policy-tables:start -->`–`<!-- policy-tables:end -->` and IAM's `<!-- iam-policy-tables:start -->`–`<!-- iam-policy-tables:end -->`. Do not save policy anchors, headings, collapsed JSON displays, Statement tables, or configuration tables as `desired.note.*` or additional resources.
 - Omit separate Property/JSON/Version/Id metadata rows from derived displays for all services. Continue retaining the original configuration row's property and JSON link in the model, and Version/Id in the authoritative `desired.row.*.document`.
-- When changing policies, update model `document` first, then generate and validate JSON artifacts and policy tables with the integrated task loop (`--write`). Independent read-only validation still rejects mismatches among properties, JSON, and displays.
+- When changing policies, update model `document` first, then generate and validate the folded JSON in Markdown with the integrated task loop (`--write`). Independent read-only validation rejects mismatches between the Model projection and the Markdown.
 
 ## CloudFormation deployment policy
 
@@ -314,7 +314,7 @@ CNAME/Interface, Producer identity, same-scope Export/direct correspondence and 
 proofs. Missing evidence stays uncompared; structural equality never proves runtime bounds
 or current AWS values and never persists a generated DNS value.
 
-Rows with JSON links require `desired.row.<番号>.document`; reject duplicate JSON keys, invalid constants, and non-objects. Validate generated JSON directly against the projected document; do not store derived JSON Artifact hashes in the Model or require `artifactSha256`.
+Rows with JSON links require `desired.row.<番号>.document`; reject duplicate JSON keys, invalid constants, and non-objects. Validate the folded Markdown JSON against the projected document; do not store derived JSON Artifact hashes in the Model or require `artifactSha256`.
 
 Model JSON retains typed `$modelRef` nodes as authority. `design_document()` preserves
 authored structure; Model validation owns logical reference contracts. AWS JSON Artifacts
@@ -486,7 +486,7 @@ Specify resource and row numbers in authoritative Model inputs. Validate determi
 
 Follow [observed-values](observed-values.md) for identifier states and saving conditions.
 
-Markdown/JSON artifact generation commands:
+Detailed-design generation commands:
 
 ```console
 python framework/scripts/sync-model.py --write --environment <environment> --alias <alias>
@@ -499,7 +499,7 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 - Include `framework/materials/api/*.properties` in the same catalog loading. Generate registered API resource types, including `Macie.ClassificationJob` and `QuickSight.Group`, logical IDs, anchors, and all design rows into existing `desired.*`.
 - Determine API outputs from each catalog's `IDENTIFIER_OUTPUT`; retain logical references to self-anchors in desired and current non-ARN identifiers or `PENDING_DEPLOY` in observed. Ordinary Markdown links referencing API identifiers also use existing identifier reference processing. QuickSight Group `Arn` is hidden from persisted model rows; `PrincipalId` is a persisted non-ARN output.
 - Retain inline JSON object/array values as-is, and retain existing paths for JSON artifacts. Do not add `clientToken`, `jobArn`, CFn mapping information, or creator information to models.
-- For `bucketDefinitions`-type Macie Jobs, `bucketDefinitions` within model `desired.row.*.document` is authoritative for Job/account/bucket mappings. Generate same-service `S3JobDefinition` JSON artifacts and bucket mapping tables from model `desired.row.*.document`; do not save tables themselves as `desired.note.*` or additional resources. Models retain existing JSON links. Retain `scoping` as selected configuration within JSON; do not generate mapping tables for `bucketCriteria`-type Jobs.
+- For `bucketDefinitions`-type Macie Jobs, `bucketDefinitions` within model `desired.row.*.document` is authoritative for Job/account/bucket mappings. Generate folded `S3JobDefinition` JSON and bucket mapping tables from model `desired.row.*.document`; do not save tables themselves as `desired.note.*` or additional resources. Models retain existing JSON links. Retain `scoping` as selected configuration within JSON; do not generate mapping tables for `bucketCriteria`-type Jobs.
 - Do not use API resources' presence in service models to determine whether they can be created with CFn or are implemented. Resolve implementation availability from resource types to corresponding catalogs/schemas. QuickSight `Permissions[].Principal` may reference a Group anchor; the link represents its ARN output without persisting the derived ARN in Model authority. A resolved Principal ARN may be saved in generated JSON while Group `Arn` remains hidden from Model rows and identifier displays.
 
 ## Grouping

@@ -35,6 +35,7 @@ from model.render import generate_files
 from model.sources import load_model
 from model.validations.full_inputs import check_model_inputs as _check_model_inputs
 from model.validations.json_settings import validate_json_settings
+from support.model_design_fixtures import collapsed_json
 from support.model_reference_fixtures import (
     FRAMEWORK,
     project,
@@ -644,12 +645,7 @@ def test_explicit_pending(fixture, mode):
     save(consumer, policy)
     view = consumer.root / "docs/designs/qa/team/iam.md"
     files = generate_files(view, load_model(consumer).values, consumer.root)
-    assert (
-        json.loads(files[view.with_suffix("") / "policy.json"])["Statement"][0][
-            "Resource"
-        ]
-        == value.value
-    )
+    assert collapsed_json(files[view])["Statement"][0]["Resource"] == value.value
     assert "$modelRef" in consumer.path.read_text(encoding="utf-8")
 
 
@@ -900,7 +896,7 @@ def test_sync_design_structure_matches_normal_generation(fixture, tmp_path, stri
         "arn:aws:kms:ap-northeast-1:123456789012:key/"
         "12345678-1234-1234-1234-123456789abc"
     )
-    assert json.loads(files[artifact]) == expected
+    assert collapsed_json(files[view]) == expected
     failures, warnings, unavailable = [], [], {}
     with (
         patch.object(sync_runtime, "markdown_for", return_value="# Generated\n"),
@@ -917,14 +913,10 @@ def test_sync_design_structure_matches_normal_generation(fixture, tmp_path, stri
         )
     assert not failures and not unavailable, (failures, unavailable)
     assert view in generated
-    assert (stage / artifact.relative_to(root)).read_text(encoding="utf-8") == files[
-        artifact
-    ]
-    saved_artifact = stage / artifact.relative_to(root)
-    saved_view = stage / view.relative_to(root)
-    validate_aws_document(json.loads(saved_artifact.read_text(encoding="utf-8")))
+    assert not (stage / artifact.relative_to(root)).exists()
+    assert set(generated[view]) == {stage / view.relative_to(root)}
+    validate_aws_document(collapsed_json(files[view]))
     references = ArtifactReferences()
-    references.add(saved_artifact, saved_view, ("qa", "team", "iam"))
     findings = Findings(stage)
     validate_design_artifacts(
         scope={("qa", "team", "iam")},
@@ -965,18 +957,18 @@ def test_generated_json_keeps_authority(fixture):
     save(consumer, policy)
     before = {scope.path: scope.path.read_bytes() for scope in (producer, consumer)}
     view = consumer.root / "docs/designs/qa/team/iam.md"
-    artifact = view.with_suffix("") / "policy.json"
+    view.with_suffix("") / "policy.json"
     files = generate_files(view, load_model(consumer).values, consumer.root)
     expected = copy.deepcopy(document)
     expected["Statement"][0]["Resource"] = "arn:aws:s3:::fixture-materials"
     expected["Statement"][1]["Resource"][0] = "arn:aws:s3:::fixture-materials"
-    assert json.loads(files[artifact]) == expected
+    assert collapsed_json(files[view]) == expected
     assert generate_files(view, load_model(consumer).values, consumer.root) == files
     assert (
         "arn:aws:s3:::fixture-materials" in files[view]
         and "$modelRef" not in files[view]
     )
-    validate_aws_document(json.loads(files[artifact]))
+    validate_aws_document(collapsed_json(files[view]))
     display = reference_display(policy, consumer.path, consumer.root)
     assert json.loads(display["desired.row.001-002.document"]) == expected
     assert {path: path.read_bytes() for path in before} == before
@@ -1044,7 +1036,7 @@ def test_generated_json_keeps_authority(fixture):
     values["desired.row.001-001.value"] = "`fixture-renamed`"
     save(producer, values)
     updated = generate_files(view, load_model(consumer).values, consumer.root)
-    assert json.loads(updated[artifact])["Statement"][0]["Resource"] == (
+    assert collapsed_json(updated[view])["Statement"][0]["Resource"] == (
         "arn:aws:s3:::fixture-renamed"
     )
 
@@ -1059,7 +1051,7 @@ def test_artifact_nested_and_encoded_references(fixture, tmp_path, strict):
     original = consumer.path.read_bytes()
     view = consumer.root / "docs/designs/qa/team/iam.md"
     files = generate_files(view, load_model(consumer).values, consumer.root)
-    result = json.loads(files[view.with_suffix("") / "policy.json"])
+    result = collapsed_json(files[view])
     arn = "arn:aws:s3:::fixture-materials"
     assert result["Nested"]["items"][0] == arn
     assert json.loads(result["Nested"]["items"][1]["encoded"]) == [arn, arn]
@@ -1074,8 +1066,9 @@ def test_artifact_nested_and_encoded_references(fixture, tmp_path, strict):
         strict=strict,
     )
     assert not failures and view in generated
-    artifact = next(path for path in generated[view] if path.suffix == ".json")
-    assert json.loads(artifact.read_text(encoding="utf-8")) == result
+    (staged,) = generated[view]
+    assert staged.suffix == ".md"
+    assert collapsed_json(staged.read_text(encoding="utf-8")) == result
     assert consumer.path.read_bytes() == original
 
 
@@ -1443,7 +1436,7 @@ def test_vpc_json_view_and_saved_policy(fixture, observed):
     files = generate_files(
         view, load_model(consumer).values, consumer.root, warnings=warnings
     )
-    projected = json.loads(files[artifact])
+    projected = collapsed_json(files[view])
     expected = node if observed is None else observed
     assert (
         projected["Statement"][0]["Condition"]["StringEquals"]["aws:SourceVpc"]
@@ -1463,7 +1456,7 @@ def test_vpc_json_view_and_saved_policy(fixture, observed):
     assert value["items"][0] == expected
     assert json.loads(value["items"][1]["encoded"]) == [expected, "keep", 3]
     artifact.parent.mkdir(parents=True)
-    artifact.write_text(files[artifact], encoding="utf-8")
+    artifact.write_text(json.dumps(projected), encoding="utf-8")
     saved_policy = Policy(
         "Policy",
         "iam/policy.json",

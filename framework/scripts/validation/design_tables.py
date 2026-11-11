@@ -939,6 +939,14 @@ def check_design_tables(
                     ),
                     None,
                 )
+                model_documents = {}
+                if table_source is not None:
+                    model_documents = {
+                        value: values[f"desired.row.{rid}.document"]
+                        for resource in table_source.resources
+                        for rid, _, value, _ in resource.rows
+                        if f"desired.row.{rid}.document" in values
+                    }
                 for cells in semantic:
                     if len(cells) == 4:
                         rows.append(cells)
@@ -1109,7 +1117,7 @@ def check_design_tables(
                                 or any(nodes(literal(cells[2]))),
                                 f"Security Group VpcId must link to its VPC: {findings.relative(path)}: {current_logical_id}",
                             )
-                        if is_json_link:
+                        if is_json_link and cells[2] not in model_documents:
                             artifact = json_reference(
                                 root, path, artifact_link, findings
                             )
@@ -1138,6 +1146,7 @@ def check_design_tables(
                             rows,
                             findings=findings,
                             schema_catalog=schema_catalog,
+                            model_documents=model_documents,
                         )
                     if current_resource_type == "Events.Rule":
                         for property_name in ("Events.Rule.Name", "Events.Rule.State"):
@@ -1274,7 +1283,9 @@ def check_api_design_rows(
     *,
     findings,
     schema_catalog,
+    model_documents=None,
 ) -> None:
+    model_documents = model_documents or {}
     catalog = schema_catalog
     schema = catalog.schema(resource_type)
     values = {}
@@ -1293,7 +1304,9 @@ def check_api_design_rows(
         node = catalog.property_schema(resource_type, prop)
         link = VALUE_LINK_PATTERN.fullmatch(raw)
         try:
-            if link and link.group(1).endswith(".json") and node["type"] == "object":
+            if row[2] in model_documents:
+                value = json.loads(model_documents[row[2]])
+            elif link and link.group(1).endswith(".json") and node["type"] == "object":
                 artifact = json_reference(
                     findings.canonical_root, path, link.group(1), findings
                 )
@@ -1333,7 +1346,10 @@ def check_api_design_rows(
             )
     if resource_type == "Macie.ClassificationJob":
         try:
-            tables = job_bucket_tables(path)
+            tables = job_bucket_tables(
+                path,
+                require_artifact="[JSON](#" not in input_text(path, encoding="utf-8"),
+            )
         except ReferenceResolutionError as error:
             findings.warn(error)
             return
@@ -1346,14 +1362,14 @@ def check_api_design_rows(
         if isinstance(scope, dict) and "bucketDefinitions" in scope:
             findings.check(
                 logical_id in tables,
-                f"Macie bucketDefinitions requires a Markdown mapping table and JSON artifact: {findings.relative(path)}: {logical_id}",
+                f"Macie bucketDefinitions requires a Markdown mapping table: {findings.relative(path)}: {logical_id}",
                 source_path=path,
                 cause_kind="input_invalid",
             )
             if logical_id in tables:
                 findings.check(
                     scope["bucketDefinitions"] == tables[logical_id][1],
-                    f"Macie bucket mapping differs from JSON artifact: {findings.relative(path)}: {logical_id}",
+                    f"Macie bucket mapping differs from the design JSON: {findings.relative(path)}: {logical_id}",
                     source_path=path,
                     cause_kind="input_invalid",
                 )

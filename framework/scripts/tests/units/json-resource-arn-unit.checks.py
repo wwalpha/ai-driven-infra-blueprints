@@ -24,6 +24,7 @@ from model.projection import execution_document, reference_display
 from model.render import generate_files
 from model.sources import Scope, SourceWriteContext, load_model, runtime_values
 from model.validations.json_settings import validate_json_settings
+from support.model_design_fixtures import collapsed_json
 from sync_runtime import generate_views
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.format import decode_file as decode
@@ -202,7 +203,8 @@ def check_standalone_generation(tmp_path):
     with mapping_alias(FRAMEWORK, root):
         files = generate_files(design, runtime_values(policy), root)
         displayed = reference_display(runtime_values(policy), scope.path, root)
-        assert json.loads(files[artifact]) == good
+        assert set(files) == {design}
+        assert collapsed_json(files[design]) == good
         assert json.loads(displayed["desired.row.009-002.document"]) == good
         assert "${aws:username}" in files[design]
         # A valid first artifact must not be saved when a later document is rejected.
@@ -360,9 +362,7 @@ def check_pending_intrinsic_generation(tmp_path, expression):
         before = scope.path.read_bytes()
         warnings = []
         files = generate_files(design, runtime_values(policy), root, warnings=warnings)
-        assert json.loads(files[design.with_suffix("") / "policy.json"]) == json.loads(
-            policy[key]
-        )
+        assert collapsed_json(files[design]) == json.loads(policy[key])
         assert any(w["code"] == "json.intrinsic.unresolved" for w in warnings)
         failures, warnings, unavailable = [], [], {}
         assert generate_views(
@@ -379,11 +379,8 @@ def check_pending_intrinsic_generation(tmp_path, expression):
         assert scope.path.read_bytes() == before
         with pytest.raises(ValueError, match="CloudFormation"):
             validate_aws_document(
-                json.loads(
-                    (stage / design.relative_to(root))
-                    .with_suffix("")
-                    .joinpath("policy.json")
-                    .read_text()
+                collapsed_json(
+                    (stage / design.relative_to(root)).read_text(encoding="utf-8")
                 )
             )
 

@@ -14,6 +14,7 @@ from model.projection import identifier_outputs
 from model.render import generate_files
 from support.import_model_fixtures import service_values
 from support.it_case_receipt import it_case
+from support.model_design_fixtures import collapsed_json
 from support.model_reference_fixtures import FRAMEWORK
 from support.producer_identifier_reference_fixtures import (
     Path,
@@ -215,11 +216,9 @@ def check_reference_views(root):
         policy_view = root / "docs/designs/preview/team/iam.md"
         save_files(generate_files(policy_view, load_model(policy_path).values, root))
         assert (
-            json.loads(
-                (policy_view.with_suffix("") / "policy.json").read_text(
-                    encoding="utf-8"
-                )
-            )["Statement"][0]["Resource"]
+            collapsed_json(policy_view.read_text(encoding="utf-8"))["Statement"][0][
+                "Resource"
+            ]
             == "arn:aws:s3:::example/*"
         )
         for path, model in zip(paths, (producer, consumer), strict=True):

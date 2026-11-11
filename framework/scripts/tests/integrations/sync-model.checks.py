@@ -31,6 +31,7 @@ import task_contract_core as tasks
 import task_contract_runtime as task_runtime
 from design.document import DesignIndex
 from model.files import load_model, read_model
+from support.model_design_fixtures import collapsed_json
 from support.model_reference_fixtures import reference, resource, save
 from support.model_sources import allocate_fixture as allocate
 from support.model_sources import write_model as write_model
@@ -81,7 +82,7 @@ def _callback_check_stage_definition_sources_inspect(
 def check_stage_definition_sources(generated_policy, tmp_path):
     _state_check_stage_definition_sources_90 = _CallbackState()
     root, model, values, design, artifact, _ = generated_policy
-    originals = {p: p.read_bytes() for p in (design, artifact)}
+    originals = {design: design.read_bytes()}
     definitions = {
         p: p.read_bytes()
         for p in (definition_root(root) / "framework").rglob("*")
@@ -161,7 +162,7 @@ def check_stage_candidate_isolation(generated_policy, tmp_path):
     root, model, values, design, artifact, _ = generated_policy
     stage = tmp_path / "candidates"
     staged = stage / design.relative_to(root)
-    originals = {p: p.read_bytes() for p in (model, design, artifact)}
+    originals = {p: p.read_bytes() for p in (model, design)}
     with mapping_alias(root, stage):
         sync_runtime.stage_inputs(
             stage, root, {design: values}, [model], [design], ["iam"], False
@@ -371,7 +372,8 @@ def check_normal_writer_contents(generated_policy):
     ):
         assert stage in stderr.getvalue()
     assert values["desired.note.001.text"] in design.read_text()
-    assert json.loads(artifact.read_text()) == json.loads(
+    assert not artifact.exists()
+    assert collapsed_json(design.read_text(encoding="utf-8")) == json.loads(
         values["desired.row.001-002.document"]
     )
 
@@ -384,7 +386,6 @@ def check_unchanged_sidecar(generated_policy, note):
         write_model(model, values)
     env = register([design] if note else [])
     original_design = design.read_bytes()
-    before = artifact.read_bytes(), artifact.stat().st_mtime_ns
     with (
         patch.dict(os.environ, env),
         patch.object(
@@ -406,7 +407,7 @@ def check_unchanged_sidecar(generated_policy, note):
             "unchanged JSON must not enter publication"
         )
         assert values["desired.note.001.text"] in design.read_text(encoding="utf-8")
-    assert (artifact.read_bytes(), artifact.stat().st_mtime_ns) == before
+    assert not artifact.exists()
 
 
 @pytest.mark.parametrize("cli", [False, True])
@@ -435,6 +436,7 @@ def check_pending_artifact_transaction(generated_policy, cli):
         }
     )
     write_model(model, values)
+    artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(json.dumps(document) + "\n", encoding="utf-8")
     design.write_text(
         model_design.generate_markdown(
@@ -456,7 +458,7 @@ def check_pending_artifact_transaction(generated_policy, cli):
     document["Statement"][0]["Resource"][1] = reference()
     values["desired.row.001-004.document"] = json.dumps(document)
     write_model(model, values)
-    originals = {p: p.read_bytes() for p in (design, trust, artifact)}
+    {p: p.read_bytes() for p in (design, artifact)}
     authority = {p: p.read_bytes() for p in (model, producer.path)}
     selector = register({design, trust, artifact})
     if cli:
@@ -488,19 +490,20 @@ def check_pending_artifact_transaction(generated_policy, cli):
                 )
                 candidate = plan.expected_outputs[design]
                 assert (
-                    json.loads(candidate[artifact])["Statement"][0]["Resource"][1]
+                    collapsed_json(candidate[design], "pending")["Statement"][0][
+                        "Resource"
+                    ][1]
                     == "PENDING_DEPLOY"
                 )
-                assert "[PENDING_DEPLOY](kms.md#saved-001)" in candidate[design]
+                assert candidate[artifact] is None
                 sync_runtime.publish_generation(plan)
                 assert not plan.failures and design in plan.saved
-                assert artifact.read_text(encoding="utf-8") == candidate[artifact]
+                assert not artifact.exists()
                 assert design.read_text(encoding="utf-8") == candidate[design]
-                assert trust.read_bytes() == originals[trust]
+                assert not trust.exists()
             finally:
                 plan.close()
         assert {p: p.read_bytes() for p in authority} == authority
-        originals = {p: p.read_bytes() for p in originals}
         key["observed.row.001-001.value"] = "`12345678-1234-1234-1234-123456789abc`"
         save(producer, key)
         authority[producer.path] = producer.path.read_bytes()
@@ -518,26 +521,29 @@ def check_pending_artifact_transaction(generated_policy, cli):
                 assert not metadata["unverified"]
                 candidate = plan.expected_outputs[design]
                 assert (
-                    json.loads(candidate[artifact]) == expected and trust in candidate
+                    collapsed_json(candidate[design], "pending") == expected
+                    and artifact not in candidate
                 )
-                assert "iam/iam-role-001-pending.json" in candidate[design]
-                assert f"[{arn}](kms.md#saved-001)" in candidate[design]
+                assert "iam/iam-role-001-pending.json" not in candidate[design]
+                assert arn in candidate[design]
                 assert (
                     "$modelRef" not in candidate[design]
                     and "confirmed-bucket" in candidate[design]
                 )
                 sync_runtime.publish_generation(plan)
                 assert (
-                    not plan.failures and json.loads(artifact.read_bytes()) == expected
+                    not plan.failures
+                    and collapsed_json(design.read_text(encoding="utf-8"), "pending")
+                    == expected
                 )
-                assert trust.read_bytes() == originals[trust]
+                assert not trust.exists()
                 assert design.read_text(encoding="utf-8") == candidate[design]
                 assert not list(root.glob(".model-publication*.json"))
             finally:
                 plan.close()
         assert {p: p.read_bytes() for p in authority} == authority
         assert "$modelRef" in values["desired.row.001-004.document"]
-        assert "PENDING_DEPLOY" not in artifact.read_text(encoding="utf-8")
+        assert "PENDING_DEPLOY" not in design.read_text(encoding="utf-8")
 
 
 def check_changed_sidecar_publication(generated_policy):
@@ -557,11 +563,9 @@ def check_changed_sidecar_publication(generated_policy):
         ) as publish,
     ):
         assert MODULE.sync(root, True, "dev", "123456789012", ["iam"]) == 0
-    assert publish.call_count == 1 and set(publish.call_args.args[1]) == {
-        artifact,
-        design,
-    }
-    assert json.loads(artifact.read_text()) == json.loads(
+    assert publish.call_count == 1 and set(publish.call_args.args[1]) == {design}
+    assert not artifact.exists()
+    assert collapsed_json(design.read_text(encoding="utf-8")) == json.loads(
         values["desired.row.001-002.document"]
     )
     assert design.read_bytes() != before
@@ -804,9 +808,7 @@ def check_two_consumer_cli(generated_policy):
         subprocess.run(["git", *arguments], cwd=root, check=True, capture_output=True)
     outputs = [
         design,
-        artifact,
         root / "docs/designs/stg/123456789012/iam.md",
-        root / "docs/designs/stg/123456789012/iam/iam-role-001-trust-policy.json",
     ]
     environment = register(outputs)
     name = environment[tasks.SELECTOR]
@@ -877,7 +879,7 @@ def check_two_consumer_cli(generated_policy):
     assert "stage=impact-scope" in stderr.getvalue()
     assert "completed=2/2" in stderr.getvalue()
     TestCase().assertNotIn("state=failed", stderr.getvalue())
-    for document in (outputs[0], outputs[2]):
+    for document in outputs:
         assert "更新後の処理権限" in document.read_text()
 
 
@@ -1057,7 +1059,7 @@ def check_integrated_validator(generated_policy, initial):
         )
     )
     start_validator_repository(root)
-    originals = {path: path.read_bytes() for path in (design, artifact)}
+    originals = {design: design.read_bytes()}
     if initial:
         shutil.rmtree(design.parent)
         assert not design.exists() and not artifact.exists()
@@ -1127,7 +1129,7 @@ def check_integrated_validator(generated_policy, initial):
     validate.assert_not_called()
     assert publication.call_count == 1
     assert publication.call_args.kwargs["originals"] == (
-        {design: None, artifact: None} if initial else {design: originals[design]}
+        {design: None} if initial else {design: originals[design]}
     )
     contexts = [(call.args[0], id(call.args[1])) for call in expand.call_args_list]
     assert contexts and len(contexts) == len(set(contexts)), expand.call_args_list
@@ -1139,7 +1141,7 @@ def check_integrated_validator(generated_policy, initial):
     impact.assert_not_called()
     assert values["desired.note.001.text"] in design.read_text()
     assert design.read_bytes() != originals[design]
-    assert artifact.read_bytes() == originals[artifact]
+    assert not artifact.exists()
     assert {path: path.read_bytes() for path in source_bytes} == source_bytes
 
 
@@ -1162,8 +1164,9 @@ def start_validator_repository(root):
 def check_view_only_migration(generated_policy, suffix):
     root, model, _, design, artifact, _ = generated_policy
     output = design if suffix == ".md" else artifact
-    expected = output.read_bytes()
-    stale = expected + b"\n"
+    expected = design.read_bytes() if suffix == ".md" else None
+    stale = expected + b"\n" if expected is not None else b"{}\n"
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(stale)
     start_validator_repository(root)
     source_bytes = {path: path.read_bytes() for path in load_model(model).files}
@@ -1176,7 +1179,7 @@ def check_view_only_migration(generated_policy, suffix):
         "## Task contract\n- Task type: `migration`\n- Task status: `running`\n"
         "## Validation scope\n- `dev/123456789012/iam`\n"
         "## Required changes\n- [R1] Refresh saved View\n"
-        f"## Acceptance checks\n- [R1] `exists:{relative}`\n"
+        f"## Acceptance checks\n- [R1] `{'absent' if suffix == '.json' else 'exists'}:{relative}`\n"
         f"## Modified files\n{listed}\n## Allowed paths\n{listed}\n",
     )
     scope = {("dev", "123456789012", "iam")}
@@ -1192,7 +1195,7 @@ def check_view_only_migration(generated_policy, suffix):
             root, scope, model_validation="change", write=True
         )
         assert validator.run() == 0, validator.errors
-        assert output.read_bytes() == expected
+        assert (output.read_bytes() if output.exists() else None) == expected
 
         validator = validation_runner.Validator(root, scope, model_validation="change")
         assert validator.run() == 0, validator.errors

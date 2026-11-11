@@ -18,6 +18,7 @@ from model.render import generate_files, generate_markdown, render_validated_mod
 from model.sources import Scope, SourceWriteContext
 from model.validations.full_inputs import check_model_inputs as model_findings
 from model.validations.json_settings import validate_json_settings
+from support.model_design_fixtures import collapsed_json
 from support.producer_identifier_reference_fixtures import (
     FileReads,
     Path,
@@ -145,9 +146,9 @@ def check_json_boundaries(tmp_path):
     for render in (generate_files, generate_markdown, render_validated_model):
         output = render(view, values, tmp_path)
         assert output
-    assert json.loads(
-        generate_files(view, values, tmp_path)[view.with_suffix("") / "policy.json"]
-    ) == {"Resource": "[missing](vpc.md#missing)"}
+    assert collapsed_json(generate_files(view, values, tmp_path)[view]) == {
+        "Resource": "[missing](vpc.md#missing)"
+    }
     with pytest.raises(ValueError, match="before snapshot"):
         validate_candidates(
             tmp_path,

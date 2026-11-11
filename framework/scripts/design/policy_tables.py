@@ -478,7 +478,9 @@ def policy_lines(
             scope=scope,
             property_name=policy.property_name,
         )
-    return collapsed_policy_lines(document, policy, policy_document_lines(document, policy))
+    return collapsed_policy_lines(
+        document, policy, policy_document_lines(document, policy)
+    )
 
 
 def _lambda_validate_policy_document_pending_259(design, intrinsic, /, value):
@@ -742,7 +744,6 @@ def rendered_design(
 ) -> str:
     definition_root = _imports_utils_aws_mappings.definition_root
     original = path.read_text(encoding="utf-8")
-    lines = without_policy_tables(original.splitlines())
     root = definitions_root or definition_root(path.resolve().parent)
     presentation = None
     values = None
@@ -759,6 +760,7 @@ def rendered_design(
             return _model_render.generate_markdown(
                 path, values, root, reference_tables=reference_tables
             )
+    lines = without_policy_tables(original.splitlines())
     resources = resources_in(
         lines,
         root,
@@ -798,6 +800,25 @@ def rendered_design(
 def validate_policy_artifacts(path, *, definitions_root=None):
     """Independent saved-artifact quality checks; generation only renders their structure."""
     document = _design_document.DesignIndex(definitions_root).get(path)
+    if document.model_values and "[JSON](#" in document.text:
+        values = document.model_values
+        root = path.parents[4]
+        scope = scope_for(
+            (root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)).with_suffix(
+                ".properties"
+            )
+        )
+        projected = _model_render.project_view_documents(values, scope, root)
+        for rid, value in projected.items():
+            key = f"desired.row.{rid}"
+            prop = values[f"{key}.property"]
+            if prop in POLICY_FORMATS:
+                validate_policy_document(
+                    value,
+                    Policy(prop, values[f"{key}.value"], "", "", prop),
+                    design=True,
+                )
+        return
     for resource in resources_in(list(document.raw.display_lines), definitions_root):
         for policy in resource.policies:
             artifact = (path.parent / policy.link).resolve()

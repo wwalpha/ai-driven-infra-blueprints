@@ -192,7 +192,7 @@ When running a local loop, retain the following checks in its applicable scope. 
 - `framework/materials/aws/` matches `framework/materials/catalog.sha256`
 - The Tokyo region CloudFormation provider schema snapshot matches its lock and resolves every property path in `framework/materials/aws/`
 - API design catalog/schema fixed snapshots and checksums, selection lists, and CFn-unsupported definitions are consistent. Validate Macie Job types, nested values, conditional requirements, and authoritative models, and reject them in CFn type resolution
-- Markdown mapping tables for `bucketDefinitions` Macie Jobs match account, bucket, and order in the same Job's JSON artifact; reject missing/duplicate entries or ownership by a different Job. Do not place fixed bucket mapping tables on `bucketCriteria` types
+- Markdown mapping tables for `bucketDefinitions` Macie Jobs match account, bucket, and order in the same Job's Model JSON; reject missing/duplicate entries or ownership by a different Job. Do not place fixed bucket mapping tables on `bucketCriteria` types
 - `framework/rules/resource-layout.json` holds display policies for all CFn/API catalog resources without omissions or extras, and integrated parents, properties, counts, and identification methods are valid. Reject undecided new resources
 - Validate grouped child identification, parent membership, schemas, and references; do not lose multiple KMS Aliases or Alias references from S3
 - Required directory/file structure exists
@@ -202,10 +202,9 @@ When running a local loop, retain the following checks in its applicable scope. 
 - Prohibited topology/state file metadata and design decisions, out-of-scope, and generated-values sections are absent
 - Resource table `Description` is written in Japanese
 - Resource tables contain no settings outside the properties selection list, and literals satisfy the corresponding CFn provider schema or API design schema type, enum, pattern, length, and range
-- Policy properties requiring JSON reference valid JSON artifacts under their owning service and match service model artifact paths
-- Each service's policy anchors, owning resources, and all Statement elements or all setting elements match linked JSON, without duplicate persistence of derived displays in models. Omit independent Property, JSON, Version, and Id metadata rows for all policies including IAM. Collapsed policy displays retain the JSON body without reference tables; validate the displayed JSON against its artifact. Retain formal properties and JSON links in original setting rows, Version/Id in JSON bodies, same-named keys in setting tables, and three-column overviews for all services. Reject missing markers, invalid ownership, and table-only corrections. Registered policy display methods match formal catalog properties and provider schemas
+- Validate policy properties and structured settings against their Model inputs. Confirm that the Markdown has the expected same-file anchors and collapsed JSON, with the correct resource ownership. Separate JSON files and links are legacy outputs.
 - If Sid exists in IAM inline policy Statements, it is a string of at most 16 characters; excess length has not been automatically corrected
-- IAM Role trust policy and inline policy artifacts use semantic filenames based on the Role logical ID and explicit `PolicyName`
+- IAM Role Model trust and inline policy document identifiers use semantic filenames based on the Role logical ID and explicit `PolicyName`
 - Exactly 1 `IAM.Role.RoleName` row exists with a confirmed non-empty literal. Overview ResourceName, detail headings and reference-link labels use RoleName; anchors retain their saved values, not substitutes such as Name tags, display labels, role paths, or internal logical IDs
 - Property order in resource setting tables matches materials properties line order. Ignore unselected/hidden items and retain array elements and grouped child membership. Retain special display positions for design-only .Name/S3.Region and horizontal SG display; do not use a separate priority order for names/generated IDs
 - CREATE `EC2.VPC`, `EC2.Subnet`, `EC2.RouteTable`, and `EC2.FlowLog` have 1 `.Name` row with a non-empty value matching the resource heading identifier
@@ -223,7 +222,7 @@ When running a local loop, retain the following checks in its applicable scope. 
 For tasks affecting runtime inputs or behavior, task-type-specific checks cannot be omitted; confirm at least the following. Text-only tasks use the documentation row of [Validation policy](loop-engineering.md#validation-policy), with contract scope and Required changes reviewed before completion.
 
 - `initialization`: `project.json` changes, and target paths and IaC selection are valid
-- `design`: Target authoritative service Model inputs change first, and Markdown/JSON artifacts match their deterministic generation results
+- `design`: Target authoritative service Model inputs change first, and Markdown and its folded JSON match their deterministic generation results
 - `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, deploy does not edit IaC; only exact one-shot verified child commit transitions owned by the current Task may be attributed. In the `update` phase, human-changed authoritative service Model inputs, generated Markdown, and IaC are in the same diff. In `destroy`, only post-success observed models/generated views/active contract may change; no IaC validation. Scenarios are unchanged in all phases
 - `scenario-test`: The scenario and current results for the same target change
 - `governance`: Framework files other than the active task change

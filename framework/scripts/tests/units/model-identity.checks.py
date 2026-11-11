@@ -29,6 +29,7 @@ from model.identity import (
 )
 from model.sources import Scope
 from model.validations.identity import validate_resource_identities
+from support.model_design_fixtures import collapsed_json
 from support.model_v2_fixtures import format_fixture
 from utils.aws_mappings import mapping_alias
 
@@ -92,7 +93,9 @@ def main():
 def run_allocate(scope, *options, directory, error=None):
     stdout, stderr = StringIO(), StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
-        code = cli(["allocate", str(scope.path), "--candidate", str(directory), *options])
+        code = cli(
+            ["allocate", str(scope.path), "--candidate", str(directory), *options]
+        )
     if error is not None:
         assert code == 1, stdout.getvalue()
         result = json.loads(stderr.getvalue())
@@ -131,17 +134,28 @@ def check_allocate_cli():
         select = ("--resource", "009")
         result = run(*select)
         assert result["status"] == "preview"
-        assert result["allocations"] == [{"resource": "009", "logicalId": "EC2_VPC_002"}]
+        assert result["allocations"] == [
+            {"resource": "009", "logicalId": "EC2_VPC_002"}
+        ]
         assert entrance.read_bytes() == initial
         assert run(*select, "--write-candidate")["status"] == "updated"
         updated = entrance.read_bytes()
-        assert updated == initial.replace(
-            b"lastAllocated={\"EC2.VPC\":1}", b"lastAllocated={\"EC2.VPC\":2}"
-        ) + (vpc_id + "=EC2_VPC_002\r\n").encode()
+        assert (
+            updated
+            == initial.replace(
+                b'lastAllocated={"EC2.VPC":1}', b'lastAllocated={"EC2.VPC":2}'
+            )
+            + (vpc_id + "=EC2_VPC_002\r\n").encode()
+        )
         assert scope.path.read_bytes() == original
 
         entrance.write_bytes(initial)
-        run(*select, *select, "--write-candidate", error="duplicate allocation selection")
+        run(
+            *select,
+            *select,
+            "--write-candidate",
+            error="duplicate allocation selection",
+        )
         run("--resource", "999", error="999")
         run("--resource", "007", error="cannot reallocate a saved logicalId")
         assert entrance.read_bytes() == initial
@@ -149,7 +163,11 @@ def check_allocate_cli():
             ({**single, saved_id: ""}, "007", "cannot reallocate a saved logicalId"),
             ({**single, COUNTERS: '{"EC2.VPC":false}'}, "009", "nonnegative integers"),
             ({**single, COUNTERS: '{"EC2.VPC":0}'}, "009", "duplicate logicalId"),
-            ({**single, COUNTERS: '{"EC2.VPC":2}'}, "009", "allocation state does not match"),
+            (
+                {**single, COUNTERS: '{"EC2.VPC":2}'},
+                "009",
+                "allocation state does not match",
+            ),
         ):
             raw = serialize(invalid).encode()
             entrance.write_bytes(raw)
@@ -437,7 +455,7 @@ def check_cfn_and_outputs():
                 lambda path, values, root: original_markdown(path, values, framework),
             ):
                 files = generate_files(design, runtime_values(policy), after)
-            assert json.loads(files[design.with_suffix("") / "policy.json"]) == result
+            assert collapsed_json(files[design]) == result
             assert '<a id="saved-policy"></a>' in files[design]
             assert json.loads(policy["desired.row.009-002.document"]) == document
             display = reference_display(policy, design, after)

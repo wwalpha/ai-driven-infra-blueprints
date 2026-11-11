@@ -49,6 +49,7 @@ from model.core import (
 from model.reference_nodes import nodes, receiving_property
 from model.reference_presentation import Presentation
 from utils.input_cache import input_is_file, input_scope, input_select, input_text
+from utils.markdown_format import markdown_prose
 
 import model as _model_api
 
@@ -151,16 +152,30 @@ def check_local_links(
     root,
     design_index,
     markdown_design_artifacts=None,
+    saved_text=None,
 ) -> None:
     """Check saved link destinations without expanding or comparing Model displays."""
     outside_design = _imports_model_importing_scope.outside_design
     if markdown_design_artifacts is not None:
         markdown_design_artifacts.start(source)
-    for raw in LINK_PATTERN.findall(text):
+    saved_links = (
+        {
+            raw
+            for _, line in markdown_prose(saved_text)
+            for raw in LINK_PATTERN.findall(line)
+        }
+        if saved_text is not None
+        else None
+    )
+    for raw in (
+        raw for _, line in markdown_prose(text) for raw in LINK_PATTERN.findall(line)
+    ):
         if raw.startswith(("http://", "https://", "mailto:")):
             continue
         target_text, separator, fragment = raw.partition("#")
         if target_text.endswith(".json"):
+            if saved_links is not None and raw not in saved_links:
+                continue  # Semantic table restoration can contain Model-only JSON links.
             target = json_reference(root, source, target_text, findings)
             if target is None:
                 continue
@@ -792,6 +807,7 @@ def check_design_links(
             root=root,
             design_index=design_index,
             markdown_design_artifacts=markdown_design_artifacts,
+            saved_text=design_index.get(source).visible_text,
         )
         if source.resolve() in unavailable:
             continue

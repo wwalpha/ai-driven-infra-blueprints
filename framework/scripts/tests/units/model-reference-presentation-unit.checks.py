@@ -43,6 +43,7 @@ from model.reference_presentation import Position, Presentation
 from model.reference_values import ReferenceValue, reference_value
 from model.render import generate_files, generate_markdown
 from model.sources import Scope, load_model
+from support.model_design_fixtures import collapsed_json
 from support.model_reference_fixtures import (
     FRAMEWORK,
     project,
@@ -660,10 +661,8 @@ def test_linked_array_uses_model_rows_without_metadata(models, case, observed):
             3 if case in {"multiple", "split"} else 2 if case == "literal" else 1
         )
         if case in {"empty", "empty_spaces"}:
-            assert (
-                "| VpcConfig.SubnetIds | " + values["desired.row.001-002.value"] + " |"
-                in lines[0]
-            )
+            assert "| VpcConfig.SubnetIds | [JSON](#" in lines[0]
+            assert collapsed_json(markdown, "VpcConfig.SubnetIds") == []
         else:
             assert all(f"SubnetIds[{i}]" in line for i, line in enumerate(lines, 1))
         semantic = restore(path, markdown, values)
@@ -718,7 +717,8 @@ def test_codebuild_empty_linked_array_uses_model(models):
     before = copy.deepcopy(values)
     with input_context(read_only=True):
         markdown = generate_markdown(path, values, FRAMEWORK)
-        assert "| VpcConfig.Subnets | `[]` |" in markdown
+        assert "| VpcConfig.Subnets | [JSON](#" in markdown
+        assert collapsed_json(markdown, "VpcConfig.Subnets") == []
         assert "subnet-list-source" not in markdown
         assert values["desired.row.001-002.value"] in restore(path, markdown, values)
         assert values == before
@@ -1347,8 +1347,8 @@ def test_policy_sub_reference_shows_link_and_path_without_changing_json(models):
     write(scope, values)
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
-    artifact = path.with_suffix("") / "policy.json"
-    saved = json.loads(files[artifact])["Statement"][0]["Resource"]
+    path.with_suffix("") / "policy.json"
+    saved = collapsed_json(files[path])["Statement"][0]["Resource"]
     assert saved == [
         "arn:aws:s3:::shared-name/staging/release/*",
         "arn:aws:s3:::shared-name/suffix",
@@ -1403,14 +1403,17 @@ def test_s3_bucket_policy_self_reference_links_only_bucket_arn(models):
     write(scope, values)
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
-    artifact = path.with_suffix("") / "policy.json"
-    assert json.loads(files[artifact])["Statement"][0]["Resource"] == [
+    path.with_suffix("") / "policy.json"
+    assert collapsed_json(files[path])["Statement"][0]["Resource"] == [
         "arn:aws:s3:::shared-name",
         "arn:aws:s3:::shared-name/*",
     ]
     content = files[path].split("<details>\n", 1)[1].split("\n</details>", 1)[0]
     block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
-    assert json.loads(block) == json.loads(files[artifact])
+    assert json.loads(block)["Statement"][0]["Resource"] == [
+        "arn:aws:s3:::shared-name",
+        "arn:aws:s3:::shared-name/*",
+    ]
     assert "**参照テーブル**" not in content
     assert values == before
     restore(path, files[path], values)
@@ -1454,8 +1457,8 @@ def test_s3_policy_kms_condition_uses_name_and_execution_arn(models):
     write(scope, values)
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
-    artifact = path.with_suffix("") / "policy.json"
-    statement = json.loads(files[artifact])["Statement"][0]
+    path.with_suffix("") / "policy.json"
+    statement = collapsed_json(files[path])["Statement"][0]
     assert (
         statement["Condition"]["StringNotEquals"][
             "s3:x-amz-server-side-encryption-aws-kms-key-id"
@@ -1504,8 +1507,8 @@ def test_kms_policy_resource_uses_key_name_and_execution_arn(models):
     write(scope, values)
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
-    artifact = path.with_suffix("") / "policy.json"
-    statement = json.loads(files[artifact])["Statement"][0]
+    path.with_suffix("") / "policy.json"
+    statement = collapsed_json(files[path])["Statement"][0]
     assert (
         statement["Resource"]
         == "arn:aws:kms:ap-northeast-1:123456789012:key/de6ef4b4-c7a2-489e-9355-feb9fb8f73cc"
@@ -1558,14 +1561,15 @@ def test_iam_collapsed_json_matches_artifact(models, kind, field, name_field):
         if field == "AssumeRolePolicyDocument"
         else ("inline-access" if field.startswith("Policies[]") else "policy-policy")
     )
-    assert f"[Policy](#saved-001-{suffix})" in markdown
+    assert f"[JSON](#saved-001-{suffix})" in markdown
     assert f'<a id="saved-001-{suffix}"></a>' in markdown
     summary = "Access" if field.startswith("Policies[]") else "Policy"
     assert f"<summary>{summary}</summary>" in content
     with pytest.raises(ValueError, match="Model expected display"):
         restore(path, markdown.replace(f"#saved-001-{suffix}", "#wrong", 1), values)
     block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
-    assert json.loads(block) == json.loads(files[path.with_suffix("") / "policy.json"])
+    assert set(files) == {path}
+    assert json.loads(block)["Statement"][0]["Resource"] == "arn:aws:s3:::shared-name"
     assert "](" not in block
     assert "**参照テーブル**" not in content
     assert markdown.index("#### ") < markdown.index("<details>")
@@ -1596,7 +1600,9 @@ def test_service_policy_collapsed_json(property_name, fallback):
     if fallback:
         document["Other"] = "retained"
     policy = Policy("ResourcePolicy", "Policy", "policy.json", "policy", property_name)
-    lines = collapsed_policy_lines(document, policy, policy_document_lines(document, policy))
+    lines = collapsed_policy_lines(
+        document, policy, policy_document_lines(document, policy)
+    )
     content = "\n".join(lines).split("<details>\n", 1)[1].split("\n</details>", 1)[0]
     block = content.split("```json\n", 1)[1].split("\n```", 1)[0]
     assert json.loads(block) == document
@@ -1624,11 +1630,11 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
     artifact = path.with_suffix("") / "policy.json"
-    assert json.loads(files[artifact])["Statement"][0]["Resource"] == (
+    assert collapsed_json(files[path])["Statement"][0]["Resource"] == (
         "arn:aws:s3:::shared-name"
     )
     assert "arn:aws:s3:::shared-name" in files[path]
-    assert "](" not in files[artifact] and "$modelRef" not in files[artifact]
+    assert set(files) == {path} and "$modelRef" not in files[path]
     for file, text in files.items():
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(text, encoding="utf-8")
@@ -1654,13 +1660,15 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
             (rid, {"property": policy.property_name, "document": json.dumps(document)})
         ]
     }
+    artifact.parent.mkdir()
+    artifact.write_text(json.dumps(collapsed_json(files[path])), encoding="utf-8")
     assert "arn:aws:s3:::shared-name" in "\n".join(
         policy_lines(path, policy, presentation=presentation, policy_rows=rows)
     )
     artifact.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(ValueError, match="differs from authoritative Model"):
         policy_lines(path, policy, presentation=presentation, policy_rows=rows)
-    artifact.write_text(files[artifact], encoding="utf-8")
+    artifact.write_text(json.dumps(collapsed_json(files[path])), encoding="utf-8")
     original = {"Unsupported": reference("S3_Bucket_001", "Arn")}
     values[f"desired.row.{rid}.document"] = json.dumps(original)
     presentation = Presentation(values, path, models)
@@ -1678,12 +1686,7 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
         "Unsupported": "arn:aws:s3:::shared-name"
     }
     path.unlink()
-    # Without source authority the artifact renderer keeps ordinary AWS values.
-    scope.path.unlink()
-    path.write_text(files[path], encoding="utf-8")
-    assert "[shared-name](s3.md#s3-saved-anchor)" not in rendered_design(
-        path, definitions_root=FRAMEWORK
-    )
+    assert "[shared-name](s3.md#s3-saved-anchor)" not in files[path]
 
 
 @pytest.mark.parametrize(
@@ -1890,12 +1893,7 @@ def test_policy_enum_reference_is_validated_before_presentation(models):
     )
     files = generate_files(path, values, models)
     assert '"Effect": "Allow"' in files[path]
-    assert (
-        json.loads(files[path.with_suffix("") / "policy.json"])["Statement"][0][
-            "Effect"
-        ]
-        == "Allow"
-    )
+    assert collapsed_json(files[path])["Statement"][0]["Effect"] == "Allow"
 
 
 @pytest.mark.parametrize("observed", [None, "PENDING_DEPLOY", "sg-0dd5df87e10362d7f"])

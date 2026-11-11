@@ -106,7 +106,8 @@ def array_model_case(tmp_path, case):
     markdown = model_design.generate_markdown(path, values, ROOT)
     TestCase().assertTrue("<!-- array-source:" not in markdown)
     TestCase().assertTrue("Permissions[1].Actions[2]" in markdown)
-    TestCase().assertTrue("Permissions[2].Actions | `[]` | 空の権限" in markdown)
+    assert "Permissions[2].Actions | [JSON](#" in markdown
+    assert "```json\n[]\n```" in markdown
     document = DesignIndex(ROOT).get(path, text=markdown, values=values)
     semantic = "\n".join(document.raw.display_lines)
     TestCase().assertTrue(
@@ -732,9 +733,14 @@ def compact_ec2_restored(values, rows, expected, actual):
 @pytest.mark.parametrize("packed", [False, True])
 def test_tag_table_rows(kind, packed):
     tags = (
-        [('Key', '`["owner","project"]`'), ('Value', '`["team","data"]`')]
+        [("Key", '`["owner","project"]`'), ("Value", '`["team","data"]`')]
         if packed
-        else [('Key', '`owner`'), ('Value', '`team`'), ('Key', '`project`'), ('Value', '`data`')]
+        else [
+            ("Key", "`owner`"),
+            ("Value", "`team`"),
+            ("Key", "`project`"),
+            ("Value", "`data`"),
+        ]
     )
     source = [
         [str(i), f"{kind}.Tags[].{field}", value, field]
@@ -752,18 +758,22 @@ def test_tag_table_rows(kind, packed):
     )
     table = ReferenceTable("", (), tuple(rendered), semantic, tuple(baseline))
     heading = f"### {kind}: fixture"
-    assert expanded_display_rows(
-        [heading, *rendered], reference_tables=(table,)
-    ) == [heading, *semantic]
+    assert expanded_display_rows([heading, *rendered], reference_tables=(table,)) == [
+        heading,
+        *semantic,
+    ]
     changed = [line.replace("`team`", "`wrong`") for line in rendered]
     with pytest.raises(ValueError, match="differs from Model expected display"):
         expanded_display_rows([heading, *changed], reference_tables=(table,))
 
 
-@pytest.mark.parametrize("prop, value", [
-    ("Tags", '`{"owner":"team"}`'),
-    ("Target.EcsParameters.Tags[]", '`[{"Key":"owner","Value":"team"}]`'),
-])
+@pytest.mark.parametrize(
+    "prop, value",
+    [
+        ("Tags", '`{"owner":"team"}`'),
+        ("Target.EcsParameters.Tags[]", '`[{"Key":"owner","Value":"team"}]`'),
+    ],
+)
 def test_tag_collection_rows(prop, value):
     assert compact_tag_rows([["1", prop, value, "tag"]]) == [
         ["1", prop.removesuffix("[]") + ".owner", "`team`", "tag"]
@@ -2570,9 +2580,7 @@ def check_rotation_inputs():
                 message,
             )
         lines = output.splitlines()
-        child_rows = [
-            line for line in lines if "| RotationSchedule." in line
-        ][:3]
+        child_rows = [line for line in lines if "| RotationSchedule." in line][:3]
         second_child = [
             line.replace("secret-1_rotate", "secret-3_rotate").replace(
                 "SecretsManager_RotationSchedule_001",

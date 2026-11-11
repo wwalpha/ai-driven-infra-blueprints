@@ -13,6 +13,7 @@ from model.core import ReferenceDiagnosticError
 from model.format import owner
 from model.projection import reference_display, validate_json_documents
 from model.render import generate_files, generate_markdown
+from support.model_design_fixtures import collapsed_json
 from support.model_reference_fixtures import (
     FRAMEWORK,
     project,
@@ -90,11 +91,14 @@ def check_eventbridge_source_arn_policy_generation(sqs):
     save(scope, values)
     original = dict(values)
     outputs = generate_files(path, values, scope.root)
-    policy = json.loads(outputs[path.parent / "sqs/policy.json"])
+    policy = collapsed_json(outputs[path])
     assert policy["Statement"][0]["Condition"]["ArnEquals"]["aws:SourceArn"] == (
         "arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule"
     )
-    assert policy["Statement"][0]["Condition"]["ArnEquals"]["aws:SourceArn"] in outputs[path]
+    assert (
+        policy["Statement"][0]["Condition"]["ArnEquals"]["aws:SourceArn"]
+        in outputs[path]
+    )
     assert "](events.md#saved-001)" not in outputs[path]
     assert values == original
 

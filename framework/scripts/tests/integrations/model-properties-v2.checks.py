@@ -54,7 +54,8 @@ def check_cli_subprocess_and_canonical_imports():
         cli = Path(__file__).resolve().parents[2] / "model/cli.py"
         help_result = subprocess.run(
             [sys.executable, "-B", str(cli), "edit", "--help"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert help_result.returncode == 0
         assert "external directory" in help_result.stdout
@@ -187,7 +188,7 @@ def check_properties_normal_generation_uses_new_authority(tmp_path, monkeypatch)
         model = root / "model/dev/123456789012/iam.properties"
         design = root / "docs/designs/dev/123456789012/iam.md"
         artifact = design.with_suffix("") / "iam-role-001-trust-policy.json"
-        before = {path: path.read_bytes() for path in (model, design, artifact)}
+        before = {path: path.read_bytes() for path in (model, design)}
         inputs = GenerationInputs(root, framework)
         try:
             stage = inputs.open_stage()
@@ -211,7 +212,7 @@ def check_properties_normal_generation_uses_new_authority(tmp_path, monkeypatch)
             assert not failures, failures
             assert generated[design]
             assert (stage / model.relative_to(root)).read_bytes() == before[model]
-            assert (stage / artifact.relative_to(root)).read_bytes() == before[artifact]
+            assert not (stage / artifact.relative_to(root)).exists()
             assert (stage / design.relative_to(root)).read_bytes() == before[design]
             assert not (stage / "framework").exists()
             assert all(
@@ -438,11 +439,21 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
                     cli = Path(__file__).resolve().parents[2] / "model/cli.py"
                     result = subprocess.run(
                         [
-                            sys.executable, "-I", "-B", str(cli), "allocate", str(path),
-                            "--candidate", str(candidate_root), "--resource", "008",
+                            sys.executable,
+                            "-I",
+                            "-B",
+                            str(cli),
+                            "allocate",
+                            str(path),
+                            "--candidate",
+                            str(candidate_root),
+                            "--resource",
+                            "008",
                             "--write-candidate",
                         ],
-                        cwd=target, capture_output=True, text=True,
+                        cwd=target,
+                        capture_output=True,
+                        text=True,
                     )
                     assert result.returncode == 0, result.stderr
                     assert json.loads(result.stdout)["allocations"] == [

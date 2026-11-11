@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 from contextlib import redirect_stderr
@@ -287,3 +288,14 @@ def main():
 
 
 __all__.append("main")
+
+
+def collapsed_json(markdown, summary=None):
+    """Read one JSON body from the generated details block."""
+    blocks = re.findall(
+        r"<details>\n<summary>(.*?)</summary>\n\n```json\n(.*?)\n```\n\n</details>",
+        markdown,
+        flags=re.DOTALL,
+    )
+    (body,) = [body for label, body in blocks if summary is None or label == summary]
+    return json.loads(body)

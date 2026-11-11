@@ -59,7 +59,7 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     monkeypatch.chdir(root)
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", f"tasks/{root.name}.md")
     path = root / f"tasks/{root.name}.md"
-    omitted = f"docs/designs/dev/{ACCOUNT}/s3/s3-bucket-001-bucket-policy.json"
+    omitted = f"docs/designs/dev/{ACCOUNT}/s3.md"
     old = path.read_text(encoding="utf-8")
     assert old.count(f"- `{omitted}`\n") == 2
     path.write_text(old.replace(f"- `{omitted}`\n", ""), encoding="utf-8")
@@ -77,7 +77,7 @@ def check_contract_preparation_correction_round_trip(tmp_path, monkeypatch):
     )
     calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
     transitions.suspend(
-        root, f"tasks/{root.name}.md", "omitted necessary generated JSON path"
+        root, f"tasks/{root.name}.md", "omitted necessary generated Markdown path"
     )
     suspended = path.read_text(encoding="utf-8")
     candidate = suspended.replace(

@@ -174,7 +174,7 @@ def model_reference_tables(path, text, values, root, *, check_document=True):
     if not source:
         return ()
     snapshots = _model_display.reference_rows(source).values()
-    if not any(
+    if "[JSON](#" not in text and not any(
         (check_document and item.references)
         or any(
             row[1] in _dependency_policy_tables.IAM_POLICY_DOCUMENTS

@@ -34,6 +34,7 @@ from model.render import generate_files, generate_markdown
 from model.sources import load_model
 from model.validations.full_inputs import check_model_inputs as model_inputs
 from model.validations.json_settings import validate_json_settings
+from support.model_design_fixtures import collapsed_json
 from support.model_reference_fixtures import (
     FRAMEWORK,
     project,
@@ -171,10 +172,7 @@ def test_pending_model_only_validation_and_final_acceptance(models, fault):
     save(consumer, role)
     outputs = generate_files(view, role, root)
     save_files(outputs)
-    assert (
-        "PENDING_DEPLOY"
-        in outputs[view.with_suffix("") / "iam-role-070-synthetic-policy.json"]
-    )
+    assert "PENDING_DEPLOY" in outputs[view]
     if fault in {"target", "attribute"}:
         document["Statement"][6]["Resource"] = reference(
             "KMS_Key_999" if fault == "target" else "KMS_Key_004",
@@ -190,8 +188,9 @@ def test_pending_model_only_validation_and_final_acceptance(models, fault):
             }
         )
     elif fault == "stale":
-        artifact = view.with_suffix("") / "iam-role-070-synthetic-policy.json"
-        artifact.write_text("{}\n", encoding="utf-8")
+        view.write_text(
+            outputs[view].replace("kms:Encrypt", "kms:Decrypt"), encoding="utf-8"
+        )
     save(consumer, role)
     after = sources.raw_model(consumer.path)
     scope = {("qa", "team", "iam")}
@@ -571,9 +570,12 @@ def test_pending_resolves_without_altering_authority(models):
             path
             for paths in plan.generated.values()
             for path in paths
-            if path.name == "iam-role-070-synthetic-policy.json"
+            if path.name == "iam.md"
         )
-        assert json.loads(generated.read_text(encoding="utf-8")) == result
+        assert (
+            collapsed_json(generated.read_text(encoding="utf-8"), "synthetic-policy")
+            == result
+        )
     finally:
         plan.close()
 
@@ -689,7 +691,9 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
                 errors=(), warnings=(), diagnostics=[], unverified=()
             ),
         ),
-        patch.object(sync_runtime, "markdown_for", return_value="# Generated\n"),
+        patch.object(
+            sync_runtime, "markdown_for", return_value="# Generated\n"
+        ) as render,
     ):
         generated = sync_runtime.generate_views(
             stage,
@@ -707,9 +711,9 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         assert (stage / artifact.relative_to(root)).read_bytes() == original[artifact]
     else:
         assert (
-            json.loads((stage / artifact.relative_to(root)).read_bytes())["Statement"][
-                6
-            ]["Resource"]
+            render.call_args_list[0].kwargs["generated_documents"]["070-004"][
+                "Statement"
+            ][6]["Resource"]
             == "PENDING_DEPLOY"
         )
     sync_runtime.save_files(
@@ -724,11 +728,10 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         assert artifact.read_bytes() == original[artifact]
         assert bad.read_bytes() == original[bad]
     else:
-        assert (
-            json.loads(artifact.read_bytes())["Statement"][6]["Resource"]
-            == "PENDING_DEPLOY"
-        )
-        assert bad.read_text(encoding="utf-8") == "# Generated\n"
+        assert artifact.read_bytes() == original[artifact]
+        assert bad.read_text(encoding="utf-8") == (
+            stage / bad.relative_to(root)
+        ).read_text(encoding="utf-8")
     plan = SimpleNamespace(
         root=root,
         generated_scope={("qa", "team", path.stem) for path in generated},
@@ -805,8 +808,8 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     markdown = generate_markdown(path, load_model(consumer).values, FRAMEWORK)
     path.write_text(markdown, encoding="utf-8")
     assert "confirmed-bucket" in markdown and "PENDING_DEPLOY" in markdown
-    assert "iam/iam-role-070-synthetic-policy.json" in markdown
-    assert "iam/iam-role-070-trust-policy.json" in markdown
+    assert "iam/iam-role-070-synthetic-policy.json" not in markdown
+    assert "iam/iam-role-070-trust-policy.json" not in markdown
     assert "](kms.md#saved-004)" not in markdown
     assert rendered_design(path, definitions_root=FRAMEWORK) == markdown
     assert consumer.path.read_bytes() == original

@@ -22,6 +22,7 @@ from model.projection import reference_display
 from model.reference_nodes import nodes, parse, receiving_property, resolve
 from model.render import generate_files, generate_markdown
 from model.validations.json_settings import validate_json_settings
+from support.model_design_fixtures import collapsed_json
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
@@ -1554,7 +1555,7 @@ def test_iam_condition_document_generation(models):
     path = models / "docs/designs/qa/team/receiver.md"
     artifacts = generate_files(path, values, models, warnings=warnings)
     assert not warnings, warnings
-    document = json.loads(artifacts[path.parent / "receiver/policy.json"])
+    document = collapsed_json(artifacts[path])
     assert document["Statement"][0]["Condition"]["ArnEquals"][key] == [
         "arn:aws:s3:::fixture-bucket"
     ]

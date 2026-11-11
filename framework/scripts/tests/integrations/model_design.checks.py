@@ -19,6 +19,7 @@ from model.sources import scope_for, source_inputs
 from support.model_design_fixtures import (
     ROOT,
     SYNC,
+    collapsed_json,
     json,
     load_model,
     main,
@@ -302,11 +303,12 @@ def check_s3_policy_kms_reference_roundtrip(root, project):
         json.loads(load_model(source).authoritative["desired.row.002-002.document"]),
         policy,
     )
-    case.assertIn("[Policy](s3/policy.json)", output)
-    artifact = generate_files(path, values, root)[directory / "s3/policy.json"]
+    case.assertNotIn("(s3/policy.json)", output)
+    files = generate_files(path, values, root)
+    case.assertEqual(set(files), {path})
     case.assertIn(
         "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
-        artifact,
+        files[path],
     )
 
 
@@ -466,9 +468,10 @@ def check_kms_policy_execution_account(root):
     path = root / f"docs/designs/dev/{identity}/kms.md"
     assert SYNC.sync(root, True, "dev", identity, services=["kms"]) == 0
     artifact = path.with_suffix("") / "test-key-policy.json"
-    saved = path.read_bytes(), artifact.read_bytes()
-    assert b"reference-rows" not in saved[0] and b"reference-value" not in saved[0]
-    assert key_id in saved[0].decode("utf-8")
+    saved = path.read_bytes()
+    assert not artifact.exists()
+    assert b"reference-rows" not in saved and b"reference-value" not in saved
+    assert key_id in saved.decode("utf-8")
     assert "$modelRef" in "\n".join(DesignIndex(root).get(path).raw.display_lines)
     assert SYNC.sync(root, False, "dev", identity, services=["kms"]) == 0
 
@@ -835,7 +838,7 @@ def check_multi_service_publication(root, project):
     }
     TestCase().assertEqual(SYNC.sync(root, True, "dev", "123456789012"), 0)
     TestCase().assertEqual(
-        json.loads((docs / "iam/iam-role-001-trust-policy.json").read_text()), document
+        collapsed_json((docs / "iam.md").read_text(encoding="utf-8")), document
     )
     assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
     assert (docs / "vpc.md").read_bytes() == saved_views[docs / "vpc.md"]

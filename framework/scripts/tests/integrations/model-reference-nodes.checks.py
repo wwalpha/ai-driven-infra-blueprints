@@ -4,7 +4,6 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -14,6 +13,7 @@ from model.projection import generated_document, reference_resolver
 from model.render import generate_files, generate_markdown
 from model.sources import load_model
 from support.it_case_receipt import it_case
+from support.model_design_fixtures import collapsed_json
 from support.model_reference_fixtures import FRAMEWORK, project, reference, save
 from sync_files import save_files
 from utils.aws_mappings import mapping_alias
@@ -30,7 +30,7 @@ def main():
         with mapping_alias(FRAMEWORK, root):
             producer, values, consumer, policy = project(root)
             view = root / "docs/designs/qa/team/iam.md"
-            artifact = view.with_suffix("") / "policy.json"
+            assert not view.with_suffix("").exists()
             original = consumer.path.read_bytes()
             for observed, expected in [
                 (None, "unresolved"),
@@ -58,17 +58,13 @@ def main():
                     )
                 snapshot = load_model(consumer)
                 markdown = generate_markdown(view, snapshot.values, root)
-                TestCase().assertNotIn("$modelRef", markdown)
-                TestCase().assertIn("](kms.md#saved-001)", markdown)
                 files = generate_files(view, snapshot.values, root)
                 save_files(files)
                 display = rendered_design(view, definitions_root=FRAMEWORK)
                 assert display == markdown
                 if observed is None:
                     assert expected not in display
-                elif observed != "PENDING_DEPLOY":
-                    TestCase().assertIn(f"[{expected}](kms.md#saved-001)", display)
-                document = json.loads(artifact.read_bytes())
+                document = collapsed_json(markdown)
                 assert document["Statement"][0]["Resource"] == (
                     json.loads(policy["desired.row.001-002.document"])["Statement"][0][
                         "Resource"

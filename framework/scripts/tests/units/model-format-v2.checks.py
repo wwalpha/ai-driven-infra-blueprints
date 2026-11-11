@@ -53,6 +53,7 @@ from model.references import declarations, incoming, usages
 from model.references import diagnose as diagnose
 from model.render import display_name, render_model, resource_details
 from model.sources import Scope, load_model, runtime_values
+from support.model_design_fixtures import collapsed_json
 from support.model_sources import write_model
 from support.model_v2_fixtures import (
     FRAMEWORK,
@@ -277,11 +278,11 @@ def check_macie_renders_current_document_without_artifact_reads(
         artifact.write_text(existing, encoding="utf-8")
     original = scope.path.read_bytes()
     files = render_model(load_model(scope), None)
-    if inline:
-        assert artifact not in files
-    else:
-        assert json.loads(files[artifact]) == document
-    markdown = files[artifact.parent.with_suffix(".md")]
+    view = artifact.parent.with_suffix(".md")
+    assert set(files) == {view}
+    markdown = files[view]
+    assert collapsed_json(markdown) == document
+    assert "macie/definition.json)" not in markdown
     assert ("#### 対象S3 bucket" in markdown) == (not inline)
     for bucket in document.get("bucketDefinitions", [{"buckets": []}])[0]["buckets"]:
         assert f"`{bucket}`" in markdown

@@ -23,9 +23,10 @@ from design.policy_tables import (
 )
 from model.core import properties
 from model.display import ReferenceTable
-from model.render import generate_markdown
+from model.render import generate_files, generate_markdown
 from model.sources import load_model, runtime_values
 from support import design_layout_fixtures as layout_fixture
+from support.model_design_fixtures import collapsed_json
 from support.model_reference_fixtures import project, save
 from support.model_reference_fixtures import resource as model_resource
 from support.model_sources import write_model
@@ -194,19 +195,15 @@ def check_iam(tmp_path):
         assert errors(
             rendered.replace(START, START + "\n\n" + metadata + "`legacy`", 1)
         )
-    assert errors(rendered.replace('"Version": "2012-10-17"', '"Version": "2008-10-17"', 1)), (
-        "wrong trust Version must fail"
-    )
+    assert errors(
+        rendered.replace('"Version": "2012-10-17"', '"Version": "2008-10-17"', 1)
+    ), "wrong trust Version must fail"
     assert errors(text), "missing views must fail"
     assert errors(rendered.replace("[RoleA](#iam-rolea)", "[Wrong](#iam-rolea)"))
     assert errors(
         rendered.replace('id="iam-roleb-inline-extra"', 'id="iam-rolea-inline-extra"')
     )
-    assert errors(
-        rendered.replace(
-            '"logs:PutLogEvents"', '"logs:Other"', 1
-        )
-    )
+    assert errors(rendered.replace('"logs:PutLogEvents"', '"logs:Other"', 1))
     assert errors(rendered.replace(START, "", 1))
     assert errors(rendered.replace(END, "", 1))
     assert errors(rendered.replace("### IAM.Role: RoleB", "### IAM.Role: RoleA"))
@@ -1015,6 +1012,33 @@ def check_macie_resource_additional_display(tmp_path):
     path.write_text(text, encoding="utf-8")
     assert "#### 対象S3 bucket" in text
     assert rendered_design(path, definitions_root=REPOSITORY) == text
+
+
+def check_eventbridge_folded_documents(tmp_path):
+    project(tmp_path)
+    scope, values = model_resource(
+        tmp_path, "events", "Events.EventBus", attribute="Name"
+    )
+    document = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {"Effect": "Allow", "Action": "events:PutEvents", "Resource": "*"}
+        ],
+    }
+    values.update(
+        {
+            "desired.row.001-002.property": "Events.EventBus.Policy",
+            "desired.row.001-002.value": "[Access](events/access.json)",
+            "desired.row.001-002.document": json.dumps(document),
+            "desired.row.001-002.comment": "権限",
+        }
+    )
+    save(scope, values)
+    path = tmp_path / "docs/designs/qa/team/events.md"
+    files = generate_files(path, load_model(scope.path).values, tmp_path)
+    assert set(files) == {path}
+    assert "(events/access.json)" not in files[path]
+    assert collapsed_json(files[path], "Access") == document
 
 
 def check_policy_cli_rejects_stale_tables_without_writing(tmp_path):

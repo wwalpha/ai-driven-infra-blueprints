@@ -27,6 +27,7 @@ from support.import_model_fixtures import (
     resource_values,
     service_values,
 )
+from support.model_design_fixtures import collapsed_json
 from support.model_parameter_inputs_fixtures import fixture as fixture
 from support.model_reference_fixtures import (
     FRAMEWORK,
@@ -425,10 +426,7 @@ def check_logical_secret_end_to_end(tmp_path):
         artifacts = generate_files(
             view, load_model(consumer).values, tmp_path, warnings=linked_warnings
         )
-        assert (
-            json.loads(artifacts[view.with_suffix("") / "policy.json"])
-            == linked_document
-        )
+        assert collapsed_json(artifacts[view]) == linked_document
         assert not linked_warnings
 
 

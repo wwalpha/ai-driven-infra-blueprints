@@ -57,7 +57,6 @@ import model.dependency_index as dependency_index
 import model.observed as _imports_model_observed
 import model.projection as _imports_model_projection
 import model.sources as source_models
-from model import projection as model_projection
 from model.adapters.observation_sources import (
     cloudcontrol_source,
     codebuild_source,
@@ -69,6 +68,7 @@ from model.files import read_model, resource_row_index
 from model.identity import Resolver
 from model.reference_nodes import nodes
 from model.references import usages
+from model.render import owned_artifacts
 from model.sources import (
     design_source_digest,
     input_snapshot,
@@ -704,8 +704,10 @@ def resolve_resources(
             definition = definitions.get(logical, {})
             deleting = logical in (removed or {}).get(unit["name"], {})
             desired = document.get("Resources", {}).get(logical)
-            if deleting and desired is not None and not condition_active(
-                document, parameters, pseudo, desired
+            if (
+                deleting
+                and desired is not None
+                and not condition_active(document, parameters, pseudo, desired)
             ):
                 inactive_removals.add((unit["name"], logical))
             if not deleting and not condition_active(
@@ -1017,9 +1019,7 @@ def observed_destinations(
             root / DESIGNS_DIRECTORY / path.relative_to(root / "model")
         ).with_suffix(".md")
         views.add(design)
-        for _, row in entries(loaded[path], "desired.row."):
-            if match := model_projection.JSON_LINK.fullmatch(row["value"]):
-                views.add((design.parent / match.group(1)).resolve())
+        views.update(owned_artifacts(design, loaded[path]))
     if not check_scope:
         return destinations, views, sync
     snapshot = task_snapshot(root)

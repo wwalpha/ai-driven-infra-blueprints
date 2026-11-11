@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -14,19 +13,22 @@ from design.services.definitions.macie import JOB as JOB
 from design.services.definitions.macie import SCOPE as SCOPE
 
 
-def job_bucket_tables(path: Path) -> dict[str, tuple[Path, list[dict]]]:
+def job_bucket_tables(
+    path: Path, *, require_artifact=True
+) -> dict[str, tuple[Path | None, list[dict]]]:
     """Return each Job's JSON artifact and bucketDefinitions in table order."""
     lines = path.read_text(encoding="utf-8").splitlines()
     artifacts: dict[str, Path] = {}
     mappings: dict[str, list[dict]] = {}
-    current = anchor = ""
+    current = anchor = next_anchor = ""
     index = 0
     while index < len(lines):
         line = lines[index]
         if marker := re.fullmatch(r'<a id="([^"]+)"></a>', line):
-            anchor = marker.group(1)
+            next_anchor = marker.group(1)
         if match := JOB.fullmatch(line):
             current = match.group(1)
+            anchor = next_anchor
         elif line.startswith("### "):
             current = ""
         if current and (match := SCOPE.match(line)):
@@ -65,14 +67,14 @@ def job_bucket_tables(path: Path) -> dict[str, tuple[Path, list[dict]]]:
             )
             if match := BUCKET_LINK.fullmatch(cells[2]):
                 bucket = match.group(1)
-                target_text, anchor = match.group(2).split("#", 1)
+                target_text, bucket_anchor = match.group(2).split("#", 1)
                 target = (path.parent / target_text).resolve()
                 if target.parent != path.parent.resolve() or not target.is_file():
                     raise ValueError(
                         f"Macie bucket link must resolve in the same target: {current}: {bucket}"
                     )
                 target_lines = target.read_text(encoding="utf-8").splitlines()
-                anchor_line = f'<a id="{anchor}"></a>'
+                anchor_line = f'<a id="{bucket_anchor}"></a>'
                 if anchor_line not in target_lines:
                     raise ValueError(
                         f"Macie bucket link lacks an S3 Bucket anchor: {current}: {bucket}"
@@ -108,30 +110,13 @@ def job_bucket_tables(path: Path) -> dict[str, tuple[Path, list[dict]]]:
             for account, buckets in groups.items()
         ]
     for job in mappings:
-        if job not in artifacts:
+        if require_artifact and job not in artifacts:
             raise ValueError(
                 f"Macie bucket table requires a linked s3JobDefinition JSON artifact: {job}"
             )
-    return {job: (artifacts[job], definitions) for job, definitions in mappings.items()}
-
-
-def write_job_bucket_definitions(path: Path) -> None:
-    """Update only bucketDefinitions; keep optional JSON scoping settings."""
-    for job, (artifact, definitions) in job_bucket_tables(path).items():
-        value = (
-            json.loads(artifact.read_text(encoding="utf-8"))
-            if artifact.is_file()
-            else {}
-        )
-        if not isinstance(value, dict) or "bucketCriteria" in value:
-            raise ValueError(f"Macie bucket table conflicts with bucketCriteria: {job}")
-        if value.get("bucketDefinitions") == definitions:
-            continue
-        value["bucketDefinitions"] = definitions
-        artifact.parent.mkdir(parents=True, exist_ok=True)
-        artifact.write_text(
-            json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
+    return {
+        job: (artifacts.get(job), definitions) for job, definitions in mappings.items()
+    }
 
 
 JOB_INPUT_GROUPS = (

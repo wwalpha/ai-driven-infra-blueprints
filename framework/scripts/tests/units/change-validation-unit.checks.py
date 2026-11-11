@@ -1430,10 +1430,7 @@ def check_pending_artifact_does_not_gate_model_save(project_workspace):
     )
     view = root / "docs/designs/preview/team/iam.md"
     with selected_task(root, name):
-        assert (
-            "PENDING_DEPLOY"
-            in generate_files(view, values, root)[view.with_suffix("") / "policy.json"]
-        )
+        assert "PENDING_DEPLOY" in generate_files(view, values, root)[view]
         inputs = GenerationInputs(root, task_file=name)
         context = sources.SourceWriteContext._authorized(
             root,
@@ -1450,12 +1447,7 @@ def check_pending_artifact_does_not_gate_model_save(project_workspace):
         plan = prepare_edit(path, {path: serialize(candidate)}, context)
         assert publish_edit(plan, context) == (path,)
         assert sources.raw_model(path).authoritative == candidate
-        assert (
-            "PENDING_DEPLOY"
-            in generate_files(view, candidate, root)[
-                view.with_suffix("") / "policy.json"
-            ]
-        )
+        assert "PENDING_DEPLOY" in generate_files(view, candidate, root)[view]
         assert not view.exists()
         assert (
             node

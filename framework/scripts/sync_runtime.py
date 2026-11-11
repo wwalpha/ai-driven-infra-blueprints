@@ -1,6 +1,5 @@
 """Select, project, compare and publish Model views; independent of the CLI."""
 
-import json
 import re
 import tempfile
 from contextlib import ExitStack, contextmanager
@@ -10,13 +9,12 @@ from pathlib import Path
 
 import import_guard as _imports_import_guard
 import model.importing.scope as _imports_model_importing_scope
-import model.projection as _imports_model_projection
 import model.sources as _imports_model_sources
 import sync_views
 import task_contract_core as _imports_task_contract
 import validation_cache as _imports_validation_cache
 from aws_mapping_display import validate_mappings as validate_mappings
-from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED, row_resource
+from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED
 from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
 from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from design.document import DisplayMismatchError, require_saved_identity
@@ -26,13 +24,12 @@ from model.change_scope import change_reads, index_stage
 from model.core import (
     ReferenceDiagnosticError,
     ReferenceResolutionError,
-    require_reference_diagnostics,
 )
-from model.format import JSON_LINK
 from model.importing.scope import scoped as import_scoped
 from model.importing.scope import selected as import_selection
 from model.projection import resource_row_scope
 from model.render import generate_files as generate_files
+from model.render import owned_artifacts, project_view_documents
 from model.render import render_validated_model as markdown_for
 from model.sources import (
     load_model,
@@ -75,7 +72,6 @@ from utils.input_cache import (
     recording_inputs,
 )
 from utils.input_cache import memo_table as memo_table
-from utils.json_format import policy_json
 from validation.diagnostics import (
     Diagnostic,
     display_diagnostics,
@@ -285,8 +281,6 @@ def generate_views(
     # Render all valid base views before resolving cross-service links.
     for path, values in destinations.items():
         staged = stage / path.relative_to(root)
-        artifacts = {}
-        documents = {}
         failure_start = len(failures)
         try:
             model = _imports_model_sources.raw_model(
@@ -294,87 +288,13 @@ def generate_views(
                     root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)
                 ).with_suffix(".properties")
             )
-            diagnostics = []
-            resolver = _imports_model_projection.reference_resolver(
-                values, model.scope, root
+            documents = project_view_documents(
+                values,
+                model.scope,
+                root,
+                warnings=warnings,
+                strict=strict,
             )
-            project_document = _imports_model_projection.generated_document
-            for identity, row in _model_api.ModelView(values).all_rows():
-                match = JSON_LINK.fullmatch(row.get("value", ""))
-                if not match:
-                    if "document" in row:
-                        raise ValueError(
-                            f"JSON document requires an artifact link: {identity}"
-                        )
-                    raw, structured = _model_api.parse_reference_field(
-                        f"desired.row.{identity}.value", row["value"]
-                    )
-                    if structured and strict:
-                        try:
-                            project_document(
-                                raw,
-                                root,
-                                property_name=row["property"],
-                                scope=model.scope,
-                                resolver=resolver,
-                                logical_id=values.get(
-                                    f"desired.resource.{row_resource(identity)}.logicalId"
-                                ),
-                                model_key=f"desired.row.{identity}.value",
-                                context=_imports_model_projection.reference_context_for(
-                                    values, identity, row, raw, "", root
-                                ),
-                                warnings=warnings,
-                            )
-                        except ReferenceDiagnosticError as error:
-                            diagnostics.extend(error.diagnostics)
-                    continue
-                if "document" not in row:
-                    raise ValueError(
-                        f"authoritative JSON document missing: {path.name}: {identity}"
-                    )
-                artifact = (staged.parent / match.group(1)).resolve()
-                safe(stage, staged.parent / match.group(1))
-                if artifact.parent != staged.with_suffix("").resolve():
-                    raise ValueError(
-                        f"JSON artifact must belong to owning service: {identity}"
-                    )
-                try:
-                    raw_document = policy_json(row["document"])
-                    previous = documents.setdefault(artifact, raw_document)
-                    if previous != raw_document:
-                        raise ValueError(
-                            "conflicting authoritative JSON documents: " + artifact.name
-                        )
-                    document = project_document(
-                        raw_document,
-                        root,
-                        property_name=row["property"],
-                        scope=model.scope,
-                        resolver=resolver,
-                        logical_id=values.get(
-                            f"desired.resource.{row_resource(identity)}.logicalId"
-                        ),
-                        model_key=f"desired.row.{identity}.document",
-                        context=_imports_model_projection.reference_context_for(
-                            values, identity, row, raw_document, "", root
-                        ),
-                        warnings=warnings,
-                    )
-                except ReferenceDiagnosticError as error:
-                    diagnostics.extend(error.diagnostics)
-                    continue
-                if not isinstance(document, dict):
-                    raise ValueError(f"JSON document must be an object: {identity}")
-                content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
-                if artifact in artifacts and artifacts[artifact] != content:
-                    raise ValueError(
-                        f"conflicting authoritative JSON documents: {artifact.name}"
-                    )
-                artifacts[artifact] = content
-            require_reference_diagnostics(diagnostics)
-            warnings.extend(d for d in diagnostics if d not in warnings)
-            save_files(artifacts)
             staged.parent.mkdir(parents=True, exist_ok=True)
             display_warnings = []
             staged.write_text(
@@ -384,7 +304,7 @@ def generate_views(
                     stage,
                     definitions_root=definitions_root,
                     warnings=display_warnings,
-                    generated_documents=artifacts,
+                    generated_documents=documents,
                 ),
                 encoding="utf-8",
                 newline="",
@@ -398,7 +318,7 @@ def generate_views(
                     }
                 if warning not in warnings:
                     warnings.append(warning)
-            generated[path] = [*artifacts, staged]
+            generated[path] = [staged]
         except ReferenceDiagnosticError as error:
             warnings.extend(
                 {**diagnostic, "source": str(path.relative_to(root))}
@@ -770,6 +690,11 @@ def prepare_generation(
                 unavailable=plan.unavailable,
                 strict=strict,
             )
+        for path in plan.generated:
+            retired = owned_artifacts(path, plan.destinations[path])
+            for artifact in retired:
+                snapshot.read(artifact)
+            plan.expected_outputs[path] = dict.fromkeys(retired)
         generation_scope.close()
         return plan
     except BaseException:
@@ -785,7 +710,7 @@ def validate_generation(plan, *, jobs=4, write=True):
             for file in files
         }
         expected[path] = markdown_newlines(path, expected[path])
-        plan.expected_outputs[path] = expected
+        plan.expected_outputs.setdefault(path, {}).update(expected)
         if plan.snapshot is not None:
             for file in expected:
                 plan.snapshot.read(file)

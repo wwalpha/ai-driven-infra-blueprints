@@ -244,12 +244,12 @@ Separate detailed-design targets from targets creatable with IaC. Even without C
 - Registered API design resources include `Macie.ClassificationJob` and `QuickSight.Group`. Place `Macie.ClassificationJob` in the same `macie.md` as `Macie.Session`; place `QuickSight.Group` in `quicksight.md`. Each is an independent resource with a normal overview entry and detail heading. Display relationships follow `resource-layout.json`.
 - `framework/materials/api/*.properties` is authoritative for API selection lists; same-name `.json` files are authoritative for types/constraints. These are fixed design schemas based on official API requests/responses, not CloudFormation provider schemas. Retain source references, API version, source hashes, verification dates, and explicit `cloudFormationType` mappings on the framework side (`null` only for CFn-unsupported resources); do not add them as detailed-design AWS properties.
 - Retain formal API capitalization, including `Macie.ClassificationJob.name` and `QuickSight.Group.AwsAccountId`, `Namespace`, `GroupName`, and `Description`. QuickSight Group identity is `AwsAccountId` + `Namespace` + `GroupName`; `UpdateGroup` can change only `Description`. Do not add non-catalog fields, fictitious CFn types, runtime `clientToken`, or reference-derived generated ARNs as concrete desired Model properties.
-- Selection units are API root properties. Write `s3JobDefinition`, `scheduleFrequency`, and `tags` as JSON objects, and identifier arrays as JSON arrays, in Value. Long objects may link to existing service-owned JSON artifacts. Do not split into leaf rows losing array element membership or embed Markdown links inside JSON. Use ordinary relative Markdown links for explanatory references to related resources.
-- For `bucketDefinitions`-type Jobs enumerating fixed buckets, make `s3JobDefinition` rows links to same-service JSON artifacts; place `#### 対象S3 bucket` and 3-column mapping tables after Job configuration tables. Generate tables from bucketDefinitions in model `desired.row.*.document`. Display 1 bucket per row: Job cells are same-file links to those Jobs, account cells confirmed 12-digit IDs, and Bucket cells relative same-target S3 design links or external bucket-name literals. S3 link display names match linked BucketNames; keep same-account rows contiguous. Reject duplicate buckets, links to other Jobs, and empty tables.
+- Selection units are API root properties. Display `s3JobDefinition`, `scheduleFrequency`, `tags`, and identifier arrays as folded JSON. Do not split into leaf rows losing array element membership or embed Markdown links inside JSON. Use ordinary relative Markdown links for explanatory references to related resources.
+- For `bucketDefinitions`-type Jobs enumerating fixed buckets, link the `s3JobDefinition` rows to their folded JSON in the same Markdown; place `#### 対象S3 bucket` and 3-column mapping tables after Job configuration tables. Generate tables from bucketDefinitions in model `desired.row.*.document`. Display 1 bucket per row: Job cells are same-file links to those Jobs, account cells confirmed 12-digit IDs, and Bucket cells relative same-target S3 design links or external bucket-name literals. S3 link display names match linked BucketNames; keep same-account rows contiguous. Reject duplicate buckets, links to other Jobs, and empty tables.
 
 [Macie bucket mapping table example](detailed-design-samples.md#macie-bucket-mapping)
 
-- `framework/scripts/sync-model.py --write` generates JSON artifacts and mapping tables from model `desired.row.*.document` from mapping-table row order, also retaining selected `scoping`. Local validation matches accounts, buckets, and order between tables and JSON. Do not place fixed bucket mapping tables for `bucketCriteria`-type Jobs; model-row JSON objects are authoritative.
+- `framework/scripts/sync-model.py --write` generates folded JSON and mapping tables from model `desired.row.*.document` in Model order, also retaining selected `scoping`. Local validation matches accounts, buckets, and order between tables and JSON. Do not place fixed bucket mapping tables for `bucketCriteria`-type Jobs; model-row JSON objects are authoritative.
 - Require `name`, `jobType`, and `s3JobDefinition`; also validate unknown properties, types, enums, lengths, ranges, and nested objects/arrays. Omit unused optional array rows rather than using empty arrays.
 - `SCHEDULED` specifies exactly one execution frequency. `ONE_TIME` omits `scheduleFrequency` and `initialRun`. S3 targets are exactly one of `bucketDefinitions` or `bucketCriteria`. Also validate managed data identifier selection methods/ID arrays and custom data identifier mandatory relationships.
 - Write `Macie.ClassificationJob.jobId` as `IDENTIFIER_OUTPUT` in catalog order. Use existing `PENDING_DEPLOY` if uncreated and actual non-ARN IDs if retrieved. These values do not mean planned CFn creation.
@@ -301,104 +301,30 @@ Security Group listings also use 3 columns; place SG Id, GroupDescription, selec
 - Inline rules designed as SG-own `SecurityGroupIngress[]`/`SecurityGroupEgress[]` use only `Inbound` or `Outbound` in Direction cells, without identity or rule-id markers. Append the above `security-group-id` marker only if Security Group references exist. Do not create non-catalog inline rule IDs or convert to independent rules. Retain inline/independent rule distinctions even within the same table.
 - SG attributes, inline rules, independent rules, and parent references in model properties are authoritative for designs; generate SG basic configuration tables, rule tables, and hidden Direction/owning-SG metadata. Common parsers expand to formal catalog properties only during display validation/explicit migration, retaining SG attributes, inline rules, and independent rules. Do not rewrite original Markdown or duplicate configuration values in listings.
 
-## JSON design artifacts
+## Folded JSON in detailed designs
 
-If selected properties need representation as JSON documents, do not embed JSON in Markdown tables; save as the following independent artifacts.
+Generate structured settings and policy documents as fenced JSON inside collapsed
+`<details>` sections after the owning Resource's configuration table. The Value cell
+links to the section in the same Markdown. Generate no separate JSON files or links
+to them. Preserve existing service-specific displays that project structured inputs
+into individual settings or Resource links. Keep every key, value, and array order
+in JSON displayed as a document, including Version and Id in policies.
 
-```text
-docs/designs/<environment>/<target-directory>/<service-id>/<artifact-id>.json
-```
+The authoritative input is `desired.row.*.document` or the structured value in
+`desired.row.*.value`. Existing Model JSON artifact links continue to identify
+documents and supply their display labels. Validate their ownership and uniqueness
+without reading a separate file. Do not migrate these Model values just to change
+the display. Resolve formal references in memory and compare the saved Markdown
+against the expected rendering. Do not write resolved ARNs back to the Model or
+infer missing identifiers. Preserve existing secret and identifier display rules.
 
-- `<artifact-id>` is stable lower-kebab-case representing content and owning resources.
-- Place artifacts within AWS service ownership boundaries of resources owning those JSON properties. IAM Role trust/permissions policies go in `iam/`; `EC2.VPCEndpoint.PolicyDocument` goes in endpoint-owning `vpc/`.
-- One JSON file retains one policy document. Split multiple inline policies into separate files.
-- Resource-table `Value` is a relative Markdown link to a JSON file in the same service directory.
-- JSON bodies must contain meaningful AWS configuration values, without Markdown Resource links, including `$resource` operands. Use external `desired.reference.*`, `format=identifier` and JSON Pointers for confirmed non-ARN identifiers; do not guess IDs, re-resolve confirmed literals, or automatically convert/overwrite existing Models. Keep ordinary URLs/non-Resource strings unchanged. Model JSON may contain typed `$modelRef` nodes at permitted positions; human Markdown Resource links are generated only for display, and relative JSON artifact links remain supported. Do not save reference-derived generated ARNs in Model authority or discard tracking. Generated JSON may contain ARNs resolved from formal Model references.
-- JSON must be syntactically valid objects; do not translate identifiers such as AWS policy keys, Actions, or Condition keys into Japanese.
-- Save JSON as UTF-8, LF, with trailing file newlines. Leave single/multiline array formatting to formatters; do not enforce it through repository rules.
-- Service Models retain Markdown relative artifact links and authoritative JSON bodies in `desired.row.*.document`. Generate and validate JSON artifacts from those documents without storing derived JSON Artifact hashes in the Model.
+Keep generated sections in the owning Resource's display block. Retain existing
+policy anchors, IAM trust and inline policy labels, and the policy document's
+schema and statement checks. Inline policy names still come from the immediately
+preceding PolicyName row. IAM inline Statement Sid remains limited to 16 characters.
 
-### IAM Role policy artifact names
-
-IAM Role-owned policy JSON artifacts use normalized Role logical IDs as `<role-artifact-id>`, removing a leading `cde` and its immediately following `-`, when present. Keep Role logical IDs, RoleNames and policy names unchanged. Use the following names.
-
-- `IAM.Role.AssumeRolePolicyDocument` uses `<role-artifact-id>-trust-policy.json`. Do not use old suffixes such as `assume-role-policy-document` or `assume-role-policy`.
-- `IAM.Role.Policies[].PolicyDocument` explicitly places the same inline policy's `IAM.Role.Policies[].PolicyName` in the immediately preceding row, using `<role-artifact-id>-<policy-name-artifact-id>.json`.
-- If `PolicyName` is unconfirmed, stop as a blocker without inferring artifact names. One inline policy artifact maps one-to-one to one `PolicyName`; multiple policies each use separate artifacts.
-- Do not use generic suffixes not representing `PolicyName`, such as `inline-policy-document`, `inline-policy`, or `permissions-policy`.
-
-Convert input literals of `<role-artifact-id>` and `<policy-name-artifact-id>` to lower-kebab-case in this order.
-
-1. Split boundaries between acronyms and ordinary words.
-2. Split boundaries from lowercase letters or digits to uppercase letters.
-3. Replace non-alphanumeric characters with `-`.
-4. Convert to lowercase.
-5. Collapse consecutive `-` into one, and remove leading/trailing `-`.
-
-Examples are `VPCFLOWLOGROLE01` to `vpcflowlogrole01`, `VPCFlowLogsToCloudWatchLogs` to `vpc-flow-logs-to-cloud-watch-logs`, `cde-stg-example-role` to `stg-example-role`, and `CDEIFINBOUNDGLUEROLE01` to `ifinboundgluerole01`. Remove `cde` only at the start of the normalized Role artifact ID, never from a policy name or an internal occurrence. Do not use AWS service-name dictionaries or individual exceptions. Retain existing stable lower-kebab-case conventions for non-IAM-Role policy artifacts.
-
-## Service policy tables
-
-Besides configuration-table policy JSON links, generate derived displays of JSON bodies immediately after owning-resource configuration tables. Collapsed policy displays contain the JSON body without a reference table. Formal model properties rows are authoritative for resource settings, and those rows' `document` for policy bodies; do not make derived displays independent design inputs.
-
-### Targets and formats
-
-Machine-readable display-format definitions are `POLICY_FORMATS` in `framework/scripts/design/services/definitions/registry.py`. Register exact-match formal catalog properties and verify types through provider schemas. Do not determine policy documents solely from property-name suffixes. When adding document-format policy properties to catalogs, update display-format registrations and focused checks in the same explicitly scoped task.
-
-| Format | Target |
-| --- | --- |
-| Collapsed JSON | IAM Role trust/inline, IAM User inline, IAM ManagedPolicy, S3 BucketPolicy, KMS KeyPolicy, VPC endpoints, SQS QueuePolicy, SSM ResourcePolicy |
-| Statement table | SNS TopicPolicy, ECR repository, Secrets Manager, CloudWatch Logs resource policies, API Gateway, EventBridge, SSO PermissionSet inline, DynamoDB table/stream/replica policies |
-| Contained Statement table | `PolicyDocument` within JSON objects of `DynamoDB.Table.ResourcePolicy`. Retain outer structures; stop without omitting unknown wrapper keys |
-| Configuration table | SNS delivery/filter/redrive/replay/archive/data protection, SQS redrive/redrive allow, CloudWatch Logs data protection, ECR lifecycle, Organizations Policy Content (retain JSON structures for each policy type including SCP) |
-
-Scalars/references such as `SecurityPolicy`, `SslPolicy`, policy names, ARNs, and booleans retain ordinary configuration rows. Also write policy settings expanded into individual catalog properties, such as CloudFront, Network Firewall, or Auto Scaling, in existing 4-column tables. Do not create/fill unselected policies, policy names, or permissions for display.
-
-### Ownership and derived displays
-
-- IAM Roles retain tables/markers below. For others, surround the area immediately after owning-resource configuration tables with `<!-- policy-tables:start -->` and `<!-- policy-tables:end -->`, generating owned policies in configuration-row order.
-- S3 BucketPolicy remains in Bucket configuration tables; its collapsed JSON display belongs to the Bucket. KMS Aliases retain existing grouping in the same configuration tables as Keys. Do not arbitrarily merge independent policies targeting multiple resources, such as SQS/SNS, into one target.
-- For non-IAM-Roles, display names are JSON link display text, and anchors are `<resource-anchor>-policy-<artifact-id>`. Artifact IDs use existing lower-kebab-case filename stems. Use distinct artifacts for multiple policies within the same resource; stop on anchor collisions. Also make policies configured per array target identifiable from each JSON link.
-- Headings are `#### ポリシー：<表示名>` or `#### ポリシー設定：<表示名>`; for all services, do not redisplay formal `Property` or original `JSON` links from configuration rows in derived displays. Derived displays consist of anchors, headings, and collapsed JSON or Statement or configuration tables. Do not add display names as fictitious resource properties.
-- Generate policy tables within owning-resource detail blocks; do not add policy columns to listings.
-- Statement table numbering, columns, Principal expansion, Conditions, escaping, omission prohibition, and unknown-element rejection follow the rules below. Omit standalone `Version：` and `Id：` metadata rows across all services including IAM, retaining JSON-body Version/Id. Do not infer non-permissions-policy JSON as Statement format.
-- Configuration tables use `Property | Type | Value`, with JSON Pointer for Property and `object`/`array`/`string`/`number`/`boolean`/`null` for Type. Root pointers are empty strings; object keys are in string order, arrays retain 0-based indexes and original order. Escape `~` and `/` as `~0` and `~1` within pointers. Containers with children have display-only `—` Values; empty objects/arrays use `{}`/`[]`. Display all elements without converting structures or types. Configuration-table Property columns and JSON Version/Id keys are not standalone metadata rows, so do not omit them.
-- `ECR.Repository.LifecyclePolicy` displays all wrapper settings; if `LifecyclePolicyText` exists, also display parsed JSON string contents in configuration tables. Stop for non-JSON strings or invalid JSON. Do not write displays back into JSON bodies.
-- Reject duplicate JSON keys, invalid JSON constants, non-JSON-object artifacts, and other-service-owned artifact references in all formats. FAIL local loops for missing/duplicate/misowned markers or mismatches between tables/listing links and authoritative sources.
-- Generation updates only derived policy tables of one specified Markdown. Do not duplicate derived displays in models; retain existing JSON links.
-
-For ordinary design saving, `sync-model.py --write` after model updates calls this display processing. The following are auxiliary commands checking only generated policy displays. Without `--write`, they perform read-only equality validation.
-
-```console
-python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-directory>/<service-id>.md --write
-```
-
-### IAM Role policy tables
-
-Retain IAM Role 4-column resource-detail tables and independent policy JSON artifacts; generate collapsed trust/inline policy JSON displays immediately after each Role configuration table without reference tables. Formal model properties rows are authoritative for Role settings, and those rows' `document` for policy bodies.
-
-- `### IAM.Role` within `## リソース一覧` also uses common 3-column formats; ResourceName displays confirmed `RoleName` from the same Role configuration table as same-file anchor links. Detail headings use `### IAM.Role: <RoleName>`; anchors and ordinary reference-link display text also derive from RoleName. Require exactly 1 `RoleName` row; reject missing, duplicate, empty, or unconfirmed values. Do not substitute Name tags, display labels, role paths, or internal logical IDs. Do not add separate RoleName columns or policy names/links to listings; `Comment` retains Role purpose descriptions.
-- Retain other selected Role settings such as `Path`, `ManagedPolicyArns`, and `PermissionsBoundary` in existing 4-column tables. Also retain independent IAM.ManagedPolicy and IAM.InstanceProfile resource displays.
-- Trust policy display names use JSON link display text of `AssumeRolePolicyDocument`. `FlowLogsTrust` is a document display name; do not add fictitious `TrustPolicyName` properties or independent IAM resources. Inline policy display names use immediately preceding `Policies[].PolicyName`.
-- Policy anchors are `<role-anchor>-trust` and `<role-anchor>-inline-<policy-name-artifact-id>`. Inline suffix normalization uses the same processing as existing artifact naming; do not confuse same-named policies of different Roles. Stop if normalized anchors collide within the same Role.
-- Headings are `#### 信頼ポリシー：<表示名>` or `#### インラインポリシー：<PolicyName>`. Follow common rules to omit standalone Property, JSON, Version, and Id metadata rows. Preserve Version in the JSON when present. Do not change JSON bodies.
-- If IAM inline policy (`IAM.Role.Policies[].PolicyDocument`) Statements have `Sid`, require strings of 16 characters or fewer. Exceeding limits is a validation error; do not automatically truncate/rename. Do not fill Statements without Sid. Do not apply this limit to trust/other policy Sids, JSON top-level Id, PolicyName, artifact IDs, or anchors.
-- Tables display 1 Statement per row; leading `No.` columns are sequential from 1. Retain JSON Statement array order; a single-object Statement uses 1 row. Table numbers and optional `Sid` are separate; do not invent/change `Sid`.
-- After `No.`, include JSON-present `Sid`, `Effect`, `Principal`, `NotPrincipal`, `Action`, `NotAction`, `Resource`, `NotResource`, and `Condition` columns in this order. If Principal is an object, expand per type, such as `Principal.Service`, `Principal.AWS`, `Principal.Federated`, and `Principal.CanonicalUser`. Do the same for NotPrincipal; type column order is string order. Cells absent in individual Statements use display-only `—`.
-- Separate multiple Action/Resource/Principal values with `<br>` within cells. Display Conditions without omitting operators, context keys, or values, in the same cell in string order of operators and keys. Display multiple condition values as JSON arrays; do not change condition operators or array structures. Do not split/merge Statements because of Conditions.
-- Do not change tables for changes only to JSON object-key order or indentation. Escape Markdown/HTML special characters within strings; do not write display escapes back to JSON values. Display empty arrays without omission. Stop without silently omitting unknown policy/Statement elements, duplicate JSON keys, or uninterpretable structures.
-- Surround per-Role generation scope with `<!-- iam-policy-tables:start -->` and `<!-- iam-policy-tables:end -->`. Markers contain only that Role's policy anchors, headings, and collapsed JSON displays. Do not include configuration tables or manual implementation notes. Validate missing/duplicate/misowned markers too.
-- Generation updates only within markers of one specified Markdown. Do not change policy JSON, Role settings, or resource listings. Do not automatically correct table contents or JSON to appropriate permissions.
-
-For ordinary design saving, `sync-model.py --write` after model updates calls this display processing. The following are auxiliary commands checking only generated policy displays. Omitting `--write` performs read-only equality validation.
-
-```console
-python3 framework/scripts/policy_tables.py docs/designs/<environment>/<target-directory>/iam.md --write
-```
-
-Generated trust policy table format example (values follow target-design JSON): [IAM trust policy table example](detailed-design-samples.md#iam-trust-policy)
-
-Local loops calculate expected listings/tables with the same generation processing and FAIL mismatches with saved Markdown. This validates policy JSON structure/display consistency; it does not mean validation of effective AWS permissions or per-Action Resource suitability. Retain design-input Resource ARNs/ARN patterns; retain the prohibition on persisting reference-derived generated ARNs in Model authority, while permitting resolved ARNs in generated JSON.
+A service-scoped display migration can retire old Model-owned JSON files when
+those exact paths are authorized. Preserve unrelated files.
 
 ## Links and anchors
 

@@ -39,6 +39,7 @@ from support.deploy_controller_fixtures import (
     drive as invoke,
 )
 from support.deploy_controller_fixtures import invoke as invoke_step
+from support.model_design_fixtures import collapsed_json
 from support.pytest_cli import run
 from support.worktree_deploy_fixtures import seed as managed_seed
 from task_contract_core import selected_task, status
@@ -138,7 +139,8 @@ def assert_published(root, session, evidence):
         subnet in (design / "ec2.md").read_text()
         and "vpc-fixture" in (design / "ec2.md").read_text()
     )
-    policy = json.loads((design / "s3/s3-bucket-001-bucket-policy.json").read_text())
+    assert not (design / "s3/s3-bucket-001-bucket-policy.json").exists()
+    policy = collapsed_json((design / "s3.md").read_text(encoding="utf-8"))
     s3 = properties(read_model(root / f"model/dev/{ACCOUNT}/s3.properties"))
     assert policy == json.loads(s3["desired.row.001-003.document"])
     if THIRD in saved["states"]:
