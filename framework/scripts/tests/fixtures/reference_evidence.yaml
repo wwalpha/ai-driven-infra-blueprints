@@ -2635,6 +2635,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: KeyId
       iac_form: KeyId
       forms:
@@ -2657,6 +2658,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: KeyId
       iac_form: KeyArn
       forms:
@@ -2679,6 +2681,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: KeyId
       iac_form: AliasName
       forms:
@@ -2701,6 +2704,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: KeyId
       iac_form: AliasArn
       forms:
@@ -2723,6 +2727,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: KeyArn
       iac_form: KeyId
       forms:
@@ -2745,6 +2750,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: KeyArn
       iac_form: KeyArn
       forms:
@@ -2767,6 +2773,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: KeyArn
       iac_form: AliasName
       forms:
@@ -2789,6 +2796,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: KeyArn
       iac_form: AliasArn
       forms:
@@ -2811,6 +2819,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: AliasName
       iac_form: KeyId
       forms:
@@ -2833,6 +2842,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: AliasName
       iac_form: KeyArn
       forms:
@@ -2855,6 +2865,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: AliasName
       iac_form: AliasName
       forms:
@@ -2877,6 +2888,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: AliasName
       iac_form: AliasArn
       forms:
@@ -2899,6 +2911,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: AliasArn
       iac_form: KeyId
       forms:
@@ -2921,6 +2934,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: AliasArn
       iac_form: KeyArn
       forms:
@@ -2943,6 +2957,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: AliasArn
       iac_form: AliasName
       forms:
@@ -2965,6 +2980,7 @@ cases:
       path: ArtifactStore.EncryptionKey.Id
       allowed:
       - AliasArn
+      - KeyId
       model_form: AliasArn
       iac_form: AliasArn
       forms:

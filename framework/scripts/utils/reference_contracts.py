@@ -1335,7 +1335,7 @@ REFERENCE_EQUIVALENT_FORMS = {
 TYPE_FORMS = {"KMS.Key": {"KeyId", "Arn"}, "KMS.Alias": {"AliasName", "Arn"}}
 # Existing Framework format policies, shared by the Resolver and comparison.
 KMS_FORMS = {
-    "CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id": {"AliasArn"},
+    "CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id": {"AliasArn", "KeyId"},
     "Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn": {
         "AliasArn"
     },

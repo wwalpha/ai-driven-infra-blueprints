@@ -2776,7 +2776,7 @@ def test_kms_forms_and_arn_values():
                         kind,
                         path,
                     )
-            elif allowed <= {"KeyArn", "AliasArn"}:
+            elif "AliasArn" in allowed:
                 symbolic = comparison.desired_reference(
                     "kms",
                     ResourceReference(

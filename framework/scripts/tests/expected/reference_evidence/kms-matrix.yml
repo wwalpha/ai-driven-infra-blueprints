@@ -1315,40 +1315,26 @@ kms-matrix-47:
 kms-matrix-48:
   decision:
     comparisons: []
-    diagnostics:
-    - allowed_forms:
-      - AliasArn
-      format:
-        iac: outside allowed forms
-        model: outside allowed forms
-      iac:
-        $attribute: KeyId
-        $resource:
-        - kms
-        - '001'
-      identity: same
-      model:
-        $attribute: KeyId
-        $resource:
-        - kms
-        - '001'
-      path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
-    equal: false
+    diagnostics: []
+    equal: true
     equivalent: false
   outcome:
-    code: kms.format_outside_allowed
-    equal: false
-    message: 'KMS format outside allowed forms: model=KeyId, iac=KeyId'
+    code: null
+    equal: true
+    message: null
 kms-matrix-49:
   decision:
     comparisons: []
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
       format:
         iac: outside allowed forms
-        model: outside allowed forms
+        model: allowed
       iac:
         $attribute: Arn
         $resource:
@@ -1361,7 +1347,7 @@ kms-matrix-49:
         - kms
         - '001'
       path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
+      reason: 'KMS format outside allowed forms: model=KeyId, iac=KeyArn'
     equal: false
     equivalent: false
   outcome:
@@ -1374,9 +1360,13 @@ kms-matrix-50:
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
       format:
         iac: outside allowed forms
-        model: outside allowed forms
+        model: allowed
       iac:
         $attribute: AliasName
         $resource:
@@ -1389,7 +1379,7 @@ kms-matrix-50:
         - kms
         - '001'
       path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
+      reason: 'KMS format outside allowed forms: model=KeyId, iac=AliasName'
     equal: false
     equivalent: false
   outcome:
@@ -1402,9 +1392,13 @@ kms-matrix-51:
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
+      code: kms.format_mismatch
+      current_aws_verified: false
+      evidence_type: logical_reference
       format:
         iac: allowed
-        model: outside allowed forms
+        model: allowed
       iac:
         $attribute: AliasArn
         $resource:
@@ -1417,21 +1411,25 @@ kms-matrix-51:
         - kms
         - '001'
       path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
+      reason: 'KMS format mismatch: model=KeyId, iac=AliasArn'
     equal: false
     equivalent: false
   outcome:
-    code: kms.format_outside_allowed
+    code: kms.format_mismatch
     equal: false
-    message: 'KMS format outside allowed forms: model=KeyId, iac=AliasArn'
+    message: 'KMS format mismatch: model=KeyId, iac=AliasArn'
 kms-matrix-52:
   decision:
     comparisons: []
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
       format:
-        iac: outside allowed forms
+        iac: allowed
         model: outside allowed forms
       iac:
         $attribute: KeyId
@@ -1445,7 +1443,7 @@ kms-matrix-52:
         - kms
         - '001'
       path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
+      reason: 'KMS format outside allowed forms: model=KeyArn, iac=KeyId'
     equal: false
     equivalent: false
   outcome:
@@ -1458,6 +1456,10 @@ kms-matrix-53:
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
       format:
         iac: outside allowed forms
         model: outside allowed forms
@@ -1473,7 +1475,7 @@ kms-matrix-53:
         - kms
         - '001'
       path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
+      reason: 'KMS format outside allowed forms: model=KeyArn, iac=KeyArn'
     equal: false
     equivalent: false
   outcome:
@@ -1486,6 +1488,10 @@ kms-matrix-54:
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
       format:
         iac: outside allowed forms
         model: outside allowed forms
@@ -1501,7 +1507,7 @@ kms-matrix-54:
         - kms
         - '001'
       path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
+      reason: 'KMS format outside allowed forms: model=KeyArn, iac=AliasName'
     equal: false
     equivalent: false
   outcome:
@@ -1514,6 +1520,10 @@ kms-matrix-55:
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
       format:
         iac: allowed
         model: outside allowed forms
@@ -1529,7 +1539,7 @@ kms-matrix-55:
         - kms
         - '001'
       path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
+      reason: 'KMS format outside allowed forms: model=KeyArn, iac=AliasArn'
     equal: false
     equivalent: false
   outcome:
@@ -1542,8 +1552,12 @@ kms-matrix-56:
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
       format:
-        iac: outside allowed forms
+        iac: allowed
         model: outside allowed forms
       iac:
         $attribute: KeyId
@@ -1557,7 +1571,7 @@ kms-matrix-56:
         - kms
         - '002'
       path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
+      reason: 'KMS format outside allowed forms: model=AliasName, iac=KeyId'
     equal: false
     equivalent: false
   outcome:
@@ -1570,6 +1584,10 @@ kms-matrix-57:
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
       format:
         iac: outside allowed forms
         model: outside allowed forms
@@ -1585,7 +1603,7 @@ kms-matrix-57:
         - kms
         - '002'
       path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
+      reason: 'KMS format outside allowed forms: model=AliasName, iac=KeyArn'
     equal: false
     equivalent: false
   outcome:
@@ -1598,6 +1616,7 @@ kms-matrix-58:
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
       code: kms.format_outside_allowed
       current_aws_verified: false
       evidence_type: logical_reference
@@ -1629,6 +1648,7 @@ kms-matrix-59:
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
       code: kms.format_outside_allowed
       current_aws_verified: false
       evidence_type: logical_reference
@@ -1660,8 +1680,12 @@ kms-matrix-60:
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
+      code: kms.format_mismatch
+      current_aws_verified: false
+      evidence_type: logical_reference
       format:
-        iac: outside allowed forms
+        iac: allowed
         model: allowed
       iac:
         $attribute: KeyId
@@ -1675,19 +1699,23 @@ kms-matrix-60:
         - kms
         - '002'
       path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
+      reason: 'KMS format mismatch: model=AliasArn, iac=KeyId'
     equal: false
     equivalent: false
   outcome:
-    code: kms.format_outside_allowed
+    code: kms.format_mismatch
     equal: false
-    message: 'KMS format outside allowed forms: model=AliasArn, iac=KeyId'
+    message: 'KMS format mismatch: model=AliasArn, iac=KeyId'
 kms-matrix-61:
   decision:
     comparisons: []
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
+      code: kms.format_outside_allowed
+      current_aws_verified: false
+      evidence_type: logical_reference
       format:
         iac: outside allowed forms
         model: allowed
@@ -1703,7 +1731,7 @@ kms-matrix-61:
         - kms
         - '002'
       path: CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id
-      reason: resource_type_mismatch
+      reason: 'KMS format outside allowed forms: model=AliasArn, iac=KeyArn'
     equal: false
     equivalent: false
   outcome:
@@ -1716,6 +1744,7 @@ kms-matrix-62:
     diagnostics:
     - allowed_forms:
       - AliasArn
+      - KeyId
       code: kms.format_outside_allowed
       current_aws_verified: false
       evidence_type: logical_reference

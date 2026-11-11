@@ -540,7 +540,7 @@ def _execute_kms_alias_only(case):
         case["data"]["path"],
     )
     TestCase().assertIs(decision.equal, False)
-    TestCase().assertEqual(decision.diagnostics[0]["allowed_forms"], ["AliasArn"])
+    TestCase().assertNotIn("KeyArn", decision.diagnostics[0]["allowed_forms"])
     return {"decision": _reference_decision_data(decision)}
 
 

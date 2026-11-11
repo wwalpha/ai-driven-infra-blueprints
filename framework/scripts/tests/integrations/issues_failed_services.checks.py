@@ -169,6 +169,18 @@ def main_checks():
             ],
         )
         resource(
+            "codepipeline",
+            "PipelineWithKeyId",
+            "CodePipeline.Pipeline",
+            {"ArtifactStore": {"EncryptionKey": {"Id": {"Ref": "Key"}}}},
+            [
+                (
+                    "ArtifactStore.EncryptionKey.Id",
+                    '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
+                )
+            ],
+        )
+        resource(
             "glue",
             "Security",
             "Glue.SecurityConfiguration",
@@ -226,6 +238,10 @@ def main_checks():
             ]
             assert selected and all(r["category"] == "matched" for r in selected), (
                 selected
+            )
+            assert any(
+                r["resource"] == "PipelineWithKeyId" and r["category"] == "matched"
+                for r in selected
             )
             # Exercise Model loading and receiving-property attribute selection, not hand-built symbols.
             path = "WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey"
