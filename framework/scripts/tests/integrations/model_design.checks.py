@@ -303,6 +303,7 @@ def check_s3_policy_kms_reference_roundtrip(root, project):
         json.loads(load_model(source).authoritative["desired.row.002-002.document"]),
         policy,
     )
+    case.assertIn("[Policy](#s3-example-bucket-policy-policy-policy)", output)
     case.assertNotIn("(s3/policy.json)", output)
     files = generate_files(path, values, root)
     case.assertEqual(set(files), {path})

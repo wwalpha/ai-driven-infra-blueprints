@@ -863,7 +863,7 @@ def render_markdown(
                 else (_imports_policy_tables.START, _imports_policy_tables.END)
             )
             output += ["", start]
-            for anchor, title, label, document in json_cells.values():
+            for anchor, title, label, document, _ in json_cells.values():
                 output += [
                     "",
                     f'<a id="{anchor}"></a>',
@@ -934,9 +934,11 @@ def collapse_json_cells(rows, anchor_prefix, cells, documents, presentation):
                     f"JSON：{prop}",
                     prop,
                     raw,
+                    "JSON",
                 )
         if index in cells:
-            value = f"[JSON](#{cells[index][0]})"
+            anchor, _, _, _, label = cells[index]
+            value = f"[{label}](#{anchor})"
         result.append([rid, prop, value, comment])
     anchors = [cell[0] for cell in cells.values()]
     if len(anchors) != len(set(anchors)):
@@ -956,6 +958,7 @@ def document_views(values, documents):
                 continue
             prop = row["property"]
             label, target = policy_tables.JSON_LINK.fullmatch(row["value"]).groups()
+            link_label = label.removesuffix(".json")
             trust = prop == "IAM.Role.AssumeRolePolicyDocument"
             inline = prop in policy_tables.INLINE_POLICY_DOCUMENTS
             if (
@@ -986,6 +989,7 @@ def document_views(values, documents):
                 f"{kind}：{label}",
                 Path(label).stem,
                 policy_tables.order_policy_statements(documents[rid], prop),
+                link_label,
             )
     return result
 

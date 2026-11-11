@@ -313,9 +313,11 @@ in JSON displayed as a document, including Version and Id in policies.
 
 The authoritative input is `desired.row.*.document` or the structured value in
 `desired.row.*.value`. Existing Model JSON artifact links continue to identify
-documents and supply their display labels. Validate their ownership and uniqueness
-without reading a separate file. Do not migrate these Model values just to change
-the display. Resolve formal references in memory and compare the saved Markdown
+documents and supply the Value cell's link labels, with only a trailing `.json`
+removed. Structured row values without an artifact link use `JSON` as the link
+label. Validate artifact ownership and uniqueness without reading a separate
+file. Do not migrate these Model values just to change the display. Resolve
+formal references in memory and compare the saved Markdown
 against the expected rendering. Do not write resolved ARNs back to the Model or
 infer missing identifiers. Preserve existing secret and identifier display rules.
 

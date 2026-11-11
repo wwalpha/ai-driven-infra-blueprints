@@ -22,6 +22,7 @@ from design.policy_tables import (
     policy_lines,
     policy_sub_resource,
     rendered_design,
+    validate_policy_artifacts,
 )
 from design.services import route53
 from model.core import (
@@ -1540,7 +1541,7 @@ def test_iam_collapsed_json_matches_artifact(models, kind, field, name_field):
         add(values, kind, "Policies[].PolicyName", "Access", number=number)
         number += 1
     rid = add(values, kind, field, "placeholder", number=number)
-    values[f"desired.row.{rid}.value"] = "[Policy](iam/policy.json)"
+    values[f"desired.row.{rid}.value"] = "[iam-role-002.access.json](iam/policy.json)"
     statement = {
         "Condition": {"StringEquals": {"aws:PrincipalAccount": "123456789012"}},
         "Resource": reference("S3_Bucket_001", "Arn"),
@@ -1564,9 +1565,9 @@ def test_iam_collapsed_json_matches_artifact(models, kind, field, name_field):
         if field == "AssumeRolePolicyDocument"
         else ("inline-access" if field.startswith("Policies[]") else "policy-policy")
     )
-    assert f"[JSON](#saved-001-{suffix})" in markdown
+    assert f"[iam-role-002.access](#saved-001-{suffix})" in markdown
     assert f'<a id="saved-001-{suffix}"></a>' in markdown
-    summary = "Access" if field.startswith("Policies[]") else "Policy"
+    summary = "Access" if field.startswith("Policies[]") else "iam-role-002.access"
     assert f"<summary>{summary}</summary>" in content
     with pytest.raises(ValueError, match="Model expected display"):
         restore(path, markdown.replace(f"#saved-001-{suffix}", "#wrong", 1), values)
@@ -1584,6 +1585,7 @@ def test_iam_collapsed_json_matches_artifact(models, kind, field, name_field):
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(text, encoding="utf-8")
     assert rendered_design(path, definitions_root=FRAMEWORK) == markdown
+    validate_policy_artifacts(path, definitions_root=FRAMEWORK)
     with pytest.raises(ValueError, match="Model expected display"):
         restore(path, markdown.replace("s3:GetObject", "s3:PutObject", 1), values)
 

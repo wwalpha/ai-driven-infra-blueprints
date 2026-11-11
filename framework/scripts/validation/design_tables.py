@@ -40,7 +40,7 @@ from design.layout_schema import (
     resource_anchor,
 )
 from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
-from design.policy_tables import iam_role_policy_artifact_filename
+from design.policy_tables import has_folded_json, iam_role_policy_artifact_filename
 from design.services.codebuild import PlaintextReferenceError
 from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
 from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
@@ -1348,7 +1348,7 @@ def check_api_design_rows(
         try:
             tables = job_bucket_tables(
                 path,
-                require_artifact="[JSON](#" not in input_text(path, encoding="utf-8"),
+                require_artifact=not has_folded_json(input_text(path, encoding="utf-8")),
             )
         except ReferenceResolutionError as error:
             findings.warn(error)

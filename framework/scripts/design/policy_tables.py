@@ -836,10 +836,23 @@ def rendered_design(
     return "\n".join(lines) + "\n"
 
 
+def has_folded_json(text: str) -> bool:
+    """Recognize links to folded JSON without relying on their display labels."""
+    if "[JSON](#" in text:
+        return True
+    anchors = re.findall(
+        r'^<a id="([^"\n]+)"></a>\n\n#### [^\n]+\n\n<details>\n'
+        r'<summary>[^\n]*</summary>\n\n```json$',
+        text,
+        re.MULTILINE,
+    )
+    return any(f"](#{anchor}) |" in text for anchor in anchors)
+
+
 def validate_policy_artifacts(path, *, definitions_root=None):
     """Independent saved-artifact quality checks; generation only renders their structure."""
     document = _design_document.DesignIndex(definitions_root).get(path)
-    if document.model_values and "[JSON](#" in document.text:
+    if document.model_values and has_folded_json(document.text):
         values = document.model_values
         root = path.parents[4]
         scope = scope_for(
