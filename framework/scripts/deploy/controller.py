@@ -236,8 +236,6 @@ def load_inputs(runtime: SimpleNamespace, unit: StackUnit) -> None:
             raise Blocked(
                 "artifact resource/type/property does not match the declared template"
             )
-    if not unit.get("artifacts") and template.stat().st_size > 1024 * 1024:
-        raise Blocked("template exceeds the 1 MiB CloudFormation limit")
     source = (
         runtime.root
         / "model"
@@ -245,12 +243,6 @@ def load_inputs(runtime: SimpleNamespace, unit: StackUnit) -> None:
         / runtime.directory
         / "cloudformation-stacks.properties"
     )
-    if (template.stat().st_size > 51200 or unit.get("artifacts")) and has_reference(
-        unit.get("templateBucket", "")
-    ):
-        unit["templateBucket"] = deployment_bucket(
-            unit["templateBucket"], source, runtime.root
-        )
     for artifact in unit.get("artifacts", []):
         if has_reference(artifact["bucket"]):
             artifact["bucket"] = deployment_bucket(

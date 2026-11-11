@@ -31,13 +31,14 @@ from model.render import owned_artifacts
 from model.sources import load_model, model_session, raw_model
 from utils.aws.identity import execution_account, select_profile
 from utils.aws_mappings import definition_root
-from utils.cloudformation.inputs import load_template_inputs
+from utils.cloudformation.format import decode
+from utils.cloudformation.inputs import Blocked, load_template_inputs
 from utils.file_operations import sha
 from utils.iac_values import cfn_resource_identity
 from utils.project_targets import load_target
 
 import model as _model_api
-from deploy import cli_guidance
+from deploy import cli_guidance, delivery
 from deploy.inputs import (
     deployment_input_paths,
     load_units,
@@ -48,6 +49,17 @@ from deploy.inputs import (
 from deploy.model_cache import RunModels
 from deploy.timing import Timing
 from model import dependency_index
+
+
+def template_delivery_required(path):
+    """Use the same final serialization as delivery for the offline summary."""
+    source = path.read_bytes()
+    if source.isascii():
+        return len(source) > 51200
+    document, errors = decode(source)
+    if errors:
+        raise Blocked("template cannot be parsed for ASCII delivery")
+    return len(delivery.ascii_template(document).encode("ascii")) > 51200
 
 
 def environment(root):
@@ -379,10 +391,9 @@ def prepare(root, args, run, timing):
             ),
             "deliveryRequired": any(
                 unit.get("artifacts")
-                or paths(root, args.environment, directory, target, unit)[0]
-                .stat()
-                .st_size
-                > 51200
+                or template_delivery_required(
+                    paths(root, args.environment, directory, target, unit)[0]
+                )
                 for unit in units
             ),
             "problems": [],

@@ -17,6 +17,9 @@ from contracts.target import (
     AWS_REGION_KEY,
 )
 from model.core import ARTIFACT_PROPERTIES
+from model.projection import deployment_bucket
+from model.references import has_reference
+from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import Blocked, condition_active, resolve_value
 
 from deploy.s3_delivery import preflight, upload_options, verify_encryption
@@ -302,6 +305,36 @@ def prepare_delivery_group(
         )
 
 
+def ascii_template(document):
+    """Serialize only when the existing decoder preserves every value and type."""
+
+    def valid(value):
+        if isinstance(value, dict):
+            return all(isinstance(k, str) and valid(v) for k, v in value.items())
+        if isinstance(value, list):
+            return all(valid(v) for v in value)
+        return value is None or type(value) in (str, int, float, bool)
+
+    if not valid(document):
+        raise Blocked(
+            "template cannot be converted to ASCII without changing YAML values"
+        )
+    try:
+        text = json.dumps(
+            document, ensure_ascii=True, separators=(",", ":"), allow_nan=False
+        )
+        decoded, errors = decode(text)
+        if errors or json.dumps(
+            decoded, ensure_ascii=True, sort_keys=True, allow_nan=False
+        ) != json.dumps(document, ensure_ascii=True, sort_keys=True, allow_nan=False):
+            raise ValueError("round trip mismatch")
+    except (ValueError, TypeError, RecursionError, OverflowError):
+        raise Blocked(
+            "template cannot be converted to ASCII without changing YAML values"
+        ) from None
+    return text
+
+
 def template_arguments(
     placement,
     unit,
@@ -348,6 +381,18 @@ def template_arguments(
         input_digest = record["inputDigest"]
     else:
         path, objects, input_digest = template_path, [], input_digest_for(unit)
+        source = template_path.read_bytes()
+        needs_ascii = not source.isascii()
+        if needs_ascii:
+            original, errors = decode(source)
+            if errors or ascii_template(original) != ascii_template(document):
+                raise Blocked("source template differs from parsed deployment inputs")
+        if needs_ascii or bindings:
+            ascii_template(document)
+            if workdir is None:
+                raise Blocked(
+                    "ASCII template preparation requires the external run directory"
+                )
         if bindings:
             if workdir is None:
                 raise Blocked("artifact packaging requires the external run directory")
@@ -369,12 +414,11 @@ def template_arguments(
                         container[prop][fields[2]] = obj["version"]
                 else:
                     container[prop] = f"s3://{obj['bucket']}/{obj['key']}"
+        if needs_ascii or bindings:
+            text = ascii_template(document)
             workdir.mkdir(parents=True, exist_ok=True)
             path = workdir / (unit["name"] + ".json")
-            path.write_text(
-                json.dumps(document, ensure_ascii=False, separators=(",", ":")),
-                encoding="utf-8",
-            )
+            path.write_text(text, encoding="utf-8")
     size = path.stat().st_size
     if size > 1024 * 1024:
         raise Blocked("template exceeds the 1 MiB CloudFormation limit")
@@ -395,11 +439,21 @@ def template_arguments(
             raise Blocked(
                 "large template requires designed TemplateBucket and TemplateKeyPrefix"
             )
+        bucket = unit["templateBucket"]
+        if has_reference(bucket):
+            source = (
+                placement.root
+                / "model"
+                / placement.environment
+                / placement.directory
+                / "cloudformation-stacks.properties"
+            )
+            bucket = deployment_bucket(bucket, source, placement.root)
         obj = upload(
             placement,
             file_digest,
             path,
-            unit["templateBucket"],
+            bucket,
             unit["templateKeyPrefix"],
             boundary,
             consume_version=True,

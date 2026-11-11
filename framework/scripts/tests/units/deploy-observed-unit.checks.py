@@ -205,7 +205,7 @@ def _sg_rule_aws(document, records, stack, operation, **kwargs):
 def _sg_rule_result(backend, stack, document, actual, output="sgr-12345678"):
     return security_group_rule_id(
         backend, stack, document, {}, {}, [], "Rule", actual, output
-    )
+    )[0]
 
 
 def _capture_destinations(captured, root, environment, directory, loaded, changes):
@@ -1915,6 +1915,7 @@ def test_evidence_if_uses_only_confirmed_branch(project_workspace):
     "case,old,expected,status",
     [
         ("unrelated-unicode", "old", "`project`", "UPDATED"),
+        ("corrupt-template", "old", None, "UNCONFIRMED"),
         ("selected-template", "old", None, "UNCONFIRMED"),
         ("missing-template-resource", "old", None, "UNCONFIRMED"),
         ("template-conditions", "old", None, "UNCONFIRMED"),
@@ -2041,11 +2042,36 @@ def test_codebuild_id_from_api_without_output(
         assert "`old`" in scope.path.read_text(encoding="utf-8")
     else:
         assert captured[scope.path]["observed.row.001-001.value"] == expected
-    assert states["producer"]["observedCoverage"]["Resource001"]["status"] == status
+    coverage = states["producer"]["observedCoverage"]["Resource001"]
+    assert coverage["status"] == status
+    if case == "selected-template":
+        assert "deployed template mismatch" in str(coverage["reasons"])
+    if case == "corrupt-template":
+        reason = str(coverage["reasons"])
+        assert "deployed template parse failed" in reason
+        assert "line " in reason and "column " in reason
+        assert "SECRET" not in reason and stack["StackId"] in reason
+
+
+def test_deployed_template_acquisition_failure_is_distinct():
+    def denied(*args, **kwargs):
+        raise AwsError("cloudformation", "get_template", "AccessDenied")
+
+    backend = SimpleNamespace(aws=denied)
+    body, reason = deploy_observed.deployed_template(backend, "stack-id")
+    assert body is None and "get_template failed (AccessDenied)" in reason
+    assert "parse failed" not in reason
 
 
 def _codebuild_sync_aws(document, case, operation, **kwargs):
     if operation == "get_template":
+        if case == "corrupt-template":
+            source = (
+                "Conditions:\n  Unused: !Equals [a, b]\nResources:\n"
+                "  Other:\n    Metadata: !If [Unused, "
+                "{CustomData: ChangeSetの結果（READY等）, Secret: SECRET}, {}]\n"
+            )
+            return {"TemplateBody": "".join(c if c.isascii() else "?" for c in source)}
         deployed = json.loads(json.dumps(document))
         if case == "unrelated-unicode":
             deployed["Resources"]["Other"]["Properties"]["DisplayName"] = "??"

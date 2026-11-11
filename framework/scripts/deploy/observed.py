@@ -339,17 +339,13 @@ def security_group_rule_id(
     if current_state.category(stack) != "SUCCESS" or actual.get(
         "ResourceStatus"
     ) not in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}:
-        return None
+        return None, None
     try:
-        deployed = backend.aws("get_template", StackName=stack["StackId"]).get(
-            "TemplateBody"
-        )
-        if isinstance(deployed, str):
-            deployed, errors = _imports_cfn_format.decode(deployed)
-            if errors:
-                return None
+        deployed, error = deployed_template(backend, stack["StackId"])
+        if error:
+            return None, error
         if deployed != document or document.get("Transform"):
-            return None
+            return None, "deployed template mismatch"
         props = document["Resources"][logical]["Properties"]
         names = {
             "GroupId",
@@ -373,7 +369,7 @@ def security_group_rule_id(
         if not checked_evidence_parameters(
             document, parameters, stack, evidence, pseudo
         ):
-            return None
+            return None, None
         references = {
             item["LogicalResourceId"]: item["PhysicalResourceId"]
             for item in actuals
@@ -404,7 +400,7 @@ def security_group_rule_id(
             )
         group = expected.pop("GroupId")
         if not isinstance(group, str) or not re.fullmatch(r"sg-[0-9a-f]+", group):
-            return None
+            return None, None
         for key in ("FromPort", "ToPort"):
             if key in expected:
                 expected[key] = int(expected[key])
@@ -421,19 +417,19 @@ def security_group_rule_id(
             records, group, egress, expected
         )
         if len(candidates) != 1 or candidates[0].get("SecurityGroupRuleId") != output:
-            return None
+            return None, None
         after = current_state.read(backend.aws, stack["StackId"])
         if current_state.identity(stack) != current_state.identity(after) or stack.get(
             "Outputs", []
         ) != after.get("Outputs", []):
-            return None
+            return None, None
         return (
             output
             if isinstance(output, str) and re.fullmatch(r"sgr-[0-9a-f]+", output)
             else None
-        )
+        ), None
     except (AwsError, Blocked, Unresolved, KeyError, TypeError, ValueError):
-        return None
+        return None, None
 
 
 def checked_evidence_parameters(
@@ -486,6 +482,30 @@ def checked_evidence_parameters(
     return checked(subset, deployed) == checked(subset, local)
 
 
+def deployed_template(backend, stack_id):
+    """Read and parse evidence without exposing the response or parser context."""
+    try:
+        response = backend.aws("get_template", StackName=stack_id)
+    except AwsError as error:
+        return None, f"stack {stack_id}: get_template failed ({error.code})"
+    except (OSError, Blocked):
+        return None, f"stack {stack_id}: get_template failed"
+    body = response.get("TemplateBody") if isinstance(response, dict) else None
+    if not isinstance(body, (str, dict)):
+        return None, f"stack {stack_id}: deployed template unavailable"
+    if isinstance(body, str):
+        body, errors = _imports_cfn_format.decode(body)
+        if errors:
+            location = re.search(r"line (\d+), column (\d+)", errors[0])
+            suffix = (
+                f" at line {location.group(1)}, column {location.group(2)}"
+                if location
+                else ""
+            )
+            return None, f"stack {stack_id}: deployed template parse failed{suffix}"
+    return body, None
+
+
 def cloudcontrol_observation(
     backend, stack, document, parameters, actual, resource, prop, catalog
 ):
@@ -509,11 +529,9 @@ def cloudcontrol_observation(
     ) not in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}:
         return None, "stack or resource state unconfirmed"
     try:
-        deployed = backend.aws("get_template", StackName=stack_id).get("TemplateBody")
-        if isinstance(deployed, str):
-            deployed, errors = _imports_cfn_format.decode(deployed)
-            if errors:
-                return None, "deployed template unavailable"
+        deployed, error = deployed_template(backend, stack_id)
+        if error:
+            return None, error
         if deployed != document or document.get("Transform"):
             return None, "deployed template mismatch"
         logical = actual.get("LogicalResourceId")
@@ -594,11 +612,9 @@ def codebuild_observation(
     ):
         return None, "stack or resource identity unconfirmed"
     try:
-        deployed = backend.aws("get_template", StackName=stack_id).get("TemplateBody")
-        if isinstance(deployed, str):
-            deployed, errors = _imports_cfn_format.decode(deployed)
-            if errors:
-                return None, "deployed template unavailable"
+        deployed, error = deployed_template(backend, stack_id)
+        if error:
+            return None, error
         if not isinstance(deployed, dict) or document.get("Transform"):
             return None, "deployed template mismatch"
         # GetTemplate can corrupt Unicode in unrelated resources; keep identity evidence exact.
@@ -815,11 +831,9 @@ def permission_observation(
         physical = actual["PhysicalResourceId"]
         if not isinstance(physical, str) or not physical:
             return None, "permission physical identifier unavailable"
-        deployed = backend.aws("get_template", StackName=stack_id).get("TemplateBody")
-        if isinstance(deployed, str):
-            deployed, errors = _imports_cfn_format.decode(deployed)
-            if errors:
-                return None, "deployed template unavailable"
+        deployed, error = deployed_template(backend, stack_id)
+        if error:
+            return None, error
         if deployed != document or document.get("Transform"):
             return None, "deployed template mismatch"
         definition = document["Resources"][logical]
@@ -1429,7 +1443,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
                         ):
                             ids = {outputs[key] for key in id_keys}
                             if len(ids) == 1 and (physical is None or physical in ids):
-                                value = security_group_rule_id(
+                                value, reason = security_group_rule_id(
                                     backend,
                                     stack,
                                     document,
@@ -1440,6 +1454,8 @@ def collect_successful(backend, units, states, *, generated_views=None):
                                     actual,
                                     ids.pop(),
                                 )
+                                if reason:
+                                    reasons[prop] = reason
                         elif complete and not keys:
                             value = physical
                     elif values and (

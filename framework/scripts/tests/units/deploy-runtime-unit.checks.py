@@ -684,6 +684,102 @@ def _callback_check_delivery_artifact(
     }
 
 
+def test_unicode_template_delivery_round_trip(tmp_path):
+    from deploy import delivery
+    from utils.cloudformation.format import decode
+
+    source = """Conditions:
+  Unused: !Equals [a, b]
+Resources:
+  Other:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Metadata: !If [Unused, {CustomData: ChangeSetの結果（READY等）}, {}]
+  Project:
+    Type: AWS::CodeBuild::Project
+    Properties: {Name: !Sub 'project-${AWS::Region}'}
+"""
+    document, errors = decode(source)
+    assert not errors
+    backend = DeliveryAws(tmp_path / "repo", tmp_path / "work")
+    unit = units(10)[0]
+    template, params = backend.paths(unit)
+    template.parent.mkdir(parents=True, exist_ok=True)
+    params.parent.mkdir(parents=True, exist_ok=True)
+    template.write_text(source, encoding="utf-8")
+    params.write_text("[]", encoding="utf-8")
+    backend.templates["A"] = (document, {})
+    state = {"status": "NOT_STARTED"}
+    assert backend.prepare(unit, state) == "READY"
+    validation = [args for op, args in backend.calls if op == "validate_template"][-1]
+    change = [args for op, args in backend.calls if op == "create_change_set"][-1]
+    body = validation["TemplateBody"]
+    assert body.isascii() and change["TemplateBody"] == body
+    assert decode(body) == (document, [])
+    assert "\\u306e" in body
+    import hashlib
+    assert hashlib.sha256(body.encode()).hexdigest() == state["delivery"]["templateSha256"]
+    assert Path(state["delivery"]["path"]).read_bytes() == body.encode()
+    with pytest.raises(M.Blocked, match="cannot be converted"):
+        delivery.ascii_template({"value": {1: "日本"}})
+
+
+def test_unicode_template_size_uses_sent_bytes(tmp_path):
+    from utils.cloudformation.format import decode
+
+    backend = DeliveryAws(tmp_path / "repo", tmp_path / "work")
+    unit = units(10)[0] | {"templateBucket": "app-dev-assets", "templateKeyPrefix": "templates/"}
+    template, params = backend.paths(unit)
+    template.parent.mkdir(parents=True, exist_ok=True)
+    params.parent.mkdir(parents=True, exist_ok=True)
+    source = "Resources: {}\nDescription: '" + "日" * 9000 + "'\n"
+    assert len(source.encode()) < 51200
+    document, errors = decode(source)
+    assert not errors
+    template.write_text(source, encoding="utf-8")
+    params.write_text("[]", encoding="utf-8")
+    from deploy.preparation import template_delivery_required
+    assert template_delivery_required(template)
+    backend.templates["A"] = (document, {})
+    state = {"status": "NOT_STARTED"}
+    assert backend.prepare(unit, state) == "READY"
+    payload = Path(state["delivery"]["path"]).read_bytes()
+    assert len(payload) > 51200 and payload.isascii()
+    assert decode(payload) == (document, [])
+    validation = [args for op, args in backend.calls if op == "validate_template"][-1]
+    change = [args for op, args in backend.calls if op == "create_change_set"][-1]
+    assert validation["TemplateURL"] == change["TemplateURL"]
+    assert state["delivery"]["objects"][-1]["size"] == len(payload)
+
+
+def test_unicode_conversion_rejects_changed_input_and_excess_size(tmp_path):
+    from utils.cloudformation.format import decode
+
+    backend = DeliveryAws(tmp_path / "repo", tmp_path / "work")
+    unit = units(10)[0]
+    template, params = backend.paths(unit)
+    template.parent.mkdir(parents=True, exist_ok=True)
+    params.parent.mkdir(parents=True, exist_ok=True)
+    params.write_text("[]", encoding="utf-8")
+    source = "Resources: {}\nDescription: '日本'\n"
+    document, errors = decode(source)
+    assert not errors
+    backend.templates["A"] = (document, {})
+    template.write_text(source.replace("日本", "別"), encoding="utf-8")
+    with pytest.raises(M.Blocked, match="differs from parsed deployment inputs"):
+        backend.template_arguments(unit, {})
+    assert not any(op == "create_change_set" for op, _ in backend.calls)
+
+    source = "Resources: {}\nDescription: '" + "日" * 180000 + "'\n"
+    assert len(source.encode()) < 1024 * 1024
+    document, errors = decode(source)
+    assert not errors
+    template.write_text(source, encoding="utf-8")
+    backend.templates["A"] = (document, {})
+    with pytest.raises(M.Blocked, match="1 MiB"):
+        backend.template_arguments(unit, {})
+    assert not any(op == "create_change_set" for op, _ in backend.calls)
+
+
 def check_delivery(tmp_path):
     base = tmp_path
     root = base / "repo"
@@ -701,7 +797,7 @@ def check_delivery(tmp_path):
         (51201, "TemplateURL"),
         (1024 * 1024, "TemplateURL"),
     ):
-        template.write_bytes(("# あ\n".encode() * (size // 6)) + b" " * (size % 6))
+        template.write_bytes((b"# test\n" * (size // 7)) + b" " * (size % 7))
         assert template.stat().st_size == size
         state = {"status": "NOT_STARTED"}
         assert backend.prepare(unit | settings, state) == "READY"
@@ -721,6 +817,8 @@ def check_delivery(tmp_path):
     template.write_text("Resources: {}\n", encoding="utf-8")
     backend.calls.clear()
     assert backend.prepare(unit, {}) == "READY"
+    validation = [args for op, args in backend.calls if op == "validate_template"][-1]
+    assert validation["TemplateBody"] == "Resources: {}\n"
     assert not any(
         op in {"get_bucket_location", "head_object", "put_object"}
         for op, _ in backend.calls
