@@ -1545,8 +1545,8 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
         value in {rotation.SECRET + ".Id", rotation.ROTATION + ".Id"}
         for value in current.values()
     )
-    artifacts = list((root / "docs/designs").rglob("*.json"))
-    assert artifacts and json.loads(artifacts[0].read_text()) == json.loads(
+    content = (root / "docs/designs/dev/123456789012/kms.md").read_text(encoding="utf-8")
+    assert json.loads(content.split("```json\n", 1)[1].split("\n```", 1)[0]) == json.loads(
         key["desired.row.001-002.document"]
     )
     assert all(

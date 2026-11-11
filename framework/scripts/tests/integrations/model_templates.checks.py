@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Focused checks; test sources define the current verification responsibilities."""
 
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -159,10 +160,10 @@ def check_expansion(root):
             for p in (root / "docs/designs" / env / "team").rglob("*")
             if p.is_file()
         }
-        policies = [p for p in outputs if p.suffix == ".json"]
+        policies = re.findall(rb"```json\n(.*?)\n```", outputs[root / "docs/designs" / env / "team/iam.md"], re.DOTALL)
         assert len(policies) == len(entries(models[env], "desired.resource."))
         assert all(
-            json.loads(outputs[p])["Statement"][0]["Principal"]["Service"]
+            json.loads(p)["Statement"][0]["Principal"]["Service"]
             == "ec2.amazonaws.com"
             for p in policies
         )
