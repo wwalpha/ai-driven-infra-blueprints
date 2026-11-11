@@ -1036,6 +1036,122 @@ def check_readiness_removal_and_ready_execution(tmp_path, monkeypatch):
         assert aws.call_args.args[0] == "execute_change_set"
 
 
+def check_stack_move_removal_review_execution_and_observation(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, backend = readiness_fixture(tmp_path)
+    source, destination = {"name": "old-stack"}, {"name": "fixture"}
+    stack = scope.path.with_name("cloudformation-stacks.properties")
+    stack.write_text(
+        patch_properties(
+            parse(stack.read_text()),
+            {
+                "desired.stack.010.name": source["name"],
+                "desired.stack.010.placementName": source["name"],
+                "desired.stack.010.template": "old-stack.yaml",
+                "desired.stack.010.parameters": "old-stack.json",
+                "desired.stack.010.deployOrder": "1",
+            },
+        )
+    )
+    dependency_index.rebuild(tmp_path)
+    before = scope.path.read_bytes()
+    backend.templates[source["name"]] = ({"Resources": {}}, {})
+    physical_id, new_id = "vpc-0123456789abcdef0", "vpc-0123456789abcdef1"
+    old_resource = {
+        "LogicalResourceId": "OriginalVpc",
+        "ResourceType": "AWS::EC2::VPC",
+        "PhysicalResourceId": physical_id,
+        "ResourceStatus": "UPDATE_COMPLETE",
+    }
+    new_resource = old_resource | {"PhysicalResourceId": new_id}
+    state = {
+        "stackId": "old-id",
+        "changeSetId": "change-id",
+        "clientToken": "token",
+        "operationType": "UPDATE",
+    }
+    change_set = {
+        "Status": "CREATE_COMPLETE",
+        "ExecutionStatus": "AVAILABLE",
+        "ChangeSetId": state["changeSetId"],
+        "StackId": state["stackId"],
+        "Changes": [
+            {
+                "ResourceChange": {
+                    "Action": "Remove",
+                    "LogicalResourceId": old_resource["LogicalResourceId"],
+                    "ResourceType": old_resource["ResourceType"],
+                    "PhysicalResourceId": physical_id,
+                    "PolicyAction": "Delete",
+                }
+            }
+        ],
+    }
+    stack_ids = {source["name"]: state["stackId"], destination["name"]: "new-id"}
+    resources = {"old-id": [old_resource], "new-id": [new_resource]}
+    submitted = []
+
+    def aws(operation, *, StackName, **arguments):
+        if operation == "list_stack_resources":
+            return {"StackResourceSummaries": resources[StackName]}
+        if operation == "describe_stacks":
+            return {
+                "Stacks": [
+                    {"StackId": stack_ids[StackName], "StackStatus": "UPDATE_COMPLETE"}
+                ]
+            }
+        assert operation == "execute_change_set"
+        submitted.append((StackName, arguments))
+
+    backend.aws = aws
+    backend.approvals = set()
+    backend.expected_digests = {}
+    backend.describe_change_set = lambda *args: change_set
+    backend.input_digest = lambda *args, **kwargs: "input-digest"
+    backend.file_digest = backend.template_arguments = backend.check_imports = (
+        lambda *args, **kwargs: None
+    )
+    backend.save = lambda: None
+
+    with sources.model_session(RunModels(tmp_path, {})):
+        resources["old-id"] = [old_resource, old_resource]
+        with pytest.raises(Blocked, match="removal identity does not match"):
+            controller.review_prepared(backend, source, state)
+        resources["old-id"] = [old_resource]
+        assert controller.review_prepared(backend, source, state) == "BLOCKED"
+        assert state["failure"]["code"] == "APPROVAL_REQUIRED"
+        assert "approvedChangeDigest" not in state
+        backend.approvals.add(change_set["ChangeSetId"])
+        assert controller.review_prepared(backend, source, state) == "READY"
+        resources["old-id"] = [old_resource | {"PhysicalResourceId": new_id}]
+        with pytest.raises(Blocked, match="removal identity does not match"):
+            controller.execute(backend, source, state)
+        assert "executionEvidence" not in state and not submitted
+        resources["old-id"] = [old_resource]
+        controller.execute(backend, source, state)
+        assert submitted == [
+            ("old-id", {"ChangeSetName": "change-id", "ClientRequestToken": "token"})
+        ]
+
+        resources["old-id"] = [old_resource | {"ResourceStatus": "DELETE_COMPLETE"}]
+        states = {source["name"]: state, destination["name"]: {}}
+        outputs, _, _ = observed.collect_successful(backend, [source], states)
+        assert not outputs
+        assert (
+            state["observedCoverage"]["OriginalVpc"]["reason"]
+            == "original Stack resource removal confirmed"
+        )
+        outputs, _, _ = observed.collect_successful(
+            backend, [destination, source], states
+        )
+        assert (
+            parse(outputs[scope.path]).values["observed.row.007-001.value"]
+            == f"`{new_id}`"
+        )
+
+    assert scope.path.read_bytes() == before
+
+
 @pytest.mark.parametrize("modeled", [False, True])
 @pytest.mark.parametrize("desired", ["inactive", "active", "absent"])
 def check_removed_model_observation_destinations(tmp_path, monkeypatch, modeled, desired):

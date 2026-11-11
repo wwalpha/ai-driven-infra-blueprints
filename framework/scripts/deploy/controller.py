@@ -595,6 +595,8 @@ def review_prepared(
     state: StackState,
     change_set: AwsResponse | None = None,
 ) -> str:
+    if change_set is None:
+        change_set = runtime.describe_change_set(unit, state)
     result = change_sets.review_prepared(
         unit,
         state,
@@ -609,7 +611,13 @@ def review_prepared(
         result == "BLOCKED" and state.get("failureClassification") == "HUMAN_REQUIRED"
     ):
         try:
-            runtime.observed_readiness(unit, {"changes": state["changes"]})
+            runtime.observed_readiness(
+                unit,
+                {
+                    "changes": state["changes"],
+                    "stackId": state.get("stackId") and change_set.get("StackId"),
+                },
+            )
         except Exception:
             state.pop("approvedChangeDigest", None)
             state.pop("failureClassification", None)
@@ -645,7 +653,11 @@ def execute(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> Non
             boundary={},
         )
         runtime.observed_readiness(
-            unit, {"changes": change_sets.change_summary(current)}
+            unit,
+            {
+                "changes": change_sets.change_summary(current),
+                "stackId": current.get("StackId"),
+            },
         )
         stack = current_state.read(runtime.aws, unit["name"])
         status = stack["StackStatus"]

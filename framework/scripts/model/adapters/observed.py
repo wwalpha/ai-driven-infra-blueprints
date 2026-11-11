@@ -673,12 +673,14 @@ def resolve_resources(
     identifiers=True,
     implementation=False,
     check_scope=True,
+    unmapped_removals=None,
 ):
     """Discover explicit ownership from raw metadata, validate only requested identities.
 
     Unrelated authorities are not expanded or diagnosed. No naming inference is used.
     """
     wanted, required_types, inactive_removals = set(), set(), set()
+    removed_from_template = set()
     target = target or (
         load_target(root, environment, directory)
         if (root / PROJECT_FILENAME).is_file()
@@ -721,6 +723,14 @@ def resolve_resources(
                 if rule["identityProperty"] is None
                 and catalog.cloudformation_type(kind) == definition.get("Type")
             ]
+            if (
+                deleting
+                and desired is None
+                and not rules
+                and unmapped_removals is not None
+                and definition.get("PhysicalResourceId")
+            ):
+                removed_from_template.add((unit["name"], logical))
             if rules:
                 parent = output_value(
                     document,
@@ -795,13 +805,12 @@ def resolve_resources(
         if required_types - mapped_types:
             loaded = models(root, environment, directory)
     direct = resource_index(loaded, catalog)
-    # Inactive removals with no remaining Model have no observation destination.
+    # Neither inactive nor omitted removals without an owner have an observed Row.
+    without_owner = (inactive_removals | removed_from_template) - direct.keys()
+    if unmapped_removals is not None:
+        unmapped_removals.update(removed_from_template & without_owner)
     selected = {
-        name: {
-            logical
-            for logical in logicals
-            if (name, logical) not in inactive_removals or (name, logical) in direct
-        }
+        name: {logical for logical in logicals if (name, logical) not in without_owner}
         for name, logicals in selected.items()
     }
     return _mappings(

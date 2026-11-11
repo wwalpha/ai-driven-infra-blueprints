@@ -316,6 +316,42 @@ def removal_candidate(name, logical, removal):
     return True
 
 
+LIVE_RESOURCE_STATUSES = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
+
+
+def same_physical_resource(actual, removal):
+    physical_id = removal.get("PhysicalResourceId")
+    return (
+        isinstance(physical_id, str)
+        and bool(physical_id.strip())
+        and actual.get("ResourceType") == removal["Type"]
+        and actual.get("PhysicalResourceId") == physical_id
+    )
+
+
+def verify_unmapped_removals(aws, name, stack_id, removals):
+    """Verify the old AWS owner before review and again before submission."""
+    if not stack_id:
+        ambiguous(f"{name}: removal Stack identity unavailable")
+    actuals = current_state.pages(
+        aws, "list_stack_resources", "StackResourceSummaries", StackName=stack_id
+    )
+    for logical, removal in removals.items():
+        if not removal_candidate(name, logical, removal):
+            ambiguous(f"{name}/{logical}: unmapped removal requires Delete or Snapshot")
+        candidates = [
+            actual for actual in actuals if actual.get("LogicalResourceId") == logical
+        ]
+        if (
+            len(candidates) != 1
+            or not same_physical_resource(candidates[0], removal)
+            or candidates[0].get("ResourceStatus") not in LIVE_RESOURCE_STATUSES
+        ):
+            ambiguous(
+                f"{name}/{logical}: removal identity does not match the live Stack"
+            )
+
+
 def selected_resources(document, parameters, pseudo, removed, grouped):
     """Select the same possible identifier updates before and after execution."""
     selected = {
@@ -1056,6 +1092,7 @@ def readiness(backend, unit, state=None):
     """Check only this Stack's known synchronization inputs; never publish placeholders."""
     name = unit["name"]
     check = "dependency index"
+    removed = {}
     try:
         dependency_index.load(backend.root)
         document, parameters = backend.templates[name]
@@ -1081,6 +1118,7 @@ def readiness(backend, unit, state=None):
             document, parameters, pseudo, removed[name], grouped
         )
         check = "Model resource mapping"
+        unmapped = set()
         loaded, mapped = resolve_resources(
             backend.root,
             backend.environment,
@@ -1091,7 +1129,16 @@ def readiness(backend, unit, state=None):
             removed,
             target=backend.target,
             check_scope=False,
+            unmapped_removals=unmapped,
         )
+        if unmapped:
+            check = "removed Stack resource identity"
+            verify_unmapped_removals(
+                backend.aws,
+                name,
+                (state or {}).get("stackId"),
+                {logical: removed[name][logical] for _, logical in sorted(unmapped)},
+            )
         check = "fixed resource scope"
         execution_scope.check_fixed_resources(
             backend.root,
@@ -1158,7 +1205,8 @@ def readiness(backend, unit, state=None):
             observed_destinations(
                 backend.root, backend.environment, backend.directory, loaded, changes
             )
-        checked.add(key)
+        if not unmapped:
+            checked.add(key)
         backend.observed_checks = checked
     except (OSError, ValueError, Blocked) as error:
         wrapped = Blocked(f"{name}: Observed readiness: {error}")
@@ -1174,7 +1222,9 @@ def readiness(backend, unit, state=None):
         wrapped.deploy_failure.setdefault("executionState", "NOT_EXECUTED")
         reason = str(error)
         detail = (
-            "the dependency index is missing"
+            "the removed resource could not be verified on the old Stack"
+            if check == "removed Stack resource identity"
+            else "the dependency index is missing"
             if "dependency index missing" in reason
             else "the dependency index seal is invalid"
             if "sealed evidence" in reason or "evidence was modified" in reason
@@ -1208,7 +1258,8 @@ def readiness(backend, unit, state=None):
         document = backend.templates.get(name, ({}, {}))[0]
         resources = [
             logical
-            for logical in document.get("Resources", {})
+            for logical in document.get("Resources", {}).keys()
+            | removed.get(name, {}).keys()
             if isinstance(logical, str)
             and re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", logical)
             and re.search(
@@ -1269,6 +1320,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
         selected[name] = selected_resources(
             document, parameters, pseudo, removed[name], grouped
         )
+    unmapped = set()
     loaded, mapped = resolve_resources(
         root,
         environment,
@@ -1278,6 +1330,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
         selected,
         removed,
         target=backend.target,
+        unmapped_removals=unmapped,
     )
     execution_scope.check_fixed_resources(
         root,
@@ -1614,7 +1667,17 @@ def collect_successful(backend, units, states, *, generated_views=None):
                 else "MATCHED",
             }
         for logical in document.get("Resources", {}) | removed.get(name, {}):
-            if logical not in coverage:
+            if (name, logical) in unmapped:
+                coverage[logical] = unmapped_removal_coverage(
+                    backend,
+                    name,
+                    logical,
+                    removed[name][logical],
+                    state,
+                    by_logical,
+                    complete,
+                )
+            elif logical not in coverage:
                 if (
                     logical in selected[name]
                     and not static_export_handle(document, logical, parameters, pseudo)
@@ -1688,6 +1751,39 @@ def sync_successful(backend, units, states):
     return destinations or None
 
 
+def unmapped_removal_coverage(
+    backend, name, logical, removal, state, actuals, complete
+):
+    evidence = state.get("executionEvidence")
+    if not evidence:
+        return {
+            "status": "EXCLUDED",
+            "reason": "no current Model observation destination",
+        }
+    actual = actuals.get(logical, {})
+    if complete and evidence.get("StackId") == state.get("stackId"):
+        if (
+            same_physical_resource(actual, removal)
+            and actual.get("ResourceStatus") in LIVE_RESOURCE_STATUSES
+        ):
+            return {
+                "status": "MATCHED",
+                "reason": "original Stack resource still present",
+            }
+        try:
+            if deleted_resource(backend, name, logical, removal, state, actuals):
+                return {
+                    "status": "MATCHED",
+                    "reason": "original Stack resource removal confirmed",
+                }
+        except (AwsError, OSError, ValueError, Blocked):
+            pass
+    return {
+        "status": "UNCONFIRMED",
+        "reason": "original Stack resource removal unconfirmed",
+    }
+
+
 def deleted_resource(runtime, name, logical, removal, state, actuals):
     """A Remove is intent. Only execution-bound physical destruction resets an identifier."""
     if not removal_candidate(name, logical, removal):
@@ -1711,10 +1807,7 @@ def deleted_resource(runtime, name, logical, removal, state, actuals):
     if (
         actual
         and actual.get("ResourceStatus") == "DELETE_COMPLETE"
-        and all(
-            actual.get(key) == removal.get(key if key != "ResourceType" else "Type")
-            for key in ("PhysicalResourceId", "ResourceType")
-        )
+        and same_physical_resource(actual, removal)
     ):
         return True
     events = runtime.aws("describe_stack_events", StackName=evidence["StackId"])[

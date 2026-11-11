@@ -64,6 +64,14 @@ Plan all updates and reference propagation and check task scope before writing o
 
 Observed synchronization uses the same mappings validated before deploy and reconfirms them on resume with the immutable input guard and common validation. For Remove, validate the change set's formal type and mapping before execution even if the new template Condition is false or the resource is absent. Do not infer new owners during post-deletion synchronization; return identifiers and references to PENDING_DEPLOY only when physical destruction by Delete/Snapshot is confirmed. Retain them and stop for Retain/unknown policies.
 
+For a Remove omitted from the new template with no current Model owner, SDK Deploy
+verifies the old Stack resource against the ChangeSet's Stack ID, logical ID, formal type,
+and physical ID before approval review and again before execution. Require Delete/Snapshot
+and retain explicit ChangeSet approval. A present, invalid or ambiguous Model claim retains
+strict mapping validation. The old resource has no Model write destination. Confirm the
+removal through execution-bound evidence and use the destination Stack's own mapping and
+AWS observations for any Model updates.
+
 ## Destroy synchronization
 
 - After destroy, return identifier output rows and all references to `PENDING_DEPLOY` and regenerate Markdown.
