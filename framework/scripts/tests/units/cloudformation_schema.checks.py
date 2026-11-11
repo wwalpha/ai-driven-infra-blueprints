@@ -75,6 +75,14 @@ def main() -> None:
                 assert validate({"unmatched": "wrong"})
             assert validate({"fixed": "bad"})
 
+    setting = catalog.schema("SSM.ServiceSetting")
+    assert setting["typeName"] == "AWS::SSM::ServiceSetting"
+    assert catalog.required_properties("SSM.ServiceSetting") == {"SettingId", "SettingValue"}
+    assert not catalog.literal_errors("SSM.ServiceSetting", "SettingId", "/ssm/documents/console/public-sharing-permission")
+    assert not catalog.literal_errors("SSM.ServiceSetting", "SettingValue", "Disable")
+    assert catalog.literal_errors("SSM.ServiceSetting", "SettingValue", "")
+    assert catalog.typed_literal_errors("SSM.ServiceSetting", "SettingValue", False)
+
     group = catalog.schema("QuickSight.Group")
     assert group["typeName"] == "AWS::QuickSight::Group"
     assert catalog.required_properties("QuickSight.Group") == {"GroupName", "Namespace"}

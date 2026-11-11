@@ -36,6 +36,13 @@ getters:
     result: ResourceDescription.Properties
     resourceType: SSM.PatchBaseline
     identifier: [/properties/Id]
+  provider-ssm-servicesetting:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: SSM.ServiceSetting
+    identifier: [/properties/Arn]
 resourceTypes:
   SSM.Association:
     properties:
@@ -597,3 +604,15 @@ resourceTypes:
         display: {show: false, name: 'Tags[].Value'}
         access: [read-write]
         aws: {getter: provider-ssm-patchbaseline, path: 'Tags[].Value', normalize: typed}
+  SSM.ServiceSetting:
+    properties:
+      SettingId:
+        model: {include: false}
+        display: {show: false, name: SettingId}
+        access: [create-only]
+        aws: {getter: provider-ssm-servicesetting, path: SettingId, normalize: typed}
+      SettingValue:
+        model: {include: false}
+        display: {show: false, name: SettingValue}
+        access: [read-write]
+        aws: {getter: provider-ssm-servicesetting, path: SettingValue, normalize: typed}

@@ -197,6 +197,7 @@
   "SSM.MaintenanceWindowTarget": "independent",
   "SSM.MaintenanceWindowTask": "independent",
   "SSM.PatchBaseline": "independent",
+  "SSM.ServiceSetting": "independent",
   "SSO.Assignment": "independent",
   "SSO.PermissionSet": "independent",
   "Scheduler.Schedule": "independent",

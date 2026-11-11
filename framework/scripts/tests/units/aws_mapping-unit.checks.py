@@ -189,7 +189,7 @@ def check_v3_registry():
         getters,
         len(apis),
         len(set(apis)),
-    ) == (179, 53, 50, 66, 87, 86)
+    ) == (180, 53, 50, 66, 87, 86)
     stack = m.service_module("cloudformation-stacks")
     assert stack.STACK_TYPE == "CloudFormation.Stack"
     assert all(
@@ -437,6 +437,8 @@ def check_v3_registry():
     assert project_id["display"]["show"] is False
     project_id["display"]["show"] = True
     assert "AvailabilityZone" not in properties["ec2"]["EC2.Instance"]
+    assert set(baseline_properties["ssm"].pop("SSM.ServiceSetting")) == {"SettingId", "SettingValue"}
+    assert definitions["ssm"].pop("provider-ssm-servicesetting")["identifier"] == ["/properties/Arn"]
     # Environment mappings add CodePipeline SDK fields and expose ECS/Lambda values.
     for values, expected in [
         (
@@ -452,7 +454,7 @@ def check_v3_registry():
         actual = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
         assert actual == expected, (actual, expected)
     print(
-        "YAML v3/environment baseline: PASS (50 files, 179 types, 53 adapter types, 50 identities, 65 adapter getters; 18 TGW include/show changes explicit; properties/getters/metadata/API sets pinned)"
+        "YAML v3/environment baseline: PASS (50 files, 180 types, 53 adapter types, 50 identities, 65 adapter getters; 18 TGW include/show changes explicit; properties/getters/metadata/API sets pinned)"
     )
 
 

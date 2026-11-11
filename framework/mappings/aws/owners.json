@@ -162,6 +162,7 @@
   "SSM.MaintenanceWindowTarget": "ssm",
   "SSM.MaintenanceWindowTask": "ssm",
   "SSM.PatchBaseline": "ssm",
+  "SSM.ServiceSetting": "ssm",
   "SSO.Assignment": "sso",
   "SSO.PermissionSet": "sso",
   "SageMaker.Domain": "sagemaker",
