@@ -928,7 +928,7 @@ def collapse_json_cells(rows, anchor_prefix, cells, documents, presentation):
                     raw = policy_json(raw)
                 except json.JSONDecodeError:
                     pass  # Markdown links and other textual settings may start with '['.
-            if isinstance(raw, (dict, list)):
+            if isinstance(raw, (dict, list)) and raw:
                 cells[index] = (
                     f"{anchor_prefix}-json-{rid}-{index + 1}",
                     f"JSON：{prop}",

@@ -661,8 +661,9 @@ def test_linked_array_uses_model_rows_without_metadata(models, case, observed):
             3 if case in {"multiple", "split"} else 2 if case == "literal" else 1
         )
         if case in {"empty", "empty_spaces"}:
-            assert "| VpcConfig.SubnetIds | [JSON](#" in lines[0]
-            assert collapsed_json(markdown, "VpcConfig.SubnetIds") == []
+            expected = values["desired.row.001-002.value"]
+            assert f"| VpcConfig.SubnetIds | {expected} |" in lines[0]
+            assert "<details>" not in markdown
         else:
             assert all(f"SubnetIds[{i}]" in line for i, line in enumerate(lines, 1))
         semantic = restore(path, markdown, values)
@@ -717,8 +718,8 @@ def test_codebuild_empty_linked_array_uses_model(models):
     before = copy.deepcopy(values)
     with input_context(read_only=True):
         markdown = generate_markdown(path, values, FRAMEWORK)
-        assert "| VpcConfig.Subnets | [JSON](#" in markdown
-        assert collapsed_json(markdown, "VpcConfig.Subnets") == []
+        assert "| VpcConfig.Subnets | `[]` |" in markdown
+        assert "<details>" not in markdown
         assert "subnet-list-source" not in markdown
         assert values["desired.row.001-002.value"] in restore(path, markdown, values)
         assert values == before

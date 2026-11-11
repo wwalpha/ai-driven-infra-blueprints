@@ -306,7 +306,8 @@ Security Group listings also use 3 columns; place SG Id, GroupDescription, selec
 Generate structured settings and policy documents as fenced JSON inside collapsed
 `<details>` sections after the owning Resource's configuration table. The Value cell
 links to the section in the same Markdown. Generate no separate JSON files or links
-to them. Preserve existing service-specific displays that project structured inputs
+to them. Display empty arrays (`[]`) and objects (`{}`) from row values inline in
+the Value cell. Preserve existing service-specific displays that project structured inputs
 into individual settings or Resource links. Keep every key, value, and array order
 in JSON displayed as a document, including Version and Id in policies.
 

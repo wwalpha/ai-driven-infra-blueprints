@@ -106,8 +106,8 @@ def array_model_case(tmp_path, case):
     markdown = model_design.generate_markdown(path, values, ROOT)
     TestCase().assertTrue("<!-- array-source:" not in markdown)
     TestCase().assertTrue("Permissions[1].Actions[2]" in markdown)
-    assert "Permissions[2].Actions | [JSON](#" in markdown
-    assert "```json\n[]\n```" in markdown
+    assert "Permissions[2].Actions | `[]` |" in markdown
+    assert "<details>" not in markdown
     document = DesignIndex(ROOT).get(path, text=markdown, values=values)
     semantic = "\n".join(document.raw.display_lines)
     TestCase().assertTrue(
@@ -168,6 +168,13 @@ def array_model_case(tmp_path, case):
 @pytest.mark.parametrize("case_id", ["array-model"])
 def check_array_model_projection(tmp_path, case_runner, case_id):
     case_runner.run("model_design", case_id, partial(array_model_case, tmp_path))
+
+
+def check_empty_json_object_stays_in_value_cell():
+    rows = [["001-001", "Configuration", "`{}`", "設定"]]
+    cells = {}
+    assert model_design.collapse_json_cells(rows, "resource", cells, {}, None) == rows
+    assert not cells
 
 
 def check_indexed_compact_variable_diagnostics():

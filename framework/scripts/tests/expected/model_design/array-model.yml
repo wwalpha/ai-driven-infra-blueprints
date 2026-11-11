@@ -37,37 +37,9 @@ markdown: '# quicksight 詳細設計
 
   | 4 | Permissions[1].Principal | [first](iam.md#first) | 対象ユーザー |
 
-  | 5 | Permissions[2].Actions | [JSON](#quicksight-source-json-001-004-5) | 空の権限
-  |
+  | 5 | Permissions[2].Actions | `[]` | 空の権限 |
 
   | 6 | Permissions[2].Principal | [second](iam.md#second) | 次のユーザー |
-
-
-  <!-- policy-tables:start -->
-
-
-  <a id="quicksight-source-json-001-004-5"></a>
-
-
-  #### JSON：Permissions[2].Actions
-
-
-  <details>
-
-  <summary>Permissions[2].Actions</summary>
-
-
-  ```json
-
-  []
-
-  ```
-
-
-  </details>
-
-
-  <!-- policy-tables:end -->
 
   '
 restored: '# quicksight 詳細設計
@@ -112,31 +84,4 @@ restored: '# quicksight 詳細設計
   | 4 | QuickSight.DataSource.Permissions[].Actions | `[]` | 空の権限 |
 
   | 5 | QuickSight.DataSource.Permissions[].Principal | [second](iam.md#second) |
-  次のユーザー |
-
-
-  <!-- policy-tables:start -->
-
-
-  <a id="quicksight-source-json-001-004-5"></a>
-
-
-  #### JSON：Permissions[2].Actions
-
-
-  <details>
-
-  <summary>Permissions[2].Actions</summary>
-
-
-  ```json
-
-  []
-
-  ```
-
-
-  </details>
-
-
-  <!-- policy-tables:end -->'
+  次のユーザー |'

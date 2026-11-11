@@ -490,6 +490,7 @@ def _callback_check_config_typed_anchors_failures(
 
 def check_config_typed_anchors(root):
     recorder, channel = "Config.ConfigurationRecorder", "Config.DeliveryChannel"
+    excluded_types = "RecordingGroup.ExclusionByResourceTypes.ResourceTypes"
     recorder_anchor = "config-configuration-recorder-default"
     channel_anchor = "resource-Config_DeliveryChannel_001"
     (root / "project.json").write_text(
@@ -528,6 +529,7 @@ def check_config_typed_anchors(root):
                 "`AWSServiceRoleForConfig`",
                 "記録に使用するservice linked role",
             ),
+            (excluded_types, "`[]`", "記録対象外のリソース種別"),
         ],
         "Recorder",
     )
@@ -556,6 +558,8 @@ def check_config_typed_anchors(root):
         }
     )
     output = roundtrip(path, values, root)
+    assert f"| {excluded_types} | `[]` |" in output
+    assert "<details>" not in output
     sync_views.validate_views(root, root, [path], {path: values})
     for kind, anchor, logical_id in (
         (recorder, recorder_anchor, "Config_ConfigurationRecorder_001"),
