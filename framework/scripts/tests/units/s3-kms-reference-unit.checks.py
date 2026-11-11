@@ -15,7 +15,6 @@ import model.validations.full_inputs as _model_validation_full_inputs
 from comparison import Comparison
 from design.catalog import DesignSchemaCatalog
 from design.document import DesignIndex
-from design.services import kms
 from generation_inputs import GenerationInputs
 from model.core import ModelNeedsFixError, entries
 from model.format import parse, serialize
@@ -721,28 +720,20 @@ def logs_fixture(root, observed, logical="KMS_Alias_001", attribute="Arn"):
 
 
 @pytest.mark.parametrize(
-    "observed,label,warning",
+    "observed,warning",
     [
-        (
-            "12345678-1234-1234-1234-123456789abc",
-            "12345678-1234-1234-1234-123456789abc",
-            None,
-        ),
-        (
-            "87654321-1234-1234-1234-123456789abc",
-            "87654321-1234-1234-1234-123456789abc",
-            "reference.mismatch",
-        ),
-        ("PENDING_DEPLOY", "PENDING_DEPLOY", None),
-        (None, "未観測", None),
+        ("12345678-1234-1234-1234-123456789abc", None),
+        ("87654321-1234-1234-1234-123456789abc", "reference.mismatch"),
+        ("PENDING_DEPLOY", None),
+        (None, None),
     ],
 )
-def check_logs_observed_kms_key_id_label(project_workspace, observed, label, warning):
+def check_logs_label_uses_referenced_kms_alias(project_workspace, observed, warning):
     scope, logs, _ = logs_fixture(project_workspace, observed)
     path = scope.root / "docs/designs/fixture/team/cloudwatch-logs.md"
-    presentation = Presentation(logs, path, scope.root)
-    link = presentation.references[Position("001-002", "value", "")].link
-    assert link == f"[{label}](kms.md#alias-one)"
+    with catalog_display():
+        markdown = generate_markdown(path, logs, FRAMEWORK)
+    assert "[alias/fixture-key](kms.md#alias-one)" in markdown
     diagnostics, _ = diagnose(load_model(scope))
     relevant = [
         d for d in diagnostics if d.get("consumerKey") == "desired.row.001-002.value"
@@ -750,7 +741,8 @@ def check_logs_observed_kms_key_id_label(project_workspace, observed, label, war
     assert [d["code"] for d in relevant] == ([warning] if warning else [])
 
 
-def check_athena_pending_key_without_consumer_observation(project_workspace):
+@pytest.mark.parametrize("observed", [None, "12345678-1234-1234-1234-123456789abc"])
+def check_athena_label_uses_pending_kms_key(project_workspace, observed):
     scope, _, kms_values = fixture(project_workspace)
     kms_values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
     write_model(Scope(scope.root, "fixture", "team", "kms").path, kms_values)
@@ -774,6 +766,8 @@ def check_athena_pending_key_without_consumer_observation(project_workspace):
         + "`",
         "desired.row.001-002.comment": "暗号化キー",
     }
+    if observed is not None:
+        values["observed.row.001-002.value"] = f"`{observed}`"
     write_model(athena_scope.path, values)
     dependency_index.rebuild(scope.root)
     path = scope.root / "docs/designs/fixture/team/athena.md"
@@ -784,7 +778,7 @@ def check_athena_pending_key_without_consumer_observation(project_workspace):
     with catalog_display():
         markdown = generate_markdown(path, values, FRAMEWORK)
     assert "[PENDING_DEPLOY](kms.md#key-one)" in markdown
-    assert "observed.row.001-002.value" not in values
+    assert load_model(athena_scope).authoritative == values
 
 
 def check_logs_kms_key_identity_unproven(project_workspace):
@@ -798,7 +792,7 @@ def check_logs_kms_key_identity_unproven(project_workspace):
         .references[Position("001-002", "value", "")]
         .link
     )
-    assert link == f"[未確認: {observed}](kms.md#alias-one)"
+    assert link == "[alias/fixture-key](kms.md#alias-one)"
     diagnostics, _ = diagnose(load_model(scope))
     assert any(
         d["code"] == "reference.unresolved"
@@ -808,9 +802,17 @@ def check_logs_kms_key_identity_unproven(project_workspace):
 
 
 @pytest.mark.parametrize(
-    "logical,anchor", [("KMS_Key_001", "key-one"), ("KMS_Alias_001", "alias-one")]
+    "logical,anchor,label",
+    [
+        (
+            "KMS_Key_001",
+            "key-one",
+            "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789abc",
+        ),
+        ("KMS_Alias_001", "alias-one", "alias/fixture-key"),
+    ],
 )
-def check_logs_kms_key_reference_roundtrip(project_workspace, logical, anchor):
+def check_logs_kms_key_reference_roundtrip(project_workspace, logical, anchor, label):
     observed = "12345678-1234-1234-1234-123456789abc"
     scope, logs, _ = logs_fixture(project_workspace, observed, logical, "Arn")
     original = {p: p.read_bytes() for p in scope.path.parent.glob("*.properties")}
@@ -818,7 +820,7 @@ def check_logs_kms_key_reference_roundtrip(project_workspace, logical, anchor):
     path.parent.mkdir(parents=True, exist_ok=True)
     with catalog_display():
         markdown = generate_markdown(path, logs, FRAMEWORK)
-        assert f"[{observed}](kms.md#{anchor})" in markdown
+        assert f"[{label}](kms.md#{anchor})" in markdown
         restored = DesignIndex(FRAMEWORK).get(path, text=markdown, values=logs)
         assert "Logs.LogGroup.KmsKeyId" in "\n".join(restored.raw.display_lines)
         assert (
@@ -851,7 +853,7 @@ def check_logs_kms_key_reference_roundtrip(project_workspace, logical, anchor):
         Presentation(logs, path, scope.root)
         .references[Position("001-002", "value", "")]
         .link
-        == f"[{observed}](kms.md#{anchor})"
+        == f"[{label}](kms.md#{anchor})"
     )
 
 
@@ -888,40 +890,8 @@ def check_kms_alias_name_and_multiple_aliases(project_workspace):
         Presentation(logs, path, logs_scope.root)
         .references[Position("001-002", "value", "")]
         .link
-        == "[12345678-1234-1234-1234-123456789abc](kms.md#alias-two)"
+        == "[alias/second-key](kms.md#alias-two)"
     )
-
-
-@pytest.mark.parametrize(
-    "state,observed,expected",
-    [
-        ("match", "key-id", "key-id"),
-        ("mismatch", "key-id", "key-id"),
-        ("unproven", "key-id", "未確認: key-id"),
-        ("pending", "PENDING_DEPLOY", "PENDING_DEPLOY"),
-        ("unobserved", None, "未観測"),
-    ],
-)
-def check_kms_service_reference_label(state, observed, expected):
-    position = Position("001-002", "value", "")
-    values = {"desired.row.001-002.value": "`" + json.dumps(reference()) + "`"}
-    with patch.object(
-        kms.references, "kms_observation", return_value=(state, observed)
-    ):
-        assert (
-            kms.reference_label(
-                values,
-                position,
-                object(),
-                None,
-                None,
-                {"resourceType": "KMS.Key"},
-                "Arn",
-                "key-name",
-                "resolved-arn",
-            )
-            == expected
-        )
 
 
 def check_kms_observation_not_applied_inside_document(project_workspace):
@@ -944,7 +914,7 @@ def check_kms_alias_missing_parent_is_unproven(project_workspace):
         Presentation(logs, path, scope.root)
         .references[Position("001-002", "value", "")]
         .link
-        == f"[未確認: {observed}](kms.md#alias-one)"
+        == "[alias/fixture-key](kms.md#alias-one)"
     )
     diagnostics, _ = diagnose(load_model(scope))
     assert any(d["code"] == "reference.unresolved" for d in diagnostics)
