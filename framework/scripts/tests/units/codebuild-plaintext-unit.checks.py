@@ -5,7 +5,6 @@ import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest import TestCase
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

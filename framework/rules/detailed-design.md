@@ -347,7 +347,7 @@ Machine-readable display-format definitions are `POLICY_FORMATS` in `framework/s
 
 | Format | Target |
 | --- | --- |
-| Collapsed JSON | IAM Role trust/inline, IAM User inline, IAM ManagedPolicy, S3 BucketPolicy, KMS KeyPolicy, VPC endpoints, SQS QueuePolicy |
+| Collapsed JSON | IAM Role trust/inline, IAM User inline, IAM ManagedPolicy, S3 BucketPolicy, KMS KeyPolicy, VPC endpoints, SQS QueuePolicy, SSM ResourcePolicy |
 | Statement table | SNS TopicPolicy, ECR repository, Secrets Manager, CloudWatch Logs resource policies, API Gateway, EventBridge, SSO PermissionSet inline, DynamoDB table/stream/replica policies |
 | Contained Statement table | `PolicyDocument` within JSON objects of `DynamoDB.Table.ResourcePolicy`. Retain outer structures; stop without omitting unknown wrapper keys |
 | Configuration table | SNS delivery/filter/redrive/replay/archive/data protection, SQS redrive/redrive allow, CloudWatch Logs data protection, ECR lifecycle, Organizations Policy Content (retain JSON structures for each policy type including SCP) |

@@ -63,6 +63,7 @@ COLLAPSED_POLICY_DOCUMENTS = IAM_POLICY_DOCUMENTS | {
     "EC2.VPCEndpoint.PolicyDocument",
     "KMS.Key.KeyPolicy",
     "SQS.QueuePolicy.PolicyDocument",
+    "SSM.ResourcePolicy.Policy",
 }
 JSON_LINK = re.compile(r"\[([^\]]+)\]\(([^)#]+\.json)\)")
 # Exact catalog properties: policy names, ARNs and enum settings are not documents.

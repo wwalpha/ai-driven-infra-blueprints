@@ -804,10 +804,10 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     artifact.write_text(json.dumps(document), encoding="utf-8")
     markdown = generate_markdown(path, load_model(consumer).values, FRAMEWORK)
     path.write_text(markdown, encoding="utf-8")
-    assert "confirmed-bucket" in markdown and "](kms.md#saved-004)" in markdown
+    assert "confirmed-bucket" in markdown and "PENDING_DEPLOY" in markdown
     assert "iam/iam-role-070-synthetic-policy.json" in markdown
     assert "iam/iam-role-070-trust-policy.json" in markdown
-    assert "[PENDING_DEPLOY](kms.md#saved-004)" in markdown
+    assert "](kms.md#saved-004)" not in markdown
     assert rendered_design(path, definitions_root=FRAMEWORK) == markdown
     assert consumer.path.read_bytes() == original
     assert (

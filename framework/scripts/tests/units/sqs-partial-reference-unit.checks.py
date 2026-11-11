@@ -94,7 +94,8 @@ def check_eventbridge_source_arn_policy_generation(sqs):
     assert policy["Statement"][0]["Condition"]["ArnEquals"]["aws:SourceArn"] == (
         "arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule"
     )
-    assert "[fixture-rule](events.md#saved-001)" in outputs[path]
+    assert policy["Statement"][0]["Condition"]["ArnEquals"]["aws:SourceArn"] in outputs[path]
+    assert "](events.md#saved-001)" not in outputs[path]
     assert values == original
 
 
@@ -120,9 +121,13 @@ def check_deleted_candidate_producer(sqs):
     from_block = markdown.index("<!-- resource-logical-id: SQS_QueuePolicy_001 -->")
     markdown = "## リソース詳細\n\n" + markdown[from_block:]
     tables, error = policy_result(path, markdown, candidate)
-    assert tables is None and "Model expected display" in str(error)
-    projected = generate_markdown(path, candidate, FRAMEWORK)
-    assert "$modelRef" in projected and "[synthetic-queue](#saved-001)" not in projected
+    assert tables is None and "producer logicalId is absent" in str(error)
+    with pytest.raises(ReferenceDiagnosticError) as generation_error:
+        generate_markdown(path, candidate, FRAMEWORK)
+    assert any(
+        d["code"] == "MODEL_REF_TARGET_MISSING"
+        for d in generation_error.value.diagnostics
+    )
     with pytest.raises(ReferenceDiagnosticError) as invalid:
         validate_json_documents(candidate, scope.path)
     assert any(

@@ -2053,11 +2053,12 @@ def test_codebuild_id_from_api_without_output(
         assert "SECRET" not in reason and stack["StackId"] in reason
 
 
-def test_deployed_template_acquisition_failure_is_distinct():
-    def denied(*args, **kwargs):
-        raise AwsError("cloudformation", "get_template", "AccessDenied")
+def _denied_template(*args, **kwargs):
+    raise AwsError("cloudformation", "get_template", "AccessDenied")
 
-    backend = SimpleNamespace(aws=denied)
+
+def test_deployed_template_acquisition_failure_is_distinct():
+    backend = SimpleNamespace(aws=_denied_template)
     body, reason = deploy_observed.deployed_template(backend, "stack-id")
     assert body is None and "get_template failed (AccessDenied)" in reason
     assert "parse failed" not in reason

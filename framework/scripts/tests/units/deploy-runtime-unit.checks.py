@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Focused checks; test sources define the current verification responsibilities."""
 
+import hashlib
 import os
 import sys
 from functools import partial as _bind_framework_callback
@@ -12,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import deploy.s3_delivery as _imports_deploy_s3_delivery
 from botocore.exceptions import ReadTimeoutError
-from deploy import failures
+from deploy import delivery, failures
+from deploy.preparation import template_delivery_required
 from deploy.timing import Timing
 from generation_inputs import GenerationInputs
 from model.adapters.observed import mappings
@@ -63,6 +65,7 @@ from utils.aws import cloudformation as cfn
 from utils.aws import secretsmanager as secrets
 from utils.aws.client import AwsError
 from utils.aws.identity import IdentityError
+from utils.cloudformation.format import decode
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -685,9 +688,6 @@ def _callback_check_delivery_artifact(
 
 
 def test_unicode_template_delivery_round_trip(tmp_path):
-    from deploy import delivery
-    from utils.cloudformation.format import decode
-
     source = """Conditions:
   Unused: !Equals [a, b]
 Resources:
@@ -716,7 +716,6 @@ Resources:
     assert body.isascii() and change["TemplateBody"] == body
     assert decode(body) == (document, [])
     assert "\\u306e" in body
-    import hashlib
     assert hashlib.sha256(body.encode()).hexdigest() == state["delivery"]["templateSha256"]
     assert Path(state["delivery"]["path"]).read_bytes() == body.encode()
     with pytest.raises(M.Blocked, match="cannot be converted"):
@@ -724,8 +723,6 @@ Resources:
 
 
 def test_unicode_template_size_uses_sent_bytes(tmp_path):
-    from utils.cloudformation.format import decode
-
     backend = DeliveryAws(tmp_path / "repo", tmp_path / "work")
     unit = units(10)[0] | {"templateBucket": "app-dev-assets", "templateKeyPrefix": "templates/"}
     template, params = backend.paths(unit)
@@ -737,7 +734,6 @@ def test_unicode_template_size_uses_sent_bytes(tmp_path):
     assert not errors
     template.write_text(source, encoding="utf-8")
     params.write_text("[]", encoding="utf-8")
-    from deploy.preparation import template_delivery_required
     assert template_delivery_required(template)
     backend.templates["A"] = (document, {})
     state = {"status": "NOT_STARTED"}
@@ -752,8 +748,6 @@ def test_unicode_template_size_uses_sent_bytes(tmp_path):
 
 
 def test_unicode_conversion_rejects_changed_input_and_excess_size(tmp_path):
-    from utils.cloudformation.format import decode
-
     backend = DeliveryAws(tmp_path / "repo", tmp_path / "work")
     unit = units(10)[0]
     template, params = backend.paths(unit)

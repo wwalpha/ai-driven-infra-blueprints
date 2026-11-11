@@ -413,7 +413,7 @@ def check_service_policy_checks():
                 resource_type, prop[len(resource_type) + 1 :]
             ).get("type", []):
                 candidates.add(prop)
-    assert len(POLICY_FORMATS) == 31
+    assert len(POLICY_FORMATS) == 32
     assert candidates == set(POLICY_FORMATS), (
         "catalog policy documents need an explicit display decision"
     )

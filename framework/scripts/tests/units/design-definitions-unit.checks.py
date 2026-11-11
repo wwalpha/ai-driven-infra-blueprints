@@ -73,6 +73,7 @@ EXPECTED = {
         "SQS.Queue.RedriveAllowPolicy": "settings",
         "SQS.Queue.RedrivePolicy": "settings",
         "SQS.QueuePolicy.PolicyDocument": "statement",
+        "SSM.ResourcePolicy.Policy": "statement",
         "SSO.PermissionSet.InlinePolicy": "statement",
         "SecretsManager.ResourcePolicy.ResourcePolicy": "statement",
     },
@@ -106,7 +107,7 @@ def check_values():
             actual = sorted(actual)
         actual = json.loads(json.dumps(actual, sort_keys=True))
         assert actual == expected, name
-    assert len(registry.POLICY_FORMATS) == 31
+    assert len(registry.POLICY_FORMATS) == 32
     assert list(registry.POLICY_FORMATS) == sorted(
         registry.POLICY_FORMATS,
         key=lambda key: (registry.POLICY_FORMATS[key] == "settings", key),
@@ -176,5 +177,6 @@ if __name__ == "__main__":
     check_duplicates()
     check_registration()
     print(
-        "Design definitions: PASS (26 services; 31 policy formats; seven collections; service dependency direction)"
+        f"Design definitions: PASS ({len(registry.SERVICES)} services; "
+        f"{len(registry.POLICY_FORMATS)} policy formats; seven collections; service dependency direction)"
     )

@@ -26,6 +26,7 @@ from design.services.definitions import (
     secrets_manager,
     sns,
     sqs,
+    ssm,
     sso,
 )
 
@@ -55,6 +56,7 @@ SERVICES = (
     secrets_manager,
     sns,
     sqs,
+    ssm,
     sso,
 )
 

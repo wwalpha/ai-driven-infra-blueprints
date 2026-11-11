@@ -305,17 +305,17 @@ def prepare_delivery_group(
         )
 
 
+def _valid_template_value(value):
+    if isinstance(value, dict):
+        return all(isinstance(k, str) and _valid_template_value(v) for k, v in value.items())
+    if isinstance(value, list):
+        return all(_valid_template_value(v) for v in value)
+    return value is None or type(value) in (str, int, float, bool)
+
+
 def ascii_template(document):
     """Serialize only when the existing decoder preserves every value and type."""
-
-    def valid(value):
-        if isinstance(value, dict):
-            return all(isinstance(k, str) and valid(v) for k, v in value.items())
-        if isinstance(value, list):
-            return all(valid(v) for v in value)
-        return value is None or type(value) in (str, int, float, bool)
-
-    if not valid(document):
+    if not _valid_template_value(document):
         raise Blocked(
             "template cannot be converted to ASCII without changing YAML values"
         )
