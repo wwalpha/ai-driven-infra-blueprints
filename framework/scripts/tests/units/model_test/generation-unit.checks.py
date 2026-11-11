@@ -441,6 +441,57 @@ def test_guardduty_plan_generated_comparison():
     assert_result(actual, fixture)
 
 
+@pytest.mark.parametrize("outcome", ["match", "pending", "denied", "not-found"])
+def test_guardduty_plan_id_generated_audit(tmp_path, outcome):
+    inputs, _ = load_fixture("guardduty/comparison")
+    inputs["model"].update(
+        {
+            "desired.row.001-005.property": "GuardDuty.MalwareProtectionPlan.MalwareProtectionPlanId",
+            "desired.row.001-005.value": '`{"$modelRef":{"logicalId":"GuardDuty_MalwareProtectionPlan_001","attribute":"MalwareProtectionPlanId"}}`',
+            "desired.row.001-005.comment": "fixture",
+            "observed.row.001-005.value": "`PENDING_DEPLOY`"
+            if outcome == "pending"
+            else "`plan-1`",
+        }
+    )
+    namespace = generated(prepare(tmp_path, inputs), tmp_path)
+    response = {"ProtectedResource": {"S3Bucket": {"BucketName": "bucket"}}}
+    if outcome in {"denied", "not-found"}:
+        response = {
+            "$error": json.dumps(
+                {
+                    "Code": "AccessDeniedException"
+                    if outcome == "denied"
+                    else "ResourceNotFoundException"
+                }
+            )
+        }
+    cli = CLI(
+        {
+            ("guardduty", "get-malware-protection-plan"): response,
+            ("guardduty", "list-malware-protection-plans"): {
+                "MalwareProtectionPlans": [{"MalwareProtectionPlanId": "plan-1"}]
+            },
+        }
+    )
+    _, _, records = namespace["audit"](namespace["SNAPSHOT"], None, cli)
+    item = next(
+        item
+        for item in records
+        if item["propertiesKey"].endswith(".MalwareProtectionPlanId")
+    )
+    assert (
+        item["status"]
+        == {
+            "match": "match",
+            "pending": "pending_identifier",
+            "denied": "acquisition_failed",
+            "not-found": "resource_missing",
+        }[outcome]
+    ), item
+    assert all(api[0] != "cloudcontrol" for api, _, _ in cli.calls)
+
+
 def test_guardduty_prefix_shapes_generated():
     fixture = load_fixture("guardduty/prefix-shapes")
     actual = execute(fixture)

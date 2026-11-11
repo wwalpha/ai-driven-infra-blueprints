@@ -880,6 +880,15 @@ def _build(root, environment, selector, service, standalone):
             continue
         mapping, props = comparison(ROOT, name)
         props = dict(props)
+        if name == "guardduty":
+            key = "GuardDuty.MalwareProtectionPlan.MalwareProtectionPlanId"
+            prop = props[key]
+            props[key] = replace(
+                prop,
+                field=replace(
+                    prop.field, getter="plan", classification="supported", reason=""
+                ),
+            )
         if name == "datazone":
             # Audit-only SDK projections retain the existing selectors and fetch cache.
             response_shape = _imports_aws_mapping.response_shape
