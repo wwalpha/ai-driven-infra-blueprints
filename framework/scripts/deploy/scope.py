@@ -77,7 +77,28 @@ def reference_write(root, task, change, row, mapped, target, authority_root):
     return True
 
 
-def check_fixed_resources(root, mapped, *, task=None, keys=None):
+def fixed_records(task, heading):
+    records = []
+    for line in section(task.text, heading):
+        if not line.startswith("- `") or not line.endswith("`"):
+            raise ValueError(f"invalid fixed {heading[3:]} entry")
+        record = json.loads(line[3:-1])
+        if set(record) != {"stack", "logicalId", "service", "resource"}:
+            raise ValueError(f"invalid fixed {heading[3:]} fields")
+        entry = tuple(
+            record[key] for key in ("stack", "logicalId", "service", "resource")
+        )
+        if any(not isinstance(value, str) or not value for value in entry):
+            raise ValueError(f"invalid fixed {heading[3:]} values")
+        records.append(entry)
+    if len(set(records)) != len(records) or len(
+        {entry[:2] for entry in records}
+    ) != len(records):
+        raise ValueError(f"duplicate fixed {heading[3:]} ownership")
+    return set(records)
+
+
+def check_fixed_resources(root, mapped, *, task=None, keys=None, removals=None):
     task = task or task_snapshot(root, required=False, executable=False)
     if task is None:
         return
@@ -86,27 +107,43 @@ def check_fixed_resources(root, mapped, *, task=None, keys=None):
         for name, resources in mapped.items()
         for logical, (path, _, resource, _, _) in resources.items()
     }
-    records = section(task.text, "## Execution scope")
-    if records:
-        fixed = []
-        for line in records:
-            if not line.startswith("- `") or not line.endswith("`"):
-                raise ValueError("invalid fixed Execution scope entry")
-            record = json.loads(line[3:-1])
-            if set(record) != {"stack", "logicalId", "service", "resource"}:
-                raise ValueError("invalid fixed Execution scope fields")
-            fixed.append(
-                tuple(
-                    record[key] for key in ("stack", "logicalId", "service", "resource")
+    fixed = fixed_records(task, "## Execution scope")
+    has_candidates = "## Removal candidates" in task.text.splitlines()
+    candidates = (
+        fixed_records(task, "## Removal candidates") if has_candidates else set()
+    )
+    if {entry[:2] for entry in fixed} & {entry[:2] for entry in candidates}:
+        raise ValueError("fixed Execution scope and Removal candidates overlap")
+    if not fixed and not has_candidates:
+        return
+    if keys is not None:
+        actual = {entry for entry in actual if entry[:2] in keys}
+        fixed = {entry for entry in fixed if entry[:2] in keys}
+        candidates = {entry for entry in candidates if entry[:2] in keys}
+    expected = fixed | {
+        entry for entry in candidates if entry[:2] in (removals or set())
+    }
+    if expected != actual:
+        missing = sorted(expected - actual)
+        unexpected = sorted(actual - expected)
+        error = ValueError(
+            "Resource ownership differs from the Task's fixed Execution scope: "
+            f"missing={missing}; unexpected={unexpected}"
+        )
+        error.ownership_differences = {
+            label: [
+                dict(
+                    zip(
+                        ("stack", "logicalId", "service", "resource"),
+                        entry,
+                        strict=True,
+                    )
                 )
-            )
-        if keys is not None:
-            actual = {entry for entry in actual if entry[:2] in keys}
-            fixed = [entry for entry in fixed if entry[:2] in keys]
-        if len(set(fixed)) != len(fixed) or set(fixed) != actual:
-            raise ValueError(
-                "Resource ownership differs from the Task's fixed Execution scope"
-            )
+                for entry in entries
+            ]
+            for label, entries in (("missing", missing), ("unexpected", unexpected))
+        }
+        raise error
 
 
 def validate_selected(
@@ -168,9 +205,19 @@ def validate_selected(
                 removal = removed_owner[0] in templates and removed_owner[
                     1
                 ] not in templates[removed_owner[0]][0].get("Resources", {})
+                candidate = (
+                    *removed_owner,
+                    change.after.scope.service,
+                    logical,
+                ) in fixed_records(
+                    task, "## Removal candidates"
+                ) and change.after.authoritative.get(
+                    f"observed.row.{row}.value"
+                ) == "`PENDING_DEPLOY`"
                 if (
                     logical not in permitted
                     and not removal
+                    and not candidate
                     and not reference_write(
                         root,
                         task,

@@ -28,6 +28,7 @@ from model.adapters.observed import (
     preflight,
     publish_observed,
 )
+from model.change_plan import ServiceChange
 from model.core import entries
 from model.format import parse
 from model.format import patch as patch_properties
@@ -864,12 +865,166 @@ def check_shared_stack_mapping(publication_workspace):
         "resources": copy.deepcopy(removal_state["changes"]),
     }
 
+    # Fix the inactive owner at preparation, then use that same contract at every boundary.
+    (params / scoped[1]["parameters"]).write_text(
+        json.dumps([{"ParameterKey": "Enabled", "ParameterValue": "no"}]),
+        encoding="utf-8",
+    )
+    offline_preparation.dependency_index.rebuild(root)
+    active, candidates = offline_preparation.owning_resources(
+        root, "dev", "123456789012", TARGET, [scoped[1]], separate=True
+    )
+    name = scoped[1]["name"]
+    assert not active[name] and "DepartmentVpc" in candidates[name]
+    contract, _, _, _ = candidate(
+        root,
+        "tasks/observation-fixture.md",
+        "dev",
+        "123456789012",
+        TARGET,
+        [name],
+        ["ec2"],
+        resources=active,
+        removal_candidates=candidates,
+    )
+    contract = contract.replace(
+        "## Validation scope\n",
+        "## Validation scope\n- `dev/123456789012/cloudformation-stacks`\n",
+    )
+    fixture_inputs = [
+        "project.json",
+        *offline_preparation.model_input_paths(
+            root, ["dev/123456789012/cloudformation-stacks"]
+        ),
+    ]
+    for heading in ("Modified files", "Allowed paths"):
+        contract = contract.replace(
+            f"## {heading}\n",
+            f"## {heading}\n" + "".join(f"- `{path}`\n" for path in fixture_inputs),
+        )
+    task.write_text(contract, encoding="utf-8")
+    before = load_model(source)
+    execution_scope.validate_selected(root, task_snapshot(root), Findings(root))
+    deploy_observed.readiness(backend, scoped[1])
+    deploy_observed.readiness(backend, scoped[1], {"changes": removal_state["changes"]})
+    change_set = {
+        "ChangeSetId": "cs-removed",
+        "StackId": "stack-removed",
+        "Status": "CREATE_COMPLETE",
+        "ExecutionStatus": "AVAILABLE",
+        "Changes": [{"ResourceChange": removal_state["changes"][0]}],
+    }
+    backend.observed_readiness = lambda unit, state=None: deploy_observed.readiness(
+        backend, unit, state
+    )
+    backend.approvals = set()
+    backend.observed_checks.clear()
+    task.write_text(
+        contract.replace(candidates[name]["DepartmentVpc"]["resource"], "wrong-owner"),
+        encoding="utf-8",
+    )
+    review_state = {"changeSetId": "cs-removed", "stackId": "stack-removed"}
+    with pytest.raises(deploy_observed.Blocked) as mismatch:
+        deploy_controller.review_prepared(backend, scoped[1], review_state, change_set)
+    assert (
+        mismatch.value.deploy_failure["ownershipDifferences"]["unexpected"][0][
+            "logicalId"
+        ]
+        == "DepartmentVpc"
+    )
+    assert (
+        "failureClassification" not in review_state
+        and "approvedChangeDigest" not in review_state
+    )
+    task.write_text(contract, encoding="utf-8")
+    backend.observed_checks.clear()
+    review_state = {"changeSetId": "cs-removed", "stackId": "stack-removed"}
+    assert (
+        deploy_controller.review_prepared(backend, scoped[1], review_state, change_set)
+        == "BLOCKED"
+    )
+    assert review_state["failureClassification"] == "HUMAN_REQUIRED"
+    backend.approvals = {"cs-removed"}
+    assert (
+        deploy_controller.review_prepared(backend, scoped[1], review_state, change_set)
+        == "READY"
+    )
+    review_state.update(clientToken="token", operationType="UPDATE")
+    backend.expected_digests = {}
+    backend.load_inputs = Mock()
+    backend.input_digest = Mock(return_value="input")
+    backend.save = Mock()
+    backend.aws = Mock()
+    with (
+        patch.object(
+            deploy_controller.change_sets, "verify_execution", return_value=change_set
+        ),
+        patch.object(
+            deploy_controller.change_sets,
+            "record_execution",
+            return_value=removal_state["executionEvidence"],
+        ),
+        patch.object(
+            deploy_controller.current_state,
+            "read",
+            return_value={"StackStatus": "UPDATE_COMPLETE", "StackId": "stack-removed"},
+        ),
+    ):
+        deploy_controller.execute(backend, scoped[1], review_state)
+    backend.aws.assert_called_once_with(
+        "execute_change_set",
+        StackName="stack-removed",
+        ChangeSetName="cs-removed",
+        ClientRequestToken="token",
+    )
+    backend.aws = deletion_aws
+
+    # A Retain policy and missing execution-bound deletion proof preserve the observation.
+    for policy, token in (("Retain", "token"), ("Delete", "wrong-token")):
+        uncertain = copy.deepcopy(deleted)
+        evidence = uncertain[name]["executionEvidence"]
+        evidence["resources"][0]["PolicyAction"] = policy
+        evidence["clientToken"] = token
+        if token == "wrong-token":
+            with pytest.raises(ValueError, match="execution evidence"):
+                publish_collected(backend, [scoped[1]], uncertain)
+        else:
+            with redirect_stdout(io.StringIO()):
+                publish_collected(backend, [scoped[1]], uncertain)
+        assert (
+            load_model(source).authoritative["observed.row.002-002.value"]
+            == before.authoritative["observed.row.002-002.value"]
+        )
+
     with redirect_stdout(io.StringIO()):
         publish_collected(backend, [scoped[1]], deleted)
     assert (
         properties(read_model(source))["observed.row.002-002.value"]
         == "`PENDING_DEPLOY`"
     )
+    change = ServiceChange(before, load_model(source), observed_rows={"002-002"})
+    execution_scope.validate_selected(
+        root,
+        task_snapshot(root),
+        Findings(root),
+        plan=SimpleNamespace(changes={"ec2": change}),
+    )
+    invalid = SimpleNamespace(
+        scope=change.after.scope,
+        authoritative=change.after.authoritative
+        | {"observed.row.002-002.value": "`unexpected`"},
+    )
+    with pytest.raises(ValueError, match="observed write outside"):
+        execution_scope.validate_selected(
+            root,
+            task_snapshot(root),
+            Findings(root),
+            plan=SimpleNamespace(
+                changes={
+                    "ec2": ServiceChange(before, invalid, observed_rows={"002-002"})
+                }
+            ),
+        )
     # Resume restores removal ownership from the immutable recorded change set, without re-execution.
     backend.mapping_plan = mappings(
         root,
@@ -1786,7 +1941,6 @@ def test_range_preparation_controller_save_and_resume(tmp_path, monkeypatch):
     TestCase().assertEqual(
         set(json.loads(session.read_text(encoding="utf-8"))["states"]), set(selected)
     )
-
 
 
 def check_codebuild_observation_publication_and_resync(project_workspace, monkeypatch):

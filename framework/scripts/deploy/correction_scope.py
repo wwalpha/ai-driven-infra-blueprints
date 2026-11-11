@@ -26,7 +26,7 @@ def ownership(root, state, context):
     )
     task = tasks.read_task_snapshot(root, state["task_file"], live=True)
     records = tasks.section(text, "## Execution scope")
-    if not records:
+    if not records and "## Removal candidates" not in text.splitlines():
         raise Blocked(
             "legacy Task has no fixed Execution scope; immutable Resource ownership "
             "evidence is missing; retain Task/Snapshot and review the original inputs"
@@ -49,6 +49,12 @@ def ownership(root, state, context):
         root,
         mapped,
         task=tasks.replace(task, text=text),
+        removals={
+            entry[:2]
+            for entry in scope.fixed_records(
+                tasks.replace(task, text=text), "## Removal candidates"
+            )
+        },
     )
     return mappings
 

@@ -1096,7 +1096,13 @@ def readiness(backend, unit, state=None):
         execution_scope.check_fixed_resources(
             backend.root,
             mapped,
-            keys={(name, logical) for logical in document.get("Resources", {})},
+            keys={
+                (name, logical)
+                for logical in set(document.get("Resources", {})) | selected
+            },
+            removals={
+                (name, logical) for logical in removed[name] if logical in selected
+            },
         )
         check = "owner Validation scope"
         scope = active_scope(backend.root)
@@ -1160,6 +1166,8 @@ def readiness(backend, unit, state=None):
             wrapped.deploy_failure = error.deploy_failure
         else:
             wrapped.deploy_failure = {}
+        if hasattr(error, "ownership_differences"):
+            wrapped.deploy_failure["ownershipDifferences"] = error.ownership_differences
         wrapped.deploy_failure.setdefault("stage", "PREPARATION")
         wrapped.deploy_failure.setdefault("classification", "INPUT_CANDIDATE")
         wrapped.deploy_failure.setdefault("code", "OBSERVED_READINESS")
@@ -1277,7 +1285,14 @@ def collect_successful(backend, units, states, *, generated_views=None):
         keys={
             (unit["name"], logical)
             for unit in units
-            for logical in backend.templates[unit["name"]][0].get("Resources", {})
+            for logical in set(backend.templates[unit["name"]][0].get("Resources", {}))
+            | selected[unit["name"]]
+        },
+        removals={
+            (unit["name"], logical)
+            for unit in units
+            for logical in removed[unit["name"]]
+            if logical in selected[unit["name"]]
         },
     )
     catalog = DesignSchemaCatalog(root) if loaded else None
@@ -1604,7 +1619,9 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     logical in selected[name]
                     and not static_export_handle(document, logical, parameters, pseudo)
                     and _imports_cfn_inputs.condition_active(
-                        document, parameters, pseudo,
+                        document,
+                        parameters,
+                        pseudo,
                         document.get("Resources", {}).get(logical, {}),
                     )
                 ):

@@ -148,14 +148,19 @@ def aws(
 ) -> AwsResponse:
     try:
         if service == "secretsmanager" and operation in {
-            "put_secret_value", "update_secret_version_stage"
+            "put_secret_value",
+            "update_secret_version_stage",
         }:
             owners = [
-                state["bootstrap"] for state in runtime.states.values()
-                if state.get("bootstrap", {}).get("secretId") == arguments.get("SecretId")
+                state["bootstrap"]
+                for state in runtime.states.values()
+                if state.get("bootstrap", {}).get("secretId")
+                == arguments.get("SecretId")
             ]
             if len(owners) != 1:
-                raise Blocked("Secret submission needs its current scoped bootstrap owner")
+                raise Blocked(
+                    "Secret submission needs its current scoped bootstrap owner"
+                )
         return call(runtime, service, operation, arguments)
     except Exception as error:
         error.deploy_service, error.deploy_operation = service, operation
@@ -600,6 +605,16 @@ def review_prepared(
     )
     if result == DEPLOY_SUCCESS:
         state.pop("noChangeCandidate", None)
+    elif result == "READY" or (
+        result == "BLOCKED" and state.get("failureClassification") == "HUMAN_REQUIRED"
+    ):
+        try:
+            runtime.observed_readiness(unit, {"changes": state["changes"]})
+        except Exception:
+            state.pop("approvedChangeDigest", None)
+            state.pop("failureClassification", None)
+            state.pop("failure", None)
+            raise
     return result
 
 
@@ -635,13 +650,14 @@ def execute(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> Non
         stack = current_state.read(runtime.aws, unit["name"])
         status = stack["StackStatus"]
         allowed = (
-            status == "REVIEW_IN_PROGRESS"
-            and current_state.category(stack) == "REVIEW"
+            status == "REVIEW_IN_PROGRESS" and current_state.category(stack) == "REVIEW"
             if state.get("operationType") == "CREATE"
             else status in current_state.UPDATEABLE
         )
         if not allowed or stack.get("StackId") != state.get("stackId"):
-            raise Blocked("Stack is not ready for execution or its identity changed: " + status)
+            raise Blocked(
+                "Stack is not ready for execution or its identity changed: " + status
+            )
         evidence = change_sets.record_execution(
             runtime.aws, unit, state, current, runtime.input_digest(unit, fresh=True)
         )

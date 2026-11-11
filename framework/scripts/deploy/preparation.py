@@ -32,7 +32,7 @@ from model.sources import load_model, model_session, raw_model
 from utils.aws.identity import execution_account, select_profile
 from utils.aws_mappings import definition_root
 from utils.cloudformation.format import decode
-from utils.cloudformation.inputs import Blocked, load_template_inputs
+from utils.cloudformation.inputs import Blocked, condition_active, load_template_inputs
 from utils.file_operations import sha
 from utils.iac_values import cfn_resource_identity
 from utils.project_targets import load_target
@@ -99,7 +99,7 @@ def environment(root):
     return {"python": sys.executable, "versions": versions, "tools": tools}
 
 
-def owning_resources(root, env, directory, target, units):
+def owning_resources(root, env, directory, target, units, *, separate=False):
     templates = {
         unit["name"]: load_template_inputs(*paths(root, env, directory, target, unit))
         for unit in units
@@ -134,6 +134,7 @@ def owning_resources(root, env, directory, target, units):
             }
             for name, resources in mapped.items()
         }
+        candidates = {name: {} for name in selected}
         identities = {
             identity
             for relative, entry in reads.dependency_index["models"].items()
@@ -150,7 +151,16 @@ def owning_resources(root, env, directory, target, units):
                 if resource.get(CFN_LOGICAL_ID_KEY) not in identities:
                     continue
                 name, logical = cfn_resource_identity(resource[CFN_LOGICAL_ID_KEY])
-                if logical in templates[name][0].get("Resources", {}):
+                document, parameters = templates[name]
+                definition = document.get("Resources", {}).get(logical)
+                pseudo = {
+                    "AWS::StackName": name,
+                    "AWS::Region": target[AWS_REGION_KEY],
+                    "AWS::AccountId": execution_account(target),
+                }
+                if definition is not None and condition_active(
+                    document, parameters, pseudo, definition
+                ):
                     continue
                 if (
                     resource.get("resourceMode", RESOURCE_MODE_CREATE)
@@ -163,12 +173,14 @@ def owning_resources(root, env, directory, target, units):
                     "service": path.stem,
                     "resource": resource[RESOURCE_LOGICAL_ID_KEY],
                 }
-                if logical in result[name] and result[name][logical] != entry:
+                if logical in candidates[name] and candidates[name][logical] != entry:
                     raise ValueError(
                         f"StackName={name} Resource={logical}: duplicate removal ownership"
                     )
-                result[name][logical] = entry
-    return result
+                candidates[name][logical] = entry
+    if separate:
+        return result, candidates
+    return {name: result[name] | candidates[name] for name in result}
 
 
 def candidate(
@@ -182,6 +194,7 @@ def candidate(
     *,
     snapshot=None,
     resources=None,
+    removal_candidates=None,
 ):
     safe_path = _imports_task_contract.safe_path
     files, generated_views = {task}, set()
@@ -229,6 +242,14 @@ def candidate(
         *[
             f"- `{json.dumps({'stack': name, 'logicalId': logical, **item}, sort_keys=True, separators=(',', ':'))}`"
             for name, mappings in sorted((resources or {}).items())
+            for logical, item in sorted(mappings.items())
+        ],
+        "",
+        "## Removal candidates",
+        "",
+        *[
+            f"- `{json.dumps({'stack': name, 'logicalId': logical, **item}, sort_keys=True, separators=(',', ':'))}`"
+            for name, mappings in sorted((removal_candidates or {}).items())
             for logical, item in sorted(mappings.items())
         ],
         "",
@@ -308,14 +329,21 @@ def prepare(root, args, run, timing):
             safe_path(root, path.relative_to(root).as_posix())
         input_revisions = {path: file_revision(path) for path in input_paths}
         inventory = model_inventory(root, args.environment, directory)
-        resources = owning_resources(root, args.environment, directory, target, units)
+        resources, removals = owning_resources(
+            root, args.environment, directory, target, units, separate=True
+        )
         if inventory != model_inventory(root, args.environment, directory) or any(
             file_revision(path) != revision
             for path, revision in input_revisions.items()
         ):
             raise ValueError("ownership inputs changed during preparation")
         services = sorted(
-            {item["service"] for stack in resources.values() for item in stack.values()}
+            {
+                item["service"]
+                for groups in (resources, removals)
+                for stack in groups.values()
+                for item in stack.values()
+            }
         )
         if not services:
             services = ["cloudformation-stacks"]
@@ -331,6 +359,7 @@ def prepare(root, args, run, timing):
             services,
             snapshot=snapshot,
             resources=resources,
+            removal_candidates=removals,
         )
         execution_inputs = set(
             deployment_input_paths(root, args.environment, directory, target, units)
@@ -384,6 +413,7 @@ def prepare(root, args, run, timing):
             "stacks": units,
             "serviceIds": services,
             "selectedResources": resources,
+            "removalCandidates": removals,
             "inputPaths": sorted(
                 path.relative_to(root).as_posix()
                 for path in sources | deferred
@@ -440,7 +470,7 @@ def prepare(root, args, run, timing):
             "directory": directory,
             "target": target,
             "units": units,
-            "resources": resources,
+            "resources": {name: resources[name] | removals[name] for name in resources},
         },
         "controllerArgv": command,
         "modelInputPaths": model_input_paths(root, scope),

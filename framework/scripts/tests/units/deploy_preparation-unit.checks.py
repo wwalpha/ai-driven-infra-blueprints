@@ -443,7 +443,10 @@ def test_generated_execution_conflict_and_symlink(tmp_path):
         patch.object(
             M,
             "owning_resources",
-            return_value={"a": {"x": {"service": "iam"}, "y": {"service": "ec2"}}},
+            return_value=(
+                {"a": {"x": {"service": "iam"}, "y": {"service": "ec2"}}},
+                {"a": {}},
+            ),
         ),
         patch.object(
             M,
@@ -695,6 +698,68 @@ def test_ownership_discovery_uses_selected_stack(tmp_path):
     )
     with pytest.raises(ValueError, match="explicit mapping required"):
         M.owning_resources(root, "dev", "123456789012", TARGET, units)
+
+
+def test_conditional_removal_is_fixed_separately_and_only_selected_for_remove(tmp_path):
+    root = tmp_path / "repo"
+    fixture(root)
+    template = root / "infra/cloudformation/templates/shared.yaml"
+    template.write_text(
+        "Parameters:\n  Enabled: {Type: String, Default: 'yes'}\n"
+        "Conditions:\n  Active: !Equals [!Ref Enabled, 'yes']\n"
+        "Resources:\n  WorkerRole:\n    Type: AWS::IAM::Role\n    Condition: Active\n",
+        encoding="utf-8",
+    )
+    params = root / "infra/cloudformation/parameters/dev/123456789012/1.json"
+    _, units = M.load_units(root, "dev", "123456789012", [STACKS[0]])
+    active, candidates = M.owning_resources(
+        root, "dev", "123456789012", TARGET, units, separate=True
+    )
+    assert "WorkerRole" in active[STACKS[0]] and not candidates[STACKS[0]]
+    params.write_text(
+        '[{"ParameterKey":"Enabled","ParameterValue":"no"}]', encoding="utf-8"
+    )
+    active, candidates = M.owning_resources(
+        root, "dev", "123456789012", TARGET, units, separate=True
+    )
+    assert not active[STACKS[0]]
+    owner = candidates[STACKS[0]]["WorkerRole"]
+    assert owner["service"] == "iam"
+    text, _, _, _ = M.candidate(
+        root,
+        "tasks/deploy.md",
+        "dev",
+        "123456789012",
+        TARGET,
+        [STACKS[0]],
+        ["iam"],
+        resources=active,
+        removal_candidates=candidates,
+    )
+    task = SimpleNamespace(text=text)
+    mapped = {STACKS[0]: {}}
+    execution_scope.check_fixed_resources(root, mapped, task=task)
+    path = root / "model/dev/123456789012/iam.properties"
+    mapped[STACKS[0]]["WorkerRole"] = (
+        path,
+        "001",
+        {"logicalId": owner["resource"]},
+        [],
+        set(),
+    )
+    with pytest.raises(ValueError, match="WorkerRole"):
+        execution_scope.check_fixed_resources(root, mapped, task=task)
+    removal = {(STACKS[0], "WorkerRole")}
+    execution_scope.check_fixed_resources(root, mapped, task=task, removals=removal)
+    mapped[STACKS[0]]["WorkerRole"] = (
+        path,
+        "002",
+        {"logicalId": "wrong-owner"},
+        [],
+        set(),
+    )
+    with pytest.raises(ValueError, match="WorkerRole.*wrong-owner"):
+        execution_scope.check_fixed_resources(root, mapped, task=task, removals=removal)
 
 
 def test_fixed_resource_mapping_cannot_be_replaced(tmp_path):
