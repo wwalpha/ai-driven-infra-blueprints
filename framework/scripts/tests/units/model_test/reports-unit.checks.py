@@ -167,8 +167,36 @@ def test_pending_deploy_report_classification():
         assert code == (1 if expected == "NG" else 2)
 
 
-@pytest.mark.parametrize("attribute", ["Type", "Description", "SecretString"])
-def test_secrets_manager_report_masks_only_sensitive_attributes(attribute):
+@pytest.mark.parametrize(
+    ("prop", "design", "aws", "redact"),
+    [
+        ("Secret.Type", "design-value", "aws-value", False),
+        ("Secret.Description", "design-value", "aws-value", False),
+        ("Secret.SecretString", "design-value", "aws-value", True),
+        ("Secret.SecretBinary", "design-value", "aws-value", True),
+        (
+            "RotationSchedule.ExternalSecretRotationMetadata[].Value",
+            "design-value",
+            "aws-value",
+            True,
+        ),
+        (
+            "RotationSchedule.ExternalSecretRotationRoleArn",
+            "arn:aws:iam::123456789012:role/design",
+            "arn:aws:iam::123456789012:role/actual",
+            False,
+        ),
+        ("RotationSchedule.RotationRules.AutomaticallyAfterDays", 30, 60, False),
+        ("RotationSchedule.RotationRules.Duration", "2h", "3h", False),
+        (
+            "RotationSchedule.ExternalSecretRotationRoleArn",
+            "{{resolve:secretsmanager:design-reference}}",
+            "{{resolve:secretsmanager:actual-reference}}",
+            True,
+        ),
+    ],
+)
+def test_secrets_manager_report_masks_only_sensitive_attributes(prop, design, aws, redact):
     snapshot = {
         "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
         "service": "secrets-manager",
@@ -177,23 +205,25 @@ def test_secrets_manager_report_masks_only_sensitive_attributes(attribute):
     }
     item = {
         "resource": "secret",
-        "resourceType": "SecretsManager.Secret",
-        "propertiesKey": "SecretsManager.Secret." + attribute,
+        "propertiesKey": "SecretsManager." + prop,
         "status": "difference",
-        "designValue": "design-value",
-        "awsValue": "aws-value",
+        "designValue": design,
+        "awsValue": aws,
     }
     text, code = audit.report(
         snapshot, None, "account", [item], datetime.now(timezone.utc)
     )
     assert code == 1
-    if attribute == "SecretString":
-        assert "design-value" not in text and "aws-value" not in text
-        assert '"[REDACTED]"' in text
+    lines = text.splitlines()
+    if redact:
+        assert design not in text and aws not in text
+        assert '  Design: "[REDACTED]"' in lines
+        assert '  AWS:    "[REDACTED]"' in lines
+        assert "  Diff paths: $ (redacted values differ)" in lines
     else:
-        assert 'Design: "design-value"' in text
-        assert 'AWS:    "aws-value"' in text
-        assert "Diff paths: $" in text
+        assert "  Design: " + json.dumps(design) in lines
+        assert "  AWS:    " + json.dumps(aws) in lines
+        assert "  Diff paths: $" in lines
 
 
 if __name__ == "__main__":

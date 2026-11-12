@@ -1099,10 +1099,17 @@ def report(snapshot, profile, account, records, timestamp):
         if item["status"] == "resource_missing":
             attribute += " (resource missing)"
         line(f"[{state}] {kind} | {name} | {attribute}")
+        # Skip the property-name mask for these exact fields; still mask their values.
         mask_key = (
-            attribute
+            ""
             if prop
-            in {"SecretsManager.Secret.Type", "SecretsManager.Secret.Description"}
+            in {
+                "SecretsManager.Secret.Type",
+                "SecretsManager.Secret.Description",
+                "SecretsManager.RotationSchedule.ExternalSecretRotationRoleArn",
+                "SecretsManager.RotationSchedule.RotationRules.AutomaticallyAfterDays",
+                "SecretsManager.RotationSchedule.RotationRules.Duration",
+            }
             else prop
         )
         expected = (
