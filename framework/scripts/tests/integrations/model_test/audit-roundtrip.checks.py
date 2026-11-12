@@ -128,6 +128,56 @@ def check_japanese_cli_output():
 
 
 @it_case
+def check_macie_empty_scoping():
+    inputs, _ = load_fixture("macie/lookup")
+    prop = "Macie.ClassificationJob.s3JobDefinition"
+    buckets = [{"accountId": "123456789012", "buckets": ["fixture-bucket"]}]
+    design = {"bucketDefinitions": buckets}
+    inputs["model"].update(
+        {
+            "desired.row.001-004.property": prop,
+            "desired.row.001-004.value": model_literal(design),
+            "desired.row.001-004.comment": "fixture",
+        }
+    )
+    response = inputs["responses"][1]["response"]
+    term = {"key": "OBJECT_EXTENSION", "comparator": "EQ", "values": ["pdf"]}
+    cases = (
+        ({}, []),
+        ({"scoping": {}}, []),
+        (
+            {"scoping": {"includes": {"and": [{"simpleScopeTerm": term}]}}},
+            ["$.scoping"],
+        ),
+        (
+            {
+                "bucketDefinitions": [{**buckets[0], "buckets": ["other-bucket"]}],
+                "scoping": {},
+            },
+            ["$.bucketDefinitions[0].buckets[0]"],
+        ),
+    )
+    with tempfile.TemporaryDirectory(prefix="audit-macie-scoping-") as directory:
+        root = Path(directory)
+        standalone = generated(prepare(root, inputs), root)
+        responses = {tuple(item["api"]): item["response"] for item in inputs["responses"]}
+        for changes, paths in cases:
+            responses[("macie2", "describe-classification-job")] = {
+                **response,
+                "s3JobDefinition": {**design, **changes},
+            }
+            _, _, records = standalone["audit"](
+                standalone["SNAPSHOT"], cli_runner=CLI(responses)
+            )
+            (item,) = (item for item in records if item["propertiesKey"] == prop)
+            assert item["status"] == ("difference" if paths else "match"), item
+            assert (
+                standalone["different_paths"](item["designValue"], item["awsValue"])
+                == paths
+            )
+
+
+@it_case
 def check_lakeformation_list_identity():
     inputs, _ = load_fixture("lakeformation/federation")
     arn = "arn:aws:s3:::fixture-bucket"
@@ -416,6 +466,7 @@ FAKE_AWS = 'import json, os, pathlib, sys\napi = sys.argv[1:3]\nrequest = json.l
 if __name__ == "__main__":
     check_audit_roundtrip()
     check_japanese_cli_output()
+    check_macie_empty_scoping()
     check_lakeformation_list_identity()
     check_eventbridge_target_audit()
     check_iam_parallel_generated_audit()

@@ -286,7 +286,13 @@ SET_ARRAYS = {
 
 def canonical(value, path=""):
     if isinstance(value, dict):
-        return {key: canonical(item, path + "." + key) for key, item in value.items()}
+        result = {key: canonical(item, path + "." + key) for key, item in value.items()}
+        if (
+            path == ".Macie.ClassificationJob.s3JobDefinition"
+            and result.get("scoping") == {}
+        ):
+            del result["scoping"]
+        return result
     if isinstance(value, list):
         items = [canonical(item, path + "[]") for item in value]
         name = path.rsplit(".", 1)[-1]
