@@ -48,30 +48,25 @@ reference metadata or a new Property, report it for a separate explicit update.
 Exclude secrets, redacted values, unverified defaults and guessed ARNs. Retain permitted
 Human/acquired ARN inputs; never persist reference-derived generated ARNs as authority.
 
-For example, save this helper outside the repository and run it from the repository root
-with the managed Python wrapper. Replace the example entrance, key and value with the
-confirmed selection. `patch` takes the exact Model representation. This description's
-Model value includes the backticks. The AWS comparison value is only an input to that decision.
+Use a new external directory. Keep the selected service's entrance and every existing
+part at the same path relative to that directory as in the repository. For example,
+if the IAM entrance indexes `iam/part-001.properties`, the candidate contains both files:
 
-```python
-import sys
-from pathlib import Path
+```text
+/tmp/pull-candidate/
+└── model/stg/cde/
+    ├── iam.properties
+    └── iam/
+        └── part-001.properties
+```
 
-sys.path.insert(0, str(Path("framework/scripts").resolve()))
-from model.format import patch
-from model.sources import raw_model
+Change the existing key only in its owning candidate file. `patch` takes the exact
+serialized Model value, including the backticks in this example. Use the confirmed
+key and its property's Model representation for the actual change.
 
-snapshot = raw_model(Path("model/stg/cde/iam.properties"))
-key = "desired.row.001-001.value"
-value = "`Example role description`"
-owner_path, _ = snapshot.locations[key]
-candidate = Path("/tmp/pull-candidate")
-candidate.mkdir(exist_ok=False)
-for source, original in snapshot.files.items():
-    destination = candidate / source.relative_to(snapshot.scope.root)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    text = patch(snapshot.documents[source], {key: value}) if source == owner_path else original
-    destination.write_bytes(text.encode("utf-8"))
+```diff
+-desired.row.001-001.value=`Previous role description`
++desired.row.001-001.value=`Example role description`
 ```
 
 Create an external evidence JSON object with exactly the changed Model keys. Give each key
