@@ -1446,7 +1446,7 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
         )
         equivalent_profile = bool(
             profile
-            and profile.group(1) == ctx.target.get(AWS_ACCOUNT_ID_KEY)
+            and profile.group(1) == execution_account(ctx.target)
             and desired == profile.group(2)
         )
         # Never reveal variable plaintext; retain equality diagnostics only.

@@ -915,10 +915,15 @@ def check_context_branches(tmp_path):
         )
 
 
-def test_ec2_instance_profile_and_cloudformation_tags(tmp_path):
+@pytest.mark.parametrize("profile_account", [ACCOUNT, "210987654321"])
+def test_ec2_instance_profile_and_cloudformation_tags(tmp_path, profile_account):
     directory = tmp_path / "model/dev" / ACCOUNT
     directory.mkdir(parents=True)
-    (tmp_path / "project.json").write_text(json.dumps({"targets": [TARGET]}))
+    target = dict(TARGET)
+    if profile_account != ACCOUNT:
+        target["awsExecutionAccountId"] = profile_account
+    wrong_account = ACCOUNT if profile_account != ACCOUNT else "999999999999"
+    (tmp_path / "project.json").write_text(json.dumps({"targets": [target]}))
     path = directory / "ec2.properties"
     write_model(
         path,
@@ -938,7 +943,7 @@ def test_ec2_instance_profile_and_cloudformation_tags(tmp_path):
     )
     for profile, tags, expected in [
         (
-            f"arn:aws:iam::{ACCOUNT}:instance-profile/path/fixture",
+            f"arn:aws:iam::{profile_account}:instance-profile/path/fixture",
             [
                 {"Key": "Name", "Value": "server"},
                 {"Key": "aws:cloudformation:stack-name", "Value": "stack"},
@@ -946,12 +951,12 @@ def test_ec2_instance_profile_and_cloudformation_tags(tmp_path):
             ("match", "match", "match"),
         ),
         (
-            f"arn:aws:iam::{ACCOUNT}:instance-profile/other",
+            f"arn:aws:iam::{profile_account}:instance-profile/other",
             [{"Key": "Name", "Value": "wrong"}],
             ("difference", "match", "difference"),
         ),
         (
-            "arn:aws:iam::999999999999:instance-profile/fixture",
+            f"arn:aws:iam::{wrong_account}:instance-profile/fixture",
             [{"Key": "Name", "Value": "server"}, {"Key": "custom", "Value": "stack"}],
             ("difference", "difference", "difference"),
         ),
@@ -962,7 +967,7 @@ def test_ec2_instance_profile_and_cloudformation_tags(tmp_path):
             "Reservations.Instances.Tags": tags,
         }
         with patch.dict(PATCHES, patches, clear=True):
-            ctx = SchemaOffline(tmp_path)
+            ctx = SchemaOffline(tmp_path, target=target)
             ctx.egress = False
             ctx.verified = True
             records = m.compare_resource(ctx, ctx.model(path).resources[0])
