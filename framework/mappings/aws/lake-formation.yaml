@@ -14,7 +14,118 @@ getters:
     operation: describe_resource
     result: ResourceInfo
     resourceType: LakeFormation.Resource
+  sdk-lakeformation-datalakesettings:
+    kind: sdk
+    service: lakeformation
+    operation: get_data_lake_settings
+    result: DataLakeSettings
+    resourceType: LakeFormation.DataLakeSettings
 resourceTypes:
+  LakeFormation.DataLakeSettings:
+    properties:
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        source:
+          kind: provider-output
+          location: CloudFormation physical resource ID
+          constraint: GetDataLakeSettings does not return the CloudFormation resource ID.
+          classification: sdk_unavailable
+      Admins:
+        model: {include: true}
+        display: {show: true, name: Admins}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "DataLakeAdmins", normalize: typed}
+      Admins[].DataLakePrincipalIdentifier:
+        model: {include: true}
+        display: {show: true, name: "Admins[].DataLakePrincipalIdentifier"}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "DataLakeAdmins[].DataLakePrincipalIdentifier", normalize: typed}
+      ReadOnlyAdmins:
+        model: {include: true}
+        display: {show: true, name: ReadOnlyAdmins}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "ReadOnlyAdmins", normalize: typed}
+      ReadOnlyAdmins[].DataLakePrincipalIdentifier:
+        model: {include: true}
+        display: {show: true, name: "ReadOnlyAdmins[].DataLakePrincipalIdentifier"}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "ReadOnlyAdmins[].DataLakePrincipalIdentifier", normalize: typed}
+      CreateDatabaseDefaultPermissions:
+        model: {include: true}
+        display: {show: true, name: CreateDatabaseDefaultPermissions}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "CreateDatabaseDefaultPermissions", normalize: typed}
+      CreateDatabaseDefaultPermissions[].Principal.DataLakePrincipalIdentifier:
+        model: {include: true}
+        display: {show: true, name: "CreateDatabaseDefaultPermissions[].Principal.DataLakePrincipalIdentifier"}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "CreateDatabaseDefaultPermissions[].Principal.DataLakePrincipalIdentifier", normalize: typed}
+      CreateDatabaseDefaultPermissions[].Permissions:
+        model: {include: true}
+        display: {show: true, name: "CreateDatabaseDefaultPermissions[].Permissions"}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "CreateDatabaseDefaultPermissions[].Permissions", normalize: typed}
+      CreateTableDefaultPermissions:
+        model: {include: true}
+        display: {show: true, name: CreateTableDefaultPermissions}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "CreateTableDefaultPermissions", normalize: typed}
+      CreateTableDefaultPermissions[].Principal.DataLakePrincipalIdentifier:
+        model: {include: true}
+        display: {show: true, name: "CreateTableDefaultPermissions[].Principal.DataLakePrincipalIdentifier"}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "CreateTableDefaultPermissions[].Principal.DataLakePrincipalIdentifier", normalize: typed}
+      CreateTableDefaultPermissions[].Permissions:
+        model: {include: true}
+        display: {show: true, name: "CreateTableDefaultPermissions[].Permissions"}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "CreateTableDefaultPermissions[].Permissions", normalize: typed}
+      AllowExternalDataFiltering:
+        model: {include: true}
+        display: {show: true, name: AllowExternalDataFiltering}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "AllowExternalDataFiltering", normalize: typed}
+      AllowFullTableExternalDataAccess:
+        model: {include: true}
+        display: {show: true, name: AllowFullTableExternalDataAccess}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "AllowFullTableExternalDataAccess", normalize: typed}
+      ExternalDataFilteringAllowList:
+        model: {include: true}
+        display: {show: true, name: ExternalDataFilteringAllowList}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "ExternalDataFilteringAllowList", normalize: typed}
+      ExternalDataFilteringAllowList[].DataLakePrincipalIdentifier:
+        model: {include: true}
+        display: {show: true, name: "ExternalDataFilteringAllowList[].DataLakePrincipalIdentifier"}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "ExternalDataFilteringAllowList[].DataLakePrincipalIdentifier", normalize: typed}
+      AuthorizedSessionTagValueList:
+        model: {include: true}
+        display: {show: true, name: AuthorizedSessionTagValueList}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "AuthorizedSessionTagValueList", normalize: typed}
+      TrustedResourceOwners:
+        model: {include: true}
+        display: {show: true, name: TrustedResourceOwners}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "TrustedResourceOwners", normalize: typed}
+      Parameters:
+        model: {include: true}
+        display: {show: true, name: Parameters}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-datalakesettings, path: "Parameters", normalize: typed}
+      MutationType:
+        model: {include: true}
+        display: {show: true, name: MutationType}
+        access: [read-write]
+        source:
+          kind: model
+          location: desired row LakeFormation.DataLakeSettings.MutationType
+          constraint: APPEND or REPLACE controls CloudFormation updates and is absent from GetDataLakeSettings.
+          classification: local_metadata
   LakeFormation.PrincipalPermissions:
     properties:
       PrincipalIdentifier:

@@ -459,7 +459,7 @@ def test_rulebook_complete_static_coverage():
                 assert rule.whole in {"ORDERED", "UNORDERED", "KEYED"}, (kind, path)
         # Reading the schema here is test-time evidence, never a runtime prerequisite.
         assert catalog.cloudformation_type(kind).startswith("AWS::")
-    assert len(kinds) == 185 and len({k.split(".")[0] for k in kinds}) == 46
+    assert len(kinds) == 186 and len({k.split(".")[0] for k in kinds}) == 46
     assert not set(registry.RULES) - kinds
     assert registry.resource("QuickSight.Group").imported_arn is not None
     assert not (ROOT / "framework/scripts/comparison/services").exists()

@@ -112,6 +112,7 @@
   "KMS.Alias": "kms",
   "KMS.Key": "kms",
   "KinesisFirehose.DeliveryStream": "data-firehose",
+  "LakeFormation.DataLakeSettings": "lake-formation",
   "LakeFormation.PrincipalPermissions": "lake-formation",
   "LakeFormation.Resource": "lake-formation",
   "Lambda.EventInvokeConfig": "lambda",

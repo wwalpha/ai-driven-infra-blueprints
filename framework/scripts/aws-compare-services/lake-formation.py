@@ -1,9 +1,16 @@
-"""Lake Formation registered-resource reads."""
+"""Lake Formation data lake settings and registered-resource reads."""
 
-from model.adapters.aws import AcquisitionError
+from model.adapters.aws import AcquisitionError, execution_account
 
-APIS = {("lakeformation", "describe_resource"), ("lakeformation", "list_resources")}
-SDK_OPERATIONS = {"LakeFormation.Resource": "describe_resource"}
+APIS = {
+    ("lakeformation", "describe_resource"),
+    ("lakeformation", "get_data_lake_settings"),
+    ("lakeformation", "list_resources"),
+}
+SDK_OPERATIONS = {
+    "LakeFormation.DataLakeSettings": "get_data_lake_settings",
+    "LakeFormation.Resource": "describe_resource",
+}
 
 
 def sensitive(prop):
@@ -15,6 +22,10 @@ def fetch(ctx, resource, getter):
 
 
 def fetch_sdk(ctx, resource, operation):
+    if operation == "get_data_lake_settings":
+        return ctx.call(
+            "lakeformation", operation, CatalogId=execution_account(ctx.target)
+        )
     arn = resource.value("ResourceArn", "arn")
     response = ctx.call("lakeformation", operation, ResourceArn=arn)
     info = response.get("ResourceInfo")

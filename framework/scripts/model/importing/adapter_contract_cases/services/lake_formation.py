@@ -6,13 +6,14 @@ from typing import Any
 
 from model.importing import inventory
 from model.importing.adapter_contract_cases.core import (
+    ACCOUNT,
     failure_branches,
     fixture_context,
     fixture_properties,
     fixture_resource,
     missing_values,
 )
-from model.importing.adapter_contract_cases.fake_sdk import FakeCalls
+from model.importing.adapter_contract_cases.fake_sdk import DirectCalls, FakeCalls
 from model.importing.contract_fixtures import (
     InvalidFixture,
 )
@@ -82,7 +83,77 @@ def lakeformation_fixture(
     return items
 
 
+class DataLakeSettingsCalls(DirectCalls):
+    api = "lakeformation"
+    operation = "get_data_lake_settings"
+    inputs = {"CatalogId": ACCOUNT}
+    envelope = "DataLakeSettings"
+
+
+def data_lake_settings_fixture(
+    root: Path, mapping: Any, properties: list[str]
+) -> dict[str, Any]:
+    kind = "LakeFormation.DataLakeSettings"
+    principal_id = "arn:aws:iam::123456789012:role/fixture"
+    read_only_id = "arn:aws:iam::123456789012:role/fixture-read-only"
+    external_account = "234567890123"
+    default_principal = "IAM_ALLOWED_PRINCIPALS"
+    default_permissions = {
+        "Principal": {"DataLakePrincipalIdentifier": default_principal},
+        "Permissions": ["ALL"],
+    }
+    payload = {
+        "DataLakeAdmins": [{"DataLakePrincipalIdentifier": principal_id}],
+        "ReadOnlyAdmins": [{"DataLakePrincipalIdentifier": read_only_id}],
+        "CreateDatabaseDefaultPermissions": [default_permissions],
+        "CreateTableDefaultPermissions": [default_permissions],
+        "AllowExternalDataFiltering": True,
+        "AllowFullTableExternalDataAccess": False,
+        "ExternalDataFilteringAllowList": [
+            {"DataLakePrincipalIdentifier": external_account}
+        ],
+        "AuthorizedSessionTagValueList": ["fixture"],
+        "TrustedResourceOwners": [external_account],
+        "Parameters": {"CROSS_ACCOUNT_VERSION": "3"},
+    }
+    ctx, fake = fixture_context(root, "lake-formation", DataLakeSettingsCalls, payload)
+    resource = fixture_resource(
+        root, ctx, "lake-formation", {"kind": kind, "getters": {}}
+    )
+    cases = {name: (name, "typed", value) for name, value in payload.items()}
+    cases["Admins"] = ("DataLakeAdmins", "typed", payload["DataLakeAdmins"])
+    for name, path, value in (
+        ("Admins", "DataLakeAdmins", principal_id),
+        ("ReadOnlyAdmins", "ReadOnlyAdmins", read_only_id),
+        (
+            "ExternalDataFilteringAllowList",
+            "ExternalDataFilteringAllowList",
+            external_account,
+        ),
+    ):
+        leaf = "[].DataLakePrincipalIdentifier"
+        cases[name + leaf] = (path + leaf, "typed", [value])
+    for name in ("CreateDatabaseDefaultPermissions", "CreateTableDefaultPermissions"):
+        for suffix, value in (
+            ("[].Principal.DataLakePrincipalIdentifier", [default_principal]),
+            ("[].Permissions", [["ALL"]]),
+        ):
+            path = name + suffix
+            cases[path] = (path, "typed", value)
+    items = fixture_properties(
+        ctx, resource, mapping, properties, kind, cases, ["normal"]
+    )
+    missing_values(ctx, fake, resource, mapping, items, payload)
+    return items
+
+
 CONTRACTS = (
+    (
+        ("LakeFormation.DataLakeSettings", "sdk-lakeformation-datalakesettings"),
+        data_lake_settings_fixture,
+        "lakeformation.get_data_lake_settings",
+        ("CatalogId",),
+    ),
     (
         ("LakeFormation.Resource", "sdk-lakeformation-resource"),
         lakeformation_fixture,

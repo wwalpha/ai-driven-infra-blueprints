@@ -20,8 +20,9 @@ from utils.mapping_types import definition as environment_definition
 from utils.mapping_types import validate_definition as validate_environment_definition
 from utils.script_loader import module
 
-# Existing fetch code explicitly copies these inputs into its projected response.
+# Request and target inputs whose provenance is independent of the SDK response.
 INPUT_SOURCES = {
+    "LakeFormation.DataLakeSettings.MutationType": "model",
     "LakeFormation.Resource.UseServiceLinkedRole": "model",
     "Macie.Session.AwsAccountId": "target",
     "QuickSight.DataSource.AwsAccountId": "model",

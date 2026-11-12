@@ -102,6 +102,31 @@ def main() -> None:
     assert catalog.literal_errors("QuickSight.Group", "GroupName", "日本語")
     assert catalog.literal_errors("QuickSight.Group", "Description", "x" * 513)
     assert catalog.literal_errors("QuickSight.Group", "Namespace", "x" * 65)
+    settings = "LakeFormation.DataLakeSettings"
+    schema = catalog.schema(settings)
+    assert schema["typeName"] == "AWS::LakeFormation::DataLakeSettings"
+    assert schema["primaryIdentifier"] == schema["readOnlyProperties"] == [
+        "/properties/Id"
+    ]
+    assert catalog.required_properties(settings) == set()
+    for property_name in (
+        "CreateDatabaseDefaultPermissions",
+        "CreateTableDefaultPermissions",
+    ):
+        permission = {
+            "Principal": {"DataLakePrincipalIdentifier": "IAM_ALLOWED_PRINCIPALS"},
+            "Permissions": ["ALL"],
+        }
+        assert not catalog.typed_literal_errors(settings, property_name, [])
+        assert not catalog.typed_literal_errors(settings, property_name, [permission])
+        assert catalog.typed_literal_errors(
+            settings, property_name, [{"Permissions": ["ALL"]}]
+        )
+    assert not catalog.typed_literal_errors(
+        settings, "Parameters", {"CROSS_ACCOUNT_VERSION": "3"}
+    )
+    assert catalog.typed_literal_errors(settings, "AllowExternalDataFiltering", "true")
+
     resource = catalog.schema("LakeFormation.Resource")
     assert catalog.required_properties("LakeFormation.Resource") == {
         "ResourceArn",

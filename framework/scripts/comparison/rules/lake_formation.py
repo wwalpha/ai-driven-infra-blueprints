@@ -3,6 +3,27 @@
 from ..methods import properties
 
 RULES = {
+    "LakeFormation.DataLakeSettings": properties(
+        scalars="""
+            AllowExternalDataFiltering AllowFullTableExternalDataAccess MutationType
+            Admins[].DataLakePrincipalIdentifier
+            ReadOnlyAdmins[].DataLakePrincipalIdentifier
+            ExternalDataFilteringAllowList[].DataLakePrincipalIdentifier
+            CreateDatabaseDefaultPermissions[].Principal.DataLakePrincipalIdentifier
+            CreateTableDefaultPermissions[].Principal.DataLakePrincipalIdentifier
+        """,
+        objects="""
+            Parameters Admins[] ReadOnlyAdmins[] ExternalDataFilteringAllowList[]
+            CreateDatabaseDefaultPermissions[] CreateDatabaseDefaultPermissions[].Principal
+            CreateTableDefaultPermissions[] CreateTableDefaultPermissions[].Principal
+        """,
+        ordered="""
+            Admins ReadOnlyAdmins ExternalDataFilteringAllowList
+            AuthorizedSessionTagValueList TrustedResourceOwners
+            CreateDatabaseDefaultPermissions CreateDatabaseDefaultPermissions[].Permissions
+            CreateTableDefaultPermissions CreateTableDefaultPermissions[].Permissions
+        """,
+    ),
     "LakeFormation.Resource": properties(
         references="ResourceArn RoleArn",
         scalars="UseServiceLinkedRole WithFederation HybridAccessEnabled",

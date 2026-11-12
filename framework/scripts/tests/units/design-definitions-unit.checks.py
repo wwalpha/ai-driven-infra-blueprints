@@ -35,6 +35,7 @@ EXPECTED = {
     ],
     "HIDDEN_PROPERTIES": [
         "CodeCommit.Repository.RepositoryId",
+        "LakeFormation.DataLakeSettings.Id",
         "LakeFormation.PrincipalPermissions.PrincipalIdentifier",
         "LakeFormation.PrincipalPermissions.ResourceIdentifier",
         "LakeFormation.Resource.Id",
