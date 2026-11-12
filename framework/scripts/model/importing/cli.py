@@ -37,7 +37,8 @@ from task_contract_core import (
     task_reads,
     task_snapshot,
 )
-from utils.aws.identity import IdentityError, import_profile
+from utils.aws.diagnostics import classify_aws_failure
+from utils.aws.identity import import_profile
 from utils.aws_mappings import definition_root, mapping_alias
 from utils.file_operations import atomic_files
 from utils.input_cache import input_context, input_scope, memoized, recording_inputs
@@ -843,30 +844,9 @@ def acquire(
                 check_evidence_store(root)
                 try:
                     ctx.verify()
-                except comparator().AcquisitionError as error:
-                    raise ImportStageError(
-                        "sts",
-                        error.code,
-                        error.failure_category,
-                        error.classification_source,
-                        error.api,
-                    ) from error
-                except IdentityError as error:
-                    category = (
-                        "account_mismatch"
-                        if error.code == "AccountMismatch"
-                        else "unknown"
-                    )
-                    raise ImportStageError(
-                        "sts",
-                        error.code,
-                        category,
-                        "account_validation",
-                        "sts.get_caller_identity",
-                    ) from error
                 except Exception as error:
                     raise ImportStageError(
-                        "sts", type(error).__name__, api="sts.get_caller_identity"
+                        "sts", *classify_aws_failure(error), api="sts.get_caller_identity"
                     ) from error
                 verified = True
                 phase = "acquisition"

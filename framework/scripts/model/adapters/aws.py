@@ -45,6 +45,7 @@ from design.catalog import DesignSchemaCatalog, selected_properties
 from design.policy_tables import literal
 from task_contract_core import task_read_scope
 from utils.aws.client import API_BUDGET_SECONDS, READ_RATES, read_api
+from utils.aws.diagnostics import aws_failure_fields, classify_aws_failure
 from utils.aws.identity import (
     IdentityError,
     execution_account,
@@ -151,75 +152,7 @@ def sdk_error(api, error, request):
             failure_category=error.failure_category,
             classification_source=error.classification_source,
         )
-    detail = getattr(error, "response", {}).get("Error", {})
-    code = (
-        "AwsCliError"
-        if isinstance(error, subprocess.CalledProcessError)
-        else detail.get("Code", getattr(error, "code", type(error).__name__))
-    )
-    if isinstance(error, subprocess.CalledProcessError):
-        try:
-            detail = json.loads(error.stderr)
-        except (TypeError, ValueError):
-            detail = None
-        candidate = detail.get("Code") if isinstance(detail, dict) else None
-        if (
-            isinstance(candidate, str)
-            and candidate
-            and candidate.isascii()
-            and all(c.isalnum() or c in "._-" for c in candidate)
-            and len(candidate) <= 128
-        ):
-            code = candidate
-    category = "unknown"
-    source = "unknown"
-    codes = {
-        "authentication": {
-            "ExpiredToken",
-            "ExpiredTokenException",
-            "InvalidClientTokenId",
-            "UnrecognizedClientException",
-            "InvalidAccessKeyId",
-            "SignatureDoesNotMatch",
-            "NoCredentialsError",
-            "PartialCredentialsError",
-        },
-        "access_denied": {
-            "AccessDenied",
-            "AccessDeniedException",
-            "UnauthorizedOperation",
-            "UnauthorizedException",
-        },
-        "endpoint_unreachable": {
-            "EndpointConnectionError",
-            "ConnectTimeoutError",
-            "ReadTimeoutError",
-        },
-    }
-    for name, members in codes.items():
-        if code in members:
-            category, source = name, "structured_error"
-            break
-    if isinstance(error, subprocess.CalledProcessError) and code == "AwsCliError":
-        stderr = error.stderr if isinstance(error.stderr, str) else ""
-        hints = {
-            "endpoint_unreachable": (
-                "Could not connect to the endpoint URL:",
-                "Connect timeout on endpoint URL:",
-            ),
-            "authentication": (
-                "Unable to locate credentials",
-                "The security token included in the request is expired",
-            ),
-            "access_denied": (
-                "An error occurred (AccessDenied)",
-                "An error occurred (AccessDeniedException)",
-            ),
-        }
-        for name, patterns in hints.items():
-            if any(pattern in stderr for pattern in patterns):
-                category, source = name, "diagnostic_hint"
-                break
+    code, category, source = classify_aws_failure(error)
     missing = code in {
         "ResourceNotFoundException",
         "ResourceNotFound",
@@ -1377,6 +1310,7 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                     **item,
                     "status": error.status,
                     "reason": error.code,
+                    **aws_failure_fields(error),
                     "propertiesKey": None,
                     "affectedKeys": [],
                     "scope": "selected properties using this request",
@@ -1740,6 +1674,7 @@ def run(root, items, profile=None, session_factory=None, *, create_only=False):
                     "reason": ctx.code
                     if isinstance(ctx, (AcquisitionError, IdentityError))
                     else type(ctx).__name__,
+                    **aws_failure_fields(ctx),
                     "affectedKeys": [
                         row["property"]
                         for _, row in entries(
@@ -1775,6 +1710,7 @@ def run(root, items, profile=None, session_factory=None, *, create_only=False):
                     "reason": error.code
                     if isinstance(error, AcquisitionError)
                     else "invalid model or SDK response",
+                    **(aws_failure_fields(error) if isinstance(error, AcquisitionError) else {}),
                     "apis": [],
                 }
             )

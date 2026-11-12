@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,7 @@ from pathlib import Path
 
 from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY, IAC_ENGINE_KEY
 from deploy import cli_guidance
+from utils.aws.diagnostics import format_aws_failure
 from utils.aws.identity import (
     IdentityError,
     execution_account,
@@ -55,17 +57,16 @@ def check_deploy_context(
     ]
     try:
         result = subprocess.run(
-            command, check=False, capture_output=True, text=True, timeout=30
+            command, check=False, capture_output=True, text=True, timeout=30,
+            env={**os.environ, "AWS_CLI_ERROR_FORMAT": "json"},
         )
-    except subprocess.TimeoutExpired as error:
-        raise DeployContextError("AWS credential check timed out") from error
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise DeployContextError(format_aws_failure("sts.get_caller_identity", error)) from None
     if result.returncode != 0:
-        detail = (
-            result.stderr.strip().splitlines()[-1]
-            if result.stderr.strip()
-            else f"exit {result.returncode}"
+        failure = subprocess.CalledProcessError(
+            result.returncode, "aws", stderr=result.stderr
         )
-        raise DeployContextError(f"AWS credential check failed: {detail}")
+        raise DeployContextError(format_aws_failure("sts.get_caller_identity", failure))
 
     try:
         caller_account = json.loads(result.stdout).get("Account")
@@ -104,7 +105,12 @@ def main() -> int:
             read_only=args.read_only,
         )
     except (DeployContextError, IdentityError) as error:
-        print(f"Deploy context: FAIL: {error}", file=sys.stderr)
+        detail = (
+            format_aws_failure("sts.get_caller_identity", error)
+            if isinstance(error, IdentityError) and error.code == "AccountMismatch"
+            else str(error)
+        )
+        print(f"Deploy context: FAIL: {detail}", file=sys.stderr)
         return 1
 
     print("Read-only AWS context: PASS" if args.read_only else "Deploy context: PASS")

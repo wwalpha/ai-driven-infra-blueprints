@@ -197,6 +197,12 @@ def test_sdk_error_secret_failure_before_snapshot(monkeypatch):
             "endpoint_unreachable",
             "diagnostic_hint",
         ),
+        (
+            b"An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: secret-token",
+            "AwsCliError",
+            "authentication",
+            "diagnostic_hint",
+        ),
         ("arbitrary secret-token", "AwsCliError", "unknown", "unknown"),
     ],
 )

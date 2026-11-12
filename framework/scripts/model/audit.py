@@ -1169,6 +1169,10 @@ def _build(root, environment, selector, service, standalone):
             "verify_account",
         ],
     )
+    engine += definitions(
+        scripts / "utils/aws/diagnostics.py",
+        ["classify_aws_failure", "aws_failure_fields", "format_aws_failure"],
+    )
     client_source = input_text(scripts / "utils/aws/client.py", encoding="utf-8")
     client_tree = ast.parse(client_source)
     for node in client_tree.body:

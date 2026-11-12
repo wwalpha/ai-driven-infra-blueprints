@@ -12,6 +12,8 @@ from types import SimpleNamespace
 from contracts.deploy import DEPLOY_RUNNING
 from contracts.model import REFERENCE_PENDING_DEPLOY
 from model.core import ReferenceDiagnosticError
+from utils.aws.client import AwsError
+from utils.aws.diagnostics import aws_failure_fields
 from utils.cloudformation.environment import EnvironmentValuePending
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
@@ -157,6 +159,7 @@ def exception(state: StackState, error: Exception, stage: str) -> None:
         "message": exception_message(error),
         "requiredAction": "Review the operation and its available evidence before deciding how to continue.",
         "retryable": False,
+        **(aws_failure_fields(error) if isinstance(error, AwsError) else {}),
     }
 
     if dependency_wait(error):
@@ -362,6 +365,10 @@ def diagnostic(state: StackState) -> JsonObject | None:
         "resource": {"StackId": state.get("stackId")},
         "eventReadStatus": state.get("eventReadStatus", "NOT_OBSERVED"),
     }
+    if source in {"REQUEST", "CONTROLLER"}:
+        for key in ("failureCategory", "classificationSource"):
+            if key in failure:
+                result[key] = failure[key]
     if root:
         if root.get("StackId"):
             result["resource"]["StackId"] = root["StackId"]

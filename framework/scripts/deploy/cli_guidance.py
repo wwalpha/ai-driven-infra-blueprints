@@ -14,6 +14,7 @@ from pathlib import Path
 from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED
 from model.core import ReferenceDiagnosticError
 from utils.aws.client import AwsError
+from utils.aws.diagnostics import aws_failure_fields
 from utils.aws.identity import IdentityError
 from utils.project_targets import DeployContextError
 from utils.reference_contracts import ARN_ATTRIBUTES, REF_ATTRIBUTES
@@ -247,6 +248,7 @@ def safe_error(error):
             "errorType": type(original).__name__,
             "message": str(original),
             "code": code,
+            **aws_failure_fields(error),
             "traceback": "".join(traceback.format_exception(error)),
         }
         if error.__cause__ is not None and hasattr(error.__cause__, "response"):
@@ -271,6 +273,8 @@ def safe_error(error):
         else None,
         "detailDigest": hashlib.sha256(str(error).encode("utf-8")).hexdigest(),
     }
+    if isinstance(error, IdentityError) and code == "AccountMismatch":
+        result.update(aws_failure_fields(error))
     if diagnostics:
         result["diagnostics"] = diagnostics
     if isinstance(error, DeployStepBlocked):

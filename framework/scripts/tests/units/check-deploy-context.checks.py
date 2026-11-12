@@ -163,17 +163,23 @@ def main() -> None:
                     raise AssertionError("identity rejection ignored")
                 select.assert_called_once_with(target, "explicit")
             run.assert_not_called()
-            run.return_value = subprocess.CompletedProcess(
-                [], 1, "", "profile not found"
-            )
-            try:
-                MODULE.check_deploy_context(root, "stg", alias="cde")
-            except MODULE.DeployContextError as error:
-                assert "profile not found" in str(error)
-            else:
-                raise AssertionError("failed configured profile was accepted")
-            assert run.call_count == 1
-            assert run.call_args.args[0][2] == "stg-cde"
+            for stderr, expected in (
+                ("The config profile (secret-token) could not be found", "authentication, diagnostic_hint"),
+                ('{"Code":"ExpiredToken","Message":"secret-token"}', "authentication, structured_error"),
+                ('{"Code":"AccessDenied","Message":"secret-token"}', "access_denied, structured_error"),
+                ("Could not connect to the endpoint URL: secret-token", "endpoint_unreachable, diagnostic_hint"),
+            ):
+                run.reset_mock()
+                run.return_value = subprocess.CompletedProcess([], 1, "", stderr)
+                try:
+                    MODULE.check_deploy_context(root, "stg", alias="cde")
+                except MODULE.DeployContextError as error:
+                    assert expected in str(error)
+                    assert "secret-token" not in str(error)
+                else:
+                    raise AssertionError("failed STS request was accepted")
+                assert run.call_count == 1
+                assert run.call_args.args[0][2] == "stg-cde"
 
         topology["targets"][1]["awsExecutionAccountId"] = "999999999999"
         (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")

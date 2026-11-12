@@ -7,6 +7,7 @@ import threading
 import time
 from functools import partial
 
+from utils.aws.diagnostics import classify_aws_failure, format_aws_failure
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import Blocked
 
@@ -143,10 +144,11 @@ class AwsError(Blocked):
         stack_absent=False,
         current_missing=False,
     ):
+        self.api = f"{service}.{operation}"
         self.code, self.http_status = code, status
         self.stack_absent, self.current_missing = stack_absent, current_missing
         super().__init__(
-            f"{service}.{operation} failed ({code})"
+            format_aws_failure(self.api, self)
             + ("; stack does not exist" if stack_absent else "")
         )
 
@@ -220,8 +222,9 @@ def request(context, service, operation, arguments, *, deadline=None):
             else send()
         )
     except ClientError as error:
-        details = error.response.get("Error", {})
-        code = details.get("Code", "Unknown")
+        code, _, _ = classify_aws_failure(error)
+        if code == type(error).__name__:
+            code = "Unknown"
         status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         # ValidationError and ResourceNotFoundException do not prove these specific states.
         absent = (

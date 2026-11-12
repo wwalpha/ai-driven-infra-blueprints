@@ -103,6 +103,32 @@ def check_audit_roundtrip():
         assert not findings.errors, findings.errors
 
 
+@it_case
+def check_sts_failure_diagnostics():
+    inputs, _ = load_fixture("audit/base")
+    with tempfile.TemporaryDirectory(prefix="audit-sts-") as directory:
+        root = Path(directory)
+        standalone = generated(prepare(root, inputs), root)
+        snap = standalone["SNAPSHOT"]
+        calls = []
+
+        def fail_sts(command, **_kwargs):
+            calls.append(command[1:3])
+            return subprocess.CompletedProcess(
+                command, 1, "", "Could not connect to the endpoint URL: private-endpoint"
+            )
+
+        _, account, records = standalone["audit"](snap, cli_runner=fail_sts)
+        assert account == "unverified"
+        assert calls == [["sts", "get-caller-identity"]]
+        assert records and all(item["status"] == "acquisition_failed" for item in records)
+        assert {item["failureCategory"] for item in records} == {"endpoint_unreachable"}
+        report, code = standalone["report"](snap, None, account, records, datetime.now(timezone.utc))
+        assert code == 2
+        assert "AwsCliError" in report and "endpoint_unreachable (diagnostic_hint)" in report
+        assert "private-endpoint" not in report
+
+
 def _windows_cli(_command, **kwargs):
     program = (
         "import json, os, sys; "
@@ -465,6 +491,7 @@ FAKE_AWS = 'import json, os, pathlib, sys\napi = sys.argv[1:3]\nrequest = json.l
 
 if __name__ == "__main__":
     check_audit_roundtrip()
+    check_sts_failure_diagnostics()
     check_japanese_cli_output()
     check_macie_empty_scoping()
     check_lakeformation_list_identity()

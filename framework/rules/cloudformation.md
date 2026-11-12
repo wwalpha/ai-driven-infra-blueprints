@@ -254,6 +254,9 @@ values; define the referenced IDs/paths/tokens only after the relevant checks. T
 are individual LLM operations, not a script to run through unattended. Keep JSON
 stdout, structured errors and exit status separate in private Task-local evidence
 outside Git. Do not display secret parameters, credentials or sensitive Outputs.
+For any failed direct AWS CLI call, keep its exit status and classify the captured stderr
+offline with `python3 -B framework/scripts/utils/aws/diagnostics.py < "$aws_stderr"`.
+Use its `code`, `failureCategory` and `classificationSource` to report the failure.
 
 ```sh
 aws --version

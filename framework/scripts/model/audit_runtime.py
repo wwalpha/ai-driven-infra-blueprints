@@ -612,6 +612,7 @@ def glue_compute_compatibility(m, ctx, resource, item):
             **item,
             "status": error.status,
             "reason": error.code,
+            **m.aws_failure_fields(error),
             "apis": ctx.trace[start:],
         }
     except (m.Unresolved, ValueError, TypeError, KeyError) as error:
@@ -862,6 +863,7 @@ def audit(snapshot, profile=None, cli_runner=None):
                                 "propertiesKey": prop,
                                 "status": "acquisition_failed",
                                 "reason": reason,
+                                **m.aws_failure_fields(error),
                                 "designValue": [
                                     row.get("document", row["value"])
                                     for _, row in resource.rows
@@ -1134,6 +1136,10 @@ def report(snapshot, profile, account, records, timestamp):
                 )
                 .replace("Model reference", "Design reference")
                 .replace("producer Model is absent", "producer Design is absent")
+            )
+        if "failureCategory" in item:
+            line(
+                f"  AWS failure: {item['failureCategory']} ({item['classificationSource']})"
             )
         if item["status"] == "difference" and not item.get("compatibility"):
             line(

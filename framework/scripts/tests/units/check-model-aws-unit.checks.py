@@ -286,6 +286,28 @@ def check_identity_delegation_and_sts_reuse(tmp_path):
     assert runner.call_count == 2
 
 
+@pytest.mark.parametrize("create_only", [False, True])
+def check_sts_failure_diagnostics(tmp_path, create_only):
+    path = tmp_path / "model/dev" / ACCOUNT / "athena.properties"
+    (tmp_path / "project.json").write_text(json.dumps({"targets": [TARGET]}), encoding="utf-8")
+    write_model(path, model_text("Athena.WorkGroup", [("Athena.WorkGroup.Name", "`fixture`")]))
+    target = {**TARGET, "environment": "dev", "directory": ACCOUNT}
+    runner = Mock(return_value=SimpleNamespace(
+        returncode=1, stdout="", stderr="Could not connect to the endpoint URL: private-endpoint"
+    ))
+    with patch.object(m.subprocess, "run", runner):
+        result = m.run(tmp_path, [(target, path)], create_only=create_only)
+    (failure,) = result["results"]
+    assert result["exitCode"] == 2
+    assert failure["status"] == "acquisition_failed"
+    assert failure["reason"] == "AwsCliError"
+    assert failure["failureCategory"] == "endpoint_unreachable"
+    assert failure["classificationSource"] == "diagnostic_hint"
+    assert "private-endpoint" not in json.dumps(result)
+    assert runner.call_count == 1
+    assert runner.call_args.args[0][1:3] == ["sts", "get-caller-identity"]
+
+
 def check_all_target_profiles_precede_aws(tmp_path):
     targets = [
         dict(awsAccountId="123456789012", awsRegion="ap-northeast-1", directory=name)

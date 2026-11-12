@@ -35,7 +35,8 @@ from task_contract_core import (
 from task_contract_core import task_snapshot as read_task_snapshot
 from utils.aws import cloudformation
 from utils.aws.client import API_BUDGET_SECONDS, AwsError, connection_context, request
-from utils.aws.identity import execution_account, select_profile
+from utils.aws.diagnostics import format_aws_failure
+from utils.aws.identity import IdentityError, execution_account, select_profile
 from utils.cloudformation.export_resolution import stack_exports
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
@@ -761,10 +762,15 @@ def controller_main(argv=None, root=None):
         print(json.dumps(session, indent=2))
         return 0 if session["status"] == "COMPLETE" else 1
     except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
+        detail = (
+            format_aws_failure("sts.get_caller_identity", error)
+            if isinstance(error, IdentityError) and error.code == "AccountMismatch"
+            else str(error)
+        )
         if session is not None and save:
-            session.update(status="BLOCKED", reason=str(error))
+            session.update(status="BLOCKED", reason=detail)
             save()
-        print(f"Destroy: BLOCKED: {error}", file=sys.stderr)
+        print(f"Destroy: BLOCKED: {detail}", file=sys.stderr)
         return 1
     finally:
         if lock:

@@ -94,6 +94,8 @@ def compare(ctx, model):
                     item,
                     status=error.status,
                     reason=error.code,
+                    failureCategory=error.failure_category,
+                    classificationSource=error.classification_source,
                     affectedKeys=[key],
                     apis=ctx.trace[start:],
                 )
