@@ -28,6 +28,8 @@ def fingerprints(snapshot):
 
 def build(before, after, task_file, evidence):
     """Bind exact serialized Model values, never normalized comparator values."""
+    if not isinstance(evidence, dict):
+        raise ValueError("AWS pull evidence must be a JSON object keyed by Model key")
     if (before.scope.environment, before.scope.target, before.scope.service) != (
         after.scope.environment,
         after.scope.target,
@@ -53,9 +55,13 @@ def build(before, after, task_file, evidence):
             or old.get(prefix + "resourceMode", "CREATE") != "CREATE"
         ):
             raise ValueError("AWS pull requires an existing CREATE property: " + key)
-        source = evidence.get(key)
-        if not isinstance(source, str) or not source.strip():
-            raise ValueError("AWS pull requires confirmed retrieval evidence: " + key)
+        if key not in evidence:
+            raise ValueError("AWS pull retrieval evidence is missing for Model key: " + key)
+        source = evidence[key]
+        if not isinstance(source, str):
+            raise ValueError("AWS pull retrieval evidence must be a string for Model key: " + key)
+        if not source.strip():
+            raise ValueError("AWS pull retrieval evidence is blank for Model key: " + key)
         changes.append(
             {
                 "key": key,

@@ -48,12 +48,46 @@ reference metadata or a new Property, report it for a separate explicit update.
 Exclude secrets, redacted values, unverified defaults and guessed ARNs. Retain permitted
 Human/acquired ARN inputs; never persist reference-derived generated ARNs as authority.
 
-Create an external evidence JSON object mapping each changed Model key to a non-secret
-retrieval citation (API, exact Resource identity, acquisition time and relevant result).
+For example, save this helper outside the repository and run it from the repository root
+with the managed Python wrapper. Replace the example entrance, key and value with the
+confirmed selection. `patch` takes the exact Model representation. This description's
+Model value includes the backticks. The AWS comparison value is only an input to that decision.
+
+```python
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path("framework/scripts").resolve()))
+from model.format import patch
+from model.sources import raw_model
+
+snapshot = raw_model(Path("model/stg/cde/iam.properties"))
+key = "desired.row.001-001.value"
+value = "`Example role description`"
+owner_path, _ = snapshot.locations[key]
+candidate = Path("/tmp/pull-candidate")
+candidate.mkdir(exist_ok=False)
+for source, original in snapshot.files.items():
+    destination = candidate / source.relative_to(snapshot.scope.root)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    text = patch(snapshot.documents[source], {key: value}) if source == owner_path else original
+    destination.write_bytes(text.encode("utf-8"))
+```
+
+Create an external evidence JSON object with exactly the changed Model keys. Give each key
+one nonblank JSON string containing the API, exact Resource identity, acquisition time and
+relevant non-secret result. For the example above, `/tmp/pull-evidence.json` contains:
+
+```json
+{
+  "desired.row.001-001.value": "iam.get_role | arn:aws:iam::123456789012:role/example | 2026-11-13T00:00:00Z | Role.Description=Example role description"
+}
+```
+
 Build the offline Review, using the planned Task selector before registering it:
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py pull-review model/stg/cde/s3.properties --candidate /tmp/pull-candidate --task-file tasks/pull-stg-cde-s3.md --evidence /tmp/pull-evidence.json
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py pull-review model/stg/cde/iam.properties --candidate /tmp/pull-candidate --task-file tasks/pull-stg-cde-iam.md --evidence /tmp/pull-evidence.json
 ```
 
 This emits exact serialized Before/After values, identity, source/candidate hashes, scope,

@@ -133,6 +133,23 @@ def check_import_and_missing_evidence_rejected(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("evidence", "message"),
+    [
+        ([], "must be a JSON object"),
+        ({}, "is missing for Model key"),
+        ({KEY: {"api": "iam.get_role"}}, "must be a string for Model key"),
+        ({KEY: None}, "must be a string for Model key"),
+        ({KEY: " \t"}, "is blank for Model key"),
+        ({KEY: "verified", "extra": "verified"}, "must name exactly the changed keys"),
+    ],
+)
+def check_evidence_json_errors(tmp_path, evidence, message):
+    old, new = pair(tmp_path)
+    with pytest.raises(ValueError, match=message):
+        build(old, new, TASK, evidence)
+
+
+@pytest.mark.parametrize(
     "value",
     [
         '`[1,2,{"a":true}]`',
