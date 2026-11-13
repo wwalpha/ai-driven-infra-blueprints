@@ -12,6 +12,7 @@ import os
 import subprocess
 import tempfile
 from datetime import datetime, timezone
+from functools import partial
 
 from model.importing.cli import model_literal
 from support.it_case_receipt import it_case
@@ -103,6 +104,13 @@ def check_audit_roundtrip():
         assert not findings.errors, findings.errors
 
 
+def fail_sts(calls, command, **_kwargs):
+    calls.append(command[1:3])
+    return subprocess.CompletedProcess(
+        command, 1, "", "Could not connect to the endpoint URL: private-endpoint"
+    )
+
+
 @it_case
 def check_sts_failure_diagnostics():
     inputs, _ = load_fixture("audit/base")
@@ -112,13 +120,7 @@ def check_sts_failure_diagnostics():
         snap = standalone["SNAPSHOT"]
         calls = []
 
-        def fail_sts(command, **_kwargs):
-            calls.append(command[1:3])
-            return subprocess.CompletedProcess(
-                command, 1, "", "Could not connect to the endpoint URL: private-endpoint"
-            )
-
-        _, account, records = standalone["audit"](snap, cli_runner=fail_sts)
+        _, account, records = standalone["audit"](snap, cli_runner=partial(fail_sts, calls))
         assert account == "unverified"
         assert calls == [["sts", "get-caller-identity"]]
         assert records and all(item["status"] == "acquisition_failed" for item in records)

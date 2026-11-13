@@ -1036,6 +1036,15 @@ def check_readiness_removal_and_ready_execution(tmp_path, monkeypatch):
         assert aws.call_args.args[0] == "execute_change_set"
 
 
+def stack_move_aws(resources, stack_ids, submitted, operation, *, StackName, **arguments):
+    if operation == "list_stack_resources":
+        return {"StackResourceSummaries": resources[StackName]}
+    if operation == "describe_stacks":
+        return {"Stacks": [{"StackId": stack_ids[StackName], "StackStatus": "UPDATE_COMPLETE"}]}
+    assert operation == "execute_change_set"
+    submitted.append((StackName, arguments))
+
+
 def check_stack_move_removal_review_execution_and_observation(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, backend = readiness_fixture(tmp_path)
@@ -1091,19 +1100,7 @@ def check_stack_move_removal_review_execution_and_observation(tmp_path, monkeypa
     resources = {"old-id": [old_resource], "new-id": [new_resource]}
     submitted = []
 
-    def aws(operation, *, StackName, **arguments):
-        if operation == "list_stack_resources":
-            return {"StackResourceSummaries": resources[StackName]}
-        if operation == "describe_stacks":
-            return {
-                "Stacks": [
-                    {"StackId": stack_ids[StackName], "StackStatus": "UPDATE_COMPLETE"}
-                ]
-            }
-        assert operation == "execute_change_set"
-        submitted.append((StackName, arguments))
-
-    backend.aws = aws
+    backend.aws = partial(stack_move_aws, resources, stack_ids, submitted)
     backend.approvals = set()
     backend.expected_digests = {}
     backend.describe_change_set = lambda *args: change_set
