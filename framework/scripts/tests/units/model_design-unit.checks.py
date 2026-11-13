@@ -2387,6 +2387,8 @@ def check_rotation_inputs():
             assert len(children) == count
             sync_views.validate_views(root, root, [path], {path: values})
             assert "### SecretsManager.RotationSchedule" not in output
+            assert "| RotationSchedule.SecretId |" not in output
+            assert "| RotationSchedule.AutomaticallyAfterDays | `30` |" in output
             assert "app-dev-secret-1_rotate：属性の設定値" in output
             sync_views.validate_views(root, root, [path], {path: values})
             source = root / "model/dev/123456789012/secretsmanager.properties"
@@ -2415,6 +2417,12 @@ def check_rotation_inputs():
         comments["desired.row.002-001.comment"] = "属性：設定値"
         path.write_text(markdown_for(path, comments, root))
         path.write_text(output)
+
+        hidden_only = {
+            key: value for key, value in rotation_fixture().items()
+            if not key.startswith(("desired.row.002-001.", "desired.row.002-002."))
+        }
+        rejects(lambda: markdown_for(path, hidden_only, root), "requires a visible property")
 
         metadata = rotation_fixture()
         for key in list(metadata):
@@ -2538,28 +2546,6 @@ def check_rotation_inputs():
         invalid_views = [
             (
                 output.replace(
-                    "[app-dev-secret-1](#secretsmanager-app-dev-secret-1)",
-                    "[app-dev-secret-2](#secretsmanager-app-dev-secret-2)",
-                ),
-                "must reference enclosing",
-            ),
-            (
-                output.replace(
-                    "[app-dev-secret-1](#secretsmanager-app-dev-secret-1)",
-                    "[app-dev-secret-1](other.md#secretsmanager-app-dev-secret-1)",
-                ),
-                "must reference enclosing",
-            ),
-            (
-                "\n".join(
-                    line
-                    for line in output.splitlines()
-                    if "| RotationSchedule.SecretId |" not in line
-                ),
-                "required property missing",
-            ),
-            (
-                output.replace(
                     "<!-- logical-id: SecretsManager_RotationSchedule_001 -->", ""
                 ),
                 "require anchor and logical ID",
@@ -2588,7 +2574,7 @@ def check_rotation_inputs():
                 message,
             )
         lines = output.splitlines()
-        child_rows = [line for line in lines if "| RotationSchedule." in line][:3]
+        child_rows = [line for line in lines if "| RotationSchedule." in line][:2]
         second_child = [
             line.replace("secret-1_rotate", "secret-3_rotate").replace(
                 "SecretsManager_RotationSchedule_001",

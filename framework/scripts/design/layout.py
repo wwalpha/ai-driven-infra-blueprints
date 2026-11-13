@@ -1216,10 +1216,9 @@ def expanded_design(
         for number, cells in enumerate(parent_rows, 1):
             result.append("| " + " | ".join([str(number), *cells[1:]]) + " |")
         for child in table_children:
-            if child[RESOURCE_TYPE_KEY] in {
-                ROTATION_SCHEDULE,
-                LAMBDA_PERMISSION,
-            } and not any(row[1] == child["parentProperty"] for row in child["rows"]):
+            if child[RESOURCE_TYPE_KEY] == LAMBDA_PERMISSION and not any(
+                row[1] == child["parentProperty"] for row in child["rows"]
+            ):
                 raise ValueError(
                     f"{child[RESOURCE_TYPE_KEY]}: {child[RESOURCE_LOGICAL_ID_KEY]}: required property missing: {child['parentProperty']}"
                 )
@@ -1250,7 +1249,8 @@ def formal_property(display: str, resource_type: str, root: Path | None = None) 
     if resource_type == "SecretsManager.Secret" and display.startswith(
         "RotationSchedule."
     ):
-        return "SecretsManager." + display
+        qualified = "SecretsManager." + display
+        return formal_name(qualified, resource_type, root or ROOT) or qualified
     if display.startswith(RESOURCE_PROPERTY_PREFIXES):
         return display
     return resource_type + "." + display if resource_type else display

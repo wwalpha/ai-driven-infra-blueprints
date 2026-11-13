@@ -502,6 +502,13 @@ def resource_table_lines(
                 child_display = _dependency_array_display.compact_tag_rows(
                     child_display
                 )
+            if not formal and child[RESOURCE_TYPE_KEY] == ROTATION_SCHEDULE:
+                child_display = [
+                    row for row in child_display
+                    if row[1] != ROTATION_SCHEDULE + ".SecretId"
+                ]
+                if not child_display:
+                    raise ValueError("RotationSchedule requires a visible property")
             if not formal and child[RESOURCE_TYPE_KEY] != ROTATION_SCHEDULE:
                 for row in child_display:
                     row[1] = child[RESOURCE_TYPE_KEY] + "." + row[1]

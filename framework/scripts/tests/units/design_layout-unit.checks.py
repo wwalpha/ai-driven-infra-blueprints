@@ -462,8 +462,7 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
 | ---: | --- | --- | --- |
 | 1 | Name | `app-dev-key` | secretの名前 |
 | 2 | RotationSchedule.RotateImmediatelyOnUpdate | `false` | <a id="resource-SecretsManager_RotationSchedule_001"></a><!-- logical-id: SecretsManager_RotationSchedule_001 --> app-dev-key_rotate：更新直後のrotation実行設定 |
-| 3 | RotationSchedule.RotationRules.AutomaticallyAfterDays | `30` | rotationの間隔日数 |
-| 4 | RotationSchedule.SecretId | [app-dev-key](#secretsmanager-app-dev-key) | 対象secretのID |
+| 3 | RotationSchedule.AutomaticallyAfterDays | `30` | rotationの間隔日数 |
 
 <!-- resource-logical-id: SecretsManager_Secret_002 -->
 <a id="secretsmanager-app-dev-token"></a>
@@ -612,14 +611,7 @@ desired.row.003-001.comment=secretの名前
         ),
         (
             text.replace(
-                "[app-dev-key](#secretsmanager-app-dev-key)",
-                "[app-dev-token](#secretsmanager-app-dev-token)",
-            ),
-            " / RotationSchedule.SecretId:",
-        ),
-        (
-            text.replace(
-                "RotationRules.AutomaticallyAfterDays", "RotateImmediatelyOnUpdate"
+                "RotationSchedule.AutomaticallyAfterDays", "RotationSchedule.RotateImmediatelyOnUpdate"
             ),
             "design.display.mismatch",
         ),
