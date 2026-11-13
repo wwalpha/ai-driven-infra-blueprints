@@ -2424,7 +2424,8 @@ def check_rotation_inputs():
                     key
                 )
         for index, (field, value) in enumerate(
-            (("Key", "first"), ("Value", "one"), ("Key", "second"), ("Value", "two")), 1
+            (("Key", "cryptographicAlgorithm"), ("Value", "RS256"),
+             ("Key", "Key"), ("Value", "true")), 1
         ):
             prefix = f"desired.row.002-{index:03d}."
             metadata.update(
@@ -2439,10 +2440,10 @@ def check_rotation_inputs():
         metadata_output = markdown_for(path, metadata, root)
         path.write_text(metadata_output)
         for index, (field, value) in enumerate(
-            (("Key", "first"), ("Value", "one"), ("Key", "second"), ("Value", "two"))
+            (("cryptographicAlgorithm", "RS256"), ("Key", "true")), 1
         ):
             assert (
-                f"| RotationSchedule.ExternalSecretRotationMetadata[{index // 2 + 1}].{field} | `{value}` |"
+                f"| RotationSchedule.ExternalSecretRotationMetadata[{index}].{field} | `{value}` |"
                 in metadata_output
             )
         assert (

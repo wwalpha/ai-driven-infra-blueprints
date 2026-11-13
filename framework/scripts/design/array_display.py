@@ -20,6 +20,9 @@ ARRAY = re.compile(r"\[\]")
 TAG_PROPERTY = re.compile(
     r"(?:^|\.)(?:[A-Za-z0-9]*Tags|tags)(?:\[\])?(?:\.(Key|Value))?$"
 )
+METADATA_PROPERTY = re.compile(
+    r"(?:^|\.)ExternalSecretRotationMetadata\[\]\.(Key|Value)$"
+)
 TAG_CELL = re.compile(r"(`[^`]*`|<code>.*?</code>|\[[^\]]+\]\([^)]*\)) = (.+)")
 ARRAY_TEMPLATES = {
     "CodePipeline.Pipeline": codepipeline.array_template,
@@ -134,10 +137,12 @@ def compact_tag_rows(rows):
     """Show one row per tag without replacing the formal source rows."""
     result = []
     index = 0
+    metadata_number = 0
     while index < len(rows):
         identity, prop, value, comment = row = rows[index]
         index += 1
-        match = TAG_PROPERTY.search(prop)
+        metadata = METADATA_PROPERTY.search(prop)
+        match = metadata or TAG_PROPERTY.search(prop)
         if not match:
             result.append(row)
             continue
@@ -182,11 +187,15 @@ def compact_tag_rows(rows):
                 continue
             items = pairs
             tag_prop = prop
-        prefix = tag_prop.removesuffix("[]")
-        result.extend(
-            [identity, f"{prefix}.{_display_tag_key(key)}", code(val), comment]
-            for key, val in items
-        )
+        for key, val in items:
+            if metadata:
+                metadata_number += 1
+                prefix = tag_prop.removesuffix("[]") + f"[{metadata_number}]"
+            else:
+                prefix = tag_prop.removesuffix("[]")
+            result.append(
+                [identity, f"{prefix}.{_display_tag_key(key)}", code(val), comment]
+            )
     return result
 
 
