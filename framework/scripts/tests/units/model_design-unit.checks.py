@@ -2451,7 +2451,7 @@ def check_rotation_inputs():
             (("cryptographicAlgorithm", "RS256"), ("Key", "true")), 1
         ):
             assert (
-                f"| RotationSchedule.ExternalSecretRotationMetadata[{index}].{field} | `{value}` |"
+                f"| RotationSchedule.Metadata[{index}].{field} | `{value}` |"
                 in metadata_output
             )
         assert (
@@ -2459,6 +2459,20 @@ def check_rotation_inputs():
             not in metadata_output
         )
         sync_views.validate_views(root, root, [path], {path: metadata})
+        validator = validation_runner.Validator(root, definitions_root=ROOT)
+        validator.design_sources = {path: metadata}
+        validator.schema_catalog = DesignSchemaCatalog(ROOT)
+        validator.check_design_tables(
+            {
+                path: (
+                    "secretsmanager",
+                    ("SecretsManager.Secret", "SecretsManager.RotationSchedule"),
+                )
+            },
+            *validator.catalog_design_properties(),
+            [path],
+        )
+        assert not validator.errors, validator.errors
         path.write_text(output)
 
         # Both desired metadata and the formal property are authoritative.

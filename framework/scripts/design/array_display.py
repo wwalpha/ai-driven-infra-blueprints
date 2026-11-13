@@ -21,7 +21,7 @@ TAG_PROPERTY = re.compile(
     r"(?:^|\.)(?:[A-Za-z0-9]*Tags|tags)(?:\[\])?(?:\.(Key|Value))?$"
 )
 METADATA_PROPERTY = re.compile(
-    r"(?:^|\.)ExternalSecretRotationMetadata\[\]\.(Key|Value)$"
+    r"(?:^|\.)RotationSchedule\.Metadata\[\]\.(Key|Value)$"
 )
 TAG_CELL = re.compile(r"(`[^`]*`|<code>.*?</code>|\[[^\]]+\]\([^)]*\)) = (.+)")
 ARRAY_TEMPLATES = {
