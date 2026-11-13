@@ -690,10 +690,12 @@ def check_candidate_indexed_saved_reference(tmp_path, service, kind, field, faul
         assert {table.anchor for table in view.reference_tables} == {parent_anchor}
         expanded = "\n".join(view.expanded[0])
         assert "value-1" in expanded and "value-2" in expanded
-        assert (
-            f"{field.split('.')[-1]}[1]" in text
-            and f"{field.split('.')[-1]}[2]" in text
+        display_field = (
+            "RotationSchedule.Metadata"
+            if service == "secretsmanager"
+            else field.split(".")[-1]
         )
+        assert f"{display_field}[1]" in text and f"{display_field}[2]" in text
     stage = tmp_path / "stage"
     for directory in ("model", "docs"):
         shutil.copytree(tmp_path / directory, stage / directory)

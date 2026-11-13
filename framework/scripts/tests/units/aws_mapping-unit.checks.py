@@ -452,6 +452,21 @@ def check_v3_registry():
     for name in ("CloudConnector", "Document", "OpsItem", "Parameter", "ResourceDataSync", "ResourcePolicy"):
         assert baseline_properties["ssm"].pop("SSM." + name)
         assert definitions["ssm"].pop("provider-ssm-" + name.lower())["identifier"]
+    rotation = baseline_properties["secrets-manager"]["SecretsManager.RotationSchedule"]
+    for field in ("Key", "Value"):
+        display = rotation[f"ExternalSecretRotationMetadata[].{field}"]["display"]
+        assert display["name"] == (
+            f"SecretsManager.Secret.RotationSchedule.Metadata[].{field}"
+        )
+        display["name"] = (
+            f"SecretsManager.Secret.RotationSchedule.ExternalSecretRotationMetadata[].{field}"
+        )
+    days = rotation["RotationRules.AutomaticallyAfterDays"]["display"]
+    assert days["name"] == "AutomaticallyAfterDays"
+    days["name"] = "RotationRules.AutomaticallyAfterDays"
+    secret = rotation["SecretId"]["display"]
+    assert secret["show"] is False
+    secret["show"] = True
     # Environment mappings add CodePipeline SDK fields and expose ECS/Lambda values.
     for values, expected in [
         (
