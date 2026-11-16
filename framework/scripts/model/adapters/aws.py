@@ -1389,13 +1389,18 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
             and profile.group(1) == execution_account(ctx.target)
             and desired == profile.group(2)
         )
+        equivalent_secret_type = (
+            prop == "SecretsManager.Secret.Type"
+            and desired == "Other type of secret"
+            and aws == MISSING
+        )
         # Never reveal variable plaintext; retain equality diagnostics only.
         hidden = resource.module.sensitive(prop)
         results.append(
             {
                 **item,
                 "status": "match"
-                if equivalent_profile or stable(desired) == stable(aws)
+                if equivalent_profile or equivalent_secret_type or stable(desired) == stable(aws)
                 else "difference",
                 "designValue": "[REDACTED]" if hidden else redacted(desired),
                 "awsValue": "[REDACTED]" if hidden else redacted(aws),

@@ -394,7 +394,8 @@ def check_hidden_secret_reference_audit():
     inputs, _ = load_fixture("audit/base")
     ref = ReferenceFixture.ref("SecretsManager_Secret_001", "Id")
     values = ReferenceFixture.model(
-        "SecretsManager.Secret", "SecretsManager_Secret_001", {"Name": "fixture-secret"}
+        "SecretsManager.Secret", "SecretsManager_Secret_001",
+        {"Name": "fixture-secret", "Type": "Other type of secret"}
     )
     schedule = ReferenceFixture.model(
         "SecretsManager.RotationSchedule",
@@ -433,6 +434,16 @@ def check_hidden_secret_reference_audit():
                 else None,
             )
             records = standalone["audit"](snap, cli_runner=runner)[2]
+            if variant == "match":
+                secret_type = next(
+                    record for record in records
+                    if record["propertiesKey"] == "SecretsManager.Secret.Type"
+                )
+                assert secret_type["status"] == "match"
+                report, _ = standalone["report"](
+                    snap, None, "account", records, datetime.now(timezone.utc)
+                )
+                assert 'AWS:    "-（Typeなし）"' in report
             item = next(
                 item
                 for item in records

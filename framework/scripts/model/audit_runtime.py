@@ -1118,6 +1118,8 @@ def report(snapshot, profile, account, records, timestamp):
             "PENDING_DEPLOY" if pending else masked(item.get("designValue"), mask_key)
         )
         actual = masked(item.get("awsValue"), mask_key)
+        if prop == "SecretsManager.Secret.Type" and actual == {"absent": True}:
+            actual = "-（Typeなし）"
         line("  Design: " + json.dumps(expected, ensure_ascii=False, sort_keys=True))
         line(
             "  Verification: NOT_VERIFIABLE"

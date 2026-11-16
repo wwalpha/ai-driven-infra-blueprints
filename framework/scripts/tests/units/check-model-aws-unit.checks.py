@@ -54,6 +54,43 @@ if not __debug__:
 offline_network = _retained_fixture_offline_network.offline_network
 
 
+@pytest.mark.parametrize(
+    ("desired", "actual", "status"),
+    [
+        ("Other type of secret", {"absent": True}, "match"),
+        ("Other type of secret", "Partner", "difference"),
+        ("Partner", {"absent": True}, "difference"),
+        ("Partner", "Partner", "match"),
+        ("Partner", "Other", "difference"),
+        ("Other type of secret", None, "difference"),
+    ],
+)
+def check_secret_type_absence(tmp_path, desired, actual, status):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    kind = "SecretsManager.Secret"
+    prop = kind + ".Type"
+    model = SimpleNamespace(
+        ctx=ctx,
+        service="secrets-manager",
+        values={},
+        locations={},
+        path=tmp_path / "model/dev" / ACCOUNT / "secrets-manager.properties",
+    )
+    resource = m.Resource(
+        model,
+        "001",
+        {"resourceType": kind, "logicalId": "SecretsManager_Secret_001"},
+        [("001-001", {"property": prop, "value": "`" + desired + "`"})],
+    )
+    with patch.object(
+        m._imports_aws_mapping_compare, "value", return_value=({}, actual)
+    ):
+        result = m.compare_resource(ctx, resource)[0]
+    assert result["status"] == status
+    assert result["awsValue"] == actual
+
+
 def check_summary_exit_codes():
     check(m.summarize([{"status": "match"}])["exitCode"] == 0, "match exit")
     check(m.summarize([{"status": "difference"}])["exitCode"] == 1, "difference exit")

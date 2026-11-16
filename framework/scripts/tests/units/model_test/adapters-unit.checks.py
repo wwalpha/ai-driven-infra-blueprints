@@ -515,7 +515,8 @@ def test_secrets_rotation_generated_audit(tmp_path):
     model = ReferenceFixture.model
     ref = ReferenceFixture.ref("SecretsManager_Secret_001", "Id")
     values = model(
-        "SecretsManager.Secret", "SecretsManager_Secret_001", {"Name": "fixture-secret"}
+        "SecretsManager.Secret", "SecretsManager_Secret_001",
+        {"Name": "fixture-secret", "Type": "Other type of secret"}
     )
     schedule = model(
         "SecretsManager.RotationSchedule",
@@ -546,6 +547,11 @@ def test_secrets_rotation_generated_audit(tmp_path):
     cli = _bind_framework_callback(_rotation_cli, calls)
 
     records = audit.audit(snapshot, cli_runner=cli)[2]
+    secret_type = next(
+        item for item in records if item["propertiesKey"] == "SecretsManager.Secret.Type"
+    )
+    assert secret_type["status"] == "match"
+    assert secret_type["awsValue"] == {"absent": True}
     selected = {
         item["propertiesKey"].rsplit(".", 1)[-1]: item
         for item in records
@@ -563,6 +569,7 @@ def test_secrets_rotation_generated_audit(tmp_path):
         snapshot, None, "account", records, datetime.now(timezone.utc)
     )
     assert "never-print-secret-value" not in report
+    assert 'AWS:    "-（Typeなし）"' in report
 
     denied = _bind_framework_callback(_rotation_denied, cli)
     failed = audit.audit(snapshot, cli_runner=denied)[2]
