@@ -926,6 +926,15 @@ def _build(root, environment, selector, service, standalone):
             response_shape = _imports_aws_mapping.response_shape
             get_session = aws_runtime().sdk_session
             sdk = get_session().get_service_model("iam")
+            response_shape(sdk.operation_model("GetRole").output_shape, "Role.Path")
+            key = "IAM.Role.Path"
+            prop = props[key]
+            props[key] = replace(
+                prop,
+                field=replace(
+                    prop.field, getter="base", classification="supported", reason=""
+                ),
+            )
             for kind, operation, result in [
                 ("IAM.Role", "GetRole", "Role"),
                 ("IAM.User", "GetUser", "User"),

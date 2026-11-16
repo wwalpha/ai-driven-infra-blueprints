@@ -1234,6 +1234,39 @@ def test_audit_cli_failure_preserves_output(tmp_path, failure, existing):
     check.assertEqual(generate.call_count, int(failure == "changed"))
 
 
+def test_iam_role_path_uses_get_role_and_does_not_hide_failures():
+    inputs, _ = load_fixture("iam/model-reference")
+    inputs.pop("models")
+    inputs["model"] = {
+        key: value
+        for key, value in inputs["model"].items()
+        if not key.startswith("desired.row.001-002.")
+    }
+    inputs["model"]["desired.row.001-002.property"] = "IAM.Role.Path"
+    inputs["model"]["desired.row.001-002.value"] = "`/bootstrap/`"
+    inputs["model"]["desired.row.001-002.comment"] = "fixture"
+    inputs["properties"] = ["IAM.Role.Path"]
+    inputs["fields"] = ["propertiesKey", "status"]
+    inputs["report"] = False
+    inputs["scenarios"] = [
+        {
+            "responses": [
+                {"api": ["iam", "get-role"], "response": {"Role": {"Path": path}}}
+            ]
+        }
+        for path in ("/bootstrap/", "/other/")
+    ] + [
+        {"responses": [{"api": ["iam", "get-role"], "response": {"Role": {}}}]},
+        {"fail": ["iam", "get-role"]},
+    ]
+    results = execute((inputs, []))
+    statuses = [result["records"][0]["status"] for result in results]
+    assert statuses[:2] == ["match", "difference"]
+    assert all(status != "match" for status in statuses[2:])
+    for result in results:
+        assert result["calls"] == [[["iam", "get-role"], {"RoleName": "fixture-role"}]]
+
+
 def _role_tags_response(tags):
     role = {"RoleName": "fixture-role"}
     if tags is not None:
