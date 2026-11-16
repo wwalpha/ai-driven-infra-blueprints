@@ -1,7 +1,9 @@
 """KMS display selection."""
 
+import re
+
 from contracts.model import RESOURCE_TYPE_KEY
-from utils.reference_contracts import S3_KMS_MASTER_KEY_ID
+from utils.reference_contracts import ARN_FORMS, S3_KMS_MASTER_KEY_ID
 
 
 def alias_display_name(rows, selected_label):
@@ -28,12 +30,19 @@ def alias_display_name(rows, selected_label):
 def reference_label(
     values, position, node, scope, resolver, resource, attribute, name, displayed
 ):
-    if resource[RESOURCE_TYPE_KEY] not in {"KMS.Key", "KMS.Alias"}:
+    kind = resource[RESOURCE_TYPE_KEY]
+    if kind not in {"KMS.Key", "KMS.Alias"}:
         return name
-    if resource[RESOURCE_TYPE_KEY] == "KMS.Alias" and attribute == "AliasName":
+    if kind == "KMS.Alias" and attribute == "AliasName":
         if isinstance(displayed, str):
             name = displayed
-    if values.get(f"desired.row.{position.row_id}.property") == S3_KMS_MASTER_KEY_ID:
-        if resource[RESOURCE_TYPE_KEY] == "KMS.Alias" and attribute == "Arn":
+    prop = values.get(f"desired.row.{position.row_id}.property")
+    if prop == "Logs.LogGroup.KmsKeyId" and kind == "KMS.Key":
+        if isinstance(displayed, str):
+            match = re.fullmatch(ARN_FORMS["KMS.Key", "Arn"][1], displayed)
+            if match:
+                return match["id"]
+    if prop == S3_KMS_MASTER_KEY_ID:
+        if kind == "KMS.Alias" and attribute == "Arn":
             return displayed.rsplit(":", 1)[-1] if isinstance(displayed, str) else name
     return name

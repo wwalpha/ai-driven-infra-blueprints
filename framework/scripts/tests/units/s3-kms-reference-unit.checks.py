@@ -807,7 +807,7 @@ def check_logs_kms_key_identity_unproven(project_workspace):
         (
             "KMS_Key_001",
             "key-one",
-            "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789abc",
+            "12345678-1234-1234-1234-123456789abc",
         ),
         ("KMS_Alias_001", "alias-one", "alias/fixture-key"),
     ],
