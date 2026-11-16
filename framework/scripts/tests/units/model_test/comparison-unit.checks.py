@@ -1863,3 +1863,30 @@ def test_numeric_policy_conditions_shared_and_embedded(tmp_path):
         assert compare({"NumericEquals": {"key": 1.2}}) != compare(
             {"NumericEquals": {"key": "1.2"}}
         )
+
+
+def _condition_policy_document(value, operator="ArnLike"):
+    return {"Statement": [{"Condition": {operator: {"aws:PrincipalArn": value}}}]}
+
+
+def test_policy_condition_singletons_shared_and_embedded(tmp_path):
+    inputs, _ = load_fixture("audit/base")
+    standalone = generated(prepare(tmp_path, inputs), tmp_path)
+    embedded = standalone["engine"](standalone["SNAPSHOT"])
+    arn = "arn:aws:iam::639200939566:root"
+
+    for compare in (policy, embedded.policy):
+        for operator in ("ArnLike", "ForAnyValue:StringEqualsIfExists", "NumericEquals"):
+            value = "1.20" if operator == "NumericEquals" else arn
+            assert compare(_condition_policy_document(value, operator)) == compare(_condition_policy_document([value], operator))
+            assert compare(_condition_policy_document(value, operator)) != compare(_condition_policy_document(["2"], operator))
+            assert compare(_condition_policy_document(value, operator)) != compare(_condition_policy_document([value, value], operator))
+        assert compare(_condition_policy_document(arn)) != compare(_condition_policy_document(arn, "ArnEquals"))
+        assert compare({"Other": arn}) != compare({"Other": [arn]})
+        assert compare(_condition_policy_document({"nested": arn})) != compare(_condition_policy_document({"nested": [arn]}))
+        first = {"Action": "a", "Condition": {"ArnLike": {"key": arn}}}
+        second = {"Action": "b", "Condition": {"ArnLike": {"key": "other"}}}
+        swapped = {"Action": "a", "Condition": {"ArnLike": {"key": "other"}}}
+        assert compare({"Statement": [first, second]}) != compare(
+            {"Statement": [swapped, {"Action": "b", "Condition": first["Condition"]}]}
+        )

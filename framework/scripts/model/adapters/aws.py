@@ -279,19 +279,25 @@ def _recursive_policy_number(value):
 
 def _recursive_policy_walk(item, name=""):
     if name == "Condition" and isinstance(item, dict):
-        return {
-            operator: {
-                key: _recursive_policy_number(value)
-                for key, value in conditions.items()
-            }
-            if re.fullmatch(
+        result = {}
+        for operator, conditions in item.items():
+            if not isinstance(conditions, dict):
+                result[operator] = _recursive_policy_walk(conditions, operator)
+                continue
+            numeric = re.fullmatch(
                 r"(?:ForAnyValue:|ForAllValues:)?Numeric(?:Equals|NotEquals|LessThan|LessThanEquals|GreaterThan|GreaterThanEquals)(?:IfExists)?",
                 operator,
             )
-            and isinstance(conditions, dict)
-            else _recursive_policy_walk(conditions, operator)
-            for operator, conditions in item.items()
-        }
+            result[operator] = {}
+            for key, value in conditions.items():
+                if not isinstance(value, (list, dict)):
+                    value = [value]
+                result[operator][key] = (
+                    _recursive_policy_number(value)
+                    if numeric
+                    else _recursive_policy_walk(value, key)
+                )
+        return result
     if name in {
         "Statement",
         "Action",
