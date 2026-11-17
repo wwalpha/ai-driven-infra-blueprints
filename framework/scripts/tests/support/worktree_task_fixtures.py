@@ -89,6 +89,21 @@ def cli(root, command, task_id=EXAMPLE_TASK_ID, success=True, *, suffix=None):
 
 def start(root, task_name="example", files=("file.txt",)):
     state = cli(root, "create", task_name, suffix=0)
+    return _start_contract(state, files)
+
+
+def start_direct(root, task_name="example", files=("file.txt",)):
+    """Create a real worktree without launching the already-covered create CLI."""
+    with (
+        patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
+        patch.object(wt.secrets, "randbelow", return_value=0),
+    ):
+        state = wt.create(root, task_name)
+    dependency_index.rebuild(Path(state["worktree"]))
+    return _start_contract(state, files)
+
+
+def _start_contract(state, files):
     task_id = state["task_id"]
     target = Path(state["worktree"])
     assert target == Path(state["primary"]) / ".worktrees" / task_id
@@ -126,6 +141,7 @@ __all__ = [
     "patch",
     "retained",
     "start",
+    "start_direct",
     "subprocess",
     "sys",
     "tasks",

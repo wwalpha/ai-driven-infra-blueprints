@@ -26,7 +26,7 @@ from support.blueprint_loop_fixtures import (
     make_service_loop_fixture,
     tasks,
 )
-from support.worktree_task_fixtures import contract, fixture, start
+from support.worktree_task_fixtures import contract, fixture, git, start, start_direct
 from utils.git_changes import GitWorkingPaths
 from validation import loop
 from validation import runner as validation_runner
@@ -343,6 +343,8 @@ def check_cleanup_missing_worktree(tmp_path, discard):
         "cache_and_setup_busy",
         "cache_and_locked",
         "cache_and_branch_changed",
+        "cache_and_unmerged",
+        "cache_symlink",
         "missing_branch",
     ],
 )
@@ -357,7 +359,7 @@ def check_cleanup_stops_before_removal(tmp_path, case):
         branch="codex/worktree/example",
         base="main",
         tip="tip",
-        merged=None if case == "unmerged" else "tip",
+        merged=None if case in {"unmerged", "cache_and_unmerged"} else "tip",
         commit="tip",
         task_file="tasks/example.md",
     )
@@ -367,8 +369,14 @@ def check_cleanup_stops_before_removal(tmp_path, case):
         cache = target / "nested/.ruff_cache/entry"
         cache.parent.mkdir(parents=True)
         cache.write_text("cache", encoding="utf-8")
+    if case == "cache_symlink":
+        external = tmp_path / "external"
+        external.mkdir()
+        (external / "entry").write_text("outside", encoding="utf-8")
+        (target / ".ruff_cache").symlink_to(external, target_is_directory=True)
     if case in {"setup_busy", "cache_and_setup_busy"}:
         path.with_suffix(".setup-lock").mkdir()
+    is_symlink = Path.is_symlink
     with (
         patch.object(
             wt,
@@ -390,7 +398,8 @@ def check_cleanup_stops_before_removal(tmp_path, case):
             Path,
             "is_symlink",
             autospec=True,
-            side_effect=lambda path: case == "symlink" and path == target,
+            side_effect=lambda path: (case == "symlink" and path == target)
+            or is_symlink(path),
         ),
         patch.object(wt, "integration_task"),
         patch.object(
@@ -403,6 +412,7 @@ def check_cleanup_stops_before_removal(tmp_path, case):
             wt,
             "changed_paths",
             return_value={"dirty"} if case == "dirty" else
+            {".ruff_cache"} if case == "cache_symlink" else
             {"nested/.ruff_cache/entry", "outside.txt"} if case == "cache_and_dirty" else
             {"nested/.ruff_cache/entry"} if case == "cache_and_ignored" else set(),
         ),
@@ -427,7 +437,8 @@ def check_cleanup_stops_before_removal(tmp_path, case):
     mutate.assert_not_called()
     details = caught.value.cleanup
     assert details["phase"] == (
-        "verify_merge" if case in {"unmerged", "rewritten"} else "verify_worktree"
+        "verify_merge" if case in {"unmerged", "cache_and_unmerged", "rewritten"}
+        else "verify_worktree"
     )
     assert details["stop_reason"] == str(caught.value)
     assert details["remaining"] == dict(
@@ -439,6 +450,40 @@ def check_cleanup_stops_before_removal(tmp_path, case):
     assert path.read_text() == "preserve state" and target.is_dir()
     if case.startswith("cache_and_"):
         assert (target / "nested/.ruff_cache/entry").read_text() == "cache"
+    if case == "cache_symlink":
+        assert "dirty" in str(caught.value)
+        assert (target / ".ruff_cache").is_symlink()
+        assert (external / "entry").read_text(encoding="utf-8") == "outside"
+
+
+@pytest.mark.parametrize("ignored_cache", [".ruff_cache", "nested/.ruff_cache"])
+def check_ruff_cache_paths(ignored_cache):
+    with fixture() as root:
+        with (root / ".gitignore").open("a", encoding="utf-8") as rules:
+            rules.write(f"/{ignored_cache}/\n")
+        external = root.parent / "external"
+        external.mkdir()
+        marker = external / "keep"
+        marker.write_text("outside", encoding="utf-8")
+        caches = {".ruff_cache", "nested/.ruff_cache"}
+        for relative in caches:
+            cache = root / relative
+            cache.mkdir(parents=True)
+            (cache / "entry").touch()
+        link = root / "linked/.ruff_cache"
+        link.parent.mkdir()
+        link.symlink_to(external, target_is_directory=True)
+        (root / "unknown.txt").touch()
+        (root / "secret.bin").touch()
+
+        ignored = wt.paths(root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+        changed = wt.changed_paths(root)
+        assert f"{ignored_cache}/entry" in ignored
+        assert {f"{cache}/entry" for cache in caches - {ignored_cache}} <= changed
+        assert set(wt._ruff_cache_dirs(root)) == {root / cache for cache in caches}
+        assert wt._without_ruff_cache(root, ignored) == {"secret.bin"}
+        assert wt._without_ruff_cache(root, changed) == {".gitignore", "linked/.ruff_cache", "unknown.txt"}
+        assert link.is_symlink() and marker.read_text(encoding="utf-8") == "outside"
 
 
 @pytest.mark.parametrize("command", ["cleanup", "finalize"])
@@ -1814,6 +1859,7 @@ def check_pr_lifecycle_cli(tmp_path, capsys, arguments, valid):
         "validation",
         "validation-detail",
         "validated-edit",
+        "stale-base",
         "suspended",
         "push-third",
         "hash-changed",
@@ -1853,6 +1899,7 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
         "validation",
         "validation-detail",
         "validated-edit",
+        "stale-base",
         "suspended",
         "push-third",
         "hash-changed",
@@ -1869,7 +1916,7 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
             else "hash",
             baseCommit="base",
             integrationTree="a" * 40,
-            validation="PASS",
+            validation="STALE" if failure == "stale-base" else "PASS",
             pushIntent=failure == "push-third",
         )
     path = tmp_path / "state.json"
@@ -1891,14 +1938,6 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
             "remote_heads",
             return_value={"refs/heads/" + publication["head"]: "foreign"},
         ),
-        patch.object(
-            pr,
-            "update_refs",
-            return_value=(
-                "new-base" if failure == "stale-base" else "base",
-                "foreign" if failure in {"remote-head", "push-third"} else "candidate",
-            ),
-        ),
         patch.object(wt, "task_worktree", return_value=tmp_path),
         patch.object(wt, "output", return_value="candidate"),
         patch.object(
@@ -1909,8 +1948,8 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
         patch.object(
             wt.tasks, "read_task_snapshot", return_value=SimpleNamespace(text=text)
         ),
-        patch.object(wt, "save"),
-        patch.object(pr, "save_update"),
+        patch.object(wt, "save") as save,
+        patch.object(pr, "save_update") as save_update,
         patch.object(wt.python_env, "runtime", return_value=(Path(sys.executable), {})),
         patch.object(
             pr.subprocess,
@@ -1928,9 +1967,7 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
         ) as child,
         patch.object(pr, "push_candidate") as push,
     ):
-        with pytest.raises(
-            wt.NeedsSync if failure == "stale-base" else wt.Blocked
-        ) as error:
+        with pytest.raises(wt.Blocked) as error:
             pr.update(tmp_path, "example")
         push.assert_not_called()
         if failure in {"validation", "validation-detail"}:
@@ -1947,11 +1984,64 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
             child.assert_not_called()
             if failure in {"unchanged", "remote-head"}:
                 assert "prUpdate" not in state
+                save.assert_not_called()
+            if failure == "remote-head":
+                assert "remote HEAD differs from the published HEAD" in str(error.value)
             if failure == "suspended":
                 assert "`suspend`" in text
             if failure == "stale-base":
+                assert "validation is missing or stale" in str(error.value)
                 assert state["prUpdate"]["validation"] == "STALE"
-                assert state["prUpdate"]["status"] == "PREPARED"
+                assert state["prUpdate"]["status"] == "VALIDATED"
+                save.assert_not_called()
+                save_update.assert_not_called()
+
+
+def check_pr_update_retries_prepared_candidate():
+    with fixture() as root:
+        target, created = start_direct(root)
+        task_id = created["task_id"]
+        source = target / "file.txt"
+        source.write_text("published\n", encoding="utf-8")
+        _, _, path, state = wt.load(root, task_id)
+        wt._prepare_commit(root, path, state, target, prepare_only=True)
+        published = state["tip"]
+        state.update(
+            integrationMode="pr",
+            prPublication=dict(
+                _pr_publication(),
+                baseCommit=state["start"],
+                candidate=published,
+                head=state["branch"],
+                number=7,
+            ),
+        )
+        wt.save(path, state)
+        source.write_text("candidate\n", encoding="utf-8")
+        child = Mock(return_value=subprocess.CompletedProcess([], 1, "", "failed"))
+        with (
+            patch.object(pr, "remote_identity", return_value={}),
+            patch.object(pr, "remote_base", return_value=published),
+            patch.object(pr, "existing_pr"),
+            patch.object(wt.python_env, "runtime", return_value=(Path(sys.executable), {})),
+            patch.object(pr, "subprocess", SimpleNamespace(run=child)),
+            patch.object(pr, "push_candidate") as push,
+        ):
+            with pytest.raises(wt.Blocked, match="candidate validation failed"):
+                pr.update(root, task_id)
+            saved = wt.load(root, task_id)[3]
+            assert saved["prUpdate"]["status"] == "PREPARED"
+            assert saved["prPublication"]["candidate"] == published
+            candidate = saved["prUpdate"]["candidate"]
+            assert candidate != published
+            with pytest.raises(wt.Blocked, match="candidate validation failed"):
+                pr.update(root, task_id)
+            assert wt.load(root, task_id)[3] == saved
+            assert git(target, "rev-parse", "HEAD") == candidate
+            assert git(target, "merge-base", candidate, published) == published
+            assert source.read_text(encoding="utf-8") == "candidate\n"
+            assert child.call_count == 2
+            push.assert_not_called()
 
 
 def _check_pr_update_published_recovery(tmp_path, failure):

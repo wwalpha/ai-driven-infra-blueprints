@@ -42,6 +42,7 @@ from support.worktree_task_fixtures import (
     patch,
     retained,
     start,
+    start_direct,
     subprocess,
     sys,
     tasks,
@@ -158,14 +159,12 @@ def _interrupt_after_rebase(original, target, *args, **kwargs):
     return result
 
 
-def _advance_base_after_rebase(original, root, interrupt, target, *args, **kwargs):
+def _advance_base_after_rebase(original, root, target, *args, **kwargs):
     result = original(target, *args, **kwargs)
     if "rebase" in args and result.returncode == 0:
         (root / "upstream2.txt").write_text("base 2\n")
         git(root, "add", "upstream2.txt")
         git(root, "commit", "-qm", "base 2")
-        if interrupt:
-            raise RuntimeError("simulated interruption after base advance")
     return result
 
 
@@ -179,19 +178,29 @@ def _fail_rebase(original, target, *args, **kwargs):
 def check_latest_base_linear_repeated():
     check = TestCase()
     with fixture() as root:
-        target, state = start(root)
-        (target / "file.txt").write_text("first\n")
+        git(root, "config", "core.logAllRefUpdates", "false")
+        lines = [f"line {number}\n" for number in range(30)]
+        (root / "file.txt").write_text("".join(lines))
+        git(root, "add", "file.txt")
+        git(root, "commit", "-qm", "shared baseline")
+        target, state = start_direct(root)
+        task_lines = lines.copy()
+        task_lines[2] = "first task edit\n"
+        (target / "file.txt").write_text("".join(task_lines))
         _, _, path, state = wt.load(root, EXAMPLE_TASK_ID)
         wt._prepare_commit(root, path, state, target, prepare_only=True)
-        (target / "file.txt").write_text("first\nsecond\n")
+        task_lines[3] = "second task edit\n"
+        (target / "file.txt").write_text("".join(task_lines))
         git(target, "add", "file.txt")
         git(target, "commit", "-qm", "second task commit")
         old_head = git(target, "rev-parse", "HEAD")
         state.update(tip=old_head, commit=old_head, verified=True)
         wt.save(path, state)
         for step in (1, 2):
-            (root / f"upstream{step}.txt").write_text(f"base {step}\n")
-            git(root, "add", f"upstream{step}.txt")
+            lines[24 + step] = f"base {step}\n"
+            task_lines[24 + step] = lines[24 + step]
+            (root / "file.txt").write_text("".join(lines))
+            git(root, "add", "file.txt")
             git(root, "commit", "-qm", f"base {step}")
             latest = git(root, "rev-parse", "HEAD")
             expected_tree = git(target, "merge-tree", "--write-tree", old_head, latest)
@@ -205,7 +214,18 @@ def check_latest_base_linear_repeated():
             check.assertEqual(
                 git(target, "rev-list", "--merges", latest + ".." + head), ""
             )
-            check.assertEqual((target / "file.txt").read_text(), "first\nsecond\n")
+            check.assertEqual((target / "file.txt").read_text(), "".join(task_lines))
+            check.assertEqual(git(target, "reflog", "show", "HEAD"), "")
+            check.assertEqual(
+                git(target, "log", "--reverse", "--format=%s", latest + ".." + head).splitlines(),
+                [git(target, "show", "-s", "--format=%s", old_head + "^"), "second task commit"],
+            )
+            _, _, _, saved = wt.load(root, EXAMPLE_TASK_ID)
+            check.assertEqual(
+                (saved["tip"], saved["commit"], saved["validation_base"]),
+                (head, head, latest),
+            )
+            check.assertNotIn("latestBaseSync", saved)
             if step == 1:
                 old_commits = git(
                     target, "rev-list", "--reverse", state["start"] + ".." + old_head
@@ -246,86 +266,31 @@ def check_latest_base_linear_repeated():
         git(root, "merge", "--ff-only", state["branch"])
         check.assertEqual(git(root, "rev-parse", "HEAD"), head)
 
-    for interrupted in (False, True):
-        with fixture() as root:
-            target, state = start(root)
-            (target / "file.txt").write_text("candidate\n")
-            (root / "upstream1.txt").write_text("base 1\n")
-            git(root, "add", "upstream1.txt")
-            git(root, "commit", "-qm", "base 1")
-            first_base = git(root, "rev-parse", "HEAD")
-            original = wt.git
-            with patch.object(
-                wt,
-                "git",
-                side_effect=_bind_framework_callback(
-                    _advance_base_after_rebase, original, root, interrupted
-                ),
-            ):
-                if interrupted:
-                    with check.assertRaisesRegex(
-                        RuntimeError, "simulated interruption"
-                    ):
-                        wt.sync_latest_base(root, EXAMPLE_TASK_ID, first_base)
-                else:
-                    result = wt.sync_latest_base(root, EXAMPLE_TASK_ID, first_base)
-            latest = git(root, "rev-parse", "HEAD")
-            if interrupted:
-                head = git(target, "rev-parse", "HEAD")
-                with check.assertRaisesRegex(wt.Blocked, "outcome is unknown"):
-                    wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
-                check.assertEqual(git(target, "rev-parse", "HEAD"), head)
-                continue
-            check.assertEqual(result, {"status": "needs_sync", "base": latest})
-            _, _, _, saved = wt.load(root, EXAMPLE_TASK_ID)
-            candidate = git(target, "rev-parse", "HEAD")
-            check.assertEqual(
-                (saved["tip"], saved["validation_base"]), (candidate, first_base)
-            )
-            check.assertNotIn("latestBaseSync", saved)
-            result = wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
-            check.assertEqual(result["status"], "needs_validation")
-            check.assertEqual(
-                git(target, "rev-list", "--count", latest + "..HEAD"), "1"
-            )
-            check.assertEqual(
-                wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)["status"], "ok"
-            )
-            check.assertEqual(git(target, "rev-parse", "HEAD"), result["candidate"])
-
-    for tampering in ("task", "head"):
-        with fixture() as root:
-            target, state = start(root)
-            (target / "file.txt").write_text("candidate\n")
-            (root / "upstream1.txt").write_text("base 1\n")
-            git(root, "add", "upstream1.txt")
-            git(root, "commit", "-qm", "base 1")
-            first_base = git(root, "rev-parse", "HEAD")
-            with patch.object(
-                wt,
-                "git",
-                side_effect=_bind_framework_callback(
-                    _advance_base_after_rebase, wt.git, root, True
-                ),
-            ):
-                with check.assertRaisesRegex(RuntimeError, "simulated interruption"):
-                    wt.sync_latest_base(root, EXAMPLE_TASK_ID, first_base)
-            latest = git(root, "rev-parse", "HEAD")
-            if tampering == "task":
-                task_file = target / state["task_file"]
-                task_file.write_text(task_file.read_text() + "\nchanged\n")
-            else:
-                (target / "file.txt").write_text("unexpected\n")
-                git(target, "add", "file.txt")
-                git(target, "commit", "-qm", "unexpected candidate")
-            head = git(target, "rev-parse", "HEAD")
-            with check.assertRaises(wt.Blocked):
-                wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
-            check.assertEqual(git(target, "rev-parse", "HEAD"), head)
-            check.assertIn("latestBaseSync", wt.load(root, EXAMPLE_TASK_ID)[3])
+    with fixture() as root:
+        target, state = start_direct(root)
+        (target / "file.txt").write_text("candidate\n")
+        (root / "upstream1.txt").write_text("base 1\n")
+        git(root, "add", "upstream1.txt")
+        git(root, "commit", "-qm", "base 1")
+        first_base = git(root, "rev-parse", "HEAD")
+        with patch.object(
+            wt, "git", side_effect=_bind_framework_callback(_advance_base_after_rebase, wt.git, root)
+        ):
+            result = wt.sync_latest_base(root, EXAMPLE_TASK_ID, first_base)
+        latest = git(root, "rev-parse", "HEAD")
+        check.assertEqual(result, {"status": "needs_sync", "base": latest})
+        _, _, _, saved = wt.load(root, EXAMPLE_TASK_ID)
+        candidate = git(target, "rev-parse", "HEAD")
+        check.assertEqual((saved["tip"], saved["validation_base"]), (candidate, first_base))
+        check.assertNotIn("latestBaseSync", saved)
+        result = wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
+        check.assertEqual(result["status"], "needs_validation")
+        check.assertEqual(git(target, "rev-list", "--count", latest + "..HEAD"), "1")
+        check.assertEqual(wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)["status"], "ok")
+        check.assertEqual(git(target, "rev-parse", "HEAD"), result["candidate"])
 
     with fixture() as root:
-        target, state = start(root)
+        target, state = start_direct(root)
         (target / "file.txt").write_text("candidate\n")
         (root / "upstream.txt").write_text("base\n")
         git(root, "add", "upstream.txt")
@@ -341,104 +306,6 @@ def check_latest_base_linear_repeated():
             wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
         check.assertEqual(git(target, "rev-parse", "HEAD"), head)
         check.assertIn("latestBaseSync", wt.load(root, EXAMPLE_TASK_ID)[3])
-
-    for interrupted in (False, True):
-        with fixture() as root:
-            git(root, "config", "core.logAllRefUpdates", "false")
-            target, state = start(root)
-            (target / "file.txt").write_text("candidate without reflog\n")
-            _, _, path, current = wt.load(root, EXAMPLE_TASK_ID)
-            wt._prepare_commit(root, path, current, target, prepare_only=True)
-            old_head = git(target, "rev-parse", "HEAD")
-            (root / "upstream.txt").write_text("base\n")
-            git(root, "add", "upstream.txt")
-            git(root, "commit", "-qm", "base")
-            latest = git(root, "rev-parse", "HEAD")
-            expected_tree = git(target, "merge-tree", "--write-tree", old_head, latest)
-            if interrupted:
-                original = wt.git
-                with patch.object(
-                    wt,
-                    "git",
-                    side_effect=_bind_framework_callback(
-                        _interrupt_after_rebase, original
-                    ),
-                ):
-                    with check.assertRaisesRegex(
-                        RuntimeError, "simulated interruption"
-                    ):
-                        wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
-                _, _, _, pending = wt.load(root, EXAMPLE_TASK_ID)
-                check.assertIn("latestBaseSync", pending)
-                check.assertNotEqual(pending["tip"], git(target, "rev-parse", "HEAD"))
-                with check.assertRaisesRegex(wt.Blocked, "outcome is unknown"):
-                    wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
-                continue
-            result = wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
-            check.assertEqual(result["status"], "needs_validation")
-            head = git(target, "rev-parse", "HEAD")
-            check.assertEqual(git(target, "reflog", "show", "HEAD"), "")
-            check.assertEqual(git(target, "show", "-s", "--format=%P", head), latest)
-            check.assertEqual(git(target, "rev-parse", head + "^{tree}"), expected_tree)
-            check.assertEqual(
-                (target / "file.txt").read_text(), "candidate without reflog\n"
-            )
-            _, _, _, updated = wt.load(root, EXAMPLE_TASK_ID)
-            check.assertEqual(
-                (updated["tip"], updated["commit"], updated["validation_base"]),
-                (head, head, latest),
-            )
-            check.assertNotIn("latestBaseSync", updated)
-            check.assertEqual(
-                wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)["status"], "ok"
-            )
-
-    with fixture() as root:
-        lines = [f"line {number}\n" for number in range(30)]
-        (root / "file.txt").write_text("".join(lines))
-        git(root, "add", "file.txt")
-        git(root, "commit", "-qm", "shared baseline")
-        target, state = start(root)
-        task_lines = lines.copy()
-        task_lines[2] = "task line\n"
-        (target / "file.txt").write_text("".join(task_lines))
-        base_lines = lines.copy()
-        base_lines[25] = "base line\n"
-        (root / "file.txt").write_text("".join(base_lines))
-        git(root, "add", "file.txt")
-        git(root, "commit", "-qm", "nonoverlapping base edit")
-        latest = git(root, "rev-parse", "HEAD")
-        result = wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
-        check.assertEqual(result["status"], "needs_validation")
-        check.assertEqual(
-            (target / "file.txt").read_text().splitlines()[2], "task line"
-        )
-        check.assertEqual(
-            (target / "file.txt").read_text().splitlines()[25], "base line"
-        )
-
-    with fixture() as root:
-        target, state = start(root)
-        (target / "file.txt").write_text("candidate\n")
-        (root / "upstream.txt").write_text("base\n")
-        git(root, "add", "upstream.txt")
-        git(root, "commit", "-qm", "base")
-        latest = git(root, "rev-parse", "HEAD")
-        original = wt.git
-        with patch.object(
-            wt,
-            "git",
-            side_effect=_bind_framework_callback(_interrupt_after_rebase, original),
-        ):
-            with check.assertRaisesRegex(RuntimeError, "simulated interruption"):
-                wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
-        (target / "file.txt").write_text("third party\n")
-        git(target, "add", "file.txt")
-        git(target, "commit", "-qm", "unexpected change")
-        head = git(target, "rev-parse", "HEAD")
-        with check.assertRaises(wt.Blocked):
-            wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
-        check.assertEqual(git(target, "rev-parse", "HEAD"), head)
 
 
 @it_case
@@ -489,7 +356,9 @@ def check_rewritten_base_replay_content():
             (root / "delete.txt").write_text("delete\n", encoding="utf-8")
             git(root, "add", ".")
             git(root, "commit", "-qm", "old base")
-            target, state = start(root, files=("file.txt", "new.txt", "delete.txt"))
+            if scenario == "interrupted":
+                git(root, "config", "core.logAllRefUpdates", "false")
+            target, state = start_direct(root, files=("file.txt", "new.txt", "delete.txt"))
             (target / "file.txt").write_text("task\nmiddle\nlast\n", encoding="utf-8")
             (target / "new.txt").write_text("new\n", encoding="utf-8")
             (target / "delete.txt").unlink()
@@ -538,18 +407,39 @@ def check_rewritten_base_replay_content():
                     pytest.raises(RuntimeError, match="simulated interruption"),
                 ):
                     wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
-                assert wt.load(root, EXAMPLE_TASK_ID)[3].get("latestBaseSync")
+                pending = wt.load(root, EXAMPLE_TASK_ID)[3]
+                assert pending["latestBaseSync"]["head"] == pending["tip"] == committed
+                assert git(target, "reflog", "show", "HEAD") == ""
                 assert (target / "new.txt").read_text(encoding="utf-8") == "new\n"
                 head = git(target, "rev-parse", "HEAD")
                 with pytest.raises(wt.Blocked, match="outcome is unknown"):
                     wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
+                assert git(target, "rev-parse", "HEAD") == head != committed
+                task_file = target / state["task_file"]
+                original_task = task_file.read_text()
+                edited = original_task + "\nTask edited after interruption\n"
+                task_file.write_text(edited)
+                with pytest.raises(wt.Blocked, match="outcome is unknown"):
+                    wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
                 assert git(target, "rev-parse", "HEAD") == head
+                assert task_file.read_text() == edited
+                task_file.write_text(original_task)
+                (target / "file.txt").write_text("unexpected candidate\n")
+                git(target, "add", "file.txt")
+                git(target, "commit", "-qm", "unexpected candidate")
+                unexpected = git(target, "rev-parse", "HEAD")
+                with pytest.raises(wt.Blocked, match="outcome is unknown"):
+                    wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
+                retained(root, target, state, latest)
+                assert git(target, "rev-parse", "HEAD") == unexpected
+                assert task_file.read_text() == original_task
+                assert wt.load(root, EXAMPLE_TASK_ID)[3] == pending
                 continue
             result = wt.sync_latest_base(root, EXAMPLE_TASK_ID, latest)
             assert result["status"] == "needs_validation"
             expected = (
                 "task\nmiddle\nbase\n"
-                if scenario in {"different-lines", "interrupted"}
+                if scenario == "different-lines"
                 else base_content
             )
             assert (target / "file.txt").read_text(encoding="utf-8") == expected
@@ -558,7 +448,7 @@ def check_rewritten_base_replay_content():
             assert git(target, "merge-base", "--is-ancestor", latest, "HEAD") == ""
             assert git(target, "diff", "--name-only", latest, "HEAD").splitlines() == (
                 ["delete.txt", "file.txt", "new.txt"]
-                if scenario in {"different-lines", "interrupted"}
+                if scenario == "different-lines"
                 else ["delete.txt", "new.txt"]
             )
 
@@ -1255,23 +1145,14 @@ def _push_with_base_advance(advance, scenario, original_push, target, publicatio
 
 
 def _check_pr_creation_with_advancing_base():
-    for advance in (
-        "local",
-        "remote",
-        "during",
-        "conflict",
-        "rewritten",
-        "same-file",
-        "same-change",
-        "different-lines",
-    ):
+    for advance in ("during", "conflict", "rewritten", "same-change", "different-lines"):
         with fixture() as root:
             relative = (
                 "file.txt"
                 if advance in {"same-change", "different-lines"}
                 else "framework/scripts/candidate.txt"
             )
-            target, state = start(root, files=(relative,))
+            target, state = start_direct(root, files=(relative,))
             source = target / relative
             source.parent.mkdir(parents=True, exist_ok=True)
             content = (
@@ -1285,11 +1166,7 @@ def _check_pr_creation_with_advancing_base():
             if advance == "rewritten":
                 selected = pr.select(root, EXAMPLE_TASK_ID)
                 assert selected["integrationMode"] == "pr"
-            if advance == "local":
-                (root / "base.txt").write_text("local\n", encoding="utf-8")
-                git(root, "add", "base.txt")
-                git(root, "commit", "-qm", "local advance")
-            elif advance == "rewritten":
+            if advance == "rewritten":
                 git(
                     root,
                     "commit",
@@ -1313,15 +1190,9 @@ def _check_pr_creation_with_advancing_base():
                 )
                 git(root, "add", relative)
                 git(root, "commit", "-qm", "base change")
-            elif advance == "same-file":
-                (root / relative).parent.mkdir(parents=True, exist_ok=True)
-                (root / relative).write_text("base version\n", encoding="utf-8")
-                git(root, "add", relative)
-                git(root, "commit", "-qm", "conflicting base")
-            elif advance in {"remote", "conflict"}:
-                scenario.advance(
-                    relative if advance == "conflict" else "base.txt", "base\n"
-                )
+            elif advance == "conflict":
+                scenario.advance(relative, "conflicting base\n")
+            local_base = git(root, "rev-parse", "HEAD")
             with (
                 patch.object(wt, "git", side_effect=remote.git),
                 patch.object(pr, "gh", side_effect=remote.gh),
@@ -1354,13 +1225,16 @@ def _check_pr_creation_with_advancing_base():
                     git(target, "merge-base", state["start"], result["tip"])
                     == state["start"]
                 )
-                assert (
-                    wt.finalize(root, EXAMPLE_TASK_ID, create_pr=True)["prPublication"][
-                        "number"
-                    ]
-                    == 7
-                )
+                if advance == "during":
+                    assert wt.finalize(root, EXAMPLE_TASK_ID, create_pr=True)[
+                        "prPublication"
+                    ]["number"] == 7
                 assert remote.created == 1
+                retained(root, target, state, local_base)
+                assert git(remote.remote, "rev-parse", "refs/heads/" + state["branch"]) == result["tip"]
+                remote_base = git(remote.remote, "rev-parse", "refs/heads/" + state["base"])
+                assert (remote_base != state["start"]) == (advance in {"during", "conflict"})
+                assert git(target, "show", f"HEAD:{relative}") == content.rstrip("\n")
 
 
 @it_case
@@ -1478,85 +1352,43 @@ def check_explicit_disposal_and_orphans():
 
 
 def _check_automatic_cleanup_ruff_cache():
-    for cache_path, ignored in (
-        (".ruff_cache", True),
-        (".ruff_cache", False),
-        ("nested/.ruff_cache", True),
-        ("nested/.ruff_cache", False),
-    ):
-        with fixture() as root:
-            if ignored:
-                with (root / ".gitignore").open("a", encoding="utf-8") as rules:
-                    rules.write(".ruff_cache/\n")
-                git(root, "add", ".gitignore")
-                git(root, "commit", "-qm", "ignore Ruff cache")
-            target, state = start(root)
-            (target / "file.txt").write_text("changed\n", encoding="utf-8")
-            finish_contract(target, state)
-            cache = target / cache_path / "version" / "entry"
-            cache.parent.mkdir(parents=True)
-            cache.write_text("cache", encoding="utf-8")
-            result = cli(root, "finalize")
-            assert result["cleaned"] and not target.exists()
-            assert not wt.branch_exists(root, state["branch"])
-            assert not wt.state_path(root, state["task_id"]).exists()
-
-    for unknown, ignored in (("secret.bin", True), ("unknown.txt", False)):
-        with fixture() as root:
-            if ignored:
-                with (root / ".gitignore").open("a", encoding="utf-8") as rules:
-                    rules.write(".ruff_cache/\n")
-                git(root, "add", ".gitignore")
-                git(root, "commit", "-qm", "ignore Ruff cache")
-            target, state = start(root)
-            (target / "file.txt").write_text("changed\n", encoding="utf-8")
-            finish_contract(target, state)
-            if ignored:
-                cache = target / "nested/.ruff_cache/entry"
-                cache.parent.mkdir(parents=True)
-                cache.write_text("cache", encoding="utf-8")
-                unknown_file = target / unknown
-                unknown_file.write_text("preserve", encoding="utf-8")
-                result = cli(root, "finalize", success=False)
-                assert "ignored files need preservation" in result["error"]
-            else:
-                git(target, "add", "file.txt")
-                git(target, "commit", "-qm", "task changes")
-                candidate = git(target, "rev-parse", "HEAD")
-                git(root, "merge", "--ff-only", "--no-autostash", state["branch"])
-                _, _, lifecycle, merged_state = wt.load(root, state["task_id"])
-                merged_state.update(
-                    tip=candidate, commit=candidate, verified=True, merged=candidate
-                )
-                wt.save(lifecycle, merged_state)
-                cache = target / "nested/.ruff_cache/entry"
-                cache.parent.mkdir(parents=True)
-                cache.write_text("cache", encoding="utf-8")
-                unknown_file = target / unknown
-                unknown_file.write_text("preserve", encoding="utf-8")
-                with pytest.raises(wt.Blocked, match="dirty"):
-                    wt.automatic_cleanup(root, state["task_id"])
-            assert cache.exists() and unknown_file.read_text() == "preserve"
-            assert wt.branch_exists(root, state["branch"])
-            unknown_file.unlink()
-            result = wt.automatic_cleanup(root, state["task_id"])
-            assert result["cleaned"] and not target.exists()
-            assert not wt.branch_exists(root, state["branch"])
-            assert not wt.state_path(root, state["task_id"]).exists()
-
     with fixture() as root:
-        target, state = start(root)
+        with (root / ".gitignore").open("a", encoding="utf-8") as rules:
+            rules.write("/nested/.ruff_cache/\n")
+        git(root, "add", ".gitignore")
+        git(root, "commit", "-qm", "ignore nested Ruff cache")
+        target, state = start_direct(root)
         (target / "file.txt").write_text("changed\n", encoding="utf-8")
         finish_contract(target, state)
-        external = root / "external-cache"
-        external.mkdir()
-        (external / "keep.txt").write_text("preserve", encoding="utf-8")
-        (target / ".ruff_cache").symlink_to(external, target_is_directory=True)
+        caches = [target / name / "entry" for name in (".ruff_cache", "nested/.ruff_cache")]
+        for cache in caches:
+            cache.parent.mkdir(parents=True)
+            cache.write_text("cache", encoding="utf-8")
+        unknown = target / "secret.bin"
+        unknown.write_text("preserve", encoding="utf-8")
         result = cli(root, "finalize", success=False)
-        assert "outside the exact task contract" in result["error"]
-        assert (external / "keep.txt").read_text() == "preserve"
-        assert (target / ".ruff_cache").is_symlink()
+        assert "ignored files need preservation" in result["error"]
+        _, _, lifecycle, saved = wt.load(root, state["task_id"])
+        assert saved["merged"] == git(root, "rev-parse", "HEAD")
+        assert git(target, "rev-parse", "HEAD") == saved["merged"]
         assert wt.branch_exists(root, state["branch"])
+        assert all(cache.read_text(encoding="utf-8") == "cache" for cache in caches)
+        assert unknown.read_text(encoding="utf-8") == "preserve"
+
+        unknown.unlink()
+        unknown = target / "unknown.txt"
+        unknown.write_text("preserve", encoding="utf-8")
+        with pytest.raises(wt.Blocked, match="dirty"):
+            wt.automatic_cleanup(root, state["task_id"])
+        assert wt.load(root, state["task_id"])[3] == saved
+        assert wt.branch_exists(root, state["branch"])
+        assert all(cache.read_text(encoding="utf-8") == "cache" for cache in caches)
+        assert unknown.read_text(encoding="utf-8") == "preserve"
+        unknown.unlink()
+        result = wt.automatic_cleanup(root, state["task_id"])
+        assert result["cleaned"] and not target.exists()
+        assert not wt.branch_exists(root, state["branch"])
+        assert not lifecycle.exists()
 
 
 @it_case
@@ -1573,7 +1405,8 @@ def check_pr_update_and_operations():
                 ignored.write(".ruff_cache/\n")
             git(root, "add", ".gitignore")
             git(root, "commit", "-qm", "ignore Ruff cache")
-            target, state = start(root, files=("framework/scripts/candidate.txt",))
+            target, state = start_direct(root, files=("framework/scripts/candidate.txt",))
+            remote_base = state["start"]
             if ending in {"external", "merge"}:
                 cache = target / "nested/.ruff_cache/entry"
                 cache.parent.mkdir(parents=True)
@@ -1612,6 +1445,10 @@ def check_pr_update_and_operations():
                     assert pr.operate(root, EXAMPLE_TASK_ID, "pr-draft")["prPublication"][
                         "isDraft"
                     ]
+                    scenario = PRUpdateScenario(root, state, remote, "conflict")
+                    scenario.advance("framework/scripts/candidate.txt", "conflicting base\n")
+                    remote_base = git(root, "rev-parse", "HEAD")
+                    assert remote_base != state["start"]
                     source.write_text("review revision\n", encoding="utf-8")
                     updated = pr.update(root, EXAMPLE_TASK_ID)
                     assert (
@@ -1624,8 +1461,13 @@ def check_pr_update_and_operations():
                     )
                     assert git(target, "merge-base", old, updated["tip"]) == old
                     assert remote.validations == [old, updated["tip"]]
-                    assert git(root, "rev-parse", "HEAD") == state["start"]
-                if ending == "close":
+                    assert git(root, "rev-parse", "HEAD") == remote_base
+                    assert git(
+                        remote.remote, "rev-parse", "refs/heads/" + state["branch"]
+                    ) == updated["tip"]
+                    assert git(
+                        remote.remote, "show", updated["tip"] + ":framework/scripts/candidate.txt"
+                    ) == "review revision"
                     assert (
                         pr.operate(root, EXAMPLE_TASK_ID, "pr-close")["prPublication"][
                             "prState"
@@ -1653,33 +1495,21 @@ def check_pr_update_and_operations():
                     assert pr.operate(root, EXAMPLE_TASK_ID, "pr-merge", method=ending)[
                         "cleaned"
                     ]
+                assert not target.exists()
+                assert not wt.branch_exists(root, state["branch"])
+                assert not wt.state_path(root, state["task_id"]).exists()
                 assert wt.branch_exists(remote.remote, state["branch"])
                 assert (
                     git(remote.remote, "rev-parse", "refs/heads/" + state["base"])
-                    == state["start"]
+                    == remote_base
                 )
 
     _check_pr_update_recovery_and_base()
-    _check_pr_conflict_resolution_update(outside=False)
-    _check_pr_conflict_resolution_update(outside=True)
+    _check_pr_conflict_resolution_update()
 
 
 def _check_pr_update_recovery_and_base():
-    for mode in (
-        "repair",
-        "retry",
-        "remote",
-        "local",
-        "conflict",
-        "stale",
-        "interrupted",
-        "rewrite",
-        "foreign",
-        "postpush",
-        "postpush-dirty",
-        "push-old",
-        "push-foreign",
-    ):
+    for mode in ("repair", "remote", "interrupted", "rewrite", "postpush-dirty", "push-foreign"):
         _check_pr_update_scenario(mode)
 
     # Exercise the actual snapshot validator using tracked, synthetic project inputs.
@@ -1743,7 +1573,6 @@ def _check_pr_update_recovery_and_base():
 class PRUpdateScenario:
     def __init__(self, root, state, remote, mode):
         self.root, self.state, self.remote, self.mode = root, state, remote, mode
-        self.failures = []
         self.real_push = pr.push_candidate
 
     def advance(self, path, content):
@@ -1767,17 +1596,14 @@ class PRUpdateScenario:
             git(snapshot, "diff", "--name-only", base, head)
             == "framework/scripts/candidate.txt"
         )
-        if self.mode in {"repair", "retry"} and not self.failures:
-            self.failures.append(True)
-            return subprocess.CompletedProcess([], 1, "", "validation failed")
-        if self.mode == "stale" and not self.failures:
-            self.failures.append(True)
-            self.advance("base.txt", "later base\n")
+        if self.mode == "repair":
+            if len(self.remote.validations) == 2:  # Initial publication and first update.
+                return subprocess.CompletedProcess([], 1, "", "validation failed")
+            self.advance("base.txt", "advanced during candidate validation\n")
         return result
 
     def push_then_interrupt(self, target, publication):
         self.real_push(target, publication)
-        self.failures.append(True)
         raise wt.Blocked("simulated interruption after push")
 
     def failed_push(self, target, publication):
@@ -1798,12 +1624,9 @@ class PRUpdateScenario:
             )
         raise wt.Blocked("push outcome unknown")
 
-    def push_then_advance(self, target, publication):
-        self.real_push(target, publication)
-        self.advance("after-push.txt", "later base\n")
-
     def push_then_dirty(self, target, publication):
         self.real_push(target, publication)
+        self.advance("after-push.txt", "later base\n")
         (target / "framework/scripts/candidate.txt").write_text(
             "local edit\n", encoding="utf-8"
         )
@@ -1874,8 +1697,17 @@ def check_pr_remote_base_only_sync():
             with TestCase().assertRaises(wt.NeedsSync):
                 pr.sync_base(root, EXAMPLE_TASK_ID, later_base)
             assert git(target, "rev-parse", "HEAD") == first_merge
+            pr.validate_update(root, EXAMPLE_TASK_ID)
+            validated = wt.load(root, EXAMPLE_TASK_ID)[3]["prUpdate"]
+            assert validated["status"] == "VALIDATED"
+            assert validated["candidate"] == first_merge and validated["baseCommit"] == base
             synced = pr.sync_base(root, EXAMPLE_TASK_ID, later_base)
             assert synced["status"] == "needs_validation"
+            pending = wt.load(root, EXAMPLE_TASK_ID)[3]["prUpdate"]
+            assert (pending["status"], pending["validation"]) == ("PREPARED", "PENDING")
+            assert pending["candidate"] == synced["candidate"] != first_merge
+            assert {"baseCommit", "integrationTree", "pushIntent"}.isdisjoint(pending)
+            assert git(remote.remote, "rev-parse", "refs/heads/" + state["branch"]) == old
             assert git(target, "show", "-s", "--format=%P", "HEAD").split() == [
                 first_merge,
                 later_base,
@@ -1883,6 +1715,7 @@ def check_pr_remote_base_only_sync():
             assert git(root, "rev-parse", "HEAD") == local_before
             updated = pr.update(root, EXAMPLE_TASK_ID)
             assert updated["prPublication"]["candidate"] == synced["candidate"]
+            assert remote.validations == [old, first_merge, synced["candidate"]]
             assert remote.created == 1
             with (
                 patch.object(wt, "module", return_value=pr),
@@ -1916,10 +1749,10 @@ def check_pr_remote_base_only_sync():
             TestCase().assertFalse(target.exists())
 
 
-def _check_pr_conflict_resolution_update(*, outside):
+def _check_pr_conflict_resolution_update():
     with fixture() as root:
         relative = "framework/scripts/candidate.txt"
-        target, state = start(root, files=(relative,))
+        target, state = start_direct(root, files=(relative,))
         source = target / relative
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text("published\n", encoding="utf-8")
@@ -1954,25 +1787,27 @@ def _check_pr_conflict_resolution_update(*, outside):
                 pr.sync_base(root, EXAMPLE_TASK_ID, base)
             source.write_text("resolved\n", encoding="utf-8")
             git(target, "add", relative)
-            if outside:
-                (target / "base-only.txt").write_text(
-                    "unauthorized change\n", encoding="utf-8"
-                )
-                git(target, "add", "base-only.txt")
+            unauthorized = target / "base-only.txt"
+            unauthorized.write_text("unauthorized change\n", encoding="utf-8")
+            git(target, "add", "base-only.txt")
             git(target, "commit", "-qm", "resolve published conflict")
+            rejected = git(target, "rev-parse", "HEAD")
+            pending = wt.load(root, EXAMPLE_TASK_ID)[3]
+            with pytest.raises(wt.Blocked, match="outside the exact Task contract"):
+                pr.sync_base(root, EXAMPLE_TASK_ID, base)
+            assert git(remote.remote, "rev-parse", "refs/heads/" + state["branch"]) == old
+            assert git(target, "rev-parse", "HEAD") == rejected
+            assert wt.load(root, EXAMPLE_TASK_ID)[3] == pending
+            assert unauthorized.read_text(encoding="utf-8") == "unauthorized change\n"
+
+            git(target, "restore", "--source", base, "--staged", "--worktree", "--", "base-only.txt")
+            git(target, "commit", "--amend", "--no-edit")
             merged = git(target, "rev-parse", "HEAD")
+            assert merged != rejected
             assert git(target, "show", "-s", "--format=%P", merged).split() == [
                 old,
                 base,
             ]
-            if outside:
-                with pytest.raises(wt.Blocked, match="outside the exact Task contract"):
-                    pr.sync_base(root, EXAMPLE_TASK_ID, base)
-                assert (
-                    git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
-                    == old
-                )
-                return
             synced = pr.sync_base(root, EXAMPLE_TASK_ID, base)
             assert synced["status"] == "needs_validation"
             remote.pr["mergeable"] = "MERGEABLE"
@@ -2024,13 +1859,16 @@ def check_pr_remote_base_rejects_unexpected_commit():
 
 
 def _check_pr_update_scenario(mode):
+    relative = "framework/scripts/candidate.txt"
     with fixture() as root:
-        target, state = start(root, files=("framework/scripts/candidate.txt",))
-        source = target / "framework/scripts/candidate.txt"
-        source.parent.mkdir(parents=True, exist_ok=True)
+        target, state = start_direct(root, files=(relative,))
+        source = target / relative
+        source.parent.mkdir(parents=True)
         source.write_text("published\n", encoding="utf-8")
         remote = PRGitHub(root, state)
         scenario = PRUpdateScenario(root, state, remote, mode)
+        base_ref = "refs/heads/" + state["base"]
+        head_ref = "refs/heads/" + state["branch"]
 
         with (
             patch.object(wt, "git", side_effect=remote.git),
@@ -2051,132 +1889,93 @@ def _check_pr_update_scenario(mode):
             old = published["tip"]
             source.write_text("candidate\n", encoding="utf-8")
             if mode == "remote":
-                scenario.advance("base.txt", "remote-only content\n")
-                assert (
-                    git(remote.remote, "rev-parse", "refs/heads/" + state["base"])
-                    != state["start"]
-                )
-            elif mode == "local":
+                scenario.advance("base.txt", "remote base content\n")
+                remote_base = git(remote.remote, "rev-parse", base_ref)
+                assert remote_base != state["start"]
                 (root / "local.txt").write_text("local only\n", encoding="utf-8")
                 git(root, "add", "local.txt")
                 git(root, "commit", "-qm", "local advance")
-            elif mode == "conflict":
-                scenario.advance(
-                    "framework/scripts/candidate.txt", "conflicting base\n"
-                )
+                assert git(root, "rev-parse", "HEAD") != remote_base
             elif mode == "rewrite":
                 tree = git(root, "rev-parse", "HEAD^{tree}")
                 unrelated = git(root, "commit-tree", tree, "-m", "unrelated base")
-                git(
-                    root,
-                    "push",
-                    str(remote.remote),
-                    unrelated + ":refs/heads/test-rewrite",
-                )
-                git(
-                    remote.remote,
-                    "update-ref",
-                    "refs/heads/" + state["base"],
-                    unrelated,
-                )
-            elif mode == "foreign":
-                scenario.advance("foreign.txt", "foreign head\n")
-                foreign = git(root, "rev-parse", "HEAD")
-                git(
-                    root,
-                    "push",
-                    str(remote.remote),
-                    foreign + ":refs/heads/test-foreign",
-                )
-                git(
-                    remote.remote,
-                    "update-ref",
-                    "refs/heads/" + state["branch"],
-                    foreign,
-                )
-            if mode in {"push-old", "push-foreign"}:
-                with patch.object(
-                    pr, "push_candidate", side_effect=scenario.failed_push
+                git(root, "push", str(remote.remote), unrelated + ":refs/heads/test-rewrite")
+                git(remote.remote, "update-ref", base_ref, unrelated)
+                assert git(remote.remote, "rev-parse", base_ref) == unrelated != state["start"]
+                assert git(remote.remote, "show", "-s", "--format=%P", unrelated) == ""
+            local_base = git(root, "rev-parse", "HEAD")
+
+            if mode in {"interrupted", "push-foreign"}:
+                with (
+                    patch.object(pr, "push_candidate", side_effect=scenario.failed_push),
+                    pytest.raises(wt.Blocked, match="push outcome unknown"),
                 ):
-                    with TestCase().assertRaises(wt.Blocked):
-                        pr.update(root, EXAMPLE_TASK_ID)
-                if mode == "push-foreign":
-                    with patch.object(pr, "push_candidate") as retry_push:
-                        with TestCase().assertRaises(wt.Blocked):
-                            pr.update(root, EXAMPLE_TASK_ID)
-                        retry_push.assert_not_called()
-                    return
-            elif mode == "postpush-dirty":
-                with patch.object(
-                    pr, "push_candidate", side_effect=scenario.push_then_dirty
-                ):
-                    updated = pr.update(root, EXAMPLE_TASK_ID)
-                assert "prUpdate" not in updated
-                assert source.read_text(encoding="utf-8") == "local edit\n"
-                assert (
-                    (target / state["task_file"])
-                    .read_text(encoding="utf-8")
-                    .endswith("Local task edit\n")
-                )
-                assert updated["prPublication"]["candidate"] != old
-                return
-            elif mode == "postpush":
-                with patch.object(
-                    pr, "push_candidate", side_effect=scenario.push_then_advance
-                ):
-                    updated = pr.update(root, EXAMPLE_TASK_ID)
-                assert "prUpdate" not in updated
-                assert updated["prPublication"]["candidate"] != old
-                assert updated["prPublication"]["baseCommit"] == state["start"]
-                return
-            elif mode == "interrupted":
-                with patch.object(
-                    pr, "push_candidate", side_effect=scenario.push_then_interrupt
-                ):
-                    with TestCase().assertRaises(wt.Blocked):
-                        pr.update(root, EXAMPLE_TASK_ID)
-                assert (
-                    git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
-                    != old
-                )
-            elif mode in {
-                "repair",
-                "retry",
-                "foreign",
-            }:
-                with TestCase().assertRaises(wt.Blocked):
                     pr.update(root, EXAMPLE_TASK_ID)
-                if mode != "foreign":
-                    assert (
-                        git(
-                            remote.remote,
-                            "rev-parse",
-                            "refs/heads/" + state["branch"],
-                        )
-                        == old
-                    )
-                if mode == "repair":
-                    source.write_text("fixed candidate\n", encoding="utf-8")
-                if mode in {"conflict", "rewrite", "foreign"}:
-                    if mode != "foreign":
-                        assert (
-                            wt.load(root, EXAMPLE_TASK_ID)[3]["prUpdate"]["status"]
-                            == "PREPARED"
-                        )
+                pending = wt.load(root, EXAMPLE_TASK_ID)[3]
+                intent = pending["prUpdate"]
+                candidate = intent["candidate"]
+                assert intent["status"] == "VALIDATED" and intent["pushIntent"]
+                assert intent["previousCandidate"] == old
+                assert git(target, "rev-parse", "HEAD") == candidate != old
+                actual = git(remote.remote, "rev-parse", head_ref)
+                if mode == "push-foreign":
+                    assert actual not in {old, candidate}
+                    with (
+                        patch.object(pr, "push_candidate") as retry_push,
+                        pytest.raises(wt.Blocked, match="remote HEAD changed unexpectedly"),
+                    ):
+                        pr.update(root, EXAMPLE_TASK_ID)
+                    retry_push.assert_not_called()
+                    retained(root, target, state, local_base)
+                    assert wt.load(root, EXAMPLE_TASK_ID)[3] == pending
+                    assert git(remote.remote, "rev-parse", head_ref) == actual
+                    assert git(target, "rev-parse", "HEAD") == candidate
+                    assert source.read_text(encoding="utf-8") == "candidate\n"
                     return
-            updated = pr.update(root, EXAMPLE_TASK_ID)
+                assert actual == old
+                with (
+                    patch.object(pr, "push_candidate", side_effect=scenario.push_then_interrupt) as push,
+                    pytest.raises(wt.Blocked, match="simulated interruption after push"),
+                ):
+                    pr.update(root, EXAMPLE_TASK_ID)
+                push.assert_called_once()
+                assert git(remote.remote, "rev-parse", head_ref) == candidate
+                assert wt.load(root, EXAMPLE_TASK_ID)[3] == pending
+                with patch.object(pr, "push_candidate") as duplicate_push:
+                    updated = pr.update(root, EXAMPLE_TASK_ID)
+                duplicate_push.assert_not_called()
+                assert remote.validations == [old, candidate]
+            elif mode == "repair":
+                with pytest.raises(wt.Blocked, match="candidate validation failed"):
+                    pr.update(root, EXAMPLE_TASK_ID)
+                saved = wt.load(root, EXAMPLE_TASK_ID)[3]
+                assert saved["prUpdate"]["status"] == "PREPARED"
+                assert git(target, "rev-parse", "HEAD") == saved["prUpdate"]["candidate"]
+                assert git(remote.remote, "rev-parse", head_ref) == old
+                source.write_text("fixed candidate\n", encoding="utf-8")
+                updated = pr.update(root, EXAMPLE_TASK_ID)
+                assert remote.validations == [old, saved["tip"], updated["tip"]]
+                assert updated["tip"] != saved["tip"]
+                local_base = git(root, "rev-parse", "HEAD")
+                assert git(remote.remote, "rev-parse", base_ref) == local_base != state["start"]
+            elif mode == "postpush-dirty":
+                with patch.object(pr, "push_candidate", side_effect=scenario.push_then_dirty):
+                    updated = pr.update(root, EXAMPLE_TASK_ID)
+                assert source.read_text(encoding="utf-8") == "local edit\n"
+                task_text = (target / state["task_file"]).read_text(encoding="utf-8")
+                assert task_text.endswith("Local task edit\n")
+                assert updated["prPublication"]["candidate"] == updated["tip"] != old
+                local_base = git(root, "rev-parse", "HEAD")
+                assert git(remote.remote, "rev-parse", base_ref) == local_base != state["start"]
+            else:
+                updated = pr.update(root, EXAMPLE_TASK_ID)
+
             assert updated["prPublication"]["number"] == 7 and remote.created == 1
-            assert "prUpdate" not in updated
-            assert (
-                git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
-                == updated["tip"]
-            )
+            assert updated["prPublication"]["baseCommit"] == state["start"]
+            assert "prUpdate" not in updated and updated["merged"] is None
+            assert git(remote.remote, "rev-parse", head_ref) == updated["tip"]
             assert git(target, "merge-base", old, updated["tip"]) == old
-            assert target.exists() and updated["merged"] is None
-            if mode == "retry":
-                assert remote.validations[-1] == remote.validations[-2]
-            if mode == "repair":
-                assert remote.validations[-1] != remote.validations[-2]
+            retained(root, target, state, local_base)
 
 
 def main():

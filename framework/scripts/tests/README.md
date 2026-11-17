@@ -43,7 +43,15 @@ ITは正常なCLI・Git・保存・再読込・コンポーネント接続を所
 | 共通assetコピーの部分失敗rollback・symlink・必須引数 | sync-existing-files-unit（既存故障ケースを移動） | sync-existing-filesの実CLIコピー→dry-run→更新 |
 | PDFリンク不正・native依存エラー時の出力保持 | export-design-pdf-unit | export-design-pdfの複数文書bundle |
 
-最新baseのPR update/merge応答・失敗Validationはworktree-guard-unitのFakeで保証する。merge/squash/rebaseの引数・応答と後処理は同UTで各方式を確認する。Worktree ITはcloseの代表経路でDraft/Ready・更新・実Gitの祖先関係を確認し、cleanup-first・外部Merge・mergeは独立した公開済みPRで各終了方法と実Gitの状態を確認する。通常作成では同名 Task の別 ID、6 桁 suffix、Primary と Linked の識別、既存 Worktree の保持を確認する。異常系では 20 回の衝突、安全停止、廃止 CLI の拒否、未 Merge の変更と Task 状態の保持を確認する。Deploy owner補正/参照同期の故障は既存contract-correction/observed/generation-resume UTが所有し、ITには正常な範囲指定と承認済み参照同期を残す。
+| Worktree の条件 | UT で検出する故障 | IT で確認する実 Git・保存境界 |
+| --- | --- | --- |
+| PR 公開 | Remote と GitHub の参照不一致、候補・契約の不一致、応答消失後の二重作成 | Framework/通常 Task の公開、各 Base の差異と書き換え、Push 中の Remote Base 更新、同一ファイルへの競合・非競合・同一変更、再実行時の同一 PR と Worktree・ローカル Base の保持 |
+| PR 更新 | 公開済み HEAD の事前不一致、失敗・失効した検証による Push の拒否、検証失敗後の候補を再 Commit せず再試行 | Base 前進・書き換え時の非 Force Push、検証失敗後の修正版公開、明示的な Base 同期での検証失効、Push 前後の中断と再照合、別 HEAD・Push 後のローカル変更の保持、実競合の解消と契約外変更の拒否 |
+| PR 終了 | merge/squash/rebase の引数・応答、応答消失後の再照合 | Draft/Ready と競合中の更新から Close まで、Cleanup 先行、外部 Merge と同期済み候補の Merge、ローカルの Branch・状態の削除と Remote Branch の保持 |
+| Ruff Cleanup | ルート/ネスト、ignored/untracked の分類、未知ファイル・外部への Symlink・未 Merge・異常時の保護 | Merge 後に未知の ignored/untracked ファイルがあると Worktree・Branch・状態を保持し、未知ファイルを取り除くと両種のキャッシュを含めて Cleanup |
+| ローカル Rebase | 候補の Scope・祖先関係・継続条件の拒否 | Reflog のない環境で複数 Commit を順序どおりに繰り返し Rebase、同一ファイルの別行と最終 Tree の一致、競合・中断後の候補と状態保持 |
+
+通常作成では同名 Task の別 ID、6 桁 suffix、Primary と Linked の識別、既存 Worktree の保持を CLI で確認する。反復する Git シナリオは同じ Task ID・契約登録・依存 Index を使う作成 API で独立した Worktree を作る。20 回の衝突、安全停止、廃止 CLI の拒否、別 Python の Model Guard と Framework 最終 Candidate の正常連携を保持する。Deploy owner補正/参照同期の故障は既存contract-correction/observed/generation-resume UTが所有し、ITには正常な範囲指定と承認済み参照同期を残す。
 
 Importの未使用な故障注入Fixture/Mockは削除し、共有 `import_publication_case()` はAPI/CLIの正常公開と管理 Worktree での Display 復旧を扱う。
 実OSでの強制終了・子孫回収をFakeで完全には再現できない。UTは送信signal・handle・保存状態・順序と再開判断を保証し、ITは正常なWorker起動/終了を保証する。
