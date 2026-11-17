@@ -1,5 +1,7 @@
 # Repository Initialization Prompt
 
+In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and replace `<python_setup.interpreter>` with the absolute executable path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+
 Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
 Use this prompt for Codex to confirm necessary initialization values with the human and create `project.json` and target paths. Do not assume `docs/system-overview.md` has been created or filled in.
@@ -176,8 +178,8 @@ Check all targets' `iacEngine` and delete roots of IaC engines selected by no ta
 
 ## Verify and finish
 
-1. `python framework/scripts/blueprint-loop.py --mode task`
-2. `python -m py_compile framework/scripts/blueprint-loop.py framework/scripts/validate-blueprint.py`
+1. `"<python_setup.interpreter>" framework/scripts/blueprint-loop.py --mode task`
+2. `"<python_setup.interpreter>" -m py_compile framework/scripts/blueprint-loop.py framework/scripts/validate-blueprint.py`
 3. `git diff --check`
 
 Record validation results, created topology, created paths, existing paths left unchanged, and blockers only in Codex completion reports. Do not save verification results in the repository. After initialization, do not create or execute design, infrastructure, or scenario-test tasks.

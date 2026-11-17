@@ -1,5 +1,7 @@
 # Manual Design Update and Deployment Prompt
 
+In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and replace `<python_setup.interpreter>` with the absolute executable path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+
 ## Common update authority
 
 Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. IMPORT acquisition/registration remains exclusive to `/import`; `/aws-pull` additionally permits read-only comparison of existing CREATE Resources before its approved Model-only Task; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
@@ -40,7 +42,7 @@ For a managed worktree, generate necessary Markdown/JSON after the guarded Model
 
 ```console
 BLUEPRINT_TASK_FILE=tasks/<task-id>.md \
-python -B framework/scripts/sync-model.py --write --scope <environment/target/service>
+"<python_setup.interpreter>" -B framework/scripts/sync-model.py --write --scope <environment/target/service>
 ```
 
 Use the Task ID returned by the Worktree Skill to select this Task, including with the
@@ -63,7 +65,7 @@ Load the producer snapshot through `model.sources.load_model`, then inspect
 read-only reference analysis:
 
 ```console
-python -B framework/scripts/model/cli.py incoming model/<environment>/<target>/<service>.properties <fixed-ID>
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py incoming model/<environment>/<target>/<service>.properties <fixed-ID>
 ```
 
 Read usages, `model.references.diagnose` warnings, raw sources, fixed producer/consumer
@@ -219,7 +221,7 @@ Update design inputs are only authoritative model properties. Do not read genera
 For limited resources, use existing partial reading for both single files and split entry indexes. Selectors require exact resource number or logicalId matches; stop if unmatched/ambiguous.
 
 ```console
-python -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties <resource-selector>
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties <resource-selector>
 ```
 
 Load only target resources, parents/children/siblings in the same group, and service metadata/notes into context. Service-wide changes may read entire target service properties, without unconditional expansion to all services/models. Resolve structured `$modelRef` Resource references and parentReference with the common resolver; retrieve only selected groups. No generated Markdown fallback. Unknown targets remain reference warnings for ordinary Model saves; missing configuration or deployment decisions still stop dependent infrastructure actions.
@@ -283,7 +285,7 @@ After local static validation, delegate AWS Export verification to the existing 
 `cloudformation-deploy.py` is responsible for final preflight. The controller uses `deploy/context.py` SDK checks to confirm AWS identity, project targets, profiles, accounts, regions, engines, and necessary commands, enforcing task scope and immutable inputs. The Agent must not first run the same final deploy-context check standalone. Match explicit account/region against the same project target and pass explicit profiles to controller `--profile`. Stop for mismatches or missing credentials/permissions. Launch the controller from the registered Python environment.
 
 ```console
-python framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --action advance [--profile <profile>]
+"<python_setup.interpreter>" framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --action advance [--profile <profile>]
 # aliasなしでは --alias の代わりに --aws-account-id <aws-account-id>
 ```
 
@@ -298,13 +300,13 @@ Do not decide credentials, deploy accounts, AWS regions, IaC engines, or necessa
 Run the following for aliased targets.
 
 ```text
-python framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>]
+"<python_setup.interpreter>" framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>]
 ```
 
 Run the following for targets without aliases.
 
 ```text
-python framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]
+"<python_setup.interpreter>" framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <12-digit-account-id> [--profile <profile>]
 ```
 
 Continue only if the script returns exit code 0, using the output profile (when configured) for all subsequent AWS execution. Specify profiles explicitly for CLI/SDK; pass the same `AWS_PROFILE` per process for Terraform providers/AWS backends according to `terraform.md`. On failure, stop without switching credentials, changing accounts, or bypassing checks. Do not display/save secrets or credential values.
@@ -337,7 +339,7 @@ Do not treat deploy completion status, resource existence, or observed value col
 
 1. Compare against human design diffs at task start and confirm Codex has not changed intended design other than generated current values.
 2. Confirm selected IaC syntax/static validation results. Do not rerun if target IaC, parameters, and dependency inputs remain unchanged after success. Retain mandatory deploy-phase validation and AWS safety checks.
-3. Run `python framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md` once. Retain Validation scope, task-specific checks, Acceptance checks, diff checks, and properties/generated Markdown/JSON equality via read-only `sync-model.py`; mismatches are FAIL. Use existing validation cache/service parallelism; do not omit/weaken validation due to reduced Agent initial reading. Retain existing `loop-engineering.md` framework regression execution conditions; do not add all framework regression to ordinary Update.
+3. Run `"<python_setup.interpreter>" framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md` once. Retain Validation scope, task-specific checks, Acceptance checks, diff checks, and properties/generated Markdown/JSON equality via read-only `sync-model.py`; mismatches are FAIL. Use existing validation cache/service parallelism; do not omit/weaken validation due to reduced Agent initial reading. Retain existing `loop-engineering.md` framework regression execution conditions; do not add all framework regression to ordinary Update.
 
 Do not add overall validation after successful scoped validation. Rerun generation/validation only for input changes, new failures, or unresolved concerns; track the same execution on tool wait timeout.
 

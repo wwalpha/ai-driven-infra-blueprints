@@ -1,5 +1,7 @@
 # User-selected acquired AWS additions and overwrites
 
+In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and replace `<python_setup.interpreter>` with the absolute executable path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+
 `/import --environment <environment> --target <Alias-or-account> --service <service>`
 
 This workflow is shared by GitHub Copilot, Codex, Claude Code and other LLM agents.
@@ -62,7 +64,7 @@ Before acquisition, verify the actual temporary evidence directory supports UTF-
 Acquire exactly once per selected service:
 
 ```console
-python -B framework/scripts/model/cli.py import acquire --environment <environment> --target <target> --service <service> --task-file tasks/<task-name>.md
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py import acquire --environment <environment> --target <target> --service <service> --task-file tasks/<task-name>.md
 ```
 
 Append --no-profile only when explicitly requested. It omits project awsProfile while
@@ -111,7 +113,7 @@ It validates answers but chooses no next question/default. Save checkpoint.json 
 the acquisition with the existing external-file API. Resume verifies session/baseline:
 
 ```console
-python -B framework/scripts/model/cli.py import resume --environment <environment> --target <target> --service <service> --evidence <acquisition.json> --task-file tasks/<task-name>.md
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py import resume --environment <environment> --target <target> --service <service> --evidence <acquisition.json> --task-file tasks/<task-name>.md
 ```
 
 Convert decided answers into selection.json resources/excluded/unreflected. Exclusions
@@ -196,7 +198,7 @@ must exactly match the Review after map. Same saved value with a different produ
 format, Property or label policy still changes the Review.
 
 ```console
-python -B framework/scripts/model/cli.py import review --environment <environment> --target <target> --service <service> --evidence <acquisition.json> --task-file tasks/<task-name>.md
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py import review --environment <environment> --target <target> --service <service> --evidence <acquisition.json> --task-file tasks/<task-name>.md
 ```
 
 Review checks every disposition, candidate and baseline without AWS or source writes,
@@ -251,7 +253,7 @@ Offline Review/publication tests do not prove an actual LLM's conversational beh
 After current full-Review consent, publish using the same scope and evidence:
 
 ```console
-python -B framework/scripts/model/cli.py import publish --environment <environment> --target <target> --service <service> --evidence <acquisition.json> --task-file tasks/<task-name>.md
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py import publish --environment <environment> --target <target> --service <service> --evidence <acquisition.json> --task-file tasks/<task-name>.md
 ```
 
 Publish makes no AWS calls. It verifies acquisition/selection/full Review, candidate
@@ -271,7 +273,7 @@ Display publication is a separate transaction. Display-only failure retains save
 and evidence. Recover without AWS reacquisition, re-Import or renewed unchanged consent:
 
 ```console
-python -B framework/scripts/model/cli.py import recover-display --environment <environment> --target <target> --service <service> --evidence <original-acquisition.json> --task-file tasks/<task-name>.md
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py import recover-display --environment <environment> --target <target> --service <service> --evidence <original-acquisition.json> --task-file tasks/<task-name>.md
 ```
 
 Recovery requires the Task-start Git baseline to match the acquisition source hashes and file sets, and the saved Model to match the reviewed candidate. If prior ownership cannot be established, stop without modifying displays.
@@ -297,7 +299,7 @@ with temporary Task, workflow and scope ownership in the journal. Read-only anal
 Use the matching running managed Task and original acquisition/HEAD:
 
 ```console
-python -B framework/scripts/model/cli.py import recover-transaction --environment <environment> --target <target> --service <service> --evidence <original-acquisition.json> --task-file tasks/<task-name>.md
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py import recover-transaction --environment <environment> --target <target> --service <service> --evidence <original-acquisition.json> --task-file tasks/<task-name>.md
 ```
 
 Recovery verifies the journal owner and every journal output against the selected scope

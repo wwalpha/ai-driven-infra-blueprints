@@ -34,8 +34,16 @@ in all real Models of the same environment/target. Keep a before snapshot so del
 producer anchors remain known; service.md./service.md resolve identically.
 
 Before editing, call `model.references.incoming(snapshot, fixed_id, read_context)`.
-The read-only CLI is `model/cli.py incoming <service.properties> <fixed-ID>`, run
-as described in [Run Python in the Worktree](../worktree/SKILL.md#run-python-in-the-worktree). Inspect each usage's fixed scope/ID,
+From the parent Task's Worktree root, clear `PYTHONHOME` and `PYTHONPATH`.
+Replace `<python_setup.interpreter>` below with the absolute executable path from
+that Worktree's successful Create/Setup JSON (`python_setup.status: ready`).
+In PowerShell, invoke the quoted executable with `&`.
+
+```console
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py incoming <service.properties> <fixed-ID>
+```
+
+Inspect each usage's fixed scope/ID,
 consumerKey/pointer/occurrence, format and source position alongside
 `model.references.diagnose`. I/O, syntax and scope errors remain errors; semantic
 reference warnings do not prove an empty dependency set and do not block deletion.

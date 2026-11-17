@@ -27,22 +27,22 @@ Before running the generation command, complete these steps in order:
    Task/worktree and stop; do not continue generation with ordinary Python.
 2. Set the working directory of every subsequent task command to the returned
    `worktree` root: the **managed worktree**, not the normally opened repository root.
-   Use the returned shared interpreter or activate its environment; ordinary Python may lack generation dependencies.
+   Clear `PYTHONHOME` and `PYTHONPATH` and invoke the absolute `python_setup.interpreter` from the successful Create/Setup JSON directly.
 3. Use the returned `task_file` to register a `migration` contract through
-   the shared Python, listing only that contract and
+   `python_setup.interpreter`, listing only that contract and
    `tests/<environment>/<alias-or-account-id>/<service>.py`. Include the selected
    service in Validation scope. Run contract registration, audit generation and
-   Python local validation using shared Python from this same worktree root.
+   Python local validation with the same executable from this Worktree root.
    For framework implementation tasks, framework-only governance scope remains
    available under the existing rules.
 
-Follow [Run Python in the Worktree](../worktree/SKILL.md#run-python-in-the-worktree) to use the returned interpreter or activate its environment.
+Substitute the returned absolute path for `<python_setup.interpreter>`. In PowerShell, invoke the quoted executable with `&`.
 The following commands run from the returned `worktree`; replace `<task-file>`
 with the exact returned `task_file` and use the requested service selectors:
 
 ```console
-python -B framework/scripts/task_contract.py --task-file <task-file> --source <external-contract>
-python -B framework/scripts/model/cli.py audit --environment dev --target cde --service vpc --task-file <task-file>
+"<python_setup.interpreter>" -B framework/scripts/task_contract.py --task-file <task-file> --source <external-contract>
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py audit --environment dev --target cde --service vpc --task-file <task-file>
 ```
 
 The generator loads the canonical properties snapshot through `model.sources`,

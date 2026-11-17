@@ -5,6 +5,8 @@ description: Use for explicit Model changes, Model-only operations, or reflectin
 
 Select the workflow using [Workflow selection](../../../framework/rules/task-contract.md#workflow-selection).
 
+In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and invoke the absolute `python_setup.interpreter` path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, use the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+
 [Service Model source authority](../../../framework/rules/model-templates.md) applies.
 Inspect environment-specific properties; use `model.sources.edit_base` for an invalid repair baseline and validate the corrected candidate through `model.sources.load_model`. Use
 `model/cli.py trace <service.properties> <key>`. Edit desired/display/reference keys

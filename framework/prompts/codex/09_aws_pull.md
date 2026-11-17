@@ -1,5 +1,7 @@
 # AWS pull
 
+In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and replace `<python_setup.interpreter>` with the absolute executable path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+
 ## Read first
 
 Read AGENTS.md, [Task transition](../../rules/task-contract.md#task-transition) (including its required common and conditional reads),
@@ -21,10 +23,10 @@ Use the Human-selected worktree and existing worktree lifecycle. Do not copy dir
 ## Read-only phase, before the design Task
 
 Do not register a design Task until the final approved AWS values have been rechecked.
-In a managed worktree, follow [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree). Execute the existing comparator:
+Execute the existing comparator:
 
 ```console
-python -B framework/scripts/model/cli.py aws-compare --root . --environment stg --target cde --service s3 --create-only
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py aws-compare --root . --environment stg --target cde --service s3 --create-only
 ```
 
 Replace example arguments with the confirmed target. Explicit/implicit CREATE follows the
@@ -82,7 +84,7 @@ relevant non-secret result. For the example above, `/tmp/pull-evidence.json` con
 Build the offline Review, using the planned Task selector before registering it:
 
 ```console
-python -B framework/scripts/model/cli.py pull-review model/stg/cde/iam.properties --candidate /tmp/pull-candidate --task-file tasks/pull-stg-cde-iam.md --evidence /tmp/pull-evidence.json
+"<python_setup.interpreter>" -B framework/scripts/model/cli.py pull-review model/stg/cde/iam.properties --candidate /tmp/pull-candidate --task-file tasks/pull-stg-cde-iam.md --evidence /tmp/pull-evidence.json
 ```
 
 This emits exact serialized Before/After values, identity, source/candidate hashes, scope,

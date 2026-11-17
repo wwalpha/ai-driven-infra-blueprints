@@ -21,18 +21,11 @@ Select only the fixed method: SDK follows the sections below directly. Read only
 
 For every new Deploy, first invoke the [Worktree Skill](../worktree/SKILL.md) and run its ordinary `create --task-name <task-name>`. Proceed only when Create succeeds and `python_setup.status` is `ready`. Use the returned Worktree root and new Task ID for Deploy registration, Preparation, AWS operations, Observed / View synchronization, Validation and Task completion. Do not search for or reuse a past Task or Worktree. If Create or Setup fails, stop before Deploy and retain resources as directed by the Worktree Skill.
 
-The shared Python environment is the virtual environment prepared by Worktree Create/Setup. The successful JSON result gives the absolute Python executable in `python_setup.interpreter` and the directory containing the activation scripts and Python CLI executables in `python_setup.bin`. Use those returned paths in the returned `worktree` directory.
+Run Python commands from the returned `worktree` directory. Clear `PYTHONHOME` and `PYTHONPATH`, then substitute the absolute executable path from the successful Worktree Create/Setup JSON for `<python_setup.interpreter>` in every example. In PowerShell, invoke the executable with `& "<python_setup.interpreter>"`. If Python CLI executables need to be found on PATH, prepend the returned `python_setup.bin`.
 
-For the `python -B ...` examples below and in the runbook, clear `PYTHONHOME` and `PYTHONPATH` and activate the environment in the same shell as the command. On macOS/Linux:
-
-```sh
-cd "<worktree>" &&
-  unset PYTHONHOME PYTHONPATH &&
-  . "<python_setup.bin>/activate" &&
-  python -B framework/scripts/deploy_preparation.py --help
+```console
+"<python_setup.interpreter>" -B framework/scripts/deploy_preparation.py --help
 ```
-
-Replace the quoted placeholders with the corresponding JSON values. On Windows, clear the same variables and run `Activate.ps1` from `python_setup.bin` in PowerShell or `activate.bat` in Command Prompt before executing the examples. You can also replace `python` with the quoted absolute `python_setup.interpreter` and run it directly (use `&` before the path in PowerShell). Activate the environment when Python CLIs must be found on PATH.
 
 Use this Python for Preparation, Controller, observation, Validation and Task Contract commands. Rerun Worktree Setup for the same Task after requirements change. Direct Python does not check setup or synchronize dependencies. Invoke AWS CLI directly. Worktree Skill owns Git integration and Cleanup.
 
@@ -45,18 +38,20 @@ Use the returned Worktree root. The first repository change is registration of `
 Before running preparation, fix the entire Stack scope as described in Common entry. Pass only confirmed formal StackNames to `--stack`; never pass an unchecked Human string or treat a service name, abbreviation or internal identifier as a formal StackName. Do not run preparation while the scope is unresolved. Offline preparation produces an external contract and summary; inspect the original contract, exact StackNames, Resource owners, Validation scope and Model/View paths before registering:
 
 ```console
-python -B framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> --task-file tasks/<task-id>.md
-python -B framework/scripts/deploy_preparation.py --register <absolute-preparation.json>
+"<python_setup.interpreter>" -B framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> --task-file tasks/<task-id>.md
+"<python_setup.interpreter>" -B framework/scripts/deploy_preparation.py --register <absolute-preparation.json>
 ```
 
 Repeat `--stack`, or use inclusive `--order-from`/`--order-to` instead; never combine the selectors. Optional `--service` checks the discovered owners and grants no additional services. Use `--aws-account-id` instead of `--alias` when no alias exists and the configured `--profile` when set. Missing/invalid scope, changed inputs or ambiguous ownership stop registration. Preserve this invocation’s registered Snapshot and fixed StackNames for its operations. External consumers are deferred without Model/View authority.
 
 ## SDK operations
 
+For the examples using `env BLUEPRINT_TASK_FILE=...`, PowerShell users set `$env:BLUEPRINT_TASK_FILE` to the same Task path and run the quoted executable with `&`.
+
 Keep the same Task/Target and repeat `--stack` for **every fixed StackName** on all actions, including when saving only one Stack. Use `--aws-account-id` instead of `--alias` where applicable, configured `--profile` when set; `--sequential` can only lower concurrency.
 
 ```console
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action advance
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md "<python_setup.interpreter>" -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action advance
 ```
 
 Use `advance` for the first or continuing ordinary turn; no unconditional status-before-advance call. Retain full scope and configured concurrency: independent same-Order peers may continue after one failure; later Orders require earlier success. Only the LLM chooses save timing, never fixed-period sync.

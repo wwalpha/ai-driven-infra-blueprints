@@ -1,5 +1,7 @@
 # Add Project Target Prompt
 
+In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and replace `<python_setup.interpreter>` with the absolute executable path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+
 Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
 Use this prompt for migration adding 1 environment/logical target with confirmed required values to `project.json` in an initialized repository.
@@ -148,8 +150,8 @@ Do not delete existing directories. Reuse existing target paths containing only 
 
 ## Verify and finish
 
-1. `python framework/scripts/blueprint-loop.py --mode task`
-2. `python -m py_compile framework/scripts/blueprint-loop.py framework/scripts/validate-blueprint.py`
+1. `"<python_setup.interpreter>" framework/scripts/blueprint-loop.py --mode task`
+2. `"<python_setup.interpreter>" -m py_compile framework/scripts/blueprint-loop.py framework/scripts/validate-blueprint.py`
 3. `git diff --check`
 
 Record validation results, added targets/paths, reused paths, and blockers only in Codex completion reports. Do not save verification results in the repository. After completion, do not create or execute design, infrastructure, or scenario-test tasks.

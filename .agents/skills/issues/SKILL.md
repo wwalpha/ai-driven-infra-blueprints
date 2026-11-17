@@ -17,6 +17,8 @@ Follow [task-contract](../../../framework/rules/task-contract.md) for save/repai
 
 The common authority for this skill is maintained in the `ai-driven-infra-blueprints` repository.
 
+In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and invoke the absolute `python_setup.interpreter` path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, use the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+
 For ordinary investigation, use the Python entrypoint in [Scoped scan and saving](../../../framework/rules/issues-investigation.md) and check only mechanical diagnostics + all naming materials + remaining judgment points. Do not routinely reread full model/Markdown/IaC, rerun equality confirmation, or have the LLM re-edit full reports.
 
 Save confirmed problems/validation errors within the requested scope to `issues/<environment>/<target-directory>/issues.md`. Python formats/saves model desired → local IaC differences to a separate `iac-issues.md`; do not mix them into ordinary issues. Separate uncompared items and processing errors from difference counts; IaC differences themselves are non-blocking. Replace both reports from the same whole-target Snapshot on each publication. AWS API checks and SDK current-value retrieval/comparison are not included in this skill. Handle AWS check requests with [aws-check](../aws-check/SKILL.md); do not automatically start them from issues execution. Do not start design/model/IaC repair or deploy/apply.
