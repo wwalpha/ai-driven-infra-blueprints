@@ -42,6 +42,8 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
                     "DeadLetterConfig": {
                         "Arn": "arn:aws:sqs:ap-northeast-1:123456789012:fixture"
                     },
+                    "InputTransformer": {"InputPathsMap": {"id": "$.id"}, "InputTemplate": "<id>"},
+                    "RoleArn": "arn:aws:iam::123456789012:role/fixture",
                     "RetryPolicy": {
                         "MaximumEventAgeInSeconds": 3600,
                         "MaximumRetryAttempts": 3,
@@ -50,6 +52,15 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
             ]
         }
         cases = {
+            "Targets[].InputTransformer.InputPathsMap": (
+                "Targets[].InputTransformer.InputPathsMap", "typed", [{"id": "$.id"}],
+            ),
+            "Targets[].InputTransformer.InputTemplate": (
+                "Targets[].InputTransformer.InputTemplate", "typed", ["<id>"],
+            ),
+            "Targets[].RoleArn": (
+                "Targets[].RoleArn", "typed", ["arn:aws:iam::123456789012:role/fixture"],
+            ),
             "Targets[].Id": ("Targets[].Id", "typed", ["target"]),
             "Targets[].Arn": (
                 "Targets[].Arn",

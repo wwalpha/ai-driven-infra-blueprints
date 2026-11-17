@@ -238,7 +238,12 @@ def check_v3_registry():
         "RoleArn",
     ):
         path = f"Targets[].{leaf}"
-        field = baseline_properties["eventbridge"]["Events.Rule"][path]["aws"]
+        prop = baseline_properties["eventbridge"]["Events.Rule"][path]
+        assert prop["model"]["include"] is True
+        assert prop["display"]["show"] is True
+        prop["model"]["include"] = False
+        prop["display"]["show"] = False
+        field = prop["aws"]
         assert field == {"getter": "targets", "path": path, "normalize": "typed"}
         field["getter"] = "provider-events-rule"
     namespace = baseline_properties["codepipeline"]["CodePipeline.Pipeline"][

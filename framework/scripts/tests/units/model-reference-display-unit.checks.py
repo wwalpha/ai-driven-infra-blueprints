@@ -126,6 +126,17 @@ def pipeline(tmp_path):
             row[0] = str(number)
             if row[1].startswith("Stages[1].Actions."):
                 row[1] = row[1].replace("Actions.", "Actions[1].")
+        ordered = [golden[0]]
+        cursor = 1
+        for count in (1, 4):
+            stage_row = golden[cursor]
+            cursor += 1
+            for _ in range(count):
+                action_rows = golden[cursor : cursor + 7]
+                ordered.extend(action_rows[1:] + action_rows[:1])
+                cursor += 7
+            ordered.append(stage_row)
+        golden = ordered
         save(scope, values)
         path = tmp_path / "docs/designs/qa/team/codepipeline.md"
         yield tmp_path, scope, path, values, row_table(golden)
