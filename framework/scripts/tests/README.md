@@ -36,7 +36,7 @@ ITは正常なCLI・Git・保存・再読込・コンポーネント接続を所
 | WorktreeのTask ID衝突・失敗時保持、Git所有権、Cleanup、PRの二重作成防止 | worktree-guard-unit、既存worktree-model-guard-unit | worktree_task、model-operation、Python setup |
 | ImportのReview/Scope/入力変更、Schema、保存/Transaction rollback | import-approval-unit、import-model-unit、model_files-unit | import-model、import-cli、import-worktree-contract |
 | Modelのone-use、同時変更、生成/保存失敗、JSON/復元エラー | model-format-v2、sync-model-unit、file_operations-unit、model_files-unit、既存Model/参照UT | model-properties-v2、sync-model、model_templates、model_design |
-| 新規Python起動・import順序・API注釈・CLI help・依存不要の正常入口 | API/引数/型の判定は既存各UT | python-startup（既存pytest/Discovery/Receiptを使用） |
+| 新規Python起動・import順序・CLI help・依存不要の正常入口 | 公開APIの型解決は framework-api-types-unit、引数の判定は既存各UT | python-startup（既存pytest/Discovery/Receiptを使用） |
 | 監査CLIのTask状態・変更・出力保護 | model_test/generation-unit | model_test/cli-contract、監査生成→独立実行→ログ再読込 |
 | AWS取得失敗・不存在・任意設定なし、Importエラー分類 | aws_mapping-unit、check-model-aws-adapter-unit、import-adapter-contracts-unit | aws_mappingの正常取得→比較/Import/表示 |
 | Scope/Schema/命名/参照・anchor・parts欠落・cache競合・audit log不正 | sync-model-unit、model-format-v2、model-reference-display-unit、validation_cache-unit、validation-units、model_test/comparison-unit | validation_scope、validate-blueprint、resource_mode、model_files、参照・auditの正常保存/CLI |

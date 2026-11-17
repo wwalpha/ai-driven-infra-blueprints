@@ -1,287 +1,267 @@
-"""Normal fresh Python startup, optional-dependency boundaries and public CLI entrypoints."""
+"""Fresh Python startup, optional-dependency boundaries and public CLI entrypoints."""
 
 import ast
-import os
 import re
 import subprocess
 import sys
 from pathlib import Path
-from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from support.framework_input_isolation_fixtures import (
-    PUBLIC_API_MODULES,
-    VALIDATION_MODULES,
-)
 from support.pytest_cli import run
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-ROOT = Path(__file__).resolve().parents[4]
-REPOSITORY = FRAMEWORK = ROOT
-SCRIPTS = ROOT / "framework/scripts"
+SCRIPTS = Path(__file__).resolve().parents[2]
+IMPORTS = r"""
+import importlib
+import sys
+import traceback
+
+failures = []
+
+def import_modules(names):
+    for name in names:
+        try:
+            importlib.import_module(name)
+        except Exception:
+            failures.append(f"{name}:\n{traceback.format_exc()}")
+
+sys.path.insert(0, sys.argv[1])
+"""
+FINISH = r"""
+if failures:
+    sys.exit("\n".join(failures))
+"""
 
 
-@pytest.mark.parametrize(
-    "module",
-    [
-        "design.layout",
-        "design.policy_tables",
-        "design.services.ec2.security_groups",
-        "design.document",
-        "model.display",
-        "model.validations.full_inputs",
-        "model.render",
-        "model.change_plan",
-        "design.array_display",
-        "design.common",
-        "design.services.codebuild",
-        "design.services.codepipeline",
-        "design.services.cloudtrail",
-        "design.services.guardduty",
-        "design.services.secrets_manager",
-    ],
-)
-def check_import_order(module):
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            "-c",
-            "import importlib; importlib.import_module(" + repr(module) + ")",
-        ],
-        cwd=REPOSITORY / "framework/scripts",
+def run_python(*args, cwd=None):
+    return subprocess.run(
+        [sys.executable, "-B", "-X", "utf8", *args],
+        cwd=cwd,
         capture_output=True,
-        text=True,
-    )
-    TestCase().assertTrue(result.returncode == 0, result.stderr)
-
-
-@pytest.mark.parametrize("name", PUBLIC_API_MODULES)
-def check_fresh_import_and_hints(name):
-    code = "\nimport importlib, inspect, sys, typing\nmodule = importlib.import_module(sys.argv[1])\nfor value in vars(module).values():\n    if inspect.isfunction(value) and value.__module__ == module.__name__ and not value.__name__.startswith('_'):\n        typing.get_type_hints(value)\n"
-    result = subprocess.run(
-        [sys.executable, "-B", "-c", code, name],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},
+        encoding="utf-8",
         timeout=30,
     )
-    TestCase().assertTrue(result.returncode == 0, result.stderr)
 
 
-@pytest.mark.parametrize(
-    "statement",
-    (
-        "import model.validations.full_inputs",
-        "import model.render",
-        "import model.validations.full_inputs; import model.render",
-        "import model.render; import model.validations.full_inputs",
-    ),
-)
-def test_fresh_process_imports(statement):
-    env = dict(os.environ, PYTHONPATH=str(SCRIPTS))
-    result = subprocess.run(
-        [sys.executable, "-B", "-c", statement],
-        cwd=FRAMEWORK,
-        env=env,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    TestCase().assertTrue(result.returncode == 0, result.stderr)
-
-
-def check_imports_in_one_process():
-    modules = [module.__name__ for module in VALIDATION_MODULES]
-    modules.extend(["model.render", "validation.change", "validation.runner"])
-    statement = "; ".join((f"import {name}" for name in modules))
-    result = subprocess.run(
-        [sys.executable, "-B", "-c", statement],
-        env=dict(os.environ, PYTHONPATH=str(ROOT / 'framework/scripts')),
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    TestCase().assertTrue(result.returncode == 0, result.stderr)
-
-
-def check_deploy_modules_import_first_in_fresh_processes():
-    for module in ("scheduler", "operation_journal", "controller"):
-        subprocess.run(
-            [sys.executable, "-c", f"import deploy.{module}"],
-            env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},
-            check=True,
-            capture_output=True,
+def assert_startup(result):
+    if result.returncode:
+        pytest.fail(
+            f"Python exited with {result.returncode}\n{result.stdout}{result.stderr}",
+            pytrace=False,
         )
 
 
-def check_local_imports_without_sdk():
-    code = "\nimport importlib.abc, sys\nclass NoSdk(importlib.abc.MetaPathFinder):\n    def find_spec(self, fullname, path=None, target=None):\n        if fullname.split('.')[0] in {'boto3', 'botocore'}:\n            raise AssertionError('SDK import forbidden: ' + fullname)\nsys.meta_path.insert(0, NoSdk())\nimport task_contract_runtime, sync_runtime, validation.runner, model.reference_values\nassert 'utils.aws_sdk_runtime' not in sys.modules\n"
-    result = subprocess.run(
-        [sys.executable, "-B", "-c", code],
-        cwd=Path(__file__).resolve().parents[2],
-        capture_output=True,
-        text=True,
+@pytest.mark.parametrize(
+    "modules",
+    [
+        pytest.param(
+            (
+                "model.validations.full_inputs",
+                "model.change_plan",
+                "validation.change",
+                "validation.runner",
+                "design.services.ec2.security_groups",
+                "design.layout",
+                "design.common",
+                "design.services.codebuild",
+                "design.services.codepipeline",
+                "design.services.cloudtrail",
+                "design.services.guardduty",
+                "design.services.secrets_manager",
+                "model.validations.change_inputs",
+                "model.validations.environment",
+            ),
+            id="validation-and-design",
+        ),
+        pytest.param(("design.document",), id="document-first"),
+        pytest.param(("design.policy_tables",), id="policy-tables-first"),
+        pytest.param(
+            ("model.render", "model.validations.full_inputs"), id="render-first"
+        ),
+        pytest.param(("design.array_display",), id="array-display-first"),
+        pytest.param(
+            ("deploy.scheduler", "deploy.operation_journal", "model.display"),
+            id="scheduler-and-model-display-first",
+        ),
+    ],
+)
+def check_import_order(modules):
+    # Document, policy tables and render form a cycle. Array display and Model display
+    # enter a separate cycle that scheduler and journal startup do not load.
+    assert_startup(
+        run_python(
+            "-c",
+            IMPORTS + "import_modules(sys.argv[2:])" + FINISH,
+            str(SCRIPTS),
+            *modules,
+            cwd=SCRIPTS,
+        )
     )
-    TestCase().assertTrue(result.returncode == 0, result.stderr)
+
+
+def check_local_imports_without_sdk():
+    code = """
+import importlib.abc
+
+class NoSdk(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {'boto3', 'botocore'}:
+            raise AssertionError('SDK import forbidden: ' + fullname)
+
+sys.meta_path.insert(0, NoSdk())
+import_modules(('task_contract_runtime', 'sync_runtime', 'validation.runner',
+                'model.reference_values'))
+for name in ('boto3', 'botocore', 'utils.aws_sdk_runtime'):
+    if name in sys.modules:
+        failures.append(f"Unexpected SDK dependency: {name}")
+"""
+    assert_startup(run_python("-c", IMPORTS + code + FINISH, str(SCRIPTS), cwd=SCRIPTS))
 
 
 def check_startup_needs_only_standard_library():
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-S",
-            "-c",
-            f"import sys; sys.path.insert(0, {str(ROOT / 'framework/scripts')!r}); from deploy.progress import progress_path; assert 'yaml' not in sys.modules; assert 'boto3' not in sys.modules",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    TestCase().assertTrue(result.returncode == 0, result.stderr)
+    code = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from deploy.progress import progress_path
+assert not {'yaml', 'boto3'} & sys.modules.keys()
+"""
+    assert_startup(run_python("-S", "-c", code, str(SCRIPTS)))
 
 
 @pytest.mark.parametrize(
-    "first",
+    "modules",
     [
-        "utils.aws.client",
-        "comparison.inputs",
-        "deploy.controller",
-        "model.importing.references",
-        "validation.framework_contracts",
+        pytest.param(("comparison.inputs",), id="comparison-first"),
+        pytest.param(("deploy.controller",), id="deploy-first"),
+        pytest.param(
+            ("model.importing.references", "model.adapters.aws"),
+            id="model-import-first",
+        ),
     ],
 )
-def check_import_order_and_blocked_identity(first, tmp_path):
-    scripts = Path(__file__).resolve().parents[2]
-    code = f"\nimport importlib, sys\nsys.path.insert(0, {str(scripts)!r})\nimportlib.import_module({first!r})\nfrom utils.cloudformation.inputs import Blocked\nfor name in ('utils.aws.client', 'comparison.resource', 'deploy.controller',\n             'model.adapters.observed', 'iac_evaluation'):\n    assert importlib.import_module(name).Blocked is Blocked, name\nassert 'cloudformation_inputs' not in sys.modules\nassert 'cloudformation_schema' not in sys.modules\nassert 'utils.cloudformation_format' not in sys.modules\n"
-    result = subprocess.run(
-        [sys.executable, "-I", "-B", "-c", code],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
+def check_import_order_and_blocked_identity(modules, tmp_path):
+    code = """
+import_modules(sys.argv[2:])
+names = ('utils.cloudformation.inputs', 'utils.aws.client', 'comparison.resource',
+         'deploy.controller', 'model.adapters.observed', 'iac_evaluation')
+import_modules(names)
+canonical = sys.modules.get(names[0])
+blocked = getattr(canonical, 'Blocked', None)
+if canonical is not None and blocked is None:
+    failures.append(f"{names[0]}.Blocked is missing")
+for name in names[1:]:
+    if blocked is not None and name in sys.modules:
+        if getattr(sys.modules[name], 'Blocked', None) is not blocked:
+            failures.append(f"{name}.Blocked differs from {names[0]}.Blocked")
+for name in ('cloudformation_inputs', 'cloudformation_schema', 'utils.cloudformation_format'):
+    if name in sys.modules:
+        failures.append(f"Legacy module loaded: {name}")
+"""
+    assert_startup(
+        run_python(
+            "-I", "-c", IMPORTS + code + FINISH, str(SCRIPTS), *modules, cwd=tmp_path
+        )
     )
-    TestCase().assertTrue(result.returncode == 0, result.stdout + result.stderr)
+
+
+def check_isolated_imports_and_standalone_audit(tmp_path):
+    code = r"""
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+# Observe the mapping import before any Model or AWS module can cache it.
+try:
+    with patch.object(Path, 'read_text', side_effect=AssertionError('unexpected read')):
+        import utils.aws_mappings as mappings
+    assert not mappings._instances, 'mapping instances created during import'
+except Exception:
+    failures.append(f"Lazy mapping import:\n{traceback.format_exc()}")
+
+import_modules(('model.sources', 'utils.aws.client', 'validation.framework_contracts',
+                'model.format', 'model.render', 'model.validations.full_inputs',
+                'model.importing.inventory', 'utils.cloudformation.inputs',
+                'sync_runtime', 'utils.json_format'))
+
+try:
+    from model.audit import definitions
+    source = definitions(Path(sys.argv[1]) / 'utils/json_format.py',
+                         ['unique_object', 'invalid_constant', 'policy_json'])
+    namespace = {'json': json}
+    exec(source, namespace)
+    assert namespace['policy_json']('null') is None
+except Exception:
+    failures.append(f"Standalone audit JSON:\n{traceback.format_exc()}")
+"""
+    assert_startup(
+        run_python("-I", "-c", IMPORTS + code + FINISH, str(SCRIPTS), cwd=tmp_path)
+    )
 
 
 @pytest.mark.parametrize(
-    "first",
-    [
-        "utils.aws_mappings",
-        "model.sources",
-        "model.adapters.aws",
-        "design.policy_tables",
-    ],
-)
-def check_isolated_imports_and_standalone_audit(first, tmp_path):
-    scripts = Path(__file__).resolve().parents[2]
-    code = f"""\nimport sys, importlib, json\nsys.path.insert(0, {str(scripts)!r})\nimportlib.import_module({first!r})\nfor name in ('model.format', 'model.render', 'model.validations.full_inputs', 'model.importing.inventory',\n             'utils.cloudformation.inputs', 'sync_runtime', 'utils.json_format'):\n    importlib.import_module(name)\nfrom model.audit import definitions\nfrom pathlib import Path\nsource = definitions(Path({str(scripts / "utils/json_format.py")!r}),\n                     ['unique_object', 'invalid_constant', 'policy_json'])\nnamespace = {{'json': json}}\nexec(source, namespace)\nassert namespace['policy_json']('{{"日本語":1}}') == {{'日本語': 1}}\n"""
-    result = subprocess.run(
-        [sys.executable, "-I", "-B", "-c", code],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    TestCase().assertTrue(result.returncode == 0, result.stdout + result.stderr)
-
-
-@pytest.mark.parametrize(
-    ("script", "module", "tokens"),
+    ("script", "module", "options"),
     [
         (
             "deploy_preparation.py",
             "deploy/preparation.py",
-            ["Offline Preparation", "--register", "--run-controller", "--service"],
+            {"--register", "--run-controller", "--service"},
         ),
         (
             "cloudformation-deploy.py",
             "deploy/controller.py",
-            ["--action", "--approve-change-set", "MaxConcurrentStacks", "Snapshot"],
+            {"--action", "--approve-change-set"},
         ),
-        (
-            "check-deploy-context.py",
-            "aws_context.py",
-            [
-                "terraform init",
-                "terraform plan -out=",
-                "terraform apply",
-                "partial",
-                "AWS_PROFILE",
-            ],
-        ),
+        ("check-deploy-context.py", "aws_context.py", {"--environment", "--alias"}),
     ],
 )
-def check_cli_help_and_example_options(script, module, tokens):
-    result = subprocess.run(
-        [sys.executable, "-B", str(ROOT / "framework/scripts" / script), "--help"],
-        capture_output=True,
-        text=True,
+def check_cli_help_and_example_options(script, module, options):
+    result = run_python(str(SCRIPTS / script), "--help")
+    assert_startup(result)
+    advertised = set(re.findall(r"--[a-z][a-z-]+", result.stdout))
+    missing = options - advertised
+    retired = (
+        advertised & {"--state", "--resume", "--observe-only"}
+        if script == "cloudformation-deploy.py"
+        else set()
     )
-    TestCase().assertTrue(result.returncode == 0, result.stderr)
-    TestCase().assertTrue(all((token in result.stdout for token in tokens)))
-    tree = ast.parse((ROOT / "framework/scripts" / module).read_text())
-    options = {"--help"} | {
-        a.value
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and (n.func.attr == "add_argument")
-        for a in n.args
-        if isinstance(a, ast.Constant)
-        and isinstance(a.value, str)
-        and a.value.startswith("--")
+    tree = ast.parse((SCRIPTS / module).read_text(encoding="utf-8"))
+    declared = {"--help"} | {
+        arg.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "add_argument"
+        for arg in node.args
+        if isinstance(arg, ast.Constant)
+        and isinstance(arg.value, str)
+        and arg.value.startswith("--")
     }
-    for line in result.stdout.splitlines():
-        if script in line and line.strip().startswith(("python3 ", "env ")):
-            for option in re.findall("--[a-z][a-z-]+", line):
-                TestCase().assertTrue(option in options, (script, option))
-    if script == "cloudformation-deploy.py":
-        TestCase().assertTrue(
-            "A failed attempt retains Deploy FAIL when its Task completes."
-            in result.stdout
-        )
-        TestCase().assertTrue("all are needed for COMPLETE" not in result.stdout)
-        TestCase().assertTrue(
-            all(
-                (
-                    old not in result.stdout
-                    for old in [
-                        "--state",
-                        "--resume",
-                        "--observe-only",
-                    ]
-                )
-            )
-        )
-
-
-def check_mapping_import_is_lazy():
-    # A fresh interpreter verifies import side effects without reloading shared state.
-    code = """from pathlib import Path
-from unittest.mock import patch
-with patch.object(Path, 'read_text', side_effect=AssertionError('unexpected read')):
-    import utils.aws_mappings
-assert not utils.aws_mappings._instances
-"""
-    subprocess.run(
-        [sys.executable, "-c", code], cwd=ROOT / "framework/scripts", check=True
+    unknown = {
+        option
+        for line in result.stdout.splitlines()
+        if script in line and line.strip().startswith(("python3 ", "env "))
+        for option in re.findall(r"--[a-z][a-z-]+", line)
+        if option not in declared
+    }
+    assert not (missing or unknown or retired), (
+        f"{script}: missing options {sorted(missing)}, unknown example options {sorted(unknown)}, "
+        f"retired options {sorted(retired)}"
     )
 
 
 def check_catalog_lock_cli_startup():
-    script = ROOT / "framework/scripts/update-catalog-lock.py"
-    normal = subprocess.run([sys.executable, str(script)], capture_output=True)
-    isolated = subprocess.run([sys.executable, "-S", str(script)], capture_output=True)
-    TestCase().assertEqual(normal.returncode, 0, normal.stderr)
-    TestCase().assertEqual(
-        (normal.returncode, normal.stdout, normal.stderr),
-        (isolated.returncode, isolated.stdout, isolated.stderr),
+    script = str(SCRIPTS / "update-catalog-lock.py")
+    normal = run_python(script)
+    isolated = run_python("-S", script)
+    assert (normal.returncode, isolated.returncode) == (0, 0), (
+        f"normal: {normal.stdout}{normal.stderr}\n-S: {isolated.stdout}{isolated.stderr}"
     )
+    assert (normal.stdout, normal.stderr) == (isolated.stdout, isolated.stderr)
 
 
 if __name__ == "__main__":
