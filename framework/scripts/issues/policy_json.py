@@ -6,7 +6,7 @@ from collections import Counter
 
 from design.layout_schema import ANCHOR
 from design.policy_tables import END, IAM_END, IAM_POLICY_DOCUMENTS, IAM_START, START
-from model.core import entries
+from model import ModelView
 from model.render import document_view_labels
 from utils.json_format import strict_json
 from utils.markdown_format import markdown_prose
@@ -45,7 +45,7 @@ def check_saved_policy_json(text, values, path, scope, findings):
     """Return the same View with only verified policy bodies removed."""
     policy_ids = {
         rid
-        for rid, row in entries(values, "desired.row.")
+        for rid, row in ModelView(values).all_rows()
         if row.get("property") in POLICY_PROPERTIES and "document" in row
     }
     if not policy_ids:
