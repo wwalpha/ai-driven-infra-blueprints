@@ -47,7 +47,7 @@ Other scalar bytes, quoting, spaces, backslashes and numeric-looking strings are
 
 ## Generation, tracing and scope
 
-Use the single `framework/scripts/model/cli.py` through run-python.py for read, resource,
+Use the single `framework/scripts/model/cli.py` with the shared Python in managed worktrees for read, resource,
 find, trace, render, incoming, Import, observations, AWS comparison, audit.
 Imports use model.*; do not dynamically load the same file under another module name.
 The public API and helper contracts are [documented here](../docs/model-helper-integration.md).

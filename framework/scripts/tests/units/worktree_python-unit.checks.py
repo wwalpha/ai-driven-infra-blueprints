@@ -32,7 +32,6 @@ from support.worktree_python_fixtures import (
     tempfile,
     wt,
 )
-from worktree import runner as wrapper
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -98,23 +97,6 @@ def check_pdf_native_optional():
     )
 
 
-def check_windows_exit_propagation(tmp_path):
-    for code in (0, 2, 7, 130):
-        with (
-            patch.object(wrapper.worktree_python, "runtime", return_value=None),
-            patch.object(wrapper.sys, "platform", "win32"),
-            patch.object(
-                wrapper.sys,
-                "argv",
-                ["run-python.py", "-c", f"raise SystemExit({code})"],
-            ),
-            patch.object(
-                wrapper.os, "execvpe", side_effect=AssertionError("Windows must wait")
-            ),
-        ):
-            assert wrapper.main() == code
-
-
 @pytest.mark.parametrize("encoding", ["cp932", "utf-8"])
 @pytest.mark.parametrize("stderr", [False, True])
 @pytest.mark.parametrize("returncode", [0, 7])
@@ -139,7 +121,7 @@ def check_output_decoding(tmp_path, encoding, stderr, returncode):
     )
 
 
-def check_wrapper_launcher():
+def check_module_identity():
     scripts = str(Path(py.__file__).resolve().parents[1])
     for order in (("worktree.worktree_task", "worktree.worktree_pr"), ("worktree.worktree_pr", "worktree.worktree_task")):
         code = ("import importlib, sys; sys.path.insert(0, sys.argv[1]); "
@@ -148,15 +130,6 @@ def check_wrapper_launcher():
                 "assert a is module(sys.argv[2].replace('.', '/') + '.py', sys.argv[2]); "
                 "assert b is module(sys.argv[3].replace('.', '/') + '.py', sys.argv[3])")
         subprocess.run([sys.executable, "-I", "-B", "-c", code, scripts, *order], check=True)
-    with (
-        patch.object(wrapper.worktree_python, "runtime", return_value=None) as runtime,
-        patch.object(wrapper.os, "execvpe") as execute,
-        patch.object(wrapper.sys, "platform", "linux"),
-        patch.object(wrapper.sys, "argv", ["wrapper", "-c", "pass"]),
-    ):
-        wrapper.main()
-    assert execute.call_args.args[1] == [sys.executable, "-c", "pass"]
-    runtime.assert_called_once_with(Path.cwd().resolve())
 
 
 @pytest.mark.parametrize(

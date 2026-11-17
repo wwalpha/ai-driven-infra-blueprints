@@ -333,8 +333,8 @@ For limited existing-resource/property changes, always include these partial-rea
 2. Retrieve only target resources, existing-group parents/children/siblings, and service metadata/notes with `--resource`. For required references in the same/other services, execute the same `--resource` on producer entries; use `--find` first if locations are unknown. Stop without inferring missing/ambiguous references.
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py find model/<environment>/<target-directory>/<service-id>.properties "<property-key-or-identifier>"
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties <resource-selector>
+python -B framework/scripts/model/cli.py find model/<environment>/<target-directory>/<service-id>.properties "<property-key-or-identifier>"
+python -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties <resource-selector>
 ```
 
 1. Edit only required sections of actual parts (or single files) from output absolute paths/line numbers. Do not load unrelated resources/parts, entire services, or sequential reads of all parts into LLM context, or read generated Markdown/JSON as fallback for properties exploration. Do not overwrite entire models with extraction results.

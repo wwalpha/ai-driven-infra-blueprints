@@ -104,7 +104,7 @@ Human 判断が必要な場合は、次を含む選択肢を提示する。同�
 
 1. 現在の Model が正しいことと対象 View の同期差分を既存検証で確認する。現在の Task 契約と保存ガードが View-only `migration` を許可するか、実装を読んで先に確認する。`issues_save_only()` の報告専用例外を流用しない。
 2. 承認済みの View 同期専用 `migration` Task を登録する。Modified files/Allowed paths は exact 生成先と自契約のみ、Validation scope は対象 Service と必要な Consumer。Model 入口/parts は読み取り専用とし、変更前の原文 bytes と file set を保持する。
-3. Task を `BLUEPRINT_TASK_FILE` で明示し、既存 `sync-model.py --write --environment <environment> --alias <alias> --service <service-id>` を使う。alias なしは `--aws-account-id <awsAccountId>` に置き換える。同一対象の複数 Service は `--service` を反復する。managed worktree の全 Python 実行は `python3 -B framework/scripts/run-python.py -B` 経由にする。無指定の全件生成や `--all` へ広げない。
+3. Task を `BLUEPRINT_TASK_FILE` で明示し、既存 `sync-model.py --write --environment <environment> --alias <alias> --service <service-id>` を使う。alias なしは `--aws-account-id <awsAccountId>` に置き換える。同一対象の複数 Service は `--service` を反復する。managed worktree の Python 実行には共有 Python 環境を使う。無指定の全件生成や `--all` へ広げない。
 4. 生成後、Model 原文・parts 集合と内容が変更されていないことを確認し、既存の同期検証と migration の必須検証を実行する。
 
 View-only 契約・生成・保存が拒否されたら、その理由と未対応範囲を示して停止する。Framework、Task type、権限、ガードを変更して通さない。Model のダミー変更、generated Markdown/JSON の手編集、独自の生成・保存経路は禁止する。

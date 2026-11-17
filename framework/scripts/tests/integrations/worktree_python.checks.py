@@ -80,14 +80,11 @@ def check_venv_fallback():
             assert sum("install" in c.args[0] for c in commands.call_args_list) == 1
             assert verification.call_count == 1
             target = Path(states[0]["worktree"])
-            wrapper = Path(py.__file__).resolve().parents[1] / "run-python.py"
+            interpreter, environment = py.runtime(target)
             code = "import sys,os,json; print(json.dumps([sys.executable,sys.prefix,os.environ['VIRTUAL_ENV'],os.environ['PATH'].split(os.pathsep)[0]]))"
-            for arguments in (["-c", code], ["--command", "python", "-c", code]):
+            for command in ([str(interpreter), "-c", code], ["python", "-c", code]):
                 result = subprocess.run(
-                    [sys.executable, "-B", str(wrapper), *arguments],
-                    cwd=target,
-                    capture_output=True,
-                    text=True,
+                    command, cwd=target, env=environment, capture_output=True, text=True
                 )
                 assert result.returncode == 0, result.stderr + result.stdout
                 executable, prefix, virtual, first_bin = json.loads(result.stdout)
@@ -122,7 +119,7 @@ def check_venv_fallback():
                 directory
             )
     print(
-        "Real fixed-path venv, one install, wrapper/CLI, shared survival after cleanup: PASS"
+        "Real fixed-path venv, one install, direct Python/CLI, shared survival after cleanup: PASS"
     )
 
 

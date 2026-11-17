@@ -17,7 +17,7 @@ At start read [Task transition](../../../framework/rules/task-contract.md#task-t
 
 When performing validation/integration, read [Validation scope](../../../framework/rules/loop-engineering.md#validation-scope), [Conflict resolution and reproducible validation](../../../framework/rules/loop-engineering.md#conflict-resolution-and-reproducible-validation), and [Retry and stop](../../../framework/rules/loop-engineering.md#retry-and-stop). Read [Local loop](../../../framework/rules/loop-engineering.md#local-loop) when a loop is required, [Framework regression](../../../framework/rules/loop-engineering.md#framework-regression) only when the validation classification requires it, [Validation cache](../../../framework/rules/loop-engineering.md#validation-cache) when reusing results, and [Timing and long-running execution](../../../framework/rules/loop-engineering.md#timing-and-long-running-execution) for long runs. Do not unconditionally reread unchanged material already confirmed in the same Task; revisit necessary sections when inputs, classification or dependencies change or evidence is insufficient.
 
-The examples use `python3` for macOS and Linux. On Windows, use `python` when it runs the intended Python 3 interpreter, including in an activated virtual environment. Use `py -3` when selecting an installed Python 3 through the Windows launcher. This substitution applies to both lifecycle commands and commands using `run-python.py`.
+The examples use `python3` for macOS and Linux. On Windows, use `python` when it runs the intended Python 3 interpreter, including in an activated virtual environment. Use `py -3` when selecting an installed Python 3 through the Windows launcher. Use the shared environment for commands inside managed worktrees as described below.
 
 ## Sandbox permission approval and continuation
 
@@ -67,10 +67,10 @@ On Windows, run setup from the surviving checkout containing the updated helper.
 
 **Set the working directory of every subsequent change/child command to the returned `worktree` root.** Execute the original child skill/task there, including its preflight, contract registration, exact Modified files, authorization, validation and completion. Register `tasks/<task-id>.md` there as its first repository change; pass that selector to child commands or set `BLUEPRINT_TASK_FILE` per process. Do not copy running contracts from other checkouts.
 
-For every Python task/check/loop command in the returned worktree, use the common wrapper, even in a fresh shell. It selects the worktree's registered ready shared Interpreter and prepends its bin directory to PATH; subprocesses using `sys.executable` and Python CLIs inherit the same environment. Missing, failed or stale setup blocks execution. The JSON `python_setup.interpreter` path can also be used directly, but the wrapper additionally sets PATH for CLI resolution; new worktrees reuse the same completed environment without package verification when the requirements hash matches.
+For Python task/check/loop commands in the returned worktree, use the `python_setup.interpreter` returned by successful create/setup directly, or activate its shared environment in each shell and use `python`. Activation puts its executables on PATH for child processes and Python CLIs. Clear `PYTHONHOME` and `PYTHONPATH` before using the environment. After requirements change, rerun setup for the Task before running commands; direct Python execution does not check registration, setup status or synchronize dependencies. If setup failed or is stale, stop until setup succeeds. On Unix activate `<python_setup.bin>/activate`; on Windows use the activation script in `python_setup.bin` for the shell. Lifecycle commands continue to use the ordinary Python launcher from a surviving checkout.
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --source <external-contract>
+python -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --source <external-contract>
 ```
 
 ### Contract and validation
@@ -103,7 +103,7 @@ For infrastructure/implement, use the child workflow’s `--complete-on-pass` fi
 Finish all requested work and all required inputs/approvals under the child's existing workflow. Proceed only after successful final validation selected by [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy) and all other mandatory completion conditions:
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete
+python -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete
 python3 -B framework/scripts/worktree-cli.py finalize --task-id <task-id>
 ```
 

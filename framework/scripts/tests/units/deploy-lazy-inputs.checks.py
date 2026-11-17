@@ -685,7 +685,7 @@ def check_invalid_index_versions_rejected_without_side_effects(
     ):
         for operation in ("load", "normal", "observed", "inventory", "publication"):
             with pytest.raises(
-                ValueError, match="run-python.py.*cli.py index --repository-root"
+                ValueError, match="python.*cli.py index --repository-root"
             ):
                 if operation == "load":
                     dependency_index.load(tmp_path)

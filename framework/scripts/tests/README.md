@@ -124,9 +124,9 @@ Framework実装を明示検証する際は既存の公式IT runnerで、関連�
 ### Offline Import Coverage
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py import-coverage --repository-root .
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py import-coverage --repository-root . --format json
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py import-coverage --service quicksight --strict
+python -B framework/scripts/model/cli.py import-coverage --repository-root .
+python -B framework/scripts/model/cli.py import-coverage --repository-root . --format json
+python -B framework/scripts/model/cli.py import-coverage --service quicksight --strict
 ```
 
 Ownersから動的に全型を列挙し、Model対象判定・取得方式・Identity・include対象の各Propertyを独立に診断する。
@@ -189,7 +189,7 @@ index未作成時の既存bootstrap/Deploy RunModelsでのin-memory生成は別�
 停止した場合はModel正本を変更しない既存の明示offlineコマンドで再構築する。
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py index --repository-root .
+python -B framework/scripts/model/cli.py index --repository-root .
 ```
 
 再構築はModel publication lockの下で入力を再検証し、v3のprivate atomic recordを保存する。
@@ -197,12 +197,12 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py ind
 
 ## 実行入口
 
-リポジトリルートから実行する。管理worktreeでは登録済みPython環境のwrapperを使う。
+リポジトリルートから実行する。管理worktreeでは登録済みの共有Python環境を使う。
 
 ```console
-python3 -B framework/scripts/run-python.py -m pytest framework/scripts/tests/units/model_design-unit.checks.py -q
-python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/validation-units.checks.py
-python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test_issues_iac.py
+python -m pytest framework/scripts/tests/units/model_design-unit.checks.py -q
+python -B framework/scripts/tests/units/validation-units.checks.py
+python -B framework/scripts/tests/units/test_issues_iac.py
 ```
 
 `pytest.ini`は既存のpytest型ファイル、`*-unit.checks.py`、deploy SDK/client/controllerの明示したpytest型suiteを対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`cloudformation-inputs-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は通常のpytest関数を収集し、直接起動も既存の `support.pytest_cli.run` を通す。
@@ -229,7 +229,7 @@ Checkpointのケース別Python起動は最大2つ。親は実収集とケース
 入口・パラメータの削除/縮小をレビューする場合は、信頼するbase checkoutを用意して次の比較専用モードを明示実行する。PRのCIはUTのみとし、この比較とIT collectは行わない。通常のFull Runnerも追加collectを行わない。
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/tests/run_it.py --compare-root /path/to/trusted-base-checkout
+python -B framework/scripts/tests/run_it.py --compare-root /path/to/trusted-base-checkout
 ```
 
 両revisionの入口IDをASTで比較する。Pythonソース・Fixtureデータ・Frameworkカタログまたはpytest設定が変わった場合だけ、pytest型スイートを各revisionの独立子プロセスでcollectし、展開後node IDの削除・追加を比較する。変更依存を見逃さないよう共有Framework/supportの変更時も比較する。collectはテスト本体を走らせないが、import・conftest・collection hookの副作用は起こり得る。信頼するcheckoutと互換な依存環境でのみ実行し、各collectの上限は120秒。差分はstdout/Actions Summaryだけに表示し、永続台帳を生成しない。
@@ -309,13 +309,13 @@ Pythonの固定callableが本体を呼び、辞書（例: `{"result": ...}`）�
 初回作成・意図的更新には、ローカルで完全なパラメーター付きnode IDを明示する:
 
 ```console
-python3 -B framework/scripts/run-python.py -m pytest -q 'framework/scripts/tests/units/issues_scan-unit.checks.py::check_difference_fields_cases[difference-true-one]' --force-regen
+python -m pytest -q 'framework/scripts/tests/units/issues_scan-unit.checks.py::check_difference_fields_cases[difference-true-one]' --force-regen
 ```
 
 グループExpectedも同じ完全node IDで1ケースだけ検証・更新する。例:
 
 ```console
-python3 -B framework/scripts/run-python.py -m pytest -q 'framework/scripts/tests/units/reference-evidence-wait-pipeline-unit.checks.py::test_actual_wait_retains_pointer_and_known_siblings[actual-wait-00]' --force-regen
+python -m pytest -q 'framework/scripts/tests/units/reference-evidence-wait-pipeline-unit.checks.py::test_actual_wait_retains_pointer_and_known_siblings[actual-wait-00]' --force-regen
 ```
 
 不一致のdiffは対象case IDとそのExpectedだけを表示する。更新は対象区画だけを差し替え、
@@ -378,17 +378,17 @@ Issue 21のローカル確認は関連UT・構文・collect-only・登録/参照
 
 `integrations/deploy-controller.checks.py` は実controllerからtarget/Task/CFN loader、guard、SDK service wrapper、scheduler、progress保存/再読込とobserved公開を通す。AWS応答をSDK client取得境界で置換し、未定義operationは失敗する。static seedは `fixtures/deploy_controller.yaml` と既存 `fixture_cases` を使い、各ケースが独立Project/cwd/実Git/progressを持つ。別プロセスresumeはfake AWS JSONと今回のprogressだけを使用する。finallyを通らない終了後のlockは、その子を終了確認したテストだけが明示的に回収する。productionには回収分岐を追加しない。
 
-関連UTは各ファイルの既存直接入口または明示pytestで実行できる。既定収集は `python3 -B framework/scripts/run-python.py -m pytest --collect-only -q framework/scripts/tests`。正式ITは既存のGitHub Actions `Framework IT` jobが `framework/scripts/tests/run_it.py` を実行する。新しいFull IT runnerは追加していない。
+関連UTは各ファイルの既存直接入口または明示pytestで実行できる。既定収集は `python -m pytest --collect-only -q framework/scripts/tests`。正式ITは既存のGitHub Actions `Framework IT` jobが `framework/scripts/tests/run_it.py` を実行する。新しいFull IT runnerは追加していない。
 
 ## Python品質チェック
 
 `requirements.txt`の固定版Ruffと標準ライブラリだけの構造チェッカーを使用する。
 
 ```console
-python3 -B framework/scripts/run-python.py -m ruff check framework/scripts
+python -m ruff check framework/scripts
 python3 -B framework/scripts/python_structure.py
 python3 -B framework/scripts/tests/units/python_structure-unit.checks.py
-python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/function_wrapper-unit.checks.py
+python -B framework/scripts/tests/units/function_wrapper-unit.checks.py
 ```
 
 関数・メソッド内のImportとネスト関数は禁止する。Callbackの状態は明示引数や既存の共有実装で渡す。

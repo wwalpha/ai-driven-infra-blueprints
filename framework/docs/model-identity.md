@@ -19,7 +19,7 @@ allocation order. Use confirmed entry numbers independently of AWS enumeration,
 names and physical identifiers.
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py allocate \
+python -B framework/scripts/model/cli.py allocate \
   model/<environment>/<target>/<service>.properties \
   --candidate <absolute-external-candidate-directory> --resource 001 --resource 002
 ```

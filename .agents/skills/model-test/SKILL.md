@@ -27,25 +27,22 @@ Before running the generation command, complete these steps in order:
    Task/worktree and stop; do not continue generation with ordinary Python.
 2. Set the working directory of every subsequent task command to the returned
    `worktree` root: the **managed worktree**, not the normally opened repository root.
-   `run-python.py` selects the registered shared Python there; outside a managed
-   worktree it uses the launching Python, which may lack generation dependencies.
+   Use the returned shared interpreter or activate its environment; ordinary Python may lack generation dependencies.
 3. Use the returned `task_file` to register a `migration` contract through
-   `run-python.py`, listing only that contract and
+   the shared Python, listing only that contract and
    `tests/<environment>/<alias-or-account-id>/<service>.py`. Include the selected
    service in Validation scope. Run contract registration, audit generation and
-   Python local validation through `run-python.py` from this same worktree root.
+   Python local validation using shared Python from this same worktree root.
    For framework implementation tasks, framework-only governance scope remains
    available under the existing rules.
 
-On Windows, replace `python3` with `python` when it runs Python 3, or with `py -3`
-when using the Windows launcher. For wrapped commands, this Python only launches
-`run-python.py`; generation and validation use the registered shared Python.
+Use the returned shared interpreter or activate its environment on each platform.
 The following commands run from the returned `worktree`; replace `<task-file>`
 with the exact returned `task_file` and use the requested service selectors:
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file <task-file> --source <external-contract>
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py audit --environment dev --target cde --service vpc --task-file <task-file>
+python -B framework/scripts/task_contract.py --task-file <task-file> --source <external-contract>
+python -B framework/scripts/model/cli.py audit --environment dev --target cde --service vpc --task-file <task-file>
 ```
 
 The generator loads the canonical properties snapshot through `model.sources`,

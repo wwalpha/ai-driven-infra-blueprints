@@ -423,8 +423,8 @@ Use model/cli.py edit with an external complete properties candidate and explici
 generate Markdown/JSON separately through the existing validation pipeline.
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py find model/<environment>/<target-directory>/<service-id>.properties '<logical-id-or-property-key>'
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties '<resource-number-or-logical-id>'
+python -B framework/scripts/model/cli.py find model/<environment>/<target-directory>/<service-id>.properties '<logical-id-or-property-key>'
+python -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties '<resource-number-or-logical-id>'
 ```
 
 Use trace for source files/lines and derived origins. find returns matching locations;

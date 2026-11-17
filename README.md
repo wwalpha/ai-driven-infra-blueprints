@@ -55,7 +55,7 @@ Do not use aliases when an environment has only one target. For multiple logical
 - `framework/scripts/sync_views.py`: Read-only validation of fixed design snapshots
 - `framework/scripts/sync_files.py`: File save and best-effort rollback for one publication batch
 - `framework/scripts/model/`: Model schema, format, source snapshots/publication, references, operations, observation changes and projections. See [format and API](framework/docs/model-format-2.md).
-- `framework/scripts/model/cli.py`: Single Model entrypoint for read/trace/resource/find/render/import/observed/AWS comparison/audit/migration; launch with `python3 -B framework/scripts/run-python.py -B`.
+- `framework/scripts/model/cli.py`: Single Model entrypoint for read/trace/resource/find/render/import/observed/AWS comparison/audit/migration; launch with the shared Python in managed worktrees.
 - `framework/scripts/generation_inputs.py`: Shared recorded input bytes, existence and file-set snapshots.
 - `framework/scripts/design/`: Common Design catalog, document, layout, array and policy processing; `services/` owns AWS-specific displays. Array validation compares Model-generated display projections, then uses original formal rows in memory; Markdown contains no array restoration metadata. Standalone parsers needing original arrays require explicit Model/source rows.
 - `framework/scripts/design/services/definitions/registry.py`: Explicit fixed-data registry; service modules own all 31 Policy formats, references and visibility definitions. Public CLIs remain `framework/scripts/design_catalog.py` and `framework/scripts/policy_tables.py`.
@@ -93,7 +93,7 @@ py -3 -B framework/scripts/worktree-cli.py setup --task-id <task-id>
 
 The setup command uses the helper from the invoking checkout and the canonical dependencies from the primary checkout, checking compatibility with the retained worktree. A previously created worktree may still contain the old helper, so update its code through the normal Git workflow before invoking setup from that worktree. Setup does not propagate code changes to other worktrees.
 
-In each worktree, use `python3 -B framework/scripts/run-python.py <Python arguments>` for task commands, tests and local loops,. The wrapper chooses that worktree's Interpreter and PATH in every shell, including subprocesses using `sys.executable`; activation is unnecessary. Outside managed worktrees it uses the current Python. The wrapper uses shared Python directly, sets child-only `VIRTUAL_ENV`/PATH and removes `PYTHONHOME`/`PYTHONPATH`; no shell activation/export is needed. Cleanup never deletes the shared environment or changes another Task's setup state. Normal runtime requires `shared` registration; use explicit setup to update the registration. After a verified merge, automatic cleanup removes `.ruff_cache/` directories whether ignored or untracked; other ignored artifacts and unknown dirty files require preservation and stop cleanup. A symlink at a `.ruff_cache` path is not followed and blocks cleanup; symlinks inside a real cache are removed without following their targets. MWAA requirements remain separate. PDF export still needs Pandoc and WeasyPrint's native OS libraries; AWS CLI/Terraform are external prerequisites.
+In a managed worktree, use the `python_setup.interpreter` returned by create/setup directly, or activate the shared environment using the activation script in `python_setup.bin` and use `python`. Clear `PYTHONHOME` and `PYTHONPATH` before running Python; activation puts the environment's CLI executables on PATH. Rerun setup after requirements change: direct Python execution does not validate registration or synchronize dependencies. Cleanup never deletes the shared environment or changes another Task's setup state. Normal runtime requires `shared` registration; use explicit setup to update the registration. After a verified merge, automatic cleanup removes `.ruff_cache/` directories whether ignored or untracked; other ignored artifacts and unknown dirty files require preservation and stop cleanup. A symlink at a `.ruff_cache` path is not followed and blocks cleanup; symlinks inside a real cache are removed without following their targets. MWAA requirements remain separate. PDF export still needs Pandoc and WeasyPrint's native OS libraries; AWS CLI/Terraform are external prerequisites.
 
 Only an explicit Human request to publish a PR selects `finalize --task-id <task-id> --create-pr`.
 It uses the existing commit and validation path, pushes the verified candidate and creates
@@ -156,8 +156,8 @@ For PDF tasks, follow the [WeasyPrint installation and missing-library instructi
 
 ```powershell
 $env:WEASYPRINT_DLL_DIRECTORIES = 'C:\msys64\ucrt64\bin'
-py -3 -B framework/scripts/run-python.py --command weasyprint --info
-py -3 -B framework/scripts/run-python.py -B framework/scripts/export-design-pdf.py --output C:\output\detailed-design.pdf
+weasyprint --info
+python -B framework/scripts/export-design-pdf.py --output C:\output\detailed-design.pdf
 ```
 
 The DLL path is an example; use the directory containing your installed DLLs. A Python venv does not install these native OS dependencies. If `--info` fails (including `libgobject-2.0-0` / `0x7e`), repair the PDF environment before export. PDF-free tasks require no DLL setup or PATH change.
@@ -413,7 +413,7 @@ once with the selected Task and exact Change Impact scope:
 
 ```console
 BLUEPRINT_TASK_FILE=tasks/<task-id>.md \
-python3 -B framework/scripts/run-python.py -B framework/scripts/sync-model.py --write --scope <environment/target/service>
+python -B framework/scripts/sync-model.py --write --scope <environment/target/service>
 ```
 
 Use the Task ID returned by the Worktree Skill and repeat `--scope` for each required
@@ -489,7 +489,7 @@ The existing pytest suites listed in
 `framework/scripts/requirements.txt` in the Python environment used for regression.
 Managed worktree create/setup/runtime synchronize the fixed shared venv only when the
 primary requirements hash changes or is absent; unchanged hashes skip dependency verification.
-Global packages are never modified. Use the worktree wrapper for the test commands below.
+Global packages are never modified. Use the shared Python environment for the test commands below.
 Other `.checks.py` scripts keep their direct entrypoints. See [test layout and classification](framework/scripts/tests/README.md).
 
 ```console
@@ -607,13 +607,13 @@ automatically switches to SDK. Common approval/order/Snapshot/Model/Validation r
 guaranteed and detected competition stops CLI starts.
 
 CLI uses ordinary non-AWS observation/generation/scoped validation, then
-`task_contract.py --complete` through the shared Python wrapper in the returned Worktree. Git integration is separate
+`task_contract.py --complete` using the shared Python environment in the returned Worktree. Git integration is separate
 from Task completion, which does not require SDK progress/receipts; local reference
 projection uses the CLI Task's STS-confirmed execution account/Region/Partition.
 AWS success, Model save, Snapshot Validation, Git publication and Task completion
 remain separate. The LLM must settle all AWS requests before completion; local
 validation is not AWS verification. Existing SDK Tasks cannot switch to this route.
-All Deploy Python commands use `python3 -B framework/scripts/run-python.py` in the returned Worktree; AWS CLI remains direct. Worktree Skill owns Git integration and Cleanup. Unknown AWS outcomes retain the Worktree and original Task evidence for same-Task recovery without blind resubmission.
+All Deploy Python commands use the shared Python environment in the returned Worktree; AWS CLI remains direct. Worktree Skill owns Git integration and Cleanup. Unknown AWS outcomes retain the Worktree and original Task evidence for same-Task recovery without blind resubmission.
 
 The controller passes templates directly as before when the submitted template is at most 51,200 bytes; above that through 1 MiB, upload to the specified bucket and create change sets from S3 URLs. Stop above 1 MiB. Small templates require no placement bucket configuration.
 
@@ -660,11 +660,11 @@ CloudFormation template YAML and parameter JSON remain unchanged.
 Run commands through the managed worktree launcher:
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py read model/dev/cde/iam.properties
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py trace model/dev/cde/iam.properties desired.row.001-001.value
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/dev/cde/iam.properties 001
+python -B framework/scripts/model/cli.py read model/dev/cde/iam.properties
+python -B framework/scripts/model/cli.py trace model/dev/cde/iam.properties desired.row.001-001.value
+python -B framework/scripts/model/cli.py resource model/dev/cde/iam.properties 001
 BLUEPRINT_TASK_FILE=tasks/<task-id>.md \
-python3 -B framework/scripts/run-python.py -B framework/scripts/sync-model.py --write --scope <environment/target/service>
+python -B framework/scripts/sync-model.py --write --scope <environment/target/service>
 ```
 
 New data and parts start with `# model-format: 2`. Small services use one file;

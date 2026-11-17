@@ -35,7 +35,7 @@ producer anchors remain known; service.md./service.md resolve identically.
 
 Before editing, call `model.references.incoming(snapshot, fixed_id, read_context)`.
 The read-only CLI is `model/cli.py incoming <service.properties> <fixed-ID>`, run
-through the registered run-python.py wrapper. Inspect each usage's fixed scope/ID,
+with the registered shared Python environment. Inspect each usage's fixed scope/ID,
 consumerKey/pointer/occurrence, format and source position alongside
 `model.references.diagnose`. I/O, syntax and scope errors remain errors; semantic
 reference warnings do not prove an empty dependency set and do not block deletion.
