@@ -36,7 +36,7 @@ Before running the generation command, complete these steps in order:
    For framework implementation tasks, framework-only governance scope remains
    available under the existing rules.
 
-Use the returned shared interpreter or activate its environment on each platform.
+Follow [Run Python in the Worktree](../worktree/SKILL.md#run-python-in-the-worktree) to use the returned interpreter or activate its environment.
 The following commands run from the returned `worktree`; replace `<task-file>`
 with the exact returned `task_file` and use the requested service selectors:
 

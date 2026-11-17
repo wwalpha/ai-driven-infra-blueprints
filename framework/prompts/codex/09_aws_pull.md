@@ -21,7 +21,7 @@ Use the Human-selected worktree and existing worktree lifecycle. Do not copy dir
 ## Read-only phase, before the design Task
 
 Do not register a design Task until the final approved AWS values have been rechecked.
-Use the shared Python environment when in a managed worktree. Execute the existing comparator:
+In a managed worktree, follow [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree). Execute the existing comparator:
 
 ```console
 python -B framework/scripts/model/cli.py aws-compare --root . --environment stg --target cde --service s3 --create-only

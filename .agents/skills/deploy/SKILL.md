@@ -21,7 +21,20 @@ Select only the fixed method: SDK follows the sections below directly. Read only
 
 For every new Deploy, first invoke the [Worktree Skill](../worktree/SKILL.md) and run its ordinary `create --task-name <task-name>`. Proceed only when Create succeeds and `python_setup.status` is `ready`. Use the returned Worktree root and new Task ID for Deploy registration, Preparation, AWS operations, Observed / View synchronization, Validation and Task completion. Do not search for or reuse a past Task or Worktree. If Create or Setup fails, stop before Deploy and retain resources as directed by the Worktree Skill.
 
-Run every Deploy-related Python command in that Worktree with the shared Python environment, including Preparation, Controller, observation, Validation and Task Contract commands. Confirm setup is ready and current before running commands; direct Python does not check setup or synchronize dependencies. Invoke AWS CLI directly. Worktree Skill owns Git integration and Cleanup; Deploy adds no Git lifecycle operations.
+The shared Python environment is the virtual environment prepared by Worktree Create/Setup. The successful JSON result gives the absolute Python executable in `python_setup.interpreter` and the directory containing the activation scripts and Python CLI executables in `python_setup.bin`. Use those returned paths in the returned `worktree` directory.
+
+For the `python -B ...` examples below and in the runbook, clear `PYTHONHOME` and `PYTHONPATH` and activate the environment in the same shell as the command. On macOS/Linux:
+
+```sh
+cd "<worktree>" &&
+  unset PYTHONHOME PYTHONPATH &&
+  . "<python_setup.bin>/activate" &&
+  python -B framework/scripts/deploy_preparation.py --help
+```
+
+Replace the quoted placeholders with the corresponding JSON values. On Windows, clear the same variables and run `Activate.ps1` from `python_setup.bin` in PowerShell or `activate.bat` in Command Prompt before executing the examples. You can also replace `python` with the quoted absolute `python_setup.interpreter` and run it directly (use `&` before the path in PowerShell). Activate the environment when Python CLIs must be found on PATH.
+
+Use this Python for Preparation, Controller, observation, Validation and Task Contract commands. Rerun Worktree Setup for the same Task after requirements change. Direct Python does not check setup or synchronize dependencies. Invoke AWS CLI directly. Worktree Skill owns Git integration and Cleanup.
 
 CloudFormation progress and recovery remain tied to this same Task. Retain its Worktree and execution evidence, including original StackId, ChangeSetId and token, while an AWS result is unknown; follow the fixed method's existing recovery without blind resubmission. Each new Deploy checks current AWS Account, Region, Stack and ChangeSets, without using another Task's local progress. If AWS is busy or its state is unknown, do not submit new AWS operations.
 

@@ -200,7 +200,7 @@ API, Controller, SDK Scheduler/Journal or shared AWS lock participates. Do not a
 a shared backend/interface/state/lock or silently fall back to SDK. AWS CLI's own
 bundled implementation does not authorize importing its Python internals.
 
-New Deploys first use the Worktree Skill's Create and successful Python Setup; the returned root and Task ID are used throughout the Task. Run Deploy-related Python commands with the shared Python environment in that Worktree. CLI AWS execution invokes AWS CLI directly and needs no Python SDK.
+New Deploys first use the Worktree Skill's Create and successful Python Setup; the returned root and Task ID are used throughout the Task. For Deploy-related Python commands, follow [Deploy local entry](../../.agents/skills/deploy/SKILL.md#local-entry). CLI AWS execution invokes AWS CLI directly and needs no Python SDK.
 Existing non-AWS Model/generation/validation/Git utilities remain usable. CLI Task
 completion uses the ordinary `task_contract.py --complete` local validator rather
 than SDK local progress/final-save receipts. Task completion and any later Git integration are separate.
@@ -518,7 +518,7 @@ Keep this Task's original Stack ID, ChangeSet ID and token when a submission rep
 
 ### Local Deploy completion
 
-Use the new Worktree and Task ID returned by the Worktree Skill for Preparation, AWS execution, Observed and View synchronization, Validation and Task completion. Python Setup must be ready before Deploy; no past Task or Worktree search or reuse is part of a new Deploy. Use the shared Python environment for Deploy Python commands. `sync --final` completes the local Task only after settled requests, required saves, Views and Validation. Worktree Skill owns Git integration and Cleanup. A settled failed attempt may complete with Deploy FAIL unchanged; active or uncertain requests prevent completion and retain the Worktree and original execution evidence for same-Task recovery.
+Use the new Worktree and Task ID returned by the Worktree Skill for Preparation, AWS execution, Observed and View synchronization, Validation and Task completion. Python Setup must be ready before Deploy; no past Task or Worktree search or reuse is part of a new Deploy. Run Deploy Python commands as described in [Deploy local entry](../../.agents/skills/deploy/SKILL.md#local-entry). `sync --final` completes the local Task only after settled requests, required saves, Views and Validation. Worktree Skill owns Git integration and Cleanup. A settled failed attempt may complete with Deploy FAIL unchanged; active or uncertain requests prevent completion and retain the Worktree and original execution evidence for same-Task recovery.
 
 A settled request may have an UNKNOWN attempt outcome while its current Snapshot is
 saved and validated independently. Never persist UNKNOWN as an identifier. Exact root

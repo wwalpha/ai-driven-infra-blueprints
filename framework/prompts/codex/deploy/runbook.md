@@ -1,6 +1,6 @@
 # Deploy operation runbook
 
-Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. Use the Worktree and ready shared Python environment required by the Skill for all Deploy Python commands; invoke AWS CLI directly. Normal SDK advance is in the Skill; this runbook supplies conditional SDK saves/finish, Human-selected CLI and exceptions.
+Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. Use the Worktree and Python specified in [Deploy local entry](../../../../.agents/skills/deploy/SKILL.md#local-entry) for all Deploy Python commands. Invoke AWS CLI directly. Normal SDK advance is in the Skill; this runbook supplies conditional SDK saves/finish, Human-selected CLI and exceptions.
 
 ## SDK saves
 
