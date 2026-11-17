@@ -45,6 +45,7 @@ from design.services.codebuild import PlaintextReferenceError
 from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
 from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
 from design.services.ec2.security_groups import security_group_table_lines, table_at
+from design.services.events import check_rule_rows
 from design.services.macie import job_bucket_tables
 from model.core import ReferenceDiagnosticError, ReferenceResolutionError, literal
 from model.literal_values import literal_errors as row_literal_errors
@@ -1154,23 +1155,9 @@ def check_design_tables(
                             model_documents=model_documents,
                         )
                     if current_resource_type == "Events.Rule":
-                        for property_name in ("Events.Rule.Name", "Events.Rule.State"):
-                            selected = [row for row in rows if row[1] == property_name]
-                            findings.check(
-                                len(selected) == 1,
-                                f"{property_name} must appear exactly once: {findings.relative(path)}: {current_logical_id}",
-                                source_path=path,
-                                cause_kind="input_invalid",
-                            )
-                            if len(selected) == 1:
-                                value = unquoted(selected[0][2]).strip()
-                                findings.check(
-                                    value
-                                    not in {"", MODEL_UNSET, MODEL_PENDING_DEPLOY},
-                                    f"{property_name} must have a confirmed value: {findings.relative(path)}: {current_logical_id}",
-                                    source_path=path,
-                                    cause_kind="input_invalid",
-                                )
+                        check_rule_rows(
+                            path, current_logical_id, rows, findings=findings
+                        )
                     if current_resource_type == "S3.Bucket":
                         bucket_name_rows = [
                             row for row in rows if row[1] == "S3.Bucket.BucketName"
