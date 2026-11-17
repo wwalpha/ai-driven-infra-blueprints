@@ -32,6 +32,7 @@ from support.worktree_python_fixtures import (
     tempfile,
     wt,
 )
+from worktree import runner as wrapper
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -98,11 +99,6 @@ def check_pdf_native_optional():
 
 
 def check_windows_exit_propagation(tmp_path):
-    spec = importlib.util.spec_from_file_location(
-        "python_wrapper", (Path(__file__).resolve().parents[2] / "worktree/run-python.py")
-    )
-    wrapper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(wrapper)
     for code in (0, 2, 7, 130):
         with (
             patch.object(wrapper.worktree_python, "runtime", return_value=None),
@@ -152,11 +148,6 @@ def check_wrapper_launcher():
                 "assert a is module(sys.argv[2].replace('.', '/') + '.py', sys.argv[2]); "
                 "assert b is module(sys.argv[3].replace('.', '/') + '.py', sys.argv[3])")
         subprocess.run([sys.executable, "-I", "-B", "-c", code, scripts, *order], check=True)
-    spec = importlib.util.spec_from_file_location(
-        "python_wrapper", Path(py.__file__).with_name("run-python.py")
-    )
-    wrapper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(wrapper)
     with (
         patch.object(wrapper.worktree_python, "runtime", return_value=None) as runtime,
         patch.object(wrapper.os, "execvpe") as execute,

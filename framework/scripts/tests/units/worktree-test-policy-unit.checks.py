@@ -194,7 +194,7 @@ def check_runtime_guard(tmp_path):
         for command in (
             ["git", "worktree", "add", "candidate"],
             ["python3", "worktree_task.py", "finalize"],
-            ["python3", "framework/scripts/worktree/cli.py", "finalize"],
+            ["python3", "framework/scripts/worktree-cli.py", "finalize"],
         ):
             with pytest.raises(AssertionError, match="lifecycle subprocess"):
                 audit("subprocess.Popen", ("unused", command, None, None))

@@ -390,13 +390,13 @@ def forbidden_process(command):
     if not isinstance(command, (list, tuple)):
         return bool(
             re.search(
-                r"git\s+worktree\s+(?:add|remove|move|prune|repair|lock|unlock)|worktree_task\.py|worktree/cli\.py",
+                r"git\s+worktree\s+(?:add|remove|move|prune|repair|lock|unlock)|worktree_task\.py|worktree/cli\.py|worktree-cli\.py",
                 str(command),
             )
         )
     words = [str(word) for word in command]
     if any(
-        Path(word).name == "worktree_task.py" or word.replace("\\", "/").endswith("worktree/cli.py")
+        Path(word).name in {"worktree_task.py", "worktree-cli.py"} or word.replace("\\", "/").endswith("worktree/cli.py")
         or re.search(
             r"(?:import|from) (?:(?:support\.)?worktree_|worktree(?:\.worktree_| import worktree_))(?:task|state|python|runtime|pr)",
             word,

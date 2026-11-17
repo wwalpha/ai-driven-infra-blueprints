@@ -335,11 +335,11 @@ def runtime(root):
     setup_state = state.get("python_setup", {})
     if setup_state.get("status") != "ready":
         raise ValueError(
-            f"Python setup is missing or failed; run framework/scripts/worktree/cli.py setup --task-id {state['task_id']}"
+            f"Python setup is missing or failed; run framework/scripts/worktree-cli.py setup --task-id {state['task_id']}"
         )
     if setup_state.get("kind") != "shared":
         raise ValueError(
-            f"Python setup kind is missing or unsupported; run framework/scripts/worktree/cli.py setup --task-id {state['task_id']}"
+            f"Python setup kind is missing or unsupported; run framework/scripts/worktree-cli.py setup --task-id {state['task_id']}"
         )
     directory = shared_directory(root)
     interpreter = python_path(directory)

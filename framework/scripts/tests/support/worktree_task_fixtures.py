@@ -26,7 +26,7 @@ from model import dependency_index
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-SCRIPT = Path(__file__).resolve().parents[2] / "worktree/cli.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "worktree-cli.py"
 
 
 @contextmanager
@@ -64,7 +64,7 @@ def cli(root, command, task_id=EXAMPLE_TASK_ID, success=True, *, suffix=None):
             "-B",
             "-c",
             "import sys; from unittest.mock import patch; "
-            f"sys.path.insert(0, {str(SCRIPT.parent.parent)!r}); from worktree import worktree_task as wt; "
+            f"sys.path.insert(0, {str(SCRIPT.parent)!r}); from worktree import worktree_task as wt; "
             "p=patch.object(wt.python_env, 'setup', return_value={'status':'ready'}); p.start(); "
             + (f"patch.object(wt.secrets, 'randbelow', return_value={suffix}).start(); " if suffix is not None else "")
             + "raise SystemExit(wt.main())",

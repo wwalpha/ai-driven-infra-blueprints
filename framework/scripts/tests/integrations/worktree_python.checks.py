@@ -80,7 +80,7 @@ def check_venv_fallback():
             assert sum("install" in c.args[0] for c in commands.call_args_list) == 1
             assert verification.call_count == 1
             target = Path(states[0]["worktree"])
-            wrapper = Path(py.__file__).with_name("run-python.py")
+            wrapper = Path(py.__file__).resolve().parents[1] / "run-python.py"
             code = "import sys,os,json; print(json.dumps([sys.executable,sys.prefix,os.environ['VIRTUAL_ENV'],os.environ['PATH'].split(os.pathsep)[0]]))"
             for arguments in (["-c", code], ["--command", "python", "-c", code]):
                 result = subprocess.run(

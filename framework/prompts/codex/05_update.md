@@ -40,7 +40,7 @@ For a managed worktree, generate necessary Markdown/JSON after the guarded Model
 
 ```console
 BLUEPRINT_TASK_FILE=tasks/<task-id>.md \
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/sync-model.py --write --scope <environment/target/service>
+python3 -B framework/scripts/run-python.py -B framework/scripts/sync-model.py --write --scope <environment/target/service>
 ```
 
 Use the Task ID returned by the Worktree Skill to select this Task, including with the
@@ -63,7 +63,7 @@ Load the producer snapshot through `model.sources.load_model`, then inspect
 read-only reference analysis:
 
 ```console
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py incoming model/<environment>/<target>/<service>.properties <fixed-ID>
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py incoming model/<environment>/<target>/<service>.properties <fixed-ID>
 ```
 
 Read usages, `model.references.diagnose` warnings, raw sources, fixed producer/consumer
@@ -219,7 +219,7 @@ Update design inputs are only authoritative model properties. Do not read genera
 For limited resources, use existing partial reading for both single files and split entry indexes. Selectors require exact resource number or logicalId matches; stop if unmatched/ambiguous.
 
 ```console
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties <resource-selector>
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties <resource-selector>
 ```
 
 Load only target resources, parents/children/siblings in the same group, and service metadata/notes into context. Service-wide changes may read entire target service properties, without unconditional expansion to all services/models. Resolve structured `$modelRef` Resource references and parentReference with the common resolver; retrieve only selected groups. No generated Markdown fallback. Unknown targets remain reference warnings for ordinary Model saves; missing configuration or deployment decisions still stop dependent infrastructure actions.

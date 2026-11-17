@@ -6,9 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from worktree import worktree_python  # noqa: E402
+from worktree import worktree_python
 
 
 def main():

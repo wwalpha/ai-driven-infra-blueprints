@@ -168,10 +168,10 @@ DNS 名・生成 ARN・Markdown 表示値を Model 正本へ保存しません�
 公開 API と helper の接続は [Model helper integration](model-helper-integration.md)、
 
 ```console
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py list --repository-root .
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py read model/<environment>/<target>/<service>.properties
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target>/<service>.properties <fixed-id-or-anchor>
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py trace model/<environment>/<target>/<service>.properties <key>
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py list --repository-root .
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py read model/<environment>/<target>/<service>.properties
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target>/<service>.properties <fixed-id-or-anchor>
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py trace model/<environment>/<target>/<service>.properties <key>
 ```
 
 read は正本全体と WARNING、trace は正本の場所または派生元とそのキーの参照宣言、render は生成候補を返します。

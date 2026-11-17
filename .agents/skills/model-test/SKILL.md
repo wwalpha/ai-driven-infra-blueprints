@@ -21,7 +21,7 @@ Use the [worktree workflow](../worktree/SKILL.md) for repository changes.
 Before running the generation command, complete these steps in order:
 
 1. From the current repository root, run
-   `python3 -B framework/scripts/worktree/cli.py create --task-name <task-name>`
+   `python3 -B framework/scripts/worktree-cli.py create --task-name <task-name>`
    under the [worktree workflow](../worktree/SKILL.md). Confirm that the returned
    `python_setup.status` is `ready`. If setup fails, report the error and retained
    Task/worktree and stop; do not continue generation with ordinary Python.
@@ -44,8 +44,8 @@ The following commands run from the returned `worktree`; replace `<task-file>`
 with the exact returned `task_file` and use the requested service selectors:
 
 ```console
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/task_contract.py --task-file <task-file> --source <external-contract>
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py audit --environment dev --target cde --service vpc --task-file <task-file>
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file <task-file> --source <external-contract>
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py audit --environment dev --target cde --service vpc --task-file <task-file>
 ```
 
 The generator loads the canonical properties snapshot through `model.sources`,

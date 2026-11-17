@@ -103,7 +103,7 @@ Before selecting additional rules, inspect relevant Model Resources, Stack place
 
 `implement` phase:
 
-1. Before implementing existing templates and before finishing generated templates, perform local read-only mapping validation with `python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py observed --environment <environment> --target-directory <target-directory> --stack <StackName>` (repeat `--stack` for each stack). Deployment resolves only resources needed for repair/bootstrap/current Snapshot synchronization. Directly match StackNames/template resource IDs with each resource's `cfn-logicalId`; do not use separate mapping tables. Resource correspondence uses explicit cfn-logicalId and Stack identity. Evaluate Conditions with stack-specific parameters/defaults and account/region/StackName; validate CREATE, formal types, unique mappings, identifier rows, available observation acquisition contracts, declared Outputs, and duplicate ownership only for active resources. Stop on unresolved, cyclic, or non-boolean Conditions; do not include inactive resources in identifier validation/ownership decisions. Do not automatically add identifier rows; aggregate deficiencies per stack. Absent new templates are not pre-implementation deficiencies; confirm model/placement inputs. For an explicitly requested Stack placement change, an old-template `cfn-logicalId matches=0` established as the exact intended IaC change is an implementation difference, not by itself a Model deficiency. Do not infer ownership from names or physical IDs; all other ambiguous mappings remain blockers. Always rerun strict common validation after implementation and stop if any mismatch remains.
+1. Before implementing existing templates and before finishing generated templates, perform local read-only mapping validation with `python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py observed --environment <environment> --target-directory <target-directory> --stack <StackName>` (repeat `--stack` for each stack). Deployment resolves only resources needed for repair/bootstrap/current Snapshot synchronization. Directly match StackNames/template resource IDs with each resource's `cfn-logicalId`; do not use separate mapping tables. Resource correspondence uses explicit cfn-logicalId and Stack identity. Evaluate Conditions with stack-specific parameters/defaults and account/region/StackName; validate CREATE, formal types, unique mappings, identifier rows, available observation acquisition contracts, declared Outputs, and duplicate ownership only for active resources. Stop on unresolved, cyclic, or non-boolean Conditions; do not include inactive resources in identifier validation/ownership decisions. Do not automatically add identifier rows; aggregate deficiencies per stack. Absent new templates are not pre-implementation deficiencies; confirm model/placement inputs. For an explicitly requested Stack placement change, an old-template `cfn-logicalId matches=0` established as the exact intended IaC change is an implementation difference, not by itself a Model deficiency. Do not infer ownership from names or physical IDs; all other ambiguous mappings remain blockers. Always rerun strict common validation after implementation and stop if any mismatch remains.
 2. Retain local Model/provider-schema and selected template consistency checks. No template lint engine is required.
 3. Do not execute AWS APIs, `aws cloudformation validate-template`, change sets, or deploy/update.
 
@@ -200,7 +200,7 @@ API, Controller, SDK Scheduler/Journal or shared AWS lock participates. Do not a
 a shared backend/interface/state/lock or silently fall back to SDK. AWS CLI's own
 bundled implementation does not authorize importing its Python internals.
 
-New Deploys first use the Worktree Skill's Create and successful Python Setup; the returned root and Task ID are used throughout the Task. Run Deploy-related Python commands through `framework/scripts/worktree/run-python.py` in that Worktree. CLI AWS execution invokes AWS CLI directly and needs no Python SDK.
+New Deploys first use the Worktree Skill's Create and successful Python Setup; the returned root and Task ID are used throughout the Task. Run Deploy-related Python commands through `framework/scripts/run-python.py` in that Worktree. CLI AWS execution invokes AWS CLI directly and needs no Python SDK.
 Existing non-AWS Model/generation/validation/Git utilities remain usable. CLI Task
 completion uses the ordinary `task_contract.py --complete` local validator rather
 than SDK local progress/final-save receipts. Task completion and any later Git integration are separate.
@@ -453,7 +453,7 @@ After the LLM confirms all AWS requests settled and every required observation,
 View and scoped task-loop check succeeded, complete through the local Task validator:
 
 ```sh
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete
 ```
 
 The CLI completion branch uses its selected local Task and scoped Model/View

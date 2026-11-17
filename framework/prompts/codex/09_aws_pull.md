@@ -24,7 +24,7 @@ Do not register a design Task until the final approved AWS values have been rech
 Use the managed Python wrapper when in a managed worktree. Execute the existing comparator:
 
 ```console
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py aws-compare --root . --environment stg --target cde --service s3 --create-only
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py aws-compare --root . --environment stg --target cde --service s3 --create-only
 ```
 
 Replace example arguments with the confirmed target. Explicit/implicit CREATE follows the
@@ -82,7 +82,7 @@ relevant non-secret result. For the example above, `/tmp/pull-evidence.json` con
 Build the offline Review, using the planned Task selector before registering it:
 
 ```console
-python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py pull-review model/stg/cde/iam.properties --candidate /tmp/pull-candidate --task-file tasks/pull-stg-cde-iam.md --evidence /tmp/pull-evidence.json
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py pull-review model/stg/cde/iam.properties --candidate /tmp/pull-candidate --task-file tasks/pull-stg-cde-iam.md --evidence /tmp/pull-evidence.json
 ```
 
 This emits exact serialized Before/After values, identity, source/candidate hashes, scope,

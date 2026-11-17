@@ -627,7 +627,7 @@ def check_model_only_invalid_workflow_registration(tmp_path, workflow):
 
 
 def check_framework_final_classification():
-    source = "framework/scripts/worktree/cli.py"
+    source = "framework/scripts/worktree-cli.py"
     text = (
         "## Task contract\n- Task type: `governance`\n"
         "## Validation scope\n- `framework`\n"

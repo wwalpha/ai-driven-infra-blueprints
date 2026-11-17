@@ -939,7 +939,7 @@ def _check_normal_model_final_candidate(base_change="advance"):
             git(root, "add", "upstream.txt")
             git(root, "commit", "-qm", "advance base")
         latest = git(root, "rev-parse", "HEAD")
-        with mapping_alias(SCRIPT.parents[3], target):
+        with mapping_alias(SCRIPT.parents[2], target):
             with TestCase().assertRaises(wt.NeedsSync):
                 wt.prepare_integration(root, EXAMPLE_TASK_ID)
             assert (
@@ -977,7 +977,7 @@ def check_registered_normal_model_guard():
     relative = "model/dev/123456789012/iam.properties"
     design_path = "docs/designs/dev/123456789012/iam.md"
     with fixture() as root:
-        source = SCRIPT.parents[3]
+        source = SCRIPT.parents[2]
         loop_checks.make_project_fixture(source, root)
         loop_checks.populate("generated_policy", root)
         parameters = root / "infra/cloudformation/parameters/dev/123456789012"
@@ -1085,7 +1085,7 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
             'assert importlib.util.find_spec("pystache") is None; '
             "sys.path.insert(0, sys.argv.pop(1)); "
             "from worktree import worktree_task; raise SystemExit(worktree_task.main())",
-            str(SCRIPT.parent.parent),
+            str(SCRIPT.parent),
             "finalize",
             "--repository-root",
             str(root),
@@ -1684,7 +1684,7 @@ def _check_pr_update_recovery_and_base():
 
     # Exercise the actual snapshot validator using tracked, synthetic project inputs.
     with fixture() as root:
-        source = SCRIPT.parents[3]
+        source = SCRIPT.parents[2]
         shutil.copytree(
             source / "framework",
             root / "framework",
@@ -2213,12 +2213,12 @@ def main():
 def check_framework_final_candidate():
     relative = ".github/workflows/framework-it.yml"
     with fixture() as root:
-        loop_checks.make_project_fixture(SCRIPT.parents[3], root)
+        loop_checks.make_project_fixture(SCRIPT.parents[2], root)
         deploy_skill = Path(".agents/skills/deploy/SKILL.md")
         (root / deploy_skill).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(SCRIPT.parents[3] / deploy_skill, root / deploy_skill)
+        shutil.copyfile(SCRIPT.parents[2] / deploy_skill, root / deploy_skill)
         shutil.copytree(
-            SCRIPT.parents[2],
+            SCRIPT.parents[1],
             root / "framework",
             ignore=shutil.ignore_patterns("__pycache__"),
         )
@@ -2328,7 +2328,7 @@ def check_model_operation_integration():
                 for name in sources:
                     shutil.copyfile(candidate / name, target / name)
                 with (
-                    mapping_alias(SCRIPT.parents[3], target),
+                    mapping_alias(SCRIPT.parents[2], target),
                     patch.object(
                         wt.python_env,
                         "runtime",
@@ -2427,7 +2427,7 @@ def check_model_refactor_integration():
         (target / state["task_file"]).write_text(text)
         task_contract_runtime.refresh(target, state["task_file"])
         with (
-            mapping_alias(SCRIPT.parents[3], target),
+            mapping_alias(SCRIPT.parents[2], target),
             tasks.selected_task(target, state["task_file"]),
         ):
             output = {target / name: (candidate / name).read_text() for name in sources}
