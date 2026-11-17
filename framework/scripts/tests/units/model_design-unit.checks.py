@@ -25,7 +25,7 @@ import validation.design as design_validation
 import validation.design_tables as design_tables
 from design.array_display import compact_tag_rows, indexed_rows
 from design.catalog import DesignSchemaCatalog
-from design.common import catalog_property_order, subnet_list_items
+from design.common import catalog_property_order, cells, subnet_list_items
 from design.document import DesignIndex
 from design.layout import (
     catalog_order_errors,
@@ -984,6 +984,68 @@ def check_athena_configuration_display():
         assert shown == [original[0], expected, *original[2:]], (original, shown)
         restored = formal_property(shown[1], kind)
         assert restored == original[1]
+
+
+def test_catalog_order_preserves_numbered_array_membership():
+    kind = "S3.Bucket"
+    encryption = "BucketEncryption.ServerSideEncryptionConfiguration[]."
+    rules = "LifecycleConfiguration.Rules[]."
+    transitions = rules + "Transitions[]."
+    kms_link = "[alias/test-key](kms.md#kms-test-key)"
+    fields = [
+        ("BucketName", "`fixture`"),
+        ("Region", "`ap-northeast-1`"),
+        (encryption + "ServerSideEncryptionByDefault.SSEAlgorithm", "`aws:kms`"),
+        ("VersioningConfiguration.Status", "`Enabled`"),
+        (encryption + "ServerSideEncryptionByDefault.KMSMasterKeyID", kms_link),
+        (encryption + "BucketKeyEnabled", "`true`"),
+        (rules + "Status", "`Enabled`"),
+        (transitions + "TransitionInDays", "`30`"),
+        (transitions + "StorageClass", "`STANDARD_IA`"),
+        (transitions + "TransitionInDays", "`60`"),
+        (rules + "Status", "`Disabled`"),
+        (rules + "Id", "`next-rule`"),
+    ]
+    source = [
+        [str(number), kind + "." + field, value, "設定 " + str(number)]
+        for number, (field, value) in enumerate(fields, 1)
+    ]
+    ordered = catalog_display_rows(source, kind, ROOT)
+    resource = {"resourceType": kind}
+    shown = model_design.resource_table_lines(resource, "fixture", ordered, [], ROOT)
+    expected = [
+        ("BucketName", 1),
+        ("Region", 2),
+        ("BucketEncryption[1].BucketKeyEnabled", 6),
+        ("BucketEncryption[1].KMSMasterKeyID", 5),
+        ("BucketEncryption[1].SSEAlgorithm", 3),
+        ("LifecycleConfiguration.Rules[1].Status", 7),
+        ("LifecycleConfiguration.Rules[1].Transitions[1].StorageClass", 9),
+        ("LifecycleConfiguration.Rules[1].Transitions[1].TransitionInDays", 8),
+        ("LifecycleConfiguration.Rules[1].Transitions[2].TransitionInDays", 10),
+        ("LifecycleConfiguration.Rules[2].Id", 12),
+        ("LifecycleConfiguration.Rules[2].Status", 11),
+        ("VersioningConfiguration.Status", 4),
+    ]
+    assert shown == row_table(
+        [[str(number), prop, *source[number - 1][2:]] for prop, number in expected]
+    )
+    baseline = model_design.resource_table_lines(
+        resource, "fixture", ordered, [], ROOT, indexed=False
+    )
+    semantic = tuple(row_table(ordered))
+    table = ReferenceTable("", (), tuple(shown), semantic, tuple(baseline))
+    heading = f"### {kind}: fixture"
+    assert expanded_display_rows([heading, *shown], reference_tables=(table,)) == [
+        heading,
+        *semantic,
+    ]
+    assert catalog_order_errors(kind, ordered, ROOT)
+    assert not catalog_order_errors(kind, ordered, ROOT, verified_display=True)
+    wrong = list(shown)
+    wrong[4], wrong[6] = wrong[6], wrong[4]
+    with pytest.raises(ValueError, match="differs from Model expected display"):
+        expanded_display_rows([heading, *wrong], reference_tables=(table,))
 
 
 def catalog_order_case(case):
@@ -2661,21 +2723,24 @@ def test_pipeline_action_catalog_order_and_event_target_display():
     )
     assert catalog_order_errors(kind, rows, ROOT)
     ordered = catalog_display_rows(rows, kind, ROOT)
-    assert not catalog_order_errors(kind, ordered, ROOT)
-    shown = display_rows(kind, ordered, ROOT)
+    assert not catalog_order_errors(kind, ordered, ROOT, verified_display=True)
+    table = model_design.resource_table_lines(
+        {"resourceType": kind}, "fixture", ordered, [], ROOT
+    )
+    shown = [cells(line) for line in table[2:]]
     names = [row[1] for row in shown]
     assert any(
-        row[1] == "Stages[2].Actions.Name" and row[2] == "`next`" for row in shown
+        row[1] == "Stages[2].Actions[1].Name" and row[2] == "`next`" for row in shown
     )
     assert (
         names.index("Stages[1].Actions[1].Name")
         < names.index("Stages[1].Actions[1].Namespace")
-        < names.index("Stages[1].Actions[1].OutputArtifacts[].Name")
+        < names.index("Stages[1].Actions[1].OutputArtifacts[1].Name")
     )
-    assert names.index("Stages[1].Actions[2].InputArtifacts[].Name") < names.index(
+    assert names.index("Stages[1].Actions[2].InputArtifacts[1].Name") < names.index(
         "Stages[1].Actions[2].Name"
     )
-    assert [row[2] for row in shown if row[1].endswith("InputArtifacts[].Name")] == [
+    assert [row[2] for row in shown if ".InputArtifacts[" in row[1]] == [
         "`in-a`",
         "`in-b`",
     ]
@@ -2695,20 +2760,13 @@ def test_pipeline_action_catalog_order_and_event_target_display():
         [str(i), kind + "." + field, "`value`", ""] for i, field in enumerate(fields)
     ]
     ordered = catalog_display_rows(rows, kind, ROOT)
-    assert [row[1].removeprefix(kind + ".") for row in ordered] == [
-        fields[0],
-        fields[1],
-        fields[3],
-        fields[4],
-        fields[2],
+    table = model_design.resource_table_lines(
+        {"resourceType": kind}, "fixture", ordered, [], ROOT
+    )
+    assert [cells(line)[1] for line in table[2:]] == [
+        fields[index].replace("[]", "[1]") for index in (0, 1, 3, 4, 2)
     ]
-    assert [row[1] for row in display_rows(kind, ordered, ROOT)] == [
-        fields[0],
-        fields[1],
-        fields[3],
-        fields[4],
-        fields[2],
-    ]
+
 
 
 if __name__ == "__main__":

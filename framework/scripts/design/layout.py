@@ -561,16 +561,20 @@ def layout_errors(root: Path) -> list[str]:
 
 
 def catalog_order_errors(
-    resource_type: str, rows: list[list[str]], root: Path | None = None
+    resource_type: str,
+    rows: list[list[str]],
+    root: Path | None = None,
+    *,
+    verified_display: bool = False,
 ) -> list[str]:
-    """Compare visible rows with the selection-list order, within each resource."""
+    """Check order not already proven by equality with the numbered projection."""
     root = root or Path(__file__).resolve().parents[3]
     cached_order = catalog_property_order(root, resource_type)
     if cached_order is None:
         return [f"display order catalog is missing: {resource_type}"]
     order = dict(cached_order)
     design.services.codebuild.adjust_display_order(resource_type, order)
-    if resource_type == "CodePipeline.Pipeline":
+    if not verified_display and resource_type == "CodePipeline.Pipeline":
         formal = [
             [
                 row[0],
@@ -585,6 +589,11 @@ def catalog_order_errors(
             return [
                 f"resource rows must follow catalog file order within each action: {resource_type}"
             ]
+    array_order = {}
+    if verified_display:
+        for prop, rank in order.items():
+            if "[]" in prop:
+                array_order.setdefault(prop.split("[]", 1)[0], rank)
     previous = -1
     seen: set[str] = set()
     previous_property = ""
@@ -596,7 +605,7 @@ def catalog_order_errors(
         )
         if prop not in order:
             continue  # Design-only fields and other grouped resources are separate.
-        rank = order[prop]
+        rank = array_order.get(prop.split("[]", 1)[0], order[prop])
         if rank < previous:
             array = prop.split("[]", 1)[0] + "[]" if "[]" in prop else ""
             if (

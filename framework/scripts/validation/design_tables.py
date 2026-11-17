@@ -106,6 +106,7 @@ def check_generated_identifier(
     *,
     findings,
     values=None,
+    verified_display=False,
 ) -> None:
     load_model = _imports_model_files.load_model
     acquired = set()
@@ -176,7 +177,11 @@ def check_generated_identifier(
         "EC2.SecurityGroupIngress",
         "EC2.SecurityGroupEgress",
     }:
-        for error in catalog_order_errors(resource_type, rows):
+        # Formal Model rows retain their source membership. The saved numbered
+        # display already matched the catalog-ordered projection in this case.
+        for error in catalog_order_errors(
+            resource_type, rows, verified_display=verified_display
+        ):
             findings.check(
                 False,
                 f"{findings.relative(path)}: {error}",
@@ -1248,6 +1253,7 @@ def check_design_tables(
                         identifier_outputs,
                         findings=findings,
                         values=values,
+                        verified_display=table_source is not None,
                     )
                     check_required_name_tag(
                         path,

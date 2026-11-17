@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 import re
+from itertools import groupby
 from pathlib import Path
 
 import aws_mapping_display as _imports_aws_mapping_display
@@ -12,7 +13,7 @@ from model.core import LINK, literal
 from utils.input_cache import input_scope, memoized
 
 from design.catalog import DesignSchemaCatalog
-from design.common import code
+from design.common import catalog_property_order, code
 from design.services import cloudtrail, codebuild, codepipeline, guardduty
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -290,6 +291,41 @@ def indexed_rows(rows, kind, root=ROOT):
             )
             result.append([identity, field, item, comment])
     return result
+
+
+def order_array_fields(rows, source, kind, root):
+    """Order fields after numbering has fixed each row's array membership."""
+    order = catalog_property_order(root, kind) or {}
+    array_ranks = {}
+    for prop, rank in order.items():
+        for match in re.finditer(r"\[\]\.", prop):
+            array_ranks.setdefault(prop[: match.end() - 1], rank)
+    formal = {row[0]: row[1] for row in source}
+
+    def key(row):
+        prop = formal.get(row[0])
+        if prop not in order:
+            return ()
+        ancestors = [
+            array_ranks[prop[: match.end() - 1]]
+            for match in re.finditer(r"\[\]\.", prop)
+        ]
+        indexes = re.findall(r"\[([1-9]\d*)\]", row[1])
+        if not ancestors or len(indexes) < len(ancestors):
+            return ()
+        return (
+            *zip(ancestors, map(int, indexes), strict=False),
+            (order[prop], 0),
+        )
+
+    ranked = [(key(row), row) for row in rows]
+    return [
+        row
+        for _, group in groupby(
+            ranked, key=lambda item: item[0][0][0] if item[0] else None
+        )
+        for _, row in sorted(group, key=lambda item: item[0])
+    ]
 
 
 @input_scope
