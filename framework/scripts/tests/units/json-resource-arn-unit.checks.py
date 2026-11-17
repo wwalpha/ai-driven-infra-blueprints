@@ -20,11 +20,19 @@ from json_intrinsics import project_document, validate_document
 from model.format import serialize
 from model.identity import COUNTERS
 from model.operations import prepare_edit, publish_edit, validate_candidates
-from model.projection import execution_document, reference_display
+from model.projection import (
+    execution_document,
+    generated_document,
+    reference_display,
+    reference_resolver,
+)
 from model.render import generate_files
 from model.sources import Scope, SourceWriteContext, load_model, runtime_values
 from model.validations.json_settings import validate_json_settings
 from support.model_design_fixtures import collapsed_json
+from support.model_reference_fixtures import project as reference_project
+from support.model_reference_fixtures import reference
+from support.model_reference_fixtures import save as save_reference
 from sync_runtime import generate_views
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.format import decode_file as decode
@@ -414,6 +422,61 @@ def check_invalid_intrinsic_structure(tmp_path, expression):
     policy[key] = '{"invalid":'
     with pytest.raises(ValueError):
         validate_json_settings(policy, scope.path)
+
+
+def check_resolved_reference_intrinsic_warnings(tmp_path):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        producer, values, consumer, policy = reference_project(tmp_path)
+        values["observed.row.001-001.value"] = (
+            "`arn:aws:kms:ap-northeast-1:123456789012:key/" + KEY + "`"
+        )
+        save_reference(producer, values)
+        expression = {"Fn::Sub": ["${KeyArn}/*", {"KeyArn": reference()}]}
+        key = "desired.row.001-002.document"
+        policy[key] = json.dumps({"Statement": [{"Resource": expression}]})
+        warnings = []
+        validate_json_settings(policy, consumer.path, warnings=warnings)
+        assert not warnings
+        generated = generated_document(
+            expression,
+            tmp_path,
+            resolver=reference_resolver(policy, consumer, tmp_path),
+            scope=consumer,
+            warnings=warnings,
+        )
+        assert generated == (
+            "arn:aws:kms:ap-northeast-1:123456789012:key/" + KEY + "/*"
+        )
+        assert not warnings
+
+        policy[key] = json.dumps({"a/b~": json.dumps({"Resource": expression})})
+        validate_json_settings(policy, consumer.path, warnings=warnings)
+        assert not warnings
+
+        expression["Fn::Sub"][0] = "${KeyArn}/${Unknown}"
+        policy[key] = json.dumps({"Statement": [{"Resource": expression}]})
+        warnings = []
+        validate_json_settings(policy, consumer.path, warnings=warnings)
+        assert any(w["code"] == "json.intrinsic.unresolved" for w in warnings)
+
+        expression["Fn::Sub"][0] = "${KeyArn}/*"
+        expression["Fn::Sub"][1]["KeyArn"] = reference("KMS_Key_999")
+        policy[key] = json.dumps({"Statement": [{"Resource": expression}]})
+        with pytest.raises(ValueError, match="producer logicalId is absent"):
+            validate_json_settings(policy, consumer.path, warnings=[])
+
+        expression["Fn::Sub"][1]["KeyArn"] = reference()
+        values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
+        save_reference(producer, values)
+        policy[key] = json.dumps({"Statement": [{"Resource": expression}]})
+        warnings = []
+        validate_json_settings(policy, consumer.path, warnings=warnings)
+        assert warnings
+
+        expression["Fn::Sub"][0] = 1
+        policy[key] = json.dumps({"Statement": [{"Resource": expression}]})
+        with pytest.raises(ValueError, match="JSON Pointer"):
+            validate_json_settings(policy, consumer.path, warnings=[])
 
 
 def check_api_json_intrinsics():

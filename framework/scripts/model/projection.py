@@ -699,6 +699,30 @@ def reference_context_for(
     return context
 
 
+def _resolved_intrinsic_warning(document, warning, resolutions):
+    value = document
+    pointer = warning["pointer"]
+    for token in pointer.split("/")[1:]:
+        if isinstance(value, str):
+            value = _imports_utils_json_format.policy_json(value)
+        token = token.replace("~1", "/").replace("~0", "~")
+        value = value[int(token)] if isinstance(value, list) else value[token]
+    if isinstance(value, str):
+        value = _imports_utils_json_format.policy_json(value)
+    references = list(nodes(value, pointer))
+    if not references or any(
+        node not in resolutions or resolutions[node].status != "resolved"
+        for node in references
+    ):
+        return False
+    projected = project(value, lambda node: resolutions[node].value, pointer)
+    evaluation_warnings = []
+    result = _imports_json_intrinsics.project_document(
+        projected, warnings=evaluation_warnings, pointer=pointer
+    )
+    return not evaluation_warnings and not list(_pending_document_values(result))
+
+
 def validate_json_documents(
     values,
     model_path,
@@ -753,7 +777,7 @@ def validate_json_documents(
                 pipeline_contexts[number] = configuration_contexts(
                     context_source, number, scope.root
                 )
-            _, row_diagnostics = document_references(
+            resolutions, row_diagnostics = document_references(
                 value,
                 resolver=resolver,
                 scope=scope,
@@ -789,13 +813,20 @@ def validate_json_documents(
                         f"Resource={resource} ({number}), Property={row['property']}, "
                         f"JSON Pointer={pointer!r}; use confirmed AWS values and external desired.reference metadata"
                     )
+            intrinsic_warnings = []
             _imports_json_intrinsics.validate_document(
                 value,
-                warnings=warnings,
+                warnings=intrinsic_warnings,
                 model_path=model_path,
                 logical_id=resource,
                 property_name=row["property"],
             )
+            if warnings is not None:
+                warnings.extend(
+                    warning
+                    for warning in intrinsic_warnings
+                    if not _resolved_intrinsic_warning(value, warning, resolutions)
+                )
 
     try:
         require_reference_diagnostics(diagnostics)
