@@ -117,6 +117,39 @@ def catalog_display_rows(
         order[kind + ".Name"] = -1
     if kind == "S3.Bucket":
         order[kind + ".Region"] = order[kind + ".BucketName"] + 0.5
+    if kind == "CodePipeline.Pipeline":
+        rows = design.services.codepipeline.order_actions(rows, order)
+    if kind == "Events.Rule":
+        # Target membership is inferred from repeated scalar fields, as for array display.
+        start = 0
+        rows = list(rows)
+        while start < len(rows):
+            if not rows[start][1].startswith(kind + ".Targets[]."):
+                start += 1
+                continue
+            end, seen = start, set()
+            while end < len(rows) and rows[end][1].startswith(kind + ".Targets[]."):
+                field = rows[end][1]
+                if field in seen and "[]" not in field.split("Targets[].", 1)[1]:
+                    break
+                seen.add(field)
+                end += 1
+            blocks = []
+            for row in rows[start:end]:
+                nested = row[1].split("Targets[].", 1)[1].split("[]", 1)
+                key = nested[0] if len(nested) > 1 else None
+                if key is not None and blocks and blocks[-1][0] == key:
+                    blocks[-1][1].append(row)
+                else:
+                    blocks.append((key, [row]))
+            rows[start:end] = [
+                row
+                for _, block in sorted(
+                    blocks, key=lambda item: order.get(item[1][0][1], len(order))
+                )
+                for row in block
+            ]
+            start = end
     blocks = []
     previous_array = ""
     array_order = {}

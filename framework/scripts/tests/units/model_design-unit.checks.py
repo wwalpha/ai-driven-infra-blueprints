@@ -2419,10 +2419,13 @@ def check_rotation_inputs():
         path.write_text(output)
 
         hidden_only = {
-            key: value for key, value in rotation_fixture().items()
+            key: value
+            for key, value in rotation_fixture().items()
             if not key.startswith(("desired.row.002-001.", "desired.row.002-002."))
         }
-        rejects(lambda: markdown_for(path, hidden_only, root), "requires a visible property")
+        rejects(
+            lambda: markdown_for(path, hidden_only, root), "requires a visible property"
+        )
 
         metadata = rotation_fixture()
         for key in list(metadata):
@@ -2432,8 +2435,13 @@ def check_rotation_inputs():
                     key
                 )
         for index, (field, value) in enumerate(
-            (("Key", "cryptographicAlgorithm"), ("Value", "RS256"),
-             ("Key", "Key"), ("Value", "true")), 1
+            (
+                ("Key", "cryptographicAlgorithm"),
+                ("Value", "RS256"),
+                ("Key", "Key"),
+                ("Value", "true"),
+            ),
+            1,
         ):
             prefix = f"desired.row.002-{index:03d}."
             metadata.update(
@@ -2612,6 +2620,95 @@ def check_rotation_inputs():
             lambda: markdown_for(path, mismatch, root),
             "grouped formal row does not match parentReference",
         )
+
+
+def test_pipeline_action_catalog_order_and_event_target_display():
+    kind = "CodePipeline.Pipeline"
+    fields = [
+        ("ActionTypeId.Category", "Source"),
+        ("Name", "source"),
+        ("OutputArtifacts[].Name", "out-a"),
+        ("Namespace", "Vars"),
+        ("RunOrder", "1"),
+        ("ActionTypeId.Category", "Deploy"),
+        ("Name", "deploy"),
+        ("InputArtifacts[].Name", "in-a"),
+        ("InputArtifacts[].Name", "in-b"),
+        ("Configuration", '{"Key":"value"}'),
+        ("RunOrder", "2"),
+    ]
+    rows = [
+        [
+            str(i),
+            kind + ".Stages[].Actions[]." + field,
+            "`" + value + "`",
+            "Key: comment" if field == "Configuration" else "",
+        ]
+        for i, (field, value) in enumerate(fields)
+    ]
+    rows.append(["stage", kind + ".Stages[].Name", "`stage`", ""])
+    rows.extend(
+        [
+            [
+                "next-category",
+                kind + ".Stages[].Actions[].ActionTypeId.Category",
+                "`Source`",
+                "",
+            ],
+            ["next-name", kind + ".Stages[].Actions[].Name", "`next`", ""],
+            ["next-stage", kind + ".Stages[].Name", "`next-stage`", ""],
+        ]
+    )
+    assert catalog_order_errors(kind, rows, ROOT)
+    ordered = catalog_display_rows(rows, kind, ROOT)
+    assert not catalog_order_errors(kind, ordered, ROOT)
+    shown = display_rows(kind, ordered, ROOT)
+    names = [row[1] for row in shown]
+    assert any(
+        row[1] == "Stages[2].Actions.Name" and row[2] == "`next`" for row in shown
+    )
+    assert (
+        names.index("Stages[1].Actions[1].Name")
+        < names.index("Stages[1].Actions[1].Namespace")
+        < names.index("Stages[1].Actions[1].OutputArtifacts[].Name")
+    )
+    assert names.index("Stages[1].Actions[2].InputArtifacts[].Name") < names.index(
+        "Stages[1].Actions[2].Name"
+    )
+    assert [row[2] for row in shown if row[1].endswith("InputArtifacts[].Name")] == [
+        "`in-a`",
+        "`in-b`",
+    ]
+    assert any(
+        row[1].endswith("Configuration.Key") and row[2] == "`value`" for row in shown
+    )
+
+    kind = "Events.Rule"
+    fields = [
+        "Targets[].Arn",
+        "Targets[].Id",
+        "Targets[].RoleArn",
+        "Targets[].InputTransformer.InputPathsMap",
+        "Targets[].InputTransformer.InputTemplate",
+    ]
+    rows = [
+        [str(i), kind + "." + field, "`value`", ""] for i, field in enumerate(fields)
+    ]
+    ordered = catalog_display_rows(rows, kind, ROOT)
+    assert [row[1].removeprefix(kind + ".") for row in ordered] == [
+        fields[0],
+        fields[1],
+        fields[3],
+        fields[4],
+        fields[2],
+    ]
+    assert [row[1] for row in display_rows(kind, ordered, ROOT)] == [
+        fields[0],
+        fields[1],
+        fields[3],
+        fields[4],
+        fields[2],
+    ]
 
 
 if __name__ == "__main__":

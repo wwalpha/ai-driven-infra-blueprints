@@ -570,6 +570,21 @@ def catalog_order_errors(
         return [f"display order catalog is missing: {resource_type}"]
     order = dict(cached_order)
     design.services.codebuild.adjust_display_order(resource_type, order)
+    if resource_type == "CodePipeline.Pipeline":
+        formal = [
+            [
+                row[0],
+                row[1]
+                if row[1].startswith(resource_type + ".")
+                else resource_type + "." + row[1],
+                *row[2:],
+            ]
+            for row in rows
+        ]
+        if design.services.codepipeline.order_actions(formal, order) != formal:
+            return [
+                f"resource rows must follow catalog file order within each action: {resource_type}"
+            ]
     previous = -1
     seen: set[str] = set()
     previous_property = ""

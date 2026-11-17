@@ -70,6 +70,44 @@ def pipeline_membership(rows: list[list[str]]) -> list[list[str]]:
     return result + trailing
 
 
+def action_groups(rows):
+    """Identify action membership before changing the authored row order."""
+    formal = [[r[0], r[1].removeprefix("CodePipeline.Pipeline."), *r[2:]] for r in rows]
+    groups = {}
+    for identity, field, *_ in pipeline_membership(formal):
+        match = CODEPIPELINE_STAGE.fullmatch(field)
+        if match and field.startswith(f"Stages[{match.group(1)}].Actions"):
+            groups[identity] = (int(match.group(1)), int(match.group(2) or 1))
+    return groups
+
+
+def order_actions(rows, order):
+    groups = action_groups(rows)
+    result = []
+    index = 0
+    while index < len(rows):
+        group = groups.get(rows[index][0])
+        if group is None:
+            result.append(rows[index])
+            index += 1
+            continue
+        block = []
+        while index < len(rows) and groups.get(rows[index][0]) == group:
+            row = rows[index]
+            nested = row[1].split("Actions[].", 1)[1].split("[]", 1)
+            key = nested[0] if len(nested) > 1 else None
+            if key is not None and block and block[-1][0] == key:
+                block[-1][1].append(row)
+            else:
+                block.append((key, [row]))
+            index += 1
+        for _, members in sorted(
+            block, key=lambda item: order.get(item[1][0][1], len(order))
+        ):
+            result.extend(members)
+    return result
+
+
 def _selection_membership(items):
     formal = [
         [row[0], row[1].removeprefix("CodePipeline.Pipeline."), *row[2:]]
