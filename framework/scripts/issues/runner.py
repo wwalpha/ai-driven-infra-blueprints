@@ -11,9 +11,10 @@ from contracts.repository import DESIGNS_DIRECTORY
 from contracts.validation import VALIDATION_FAIL, VALIDATION_PASS
 from model.core import ReferenceResolutionError
 from model.references import codebuild_reference_errors
+from model.sources import load_model
 from model.validations.naming import NamingRuleIndex
 from task_contract_core import task_read_scope
-from utils.input_cache import input_scope
+from utils.input_cache import input_scope, input_text
 from utils.reference_contracts import reference_error
 from validation import runner as validator_module
 from validation.diagnostics import Diagnostic
@@ -28,6 +29,8 @@ from .inputs import Comparison, view_text
 from .integrity import selected_scope, target_services
 from .materials import naming_materials
 from .ownership import resolve
+from .policy_json import CHECK_ID as POLICY_JSON_CHECK
+from .policy_json import MARKERS, POLICY_SERVICES, check_saved_policy_json
 from .records import identifier, safe_text
 from .review import human_confirmations, naming_decision
 
@@ -44,6 +47,7 @@ def mechanical(
     validator_out=None,
     view_errors=None,
     view_reader=None,
+    policy_json_views=None,
 ):
     """Run service diagnostics without PASS caches, contract/deploy or full-loop checks."""
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -75,9 +79,49 @@ def mechanical(
             ("mechanical.iac-selection", validator.check_iac_selection),
         ):
             validator.findings.evaluate(check_id, scope, handler, isolate=True)
+        for entry in sorted(scope):
+            if entry[2] in POLICY_SERVICES:
+                validator.findings.evaluate(
+                    POLICY_JSON_CHECK,
+                    {entry},
+                    partial(
+                        saved_policy_json,
+                        root,
+                        entry,
+                        validator.findings,
+                        view_errors,
+                        view_reader,
+                        policy_json_views,
+                    ),
+                    isolate=True,
+                )
     if warnings is not None:
         warnings.extend(validator.warnings)
     return validator.errors, validator.checks, output.getvalue()
+
+
+def saved_policy_json(root, entry, findings, view_errors, view_reader, policy_json_views):
+    environment, directory, service = entry
+    doc = root / DESIGNS_DIRECTORY / environment / directory / (service + ".md")
+    if not doc.is_file() or doc in (view_errors or {}):
+        return {"complete": False, "reason": "saved View unavailable"}
+    text = (
+        view_reader(doc, phase=POLICY_JSON_CHECK)
+        if view_reader is not None
+        else input_text(doc, encoding="utf-8")
+    )
+    if text is None:
+        return {"complete": False, "reason": "saved View unavailable"}
+    if not any(marker in text for marker in MARKERS):
+        return
+    model = root / "model" / environment / directory / (service + ".properties")
+    if not model.is_file():
+        return {"complete": False, "reason": "Model unavailable"}
+    filtered = check_saved_policy_json(
+        text, load_model(model).authoritative, doc, entry, findings
+    )
+    if policy_json_views is not None and filtered != text:
+        policy_json_views[doc] = text, filtered
 
 
 @contextmanager
@@ -88,7 +132,7 @@ def scan_stage(findings, phase, scope):
         findings.processing_failure(phase, scope, error)
 
 
-def review_materials(comparison, service):
+def review_materials(comparison, service, policy_json_views=None):
     doc = (
         comparison.root
         / DESIGNS_DIRECTORY
@@ -101,6 +145,9 @@ def review_materials(comparison, service):
     text = view_text(comparison, doc, phase="review-prose")
     if text is None:
         return []
+    verified = (policy_json_views or {}).get(doc)
+    if verified is not None and text == verified[0]:
+        text = verified[1]
     # Only notes/implementation prose remains; verified tables are not repeated.
     known_notes = (
         {
@@ -379,6 +426,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4, progres
         progress.stage("mechanical")
     begin = time.perf_counter()
     validators = []
+    policy_json_views = {}
     try:
         errors, _, diagnostics = mechanical(
             root,
@@ -390,6 +438,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4, progres
             validator_out=validators,
             view_errors=comparison.view_errors,
             view_reader=partial(view_text, comparison),
+            policy_json_views=policy_json_views,
         )
     except Exception as error:
         if not validators:
@@ -446,7 +495,9 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4, progres
         with scan_stage(
             stages, "materials.review-prose", {(environment, directory, service)}
         ):
-            notes = review_materials(comparison, service)
+            notes = review_materials(
+                comparison, service, policy_json_views=policy_json_views
+            )
             if notes:
                 judgments.append(
                     {

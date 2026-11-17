@@ -16,7 +16,12 @@ diagnostic and its ID in the artifact; ordinary Markdown retains every Issue and
 retain their concrete reason and scope as FAIL. Proven pending deployment has its own View generation state. Validate Model inputs and typed references
 independently; retain existing Markdown link destination/anchor,
 resource identity/ownership/naming, schema, CodeBuild PLAINTEXT policy and Model/IaC
-checks. Markdown generation/synchronization and the shared Validator's default
+checks. Strictly parse saved IAM and S3 policy JSON inside generated markers when
+its anchor uniquely identifies a Model policy row. Report malformed JSON with its
+View location. Omit verified JSON bodies from LLM review for the same saved View
+content, preserving other JSON and design notes. Use the corresponding Model policy
+and design rationale for permission judgments. Markdown generation/synchronization
+and the shared Validator's default
 `check_display=True` retain strict equality. Never repair Model/IaC, call AWS, deploy or
 start another phase from issues execution.
 

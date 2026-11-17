@@ -958,13 +958,31 @@ def collapse_json_cells(rows, anchor_prefix, cells, documents, presentation):
 
 def document_views(values, documents):
     """Retain policy labels and anchors previously shown in generated designs."""
+    return {
+        rid: (
+            anchor,
+            title,
+            summary,
+            _imports_policy_tables.order_policy_statements(
+                documents[rid], values[f"desired.row.{rid}.property"]
+            ),
+            link_label,
+        )
+        for rid, (anchor, title, summary, link_label) in document_view_labels(
+            values, documents
+        ).items()
+    }
+
+
+def document_view_labels(values, document_ids):
+    """Derive generated JSON anchors and labels from Model rows alone."""
     policy_tables = _imports_policy_tables
     result = {}
     rows_by_resource = _imports_model_files.resource_row_index(values)
     for identity, resource in entries(values, "desired.resource."):
         rows = rows_by_resource[identity]
         for position, (rid, row) in enumerate(rows):
-            if rid not in documents:
+            if rid not in document_ids:
                 continue
             prop = row["property"]
             label, target = policy_tables.JSON_LINK.fullmatch(row["value"]).groups()
@@ -998,7 +1016,6 @@ def document_views(values, documents):
                 f"{resource['anchor']}-{suffix}",
                 f"{kind}：{label}",
                 Path(label).stem,
-                policy_tables.order_policy_statements(documents[rid], prop),
                 link_label,
             )
     return result

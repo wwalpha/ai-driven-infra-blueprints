@@ -2972,6 +2972,114 @@ def check_six_categories_and_comparison_priority():
         assert comparison_status(counts) == expected
 
 
+@pytest.mark.parametrize("service", ["iam", "s3"])
+@pytest.mark.parametrize(
+    "replacement",
+    [None, '"Version":,', '"Version": NaN,', '"Version": "a", "Version": "b",'],
+)
+def check_saved_policy_json_in_issues(
+    tmp_path, service, replacement, scan_without_lint_worker
+):
+    """The scan diagnoses saved syntax and retains unverified JSON and prose."""
+    fixture = _exports_support_issues_scan_fixtures
+    fixture.fixture(tmp_path, services=("s3",))
+    model = tmp_path / f"model/dev/123456789012/{service}.properties"
+    if service == "iam":
+        values = {
+            "desired.service.iam.serviceId": "iam",
+            "desired.service.iam.ownedCatalogResourceTypes": "IAM.Role",
+            "display.service.title": "# IAM",
+            "desired.service.identity.lastAllocated": '{"IAM.Role":1}',
+            "desired.resource.001.resourceType": "IAM.Role",
+            "desired.resource.001.resourceMode": "IMPORT",
+            "desired.resource.001.logicalId": "IAM_Role_001",
+            "desired.resource.001.anchor": "fixture-role",
+            "display.resource.001.comment": "Imported role",
+            "desired.row.001-001.property": "IAM.Role.RoleName",
+            "desired.row.001-001.value": "`fixture-role`",
+            "desired.row.001-001.comment": "Role name",
+        }
+        property_name = "IAM.Role.AssumeRolePolicyDocument"
+        statement = {
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Principal": {"Service": "lambda.amazonaws.com"},
+        }
+    else:
+        values = dict(real_load(model).authoritative)
+        values["desired.service.s3.ownedCatalogResourceTypes"] = (
+            "S3.Bucket,S3.BucketPolicy"
+        )
+        property_name = "S3.BucketPolicy.PolicyDocument"
+        statement = {
+            "Effect": "Deny",
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::bucket-app-dev-data1/*",
+            "Principal": "*",
+        }
+    values.update(
+        {
+            "desired.row.001-900.property": property_name,
+            "desired.row.001-900.value": f"[Policy]({service}/policy.json)",
+            "desired.row.001-900.comment": "Policy document",
+            "desired.row.001-900.document": json.dumps(
+                {"Version": "2012-10-17", "Statement": [statement]}
+            ),
+        }
+    )
+    fixture.write_model(model, values)
+    view = tmp_path / f"docs/designs/dev/123456789012/{service}.md"
+    generated = fixture.markdown_for(view, values, tmp_path)
+    policy_version = '"Version": "2012-10-17",'
+    assert generated.count(policy_version) == 1
+    saved_version = replacement or '"Version": "2008-10-17",'
+    text = generated.replace(policy_version, saved_version)
+    # A generated envelope without Model correspondence must stay available.
+    unknown = (
+        '<a id="unbound-json"></a>\n\n#### JSON\n\n<details>\n'
+        '<summary>example</summary>\n\n```json\n{"unbound": true}\n```\n\n</details>\n\n'
+    )
+    end_marker = (
+        "<!-- iam-policy-tables:end -->"
+        if service == "iam"
+        else "<!-- policy-tables:end -->"
+    )
+    assert end_marker in text
+    text = text.replace(end_marker, unknown + end_marker, 1)
+    text += '\nDesign rationale\n\n```json\n{"example": true}\n```\n'
+    view.parent.mkdir(parents=True, exist_ok=True)
+    view.write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
+
+    artifact = scan_runner.scan(tmp_path, "dev", "123456789012", [service], jobs=1)
+    diagnostics = [
+        issue["diagnostic"]
+        for issue in artifact["ordinary"]
+        if issue.get("diagnostic", {}).get("code") == "design.policy-json.invalid"
+    ]
+    assert len(diagnostics) == (replacement is not None)
+    check = next(
+        item
+        for item in artifact["check_results"]
+        if item["check_id"] == "design.saved-policy-json"
+    )
+    assert check["checks"] == 1 and check["complete"]
+    assert check["status"] == ("PASS" if replacement is None else "FAIL")
+    materials = next(
+        item["materials"]
+        for item in artifact["judgments"]
+        if item["kind"] == "nonmechanical-design-prose"
+    )
+    assert {"Design rationale", '{"example": true}', '{"unbound": true}'} <= set(
+        materials
+    )
+    assert any(saved_version in line for line in materials) == (replacement is not None)
+    if diagnostics:
+        assert (
+            f"docs/designs/dev/123456789012/{service}.md:" in diagnostics[0]["message"]
+        )
+        assert diagnostics[0]["location"].startswith("#")
+
+
 def check_model_indexed_property_mechanical(tmp_path):
     fixture = _exports_support_issues_scan_fixtures
     fixture.fixture(tmp_path, services=("s3",))
