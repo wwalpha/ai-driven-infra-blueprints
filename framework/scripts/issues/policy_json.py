@@ -6,12 +6,12 @@ from collections import Counter
 
 from design.layout_schema import ANCHOR
 from design.policy_tables import END, IAM_END, IAM_POLICY_DOCUMENTS, IAM_START, START
-from model import ModelView
 from model.render import document_view_labels
 from utils.json_format import strict_json
 from utils.markdown_format import markdown_prose
 from validation.diagnostics import Diagnostic
 
+from model import ModelView
 
 CHECK_ID = "design.saved-policy-json"
 POLICY_SERVICES = {"iam", "s3"}
