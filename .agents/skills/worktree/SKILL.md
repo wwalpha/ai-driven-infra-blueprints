@@ -36,7 +36,7 @@ Standard lifecycle: Create and setup → Execute → Validate → Local FF Merge
 From the current repository root:
 
 ```console
-python3 -B framework/scripts/worktree_task.py create --task-name <task-name>
+python3 -B framework/scripts/worktree/cli.py create --task-name <task-name>
 ```
 
 Task names follow the existing lower-kebab-case rule. Each create generates a Task ID by appending a random six-digit suffix, including leading zeroes. The helper checks only that candidate’s lifecycle state, branch, Worktree path, Task contract and Git registration under the lifecycle lock. It tries up to 20 candidates and stops on any error other than a confirmed collision. The helper resolves the base from repository-local `blueprint.baseBranch`, otherwise the existing `origin/HEAD` symbolic default, then local `main`, then `master`. A configured but absent local branch stops creation. It neither fetches/pulls nor creates a missing base or uses the current feature branch as a fallback.
@@ -49,7 +49,7 @@ The existing per-task setup lock remains. A separate `<primary>/.worktrees/.blue
 
 ### Explicit shared Python maintenance
 
-The primary checkout’s requirements are the unique canonical source for all shared installs and verification. An older worktree may omit new primary packages; different requested versions or worktree-only packages raise a conflict before installation. Reconcile and merge requirements into primary before use; never install a task worktree’s requirements into the shared environment. Helpers predating this policy must be updated through the normal Git workflow before use; older setup code cannot enforce this guard. Stop all running Tasks and Python children before changing canonical requirements or explicit maintenance: changing the shared environment affects every Task. The setup lock serializes installers and waiting launchers, but cannot protect Python processes already running when an update begins. Requirements changes synchronize automatically; Python interpreter changes and rebuilds require explicit maintenance. To rebuild a broken/completed environment, the operator must first review and preserve the old fixed directory outside the worktree/metadata tree, then run ordinary `worktree_task.py setup --task-id <existing-unmerged-task>` to build at the original fixed path. Do not run a relocated old venv. No lifecycle/cleanup command updates or deletes the shared environment. Setup failure before completion retains the owned partial directory for a setup retry; unknown directories/locks require operator review, never automatic deletion.
+The primary checkout’s requirements are the unique canonical source for all shared installs and verification. An older worktree may omit new primary packages; different requested versions or worktree-only packages raise a conflict before installation. Reconcile and merge requirements into primary before use; never install a task worktree’s requirements into the shared environment. Helpers predating this policy must be updated through the normal Git workflow before use; older setup code cannot enforce this guard. Stop all running Tasks and Python children before changing canonical requirements or explicit maintenance: changing the shared environment affects every Task. The setup lock serializes installers and waiting launchers, but cannot protect Python processes already running when an update begins. Requirements changes synchronize automatically; Python interpreter changes and rebuilds require explicit maintenance. To rebuild a broken/completed environment, the operator must first review and preserve the old fixed directory outside the worktree/metadata tree, then run ordinary `framework/scripts/worktree/cli.py setup --task-id <existing-unmerged-task>` to build at the original fixed path. Do not run a relocated old venv. No lifecycle/cleanup command updates or deletes the shared environment. Setup failure before completion retains the owned partial directory for a setup retry; unknown directories/locks require operator review, never automatic deletion.
 
 The selected environment's WeasyPrint package is version-checked, but its import/native library check is deferred to PDF export. PDF-free Model/Markdown/issue tasks require no GTK/Pango/GObject setup. Core imports and pip check block initial completion and post-install verification; unchanged-hash reuse does not rescan dependencies. See [PDF dependencies](../../../README.md#pdf-dependencies) for PDF checks and Windows DLL lookup. No optional requirements file or setup skip flag is needed.
 
@@ -58,7 +58,7 @@ The helper returns JSON containing `task_name`, `task_id`, `worktree`, `branch`,
 Setup failure returns exit 1 / `status: blocked`, with `python_setup.status: failed` and an error, preserving Git worktree, branch and task state. Report the returned Task ID and retained resources. For explicit shared Python maintenance, use the ordinary Python 3 launcher from a surviving repository root:
 
 ```console
-python3 -B framework/scripts/worktree_task.py setup --task-id <task-id>
+python3 -B framework/scripts/worktree/cli.py setup --task-id <task-id>
 ```
 
 Setup is idempotent and serializes the same task's setup. It reuses the completed shared environment or finishes initial setup after releasing the Git lifecycle lock. Permission denials follow the same inspection/native approval policy as create. Retained setup locks require review; never delete them automatically. A failed or interrupted setup cannot enter normal task execution or integration.
@@ -70,7 +70,7 @@ On Windows, run setup from the surviving checkout containing the updated helper.
 For every Python task/check/loop command in the returned worktree, use the common wrapper, even in a fresh shell. It selects the worktree's registered ready shared Interpreter and prepends its bin directory to PATH; subprocesses using `sys.executable` and Python CLIs inherit the same environment. Missing, failed or stale setup blocks execution. The JSON `python_setup.interpreter` path can also be used directly, but the wrapper additionally sets PATH for CLI resolution; new worktrees reuse the same completed environment without package verification when the requirements hash matches.
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --source <external-contract>
+python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --source <external-contract>
 ```
 
 ### Contract and validation
@@ -103,8 +103,8 @@ For infrastructure/implement, use the child workflow’s `--complete-on-pass` fi
 Finish all requested work and all required inputs/approvals under the child's existing workflow. Proceed only after successful final validation selected by [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy) and all other mandatory completion conditions:
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete
-python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id>
+python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete
+python3 -B framework/scripts/worktree/cli.py finalize --task-id <task-id>
 ```
 
 If validation fails, report the concrete failures and retain the candidate and contract. Outside the Model-only/Framework final-candidate path, `finalize` requires a completed contract. It rejects unfinished Git operations and unexpected branch commits, then stages only exact non-ignored Task paths. Normal commits use `task(<task-id>): completed task`. Zero changes create no empty commit.
@@ -132,8 +132,8 @@ It checks that the clean primary checkout holds the local base and the candidate
 An ordinary local finalize may return exit 0 with `status: needs_sync` and the newer base SHA in `base`. PR creation and updates do not require base synchronization. This is a continuation request, not Validation PASS or Task suspension. Inspect the exact Task, candidate, base history, relevant diff and Sandbox permissions before the appropriate operation:
 
 ```console
-python3 -B framework/scripts/worktree_task.py sync-latest-base --task-id <task-id> --expected-base <reviewed-local-base-sha>
-python3 -B framework/scripts/worktree_task.py pr-sync-base --task-id <task-id> --expected-base <reviewed-remote-base-sha>
+python3 -B framework/scripts/worktree/cli.py sync-latest-base --task-id <task-id> --expected-base <reviewed-local-base-sha>
+python3 -B framework/scripts/worktree/cli.py pr-sync-base --task-id <task-id> --expected-base <reviewed-remote-base-sha>
 ```
 
 The local operation is for ordinary running/completed Tasks; the PR operation is for the same published PR and Worktree. The local operation replays only the proven linear Task history from its recorded boundary onto the reviewed local base, including a rewritten base, changing commit SHAs. Git combines nonconflicting changes even in the same file; changes already present in the base are not applied twice. A real conflict retains the Task candidate for review; merge histories that cannot be proven safe stop for review. A Task with no changes does not need to be redone when the base changes. The PR operation retains history with a Git merge. Both return `needs_validation` after a new candidate is prepared. An unchanged local base returns `ok` without a new candidate. A failed or unfinished rebase, an unknown outcome, or a changed Task or HEAD retains the Worktree for review; never automatically abort or reset it. A retained incomplete local sync stops for review. The PR operation checks GitHub and Git refs, published HEAD and intent; it fetches the target base without changing local master or pushing. An uncertain push requires review of the recorded and remote HEADs before synchronization. For a published PR whose GitHub conflict requires resolution, explicitly select `pr-sync-base` for the reviewed remote base. If its merge conflicts, retain the recorded merge, resolve and commit the conflict in the same worktree, then retry the same command. The helper verifies both merge parents and the Task scope against that base, then requires validation before `pr-update`. Unexpected HEAD or inconsistent state stops for review; do not reset, force push or edit lifecycle metadata.
@@ -143,13 +143,13 @@ After synchronization, the LLM reviews the inherited changes and selects and run
 ## Explicit PR publication
 
 When the Human explicitly requests a Pull Request, select its mode after Task registration
-and before Task validation with `python3 -B framework/scripts/worktree_task.py pr-select --task-id <task-id>`.
+and before Task validation with `python3 -B framework/scripts/worktree/cli.py pr-select --task-id <task-id>`.
 This records the existing PR mode without checking or synchronizing the base, committing,
 or publishing. It lets Task validation use its recorded Task baseline even if the base
 history changes before finalize. It does not select PR mode for a task that merely changes
 PR support. For a Task already selected as PR, retrying selection is idempotent.
 
-Use `python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id> --create-pr`
+Use `python3 -B framework/scripts/worktree/cli.py finalize --task-id <task-id> --create-pr`
 only when the Human explicitly requests a Pull Request. A feature implementation request
 about PR support is not itself a request to publish that Task as a PR. Default finalize
 retains FF Merge → Cleanup. Append `--draft` to create a Draft PR; without it creation remains a normal PR. Re-running finalize never changes an existing PR's Draft/Ready state. `--draft` requires `finalize --create-pr`.
@@ -188,13 +188,13 @@ These operations are Git tools; the caller chooses their timing and order. They 
 reviewer, external orchestrator, Task archive, watcher or scheduled workflow.
 
 ```console
-python3 -B framework/scripts/worktree_task.py pr-update --task-id <task-id>
-python3 -B framework/scripts/worktree_task.py pr-ready --task-id <task-id>
-python3 -B framework/scripts/worktree_task.py pr-draft --task-id <task-id>
-python3 -B framework/scripts/worktree_task.py pr-merge --task-id <task-id> --merge-method squash
-python3 -B framework/scripts/worktree_task.py pr-status --task-id <task-id>
-python3 -B framework/scripts/worktree_task.py pr-close --task-id <task-id>
-python3 -B framework/scripts/worktree_task.py pr-close --pr <number-or-url>
+python3 -B framework/scripts/worktree/cli.py pr-update --task-id <task-id>
+python3 -B framework/scripts/worktree/cli.py pr-ready --task-id <task-id>
+python3 -B framework/scripts/worktree/cli.py pr-draft --task-id <task-id>
+python3 -B framework/scripts/worktree/cli.py pr-merge --task-id <task-id> --merge-method squash
+python3 -B framework/scripts/worktree/cli.py pr-status --task-id <task-id>
+python3 -B framework/scripts/worktree/cli.py pr-close --task-id <task-id>
+python3 -B framework/scripts/worktree/cli.py pr-close --pr <number-or-url>
 ```
 
 `pr-update` prepares and validates a descendant candidate in the same Task/Worktree.
@@ -231,7 +231,7 @@ Use `branch-delete --branch codex/worktree/<task-id>` only for one explicitly na
 
 ## Reviewed fresh governance base sync
 
-When explicitly asked to merge the latest local base before tests in a fresh governance Task, read that exact base diff and reconcile overlapping uncommitted candidates first. With an unstaged index and no Task commits, use `worktree_task.py sync-base --task-id <task-id> --expected-base <full-reviewed-base-hash>`. A Task that selected PR mode but has no publication record or verified candidate may use the same operation under the PR publication lock; it retains PR mode, and any recorded publication or update remains blocked. It preserves exact reviewed candidates/deletions in external backups, fast-forwards only the proven named base, restores candidates, and records the inherited validation base without completing/committing the Task. Existing start history is retained. Subsequent proven base advances use the same procedure; unexpected commits, scope changes or unknown dirty bytes stop. An interrupted sync preserves its intent and backups and stops for review. Reconcile upstream changes in overlapping candidates before invocation; preservation alone does not prove a semantic merge.
+When explicitly asked to merge the latest local base before tests in a fresh governance Task, read that exact base diff and reconcile overlapping uncommitted candidates first. With an unstaged index and no Task commits, use `framework/scripts/worktree/cli.py sync-base --task-id <task-id> --expected-base <full-reviewed-base-hash>`. A Task that selected PR mode but has no publication record or verified candidate may use the same operation under the PR publication lock; it retains PR mode, and any recorded publication or update remains blocked. It preserves exact reviewed candidates/deletions in external backups, fast-forwards only the proven named base, restores candidates, and records the inherited validation base without completing/committing the Task. Existing start history is retained. Subsequent proven base advances use the same procedure; unexpected commits, scope changes or unknown dirty bytes stop. An interrupted sync preserves its intent and backups and stops for review. Reconcile upstream changes in overlapping candidates before invocation; preservation alone does not prove a semantic merge.
 
 ## Task Acceptance with unrelated Model FAILs
 

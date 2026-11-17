@@ -357,7 +357,7 @@ def violations(tests):
         forbidden[module] = {
             name
             for name in imports
-            if name.startswith("worktree_") or name in WORKTREE_SUPPORT
+            if name.startswith(("worktree_", "worktree.")) or name == "worktree" or name in WORKTREE_SUPPORT
         }
     for module, path in modules.items():
         relative = path.relative_to(tests).as_posix()
@@ -390,15 +390,15 @@ def forbidden_process(command):
     if not isinstance(command, (list, tuple)):
         return bool(
             re.search(
-                r"git\s+worktree\s+(?:add|remove|move|prune|repair|lock|unlock)|worktree_task\.py",
+                r"git\s+worktree\s+(?:add|remove|move|prune|repair|lock|unlock)|worktree_task\.py|worktree/cli\.py",
                 str(command),
             )
         )
     words = [str(word) for word in command]
     if any(
-        Path(word).name == "worktree_task.py"
+        Path(word).name == "worktree_task.py" or word.replace("\\", "/").endswith("worktree/cli.py")
         or re.search(
-            r"(?:import|from) (?:support\.)?worktree_(?:task|state|python|runtime)",
+            r"(?:import|from) (?:(?:support\.)?worktree_|worktree(?:\.worktree_| import worktree_))(?:task|state|python|runtime|pr)",
             word,
         )
         for word in words

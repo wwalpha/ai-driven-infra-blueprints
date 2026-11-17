@@ -18,15 +18,15 @@ from unittest.mock import patch
 import pytest
 import task_contract_core as tasks
 import task_contract_runtime as task_runtime
-import worktree_task as wt
 from support.repository_fixtures import contract as contract
+from worktree import worktree_task as wt
 
 from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-SCRIPT = Path(__file__).resolve().parents[2] / "worktree_task.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "worktree/cli.py"
 
 
 @contextmanager
@@ -64,7 +64,7 @@ def cli(root, command, task_id=EXAMPLE_TASK_ID, success=True, *, suffix=None):
             "-B",
             "-c",
             "import sys; from unittest.mock import patch; "
-            f"sys.path.insert(0, {str(SCRIPT.parent)!r}); import worktree_task as wt; "
+            f"sys.path.insert(0, {str(SCRIPT.parent.parent)!r}); from worktree import worktree_task as wt; "
             "p=patch.object(wt.python_env, 'setup', return_value={'status':'ready'}); p.start(); "
             + (f"patch.object(wt.secrets, 'randbelow', return_value={suffix}).start(); " if suffix is not None else "")
             + "raise SystemExit(wt.main())",

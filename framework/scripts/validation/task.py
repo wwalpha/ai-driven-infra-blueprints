@@ -8,7 +8,6 @@ from pathlib import Path
 import import_guard as _imports_import_guard
 import model.importing.repository as repository
 import model.observed as _imports_model_observed
-import worktree_state
 from contracts.repository import PROJECT_FILENAME
 from contracts.validation import VALIDATION_PASS
 from model.core import properties as properties
@@ -28,6 +27,7 @@ from utils.git_changes import GitWorkingPaths, collect_working_paths, read_paths
 from utils.input_cache import input_text
 from validation import acceptance
 from validation.scenario import audit_log_address
+from worktree import worktree_state
 
 
 class TaskValidation:

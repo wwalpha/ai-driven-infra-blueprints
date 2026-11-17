@@ -24,7 +24,6 @@ from types import SimpleNamespace
 import task_contract_core as _imports_task_contract
 import task_contract_runtime
 import validation.runner as _imports_validation_runner
-import worktree_state
 from task_contract_core import (
     SELECTOR,
     issues_save_only,
@@ -35,6 +34,7 @@ from task_contract_core import (
 from utils.aws_mappings import definition_root
 from utils.git_changes import collect_working_paths
 from validation_scope import active_scope
+from worktree import worktree_state
 
 
 class StartupDiagnostics:

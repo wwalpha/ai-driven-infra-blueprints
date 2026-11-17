@@ -2,7 +2,6 @@
 
 import json
 
-import worktree_state
 from contracts.repository import PROJECT_FILENAME
 from contracts.validation import VALIDATION_FAIL
 from task_contract_core import (
@@ -15,6 +14,7 @@ from task_contract_core import (
 )
 from utils.json_format import document_sha256
 from utils.source_reads import FileReads
+from worktree import worktree_state
 
 from model import change_plan, references, sources
 

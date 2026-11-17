@@ -3,6 +3,7 @@
 
 import io
 import shlex
+import subprocess
 import sys
 import threading
 import time
@@ -98,7 +99,7 @@ def check_pdf_native_optional():
 
 def check_windows_exit_propagation(tmp_path):
     spec = importlib.util.spec_from_file_location(
-        "python_wrapper", (Path(__file__).resolve().parents[2] / "run-python.py")
+        "python_wrapper", (Path(__file__).resolve().parents[2] / "worktree/run-python.py")
     )
     wrapper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(wrapper)
@@ -143,6 +144,14 @@ def check_output_decoding(tmp_path, encoding, stderr, returncode):
 
 
 def check_wrapper_launcher():
+    scripts = str(Path(py.__file__).resolve().parents[1])
+    for order in (("worktree.worktree_task", "worktree.worktree_pr"), ("worktree.worktree_pr", "worktree.worktree_task")):
+        code = ("import importlib, sys; sys.path.insert(0, sys.argv[1]); "
+                "a = importlib.import_module(sys.argv[2]); b = importlib.import_module(sys.argv[3]); "
+                "from utils.script_loader import module; "
+                "assert a is module(sys.argv[2].replace('.', '/') + '.py', sys.argv[2]); "
+                "assert b is module(sys.argv[3].replace('.', '/') + '.py', sys.argv[3])")
+        subprocess.run([sys.executable, "-I", "-B", "-c", code, scripts, *order], check=True)
     spec = importlib.util.spec_from_file_location(
         "python_wrapper", Path(py.__file__).with_name("run-python.py")
     )

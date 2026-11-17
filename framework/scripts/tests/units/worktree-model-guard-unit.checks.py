@@ -11,14 +11,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-import worktree_runtime
-import worktree_state
-import worktree_task as wt
 from support.repository_fixtures import contract as repository_contract
 from support.resource_delete_fixtures import contract, fixture
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from validation.findings import Findings
 from validation.task import TaskValidation
+from worktree import worktree_runtime, worktree_state
+from worktree import worktree_task as wt
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -206,7 +205,7 @@ def check_git_baseline_fail_closed(tmp_path):
             "model.importing.repository.task_start_commit", return_value="task-start"
         ),
         patch(
-            "worktree_state.git", side_effect=AssertionError("managed fallback to HEAD")
+            "worktree.worktree_state.git", side_effect=AssertionError("managed fallback to HEAD")
         ),
     ):
         current = task()
@@ -215,8 +214,8 @@ def check_git_baseline_fail_closed(tmp_path):
     git = _callback_check_git_baseline_fail_closed_git
     with (
         patch("model.importing.repository.task_start_commit", return_value=None),
-        patch("worktree_state.output", return_value="refs/heads/new"),
-        patch("worktree_state.git", side_effect=git),
+        patch("worktree.worktree_state.output", return_value="refs/heads/new"),
+        patch("worktree.worktree_state.git", side_effect=git),
     ):
         current = task()
         current.fix_baseline()
@@ -231,8 +230,8 @@ def check_git_baseline_fail_closed(tmp_path):
         task().fix_baseline()
     with (
         patch("model.importing.repository.task_start_commit", return_value=None),
-        patch("worktree_state.output", side_effect=ValueError("broken Git")),
-        patch("worktree_state.git", side_effect=git),
+        patch("worktree.worktree_state.output", side_effect=ValueError("broken Git")),
+        patch("worktree.worktree_state.git", side_effect=git),
         pytest.raises(ValueError, match="broken Git"),
     ):
         task().fix_baseline()

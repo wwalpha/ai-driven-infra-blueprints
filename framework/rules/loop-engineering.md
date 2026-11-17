@@ -18,7 +18,7 @@ Read [Task transition](task-contract.md#task-transition), [Acceptance contract](
 
 The OS-independent entrypoint is `framework/scripts/blueprint-loop.py`. In examples,
 `python` means a Python 3 launcher: use `py -3` on Windows or `python3` on Unix-like
-systems when needed. In managed worktrees use `python3 -B framework/scripts/run-python.py`
+systems when needed. In managed worktrees use `python3 -B framework/scripts/worktree/run-python.py`
 (or an available Windows Python 3 launcher) for Python examples and standalone checks/pytest.
 The wrapper selects the registered ready shared Interpreter and sets PATH for children;
 no shell activation is needed. Use the returned Task ID for explicit shared Python maintenance with `worktree_task.py setup --task-id <task-id>`. Use the ordinary launcher for lifecycle helpers

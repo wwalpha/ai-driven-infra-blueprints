@@ -7,12 +7,12 @@ import sysconfig
 import venv
 from pathlib import Path
 
-import worktree_task as wt
 from model.dependency_index import rebuild as rebuild_index
 from support.deploy_controller_fixtures import invoke
 from support.deploy_controller_fixtures import seed as seed_project
 from support.repository_fixtures import git
 from task_contract_core import start
+from worktree import worktree_task as wt
 
 
 def seed(root, state_path, case="orders", **kwargs):
@@ -22,14 +22,14 @@ def seed(root, state_path, case="orders", **kwargs):
     ignore.write_text(ignore.read_text() + "/.worktrees/\n")
     # A local requirements file makes this fixture its own Framework definition root.
     shutil.copytree(
-        Path(wt.__file__).resolve().parents[1],
+        Path(wt.__file__).resolve().parents[2],
         root / "framework",
         ignore=shutil.ignore_patterns("__pycache__", "tests"),
     )
     skill = root / ".agents/skills/deploy/SKILL.md"
     skill.parent.mkdir(parents=True)
     shutil.copyfile(
-        Path(wt.__file__).resolve().parents[2] / skill.relative_to(root), skill
+        Path(wt.__file__).resolve().parents[3] / skill.relative_to(root), skill
     )
     requirements = root / wt.python_env.REQUIREMENTS
     requirements.write_text("", encoding="utf-8")

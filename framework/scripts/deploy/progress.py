@@ -2,11 +2,11 @@
 
 import copy
 
-import worktree_state as ws
 from task_contract_core import normalize_selector
 from utils.json_format import fingerprint
 from utils.local_evidence import evidence_store, read_sealed, write_sealed
 from utils.script_loader import module
+from worktree import worktree_state as ws
 
 
 def progress_path(root, task_file, *, create=False):

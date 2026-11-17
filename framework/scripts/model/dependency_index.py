@@ -161,7 +161,7 @@ def validate(root, index):
     ):
         raise ValueError(
             "invalid Model dependency index version; run offline: "
-            f"python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py index --repository-root {root}"
+            f"python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py index --repository-root {root}"
         )
     if not isinstance(index.get("files"), dict) or not isinstance(
         index.get("models"), dict

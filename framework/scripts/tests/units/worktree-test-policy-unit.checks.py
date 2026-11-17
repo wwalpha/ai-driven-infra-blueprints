@@ -160,10 +160,10 @@ def check_repository_policy():
 @pytest.mark.parametrize(
     "source",
     [
-        "import worktree_task",
+        "from worktree import worktree_task",
         "state = {'task_file': 'tasks/example.md', 'worktree': '/tmp/fixture', 'merged': None}",
         "from support.worktree_task_fixtures import fixture",
-        "from unittest.mock import patch\npatch('worktree_state.load')",
+        "from unittest.mock import patch\npatch('worktree.worktree_state.load')",
         "import importlib\nimportlib.import_module('support.worktree_task_fixtures')",
     ],
 )
@@ -181,7 +181,7 @@ def check_direct_and_indirect(tmp_path, source):
 
 def check_filename_grants_no_authority(tmp_path):
     (tmp_path / "worktree-renamed.checks.py").write_text(
-        "import worktree_task\ndef check_business(): pass"
+        "from worktree import worktree_task\ndef check_business(): pass"
     )
     assert violations(tmp_path)
 
@@ -194,6 +194,7 @@ def check_runtime_guard(tmp_path):
         for command in (
             ["git", "worktree", "add", "candidate"],
             ["python3", "worktree_task.py", "finalize"],
+            ["python3", "framework/scripts/worktree/cli.py", "finalize"],
         ):
             with pytest.raises(AssertionError, match="lifecycle subprocess"):
                 audit("subprocess.Popen", ("unused", command, None, None))

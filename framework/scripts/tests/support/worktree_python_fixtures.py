@@ -13,8 +13,8 @@ import json
 import tempfile
 from unittest.mock import patch
 
-import worktree_python as py
-import worktree_task as wt
+from worktree import worktree_python as py
+from worktree import worktree_task as wt
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

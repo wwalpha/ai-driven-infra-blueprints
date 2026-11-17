@@ -8,7 +8,6 @@ from functools import partial
 from types import SimpleNamespace
 
 import task_contract_core as tasks
-import worktree_state as ws
 from contracts.deploy import DEPLOY_SUCCESS
 from contracts.target import AWS_ACCOUNT_ID_KEY, IAC_ENGINE_KEY
 from model.dependency_index import revision as file_revision
@@ -19,6 +18,7 @@ from utils.local_evidence import evidence_store, read_sealed, sealed, write_seal
 from utils.project_targets import load_target_directory
 from validation.findings import Findings
 from validation.task import TaskValidation
+from worktree import worktree_state as ws
 
 from deploy import (
     completion,

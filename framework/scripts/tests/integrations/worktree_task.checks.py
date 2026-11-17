@@ -20,7 +20,6 @@ import pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
 import task_contract_runtime
 import validation.loop as _imports_validation_loop
-import worktree_pr as pr
 from import_guard import require_import_changes
 from model.adapters.task import edit_write_context
 from model.sources import load_model
@@ -56,6 +55,7 @@ from utils.aws_mappings import mapping_alias
 from validation import loop
 from validation.findings import Findings
 from validation.task import TaskValidation
+from worktree import worktree_pr as pr
 
 from model import prepare_edit, publish_edit
 
@@ -939,7 +939,7 @@ def _check_normal_model_final_candidate(base_change="advance"):
             git(root, "add", "upstream.txt")
             git(root, "commit", "-qm", "advance base")
         latest = git(root, "rev-parse", "HEAD")
-        with mapping_alias(SCRIPT.parents[2], target):
+        with mapping_alias(SCRIPT.parents[3], target):
             with TestCase().assertRaises(wt.NeedsSync):
                 wt.prepare_integration(root, EXAMPLE_TASK_ID)
             assert (
@@ -977,7 +977,7 @@ def check_registered_normal_model_guard():
     relative = "model/dev/123456789012/iam.properties"
     design_path = "docs/designs/dev/123456789012/iam.md"
     with fixture() as root:
-        source = SCRIPT.parents[2]
+        source = SCRIPT.parents[3]
         loop_checks.make_project_fixture(source, root)
         loop_checks.populate("generated_policy", root)
         parameters = root / "infra/cloudformation/parameters/dev/123456789012"
@@ -987,7 +987,7 @@ def check_registered_normal_model_guard():
         shutil.copytree(source / ".agents", root / ".agents")
         # Requirements select local definitions, so provision the complete Framework.
         shutil.copytree(
-            Path(wt.__file__).resolve().parents[1],
+            Path(wt.__file__).resolve().parents[2],
             root / "framework",
             ignore=shutil.ignore_patterns("__pycache__"),
         )
@@ -1084,8 +1084,8 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
             "import sys, importlib.util; "
             'assert importlib.util.find_spec("pystache") is None; '
             "sys.path.insert(0, sys.argv.pop(1)); "
-            "import worktree_task; raise SystemExit(worktree_task.main())",
-            str(SCRIPT.parent),
+            "from worktree import worktree_task; raise SystemExit(worktree_task.main())",
+            str(SCRIPT.parent.parent),
             "finalize",
             "--repository-root",
             str(root),
@@ -1152,14 +1152,14 @@ class PRGitHub:
             command[0] == str(sys.executable)
             and "-c" in command
             and (
-                "from worktree_task import _integrate_model"
+                "from worktree.worktree_task import _integrate_model"
                 in command[command.index("-c") + 1]
-                or "from worktree_pr import validate_update"
+                or "from worktree.worktree_pr import validate_update"
                 in command[command.index("-c") + 1]
             )
         ):
             if (
-                "from worktree_pr import validate_update"
+                "from worktree.worktree_pr import validate_update"
                 in command[command.index("-c") + 1]
             ):
                 try:
@@ -1684,7 +1684,7 @@ def _check_pr_update_recovery_and_base():
 
     # Exercise the actual snapshot validator using tracked, synthetic project inputs.
     with fixture() as root:
-        source = SCRIPT.parents[2]
+        source = SCRIPT.parents[3]
         shutil.copytree(
             source / "framework",
             root / "framework",
@@ -1820,7 +1820,7 @@ def _interrupt_merge(remote, /, where, *args, **kwargs):
 
 @it_case
 def check_pr_remote_base_only_sync():
-    assert runpy.run_path(str(SCRIPT))["NeedsSync"] is wt.NeedsSync
+    assert runpy.run_path(str(SCRIPT))["main"] is wt.main
     with fixture() as root:
         target, state = start(root, files=("framework/scripts/candidate.txt",))
         source = target / "framework/scripts/candidate.txt"
@@ -2213,12 +2213,12 @@ def main():
 def check_framework_final_candidate():
     relative = ".github/workflows/framework-it.yml"
     with fixture() as root:
-        loop_checks.make_project_fixture(SCRIPT.parents[2], root)
+        loop_checks.make_project_fixture(SCRIPT.parents[3], root)
         deploy_skill = Path(".agents/skills/deploy/SKILL.md")
         (root / deploy_skill).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(SCRIPT.parents[2] / deploy_skill, root / deploy_skill)
+        shutil.copyfile(SCRIPT.parents[3] / deploy_skill, root / deploy_skill)
         shutil.copytree(
-            SCRIPT.parents[1],
+            SCRIPT.parents[2],
             root / "framework",
             ignore=shutil.ignore_patterns("__pycache__"),
         )
@@ -2328,7 +2328,7 @@ def check_model_operation_integration():
                 for name in sources:
                     shutil.copyfile(candidate / name, target / name)
                 with (
-                    mapping_alias(SCRIPT.parents[2], target),
+                    mapping_alias(SCRIPT.parents[3], target),
                     patch.object(
                         wt.python_env,
                         "runtime",
@@ -2427,7 +2427,7 @@ def check_model_refactor_integration():
         (target / state["task_file"]).write_text(text)
         task_contract_runtime.refresh(target, state["task_file"])
         with (
-            mapping_alias(SCRIPT.parents[2], target),
+            mapping_alias(SCRIPT.parents[3], target),
             tasks.selected_task(target, state["task_file"]),
         ):
             output = {target / name: (candidate / name).read_text() for name in sources}

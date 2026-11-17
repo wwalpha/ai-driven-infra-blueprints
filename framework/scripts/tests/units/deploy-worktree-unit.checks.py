@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-import worktree_state as ws
 from deploy import (
     guards,
     operation_journal,
@@ -22,6 +21,7 @@ from deploy import progress as deploy_progress
 from support.pytest_cli import run
 from task_contract_core import task_digest
 from utils.cloudformation.inputs import Blocked as DeployBlocked
+from worktree import worktree_state as ws
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

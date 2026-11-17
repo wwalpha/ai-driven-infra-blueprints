@@ -19,9 +19,6 @@ import subprocess
 from unittest.mock import Mock, patch
 
 import pytest
-import worktree_pr as pr
-import worktree_state
-import worktree_task as wt
 from support.blueprint_loop_fixtures import (
     CLI,
     MODULE,
@@ -33,6 +30,9 @@ from support.worktree_task_fixtures import contract, fixture, start
 from utils.git_changes import GitWorkingPaths
 from validation import loop
 from validation import runner as validation_runner
+from worktree import worktree_pr as pr
+from worktree import worktree_state
+from worktree import worktree_task as wt
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

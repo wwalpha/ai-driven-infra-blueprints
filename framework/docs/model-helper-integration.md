@@ -60,7 +60,7 @@ part ファイルは存在する場合の例です。候補には対象サービ
 `--candidate` には `/tmp/model-candidate` を指定し、properties ファイル自体は指定しません。
 
 ```bash
-python3 -B framework/scripts/run-python.py -B \
+python3 -B framework/scripts/worktree/run-python.py -B \
   framework/scripts/model/cli.py edit \
   model/stg/non-cde/route53.properties \
   --candidate /tmp/model-candidate \
@@ -134,7 +134,7 @@ Interrupted Import source/display transactions are restored through the same jou
 Use the matching running managed Task and original acquisition/HEAD:
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py import recover-transaction --environment <environment> --target <target> --service <service> --evidence <original-acquisition.json> --task-file tasks/<task-name>.md
+python3 -B framework/scripts/worktree/run-python.py -B framework/scripts/model/cli.py import recover-transaction --environment <environment> --target <target> --service <service> --evidence <original-acquisition.json> --task-file tasks/<task-name>.md
 ```
 
 Recovery verifies the journal Task and every journal output against the selected scope

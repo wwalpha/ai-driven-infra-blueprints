@@ -14,7 +14,6 @@ from unittest.mock import patch
 
 import pytest
 import task_contract_core as tasks
-import worktree_task as wt
 from import_guard import require_import_changes
 from model.adapters.task import source_write_context
 from model.format import patch as patch_properties
@@ -26,6 +25,7 @@ from support.producer_identifier_reference_fixtures import setup, write_model
 from support.worktree_task_fixtures import fixture as git_fixture
 from support.worktree_task_fixtures import git
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
+from worktree import worktree_task as wt
 
 from model import dependency_index
 

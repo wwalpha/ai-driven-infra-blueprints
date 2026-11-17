@@ -107,7 +107,7 @@ def require_local_completion(root, snapshot, *, base=None):
         completion = module("deploy/completion.py", "deploy.completion")
         completion.verify_observation_delta(root)
         return
-    wt = module("worktree_task.py", "worktree_task")
+    wt = module("worktree/worktree_task.py", "worktree.worktree_task")
     verify_observed_outputs = module("model/observed.py", "model.observed").verify_observed_outputs
     changed = wt.paths(root, "diff", "--name-only", "--no-renames", "-z", base, "--") | wt.changed_paths(root)
     if "project.json" in changed:
@@ -120,7 +120,7 @@ def require_local_completion(root, snapshot, *, base=None):
 
 
 def validate_candidate(root, task_file, base):
-    wt = module("worktree_task.py", "worktree_task")
+    wt = module("worktree/worktree_task.py", "worktree.worktree_task")
     Validator = module("validation/runner.py", "validation.runner").Validator
     definition_root = module(
         "utils/aws_mappings.py", "utils.aws_mappings"

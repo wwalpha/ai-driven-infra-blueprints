@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 import task_contract_runtime as runtime
-import worktree_task as wt
 from deploy import completion
 from deploy import progress as deploy_progress
 from model.format import FORMAT
@@ -33,6 +32,7 @@ from support.pytest_cli import run
 from support.repository_fixtures import transition_contract
 from utils import cli_deploy as cli
 from utils.aws_mappings import mapping_alias
+from worktree import worktree_task as wt
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

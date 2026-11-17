@@ -10,9 +10,9 @@ import model.sources as _imports_model_sources
 import task_contract_core as tasks
 import validation.loop as _imports_validation_loop
 import validation_scope as _imports_validation_scope
-import worktree_task as wt
 
 import model as _model_api
+from worktree import worktree_task as wt
 
 
 def prepare_integration(where: Path, task_id: str) -> wt.FinalCandidate:

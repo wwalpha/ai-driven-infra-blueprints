@@ -13,7 +13,7 @@ _lock = RLock()
 
 def module(filename, name):
     with _lock:
-        if name.startswith("model."):
+        if name.startswith(("model.", "worktree.")):
             expected = SCRIPTS_ROOT / filename
             canonical = SCRIPTS_ROOT.joinpath(*name.split(".")).with_suffix(".py")
             if expected != canonical:

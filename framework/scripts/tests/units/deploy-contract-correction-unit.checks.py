@@ -17,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 import task_contract_core as tasks
 import task_contract_runtime as runtime
-import worktree_task as wt
 from deploy import (
     change_sets,
     correction_scope,
@@ -33,6 +32,7 @@ from support.repository_fixtures import transition_contract
 from utils import file_operations
 from utils.json_format import fingerprint
 from utils.local_evidence import evidence_store, read_sealed, write_sealed
+from worktree import worktree_task as wt
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

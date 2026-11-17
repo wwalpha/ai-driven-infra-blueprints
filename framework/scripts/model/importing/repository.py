@@ -3,8 +3,8 @@
 import subprocess
 from pathlib import Path
 
-import worktree_state as _imports_worktree_state
 from task_contract_core import task_read_scope, task_snapshot
+from worktree import worktree_state as _imports_worktree_state
 
 
 def has_baseline(root):

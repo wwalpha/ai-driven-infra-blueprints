@@ -14,7 +14,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 import task_contract_core as tasks
-import worktree_task as wt
+
+from worktree import worktree_task as wt
 
 if os.name == "nt":
     import msvcrt
@@ -594,7 +595,7 @@ def validate_snapshot(interpreter, environment, snapshot, task_file, base, head)
     script = (
         "import sys; from pathlib import Path; "
         "sys.path.insert(0, str(Path(sys.argv[1]) / 'framework/scripts')); "
-        "import worktree_task as wt, task_contract_core as tasks; "
+        "from worktree import worktree_task as wt; import task_contract_core as tasks; "
         "root=Path(sys.argv[1]).resolve(); name,base,head=sys.argv[2:]; "
         "text=tasks.read_task_snapshot(root,name,live=True).text; "
         "changed=wt.paths(root,'diff','--no-renames','--name-only','-z',base,head); "
@@ -1020,7 +1021,7 @@ def update(where, task_id):
                     str(interpreter),
                     "-B",
                     "-c",
-                    f"import sys, json; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); from worktree_pr import validate_update; import worktree_task as wt\ntry: validate_update(sys.argv[1], sys.argv[2])\nexcept wt.Blocked as error:\n print('PR_VALIDATOR_DIAGNOSTICS=' + json.dumps(getattr(error, 'diagnostics', None)), file=sys.stderr); print(str(error), file=sys.stderr); sys.exit(1)",
+                    f"import sys, json; sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r}); from worktree.worktree_pr import validate_update; from worktree import worktree_task as wt\ntry: validate_update(sys.argv[1], sys.argv[2])\nexcept wt.Blocked as error:\n print('PR_VALIDATOR_DIAGNOSTICS=' + json.dumps(getattr(error, 'diagnostics', None)), file=sys.stderr); print(str(error), file=sys.stderr); sys.exit(1)",
                     str(root),
                     task_id,
                 ],

@@ -17,36 +17,37 @@ from functools import partial
 from pathlib import Path
 
 import task_contract_core as tasks
-import worktree_python as python_env
-import worktree_state
 from contracts.repository import PROJECT_FILENAME
 from utils import cli_deploy
 from utils.file_operations import sha
 from utils.script_loader import module
-from worktree_state import (
+
+from worktree import worktree_python as python_env
+from worktree import worktree_state
+from worktree.worktree_state import (
     Blocked as Blocked,
 )
-from worktree_state import NeedsSync as NeedsSync
-from worktree_state import changed_paths as changed_paths
-from worktree_state import committed_task_paths as committed_task_paths
-from worktree_state import (
+from worktree.worktree_state import NeedsSync as NeedsSync
+from worktree.worktree_state import changed_paths as changed_paths
+from worktree.worktree_state import committed_task_paths as committed_task_paths
+from worktree.worktree_state import (
     git as git,
 )
-from worktree_state import (
+from worktree.worktree_state import (
     load as load,
 )
-from worktree_state import (
+from worktree.worktree_state import (
     metadata_directory as metadata_directory,
 )
-from worktree_state import (
+from worktree.worktree_state import (
     repository as repository,
 )
-from worktree_state import (
+from worktree.worktree_state import (
     state_path as state_path,
 )
-from worktree_state import subprocess_bytes
-from worktree_state import task_start_commit as task_start_commit
-from worktree_state import task_worktree as task_worktree
+from worktree.worktree_state import subprocess_bytes
+from worktree.worktree_state import task_start_commit as task_start_commit
+from worktree.worktree_state import task_worktree as task_worktree
 
 
 def needs_sync(base):
@@ -422,7 +423,7 @@ def cleanup_state(root, path, state, *, discard=False):
 
 def cleanup(where, task_id):
     root, common, path, state = load(where, task_id)
-    publication = module("worktree_pr.py", "worktree_pr")
+    publication = module("worktree/worktree_pr.py", "worktree.worktree_pr")
     with publication.publication_lock(path), lifecycle_lock(root):
         root, _, path, state = load(root, task_id)
         return cleanup_state(root, path, state, discard=True)
@@ -430,7 +431,7 @@ def cleanup(where, task_id):
 
 def automatic_cleanup(where, task_id, *, publication_held=False):
     root, _, path, state = load(where, task_id)
-    publication = module("worktree_pr.py", "worktree_pr")
+    publication = module("worktree/worktree_pr.py", "worktree.worktree_pr")
     lock = nullcontext() if publication_held else publication.publication_lock(path)
     with lock, lifecycle_lock(root):
         root, _, path, state = load(root, task_id)
@@ -443,7 +444,7 @@ def delete_branch(where, branch):
         raise Blocked("specify one exact codex/worktree/<task-id> local branch")
     path = state_path(primary, branch.removeprefix("codex/worktree/"))
     path.parent.mkdir(parents=True, exist_ok=True)
-    publication = module("worktree_pr.py", "worktree_pr")
+    publication = module("worktree/worktree_pr.py", "worktree.worktree_pr")
     with publication.publication_lock(path), lifecycle_lock(primary):
         if path.exists() or path.is_symlink():
             raise Blocked("Task lifecycle exists; use cleanup --task-id instead")
@@ -472,7 +473,7 @@ def _run_model_guard(
         str(interpreter),
         "-B",
         "-c",
-        f"import sys, json; from pathlib import Path; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); "
+        f"import sys, json; from pathlib import Path; sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r}); "
         "import task_contract_core as tasks; from import_guard import require_import_changes; "
         "root = Path.cwd()\n"
         "options = {}\n"
@@ -803,7 +804,7 @@ def finalize(
         raise Blocked(
             "PR publication is unavailable for merged tasks"
         )
-    publication = module("worktree_pr.py", "worktree_pr")
+    publication = module("worktree/worktree_pr.py", "worktree.worktree_pr")
     with publication.publication_lock(path):
         state = load(root, task_id)[3]
         if state["merged"]:
@@ -841,8 +842,8 @@ def _finalize(where, task_id):
                 str(interpreter),
                 "-B",
                 "-c",
-                f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); "
-                "from worktree_task import _integrate_model; "
+                f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r}); "
+                "from worktree.worktree_task import _integrate_model; "
                 "_integrate_model(sys.argv[1], sys.argv[2])",
                 str(root),
                 task_id,
@@ -929,7 +930,7 @@ def _finalize(where, task_id):
                     "validated candidate, Task or base changed before merge; retain worktree"
                 )
         if state.get("integrationMode") == "pr":
-            return module("worktree_pr.py", "worktree_pr").prepare(
+            return module("worktree/worktree_pr.py", "worktree.worktree_pr").prepare(
                 root, path, state, latest, expected
             )
         base = base_worktree(root, state)
@@ -1028,7 +1029,7 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
         if state.get("integrationMode") == "pr":
             if text != completed:
                 tasks.atomic_files({task_path: completed}, staging_directory=target)
-            return module("worktree_pr.py", "worktree_pr").prepare(
+            return module("worktree/worktree_pr.py", "worktree.worktree_pr").prepare(
                 root, path, state, candidate.base_commit, candidate.candidate_head
             )
         git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
@@ -1104,7 +1105,7 @@ def verify_rebase_commits(target, old_commits, new_commits, old_parent, new_pare
 def sync_latest_base(where, task_id, expected_base):
     """Replay a reviewed local task history onto the latest base without validation."""
     root, _, path, _ = load(where, task_id)
-    publication = module("worktree_pr.py", "worktree_pr")
+    publication = module("worktree/worktree_pr.py", "worktree.worktree_pr")
     with publication.publication_lock(path):
         with lifecycle_lock(root):
             root, _, path, state = load(root, task_id)
@@ -1344,7 +1345,7 @@ def sync_base(where, task_id, expected_base):
     root, _, path, state = load(where, task_id)
     pr_mode = state.get("integrationMode") == "pr"
     publication_lock = (
-        module("worktree_pr.py", "worktree_pr").publication_lock(path)
+        module("worktree/worktree_pr.py", "worktree.worktree_pr").publication_lock(path)
         if pr_mode
         else nullcontext()
     )
@@ -1496,7 +1497,7 @@ def sync_base(where, task_id, expected_base):
 
 
 def _worktree_runtime():
-    return module("worktree_runtime.py", "worktree_runtime")
+    return module("worktree/worktree_runtime.py", "worktree.worktree_runtime")
 
 
 def main():
@@ -1580,7 +1581,7 @@ def main():
         if args.command == "branch-delete":
             state = delete_branch(where, args.branch)
         elif args.command.startswith("pr-"):
-            publication = module("worktree_pr.py", "worktree_pr")
+            publication = module("worktree/worktree_pr.py", "worktree.worktree_pr")
             if args.pr:
                 state = publication.close_existing(where, args.pr)
             elif args.command == "pr-select":

@@ -99,8 +99,8 @@ def check_venv_fallback():
                 ("worktree_task", "worktree_python"),
             ):
                 source = (
-                    f"import sys; sys.path.insert(0, {str(Path(py.__file__).parent)!r}); "
-                    f"import {first}; import {second}; import worktree_python, worktree_state; "
+                    f"import sys; sys.path.insert(0, {str(Path(py.__file__).parent.parent)!r}); "
+                    f"import worktree.{first}; import worktree.{second}; from worktree import worktree_python, worktree_state; "
                     "from unittest import TestCase; TestCase().assertIs(worktree_python.wt, worktree_state)"
                 )
                 result = subprocess.run(
@@ -134,8 +134,8 @@ def check_parallel_fallback():
         child = """import sys,time
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
-import worktree_task as wt
-import worktree_python as py
+from worktree import worktree_task as wt
+from worktree import worktree_python as py
 py.IMPORTS = []
 original = py.run
 original_sleep = py.time.sleep
@@ -160,7 +160,7 @@ import json
 print(json.dumps(state))
 """
         env = {**py.os.environ, "PIP_NO_INDEX": "1", "PYTHONDONTWRITEBYTECODE": "1"}
-        args = [sys.executable, "-B", "-c", child, str(Path(py.__file__).parent)]
+        args = [sys.executable, "-B", "-c", child, str(Path(py.__file__).parent.parent)]
         first = subprocess.Popen(
             [*args, "process-a", str(waiting), str(release)],
             cwd=root,
