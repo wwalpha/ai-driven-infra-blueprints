@@ -16,29 +16,15 @@ Apply [AGENTS](../../../AGENTS.md), [Task contract](../../../framework/rules/tas
 [Model source authority](../../../framework/rules/model-templates.md),
 [Project configuration](../../../framework/rules/project-configuration.md), and
 [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy).
-Use the [worktree workflow](../worktree/SKILL.md) for repository changes.
+Audit generation requires a managed Worktree. Follow
+[Create and execute](../worktree/SKILL.md#create-and-execute) and [Run Python in the Worktree](../worktree/SKILL.md#run-python-in-the-worktree)
+for contract registration, generation and local validation.
 
-Before running the generation command, complete these steps in order:
-
-1. From the current repository root, run
-   `python3 -B framework/scripts/worktree-cli.py create --task-name <task-name>`
-   under the [worktree workflow](../worktree/SKILL.md). Confirm that the returned
-   `python_setup.status` is `ready`. If setup fails, report the error and retained
-   Task/worktree and stop; do not continue generation with ordinary Python.
-2. Set the working directory of every subsequent task command to the returned
-   `worktree` root: the **managed worktree**, not the normally opened repository root.
-   Clear `PYTHONHOME` and `PYTHONPATH` and invoke the absolute `python_setup.interpreter` from the successful Create/Setup JSON directly.
-3. Use the returned `task_file` to register a `migration` contract through
-   `python_setup.interpreter`, listing only that contract and
-   `tests/<environment>/<alias-or-account-id>/<service>.py`. Include the selected
-   service in Validation scope. Run contract registration, audit generation and
-   Python local validation with the same executable from this Worktree root.
-   For framework implementation tasks, framework-only governance scope remains
-   available under the existing rules.
-
-Substitute the returned absolute path for `<python_setup.interpreter>`. In PowerShell, invoke the quoted executable with `&`.
-The following commands run from the returned `worktree`; replace `<task-file>`
-with the exact returned `task_file` and use the requested service selectors:
+Before generation, register a `migration` contract listing only that contract and
+`tests/<environment>/<alias-or-account-id>/<service>.py`. Include the selected
+service in Validation scope. Framework implementation retains the framework-only
+governance scope under the existing rules. Use the allocated `<task-file>` and the
+requested service selectors:
 
 ```console
 "<python_setup.interpreter>" -B framework/scripts/task_contract.py --task-file <task-file> --source <external-contract>
@@ -51,7 +37,8 @@ validated AWS Mapping, existing comparison/normalization code and selected read-
 adapters. `observed` identifies resources and supplies confirmed IDENTIFIER_OUTPUT values for audit comparisons. It validates Python syntax before
 atomic publication. It never executes the generated file or contacts AWS. Never
 write Model, observed, design, IaC, a common runner, or cases.yaml; never generate
-other environments/services automatically. Complete classified local validation.
+other environments/services automatically. Complete classified local validation and follow
+[Complete and integrate](../worktree/SKILL.md#complete-and-integrate).
 
 Report the generated path, Model hash, and unsupported Mapping classifications/reasons.
 Permissions Boundary uses a generation-only, SDK-shape-validated projection of the existing IAM get-role/get-user response; the existing AWS comparator is unchanged.

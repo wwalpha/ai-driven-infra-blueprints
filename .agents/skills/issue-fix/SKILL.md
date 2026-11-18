@@ -44,8 +44,6 @@ Phase 1 の分類に必要なコードだけを読む。Framework 起因の疑�
 
 同一 Task 内で確認済みの Framework・規約・関連コードが変更されていなければ無条件に再読込しない。分類変更、新たな依存、入力変更や情報不足があれば必要箇所を追加確認する。独自 Python/CLI や重複する読込・参照解決・修正・保存処理を追加しない。
 
-管理 Worktree では、Create／Setup 成功時の JSON（`python_setup.status: ready`）が返す `worktree` を作業ディレクトリとし、`PYTHONHOME` と `PYTHONPATH` を解除して `python_setup.interpreter` の絶対パスで Python を直接実行する。PowerShell では引用符付きの実行パスの前に `&` を付ける。
-
 ## Phase 1: 現在の原因を調査・分類する
 
 1. 選択した Issue ごとに、Service / Resource / Property / Issue 内容 / 診断根拠 / Human 判断の要否 / 修正対象ファイル / 修正可能性を整理する。Issue が集約している対象を落とさず、診断件数と Resource 数を区別する。記載時点の根拠と現在確認した根拠を区別し、Issue の記述だけで修正を決定しない。
@@ -100,13 +98,13 @@ Human 判断が必要な場合は、次を含む選択肢を提示する。同�
 
 ### ケース A: Model 修正を伴う
 
-同じ `update` Model-only design Task で、正本の修正後、既存 guarded generation API により必要な Markdown/JSON を生成し、対象 Service と必要な Consumer を検証する。source save の成功と View 生成・最終検証の成功を分けて扱う。生成だけで Model 修正完了とはしない。完了/統合の順序は選択した update 分岐と worktree に従い、専用 Model-only final-candidate 経路に独自の二重完了・二重 final loop を加えない。
+同じ `update` Model-only design Task で、正本の修正後、既存 guarded generation API により必要な Markdown/JSON を生成し、対象 Service と必要な Consumer を検証する。source save の成功と View 生成・最終検証の成功を分けて扱う。生成だけで Model 修正完了とはしない。完了/統合は選択した update 分岐と [Complete and integrate](../worktree/SKILL.md#complete-and-integrate) に従う。
 
 ### ケース B: Model は正しく、View だけ古い
 
 1. 現在の Model が正しいことと対象 View の同期差分を既存検証で確認する。現在の Task 契約と保存ガードが View-only `migration` を許可するか、実装を読んで先に確認する。`issues_save_only()` の報告専用例外を流用しない。
 2. 承認済みの View 同期専用 `migration` Task を登録する。Modified files/Allowed paths は exact 生成先と自契約のみ、Validation scope は対象 Service と必要な Consumer。Model 入口/parts は読み取り専用とし、変更前の原文 bytes と file set を保持する。
-3. Task を `BLUEPRINT_TASK_FILE` で明示し、`"<python_setup.interpreter>" -B framework/scripts/sync-model.py --write --environment <environment> --alias <alias> --service <service-id>` を実行する。`<python_setup.interpreter>` は返却された絶対パスに置き換える。alias なしは `--aws-account-id <awsAccountId>` に置き換える。同一対象の複数 Service は `--service` を反復する。無指定の全件生成や `--all` へ広げない。
+3. Task を `BLUEPRINT_TASK_FILE` で明示し、`"<python_setup.interpreter>" -B framework/scripts/sync-model.py --write --environment <environment> --alias <alias> --service <service-id>` を実行する。alias なしは `--aws-account-id <awsAccountId>` に置き換える。同一対象の複数 Service は `--service` を反復する。無指定の全件生成や `--all` へ広げない。
 4. 生成後、Model 原文・parts 集合と内容が変更されていないことを確認し、既存の同期検証と migration の必須検証を実行する。
 
 View-only 契約・生成・保存が拒否されたら、その理由と未対応範囲を示して停止する。Framework、Task type、権限、ガードを変更して通さない。Model のダミー変更、generated Markdown/JSON の手編集、独自の生成・保存経路は禁止する。
@@ -114,9 +112,9 @@ View-only 契約・生成・保存が拒否されたら、その理由と未対�
 ## Phase 5: Task と worktree の境界
 
 - Model 修正は `update`、条件を満たす参照限定修正はその親から `model-retarget`、Human ファイル変更と View-only 同期はそれぞれ独立した承認済み `migration`。Task type/Goal が異なる作業を混ぜない。
-- 各変更 Task は `worktree` の管理下で最初の repository 変更として登録する。自契約、実際の入口/parts、生成物、必要な変更 Consumer の exact paths を Modified files/Allowed paths に登録し、影響 Consumer を Validation scope に含める。読み取りだけの producer を書き込み対象にしない。
+- 各変更 Task は管理 Worktree を必須とし、[Create and execute](../worktree/SKILL.md#create-and-execute) と [Run Python in the Worktree](../worktree/SKILL.md#run-python-in-the-worktree) に従う。自契約、実際の入口/parts、生成物、必要な変更 Consumer の exact paths を Modified files/Allowed paths に登録し、影響 Consumer を Validation scope に含める。読み取りだけの producer を書き込み対象にしない。
 - 同一責務・同一スコープで一括対応できる Issue はまとめる。Resource ごとに不必要な Task/worktree/commit を作らない。
-- Human が具体的な変更内容を明示承認した複数 Task・Phase は、[Validation policy の Task transition](../../../framework/rules/loop-engineering.md#validation-policy) に従って順次実行できる。各 Task は別の契約と worktree で既存の検証・完了・commit・ローカル統合・cleanup を終え、前 Task の完了条件を全て満たしてから次の承認済み Task へ進む。失敗・未完了のまま次 Task へ進まず、既存の停止・明示再開・Retry 制御を維持する。前 Task で同期が完了するなど後続 Task が不要になった場合は重複実行せず、その結果を報告する。
+- Human が具体的な変更内容を明示承認した複数 Task・Phase は、[Validation policy の Task transition](../../../framework/rules/loop-engineering.md#validation-policy) に従って順次実行できる。各 Task は別の契約と Worktree を使い、[Complete and integrate](../worktree/SKILL.md#complete-and-integrate) と前 Task の完了条件を全て満たしてから次の承認済み Task へ進む。失敗・未完了のまま次 Task へ進まず、既存の停止・明示再開・Retry 制御を維持する。前 Task で同期が完了するなど後続 Task が不要になった場合は重複実行せず、その結果を報告する。
 - 調査・候補整理や issue-fix の実行依頼だけでは、未確定の変更内容・次 Task への包括承認にならない。未承認の変更や新しい Goal を追加しない。承認範囲外の変更・Task が必要になった場合は、具体的な候補と影響を示して Human に確認し、承認されるまで実行しない。
 - 編集を終えてから生成・検証を実行する。同一 worktree の入力・契約・生成先を並行編集せず、publication lock、最終入力比較、rollback を既存 API に任せる。入力変更を検出したら保存を止め、外部変更を保持する。
 

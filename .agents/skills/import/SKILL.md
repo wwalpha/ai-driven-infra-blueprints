@@ -23,8 +23,7 @@ Examples:
 Environment and Service are required: ask the Human when either is missing. Multiple
 services use separate single-service Tasks/acquisitions/publications in the LLM-selected
 order; do not introduce a Python batch controller. See 08_import for all decisions.
-
-Run in the Worktree selected by the Human, following the Prompt's contract and evidence procedure. In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and invoke the absolute `python_setup.interpreter` path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, use the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+Use the Human-selected Worktree under [Task and acquisition](../../../framework/prompts/codex/08_import.md#task-and-acquisition).
 
 Resource references retain their original Markdown label, relative path and fragment. Resolve with consumer scope through the common Model saved-anchor resolver; use fixed Resource numbers and typed logicalIds internally. Preserve independent saved anchors and desired links during IMPORT/observed updates. New anchors reuse `design_layout.resource_anchor()` and confirmed naming rules. No URI conversion or inferred consumer restoration.
 

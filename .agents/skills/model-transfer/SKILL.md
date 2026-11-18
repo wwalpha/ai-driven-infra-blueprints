@@ -11,6 +11,7 @@ Read [Model-only contract](../../../framework/rules/task-contract.md#model-only-
 [service sources](../../../framework/rules/model-templates.md) and the selected parent Task.
 Require its explicit worktree and Task selector, running design /update Model-only contract,
 forbidden AWS/deploy, and the exact requested subset of its normalized operation records.
+For Python commands in the parent Worktree, follow [Run Python in the Worktree](../worktree/SKILL.md#run-python-in-the-worktree).
 A missing parent or a record differing from the parent returns input failure; do not
 create a child contract or infer authority, IDs, properties or reference locations.
 

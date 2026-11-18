@@ -31,7 +31,10 @@ membership. An explicit `unverified` service result requires a reason; failures 
 visible as processing errors and unverified coverage. Missing services refuse the
 entire publication without reading the old reports or expanding investigation.
 
-The report-only `migration` runs in the selected checkout without a worktree.
+Standalone report-only `migration` runs in the selected checkout without requiring
+a Worktree. An explicit `/worktree` combination uses the same report-only rules below.
+See [Issues report publication](task-contract.md#issues-report-publication) for the
+boundary with Git integration.
 `issues_save_only()` retains explicit service scope, Allowed paths, Modified files,
 Acceptance and Task status checks. After saving, run `blueprint-loop.py --mode local`
 with the selected Task and without `--write`, `--all` or `--staged`. This uses the

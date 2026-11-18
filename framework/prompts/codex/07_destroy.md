@@ -1,6 +1,6 @@
 # CloudFormation Stack Destroy Prompt
 
-In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and replace `<python_setup.interpreter>` with the absolute executable path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+For standalone execution, substitute the repository’s configured Python 3 executable for `<python_setup.interpreter>`. In PowerShell, put `&` before the quoted path. For managed execution, follow [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree).
 
 Execute only explicit CloudFormation Stack destroy as an `infrastructure` task with phase `destroy`. Input following `/destroy` supplies one or more exact StackNames, for example `/destroy venusinf-dev-vpc`. This invocation approves those StackNames once target/account/dependency checks pass; do not add a second deletion confirmation. Never broaden scope to parents, retained resources, force delete, resource removal updates, Terraform, or scenarios.
 

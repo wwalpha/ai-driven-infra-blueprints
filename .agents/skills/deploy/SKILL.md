@@ -19,21 +19,24 @@ Select only the fixed method: SDK follows the sections below directly. Read only
 
 ## Local entry
 
-For every new Deploy, first invoke the [Worktree Skill](../worktree/SKILL.md) and run its ordinary `create --task-name <task-name>`. Proceed only when Create succeeds and `python_setup.status` is `ready`. Use the returned Worktree root and new Task ID for Deploy registration, Preparation, AWS operations, Observed / View synchronization, Validation and Task completion. Do not search for or reuse a past Task or Worktree. If Create or Setup fails, stop before Deploy and retain resources as directed by the Worktree Skill.
+Every new Deploy requires a new managed Worktree with successful Setup under
+[Create and execute](../worktree/SKILL.md#create-and-execute). Do not search for or reuse
+a past Deploy Task or Worktree. Use the same new Task for registration, Preparation,
+AWS operations, Observed / View synchronization, Validation and completion.
 
-Run Python commands from the returned `worktree` directory. Clear `PYTHONHOME` and `PYTHONPATH`, then substitute the absolute executable path from the successful Worktree Create/Setup JSON for `<python_setup.interpreter>` in every example. In PowerShell, invoke the executable with `& "<python_setup.interpreter>"`. If Python CLI executables need to be found on PATH, prepend the returned `python_setup.bin`.
+Follow [Run Python in the Worktree](../worktree/SKILL.md#run-python-in-the-worktree) for all Deploy Python commands.
 
 ```console
 "<python_setup.interpreter>" -B framework/scripts/deploy_preparation.py --help
 ```
 
-Use this Python for Preparation, Controller, observation, Validation and Task Contract commands. Rerun Worktree Setup for the same Task after requirements change. Direct Python does not check setup or synchronize dependencies. Invoke AWS CLI directly. Worktree Skill owns Git integration and Cleanup.
+Invoke AWS CLI directly. For Git integration and cleanup, follow [Complete and integrate](../worktree/SKILL.md#complete-and-integrate).
 
 CloudFormation progress and recovery remain tied to this same Task. Retain its Worktree and execution evidence, including original StackId, ChangeSetId and token, while an AWS result is unknown; follow the fixed method's existing recovery without blind resubmission. Each new Deploy checks current AWS Account, Region, Stack and ChangeSets, without using another Task's local progress. If AWS is busy or its state is unknown, do not submit new AWS operations.
 
 ## SDK preparation
 
-Use the returned Worktree root. The first repository change is registration of `tasks/<task-id>.md`. Model, Template, Parameters and Stack definitions are execution authority; generated detailed-design prose is not. Preparation is offline and does not authorize deployment.
+Model, Template, Parameters and Stack definitions are execution authority; generated detailed-design prose is not. Preparation is offline and does not authorize deployment.
 
 Before running preparation, fix the entire Stack scope as described in Common entry. Pass only confirmed formal StackNames to `--stack`; never pass an unchecked Human string or treat a service name, abbreviation or internal identifier as a formal StackName. Do not run preparation while the scope is unresolved. Offline preparation produces an external contract and summary; inspect the original contract, exact StackNames, Resource owners, Validation scope and Model/View paths before registering:
 
@@ -45,8 +48,6 @@ Before running preparation, fix the entire Stack scope as described in Common en
 Repeat `--stack`, or use inclusive `--order-from`/`--order-to` instead; never combine the selectors. Optional `--service` checks the discovered owners and grants no additional services. Use `--aws-account-id` instead of `--alias` when no alias exists and the configured `--profile` when set. Missing/invalid scope, changed inputs or ambiguous ownership stop registration. Preserve this invocation’s registered Snapshot and fixed StackNames for its operations. External consumers are deferred without Model/View authority.
 
 ## SDK operations
-
-For the examples using `env BLUEPRINT_TASK_FILE=...`, PowerShell users set `$env:BLUEPRINT_TASK_FILE` to the same Task path and run the quoted executable with `&`.
 
 Keep the same Task/Target and repeat `--stack` for **every fixed StackName** on all actions, including when saving only one Stack. Use `--aws-account-id` instead of `--alias` where applicable, configured `--profile` when set; `--sequential` can only lower concurrency.
 

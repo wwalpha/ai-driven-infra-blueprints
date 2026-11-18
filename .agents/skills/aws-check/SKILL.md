@@ -25,7 +25,7 @@ The common authority is maintained in the `ai-driven-infra-blueprints` repositor
 
 ## Investigation starting from AWS CLI comparison
 
-In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and replace `<python_setup.interpreter>` with the absolute executable path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+For standalone execution, substitute the repository’s configured Python 3 executable for `<python_setup.interpreter>`. In PowerShell, put `&` before the quoted path. When explicitly combined with `/worktree`, follow [Run Python in the Worktree](../worktree/SKILL.md#run-python-in-the-worktree).
 
 - Use `framework/scripts/model/cli.py aws-compare` for ordinary properties/current AWS value comparison. Retrieve current values through AWS CLI v2 and compare its JSON output deterministically in Python; do not use AI to reread every service each time. Do not invoke AI or issue saving from the program itself.
 - `desired.*` is authoritative for expected values. Identify actual resources through AWS CLI retrieval and use `observed.*` only as references to confirmed identifiers. Do not substitute Markdown or CFn for expected setting values.

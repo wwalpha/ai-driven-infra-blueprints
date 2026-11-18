@@ -1,6 +1,6 @@
 # AWS pull
 
-In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and replace `<python_setup.interpreter>` with the absolute executable path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+For standalone execution, substitute the repository’s configured Python 3 executable for `<python_setup.interpreter>`. In PowerShell, put `&` before the quoted path. For managed execution, follow [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree).
 
 ## Read first
 
@@ -18,7 +18,8 @@ has no AWS acquisition authority. AWS mutation, IaC changes and deploy/apply are
 Accept `--environment`, `--target` and comma-separated `--service` names, for example
 `/aws-pull --environment stg --target cde --service s3,iam,kms`.
 Resolve aliases through project.json. Process one service at a time; do not invent mappings.
-Use the Human-selected worktree and existing worktree lifecycle. Do not copy dirty inputs.
+Use the Human-selected worktree. For a managed Task, follow
+[Create and execute](../../../.agents/skills/worktree/SKILL.md#create-and-execute). Do not copy dirty inputs.
 
 ## Read-only phase, before the design Task
 
@@ -138,7 +139,8 @@ or integration and require renewed review, never automatic rewriting of approved
 
 Generate necessary Markdown/JSON only with shared guarded generation APIs. Run related
 Change Validation for changed Resources/Properties and affected reference contracts; no
-unrelated Full quality validation. Follow existing worktree finalization and cleanup.
+unrelated Full quality validation. For managed integration, follow
+[Complete and integrate](../../../.agents/skills/worktree/SKILL.md#complete-and-integrate).
 After one service finishes, start the next service's independent read-only Review cycle.
 Report saved keys, validation, excluded/unconfirmed items and limitations. Do not proceed
 to IaC or deployment.

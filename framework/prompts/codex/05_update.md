@@ -1,8 +1,8 @@
 # Manual Design Update and Deployment Prompt
 
-In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and replace `<python_setup.interpreter>` with the absolute executable path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
-
 ## Common update authority
+
+For standalone execution, substitute the repository’s configured Python 3 executable for `<python_setup.interpreter>`. In PowerShell, put `&` before the quoted path. For managed execution, follow [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree).
 
 Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. IMPORT acquisition/registration remains exclusive to `/import`; `/aws-pull` additionally permits read-only comparison of existing CREATE Resources before its approved Model-only Task; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 
@@ -45,13 +45,11 @@ BLUEPRINT_TASK_FILE=tasks/<task-id>.md \
 "<python_setup.interpreter>" -B framework/scripts/sync-model.py --write --scope <environment/target/service>
 ```
 
-Use the Task ID returned by the Worktree Skill to select this Task, including with the
-alternative selectors below; do not rely on implicit selection. Repeat `--scope` for each
-required Change Impact/Task-scope service. Alternatively use
+Explicitly select the managed Task as shown above, including with the alternative
+selectors below. Repeat `--scope` for each required Change Impact/Task-scope service. Alternatively use
 `--environment` with `--alias` or `--aws-account-id` and repeat `--service` for the
-selected services. Review the diff and run necessary related tests, then invoke worktree
-`finalize` on the running Task. Its final candidate Change Validation and completion
-replace a separate pre-finalize final loop or `--complete`; merge only the validated HEAD.
+selected services. Review the diff and run necessary related tests, then follow
+[Complete and integrate](../../../.agents/skills/worktree/SKILL.md#complete-and-integrate) for the running managed Task.
 Standalone design and dedicated operations retain their existing generation and validation paths.
 
 Dedicated merge/delete/retarget operations below retain their limited declarations and
@@ -94,15 +92,18 @@ under the next Model-only branch, not an independently finalized refactor.
 Use this independent branch only for an explicit Human reference-only request under
 [Standalone Model reference retarget](../../rules/task-contract.md#standalone-model-reference-retarget).
 Read that section, Task transition/boundary/Acceptance, Model sources and
-IMPORT authority before execution. Include every producer and consumer in Validation scope;
+IMPORT authority before execution. This branch requires a managed Worktree. Follow
+[Create and execute](../../../.agents/skills/worktree/SKILL.md#create-and-execute) for the parent.
+Include every producer and consumer in Validation scope;
 register a running design/update `import-retarget` parent with forbidden AWS/deploy,
 exact reference records, source/view paths and service Validation scope. Inspect
 `model.references` and raw authoritative sources; never infer identities from names
 or physical/display equality. Call only [model-retarget](../../../.agents/skills/model-retarget/SKILL.md)
 with the exact records. Batch all declared source changes in one guarded save, then
-use existing generation APIs and worktree finalize on the running parent for latest-base
-candidate verification/completion/ff-only integration. Do not invoke transfer/delete,
-edit generated views, relax other operations, or enter infrastructure execution below.
+use existing generation APIs and follow
+[Complete and integrate](../../../.agents/skills/worktree/SKILL.md#complete-and-integrate) for the running managed parent.
+Do not invoke transfer/delete, edit generated views, relax other operations, or enter
+infrastructure execution below.
 Preserve both producers, settings, fixed identities, observations, all undeclared
 references/consumers/environments, types/order and reference format/output/label policy.
 Reference ambiguity, target mismatch and unused semantic declarations are warnings.
@@ -119,9 +120,10 @@ and [IMPORT authority](../../rules/model-information.md#import-configuration-aut
 The [Model-only contract](../../rules/task-contract.md#model-only-import-operation-contract)
 defines exact pair/reference syntax and compatibility. Do not infer IDs or require pre-edits.
 
-The selected managed worktree is the transaction boundary. Keep the same parent Task
-selector through every operation; include all planned source/view paths and required
-direct consumers in its scope. The parent owns sequencing and
+The selected managed Worktree is required and serves as the transaction boundary. Follow
+[Create and execute](../../../.agents/skills/worktree/SKILL.md#create-and-execute) for the parent.
+Keep the same parent Task selector through every operation and include all planned
+source/view paths and required direct consumers in its scope. The parent owns sequencing and
 stopping; the following leaves own their exact editing procedures:
 
 1. For an overall merge request, call [model-transfer](../../../.agents/skills/model-transfer/SKILL.md)
@@ -138,11 +140,9 @@ stopping; the following leaves own their exact editing procedures:
    parent Task status. Never auto-rollback the whole workflow.
 3. Only after all leaves complete, use existing prepare_generation/validate_generation/publish_generation to prepare,
    validate and save the required views. Generation does not decide merge completeness.
-4. Use worktree finalize: prepare the private commit and rebase onto latest local base,
-   run one read-only final local loop on that actual candidate, consume its successful
-   result for completion and ff-only merge, then let the surviving launcher cleanup.
-   Incomplete deletions reject finalize before commit preparation. Final differences
-   must prove complete transfer/removal across every source service, declared retargets,
+4. Follow [Complete and integrate](../../../.agents/skills/worktree/SKILL.md#complete-and-integrate)
+   for the running parent. Incomplete deletions reject finalize before commit preparation.
+   Final differences must prove complete transfer/removal across every source service, declared retargets,
    stable identities and preserved non-reference consumers. Remaining source links and
    reference-derived differences are reported as warnings.
 

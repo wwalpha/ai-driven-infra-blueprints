@@ -81,11 +81,15 @@ Retain Scope checks, atomic publication/rollback and read-only Human confirmatio
 Save only issues.md/iac-issues.md; ignore `iac-issues.state.json` without updating or deleting it.
 
 Service-scoped report-only issues `migration` follows [Snapshot and publication](issues-investigation.md#snapshot-and-publication)
-without a worktree. Do not collect/compare HEAD, commits, worktree, index or untracked
-changes for validation/completion or attribute other Tasks' changes to it. Retain
+in the selected checkout. Standalone saving requires no Worktree. When explicitly
+combined with `/worktree`, apply the same report-only rules in the managed Worktree.
+Do not collect/compare HEAD, commits, worktree, index or untracked changes for
+validation/completion or attribute other Tasks' changes to it. Retain
 contract/scope/Acceptance, report destination Allowed paths and whole-target Snapshot/Review integrity.
 Input changes during/after scanning require no stop, rescan or renewed review.
-Ordinary Tasks/worktree integration retain Git/input safety rules.
+Ordinary Tasks retain Git/input safety rules. Any explicitly selected Worktree
+integration happens after report-only completion and follows the normal
+[Worktree integration checks](../../.agents/skills/worktree/SKILL.md#complete-and-integrate).
 
 ## Deploy task transitions
 

@@ -34,10 +34,7 @@ in all real Models of the same environment/target. Keep a before snapshot so del
 producer anchors remain known; service.md./service.md resolve identically.
 
 Before editing, call `model.references.incoming(snapshot, fixed_id, read_context)`.
-From the parent Task's Worktree root, clear `PYTHONHOME` and `PYTHONPATH`.
-Replace `<python_setup.interpreter>` below with the absolute executable path from
-that Worktree's successful Create/Setup JSON (`python_setup.status: ready`).
-In PowerShell, invoke the quoted executable with `&`.
+Follow [Run Python in the Worktree](../worktree/SKILL.md#run-python-in-the-worktree) for the parent Task's Worktree.
 
 ```console
 "<python_setup.interpreter>" -B framework/scripts/model/cli.py incoming <service.properties> <fixed-ID>

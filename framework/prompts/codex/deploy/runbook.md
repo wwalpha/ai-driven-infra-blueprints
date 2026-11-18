@@ -1,10 +1,8 @@
 # Deploy operation runbook
 
-Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. Run all Deploy Python commands from the returned `worktree` directory. Clear `PYTHONHOME` and `PYTHONPATH` and substitute the absolute `python_setup.interpreter` path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). In PowerShell, invoke the quoted executable with `&`. Invoke AWS CLI directly. Normal SDK advance is in the Skill; this runbook supplies conditional SDK saves/finish, Human-selected CLI and exceptions.
+Start from the [Deploy Skill](../../../../.agents/skills/deploy/SKILL.md); read its section and explicitly required Rules before acting. Reuse unchanged documents in this Task. Fresh AWS identity, inputs, dependencies, ChangeSets and token events must still be checked at their specified boundaries. Unknown applicability means read the relevant exception, then stop if evidence remains insufficient. For Deploy Python commands, follow [Local entry](../../../../.agents/skills/deploy/SKILL.md#local-entry). Invoke AWS CLI directly. Normal SDK advance is in the Skill; this runbook supplies conditional SDK saves/finish, Human-selected CLI and exceptions.
 
 ## SDK saves
-
-For the examples using `env BLUEPRINT_TASK_FILE=...`, PowerShell users set `$env:BLUEPRINT_TASK_FILE` to the same Task path and run the quoted executable with `&`.
 
 Read [Observation reads](#observation-reads) before collecting observations. Use the same Task/Target and every fixed `--stack` on all actions, even when saving one Stack. Keep configured `--profile`, or use `--aws-account-id` instead of `--alias` where applicable.
 

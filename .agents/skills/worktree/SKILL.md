@@ -5,11 +5,18 @@ description: Run a repository change task in an isolated linked Git worktree, th
 
 # Isolated task execution
 
-Use `/worktree <task-name> <child skill/task and its inputs>` for a task that changes repository files. This skill wraps the selected task; it does not replace its logic, authorize another phase, or authorize AWS operations. Existing task types do not encode read-only intent: decide from the requested outputs. Investigation/review without saved changes runs in the current checkout; `/issues` with saved reports is a change task.
+Use `/worktree <task-name> <child skill/task and its inputs>` to isolate a selected task.
+Apply this lifecycle when the Human explicitly selects `/worktree` for a change
+or the selected workflow requires a managed Worktree. The child workflow owns its
+inputs, contract, phase boundaries, AWS permissions, validation and completion.
+Read-only work uses the selected checkout, with [managed Python](#run-python-in-the-worktree)
+if the Human explicitly selected a managed Worktree. Standalone `/issues` may also
+save reports in the selected checkout under its
+[report-only contract](../../../framework/rules/task-contract.md#issues-report-publication).
 
 **Default integration is local fast-forward merge followed by cleanup.** After the child workflow's required checks and completion conditions pass, continue through ordinary `finalize` without asking the Human to choose between merge and PR. Select `--create-pr` only when the Human explicitly requests PR publication for this Task; mentioning PRs, reviewing PR behavior or changing PR support does not select it. A Task selected for PR publication keeps that integration mode.
 
-For `/import`, use the worktree selected by the Human; follow [08_import](../../../framework/prompts/codex/08_import.md) for its contract, evidence and validation requirements. Other change tasks retain this workflow.
+For `/import`, use the worktree selected by the Human; follow [08_import](../../../framework/prompts/codex/08_import.md) for its contract, evidence and validation requirements.
 
 ## Read before execution
 
@@ -33,7 +40,9 @@ If the helper reports an error, investigate only the affected state. Confirm a w
 
 Standard lifecycle: Create and setup → Execute → Validate → Local FF Merge or PR → Cleanup after confirmed merge.
 
-From the current repository root:
+For a new managed Task without an allocated Worktree, run Create from the current
+repository root. Reuse a Worktree already allocated for that Task. A leaf uses its
+selected parent Task and Worktree, with lifecycle operations owned by the parent.
 
 ```console
 python3 -B framework/scripts/worktree-cli.py create --task-name <task-name>
@@ -69,7 +78,10 @@ On Windows, run setup from the surviving checkout containing the updated helper.
 
 ### Run Python in the Worktree
 
-Use the `python_setup.interpreter` absolute path from the successful Create/Setup JSON to run Python directly from the returned `worktree`. Clear `PYTHONHOME` and `PYTHONPATH` first. Substitute the returned path for `<python_setup.interpreter>` in the commands below. In PowerShell, use `& "<python_setup.interpreter>"`. If a Python CLI needs to be found on PATH, prepend the returned `python_setup.bin` to PATH for that command.
+Use the `python_setup.interpreter` absolute path from the successful Create/Setup JSON to run Python directly from the returned `worktree`. Clear `PYTHONHOME` and `PYTHONPATH` first. Substitute the returned path for `<python_setup.interpreter>`. If a Python CLI needs to
+be found on PATH, prepend the returned `python_setup.bin` to PATH for that command.
+In PowerShell, use `& "<python_setup.interpreter>"` and set `$env:BLUEPRINT_TASK_FILE`
+before the invocation if the example sets that selector inline.
 
 After requirements change, rerun setup for the Task before running Python. Direct Python execution does not check registration or setup status or synchronize dependencies. If setup failed or is stale, stop until setup succeeds. Lifecycle commands use the ordinary Python launcher from a surviving checkout.
 
@@ -103,6 +115,12 @@ one generation phase and one final-candidate validation/merge/cleanup on success
 below describe other workflows and independent completion, not Model-only sequencing.
 
 For infrastructure/implement, use the child workflow’s `--complete-on-pass` final loop; on PASS proceed directly to `finalize` without a separate `--complete`.
+
+For an explicit `/worktree` and `/issues` combination, follow the
+[Issues save and validation rules](../../../framework/rules/issues-investigation.md#scope-and-responsibilities)
+in the managed Worktree. Complete the report-only Task before ordinary integration.
+The Issues scan, save, validation and Task completion stay independent of Git diffs.
+Finalize applies its usual Git and exact-path checks to the report changes.
 
 Finish all requested work and all required inputs/approvals under the child's existing workflow. Proceed only after successful final validation selected by [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy) and all other mandatory completion conditions:
 

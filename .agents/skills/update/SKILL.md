@@ -5,8 +5,6 @@ description: Use for explicit Model changes, Model-only operations, or reflectin
 
 Select the workflow using [Workflow selection](../../../framework/rules/task-contract.md#workflow-selection).
 
-In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and invoke the absolute `python_setup.interpreter` path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, use the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
-
 [Service Model source authority](../../../framework/rules/model-templates.md) applies.
 Inspect environment-specific properties; use `model.sources.edit_base` for an invalid repair baseline and validate the corrected candidate through `model.sources.load_model`. Use
 `model/cli.py trace <service.properties> <key>`. Edit desired/display/reference keys
@@ -28,15 +26,8 @@ Treat input following the Skill invocation as human input; do not infer infrastr
 Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. IMPORT acquisition/registration remains exclusive to `/import`; `/aws-pull` additionally permits read-only comparison of existing CREATE Resources before its approved Model-only Task; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 
 The Model-only branch composes model-transfer, model-retarget and model-delete under
-one parent Task; each leaf's own skill is its procedure authority. Worktree finalization
-owns the post-rebase final validation/completion/merge sequence.
-
-For ordinary managed Model-only corrections, save through the existing guarded Model
-API, generate required Views with `sync-model.py --write` using the exact Change Impact
-and Task scope, review the diff and run related checks, then invoke worktree `finalize`
-while the Task is running. Finalize validates the actual candidate and completes it;
-do not run a separate final loop or Task `--complete` first. Dedicated operations retain
-their own generation APIs and contracts. Standalone and infrastructure flows are unchanged.
+one parent Task; each leaf's own skill is its procedure authority. For managed
+Model-only completion, follow [Complete and integrate](../worktree/SKILL.md#complete-and-integrate).
 
 For an explicit Human one-or-more-Resource deletion request, register and validate the
 `model-delete` parent. Retain Model safety checks, forbidden AWS/deploy and unchanged
@@ -56,7 +47,7 @@ For an explicit standalone reference-only request, use the separate `import-reta
 branch in 05_update and the standalone Task contract. Call only model-retarget, saving
 all declarations together; retain both producers. No merge
 pair, transfer/delete or value-preserving detach authority is implied. Generate through
-the existing APIs and finalize the running parent on the latest-base candidate.
+the existing APIs and use the parent Task’s managed integration.
 
 For JSON settings, references or generation, read [Properties-first updates and display generation](../../../framework/rules/model-information.md#properties-first-updates-and-display-generation); for derived Policy/Configuration JSON, also read [Policy derived views](../../../framework/rules/model-information.md#policy-derived-views). Read additional sections required by the selected operation. Follow
 [Resource identity](../../../framework/docs/model-identity.md): JSON stores AWS configuration

@@ -1,6 +1,6 @@
 # User-selected acquired AWS additions and overwrites
 
-In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and replace `<python_setup.interpreter>` with the absolute executable path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+For standalone execution, substitute the repository’s configured Python 3 executable for `<python_setup.interpreter>`. In PowerShell, put `&` before the quoted path. For managed execution, follow [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree).
 
 `/import --environment <environment> --target <Alias-or-account> --service <service>`
 
@@ -279,8 +279,8 @@ and evidence. Recover without AWS reacquisition, re-Import or renewed unchanged 
 Recovery requires the Task-start Git baseline to match the acquisition source hashes and file sets, and the saved Model to match the reviewed candidate. If prior ownership cannot be established, stop without modifying displays.
 Retain acquisition/Review/checkpoint on pending, dry-run, failure, cancellation or incomplete
 display. Remove external sessions only after complete success or explicit termination.
-Do not delete journals or fabricate completion receipts. Follow the existing worktree
-completion/integration lifecycle for the concrete successful task result.
+Do not delete journals or fabricate completion receipts. For a successful managed Task,
+follow [Complete and integrate](../../../.agents/skills/worktree/SKILL.md#complete-and-integrate).
 
 ## Dry-run and result
 
