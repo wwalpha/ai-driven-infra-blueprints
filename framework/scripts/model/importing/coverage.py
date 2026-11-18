@@ -17,6 +17,7 @@ from aws_mapping import response_shape, runtime_registry
 from aws_mapping_catalog import sdk_shape, under
 from contracts.mapping import MAPPING_RESOURCE_TYPE_KEY
 from design.catalog import DesignSchemaCatalog
+from services.registry import REGISTRY
 from utils.aws_mappings import owners
 from utils.aws_schemas import schemas_for
 from utils.aws_sdk import aws_runtime, sdk_for
@@ -510,13 +511,12 @@ class Coverage:
         adapter: Any,
     ) -> Diagnostic:
         getter = mapping.getters.get(prop.field.getter, {})
+        registered_adapter = REGISTRY.aws_adapters.get(mapping.service)
         refs = {
             "mapping": "framework/mappings/aws/" + mapping.service + ".yaml#" + key,
             "getter": prop.field.getter or None,
-            "adapter": "framework/scripts/aws-compare-services/"
-            + mapping.service
-            + ".py"
-            if adapter
+            "adapter": f"framework/scripts/{registered_adapter.source.as_posix()}"
+            if adapter and registered_adapter
             else None,
             "path": prop.field.path,
             "source": prop.source,
@@ -799,6 +799,7 @@ class Coverage:
             or counts["unobservable"]
             else "ready"
         )
+        registered_adapter = REGISTRY.aws_adapters.get(mapping.service)
         return {
             "resourceType": kind,
             "service": mapping.service,
@@ -820,10 +821,8 @@ class Coverage:
                 + kind,
                 "schema": type_name(kind),
                 "inventory": "framework/scripts/model/importing/discovery.py",
-                "adapter": "framework/scripts/aws-compare-services/"
-                + mapping.service
-                + ".py"
-                if adapter
+                "adapter": f"framework/scripts/{registered_adapter.source.as_posix()}"
+                if adapter and registered_adapter
                 else None,
             },
         }

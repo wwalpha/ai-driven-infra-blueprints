@@ -5,8 +5,9 @@ import re
 from collections import Counter
 
 from design.layout_schema import ANCHOR
-from design.policy_tables import END, IAM_END, IAM_POLICY_DOCUMENTS, IAM_START, START
+from design.policy_tables import END, IAM_END, IAM_START, START
 from model.render import document_view_labels
+from services.registry import REGISTRY
 from utils.json_format import strict_json
 from utils.markdown_format import markdown_prose
 from validation.diagnostics import Diagnostic
@@ -15,7 +16,7 @@ from model import ModelView
 
 CHECK_ID = "design.saved-policy-json"
 POLICY_SERVICES = {"iam", "s3"}
-POLICY_PROPERTIES = IAM_POLICY_DOCUMENTS | {"S3.BucketPolicy.PolicyDocument"}
+POLICY_PROPERTIES = REGISTRY.design_tables.get("REVIEW_POLICY_JSON", ())
 MARKERS = {START: END, IAM_START: IAM_END}
 FOLDED_JSON = re.compile(
     r'^<a id="(?P<anchor>[^"\n]+)"></a>\n\n'

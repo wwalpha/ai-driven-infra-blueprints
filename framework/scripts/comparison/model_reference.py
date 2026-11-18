@@ -16,15 +16,11 @@ from model.reference_nodes import (
     resolve,
 )
 from model.references import declarations, usages
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
-from utils.reference_contracts import (
-    reference_attribute,
-    reference_context,
-    reference_error,
-)
 
-from . import registry
 from .deferral import ImportReferenceDeferred
 from .reference_evidence import validate_declaration
 
@@ -97,7 +93,7 @@ class ModelReferences:
             kind = ".".join(prop.split(".")[:2])
             field = receiving_property(prop, pointer or "")
             path = field.removeprefix(kind + ".")
-            policy_error = reference_error(field, context)
+            policy_error = REFERENCES.error_at(field, context)
             try:
                 if policy_error:
                     raise Blocked(policy_error)
@@ -115,7 +111,7 @@ class ModelReferences:
                 symbol = ResourceReference(
                     {
                         "$resource": [service, number],
-                        "$attribute": reference_attribute(
+                        "$attribute": REFERENCES.formal_attribute(
                             resource[RESOURCE_TYPE_KEY], attribute
                         ),
                     }
@@ -127,7 +123,7 @@ class ModelReferences:
                     and resource_mode(resource) != RESOURCE_MODE_IMPORT
                 ):
                     symbol = inputs.reference(self.scope.service, symbol)
-                    project = registry.property_rule(
+                    project = REGISTRY.comparison_property_rule(
                         kind, prop.removeprefix(kind + ".")
                     ).selected_reference
                     return (
@@ -171,7 +167,7 @@ class ModelReferences:
             prop = inputs.model(self.scope.service).authoritative.get(
                 key.rsplit(".", 1)[0] + ".property", property_name or ""
             )
-            context = reference_context(
+            context = REFERENCES.bind_context(
                 receiving_property(prop, pointer or ""), value, context
             )
             return {
@@ -291,7 +287,7 @@ class ModelReferences:
         symbol = ResourceReference(
             {
                 "$resource": [service, usage.producer_id],
-                "$attribute": reference_attribute(
+                "$attribute": REFERENCES.formal_attribute(
                     resource[RESOURCE_TYPE_KEY], attribute
                 ),
             }

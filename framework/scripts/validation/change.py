@@ -11,7 +11,7 @@ from model.change_scope import change_reads
 from model.core import ReferenceResolutionError
 from model.identity import Resolver, display_anchor
 from model.reference_values import ProducerValues
-from utils.reference_contracts import contract, reference_attribute
+from services.reference_engine import REFERENCES
 from validation.findings import Findings
 
 import model as _model_api
@@ -230,12 +230,14 @@ def validate_producer_inputs(snapshot, details, reads, findings, *, context_valu
             context = _model_validation_projection.reference_context_for(
                 context_values, rid, row, row.get("value"), "", snapshot.scope.root
             )
-        forms = contract(prop, context).get(resource[RESOURCE_TYPE_KEY], ())
+        forms = (REFERENCES.import_targets(prop, context) or {}).get(
+            resource[RESOURCE_TYPE_KEY], ()
+        )
         if spec.get("property"):
             forms = (spec["property"].split(".", 2)[-1],)
         if len(forms) != 1:
             continue  # A display-only link grants no authority to infer an output attribute.
-        attribute = reference_attribute(resource[RESOURCE_TYPE_KEY], forms[0])
+        attribute = REFERENCES.formal_attribute(resource[RESOURCE_TYPE_KEY], forms[0])
         key = producer.scope.path, usage.producer_id, attribute
         if key in checked:
             continue
@@ -243,7 +245,8 @@ def validate_producer_inputs(snapshot, details, reads, findings, *, context_valu
         values = ProducerValues(producer, usage.producer_id, resource, resolver)
         evaluate = (
             partial(values.arn, attribute)
-            if attribute == reference_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
+            if attribute
+            == REFERENCES.formal_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
             else partial(values.value, attribute)
         )
 

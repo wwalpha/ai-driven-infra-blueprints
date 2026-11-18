@@ -23,7 +23,6 @@ from contracts.repository import DESIGNS_DIRECTORY
 from contracts.validation import VALIDATION_FAIL
 from design.document import DesignIndex, DisplayMismatchError
 from design.layout import (
-    LINKED_LIST_PROPERTIES,
     design_model_values,
     formal_property,
     linked_list_property,
@@ -31,15 +30,6 @@ from design.layout import (
 )
 from design.layout_schema import DETAILS_HEADING, GROUPED
 from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
-from design.services.codebuild import PlaintextReferenceError
-from design.services.definitions.cloudtrail import CLOUDTRAIL_DATA_RESOURCE
-from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
-from design.services.definitions.codepipeline import CODEPIPELINE_STAGE
-from design.services.definitions.registry import (
-    REQUIRED_NAME_TAG_TYPES,
-    RESOURCE_REFERENCE_PROPERTIES,
-)
-from design.services.ec2.security_groups import security_group_table_lines
 from model.core import (
     LINK,
     ReferenceDiagnosticError,
@@ -48,6 +38,14 @@ from model.core import (
 )
 from model.reference_nodes import nodes, receiving_property
 from model.reference_presentation import Presentation
+from services.cloudtrail.design import CLOUDTRAIL_DATA_RESOURCE
+from services.codebuild.design import CODEBUILD_FORMAL_VARIABLE
+from services.codebuild.display import PlaintextReferenceError
+from services.codepipeline.design import CODEPIPELINE_STAGE
+from services.ec2.security_groups import security_group_table_lines
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
+from services.s3.references import S3_KMS_MASTER_KEY_ID
 from utils.input_cache import input_is_file, input_scope, input_select, input_text
 from utils.markdown_format import markdown_prose
 
@@ -61,7 +59,6 @@ from .design import (
     OVERVIEW_HEADING,
     OVERVIEW_TYPE_HEADING_PATTERN,
     RESOURCE_LINK_PATTERN,
-    S3_KMS_MASTER_KEY_ID,
     TABLE_ALIGNMENT,
     TABLE_HEADER,
     design_files,
@@ -78,6 +75,13 @@ from .diagnostics import (
     stable_id,
 )
 from .findings import FindingsError
+
+REQUIRED_NAME_TAG_TYPES = REGISTRY.design_tables.get(
+    "REQUIRED_NAME_TAG_TYPES", frozenset()
+)
+RESOURCE_REFERENCE_PROPERTIES = REGISTRY.design_tables.get(
+    "RESOURCE_REFERENCE_PROPERTIES", {}
+)
 
 
 def unavailable_semantics(
@@ -1035,7 +1039,7 @@ def check_design_links(
             expected = (
                 {"S3": "S3.Bucket", "Lambda": "Lambda.Function"}[cloudtrail.group(2)]
                 if cloudtrail
-                else LINKED_LIST_PROPERTIES[linked_list[0]]
+                else REFERENCES.linked_list_kind(linked_list[0])
             )
             findings.warn(
                 bool(

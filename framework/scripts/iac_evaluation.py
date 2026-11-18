@@ -13,19 +13,11 @@ from contracts.model import (
     MODEL_UNSET,
     RESOURCE_TYPE_KEY,
 )
+from services.reference_engine import REFERENCES
 from utils.cloudformation.format import intrinsic_shape_error
 from utils.cloudformation.inputs import Blocked, resolve_value
 from utils.comparison_rows import MISSING, select
 from utils.iac_values import Expression, ResourceReference, cfn_resource_identity
-from utils.reference_contracts import (
-    ARN_SHAPES,
-    REF_ATTRIBUTES,
-    RETURN_TYPES,
-    reference_attribute,
-)
-from utils.reference_contracts import (
-    RETURN_ATTRIBUTE_PROPERTIES as RETURN_ATTRIBUTE_PROPERTIES,
-)
 
 
 def _callback_Evaluation_evaluate_replace(
@@ -71,12 +63,15 @@ class Evaluation:
         if isinstance(value, ResourceReference):
             service, identity = value["$resource"]
             kind = self.resources[service][identity][RESOURCE_TYPE_KEY]
-            if (kind, value["$attribute"]) in RETURN_TYPES and not element:
-                return {"type": RETURN_TYPES[kind, value["$attribute"]]}
+            if (
+                REFERENCES.return_type(kind, value["$attribute"]) is not None
+                and not element
+            ):
+                return {"type": REFERENCES.return_type(kind, value["$attribute"])}
             if not element and (
-                value["$attribute"] == REF_ATTRIBUTES.get(kind)
-                or kind in ARN_SHAPES
-                and value["$attribute"] == reference_attribute(kind, "Arn")
+                value["$attribute"] == REFERENCES.ref_attribute(kind)
+                or REFERENCES.arn_shape(kind) is not None
+                and value["$attribute"] == REFERENCES.formal_attribute(kind, "Arn")
             ):
                 return {"type": "string"}
             return self.property_schema(
@@ -121,8 +116,8 @@ class Evaluation:
             if document.get("Transform"):
                 raise Blocked("Transform requires external evaluation")
             properties = document["Resources"][logical].get("Properties", {})
-            setting = RETURN_ATTRIBUTE_PROPERTIES.get(
-                (resource[RESOURCE_TYPE_KEY], attribute), attribute
+            setting = REFERENCES.return_property(
+                resource[RESOURCE_TYPE_KEY], attribute, attribute
             )
             explicit = select(properties, setting)
             readonly = "/properties/" + setting.replace(
@@ -131,7 +126,9 @@ class Evaluation:
                 "readOnlyProperties", ()
             )
             # Local comparison retains Producer evidence until the shared literal resolver runs.
-            arn = attribute == reference_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
+            arn = attribute == REFERENCES.formal_attribute(
+                resource[RESOURCE_TYPE_KEY], "Arn"
+            )
             if (
                 explicit == MISSING
                 or self.local_comparison

@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import model.sources as _imports_model_sources
 import sync_runtime as _imports_sync_runtime
+from services.reference_engine import REFERENCES
 from support import model_templates_fixtures as source_checks
 from support.it_case_receipt import it_case
 from support.validation_scope_fixtures import (
@@ -32,7 +33,6 @@ from support.validation_scope_fixtures import (
 )
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_context
-from utils.reference_contracts import reference_attribute
 
 from model import dependency_index
 
@@ -104,7 +104,7 @@ def check_single_target_cache(root):
                         {
                             "$modelRef": {
                                 "logicalId": values["desired.resource.001.logicalId"],
-                                "attribute": reference_attribute(
+                                "attribute": REFERENCES.formal_attribute(
                                     kind, output.removeprefix(kind + ".")
                                 ),
                             }

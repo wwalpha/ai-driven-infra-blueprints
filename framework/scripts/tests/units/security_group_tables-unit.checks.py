@@ -18,8 +18,8 @@ from aws_mapping_display import selected_rows
 from comparison.values import desired_value
 from design.catalog import DesignSchemaCatalog
 from design.policy_tables import rendered_design
-from design.services.ec2.security_groups import cells, sg_tables
 from model.core import literal, properties
+from services.ec2.security_groups import cells, sg_tables
 from support.fixture_cases import load_case, load_suite
 from support.security_group_tables_fixtures import (
     COMMENTS,

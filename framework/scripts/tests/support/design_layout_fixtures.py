@@ -15,7 +15,6 @@ import model.render as model_design
 import pytest
 import sync_runtime
 from design.layout import (
-    SUBNET_LIST_PROPERTIES,
     expanded_design,
     expanded_display_rows,
     formal_property,
@@ -25,16 +24,25 @@ from design.layout import (
 )
 from design.layout_schema import LAYOUTS, resource_anchor
 from design.policy_tables import resources_in
-from design.services.codepipeline import pipeline_rows
-from design.services.definitions.registry import (
-    HIDDEN_PROPERTIES,
-    RESOURCE_REFERENCE_PROPERTIES,
-)
 from model.display import display_rows, row_table
+from services.codepipeline.display import pipeline_rows
+from services.registry import REGISTRY
 from support.model_sources import write_model
 from support.pytest_cli import run
 from support.validator import load
 from validation import runner as validation_runner
+
+SUBNET_LIST_PROPERTIES = frozenset(
+    kind + "." + path
+    for kind in REGISTRY
+    if (receiver := REGISTRY.receiver(kind))
+    for path, target in receiver.linked_lists.items()
+    if target == "EC2.Subnet"
+)
+HIDDEN_PROPERTIES = REGISTRY.design_tables.get("HIDDEN_PROPERTIES", frozenset())
+RESOURCE_REFERENCE_PROPERTIES = REGISTRY.design_tables.get(
+    "RESOURCE_REFERENCE_PROPERTIES", {}
+)
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

@@ -32,15 +32,15 @@ from contracts.target import (
 from design.catalog import DesignSchemaCatalog
 from design.layout import resource_mode
 from design.policy_tables import literal
-from iac_evaluation import RETURN_ATTRIBUTE_PROPERTIES
 from model.adapters.observed import mapped_resource, resource_index
 from model.core import ReferenceResolutionError, stack_model
 from model.files import load_model
 from model.literal_values import value_shape
-from model.projection import reference_attribute
 from model.reference_nodes import is_reference, parse
 from model.reference_values import resolve
 from model.sources import model_exists, model_paths
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from task_contract_core import task_reads
 from utils.arn_values import context_value, named_arn
 from utils.aws_sdk import aws_runtime
@@ -53,14 +53,6 @@ from utils.comparison_rows import MISSING, select
 from utils.iac_values import Expression, ResourceReference, cfn_resource_identity, same
 from utils.json_format import policy_json as strict_json
 from utils.project_targets import load_target_directory as load_target
-from utils.reference_contracts import (
-    ARN_SHAPES,
-    ATTRIBUTE_SUFFIXES,
-    REF_ATTRIBUTES,
-    REFERENCE_PROPERTIES,
-    getatt_attribute,
-    row_contexts,
-)
 
 import model as _model_api
 
@@ -71,13 +63,10 @@ from . import (
     model_reference,
     reference_evidence,
     references,
-    registry,
     values,
 )
 from .deferral import defer_import_reference
 from .result import redacted
-from .rules.kms import kms_format
-from .rules.route53 import alias_zone_export
 
 
 class Inputs:
@@ -416,7 +405,7 @@ class Inputs:
             value = ResourceReference(
                 {
                     "$resource": [snapshot.scope.service, number],
-                    "$attribute": reference_attribute(
+                    "$attribute": REFERENCES.formal_attribute(
                         resource[RESOURCE_TYPE_KEY], attribute
                     ),
                 }
@@ -431,7 +420,9 @@ class Inputs:
                 ) from error
             if (
                 expected_attribute is not None
-                and reference_attribute(resource[RESOURCE_TYPE_KEY], expected_attribute)
+                and REFERENCES.formal_attribute(
+                    resource[RESOURCE_TYPE_KEY], expected_attribute
+                )
                 != value["$attribute"]
             ):
                 raise Blocked(
@@ -457,9 +448,12 @@ class Inputs:
         if resource_mode(resource) == RESOURCE_MODE_IMPORT:
             if (
                 self.local_comparison
-                and registry.resource(resource[RESOURCE_TYPE_KEY]).imported_arn
+                and REGISTRY.comparison_contract(
+                    resource[RESOURCE_TYPE_KEY]
+                ).imported_arn
                 is not None
-                and REFERENCE_PROPERTIES.get(consumer_property)
+                and consumer_property is not None
+                and REFERENCES.direct_reference(consumer_property)
                 == (resource[RESOURCE_TYPE_KEY], expected_attribute)
                 and self.target[IAC_ENGINE_KEY] == "cloudformation"
             ):
@@ -495,8 +489,12 @@ class Inputs:
             raise
         path, identity, resource, _ = entry
         if attribute is None:
-            ref_rule = registry.resource(resource[RESOURCE_TYPE_KEY]).ref_attribute
-            ref_property = registry.resource(resource[RESOURCE_TYPE_KEY]).ref_property
+            ref_rule = REGISTRY.comparison_contract(
+                resource[RESOURCE_TYPE_KEY]
+            ).ref_attribute
+            ref_property = REGISTRY.comparison_contract(
+                resource[RESOURCE_TYPE_KEY]
+            ).ref_property
             if self.local_comparison and ref_rule and ref_property:
                 self.symbols[cachekey] = None
                 try:
@@ -511,7 +509,7 @@ class Inputs:
                 finally:
                     self.symbols.pop(cachekey, None)
             else:
-                attribute = REF_ATTRIBUTES.get(resource[RESOURCE_TYPE_KEY])
+                attribute = REFERENCES.ref_attribute(resource[RESOURCE_TYPE_KEY])
             if attribute is None:
                 raise Blocked(
                     f"Ref return attribute is unproven: {resource[RESOURCE_TYPE_KEY]}"
@@ -519,15 +517,18 @@ class Inputs:
         elif not (
             derived
             and (
-                attribute == reference_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
-                and resource[RESOURCE_TYPE_KEY] in ARN_SHAPES
-                or attribute == REF_ATTRIBUTES.get(resource[RESOURCE_TYPE_KEY])
+                attribute
+                == REFERENCES.formal_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
+                and REFERENCES.arn_shape(resource[RESOURCE_TYPE_KEY]) is not None
+                or attribute == REFERENCES.ref_attribute(resource[RESOURCE_TYPE_KEY])
             )
         ):
-            if self.local_comparison and not getatt_attribute(
+            if self.local_comparison and not REFERENCES.has_getatt(
                 resource[RESOURCE_TYPE_KEY],
                 attribute,
-                self.catalog.schema(resource[RESOURCE_TYPE_KEY]),
+                self.catalog.schema(resource[RESOURCE_TYPE_KEY]).get(
+                    "readOnlyProperties", ()
+                ),
             ):
                 raise Blocked(
                     f"unproven GetAtt return attribute: {logical}.{attribute}"
@@ -537,7 +538,7 @@ class Inputs:
         result = ResourceReference(
             {
                 "$resource": [path.stem, identity],
-                "$attribute": reference_attribute(
+                "$attribute": REFERENCES.formal_attribute(
                     resource[RESOURCE_TYPE_KEY], attribute
                 ),
             }
@@ -608,9 +609,7 @@ class Inputs:
                     "consumer_stack": stack,
                 }
             raise blocked from error
-        if len(candidates) != 1 or (
-            not allow_same_stack and candidates[0][0] == stack
-        ):
+        if len(candidates) != 1 or (not allow_same_stack and candidates[0][0] == stack):
             blocked = Blocked(
                 f"ImportValue handoff matches={len(candidates)} or same-stack export: {name}"
             )
@@ -703,15 +702,17 @@ class Inputs:
             raise Blocked("cyclic reference literal dependency")
         seen = seen | {token}
         resource = self.resources[service][identity]
-        suffix = ATTRIBUTE_SUFFIXES.get(
-            (resource[RESOURCE_TYPE_KEY], value["$attribute"])
+        suffix = REFERENCES.attribute_suffix(
+            resource[RESOURCE_TYPE_KEY], value["$attribute"]
         )
         if suffix:
             base = ResourceReference(dict(value, **{"$attribute": suffix[0]}))
             return (
                 self.reference_literal(base, recorded=recorded, seen=seen) + suffix[1]
             )
-        imported_arn = registry.resource(resource[RESOURCE_TYPE_KEY]).imported_arn
+        imported_arn = REGISTRY.comparison_contract(
+            resource[RESOURCE_TYPE_KEY]
+        ).imported_arn
         if (
             self.local_comparison
             and imported_arn
@@ -729,13 +730,14 @@ class Inputs:
         name, logical, document, pseudo = self.reference_context(value)
         attribute = value["$attribute"]
         secret_name = (
-            attribute == registry.resource(resource[RESOURCE_TYPE_KEY]).explicit_name
+            attribute
+            == REGISTRY.comparison_contract(resource[RESOURCE_TYPE_KEY]).explicit_name
         )
         evaluator = self.evaluator()
         properties = document["Resources"][logical].get("Properties", {})
-        if resource[
-            RESOURCE_TYPE_KEY
-        ] in ARN_SHAPES and attribute == reference_attribute(
+        if REFERENCES.arn_shape(
+            resource[RESOURCE_TYPE_KEY]
+        ) is not None and attribute == REFERENCES.formal_attribute(
             resource[RESOURCE_TYPE_KEY], "Arn"
         ):
             if resource_mode(resource) != RESOURCE_MODE_CREATE:
@@ -762,7 +764,7 @@ class Inputs:
                         dict(
                             value,
                             **{
-                                "$attribute": reference_attribute(
+                                "$attribute": REFERENCES.formal_attribute(
                                     resource[RESOURCE_TYPE_KEY], field
                                 )
                             },
@@ -772,9 +774,7 @@ class Inputs:
                 if symbolic_arn
                 else None,
             )
-        setting = RETURN_ATTRIBUTE_PROPERTIES.get(
-            (resource[RESOURCE_TYPE_KEY], attribute)
-        )
+        setting = REFERENCES.return_property(resource[RESOURCE_TYPE_KEY], attribute)
         explicit_path = setting or attribute
         readonly = "/properties/" + explicit_path.replace(
             ".", "/"
@@ -783,7 +783,7 @@ class Inputs:
         )
         if (
             (
-                attribute != REF_ATTRIBUTES.get(resource[RESOURCE_TYPE_KEY])
+                attribute != REFERENCES.ref_attribute(resource[RESOURCE_TYPE_KEY])
                 and not secret_name
                 and setting is None
             )
@@ -855,7 +855,8 @@ class Inputs:
                 "opaque Ref requires the same proven Producer; no local literal contract"
             )
         secret_name = (
-            attribute == registry.resource(resource[RESOURCE_TYPE_KEY]).explicit_name
+            attribute
+            == REGISTRY.comparison_contract(resource[RESOURCE_TYPE_KEY]).explicit_name
         )
         bound = self.symbol(
             name, logical, None if secret_name else attribute, derived=not secret_name
@@ -992,7 +993,8 @@ class Inputs:
         return self.reference_formats[key]
 
     def kms_format(self, value):
-        return kms_format(value, self.resources, project_arn=self.project_arn)
+        classifier = REGISTRY.comparison_rules("KMS.Key").resource.identifier_format
+        return classifier(value, self.resources, project_arn=self.project_arn)
 
     def reference_diagnostic(self, left, right, kind, path, reason, *, code=None):
         detail = references.reference_diagnostic(
@@ -1028,7 +1030,7 @@ class Inputs:
     def reference_decision(self, left, right, kind, path, *, context=None):
         selected = None
         if self.local_comparison:
-            selected = registry.property_rule(kind, path).selected_decision
+            selected = REGISTRY.comparison_property_rule(kind, path).selected_decision
         if selected is not None:
             outcome = selected(
                 self,
@@ -1204,7 +1206,9 @@ class Inputs:
             ):
                 number = row_resource(row_id)
                 kind = self.resources[service][number][RESOURCE_TYPE_KEY]
-                contexts = row_contexts(kind, self.rows[service][number])
+                contexts = REFERENCES.collect_row_contexts(
+                    kind, self.rows[service][number]
+                )
                 prop = (
                     self.model(service)
                     .authoritative.get(f"desired.row.{row_id}.property", "")
@@ -1262,16 +1266,19 @@ class Inputs:
             environment_mapping=environment_values.mapping_for(self.root, kind),
             catalog=self.catalog,
         )
+        prepare_reference = REGISTRY.comparison_contract(kind).prepare_reference.get(
+            row["property"].removeprefix(kind + ".")
+        )
         if (
             self.local_comparison
             and stack is not None
             and row_id is not None
-            and row["property"] == "Route53.RecordSet.AliasTarget.HostedZoneId"
+            and prepare_reference is not None
             and "document" not in row
             and isinstance(prepared.value, str)
         ):
             try:
-                value = alias_zone_export(self, service, row_id, row, stack)
+                value = prepare_reference(self, service, row_id, row, stack)
             except (Blocked, KeyError, ValueError, TypeError, OSError) as error:
                 return replace(prepared, error=error)
             if value is not None:
@@ -1280,7 +1287,7 @@ class Inputs:
 
     def project_rows(self, kind, rows):
         indexed_rows = _imports_array_display.indexed_rows
-        prepare = registry.resource(kind).prepare_rows
+        prepare = REGISTRY.comparison_contract(kind).prepare_rows
         if prepare is None:
             return rows
         projected = [

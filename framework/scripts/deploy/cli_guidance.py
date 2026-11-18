@@ -13,11 +13,12 @@ from pathlib import Path
 
 from contracts.model import REFERENCE_PENDING_DEPLOY, REFERENCE_UNRESOLVED
 from model.core import ReferenceDiagnosticError
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from utils.aws.client import AwsError
 from utils.aws.diagnostics import aws_failure_fields
 from utils.aws.identity import IdentityError
 from utils.project_targets import DeployContextError
-from utils.reference_contracts import ARN_ATTRIBUTES, REF_ATTRIBUTES
 
 from deploy.failures import AUTH_CODES, dependency_wait
 
@@ -204,7 +205,21 @@ def safe_diagnostic(diagnostic):
         ("category", REFERENCE_CATEGORIES),
         ("code", REFERENCE_CODES),
         ("status", {"FAIL", "NOT_RUN", "WARNING"}),
-        ("attribute", {"Arn", *ARN_ATTRIBUTES.values(), *REF_ATTRIBUTES.values()}),
+        (
+            "attribute",
+            {
+                "Arn",
+                *(
+                    attr
+                    for kind in REGISTRY
+                    for attr in (
+                        REFERENCES.arn_attribute(kind),
+                        REFERENCES.ref_attribute(kind),
+                    )
+                    if attr is not None
+                ),
+            },
+        ),
     ):
         value = diagnostic.get(field)
         if isinstance(value, str) and value in allowed:

@@ -4,8 +4,10 @@ import json
 from functools import partial as _bind_framework_callback
 
 from model.core import LINK, literal
+from services.registry import REGISTRY
 
-from design.services.definitions.registry import COMPACT_FIELDS, PACKED_ARRAY_PREFIXES
+COMPACT_FIELDS = REGISTRY.design_tables.get("COMPACT_FIELDS", {})
+PACKED_ARRAY_PREFIXES = REGISTRY.design_tables.get("PACKED_ARRAY_PREFIXES", ())
 
 
 def _recursive_packed_compact_rows_expand(block, values, prefix):

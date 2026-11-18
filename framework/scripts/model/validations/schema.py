@@ -20,7 +20,7 @@ from design.catalog import (
     property_paths_with_parents,
 )
 from design.layout_schema import GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES
-from design.services.definitions.registry import HIDDEN_PROPERTIES
+from services.registry import REGISTRY
 from utils.aws_catalogs import catalog_outputs
 from utils.json_format import policy_json
 from utils.property_path import definition_path
@@ -37,6 +37,8 @@ from model.literal_values import literal_errors as row_literal_errors
 from model.projection import is_import_expression, resource_rows
 from model.references import has_reference
 from model.validations.naming import NAMING_EXEMPT_PROPERTIES, naming_errors
+
+HIDDEN_PROPERTIES = REGISTRY.design_tables.get("HIDDEN_PROPERTIES", frozenset())
 
 
 def validate_required_properties(
@@ -71,10 +73,10 @@ def validate_required_properties(
         kind = resource[RESOURCE_TYPE_KEY]
         rows = resource_rows(values, identity, kind, root)
         rule = _imports_aws_mapping_display.rule
-        RESOURCE_REFERENCE_PROPERTIES = (
-            _imports_design_layout.RESOURCE_REFERENCE_PROPERTIES
+        RESOURCE_REFERENCE_PROPERTIES = REGISTRY.design_tables.get(
+            "RESOURCE_REFERENCE_PROPERTIES", {}
         )
-        is_import_role_arn = _imports_design_layout.is_import_role_arn
+        presentation = REGISTRY.presentation(kind)
         is_service_role_reference = _imports_design_layout.is_service_role_reference
         references = {
             rid
@@ -96,14 +98,15 @@ def validate_required_properties(
                 or _dependency_design_layout.resource_mode(resource)
                 == RESOURCE_MODE_IMPORT
                 and (
-                    prop != "Config.ConfigurationRecorder.RoleARN"
+                    prop not in presentation.import_link_required
                     or _dependency_design_layout.is_import_pending_reference(
                         prop, value
                     )
                 )
-                or is_import_role_arn(
-                    prop, value, _dependency_design_layout.resource_mode(resource)
-                )
+                or _dependency_design_layout.resource_mode(resource)
+                == RESOURCE_MODE_IMPORT
+                and presentation.literal_link_label
+                and presentation.literal_link_label(prop, value)
             ):
                 warnings.append(
                     {
@@ -181,7 +184,6 @@ def _callback_check_model_inputs_literal_check(
     /,
 ) -> None:
     """参照や出力等の除外条件を守り、対象 Row のリテラルを検証する。"""
-    config_role_arn = _imports_design_layout.config_role_arn
     is_service_role_reference = _imports_design_layout.is_service_role_reference
     DESIGN_ONLY_PROPERTIES = _imports_validation_design.DESIGN_ONLY_PROPERTIES
 
@@ -204,6 +206,7 @@ def _callback_check_model_inputs_literal_check(
     ):
         return
     kind = ".".join(prop.split(".")[:2])
+    literal_link_label = REGISTRY.presentation(kind).literal_link_label
     if (
         prop in catalog_outputs(definitions, kind)
         or prop in NAMING_EXEMPT_PROPERTIES
@@ -220,17 +223,15 @@ def _callback_check_model_inputs_literal_check(
             _dependency_design_layout.is_import_pending_reference(
                 prop, _state_check_model_inputs_337.row.get("value", "")
             )
-            or config_role_arn(prop, _state_check_model_inputs_337.row.get("value", ""))
+            or literal_link_label
+            and literal_link_label(
+                prop, _state_check_model_inputs_337.row.get("value", "")
+            )
         )
     ):
         return
     field = prop.removeprefix(kind + ".")
-    if field == "Name" and kind in {
-        "EC2.VPC",
-        "EC2.Subnet",
-        "EC2.RouteTable",
-        "EC2.FlowLog",
-    }:
+    if prop in REGISTRY.design_tables.get("CATALOG_EXEMPT_NAMES", ()):
         return
     for error in row_literal_errors(
         catalog,

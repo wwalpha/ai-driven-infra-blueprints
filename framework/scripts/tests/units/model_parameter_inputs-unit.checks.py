@@ -11,7 +11,6 @@ from tempfile import TemporaryDirectory
 
 import pytest
 from design.catalog import DesignSchemaCatalog
-from design.services.codepipeline import pipeline_display_rows, pipeline_rows
 from model.core import entries, literal, resource_row_index
 from model.format import FORMAT, parse, serialize
 from model.importing.cli import property_schema
@@ -19,6 +18,7 @@ from model.importing.sources import typed_row
 from model.operations import CandidateReads
 from model.references import usages
 from model.sources import load_model
+from services.codepipeline.display import pipeline_display_rows, pipeline_rows
 from support.import_model_fixtures import (
     resource_values,
     service_values,

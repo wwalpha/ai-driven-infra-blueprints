@@ -14,9 +14,9 @@ from contracts.model import (
     RESOURCE_TYPE_KEY,
 )
 from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
+from services.reference_engine import REFERENCES
 from utils.json_format import strict_json
 from utils.model_addresses import resource_address as resource_address
-from utils.reference_contracts import reference_error, row_contexts
 from validation.diagnostics import Diagnostic, service_scope
 
 import model.change_scope as change_plan
@@ -887,7 +887,7 @@ def codebuild_reference_errors(path, values, *, findings=None, context_values=No
             if context_values is not None
             else rows
         )
-        contexts = row_contexts(
+        contexts = REFERENCES.collect_row_contexts(
             "CodeBuild.Project",
             [
                 (rid, row)
@@ -914,7 +914,7 @@ def codebuild_reference_errors(path, values, *, findings=None, context_values=No
                         continue
                     field = receiving_property(prop, pointer)
                     context = context_at(value, prop, pointer, contexts.get(rid, {}))
-                    if error := reference_error(field, context):
+                    if error := REFERENCES.error_at(field, context):
                         errors[rid, source_field, pointer] = (
                             f"Model={path}, Resource={resource[RESOURCE_LOGICAL_ID_KEY]} ({identity}), "
                             f"Name={context.get('Name', '')}, Type=PLAINTEXT, Property={field}: {error}"

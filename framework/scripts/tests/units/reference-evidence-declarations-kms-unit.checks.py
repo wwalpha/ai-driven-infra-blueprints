@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
-from comparison.rules.kms import compare_forms
+from services.kms.comparison import compare_forms
 from support.fixture_cases import load_case
 from support.model_reference_fixtures import reference as model_ref
 from support.regression_cases import case_ids

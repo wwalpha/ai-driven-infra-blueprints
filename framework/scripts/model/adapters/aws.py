@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
 import re
 import subprocess
-import sys
 import time
 from collections import Counter, defaultdict
 from collections.abc import Mapping
@@ -22,6 +20,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from functools import partial as _bind_framework_callback
+from importlib import import_module
 from pathlib import Path
 from threading import RLock
 from types import SimpleNamespace
@@ -43,6 +42,7 @@ from contracts.repository import PROJECT_FILENAME
 from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY
 from design.catalog import DesignSchemaCatalog, selected_properties
 from design.policy_tables import literal
+from services.registry import REGISTRY
 from task_contract_core import task_read_scope
 from utils.aws.client import API_BUDGET_SECONDS, READ_RATES, read_api
 from utils.aws.diagnostics import aws_failure_fields, classify_aws_failure
@@ -73,35 +73,17 @@ from model.reference_nodes import parse as parse_model_reference
 from model.reference_values import reference_value
 from model.sources import model_paths, scope_for
 
-SERVICES = tuple(
-    "athena cloudformation-stacks cloudtrail cloudwatch-logs codebuild codecommit "
-    "codepipeline config data-firehose datazone ec2 eventbridge glue guardduty iam kms lambda "
-    "lake-formation macie mwaa quicksight route53 s3 secrets-manager security-hub security-group sqs "
-    "transit-gateway vpc vpc-endpoint".split()
-)
+SERVICES = tuple(sorted({"cloudformation-stacks", *REGISTRY.aws_adapters}))
 ROOT = Path(__file__).resolve().parents[4]
-MODULES = {}
-
-
-def load_file(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def service_module(service):
-    if service not in SERVICES:
+    if service == "cloudformation-stacks":
+        return import_module("model.adapters.stacks")
+    adapter = REGISTRY.aws_adapters.get(service)
+    if adapter is None:
         raise ValueError("unimplemented service: " + service)
-    if service not in MODULES:
-        MODULES[service] = load_file(
-            "aws_compare_" + service.replace("-", "_"),
-            Path(__file__).resolve().parents[2]
-            / "aws-compare-services"
-            / (service + ".py"),
-        )
-    return MODULES[service]
+    return import_module(adapter.module)
 
 
 def copy_default(value):
@@ -1400,7 +1382,9 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
             {
                 **item,
                 "status": "match"
-                if equivalent_profile or equivalent_secret_type or stable(desired) == stable(aws)
+                if equivalent_profile
+                or equivalent_secret_type
+                or stable(desired) == stable(aws)
                 else "difference",
                 "designValue": "[REDACTED]" if hidden else redacted(desired),
                 "awsValue": "[REDACTED]" if hidden else redacted(aws),
@@ -1617,14 +1601,16 @@ def run(root, items, profile=None, session_factory=None, *, create_only=False):
         for _, path in items:
             selected_resources[path] = {
                 number
-                for number, spec in entries(properties(read_model(path)), "desired.resource.")
+                for number, spec in entries(
+                    properties(read_model(path)), "desired.resource."
+                )
                 if spec.get("resourceMode", "CREATE") == "CREATE"
             }
     comparison = _imports_aws_mapping_compare.comparison
-    for service in sorted({
-        path.stem for _, path in items
-        if not create_only or selected_resources[path]
-    } - {"cloudformation-stacks"}):
+    for service in sorted(
+        {path.stem for _, path in items if not create_only or selected_resources[path]}
+        - {"cloudformation-stacks"}
+    ):
         comparison(ROOT, service)  # Validate all Mapping inputs before AWS retrieval.
     for _, path in items:
         if path.stem != "cloudformation-stacks" and (
@@ -1647,14 +1633,16 @@ def run(root, items, profile=None, session_factory=None, *, create_only=False):
             "service": path.stem,
         }
         if create_only and not selected_resources[path]:
-            results.append({
-                **prefix,
-                "resource": None,
-                "propertiesKey": None,
-                "status": "local_metadata",
-                "reason": "no CREATE Resources selected",
-                "apis": [],
-            })
+            results.append(
+                {
+                    **prefix,
+                    "resource": None,
+                    "propertiesKey": None,
+                    "status": "local_metadata",
+                    "reason": "no CREATE Resources selected",
+                    "apis": [],
+                }
+            )
             continue
         connection = (target["environment"], target["directory"])
         if connection not in contexts:
@@ -1721,7 +1709,11 @@ def run(root, items, profile=None, session_factory=None, *, create_only=False):
                     "reason": error.code
                     if isinstance(error, AcquisitionError)
                     else "invalid model or SDK response",
-                    **(aws_failure_fields(error) if isinstance(error, AcquisitionError) else {}),
+                    **(
+                        aws_failure_fields(error)
+                        if isinstance(error, AcquisitionError)
+                        else {}
+                    ),
                     "apis": [],
                 }
             )
@@ -1745,7 +1737,11 @@ def main(argv=None):
     )
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--profile")
-    parser.add_argument("--create-only", action="store_true", help="compare existing CREATE Resources only")
+    parser.add_argument(
+        "--create-only",
+        action="store_true",
+        help="compare existing CREATE Resources only",
+    )
     parser.add_argument(
         "--coverage",
         action="store_true",
@@ -1768,10 +1764,14 @@ def main(argv=None):
         items = inventory(
             root, targets(root, args.environment, args.target, args.all), args.service
         )
-        if args.create_only and any(path.stem == "cloudformation-stacks" for _, path in items):
+        if args.create_only and any(
+            path.stem == "cloudformation-stacks" for _, path in items
+        ):
             raise ValueError("CREATE-only pull does not support cloudformation-stacks")
         result = (
-            coverage(root, items) if args.coverage else run(root, items, args.profile, create_only=args.create_only)
+            coverage(root, items)
+            if args.coverage
+            else run(root, items, args.profile, create_only=args.create_only)
         )
         code = (2 if result["problems"] else 0) if args.coverage else result["exitCode"]
     except Exception as error:

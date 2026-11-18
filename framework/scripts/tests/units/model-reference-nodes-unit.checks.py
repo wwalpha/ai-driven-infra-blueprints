@@ -16,7 +16,6 @@ import model.sources as sources
 import pytest
 from comparison.deferral import ImportReferenceDeferred
 from comparison.methods import compare_values
-from comparison.registry import rules
 from design.catalog import DesignSchemaCatalog
 from design.policy_tables import (
     Policy,
@@ -24,7 +23,6 @@ from design.policy_tables import (
     raw_policy_lines,
     validate_policy_document,
 )
-from design.services.codepipeline import pipeline_display_rows, pipeline_rows
 from iac_evaluation import Evaluation
 from json_intrinsics import project_document
 from model.adapters.observed import observed_destinations, propagate_references
@@ -47,6 +45,9 @@ from model.references import Usage, incoming, symbolic, usages
 from model.render import generate_markdown
 from model.sources import load_model
 from model.validations.json_settings import validate_json_settings
+from services.codepipeline.display import pipeline_display_rows, pipeline_rows
+from services.codepipeline.references import action_contexts
+from services.registry import REGISTRY
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
@@ -60,7 +61,6 @@ from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
 from utils.json_format import validate_aws_document
-from utils.reference_contracts import action_contexts
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -497,7 +497,7 @@ def check_no_false_matches_and_atomic_missing(tmp_path, models):
         {},
         "PolicyDocument",
         whole=True,
-        rules=rules("IAM.ManagedPolicy"),
+        rules=REGISTRY.require_comparison("IAM.ManagedPolicy"),
         reference=partial(reference_decision, inputs),
     )
     assert result.equal is False
@@ -507,7 +507,7 @@ def check_no_false_matches_and_atomic_missing(tmp_path, models):
             copy.deepcopy(value),
             "PolicyDocument",
             whole=True,
-            rules=rules("IAM.ManagedPolicy"),
+            rules=REGISTRY.require_comparison("IAM.ManagedPolicy"),
             reference=partial(reference_decision, inputs),
         ).equal
         is None
@@ -929,7 +929,7 @@ def check_external_metadata_does_not_hide_missing_parent(tmp_path, models):
             {},
             "PolicyDocument",
             whole=True,
-            rules=rules("IAM.ManagedPolicy"),
+            rules=REGISTRY.require_comparison("IAM.ManagedPolicy"),
             reference=partial(reference_decision, inputs),
         ).equal
         is False

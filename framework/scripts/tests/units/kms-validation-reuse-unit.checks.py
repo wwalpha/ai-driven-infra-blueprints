@@ -38,11 +38,11 @@ def inputs():
 
 def check_success_invalidation_and_scope():
     values, target = inputs()
-    check = _model_validation_policies._kms_policy_account_check()
+    check = _model_validation_policies._policy_account_check()
     with patch.object(
         _model_validation_policies,
-        "validate_kms_policy_accounts",
-        wraps=_model_validation_policies.validate_kms_policy_accounts,
+        "validate_policy_accounts",
+        wraps=_model_validation_policies.validate_policy_accounts,
     ) as actual:
         check(values, target)
         check(dict(values), dict(target))
@@ -53,7 +53,7 @@ def check_success_invalidation_and_scope():
         check(values, target)
         check(dict(reversed(list(values.items()))), target)
         check(values, dict(reversed(list(target.items()))))
-        _model_validation_policies._kms_policy_account_check()(values, target)
+        _model_validation_policies._policy_account_check()(values, target)
         assert actual.call_count == 6
         target["awsExecutionAccountId"] = "333333333333"
         for _ in range(2):
@@ -81,10 +81,10 @@ def check_success_invalidation_and_scope():
 def check_strict_documents_repeat_failure(document):
     values, target = inputs()
     values["desired.row.001-001.document"] = document
-    check = _model_validation_policies._kms_policy_account_check()
+    check = _model_validation_policies._policy_account_check()
     errors = []
     for function in (
-        _model_validation_policies.validate_kms_policy_accounts,
+        _model_validation_policies.validate_policy_accounts,
         check,
         check,
     ):
@@ -97,9 +97,9 @@ def check_strict_documents_repeat_failure(document):
 def check_no_kms_still_parses_malformed_rows():
     values = {"desired.row.001-001": "malformed"}
     target = {"awsAccountId": "111111111111"}
-    check = _model_validation_policies._kms_policy_account_check()
+    check = _model_validation_policies._policy_account_check()
     for function in (
-        _model_validation_policies.validate_kms_policy_accounts,
+        _model_validation_policies.validate_policy_accounts,
         check,
         check,
     ):
@@ -149,8 +149,8 @@ def check_service_reuse_and_direct_call_diagnostics(tmp_path, monkeypatch):
     path = tmp_path / "model/dev/target/kms.properties"
     with patch.object(
         _model_validation_policies,
-        "validate_kms_policy_accounts",
-        wraps=_model_validation_policies.validate_kms_policy_accounts,
+        "validate_policy_accounts",
+        wraps=_model_validation_policies.validate_policy_accounts,
     ) as actual:
         first = _model_validation_full_inputs.check_model_inputs(path, values, tmp_path)
         assert not first.errors, first.errors
@@ -177,8 +177,8 @@ def check_service_reuse_and_direct_call_diagnostics(tmp_path, monkeypatch):
         )
         with patch.object(
             _model_validation_full_inputs,
-            "_kms_policy_account_check",
-            return_value=_model_validation_policies.validate_kms_policy_accounts,
+            "_policy_account_check",
+            return_value=_model_validation_policies.validate_policy_accounts,
         ):
             baseline = _model_validation_full_inputs.check_model_inputs(
                 path, values, tmp_path

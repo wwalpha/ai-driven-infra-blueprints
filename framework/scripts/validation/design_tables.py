@@ -21,9 +21,7 @@ from contracts.repository import DESIGNS_DIRECTORY
 from contracts.validation import VALIDATION_FAIL
 from design.catalog import property_paths_with_parents
 from design.layout import (
-    SUBNET_LIST_PROPERTIES,
     catalog_order_errors,
-    config_role_arn,
     expanded_design,
     expanded_display_rows,
     is_import_pending_reference,
@@ -41,16 +39,17 @@ from design.layout_schema import (
 )
 from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
 from design.policy_tables import has_folded_json, iam_role_policy_artifact_filename
-from design.services.codebuild import PlaintextReferenceError
-from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
-from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
-from design.services.ec2.security_groups import security_group_table_lines, table_at
-from design.services.events import check_rule_rows
-from design.services.macie import job_bucket_tables
 from model.core import ReferenceDiagnosticError, ReferenceResolutionError, literal
 from model.literal_values import literal_errors as row_literal_errors
 from model.projection import bound_resource_anchors, is_import_expression
 from model.reference_nodes import nodes
+from services.codebuild.display import PlaintextReferenceError
+from services.ec2.design import SECURITY_GROUP_TYPES
+from services.ec2.security_groups import security_group_table_lines, table_at
+from services.macie.design import MACIE_JOB
+from services.macie.display import validate_bucket_table
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from utils.input_cache import input_scope as input_scope
 from utils.input_cache import input_text
 from utils.property_path import definition_path
@@ -68,7 +67,6 @@ from .design import (
     LOWER_KEBAB_PATTERN,
     REQUIRED_NAME_PROPERTIES,
     RESOURCE_LINK_PATTERN,
-    S3_KMS_MASTER_KEY_ID,
     TABLE_ALIGNMENT,
     TABLE_HEADER,
     VALUE_LINK_PATTERN,
@@ -87,6 +85,10 @@ from .diagnostics import (
     stable_id,
 )
 from .findings import FindingsError
+
+REQUIRED_NAME_TAG_TYPES = REGISTRY.design_tables.get(
+    "REQUIRED_NAME_TAG_TYPES", frozenset()
+)
 
 
 def check_cidr_value(path: Path, property_name: str, value: str, *, findings) -> None:
@@ -174,10 +176,7 @@ def check_generated_identifier(
             source_path=path,
             cause_kind="input_invalid",
         )
-    if resource_type != "EC2.SecurityGroup" and resource_type not in {
-        "EC2.SecurityGroupIngress",
-        "EC2.SecurityGroupEgress",
-    }:
+    if resource_type not in SECURITY_GROUP_TYPES:
         # Formal Model rows retain their source membership. The saved numbered
         # display already matched the catalog-ordered projection in this case.
         for error in catalog_order_errors(
@@ -1019,19 +1018,22 @@ def check_design_tables(
                                 schema_type, cells[1]
                             )
                             raw_value = unquoted(cells[2])
-                            if (
-                                cells[1] in SUBNET_LIST_PROPERTIES
-                                and raw_value.lstrip().startswith("[")
-                            ):
+                            if REFERENCES.linked_list_kind(
+                                cells[1]
+                            ) == "EC2.Subnet" and raw_value.lstrip().startswith("["):
                                 property_path = property_path.removesuffix("[]")
-                            if config_role_arn(cells[1], cells[2]):
+                            presentation = REGISTRY.presentation(schema_type)
+                            if (
+                                presentation.literal_link_label
+                                and presentation.literal_link_label(cells[1], cells[2])
+                            ):
                                 findings.check(
                                     heading_modes.get(
                                         (current_resource_type, current_logical_id),
                                         RESOURCE_MODE_CREATE,
                                     )
                                     == RESOURCE_MODE_IMPORT,
-                                    f"Config RoleARN literal requires IMPORT: {findings.relative(path)}: {cells[1]}",
+                                    f"{presentation.literal_link_mode_error}: {findings.relative(path)}: {cells[1]}",
                                     source_path=path,
                                     cause_kind="input_invalid",
                                 )
@@ -1111,18 +1113,23 @@ def check_design_tables(
                                 source_path=path,
                                 cause_kind="input_invalid",
                             )
-                        if check_display and cells[1] == S3_KMS_MASTER_KEY_ID:
-                            findings.warn(
-                                RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None
-                                or any(nodes(literal(cells[2]))),
-                                f"S3 KMSMasterKeyID must link to a KMS.Alias or an explicit Model KMS.Key/Arn: {findings.relative(path)}: {current_logical_id}",
+                        if check_display:
+                            kind = ".".join(cells[1].split(".")[:2])
+                            design = (
+                                (REGISTRY.design(kind) or {})
+                                if kind in REGISTRY
+                                else {}
                             )
-                        if check_display and cells[1] == "EC2.SecurityGroup.VpcId":
-                            findings.warn(
-                                RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None
-                                or any(nodes(literal(cells[2]))),
-                                f"Security Group VpcId must link to its VPC: {findings.relative(path)}: {current_logical_id}",
+                            warning = design.get("REQUIRED_DISPLAY_LINKS", {}).get(
+                                cells[1]
                             )
+                            if warning:
+                                findings.warn(
+                                    RESOURCE_LINK_PATTERN.fullmatch(cells[2])
+                                    is not None
+                                    or any(nodes(literal(cells[2]))),
+                                    f"{warning}: {findings.relative(path)}: {current_logical_id}",
+                                )
                         if is_json_link and cells[2] not in model_documents:
                             artifact = json_reference(
                                 root, path, artifact_link, findings
@@ -1154,10 +1161,11 @@ def check_design_tables(
                             schema_catalog=schema_catalog,
                             model_documents=model_documents,
                         )
-                    if current_resource_type == "Events.Rule":
-                        check_rule_rows(
-                            path, current_logical_id, rows, findings=findings
-                        )
+                    validate_rows = REGISTRY.presentation(
+                        current_resource_type
+                    ).validate_rows
+                    if validate_rows is not None:
+                        validate_rows(path, current_logical_id, rows, findings=findings)
                     if current_resource_type == "S3.Bucket":
                         bucket_name_rows = [
                             row for row in rows if row[1] == "S3.Bucket.BucketName"
@@ -1337,39 +1345,7 @@ def check_api_design_rows(
                 source_path=path,
                 cause_kind="input_invalid",
             )
-    if resource_type == "Macie.ClassificationJob":
-        try:
-            tables = job_bucket_tables(
-                path,
-                require_artifact=not has_folded_json(input_text(path, encoding="utf-8")),
-            )
-        except ReferenceResolutionError as error:
-            findings.warn(error)
-            return
-        except (OSError, ValueError) as error:
-            findings.check(
-                False, f"invalid Macie bucket table: {findings.relative(path)}: {error}"
-            )
-            return
-        scope = values.get("s3JobDefinition", {})
-        if isinstance(scope, dict) and "bucketDefinitions" in scope:
-            findings.check(
-                logical_id in tables,
-                f"Macie bucketDefinitions requires a Markdown mapping table: {findings.relative(path)}: {logical_id}",
-                source_path=path,
-                cause_kind="input_invalid",
-            )
-            if logical_id in tables:
-                findings.check(
-                    scope["bucketDefinitions"] == tables[logical_id][1],
-                    f"Macie bucket mapping differs from the design JSON: {findings.relative(path)}: {logical_id}",
-                    source_path=path,
-                    cause_kind="input_invalid",
-                )
-        else:
-            findings.check(
-                logical_id not in tables,
-                f"Macie bucket table requires bucketDefinitions, not bucketCriteria: {findings.relative(path)}: {logical_id}",
-                source_path=path,
-                cause_kind="input_invalid",
-            )
+    if resource_type == MACIE_JOB:
+        validate_bucket_table(
+            findings, path, logical_id, values, has_folded_json=has_folded_json
+        )

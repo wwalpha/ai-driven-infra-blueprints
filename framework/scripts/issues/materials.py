@@ -15,7 +15,6 @@ from design.layout import (
     resource_name_fields,
 )
 from design.policy_tables import literal
-from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
 from model.validations.naming import (
     NAMING_EXEMPT_PROPERTIES,
     naming_rule_files,
@@ -24,10 +23,15 @@ from model.validations.naming import (
     provider_naming_errors,
     value_available,
 )
+from services.registry import REGISTRY
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_mappings import definition_root
 
 from .records import identifier, safe_text
+
+REQUIRED_NAME_TAG_TYPES = REGISTRY.design_tables.get(
+    "REQUIRED_NAME_TAG_TYPES", frozenset()
+)
 
 
 def rule_section(text, heading):

@@ -14,7 +14,6 @@ import pytest
 from comparison.deferral import failure_category
 from design.catalog import DesignSchemaCatalog
 from design.document import DesignIndex, model_reference_tables
-from design.services.definitions.registry import POLICY_FORMATS
 from model.core import entries
 from model.display import catalog_display_rows, display_rows, reference_rows
 from model.identity import Resolver
@@ -22,6 +21,8 @@ from model.projection import reference_display
 from model.reference_nodes import nodes, parse, receiving_property, resolve
 from model.render import generate_files, generate_markdown
 from model.validations.json_settings import validate_json_settings
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from support.model_design_fixtures import collapsed_json
 from support.model_reference_fixtures import (
     FRAMEWORK,
@@ -36,17 +37,36 @@ from support.model_reference_fixtures import (
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
-from utils.reference_contracts import (
-    ARN_SHAPES,
-    CONTEXT_PROPERTIES,
-    GETATT_ATTRIBUTES,
-    IMPORT_PROPERTIES,
-    REF_ATTRIBUTES,
-    RETURN_ATTRIBUTE_PROPERTIES,
-    contract,
-    getatt_attribute,
-    reference_attribute,
-)
+
+POLICY_FORMATS = REGISTRY.design_tables.get("POLICY_FORMATS", {})
+ARN_SHAPES = {
+    kind: shape
+    for kind in REGISTRY
+    if (shape := REFERENCES.arn_shape(kind)) is not None
+}
+CONTEXT_PROPERTIES = {
+    kind + "." + path: declaration
+    for kind in REGISTRY
+    if (receiver := REGISTRY.receiver(kind))
+    for path, declaration in receiver.selectors.items()
+}
+GETATT_ATTRIBUTES = {
+    kind: attributes
+    for kind in REGISTRY
+    if (attributes := REFERENCES.getatt_attributes(kind))
+}
+IMPORT_PROPERTIES = {
+    kind + "." + path
+    for kind in REGISTRY
+    if (receiver := REGISTRY.receiver(kind))
+    for path in receiver.import_properties
+}
+REF_ATTRIBUTES = {
+    kind: attribute
+    for kind in REGISTRY
+    if (attribute := REFERENCES.ref_attribute(kind)) is not None
+}
+
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -184,7 +204,7 @@ def test_flowlog_nested_context(models):
 STATIC = [
     (prop, kind, attr)
     for prop in IMPORT_PROPERTIES
-    for kind, attrs in contract(prop).items()
+    for kind, attrs in (REFERENCES.import_targets(prop) or {}).items()
     for attr in attrs
 ]
 
@@ -228,7 +248,7 @@ def test_registered_contract_route(models, prop, producer, attribute):
     symbol = ResourceReference(
         {
             "$resource": ["producer", "001"],
-            "$attribute": reference_attribute(producer, attribute),
+            "$attribute": REFERENCES.formal_attribute(producer, attribute),
         }
     )
     inputs = comparison(models, ("producer", "receiver"))
@@ -310,14 +330,16 @@ def test_typed_reference_comparison(models, kind, path, producer, attribute):
     good = ResourceReference(
         {
             "$resource": ["good", "001"],
-            "$attribute": reference_attribute(producer, attribute),
+            "$attribute": REFERENCES.formal_attribute(producer, attribute),
         }
     )
     bad = ResourceReference({"$resource": ["bad", "001"], "$attribute": "Arn"})
     other = ResourceReference({"$resource": ["other", "001"], "$attribute": "Arn"})
     missing = ResourceReference({"$resource": ["missing", "001"], "$attribute": "Arn"})
     wrong_attribute = ResourceReference(dict(good, **{"$attribute": "Unknown"}))
-    assert contract(kind + "." + path)[producer] == (attribute,)
+    assert (REFERENCES.import_targets(kind + "." + path) or {})[producer] == (
+        attribute,
+    )
     good_join = Expression("Join", ["", [good]])
     good_sub = Expression("Sub", ["${Value}", {"Value": good}])
     bad_join = Expression("Join", ["", [bad]])
@@ -423,9 +445,11 @@ def test_catalog_and_context_boundaries(models):
         assert catalog.schema(kind)["typeName"] == kind
     assert "AWS::SSM::Parameter" in catalog.resource_types
     for prop, (selector, choices) in CONTEXT_PROPERTIES.items():
-        assert contract(prop, {}) == {}
+        assert (REFERENCES.import_targets(prop, {}) or {}) == {}
         for value, (producer, _) in choices.items():
-            assert producer in contract(prop, {selector: value})
+            assert producer in (
+                REFERENCES.import_targets(prop, {selector: value}) or {}
+            )
 
 
 @pytest.mark.parametrize(
@@ -895,7 +919,7 @@ def test_all_aws_return_contracts_are_explicit_and_schema_supported(models):
         if kind in REF_ATTRIBUTES:
             attribute = REF_ATTRIBUTES[kind]
             resolver.validate_attribute(kind, attribute)
-            setting = RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute)
+            setting = REFERENCES.return_property(kind, attribute, attribute)
             if attribute not in {"Ref", "ClusterName"}:
                 assert catalog.property_schema(kind, setting)["type"] == "string", (
                     kind,
@@ -929,18 +953,24 @@ def test_inventory_return_and_arn_contracts(kind):
     if record["ref"]:
         resolver.validate_attribute(kind, record["ref"])
     for attribute in record["getatt"]:
-        assert getatt_attribute(kind, attribute, catalog.schema(kind)), (
+        assert REFERENCES.has_getatt(
+            kind, attribute, catalog.schema(kind).get("readOnlyProperties", ())
+        ), (
             kind,
             attribute,
         )
         resolver.validate_attribute(kind, attribute)
     assert bool(record["logicalArn"]) == bool(record["arn"])
     if record["arn"]:
-        assert reference_attribute(kind, "Arn") == record["arn"]
+        assert REFERENCES.formal_attribute(kind, "Arn") == record["arn"]
         resolver.validate_attribute(kind, "Arn")
         if kind not in catalog.api_schemas:
             assert (
-                getatt_attribute(kind, record["arn"], catalog.schema(kind))
+                REFERENCES.has_getatt(
+                    kind,
+                    record["arn"],
+                    catalog.schema(kind).get("readOnlyProperties", ()),
+                )
                 == record["arnFormal"]
             )
     if (
@@ -984,9 +1014,17 @@ def test_source_vpc_policy_contracts(root, style):
                 + value
             )
             field = receiving_property(root, pointer)
-            assert contract(field) == {"EC2.VPC": ("VpcId",)}
-            assert not contract(field.replace("aws:SourceVpc", "aws:SourceArn"))
-            assert not contract(field.replace("StringEquals", "StringLike"))
+            assert (REFERENCES.import_targets(field) or {}) == {"EC2.VPC": ("VpcId",)}
+            assert not (
+                REFERENCES.import_targets(
+                    field.replace("aws:SourceVpc", "aws:SourceArn")
+                )
+                or {}
+            )
+            assert not (
+                REFERENCES.import_targets(field.replace("StringEquals", "StringLike"))
+                or {}
+            )
 
 
 @pytest.mark.parametrize(
@@ -1182,7 +1220,7 @@ def test_invalid_producer_cannot_match_itself(models, kind, path):
     ],
 )
 def test_missing_receiving_contracts(prop, producer, attribute):
-    assert attribute in contract(prop).get(producer, ())
+    assert attribute in (REFERENCES.import_targets(prop) or {}).get(producer, ())
 
 
 def test_uncontracted_scalar_reference_is_unproven(models):
@@ -1264,7 +1302,7 @@ def test_lakeformation_typed_producer_arn(models, producer_kind):
     value = inputs.prepare_value(
         "receiver", row, "LakeFormation.Resource", row_id="001-002"
     ).require_value()
-    assert value["$attribute"] == reference_attribute(producer_kind, "Arn")
+    assert value["$attribute"] == REFERENCES.formal_attribute(producer_kind, "Arn")
 
 
 def test_invalid_expression_producer_cannot_match(models):
@@ -1327,7 +1365,7 @@ ELEMENT_CONTRACTS = [
 
 @pytest.mark.parametrize("prop", ELEMENT_CONTRACTS)
 def test_explicit_contract_preparation(models, prop):
-    declared = contract(prop)
+    declared = REFERENCES.import_targets(prop) or {}
     producer = next(iter(declared))
     forms = declared[producer]
     producer_scope, producer_values = resource_values(
@@ -1365,13 +1403,13 @@ def test_explicit_contract_preparation(models, prop):
     if isinstance(value, Expression):
         value = value.operands[1][0]
     assert value["$attribute"] in {
-        reference_attribute(producer, form) for form in forms
+        REFERENCES.formal_attribute(producer, form) for form in forms
     }
 
 
 @pytest.mark.parametrize("prop", ELEMENT_CONTRACTS)
 def test_explicit_contract_rejects_wrong_producer(models, prop):
-    declared = contract(prop)
+    declared = REFERENCES.import_targets(prop) or {}
     wrong = next(
         kind for kind in ("S3.Bucket", "IAM.Role", "EC2.VPC") if kind not in declared
     )
@@ -1477,7 +1515,7 @@ def test_iam_condition_arn_contract_and_comparison(
     symbol = ResourceReference(
         {
             "$resource": ["producer", "001"],
-            "$attribute": reference_attribute(producer, "Arn"),
+            "$attribute": REFERENCES.formal_attribute(producer, "Arn"),
         }
     )
     for statement in ("Statement", "Statement[]"):
@@ -1498,7 +1536,7 @@ def test_iam_condition_arn_contract_and_comparison(
                 if operator.startswith("Arn")
                 else {producer: ("Arn",)}
             )
-            assert contract(field) == expected
+            assert (REFERENCES.import_targets(field) or {}) == expected
             resolver.validate_attribute(producer, "Arn", field=field)
             assert (
                 inputs.desired_reference("receiver", symbol, "IAM.Role", path) == symbol
@@ -1507,10 +1545,18 @@ def test_iam_condition_arn_contract_and_comparison(
             for bad_kind, bad_attribute in (("EC2.VPC", "VpcId"), (producer, "Name")):
                 with pytest.raises(ValueError):
                     resolver.validate_attribute(bad_kind, bad_attribute, field=field)
-            assert not contract(field.replace(key, "unknown"))
-            assert not contract(field.replace(key, key.rsplit(":", 1)[0]))
-            assert not contract(field.replace(key, key + ":extra"))
-            assert not contract(field.replace(operator, "UnknownOperator"))
+            assert not (REFERENCES.import_targets(field.replace(key, "unknown")) or {})
+            assert not (
+                REFERENCES.import_targets(field.replace(key, key.rsplit(":", 1)[0]))
+                or {}
+            )
+            assert not (
+                REFERENCES.import_targets(field.replace(key, key + ":extra")) or {}
+            )
+            assert not (
+                REFERENCES.import_targets(field.replace(operator, "UnknownOperator"))
+                or {}
+            )
 
 
 def test_sqs_eventbridge_source_arn_contract_is_narrow(models):
@@ -1519,14 +1565,24 @@ def test_sqs_eventbridge_source_arn_contract_is_narrow(models):
     for statement in ("", "[]"):
         for values in ("", "[]"):
             field = prefix + statement + ".Condition.ArnEquals.aws:SourceArn" + values
-            assert contract(field) == {"Events.Rule": ("Arn",)}
+            assert (REFERENCES.import_targets(field) or {}) == {"Events.Rule": ("Arn",)}
             resolver.validate_attribute("Events.Rule", "Arn", field=field)
             for kind, attribute in (("S3.Bucket", "Arn"), ("Events.Rule", "Name")):
                 with pytest.raises(ValueError):
                     resolver.validate_attribute(kind, attribute, field=field)
-            assert not contract(field.replace("ArnEquals", "ArnLike"))
-            assert not contract(field.replace("aws:SourceArn", "aws:SourceAccount"))
-            assert not contract(field.replace("SQS.QueuePolicy", "SQS.Queue"))
+            assert not (
+                REFERENCES.import_targets(field.replace("ArnEquals", "ArnLike")) or {}
+            )
+            assert not (
+                REFERENCES.import_targets(
+                    field.replace("aws:SourceArn", "aws:SourceAccount")
+                )
+                or {}
+            )
+            assert not (
+                REFERENCES.import_targets(field.replace("SQS.QueuePolicy", "SQS.Queue"))
+                or {}
+            )
 
 
 def test_iam_condition_document_generation(models):

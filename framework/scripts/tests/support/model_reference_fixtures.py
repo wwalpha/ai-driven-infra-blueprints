@@ -7,7 +7,7 @@ from comparison import Comparison
 from model.format import serialize
 from model.identity import COUNTERS
 from model.sources import Scope, load_model
-from utils.reference_contracts import RETURN_ATTRIBUTE_PROPERTIES, reference_attribute
+from services.reference_engine import REFERENCES
 
 from model import dependency_index
 
@@ -55,11 +55,11 @@ def resource_values(
         f"display.resource.{number}.comment": "合成",
         f"desired.row.{number}-001.property": kind
         + "."
-        + RETURN_ATTRIBUTE_PROPERTIES.get(
-            (kind, reference_attribute(kind, attribute)), attribute
+        + REFERENCES.return_property(
+            kind, REFERENCES.formal_attribute(kind, attribute), attribute
         ),
         f"desired.row.{number}-001.value": "`"
-        + json.dumps(reference(logical, reference_attribute(kind, attribute)))
+        + json.dumps(reference(logical, REFERENCES.formal_attribute(kind, attribute)))
         + "`",
         f"desired.row.{number}-001.comment": "合成",
     }

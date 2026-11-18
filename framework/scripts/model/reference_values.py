@@ -17,23 +17,15 @@ from contracts.target import (
     AWS_EXECUTION_ACCOUNT_ID_KEY,
     AWS_REGION_KEY,
 )
-from design.services.definitions.registry import POLICY_FORMATS
+from services.reference_data import arn_pattern
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from utils import cli_deploy
-from utils.arn_components import ARN_COMPONENTS
 from utils.arn_values import context_value, generated_attribute, named_arn
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
 from utils.json_format import AwsDocumentError, strict_json, validate_aws_document
-from utils.reference_contracts import (
-    ARN_DEFAULTS,
-    ARN_SHAPES,
-    RETURN_ATTRIBUTE_PROPERTIES,
-    VALUE_IDENTITIES,
-    _arn_pattern,
-    contract,
-    reference_attribute,
-)
 
 import model.environment_values as environment_values
 import model.reference_nodes as reference_nodes
@@ -45,6 +37,8 @@ from model.core import (
     entries,
     literal,
 )
+
+POLICY_FORMATS = REGISTRY.design_tables.get("POLICY_FORMATS", {})
 
 
 @dataclass(frozen=True)
@@ -72,23 +66,30 @@ def resolve(node, scope, resolver, *, field=None, property_name=None, context=No
         )
         if operand and node.pointer.endswith("/Fn::Select/1"):
             kind = resource[RESOURCE_TYPE_KEY]
+            receiver = ".".join(field.split(".")[:2]) if field else None
+            receiving = (
+                REGISTRY.receiver(receiver)
+                if receiver is not None and receiver in REGISTRY
+                else None
+            )
+            expected = (
+                receiving.split_reference_operands.get(
+                    field.removeprefix(receiver + ".")
+                )
+                if receiving
+                else None
+            )
             if (
-                field
-                in {
-                    "Route53.RecordSet.ResourceRecords",
-                    "Route53.RecordSet.ResourceRecords[]",
-                    "Route53.RecordSet.AliasTarget.DNSName",
-                }
+                expected
                 and "/Fn::Split/" in node.pointer
-                and (kind, node.attribute) != ("EC2.VPCEndpoint", "DnsEntries")
+                and (kind, node.attribute) != expected[:2]
             ):
                 raise ModelNeedsFixError(
-                    "Endpoint DNS extraction requires EC2.VPCEndpoint.DnsEntries",
-                    code="MODEL_REF_INVALID_ATTRIBUTE",
+                    expected[2], code="MODEL_REF_INVALID_ATTRIBUTE"
                 )
             try:
                 schema = resolver.catalog.property_schema(
-                    kind, reference_attribute(kind, node.attribute)
+                    kind, REFERENCES.formal_attribute(kind, node.attribute)
                 )
             except KeyError as error:
                 raise FrameworkUnsupportedError(
@@ -117,8 +118,8 @@ def resolve(node, scope, resolver, *, field=None, property_name=None, context=No
         if (
             POLICY_FORMATS.get(property_name) in {"statement", "wrapped-statement"}
             and terminal in {"Resource", "NotResource", "AWS"}
-            and reference_attribute(resource[RESOURCE_TYPE_KEY], node.attribute)
-            != reference_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
+            and REFERENCES.formal_attribute(resource[RESOURCE_TYPE_KEY], node.attribute)
+            != REFERENCES.formal_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
         ):
             raise ModelNeedsFixError(
                 "policy Resource/Principal requires the ARN attribute",
@@ -231,9 +232,10 @@ class ProducerValues:
             if (
                 target[RESOURCE_LOGICAL_ID_KEY]
                 == self.resource[RESOURCE_LOGICAL_ID_KEY]
-                and RETURN_ATTRIBUTE_PROPERTIES.get(
-                    (self.kind, reference_attribute(self.kind, attribute)),
-                    reference_attribute(self.kind, attribute),
+                and REFERENCES.return_property(
+                    self.kind,
+                    REFERENCES.formal_attribute(self.kind, attribute),
+                    REFERENCES.formal_attribute(self.kind, attribute),
                 )
                 == field
             ):
@@ -269,8 +271,8 @@ class ProducerValues:
         for source, value in (("desired", desired), ("observed", observed)):
             if value is None:
                 continue
-            identity_pattern = VALUE_IDENTITIES.get(
-                (self.kind, reference_attribute(self.kind, field))
+            identity_pattern = REFERENCES.identity_pattern(
+                self.kind, REFERENCES.formal_attribute(self.kind, field)
             )
             if identity_pattern and re.fullmatch(identity_pattern, str(value)) is None:
                 raise ModelNeedsFixError(
@@ -278,7 +280,7 @@ class ProducerValues:
                     code="MODEL_REF_INVALID_VALUE",
                     modelKey=f"{source}.row.{rid}.value",
                 )
-            shape = ARN_SHAPES.get(self.kind)
+            shape = REFERENCES.arn_shape(self.kind)
             if shape:
                 identifier, _, patterns = shape
                 group = (
@@ -366,7 +368,7 @@ class ProducerValues:
                 return False
             rid, row = rows[0]
             refs = tuple(reference_nodes.nodes(literal(row["value"])))
-            if refs and not contract(row["property"]):
+            if refs and not (REFERENCES.import_targets(row["property"]) or {}):
                 raise FrameworkUnsupportedError(
                     "reference contract unproven: " + row["property"]
                 )
@@ -391,7 +393,8 @@ class ProducerValues:
 
     def arn(self, attribute):
         direct = self.value(attribute)
-        identifier, _, _ = ARN_SHAPES[self.kind]
+        arn = REFERENCES.arn(self.kind)
+        identifier, template, _ = arn.shape
         fields = identifier if isinstance(identifier, dict) else {identifier: "id"}
         target = self.resolver.target(self.snapshot.scope)
         pseudo = {
@@ -403,7 +406,7 @@ class ProducerValues:
             ),
         }
         properties = {}
-        needed = tuple(fields) + ARN_COMPONENTS.get(self.kind, (None, ()))[1]
+        needed = tuple(fields) + arn.depends_on
         for _, row in self.rows:
             field = row["property"].removeprefix(self.kind + ".")
             if not any(
@@ -430,14 +433,14 @@ class ProducerValues:
             if values[field] is None and not any(
                 row["property"] == self.kind + "." + field for _, row in self.rows
             ):
-                values[field] = ARN_DEFAULTS.get((self.kind, field))
+                values[field] = arn.defaults.get(field)
             put = properties
             tokens = field.split(".")
             for token in tokens[:-1]:
                 put = put.setdefault(token, {})
             put[tokens[-1]] = values[field]
         if direct is not None:
-            matched = re.fullmatch(_arn_pattern(ARN_SHAPES[self.kind]), direct)
+            matched = re.fullmatch(arn_pattern(arn.shape), direct)
             if matched is None:
                 raise ModelNeedsFixError(
                     "invalid recorded ARN: " + attribute, code="MODEL_REF_INVALID_VALUE"
@@ -469,11 +472,10 @@ class ProducerValues:
         missing = [field for field, value in values.items() if value is None]
         if missing:
             # Validate independent components even while generated identity is absent.
-            provider = ARN_COMPONENTS.get(self.kind)
-            if provider:
-                provider[0](properties, confirmed)
+            if arn.components:
+                arn.components(properties, confirmed)
             for group in ("partition", "region", "account"):
-                if "{" + group + "}" in ARN_SHAPES[self.kind][1]:
+                if "{" + group + "}" in template:
                     context_value(pseudo, group)
             self.missing_outputs = tuple(missing)
             raise ReferenceResolutionError(
@@ -517,15 +519,16 @@ def reference_value(resolver, scope, node, **contract):
             node, scope, resolver, **contract
         )
         producer = ProducerValues(snapshot, number, resource, resolver)
-        attribute = reference_attribute(resource[RESOURCE_TYPE_KEY], attribute)
+        attribute = REFERENCES.formal_attribute(resource[RESOURCE_TYPE_KEY], attribute)
         try:
             value = (
                 producer.arn(attribute)
-                if resource[RESOURCE_TYPE_KEY] in ARN_SHAPES
-                and attribute == reference_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
+                if REFERENCES.arn_shape(resource[RESOURCE_TYPE_KEY]) is not None
+                and attribute
+                == REFERENCES.formal_attribute(resource[RESOURCE_TYPE_KEY], "Arn")
                 else producer.value(
-                    RETURN_ATTRIBUTE_PROPERTIES.get(
-                        (resource[RESOURCE_TYPE_KEY], attribute), attribute
+                    REFERENCES.return_property(
+                        resource[RESOURCE_TYPE_KEY], attribute, attribute
                     )
                 )
             )
@@ -551,8 +554,8 @@ def reference_value(resolver, scope, node, **contract):
                 action="Confirm the intended and observed producer identity before regenerating.",
             )
         if value is None:
-            field = RETURN_ATTRIBUTE_PROPERTIES.get(
-                (resource[RESOURCE_TYPE_KEY], attribute), attribute
+            field = REFERENCES.return_property(
+                resource[RESOURCE_TYPE_KEY], attribute, attribute
             )
             pending = producer.waiting([field])
             if not pending and producer.logical_only((field,)):

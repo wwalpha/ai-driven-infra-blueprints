@@ -438,7 +438,7 @@ seed・Project全生成・Git initは各66→6、初期Gitは330→30、Python�
 
 CloudFormation共通処理は`utils/cloudformation/inputs.py`（入力評価・Blocked）、`schema.py`（Schema/キャッシュ/Lock）、`format.py`（YAML/JSON解析）へ集約する。純粋な入力判定は`cloudformation-inputs-unit`、Comparison証跡は`comparison_core-unit`、解析とSchemaは既存専用UTが担当する。
 
-Design共通処理は `../design/`、サービス固有処理は `../design/services/` に配置する。固定定義の正本は `../design/services/definitions/<service>.py`、統合先は `../design/services/definitions/registry.py`。`units/design-definitions-unit.checks.py` は31 Policy形式と全固定定義の不変性・重複拒否・サービス登録漏れを検証する。既存のDesign関連UT/ITは新しい内部importを使い、公開CLIの入口は従来の2パスを維持する。
+Design共通処理は `../design/` に置く。固定定義の正本は `../services/<service>/design.py`、表示と復元の拡張は `../services/<service>/display.py` に置き、`../services/manifest.py` の明示登録を経て `../services/registry.py` から取得する。`units/design-definitions-unit.checks.py` は32 Policy形式、既存固定定義、および ResourceType の登録先を検証する。
 
 ## check-model-aws の責務 (Issue #20)
 
@@ -495,7 +495,7 @@ and Deploy's IaC/physical-value checks remain unchanged.
 
 `utils/arn_values.py` owns ARN assembly for comparison and Model resolution. `ARN_SHAPES` and
 `ARN_DEFAULTS` remain the sole format/default definitions; service component guards live in
-`utils/arn_components.py`. Confirmed desired names (including CREATE S3 BucketName with no
+`services/<service>/arn.py`. Confirmed desired names (including CREATE S3 BucketName with no
 observations) can resolve ARNs. Generated IDs require confirmed observations. Region/account
 come from the selected Project target and Partition from the offline SDK region catalog;
 no AWS existence check or acquisition occurs. Desired/observed conflicts fail resolution.

@@ -12,7 +12,7 @@ import tempfile
 import model.projection as model_projection
 from design.layout import expanded_design, layout_errors
 from design.layout_schema import LAYOUTS
-from design.services.ec2.security_groups import (
+from services.ec2.security_groups import (
     COMMENTS,
     DIRECTIONS,
     port_properties,

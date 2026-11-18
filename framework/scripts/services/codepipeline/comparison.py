@@ -1,0 +1,151 @@
+"""Static CodePipeline comparison methods; container rules include their recursive contents."""
+
+from dataclasses import replace
+from functools import partial
+
+from comparison.contracts import ResourceContract, compare_producer_forms
+from comparison.methods import REFERENCE, properties
+
+from .display import pipeline_rows
+from .references import REFERENCES, action_contexts
+
+
+def prepare_rows(rows, *, index_rows):
+    kind = "CodePipeline.Pipeline"
+    if not any("Stages[]." in row["property"] for _, row in rows):
+        return rows
+    original = dict(rows)
+    displayed = pipeline_rows(
+        [
+            [
+                rid,
+                row["property"].removeprefix(kind + "."),
+                row["value"],
+                row.get("comment", ""),
+            ]
+            for rid, row in rows
+        ]
+    )
+    compact, configurations = [], set()
+    for rid, prop, value, comment in displayed:
+        row = original[rid]
+        if row["property"].endswith(".Configuration"):
+            if rid in configurations:
+                continue
+            configurations.add(rid)
+            prop = prop.split(".Configuration.", 1)[0] + ".Configuration"
+            value = row["value"]
+        compact.append([rid, prop, value, comment])
+    return [
+        (rid, dict(original[rid], property=kind + "." + prop, value=value))
+        for rid, prop, value, _ in index_rows(compact, kind)
+    ]
+
+
+RULES = {
+    "CodePipeline.Pipeline": properties(
+        resource=ResourceContract(prepare_rows=prepare_rows, contexts=action_contexts),
+        objects="""
+            ArtifactStore
+            ArtifactStore.EncryptionKey
+            ArtifactStores[]
+            ArtifactStores[].ArtifactStore
+            ArtifactStores[].ArtifactStore.EncryptionKey
+            Stages[]
+            Stages[].Actions[]
+            Stages[].Actions[].ActionTypeId
+            Stages[].Actions[].Configuration
+            Stages[].Actions[].EnvironmentVariables[]
+            Stages[].Actions[].InputArtifacts[]
+            Stages[].Actions[].OutputArtifacts[]
+            Tags[]
+            Triggers[]
+            Triggers[].GitConfiguration
+            Triggers[].GitConfiguration.PullRequest[]
+            Triggers[].GitConfiguration.PullRequest[].Branches
+            Triggers[].GitConfiguration.PullRequest[].FilePaths
+            Triggers[].GitConfiguration.Push[]
+            Triggers[].GitConfiguration.Push[].Branches
+            Triggers[].GitConfiguration.Push[].FilePaths
+            Triggers[].GitConfiguration.Push[].Tags
+            Variables[]
+        """,
+        ordered="""
+            ArtifactStores
+            Stages
+            Stages[].Actions
+            Stages[].Actions[].Commands
+            Stages[].Actions[].EnvironmentVariables
+            Stages[].Actions[].InputArtifacts
+            Stages[].Actions[].OutputArtifacts
+            Stages[].Actions[].OutputArtifacts[].Files
+            Stages[].Actions[].OutputVariables
+            Triggers
+            Triggers[].GitConfiguration.PullRequest
+            Triggers[].GitConfiguration.PullRequest[].Branches.Excludes
+            Triggers[].GitConfiguration.PullRequest[].Branches.Includes
+            Triggers[].GitConfiguration.PullRequest[].Events
+            Triggers[].GitConfiguration.PullRequest[].FilePaths.Excludes
+            Triggers[].GitConfiguration.PullRequest[].FilePaths.Includes
+            Triggers[].GitConfiguration.Push
+            Triggers[].GitConfiguration.Push[].Branches.Excludes
+            Triggers[].GitConfiguration.Push[].Branches.Includes
+            Triggers[].GitConfiguration.Push[].FilePaths.Excludes
+            Triggers[].GitConfiguration.Push[].FilePaths.Includes
+            Triggers[].GitConfiguration.Push[].Tags.Excludes
+            Triggers[].GitConfiguration.Push[].Tags.Includes
+            Variables
+        """,
+        references="""
+            ArtifactStore.Location
+        """,
+        scalars="""
+            ArtifactStore.EncryptionKey.Type
+            ArtifactStore.Type
+            ArtifactStores[].ArtifactStore.EncryptionKey.Id
+            ArtifactStores[].ArtifactStore.EncryptionKey.Type
+            ArtifactStores[].ArtifactStore.Location
+            ArtifactStores[].ArtifactStore.Type
+            ArtifactStores[].Region
+            ExecutionMode
+            Name
+            PipelineType
+            RestartExecutionOnUpdate
+            RoleArn
+            Stages[].Actions[].ActionTypeId.Category
+            Stages[].Actions[].ActionTypeId.Owner
+            Stages[].Actions[].ActionTypeId.Provider
+            Stages[].Actions[].ActionTypeId.Version
+            Stages[].Actions[].EnvironmentVariables[].Name
+            Stages[].Actions[].EnvironmentVariables[].Type
+            Stages[].Actions[].EnvironmentVariables[].Value
+            Stages[].Actions[].InputArtifacts[].Name
+            Stages[].Actions[].Name
+            Stages[].Actions[].Namespace
+            Stages[].Actions[].OutputArtifacts[].Name
+            Stages[].Actions[].Region
+            Stages[].Actions[].RoleArn
+            Stages[].Actions[].RunOrder
+            Stages[].Actions[].TimeoutInMinutes
+            Stages[].Name
+            Tags[].Key
+            Tags[].Value
+            Triggers[].GitConfiguration.SourceActionName
+            Triggers[].ProviderType
+            Variables[].DefaultValue
+            Variables[].Description
+            Variables[].Name
+        """,
+        tags="""
+            Tags
+        """,
+    ),
+}
+
+
+_path = "ArtifactStore.EncryptionKey.Id"
+RULES["CodePipeline.Pipeline"][_path] = replace(
+    REFERENCE,
+    forms=REFERENCES.format_limits["CodePipeline.Pipeline." + _path],
+    form_compare=partial(compare_producer_forms, "KMS.Key"),
+)

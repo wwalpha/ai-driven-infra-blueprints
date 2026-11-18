@@ -449,7 +449,7 @@ def check_derived_and_real_mapping_gaps(monkeypatch):
 
 
 def test_codepipeline_sdk_getter_uses_name_and_preserves_response():
-    adapter = module("aws-compare-services/codepipeline.py", "test.codepipeline")
+    adapter = module("services/codepipeline/aws.py", "test.codepipeline")
     response = {"pipeline": {"stages": [{"actions": [{"environmentVariables": []}]}]}}
     ctx = SimpleNamespace(call=Mock(return_value=response))
     resource = SimpleNamespace(value=Mock(return_value="example"))

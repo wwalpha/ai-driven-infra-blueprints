@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison.methods import compare_values
-from comparison.registry import rules
 from comparison.rows import validated_rows
 from model.references import declarations
 from support.comparison_cases import outcome_data, projected
@@ -28,6 +27,7 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+from services.registry import REGISTRY
 from support.reference_evidence_shared import (
     ROOT,
     VPC,
@@ -575,7 +575,7 @@ def _execute_json_pointers(case):
         actual,
         "AssumeRolePolicyDocument",
         whole=True,
-        rules=rules("IAM.Role"),
+        rules=REGISTRY.require_comparison("IAM.Role"),
         reference=callback,
     )
     actual["a/b~c"].reverse()
@@ -584,7 +584,7 @@ def _execute_json_pointers(case):
         actual,
         "AssumeRolePolicyDocument",
         whole=True,
-        rules=rules("IAM.Role"),
+        rules=REGISTRY.require_comparison("IAM.Role"),
         reference=callback,
     )
     TestCase().assertEqual(comparison.models["consumer"].authoritative, before)

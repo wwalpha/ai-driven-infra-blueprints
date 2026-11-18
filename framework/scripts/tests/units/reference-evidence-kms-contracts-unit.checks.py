@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison.reference_evidence import Evidence
-from comparison.rules.kms import compare_forms, kms_format
+from services.kms.comparison import compare_forms, kms_format
 from support.comparison_cases import projected
 from support.model_reference_fixtures import reference as model_ref
 from support.regression_cases import case_ids

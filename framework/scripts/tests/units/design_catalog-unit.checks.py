@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import design.catalog as catalog_module
 import design.layout as _imports_design_layout
 import pytest
-from design.services.macie import job_bucket_tables
+from services.macie.display import job_bucket_tables
 from support.design_catalog_fixtures import (
     MACIE_JOB,
     QUICKSIGHT_GROUP,
@@ -256,13 +256,17 @@ def check_macie_inputs_and_tables():
         design.write_text(text, encoding="utf-8")
         findings = Mock(errors=[], canonical_root=root)
         validate_api_rows(
-            design, MACIE_JOB, "daily-data-scan",
+            design,
+            MACIE_JOB,
+            "daily-data-scan",
             [["", f"{MACIE_JOB}.s3JobDefinition", "scope"]],
-            findings=findings, schema_catalog=schema,
+            findings=findings,
+            schema_catalog=schema,
             model_documents={"scope": json.dumps({"bucketCriteria": {}})},
         )
         assert any(
-            call.args[0] is False and "bucket table requires bucketDefinitions" in call.args[1]
+            call.args[0] is False
+            and "bucket table requires bucketDefinitions" in call.args[1]
             for call in findings.check.call_args_list
         )
     print(

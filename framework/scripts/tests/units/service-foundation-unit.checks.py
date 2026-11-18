@@ -156,10 +156,6 @@ def check_invalid_registration(keys, definition, message):
     ("receiver", "message"),
     [
         (
-            ReceiverReference({"Key": {"SyntheticKeys.Unregistered": ("Arn",)}}),
-            "unregistered Producer",
-        ),
-        (
             ReceiverReference({"Key": {"SyntheticKeys.Key": ("Unknown",)}}),
             "invalid Producer forms",
         ),
@@ -173,7 +169,6 @@ def check_invalid_registration(keys, definition, message):
         ),
     ],
     ids=(
-        "missing-producer",
         "missing-form",
         "duplicate-normalized-path",
         "empty-forms",
@@ -247,15 +242,27 @@ def check_denial_and_conditional_override(registry):
     )
 
 
-def check_invalid_context_override(keys):
-    hook = Mock(return_value={"SyntheticKeys.Unregistered": ("Arn",)})
+def check_unregistered_producer_dependencies(keys):
+    missing = {"SyntheticKeys.Unregistered": ("Arn",)}
+    hook = Mock(return_value=missing)
     resource = ResourceDefinition(
-        "SyntheticStorage.Bucket", receiver=ReceiverReference(contextual=hook)
+        "SyntheticStorage.Bucket",
+        receiver=ReceiverReference(import_properties={"Key": missing}, contextual=hook),
     )
     registry = ServiceRegistry((keys, ServiceDefinition("test-storage", (resource,))))
-    with pytest.raises(ValueError, match="unregistered Producer"):
-        ReferenceEngine(registry).receiver_forms(
-            "SyntheticStorage.Bucket", "Choice.Target", mode=IMPORT
+    engine = ReferenceEngine(registry)
+    assert registry.missing_producers() == {"SyntheticKeys.Unregistered"}
+    assert (
+        engine.receiver_forms("SyntheticStorage.Bucket", "Choice.Target", mode=IMPORT)
+        == missing
+    )
+    with pytest.raises(KeyError, match="SyntheticKeys.Unregistered"):
+        engine.allows(
+            "SyntheticStorage.Bucket",
+            "Key",
+            "SyntheticKeys.Unregistered",
+            "Arn",
+            mode=IMPORT,
         )
 
 

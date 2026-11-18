@@ -154,7 +154,9 @@ def _execute_fragment_producer(case):
         if data["import_mode"]:
             comparison.resources[service]["001"]["resourceMode"] = "IMPORT"
     if data["clear_arn_contract"]:
-        with patch.dict("comparison.reference_evidence.ARN_SHAPES", clear=True):
+        with patch(
+            "comparison.reference_evidence.REFERENCES.arn_shape", return_value=None
+        ):
             decision = comparison.reference_decision(
                 desired, actual, "IAM.Role", "Policies"
             )

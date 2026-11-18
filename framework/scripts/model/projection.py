@@ -10,7 +10,6 @@ from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
 import design.array_display as _imports_array_display
-import design.services.codepipeline as _imports_codepipeline
 import json_intrinsics as _imports_json_intrinsics
 import utils.json_format as _imports_utils_json_format
 from contracts.model import (
@@ -23,16 +22,11 @@ from contracts.model import (
 from contracts.repository import DESIGNS_DIRECTORY, PROJECT_FILENAME
 from contracts.target import AWS_ACCOUNT_ID_KEY
 from design.catalog import design_material_files
-from design.services.definitions.registry import HIDDEN_PROPERTIES
-from design.services.route53 import ALIAS_ZONE_PROPERTY, endpoint_dns_operand
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
+from services.route53.display import ALIAS_ZONE_PROPERTY, endpoint_dns_operand
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
 from utils.input_cache import input_is_file, input_text, memo_table, memoized
-from utils.reference_contracts import (
-    RETURN_ATTRIBUTE_PROPERTIES,
-    action_contexts,
-    row_contexts,
-)
-from utils.reference_contracts import reference_attribute as reference_attribute
 
 import model.environment_values as environment_values
 import model.identity as _dependency_model_identity
@@ -61,6 +55,8 @@ from model.reference_nodes import (
     reference_document,
 )
 from model.reference_values import reference_value
+
+HIDDEN_PROPERTIES = REGISTRY.design_tables.get("HIDDEN_PROPERTIES", frozenset())
 
 ANCHOR = re.compile(r'^<a\s+id="([^"]+)"\s*></a>$')
 
@@ -408,8 +404,8 @@ def _display_document_value(resolutions, resolver, scope, root, node):
     if result is not None and result.status == "logical_only":
         _, _, resource = resolver.resolve_logical(node.logical_id, scope)
         kind = resource[RESOURCE_TYPE_KEY]
-        attribute = reference_attribute(kind, node.attribute)
-        field = RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute)
+        attribute = REFERENCES.formal_attribute(kind, node.attribute)
+        field = REFERENCES.return_property(kind, attribute, attribute)
         if kind + "." + field in identifier_outputs(root).get(kind, ()):
             return MODEL_PENDING_DEPLOY
     return (
@@ -632,35 +628,25 @@ def generated_document(
     return projected
 
 
-def configuration_contexts(values, number, root):
-    """Index action membership without parsing Configuration documents."""
-    kind = "CodePipeline.Pipeline"
+def receiver_configuration(prop):
+    kind = ".".join(prop.split(".")[:2])
+    receiver = REGISTRY.receiver(kind) if kind in REGISTRY else None
+    configuration = receiver.configuration if receiver is not None else None
+    return (
+        configuration
+        if configuration and prop.startswith(configuration.property_prefix)
+        else None
+    )
+
+
+def configuration_contexts(values, number, root, configuration):
     rows = [
-        [
-            rid,
-            row["property"].removeprefix(kind + "."),
-            row["value"],
-            row.get("comment", ""),
-        ]
+        (rid, row)
         for rid, row in entries(values, "desired.row.")
         if rid.rpartition("-")[0] == number
     ]
-    indexed = _imports_array_display.indexed_rows(
-        _imports_codepipeline.pipeline_membership(rows), kind, root
-    )
-    contexts = action_contexts(
-        [(rid, {"property": prop, "value": value}) for rid, prop, value, _ in indexed]
-    )
-    return {
-        rid: contexts.get(prop.rsplit(".Configuration", 1)[0], {})
-        for rid, prop, _, _ in indexed
-        if prop.endswith(".Configuration") or ".Configuration." in prop
-    }
-
-
-def configuration_context(values, row_id, root):
-    return configuration_contexts(values, row_id.rpartition("-")[0], root).get(
-        row_id, {}
+    return configuration.collect(
+        rows, root, index_rows=_imports_array_display.indexed_rows
     )
 
 
@@ -668,22 +654,19 @@ def reference_context_for(
     values, row_id, row, value, pointer, root, *, configuration_contexts_by_row=None
 ):
     """Share the existing split-row and nested JSON receiving-context contract."""
-    context = (
-        (
-            configuration_context(values, row_id, root)
-            if configuration_contexts_by_row is None
-            else configuration_contexts_by_row.get(row_id, {})
-        )
-        if row["property"].startswith(
-            "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
-        )
-        and not isinstance(value, list)
-        else None
-    )
+    configuration = receiver_configuration(row["property"])
+    context = None
+    if configuration is not None and not isinstance(value, list):
+        if configuration_contexts_by_row is None:
+            number = row_id.rpartition("-")[0]
+            configuration_contexts_by_row = configuration_contexts(
+                values, number, root, configuration
+            )
+        context = configuration_contexts_by_row.get(row_id, {})
     if context is None:
         kind = ".".join(row["property"].split(".")[:2])
         number = row_id.rpartition("-")[0]
-        contexts = row_contexts(
+        contexts = REFERENCES.collect_row_contexts(
             kind,
             [
                 (rid, item)
@@ -746,7 +729,7 @@ def validate_json_documents(
     resolver = None
     diagnostics = []
     context_source = values if context_values is None else context_values
-    pipeline_contexts = {}
+    configuration_by_resource = {}
     for row_id, row in entries(values, "desired.row."):
         if not {"property", "value"} <= row.keys():
             raise ValueError("invalid resource row: " + row_id)
@@ -768,14 +751,10 @@ def validate_json_documents(
                     scope.root,
                 )
             number = row_id.rpartition("-")[0]
-            if (
-                row["property"].startswith(
-                    "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
-                )
-                and number not in pipeline_contexts
-            ):
-                pipeline_contexts[number] = configuration_contexts(
-                    context_source, number, scope.root
+            configuration = receiver_configuration(row["property"])
+            if configuration is not None and number not in configuration_by_resource:
+                configuration_by_resource[number] = configuration_contexts(
+                    context_source, number, scope.root, configuration
                 )
             resolutions, row_diagnostics = document_references(
                 value,
@@ -793,7 +772,7 @@ def validate_json_documents(
                     value,
                     "",
                     scope.root,
-                    configuration_contexts_by_row=pipeline_contexts.get(number),
+                    configuration_contexts_by_row=configuration_by_resource.get(number),
                 ),
                 excluded_references=tuple(
                     pointer

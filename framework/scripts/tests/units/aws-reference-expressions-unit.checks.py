@@ -13,11 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from comparison import expressions
 from comparison.methods import compare_values
-from comparison.registry import rules
 from design.catalog import DesignSchemaCatalog
 from model.core import entries
 from model.identity import COUNTERS, Resolver
 from model.reference_nodes import receiving_property
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
@@ -30,12 +31,18 @@ from support.model_reference_fixtures import (
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
-from utils.reference_contracts import (
-    ARN_SHAPES,
-    REF_ATTRIBUTES,
-    getatt_attribute,
-    reference_attribute,
-)
+
+ARN_SHAPES = {
+    kind: shape
+    for kind in REGISTRY
+    if (shape := REFERENCES.arn_shape(kind)) is not None
+}
+REF_ATTRIBUTES = {
+    kind: attribute
+    for kind in REGISTRY
+    if (attribute := REFERENCES.ref_attribute(kind)) is not None
+}
+
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -381,7 +388,7 @@ def producer(root, kind, properties):
     symbol = ResourceReference(
         {
             "$resource": ["producer", "001"],
-            "$attribute": reference_attribute(kind, "Arn"),
+            "$attribute": REFERENCES.formal_attribute(kind, "Arn"),
         }
     )
     return inputs, symbol
@@ -845,10 +852,16 @@ def test_lakeformation_connection_arn_and_formal_returns(models):
     glue = schema.schema("Glue.Connection")
     lake = schema.schema("LakeFormation.Resource")
     assert REF_ATTRIBUTES["Glue.Connection"] == "Name"
-    assert getatt_attribute("Glue.Connection", "Name", glue)
-    assert not getatt_attribute("Glue.Connection", "Arn", glue)
+    assert REFERENCES.has_getatt(
+        "Glue.Connection", "Name", glue.get("readOnlyProperties", ())
+    )
+    assert not REFERENCES.has_getatt(
+        "Glue.Connection", "Arn", glue.get("readOnlyProperties", ())
+    )
     assert "LakeFormation.Resource" not in REF_ATTRIBUTES
-    assert getatt_attribute("LakeFormation.Resource", "Id", lake)
+    assert REFERENCES.has_getatt(
+        "LakeFormation.Resource", "Id", lake.get("readOnlyProperties", ())
+    )
     arn = "arn:aws:glue:ap-northeast-1:123456789012:connection/fixture"
     assert inputs.reference_literal(symbol) == arn
     name = inputs.evaluate("producer", {"Ref": "Resource001"})
@@ -1215,7 +1228,11 @@ def test_generated_arn_identity_is_symbolic_and_template_ids_are_not_evidence(
         inputs.reference_same("forged/suffix", sub, "Glue.Job", "DefaultArguments")
         is None
     )
-    if not getatt_attribute(kind, symbol["$attribute"], inputs.catalog.schema(kind)):
+    if not REFERENCES.has_getatt(
+        kind,
+        symbol["$attribute"],
+        inputs.catalog.schema(kind).get("readOnlyProperties", ()),
+    ):
         with pytest.raises(Blocked, match="GetAtt"):
             inputs.evaluate(
                 "producer", {"Fn::GetAtt": ["Resource001", symbol["$attribute"]]}
@@ -1621,7 +1638,7 @@ def test_unproven_selection_container_cannot_pass_without_contract(models):
             [value],
             [copy.deepcopy(value)],
             "ResourceRecords",
-            rules=rules("Route53.RecordSet"),
+            rules=REGISTRY.require_comparison("Route53.RecordSet"),
             reference=partial(unselected_reference, inputs),
         )
         assert decision.equal is None

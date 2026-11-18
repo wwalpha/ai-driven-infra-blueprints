@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from comparison.arn_projection import project as project_arn
 from model.identity import COUNTERS
+from services.registry import REGISTRY
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
@@ -23,7 +24,14 @@ from support.model_reference_fixtures import (
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
-from utils.reference_contracts import KMS_FORMS
+
+KMS_FORMS = {
+    kind + "." + path: forms
+    for kind in REGISTRY
+    if (receiver := REGISTRY.receiver(kind))
+    for path, forms in receiver.format_limits.items()
+}
+
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

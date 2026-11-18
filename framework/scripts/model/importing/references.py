@@ -20,18 +20,9 @@ from contracts.target import (
     AWS_EXECUTION_ACCOUNT_ID_KEY,
     AWS_REGION_KEY,
 )
+from services.reference_engine import REFERENCES
 from utils.aws_mappings import mappings_for, owners
 from utils.aws_sdk import aws_runtime
-from utils.reference_contracts import (
-    ARN_FORMS,
-    CONFIGURATION_PROPERTIES,
-    CONTEXT_PROPERTIES,
-    RETURN_ATTRIBUTE_PROPERTIES,
-    VALUE_IDENTITIES,
-    attributes_for,
-    contract,
-    reference_attribute,
-)
 
 import model.core as _imports_model_core
 import model.identity as _dependency_model_identity
@@ -128,7 +119,12 @@ def _recursive_verify_resource_verify_config(
             raise ValueError("IMPORT Configuration requires matching objects")
         for key, value in desired.items():
             target = choices.get((provider, key)) if isinstance(provider, str) else None
-            contracts = {target[0]: (target[1],)} if target else {}
+            contracts = {}
+            if target is not None:
+                kind, attribute = target
+                contracts[kind] = (
+                    REFERENCES.return_property(kind, attribute, attribute),
+                )
             self.verify(
                 prop + "." + key,
                 value,
@@ -198,12 +194,13 @@ class Resolver:
         self.targets[kind] = {}
         if service is None:
             return result
-        properties = attributes_for(kind)
+        properties = REFERENCES.attributes_for(kind)
         returned_properties = {
             prop: kind
             + "."
-            + RETURN_ATTRIBUTE_PROPERTIES.get(
-                (kind, reference_attribute(kind, prop.removeprefix(kind + "."))),
+            + REFERENCES.return_property(
+                kind,
+                REFERENCES.formal_attribute(kind, prop.removeprefix(kind + ".")),
                 prop.removeprefix(kind + "."),
             )
             for prop in properties
@@ -340,7 +337,7 @@ class Resolver:
         return result
 
     def arn_identity(self, kind, form, value):
-        descriptor = ARN_FORMS.get((kind, form))
+        descriptor = REFERENCES.arn_form(kind, form)
         if descriptor is None or not (match := re.fullmatch(descriptor[1], value)):
             return None
         parts = match.groupdict()
@@ -374,7 +371,11 @@ class Resolver:
         )
 
     def match(self, prop, value, context=None, *, contracts=None):
-        contracts = contract(prop, context) if contracts is None else contracts
+        contracts = (
+            (REFERENCES.import_targets(prop, context) or {})
+            if contracts is None
+            else contracts
+        )
         matches = {}
         if not known(value):
             return None
@@ -390,7 +391,7 @@ class Resolver:
             converted += [
                 {form: match["id"]}
                 for form in forms
-                if (pattern := VALUE_IDENTITIES.get((kind, form)))
+                if (pattern := REFERENCES.identity_pattern(kind, form))
                 and (match := re.fullmatch(pattern, value))
             ]
             for form in forms:
@@ -628,10 +629,10 @@ class Resolver:
                 and refs[0].pointer == ""
                 and refs[0].logical_id
                 == values.get(f"desired.resource.{rid}.logicalId")
-                and reference_attribute(
+                and REFERENCES.formal_attribute(
                     values[f"desired.resource.{rid}.resourceType"], refs[0].attribute
                 )
-                == reference_attribute(
+                == REFERENCES.formal_attribute(
                     values[f"desired.resource.{rid}.resourceType"],
                     prop.removeprefix(
                         values[f"desired.resource.{rid}.resourceType"] + "."
@@ -642,8 +643,11 @@ class Resolver:
                     values[f"desired.resource.{rid}.resourceType"], refs[0].attribute
                 )
                 continue
-            if prop in CONFIGURATION_PROPERTIES:
-                selector, choices = CONFIGURATION_PROPERTIES[prop]
+            if (configuration := REFERENCES.configuration_at(prop)) is not None:
+                selector, choices = (
+                    configuration.import_selector,
+                    configuration.import_choices,
+                )
                 desired = json.loads(row.get("document", literal(raw)))
                 actual = (
                     native_reference_value(observed)
@@ -666,8 +670,8 @@ class Resolver:
             has_reference = _imports_model_importing_sources.has_reference
             if literal(raw).startswith(("[", "{")) and (
                 has_reference(row.get("document", raw))
-                or contract(prop, context)
-                or prop in CONTEXT_PROPERTIES
+                or (REFERENCES.import_targets(prop, context) or {})
+                or REFERENCES.is_context_selector(prop)
             ):
                 desired = json.loads(row.get("document", literal(raw)))
                 actual = (
@@ -697,7 +701,9 @@ class Resolver:
                 raise ValueError(
                     "IMPORT reference/observation element count differs: " + prop
                 )
-            if not contract(prop, context) and not has_reference(raw):
+            if not (
+                REFERENCES.import_targets(prop, context) or {}
+            ) and not has_reference(raw):
                 continue
             for value, actual in zip(links, physical, strict=True):
                 self.verify(

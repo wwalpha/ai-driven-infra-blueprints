@@ -100,7 +100,7 @@ def check_identity_engine_routing(tmp_path, engine) -> None:
             tmp_path,
             resources,
             definitions_root=ROOT,
-            _kms_policy_check=Mock(),
+            _policy_check=Mock(),
         )
     assert terraform.call_count == (engine == "terraform")
     assert cloudformation.call_count == (engine == "cloudformation")

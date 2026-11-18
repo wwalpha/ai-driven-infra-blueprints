@@ -16,14 +16,12 @@ from utils.iac_values import (
     Expression,
     ResourceReference,
 )
-from utils.reference_contracts import (
-    row_contexts,
-)
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+from services.reference_engine import REFERENCES
 from support.reference_evidence_shared import (
     ROOT,
     VPC,
@@ -180,7 +178,7 @@ def test_lambda_source_access_split_rows_bind_only_the_same_index():
             },
         ),
     ]
-    contexts = row_contexts("Lambda.EventSourceMapping", rows)
+    contexts = REFERENCES.collect_row_contexts("Lambda.EventSourceMapping", rows)
     assert contexts["SourceAccessConfigurations[1]"] == {"Type": "BASIC_AUTH"}
     assert contexts["SourceAccessConfigurations[2]"] == {"Type": "VPC_SUBNET"}
     rows.append(
@@ -192,7 +190,7 @@ def test_lambda_source_access_split_rows_bind_only_the_same_index():
             },
         )
     )
-    assert "SourceAccessConfigurations[1]" not in row_contexts(
+    assert "SourceAccessConfigurations[1]" not in REFERENCES.collect_row_contexts(
         "Lambda.EventSourceMapping", rows
     )
 

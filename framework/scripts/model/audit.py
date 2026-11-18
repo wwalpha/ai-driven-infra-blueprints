@@ -23,8 +23,6 @@ import utils.iac_values as _imports_iac_values
 import utils.input_cache as _imports_input_cache
 from aws_mapping_catalog import under
 from aws_mapping_compare import comparison
-from comparison.rules.cloud_trail import cloudtrail_rows
-from comparison.rules.code_pipeline import prepare_rows as pipeline_rows
 from contracts import mapping as _mapping_contract
 from contracts import model as _model_contract
 from contracts import repository as _repository_contract
@@ -43,6 +41,7 @@ from contracts.target import AWS_REGION_KEY
 from design.array_display import indexed_rows
 from design.catalog import DesignSchemaCatalog
 from design.layout import confirmed_display_name
+from services.registry import REGISTRY
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import status as status
 from task_contract_core import task_revision as task_revision
@@ -92,7 +91,7 @@ def pipeline_indexed_rows(rows):
     rows = sorted(rows, key=lambda item: item[0])
     stage_rows = sorted(stage_rows, key=lambda item: item[0])
     try:
-        prepared = pipeline_rows(
+        prepared = REGISTRY.comparison_contract("CodePipeline.Pipeline").prepare_rows(
             rows, index_rows=_bind_framework_callback(indexed_rows, root=ROOT)
         )
     except (ValueError, TypeError, KeyError):
@@ -1291,9 +1290,7 @@ def _build(root, environment, selector, service, standalone):
     projection = definitions(scripts / "aws_mapping_catalog.py", ["project"])
     mapped = definitions(scripts / "aws_mapping_compare.py", ["value"])
     adapters = {
-        name: input_text(
-            scripts / "aws-compare-services" / (name + ".py"), encoding="utf-8"
-        )
+        name: input_text(scripts / REGISTRY.aws_adapters[name].source, encoding="utf-8")
         for name in sorted(
             set(mappings)
             | {"iam", "kms"}
@@ -1356,7 +1353,9 @@ def _build(root, environment, selector, service, standalone):
                 if rid.startswith(number + "-") and value_shape(row) == "leaf"
             ]
             try:
-                prepared = cloudtrail_rows(
+                prepared = REGISTRY.comparison_contract(
+                    "CloudTrail.Trail"
+                ).prepare_rows(
                     leaves, index_rows=_bind_framework_callback(indexed_rows, root=ROOT)
                 )
             except Unresolved:

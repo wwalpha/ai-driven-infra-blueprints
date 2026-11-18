@@ -14,11 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from aws_mapping import registry
 from comparison.methods import compare_values
-from comparison.registry import rules
 from comparison.values import desired_value
 from deploy.controller import load_inputs
 from design.catalog import DesignSchemaCatalog
-from design.services.codepipeline import pipeline_display_rows, pipeline_rows
 from model.core import ModelNeedsFixError, literal
 from model.environment_values import (
     glue_variables,
@@ -40,6 +38,8 @@ from model.sources import load_model
 from model.validations.environment import validate_environment_settings
 from model.validations.full_inputs import check_model_inputs as model_inputs
 from model.validations.json_settings import validate_json_settings
+from services.codepipeline.display import pipeline_display_rows, pipeline_rows
+from services.registry import REGISTRY
 from support.cloudformation_deploy_fixtures import advance_group
 from support.model_reference_fixtures import (
     FRAMEWORK,
@@ -400,7 +400,7 @@ def check_comparison_preserves_confirmed_siblings(models, kind, prop, value, poi
             actual,
             prop,
             whole=True,
-            rules=rules(kind),
+            rules=REGISTRY.require_comparison(kind),
             reference=partial(_decision, comparison(models), kind),
         ).equal
         is None
@@ -422,7 +422,7 @@ def check_comparison_preserves_confirmed_siblings(models, kind, prop, value, poi
             changed,
             prop,
             whole=True,
-            rules=rules(kind),
+            rules=REGISTRY.require_comparison(kind),
             reference=partial(_decision, comparison(models), kind),
         ).equal
         is False

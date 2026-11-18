@@ -3,20 +3,10 @@
 import re
 from copy import copy
 
-from model.projection import reference_attribute
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression
-from utils.reference_contracts import (
-    ATTRIBUTE_SUFFIXES,
-    REFERENCE_PROPERTIES,
-    reference_error,
-    requires_context,
-)
-from utils.reference_contracts import (
-    contract as receiving_contract,
-)
-
-from . import registry
 
 
 def desired_reference(
@@ -36,20 +26,22 @@ def desired_reference(
     path = re.sub(r"\[\d+\]", "[]", path)
     context = context or {}
     declared = (
-        receiving_contract(kind + "." + path, context) if local_comparison else {}
+        (REFERENCES.import_targets(kind + "." + path, context) or {})
+        if local_comparison
+        else {}
     )
     if (
         local_comparison
         and not declared
-        and requires_context(kind + "." + path, context)
+        and REFERENCES.context_required_at(kind + "." + path, context)
     ):
         raise Blocked(
             f"reference context or receiving property contract unproven: {kind}.{path}"
         )
-    if local_comparison and (error := reference_error(kind + "." + path, context)):
+    if local_comparison and (error := REFERENCES.error_at(kind + "." + path, context)):
         raise Blocked(error)
     expected_kind = None
-    contract = REFERENCE_PROPERTIES.get(kind + "." + path)
+    contract = REFERENCES.direct_reference(kind + "." + path)
     if local_comparison:
         if declared:
             if len(declared) == 1:
@@ -68,9 +60,9 @@ def desired_reference(
     refkind = resource_type(symbol)
     if (
         forms
-        and registry.property_rule(kind, path).forms is None
+        and REGISTRY.comparison_property_rule(kind, path).forms is None
         and symbol["$attribute"]
-        not in {reference_attribute(refkind, form) for form in forms}
+        not in {REFERENCES.formal_attribute(refkind, form) for form in forms}
     ):
         error = Blocked(
             f"reference attribute {symbol['$attribute']} is outside property contract: {kind}.{path}"
@@ -85,7 +77,9 @@ def desired_reference(
     if declared and (
         refkind not in declared
         or symbol["$attribute"]
-        not in {reference_attribute(refkind, form) for form in declared[refkind]}
+        not in {
+            REFERENCES.formal_attribute(refkind, form) for form in declared[refkind]
+        }
     ):
         raise Blocked(
             f"reference target or attribute is outside receiving property contract: {kind}.{path}"
@@ -94,11 +88,15 @@ def desired_reference(
     symbol = protect_import(
         symbol, kind + "." + path if declared or contract or forms else None
     )
-    if declared and context and requires_context(kind + "." + path, context):
+    if (
+        declared
+        and context
+        and REFERENCES.context_required_at(kind + "." + path, context)
+    ):
         symbol = copy(symbol)
         symbol.receiving_context = dict(context)
         symbol.receiving_property = kind + "." + path
-    suffix = ATTRIBUTE_SUFFIXES.get((refkind, symbol["$attribute"]))
+    suffix = REFERENCES.attribute_suffix(refkind, symbol["$attribute"])
     if suffix:
         child = copy(symbol)
         child["$attribute"] = suffix[0]

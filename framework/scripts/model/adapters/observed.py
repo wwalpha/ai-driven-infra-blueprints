@@ -27,7 +27,8 @@ from contracts.target import (
 from deploy.model_cache import RunModels
 from design.catalog import DesignSchemaCatalog
 from design.layout_schema import GROUPED
-from design.services.definitions.registry import HIDDEN_PROPERTIES
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from task_contract_core import matches as matches
 from task_contract_core import paths_in as paths_in
 from task_contract_core import section as section
@@ -44,12 +45,6 @@ from utils.cloudformation.inputs import (
 from utils.iac_values import cfn_resource_identity
 from utils.input_cache import input_scope
 from utils.project_targets import load_target_directory as load_target
-from utils.reference_contracts import (
-    ARN_SHAPES,
-    REF_ATTRIBUTES,
-    RETURN_ATTRIBUTE_PROPERTIES,
-    reference_attribute,
-)
 from utils.source_reads import FileReads
 from validation_scope import active_scope
 
@@ -80,6 +75,8 @@ from model.sources import (
 from model.sources import (
     load_model as load_model,
 )
+
+HIDDEN_PROPERTIES = REGISTRY.design_tables.get("HIDDEN_PROPERTIES", frozenset())
 
 
 def reference_key(value, path, resolver=None):
@@ -201,7 +198,7 @@ def identifier_source(catalog, resource, outputs, logical, prop, values):
     primary = (
         kind != "SQS.QueuePolicy"
         and catalog.schema(kind).get("primaryIdentifier", []) == primary_fields
-        and REF_ATTRIBUTES.get(kind) == attribute
+        and REFERENCES.ref_attribute(kind) == attribute
     )
     keys = []
     for key, value in values.items():
@@ -841,11 +838,13 @@ def _eligible_reference(usage, values, identifiers, confirmed_properties):
     ).removeprefix(kind + ".")
     if not attribute:
         return False
-    returned = reference_attribute(kind, attribute)
-    field = RETURN_ATTRIBUTE_PROPERTIES.get((kind, returned), returned)
+    returned = REFERENCES.formal_attribute(kind, attribute)
+    field = REFERENCES.return_property(kind, returned, returned)
     dependencies = {kind + "." + field}
-    if kind in ARN_SHAPES and returned == reference_attribute(kind, "Arn"):
-        shape = ARN_SHAPES[kind][0]
+    if REFERENCES.arn_shape(
+        kind
+    ) is not None and returned == REFERENCES.formal_attribute(kind, "Arn"):
+        shape = REFERENCES.arn_shape(kind)[0]
         dependencies.update(
             kind + "." + field
             for field in (shape if isinstance(shape, dict) else (shape,))

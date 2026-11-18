@@ -398,4 +398,4 @@ For Config IMPORT, a valid acquired IAM Role ARN remains complete in formal
 IAM Role links and permitted service-role names retain `RoleName`; CREATE direct
 ARN literals are forbidden. Validate ResourceMode from the authoritative Model.
 
-Design Pythonの共通実装は `framework/scripts/design/`、AWSサービス固有の表示・復元は `design/services/` に置く。`POLICY_FORMATS` を含むDesign専用固定定義は `design/services/definitions/<service>.py` を正本とし、`design/services/definitions/registry.py` で明示的に統合する。Resource関係の共通契約は引き続き `framework/rules/resource-layout.json` を使う。公開CLIは `framework/scripts/design_catalog.py` と `framework/scripts/policy_tables.py` を維持する。
+Design Pythonの共通実装は `framework/scripts/design/`、AWSサービス固有の表示・復元は `services/<service>/display.py` に置く。`POLICY_FORMATS` を含むDesign専用固定定義は `services/<service>/design.py` を正本とし、`services/manifest.py` の明示登録を経て `services/registry.py` から取得する。Resource関係の共通契約は引き続き `framework/rules/resource-layout.json` を使う。公開CLIは `framework/scripts/design_catalog.py` と `framework/scripts/policy_tables.py` を維持する。

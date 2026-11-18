@@ -21,19 +21,13 @@ from utils.iac_values import (
     Expression,
     ResourceReference,
 )
-from utils.reference_contracts import (
-    IMPORT_PROPERTIES,
-    REFERENCE_PROPERTIES,
-    reference_attribute,
-)
-from utils.reference_contracts import (
-    contract as receiving_contract,
-)
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from support.reference_evidence_shared import (
     VPC,
     _reference_decision_data,
@@ -49,6 +43,19 @@ from support.reference_evidence_shared import (
 from support.reference_evidence_shared import (
     offline as offline,
 )
+
+IMPORT_PROPERTIES = {
+    kind + "." + path
+    for kind in REGISTRY
+    if (receiver := REGISTRY.receiver(kind))
+    for path in receiver.import_properties
+}
+REFERENCE_PROPERTIES = {
+    kind + "." + path
+    for kind in REGISTRY
+    if (receiver := REGISTRY.receiver(kind))
+    for path in receiver.direct_properties
+}
 
 
 @pytest.mark.parametrize(
@@ -418,7 +425,7 @@ def test_wrong_producer_in_identical_expression_cannot_match():
 def test_import_only_contracts_prepare_explicit_references(prop):
     kind, path = prop.split(".", 2)[:2], prop.split(".", 2)[2]
     kind = ".".join(kind)
-    declared = receiving_contract(prop)
+    declared = REFERENCES.import_targets(prop) or {}
     assert declared
     for producer, forms in declared.items():
         for form in forms:
@@ -427,7 +434,7 @@ def test_import_only_contracts_prepare_explicit_references(prop):
             symbol = ResourceReference(
                 {
                     "$resource": ["producer", "001"],
-                    "$attribute": reference_attribute(producer, form),
+                    "$attribute": REFERENCES.formal_attribute(producer, form),
                 }
             )
             assert comparison.desired_reference("producer", symbol, kind, path)
@@ -558,7 +565,7 @@ def test_unregistered_rds_proxy_secret_rejects_wrong_producer():
 
 @pytest.mark.parametrize("prop", sorted(IMPORT_PROPERTIES))
 def test_registered_contract_rejects_same_wrong_producer(prop):
-    declared = receiving_contract(prop)
+    declared = REFERENCES.import_targets(prop) or {}
     assert declared
     producer = "S3.Bucket" if "S3.Bucket" not in declared else "IAM.Role"
     comparison = fixture()

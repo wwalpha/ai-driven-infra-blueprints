@@ -347,7 +347,6 @@ def check_reference_view_retained_but_io_still_fails(tmp_path, monkeypatch):
     for name in (
         "validate_mappings",
         "validate_required_properties",
-        "validate_kms_policy_accounts",
     ):
         monkeypatch.setattr(runtime, name, lambda *a, **k: None)
     fail = _check_reference_view_retained_but_io_still_fails_fail
@@ -625,7 +624,6 @@ def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
     for name in (
         "validate_mappings",
         "validate_required_properties",
-        "validate_kms_policy_accounts",
     ):
         monkeypatch.setattr(runtime, name, lambda *a, **k: None)
     unavailable = _check_generation_warning_keeps_independent_error_unavailable

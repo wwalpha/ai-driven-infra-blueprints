@@ -4,8 +4,8 @@ import re
 
 from aws_mapping import registry
 from contracts.model import RESOURCE_TYPE_KEY
+from services.reference_engine import REFERENCES
 from utils.aws_mappings import owners
-from utils.reference_contracts import REF_ATTRIBUTES
 
 
 def cloudcontrol_source(root, catalog, resource, prop):
@@ -31,7 +31,7 @@ def cloudcontrol_source(root, catalog, resource, prop):
         or primary[0]
         != "/properties/"
         + str(
-            REF_ATTRIBUTES.get(kind)
+            REFERENCES.ref_attribute(kind)
             or {
                 "CloudFront.OriginAccessControl": "Id",
                 "GuardDuty.MalwareProtectionPlan": "MalwareProtectionPlanId",
@@ -71,7 +71,10 @@ def physical_identifier_source(resource, prop, physical=None):
     return (
         prefix is not None
         and prop == f"{kind}.Id"
-        and (physical is None or re.fullmatch(rf"{prefix}-[0-9a-f]+", physical) is not None)
+        and (
+            physical is None
+            or re.fullmatch(rf"{prefix}-[0-9a-f]+", physical) is not None
+        )
     )
 
 

@@ -13,17 +13,13 @@ from design.layout import resource_mode
 from design.policy_tables import literal
 from model.adapters.observed import identifier_source
 from model.format import REFERENCE_NAME_SUFFIXES
-from model.projection import reference_attribute
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from utils.aws_catalogs import catalog_outputs
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, cfn_resource_identity, same
-from utils.reference_contracts import (
-    ARN_FORMS,
-    ARN_SHAPES,
-    REFERENCE_PROPERTIES,
-)
 
-from . import expressions, registry
+from . import expressions
 from .references import ReferenceDecision, literal_expression, reference_same
 
 
@@ -38,18 +34,18 @@ def identifier_text(inputs, kind, attribute, raw):
     ):
         raise Blocked("identifier_unobserved")
     schema = inputs.catalog.property_schema(kind, attribute)
-    arn = attribute == reference_attribute(kind, "Arn") or schema.get(
+    arn = attribute == REFERENCES.formal_attribute(kind, "Arn") or schema.get(
         "pattern", ""
     ).startswith("^arn:")
     if text.startswith("arn:") != arn or inputs.catalog.literal_errors(
         kind, attribute, text
     ):
         raise Blocked("attribute_format_unproven: recorded identifier format")
-    form = ARN_FORMS.get((kind, attribute))
+    form = REFERENCES.arn_form(kind, attribute)
     if arn and form and re.fullmatch(form[1], text) is None:
         raise Blocked("attribute_format_unproven: recorded identifier format")
-    if kind in ARN_SHAPES:
-        fields, _, patterns = ARN_SHAPES[kind]
+    if REFERENCES.arn_shape(kind) is not None:
+        fields, _, patterns = REFERENCES.arn_shape(kind)
         fields = fields if isinstance(fields, dict) else {fields: "id"}
         if (
             attribute in fields
@@ -68,9 +64,9 @@ class Evidence:
 
     def expand(self, value):
         kind = self.inputs.resource_type(value)
-        if kind in ARN_SHAPES and value["$attribute"] == reference_attribute(
-            kind, "Arn"
-        ):
+        if REFERENCES.arn_shape(kind) is not None and value[
+            "$attribute"
+        ] == REFERENCES.formal_attribute(kind, "Arn"):
             return self.inputs.reference_literal(
                 value, recorded=self.recorded, symbolic_arn=True
             )
@@ -93,10 +89,10 @@ class Evidence:
             self.producers.append(producer)
         result = inputs.reference_literal(value, recorded=self.recorded)
         kind = inputs.resource_type(value)
-        if kind in ARN_SHAPES and value["$attribute"] == reference_attribute(
-            kind, "Arn"
-        ):
-            fields = ARN_SHAPES[kind][0]
+        if REFERENCES.arn_shape(kind) is not None and value[
+            "$attribute"
+        ] == REFERENCES.formal_attribute(kind, "Arn"):
+            fields = REFERENCES.arn_shape(kind)[0]
             sources = [
                 self.properties[service, identity, field]
                 for field in (fields if isinstance(fields, dict) else [fields])
@@ -133,7 +129,7 @@ class Evidence:
             candidates = [
                 candidate
                 for candidate in outputs
-                if reference_attribute(kind, candidate.removeprefix(kind + "."))
+                if REFERENCES.formal_attribute(kind, candidate.removeprefix(kind + "."))
                 == attribute
                 or identifier_source(
                     inputs.catalog,
@@ -238,12 +234,12 @@ def compare_expression(inputs, left, right, kind, path):
             left_concrete = expressions.string(left, proof.resolve)
             right_concrete = expressions.string(right, proof.resolve)
             allowed = (
-                registry.property_rule(kind, path).forms
+                REGISTRY.comparison_property_rule(kind, path).forms
                 if inputs.local_comparison
                 else None
             )
             if allowed:
-                outcome = registry.property_rule(kind, path).form_compare(
+                outcome = REGISTRY.comparison_property_rule(kind, path).form_compare(
                     left_concrete,
                     right_concrete,
                     allowed,
@@ -413,7 +409,7 @@ def compare(inputs, left, right, kind, path):
                 )
         if isinstance(right, ResourceReference):
             refkind = inputs.resource_type(right)
-            contract = REFERENCE_PROPERTIES.get(kind + "." + path)
+            contract = REFERENCES.direct_reference(kind + "." + path)
             if contract and refkind not in (
                 contract[0] if isinstance(contract[0], tuple) else (contract[0],)
             ):
@@ -431,11 +427,11 @@ def compare(inputs, left, right, kind, path):
                 )
             forms = (
                 inputs.reference_forms(kind, path)
-                if registry.property_rule(kind, path).forms is None
+                if REGISTRY.comparison_property_rule(kind, path).forms is None
                 else None
             )
             if forms and right["$attribute"] not in {
-                reference_attribute(refkind, form) for form in forms
+                REFERENCES.formal_attribute(refkind, form) for form in forms
             }:
                 return ReferenceDecision(
                     False,
@@ -453,19 +449,19 @@ def compare(inputs, left, right, kind, path):
                 forms
                 and "Arn" in forms
                 and raw.startswith("arn:")
-                and right["$attribute"] != reference_attribute(refkind, "Arn")
+                and right["$attribute"] != REFERENCES.formal_attribute(refkind, "Arn")
             ):
                 raise Blocked(
                     "attribute_format_unproven: alternative allowed literal format"
                 )
         concrete = proof.resolve(right)
         allowed = (
-            registry.property_rule(kind, path).forms
+            REGISTRY.comparison_property_rule(kind, path).forms
             if inputs.local_comparison
             else None
         )
         if allowed:
-            outcome = registry.property_rule(kind, path).form_compare(
+            outcome = REGISTRY.comparison_property_rule(kind, path).form_compare(
                 raw,
                 concrete,
                 allowed,

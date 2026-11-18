@@ -2,7 +2,7 @@
 
 from contracts.model import MODEL_PENDING_DEPLOY, RESOURCE_TYPE_KEY
 from design.policy_tables import literal
-from design.services.definitions.registry import HIDDEN_PROPERTIES
+from services.registry import REGISTRY
 from utils.arn_values import generated_attribute
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_contract import CATEGORIES as CATEGORIES
@@ -10,6 +10,8 @@ from utils.comparison_contract import PHASES
 from utils.comparison_contract import validate_cause as validate_cause
 
 from .reference_evidence import identifier_text
+
+HIDDEN_PROPERTIES = REGISTRY.design_tables.get("HIDDEN_PROPERTIES", frozenset())
 
 
 class DesiredPendingDeployExcluded(Blocked):

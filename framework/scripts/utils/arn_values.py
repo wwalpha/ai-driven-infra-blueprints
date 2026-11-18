@@ -4,11 +4,10 @@ import re
 from string import Formatter
 
 from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
+from services.reference_engine import REFERENCES
 
-from utils.arn_components import ARN_COMPONENTS
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression
-from utils.reference_contracts import ARN_DEFAULTS, ARN_SHAPES
 
 
 def generated_attribute(schema, field):
@@ -35,7 +34,10 @@ def named_arn(
     kind, properties, pseudo, *, evaluate, schema, recorded=None, reference=None
 ):
     """Concretize a proven Producer using the shared ARN identity contract."""
-    identifier, template, patterns = ARN_SHAPES[kind]
+    arn = REFERENCES.arn(kind)
+    if arn is None or arn.shape is None:
+        raise KeyError(kind)
+    identifier, template, patterns = arn.shape
     fields = identifier if isinstance(identifier, dict) else {identifier: "id"}
     generated = [field for field in fields if generated_attribute(schema, field)]
     if generated:
@@ -51,7 +53,7 @@ def named_arn(
             explicit = properties
             for token in field.split("."):
                 explicit = (
-                    explicit.get(token, ARN_DEFAULTS.get((kind, field)))
+                    explicit.get(token, arn.defaults.get(field))
                     if isinstance(explicit, dict)
                     else None
                 )
@@ -71,9 +73,8 @@ def named_arn(
                 + field
             )
         components[group] = explicit
-    provider = ARN_COMPONENTS.get(kind)
-    if provider:
-        components.update(provider[0](properties, evaluate))
+    if arn.components:
+        components.update(arn.components(properties, evaluate))
     for group in ("partition", "region", "account"):
         if "{" + group + "}" not in template:
             continue

@@ -16,7 +16,6 @@ import pytest
 from aws_mapping import runtime_registry
 from aws_mapping_catalog import project
 from aws_mapping_compare import value as mapping_value
-from comparison import registry as comparison_registry
 from model.importing import (
     adapter_contracts,
     cli,
@@ -24,18 +23,17 @@ from model.importing import (
     inventory,
     limitations,
 )
-from model.importing.adapter_contract_cases import core, fake_sdk, registry
+from model.importing.adapter_contract_cases import core, fake_sdk
 from model.importing.adapter_contract_cases.core import fixture_context
-from model.importing.adapter_contract_cases.services import (
-    codepipeline,
-    lambda_,
-    quicksight,
-    sqs,
-)
-from model.importing.adapter_contract_cases.services.ec2 import InstanceCalls
 from model.importing.discovery import ADAPTER_INVENTORIES
 from model.literal_values import literal_errors
 from model.render import markdown_for
+from services.codepipeline import aws_contracts as codepipeline
+from services.ec2.aws_contracts import InstanceCalls
+from services.lambda_ import aws_contracts as lambda_
+from services.quicksight import aws_contracts as quicksight
+from services.registry import REGISTRY
+from services.sqs import aws_contracts as sqs
 from support.aws_mapping_display_fixtures import fixture as display_fixture
 from support.check_model_aws_fixtures import SchemaOffline
 from support.pytest_cli import run
@@ -262,11 +260,11 @@ def test_instance_availability_zone_is_not_imported_or_compared():
     assert "EC2.Instance.AvailabilityZone" not in instance
     for field in ("SubnetId", "NetworkInterfaces[].SubnetId", "InstanceType"):
         assert "EC2.Instance." + field in instance
-    rules = comparison_registry.rules("EC2.Instance")
+    rules = REGISTRY.require_comparison("EC2.Instance")
     assert "AvailabilityZone" not in rules
     assert "SubnetId" in rules and "InstanceType" in rules
     assert "NetworkInterfaces[].SubnetId" in rules
-    assert "AvailabilityZone" in comparison_registry.rules("EC2.Subnet")
+    assert "AvailabilityZone" in REGISTRY.require_comparison("EC2.Subnet")
     result = adapter_contracts.run(ROOT, mapping, "EC2.Instance")["base"]
     assert result["status"] == "verified"
     assert "EC2.Instance.AvailabilityZone" not in result["properties"]
@@ -729,7 +727,7 @@ def test_secret_metadata_includes_external_secret_type():
 def test_registry_rejects_duplicate_contracts():
     registration = quicksight.CONTRACTS[:1]
     with pytest.raises(ValueError, match="Duplicate adapter fixture registration"):
-        registry._collect((registration, registration))
+        adapter_contracts.collect_cases(registration + registration)
 
 
 def test_all_mapped_contracts_have_execution_or_sensitive_evidence():
@@ -757,7 +755,11 @@ def test_all_mapped_contracts_have_execution_or_sensitive_evidence():
                         == mapping.properties[key].field.path
                     )
 
-    assert exercised == registry.CONTRACTS.keys()
+    assert exercised == {
+        key
+        for service in REGISTRY.aws_adapters
+        for key in adapter_contracts.cases_for(service)
+    }
 
 
 def test_iam_direct_contracts_preserve_sensitive_classification():

@@ -2,17 +2,17 @@
 
 import re
 
+from services.reference_engine import REFERENCES
 from utils.cloudformation.format import intrinsic_shape_error
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same
-from utils.reference_contracts import ATTRIBUTE_SUFFIXES
 
 
 def parts(value, resource_type=None, expand=None):
     """Retain symbolic producers and literal affixes in existing Sub/Join values."""
     if isinstance(value, ResourceReference):
         suffix = (
-            ATTRIBUTE_SUFFIXES.get((resource_type(value), value["$attribute"]))
+            REFERENCES.attribute_suffix(resource_type(value), value["$attribute"])
             if resource_type
             else None
         )

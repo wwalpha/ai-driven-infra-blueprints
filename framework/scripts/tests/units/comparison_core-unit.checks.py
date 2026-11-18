@@ -10,9 +10,10 @@ from unittest.mock import Mock
 
 from comparison.design_link import desired_reference
 from comparison.resource import inactive_evidence
-from comparison.rules.cloud_trail import cloudtrail_rows
 from design.array_display import indexed_rows
 from iac_evaluation import Evaluation
+from services.cloudtrail.comparison import cloudtrail_rows
+from services.reference_engine import REFERENCES
 from support.cloudformation_inputs_fixtures import condition_document
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import Unresolved, put_row
@@ -22,7 +23,6 @@ from utils.iac_values import (
     safe_value,
     same,
 )
-from utils.reference_contracts import contract, reference_attribute
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -413,7 +413,9 @@ def _reference_contract_check(
 ):
     protect = Mock(side_effect=lambda symbol, prop: symbol)
     if value == "link":
-        forms = contract(kind + "." + path, context).get(producer, ())
+        forms = (REFERENCES.import_targets(kind + "." + path, context) or {}).get(
+            producer, ()
+        )
         selected = (
             attribute
             if attribute is not None
@@ -424,7 +426,7 @@ def _reference_contract_check(
         value = ResourceReference(
             {
                 "$resource": ["producer", "001"],
-                "$attribute": reference_attribute(producer, selected),
+                "$attribute": REFERENCES.formal_attribute(producer, selected),
             }
         )
     result = desired_reference(
@@ -503,7 +505,7 @@ for _kind, _path, _context, _producer, _expected in (
     ),
 ):
     _symbol = _reference_contract_check(_kind, _path, _context, _producer, _expected)
-    assert _symbol["$attribute"] == reference_attribute(_producer, _expected)
+    assert _symbol["$attribute"] == REFERENCES.formal_attribute(_producer, _expected)
     try:
         _reference_contract_check(_kind, _path, _context, "wrong")
     except Blocked:

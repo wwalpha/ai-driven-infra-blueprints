@@ -17,7 +17,6 @@ import comparison.references as _imports_comparison_references
 import issues.aggregate as _imports_issues_aggregate
 import pytest
 import utils.json_format as _imports_utils_json_format
-from comparison import registry
 from comparison.evaluation import project_actual
 from comparison.methods import compare_values, keyed
 from comparison.result import redacted, value_differences
@@ -27,12 +26,25 @@ from issues.inputs import Comparison as IssueComparison
 from model.format import serialize
 from model.identity import COUNTERS
 from model.sources import Scope
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from support.fixture_cases import load_case
 from support.pytest_cli import run
 from support.regression_cases import case_ids
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same
-from utils.reference_contracts import KMS_FORMS, REF_ATTRIBUTES
+
+KMS_FORMS = {
+    kind + "." + path: forms
+    for kind in REGISTRY
+    if (receiver := REGISTRY.receiver(kind))
+    for path, forms in receiver.format_limits.items()
+}
+REF_ATTRIBUTES = {
+    kind: attribute
+    for kind in REGISTRY
+    if (attribute := REFERENCES.ref_attribute(kind)) is not None
+}
 
 
 def candidate_test_reference(left, right, path):
@@ -1231,7 +1243,7 @@ def test_iam_policy_without_name_evaluates_selected_document():
         side_effect=lambda value: "Allow" if value == {"Ref": "Effect"} else value
     )
     for kind in ("IAM.User", "IAM.Role"):
-        rules = registry.rules(kind)
+        rules = REGISTRY.require_comparison(kind)
         result = project_actual(
             actual,
             evaluate=evaluate,
@@ -1274,7 +1286,7 @@ def test_keyless_policy_lazy_intrinsics_and_extra_policy():
 
     for kind in ("IAM.User", "IAM.Role"):
         evaluate = Mock(side_effect=resolve_keyless_policy_test)
-        rules = registry.rules(kind)
+        rules = REGISTRY.require_comparison(kind)
         projected = project_actual(
             actual,
             evaluate=evaluate,
@@ -1311,7 +1323,7 @@ def test_keyless_candidate_evaluation_retains_errors():
     desired = [{"PolicyDocument": {"Statement": [{"Action": "a"}]}}]
     actual = [{"PolicyDocument": {"Statement": [{"Action": {"Fn::Sub": 42}}]}}]
     evaluate = Mock(side_effect=ValueError("invalid Fn::Sub"))
-    rules = registry.rules("IAM.User")
+    rules = REGISTRY.require_comparison("IAM.User")
     prepared = project_actual(
         actual,
         evaluate=evaluate,
@@ -1351,7 +1363,7 @@ def test_keyless_difference_uses_proven_name_and_projected_values():
             "PolicyDocument": {"Statement": [{"Action": {"Fn::Sub": "variable"}}]},
         },
     ]
-    rules = registry.rules("IAM.User")
+    rules = REGISTRY.require_comparison("IAM.User")
     projected = project_actual(
         actual,
         evaluate=resolve_keyless_policy_test,
@@ -1379,7 +1391,7 @@ def test_keyless_difference_uses_proven_name_and_projected_values():
 
     keyless = [{"PolicyDocument": desired[0]["PolicyDocument"]}, desired[1]]
     for kind in ("IAM.User", "IAM.Role"):
-        rules = registry.rules(kind)
+        rules = REGISTRY.require_comparison(kind)
         evaluate = Mock(side_effect=resolve_keyless_policy_test)
         projected = project_actual(
             actual,

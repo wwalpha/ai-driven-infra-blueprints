@@ -37,7 +37,7 @@ from model.validations.json_settings import validate_json_settings
 from model.validations.naming import _callback_check_model_inputs_names
 from model.validations.policies import (
     check_policy_settings,
-    validate_kms_policy_accounts,
+    validate_policy_accounts,
 )
 from model.validations.schema import (
     _callback_check_model_inputs_literal_check,
@@ -249,7 +249,7 @@ def _check_changed_documents(
     findings.evaluate(
         "change.policy-accounts",
         None,
-        lambda: validate_kms_policy_accounts(account_inputs, design_target(view, root)),
+        lambda: validate_policy_accounts(account_inputs, design_target(view, root)),
     )
     prohibited = codebuild_reference_errors(
         path, selected_rows, findings=findings, context_values=values

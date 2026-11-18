@@ -478,7 +478,7 @@ def test_required_link_without_contract_is_unverified(fixture):
         "`" + json.dumps(reference("SecretsManager_Secret_001", "Name")) + "`"
     )
     save(scope, values)
-    with patch("model.reference_values.contract", return_value={}):
+    with patch("model.reference_values.REFERENCES.import_targets", return_value=None):
         with pytest.raises(FrameworkUnsupportedError):
             result(consumer, "SecretsManager_RotationSchedule_001", "Id")
 
@@ -540,7 +540,7 @@ def test_required_link_rejects_invalid_attribute_contract(fixture):
     )
     save(scope, values)
     with patch(
-        "model.identity._imports_reference_contracts.contract",
+        "model.identity.REFERENCES.import_targets",
         return_value={"SecretsManager.Secret": ("NotRegistered",)},
     ):
         with pytest.raises(ModelNeedsFixError):

@@ -11,7 +11,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison.methods import ORDERED, compare_values
-from comparison.registry import rules
 from issues.materials import naming_materials
 from issues.publication import save_scan
 from support.comparison_cases import projected
@@ -32,6 +31,7 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+from services.registry import REGISTRY
 from support.reference_evidence_shared import (
     ATHENA_KMS,
     _portable_synthetic_root,
@@ -140,7 +140,9 @@ def _execute_policy_bijection(case):
         left[0]["Resource"] = comparison.evaluate(
             "producer", {"Fn::GetAtt": ["Key", "Arn"]}
         )
-    declared = {path: ORDERED} if data["ordered"] else rules("IAM.Role")
+    declared = (
+        {path: ORDERED} if data["ordered"] else REGISTRY.require_comparison("IAM.Role")
+    )
     outcome = compare_values(
         left,
         right,

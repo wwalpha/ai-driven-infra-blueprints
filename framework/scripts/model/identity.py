@@ -6,9 +6,9 @@ import re
 
 import design.catalog as _imports_design_catalog
 import utils.aws_catalogs as _imports_utils_aws_catalogs
-import utils.reference_contracts as _imports_reference_contracts
 from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
-from utils.reference_contracts import reference_attribute
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 
 import model.change_scope as change_plan
 import model.dependency_index as dependency_index
@@ -307,13 +307,11 @@ class Resolver:
     def validate_attribute(
         self, kind, attribute, *, field=None, context=None, operand=False
     ):
-        declared = (
-            _imports_reference_contracts.contract(field, context) if field else {}
-        )
+        declared = (REFERENCES.import_targets(field, context) or {}) if field else {}
         if (
             field
             and not declared
-            and _imports_reference_contracts.requires_context(field, context)
+            and REFERENCES.context_required_at(field, context)
             and not environment_values.value_property(
                 ".".join(field.split(".")[:2]),
                 field,
@@ -322,10 +320,15 @@ class Resolver:
                 ),
             )
         ):
+            receiver = ".".join(field.split(".")[:2])
+            policy = (
+                REFERENCES.policy(receiver, field, context)
+                if receiver in REGISTRY
+                else None
+            )
             reason = (
-                "CodePipeline ActionTypeId or Configuration"
-                if _imports_reference_contracts.configuration_contract(field, context)
-                is not None
+                policy.unproven_reason
+                if policy and policy.unproven_reason
                 else "reference context or receiving property"
             )
             raise FrameworkUnsupportedError(reason + " contract unproven: " + field)
@@ -347,23 +350,22 @@ class Resolver:
             raise FrameworkUnsupportedError(
                 "Framework unsupported producer ResourceType: " + kind
             ) from error
-        returned = reference_attribute(kind, attribute)
+        returned = REFERENCES.formal_attribute(kind, attribute)
         if (
             declared
             and not operand
-            and reference_attribute(kind, attribute)
-            not in {reference_attribute(kind, form) for form in declared[kind]}
+            and REFERENCES.formal_attribute(kind, attribute)
+            not in {REFERENCES.formal_attribute(kind, form) for form in declared[kind]}
             or not (
-                kind in _imports_reference_contracts.ARN_SHAPES
-                and returned == reference_attribute(kind, "Arn")
+                REFERENCES.arn_shape(kind) is not None
+                and returned == REFERENCES.formal_attribute(kind, "Arn")
             )
-            and returned != _imports_reference_contracts.REF_ATTRIBUTES.get(kind)
-            and not _imports_reference_contracts.getatt_attribute(
-                kind, returned, self.catalog.schema(kind)
+            and returned != REFERENCES.ref_attribute(kind)
+            and not REFERENCES.has_getatt(
+                kind, returned, self.catalog.schema(kind).get("readOnlyProperties", ())
             )
-            and (kind, attribute) not in _imports_reference_contracts.ARN_FORMS
-            and kind + "." + attribute
-            not in _imports_reference_contracts.attributes_for(kind)
+            and REFERENCES.arn_form(kind, attribute) is None
+            and kind + "." + attribute not in REFERENCES.attributes_for(kind)
             and attribute
             not in _imports_utils_aws_catalogs.catalogs_for(self.root).selected(kind)
         ):
@@ -374,16 +376,15 @@ class Resolver:
 
     def validate_reference_type(self, kind, attribute, field):
         """Typed nodes occupy one complete value under the receiving schema."""
-        returned = reference_attribute(kind, attribute)
+        returned = REFERENCES.formal_attribute(kind, attribute)
         try:
             actual = self.catalog.property_schema(kind, returned).get("type")
         except KeyError:
-            actual = _imports_reference_contracts.RETURN_TYPES.get((kind, returned))
+            actual = REFERENCES.return_type(kind, returned)
             if actual is None and (
-                returned == _imports_reference_contracts.REF_ATTRIBUTES.get(kind)
-                or (kind, attribute) in _imports_reference_contracts.ARN_FORMS
-                or kind + "." + attribute
-                in _imports_reference_contracts.attributes_for(kind)
+                returned == REFERENCES.ref_attribute(kind)
+                or REFERENCES.arn_form(kind, attribute) is not None
+                or kind + "." + attribute in REFERENCES.attributes_for(kind)
             ):
                 actual = "string"
         consumer_kind = ".".join(field.split(".")[:2])

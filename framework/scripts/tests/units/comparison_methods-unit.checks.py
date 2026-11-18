@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import comparison.methods as methods
 import pytest
-from comparison import registry
 from comparison.evaluation import key_integrity, project_actual
 from comparison.methods import (
     MISSING,
@@ -34,6 +33,7 @@ from comparison.methods import (
 from comparison.references import ReferenceDecision, reference_same
 from comparison.result import setting_result, value_differences
 from design.catalog import DesignSchemaCatalog, property_paths_with_parents
+from services.registry import REGISTRY
 from support.comparison_cases import declared_rules, operand, outcome_data, projected
 from support.fixture_cases import load_case
 from support.pytest_cli import run
@@ -49,7 +49,19 @@ from utils.iac_values import (
     unordered_matching,
     unordered_same,
 )
-from utils.reference_contracts import KMS_FORMS
+
+KMS_FORMS = {
+    kind + "." + path: forms
+    for kind in REGISTRY
+    if (receiver := REGISTRY.receiver(kind))
+    for path, forms in receiver.format_limits.items()
+}
+COMPARISON_RULES = {
+    kind: rules
+    for kind in REGISTRY
+    if (rules := REGISTRY.comparison_rules(kind)) is not None
+}
+
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -197,37 +209,51 @@ def test_iam_rules(kind, path):
     left = {"Statement": [{"Action": "a", "Effect": "Allow"}, {"Action": ["b"]}]}
     right = {"Statement": [{"Action": "b"}, {"Action": ["a"], "Effect": "Allow"}]}
     assert (
-        compare_values(left, right, path, rules=registry.rules(kind), whole=True).equal
+        compare_values(
+            left, right, path, rules=REGISTRY.require_comparison(kind), whole=True
+        ).equal
         is True
     )
     right["Statement"][0]["Action"] = ["wrong"]
-    outcome = compare_values(left, right, path, rules=registry.rules(kind), whole=True)
+    outcome = compare_values(
+        left, right, path, rules=REGISTRY.require_comparison(kind), whole=True
+    )
     assert outcome.equal is False and outcome.differences
     assert (
-        compare_values(left, left, path, rules=registry.rules(kind), local=False).equal
+        compare_values(
+            left, left, path, rules=REGISTRY.require_comparison(kind), local=False
+        ).equal
         is True
     )
     for field in ("Action", "NotAction", "Resource", "NotResource"):
         a = {"Statement": [{field: ["a", "b"], "Effect": "Allow"}]}
         b = {"Statement": [{field: ["b", "a"], "Effect": "Allow"}]}
         assert (
-            compare_values(a, b, path, rules=registry.rules(kind), whole=True).equal
+            compare_values(
+                a, b, path, rules=REGISTRY.require_comparison(kind), whole=True
+            ).equal
             is True
         )
         b["Statement"][0][field] = ["a"]
         assert (
-            compare_values(a, b, path, rules=registry.rules(kind), whole=True).equal
+            compare_values(
+                a, b, path, rules=REGISTRY.require_comparison(kind), whole=True
+            ).equal
             is False
         )
         b["Statement"][0][field] = ["a", "a"]
         assert (
-            compare_values(a, b, path, rules=registry.rules(kind), whole=True).equal
+            compare_values(
+                a, b, path, rules=REGISTRY.require_comparison(kind), whole=True
+            ).equal
             is False
         )
         a["Statement"][0][field] = "a"
         b["Statement"][0][field] = ["a"]
         assert (
-            compare_values(a, b, path, rules=registry.rules(kind), whole=True).equal
+            compare_values(
+                a, b, path, rules=REGISTRY.require_comparison(kind), whole=True
+            ).equal
             is True
         )
     for field, value in (
@@ -241,7 +267,9 @@ def test_iam_rules(kind, path):
         }
         b = {"Statement": [dict(a["Statement"][0], **{field: value})]}
         assert (
-            compare_values(a, b, path, rules=registry.rules(kind), whole=True).equal
+            compare_values(
+                a, b, path, rules=REGISTRY.require_comparison(kind), whole=True
+            ).equal
             is False
         )
 
@@ -257,7 +285,9 @@ def test_iam_rules(kind, path):
             {"Sid": "First", "Action": ["b", "c"]},
         ]
     }
-    outcome = compare_values(a, b, path, rules=registry.rules(kind), whole=True)
+    outcome = compare_values(
+        a, b, path, rules=REGISTRY.require_comparison(kind), whole=True
+    )
     assert outcome.equal is False
     fields = value_differences(outcome, a, b, path)
     assert fields == [
@@ -267,7 +297,10 @@ def test_iam_rules(kind, path):
     del a["Statement"][0]["Sid"]
     del b["Statement"][1]["Sid"]
     fields = value_differences(
-        compare_values(a, b, path, rules=registry.rules(kind), whole=True), a, b, path
+        compare_values(a, b, path, rules=REGISTRY.require_comparison(kind), whole=True),
+        a,
+        b,
+        path,
     )
     assert fields == [
         {"path": "Statement[0].Action[0]", "model": "a", "iac": "欠落"},
@@ -283,7 +316,7 @@ def test_iam_rules(kind, path):
             {"PolicyName": "two", "PolicyDocument": {"Statement": []}},
         ]
         actual = list(reversed(policies))
-        rules = registry.rules(kind)
+        rules = REGISTRY.require_comparison(kind)
         for whole in (True, False):
             assert (
                 compare_values(
@@ -377,7 +410,7 @@ def test_iam_rules(kind, path):
 @pytest.mark.parametrize("whole", [True, False])
 def test_action_string_list_and_scope(whole):
     path = "Policies[].PolicyDocument.Statement[].Action"
-    declared = registry.rules("IAM.Role")
+    declared = REGISTRY.require_comparison("IAM.Role")
     for left, right in [("a", ["a"]), (["a"], "a")]:
         assert (
             compare_values(left, right, path, rules=declared, whole=whole).equal is True
@@ -416,7 +449,7 @@ def test_nested_override_and_keyed_evidence():
 
 
 def test_ssm_document_unordered_provider_arrays():
-    rule = registry.require("SSM.Document", "Requires")
+    rule = REGISTRY.require_comparison_property("SSM.Document", "Requires")
     first = [{"Name": "one"}, {"Name": "two"}]
     assert compare(first, list(reversed(first)), rule).equal is True
     assert compare(first, [{"Name": "one"}], rule).equal is False
@@ -430,7 +463,7 @@ def test_rulebook_complete_static_coverage():
         if path.parent.name == "aws"
         or catalog.api_schemas[path.stem.replace("_", ".", 1)].get("cloudFormationType")
     }
-    assert {kind for kind, rules in registry.RULES.items() if rules} == kinds
+    assert {kind for kind, rules in COMPARISON_RULES.items() if rules} == kinds
     for kind in sorted(kinds):
         selected = {
             p
@@ -438,11 +471,11 @@ def test_rulebook_complete_static_coverage():
             if kind + "." + p not in catalogs.outputs(kind)
         }
         expected = property_paths_with_parents(selected)
-        assert expected <= registry.rules(kind).keys(), (
+        assert expected <= REGISTRY.require_comparison(kind).keys(), (
             kind,
-            expected - registry.rules(kind).keys(),
+            expected - REGISTRY.require_comparison(kind).keys(),
         )
-        for rule in registry.rules(kind).values():
+        for rule in REGISTRY.require_comparison(kind).values():
             assert {rule.whole, rule.selected} <= {
                 "SCALAR",
                 "OBJECT",
@@ -453,30 +486,32 @@ def test_rulebook_complete_static_coverage():
                 "CUSTOM",
             }
         for path in expected:
-            rule = registry.require(kind, path)
+            rule = REGISTRY.require_comparison_property(kind, path)
             node = catalog.property_schema(kind, path)
             if node.get("type") == "array":
                 assert rule.whole in {"ORDERED", "UNORDERED", "KEYED"}, (kind, path)
         # Reading the schema here is test-time evidence, never a runtime prerequisite.
         assert catalog.cloudformation_type(kind).startswith("AWS::")
     assert len(kinds) == 186 and len({k.split(".")[0] for k in kinds}) == 46
-    assert not set(registry.RULES) - kinds
-    assert registry.resource("QuickSight.Group").imported_arn is not None
+    assert not set(COMPARISON_RULES) - kinds
+    assert REGISTRY.comparison_contract("QuickSight.Group").imported_arn is not None
     assert not (ROOT / "framework/scripts/comparison/services").exists()
     assert not (ROOT / "framework/scripts/comparison/rulebook.py").exists()
     for prop, forms in KMS_FORMS.items():
         service, resource_type, path = prop.split(".", 2)
-        rule = registry.require(service + "." + resource_type, path)
+        rule = REGISTRY.require_comparison_property(service + "." + resource_type, path)
         assert rule.forms is forms and callable(rule.form_compare)
-    assert registry.resource("Unknown.Type").identity_same is None
-    assert registry.require(
+    assert REGISTRY.comparison_contract("Unknown.Type").identity_same is None
+    assert REGISTRY.require_comparison_property(
         "CodeBuild.Project", "Environment.EnvironmentVariables[]"
     ).reference_context
     assert (
-        registry.require("Route53.RecordSet", "ResourceRecords[]").selected_decision
+        REGISTRY.require_comparison_property(
+            "Route53.RecordSet", "ResourceRecords[]"
+        ).selected_decision
         is not None
     )
-    assert registry.resource("KMS.Key").identity_same is not None
+    assert REGISTRY.comparison_contract("KMS.Key").identity_same is not None
 
 
 @pytest.mark.parametrize(
@@ -494,20 +529,20 @@ def test_rulebook_complete_static_coverage():
     ],
 )
 def test_lakeformation_resource_model_iac_comparison(path, value, other):
-    rules = registry.rules("LakeFormation.Resource")
+    rules = REGISTRY.require_comparison("LakeFormation.Resource")
     assert compare_values(value, value, path, rules=rules).equal is True
     assert compare_values(value, other, path, rules=rules).equal is False
 
 
 def test_unregistered_rule_is_framework_error():
     with pytest.raises(ValueError, match="Framework comparison rule missing"):
-        registry.require("EC2.VPC", "NotImplemented")
+        REGISTRY.require_comparison_property("EC2.VPC", "NotImplemented")
     with pytest.raises(ValueError, match="Framework comparison rule missing"):
-        registry.require("Unknown.Type", "Value")
+        REGISTRY.require_comparison_property("Unknown.Type", "Value")
     with pytest.raises(ValueError, match="Framework comparison rule missing"):
         compare_values("a", "a", "Value", rules={})
     assert (
-        Counter(r.whole for rules in registry.RULES.values() for r in rules.values())[
+        Counter(r.whole for rules in COMPARISON_RULES.values() for r in rules.values())[
             "SCALAR"
         ]
         > 0
@@ -558,7 +593,7 @@ def test_codebuild_nested_reference_proof_is_reused():
         left,
         right,
         "Environment",
-        rules=registry.rules("CodeBuild.Project"),
+        rules=REGISTRY.require_comparison("CodeBuild.Project"),
         reference=partial(codebuild_reference, resolve),
     )
     assert outcome.equal is False
@@ -617,7 +652,7 @@ def test_contextual_secret_comparison(selector, actual, expected, attribute, rev
         left,
         right,
         "Environment.EnvironmentVariables[]",
-        rules=registry.rules("CodeBuild.Project"),
+        rules=REGISTRY.require_comparison("CodeBuild.Project"),
         reference=partial(codebuild_reference, resolver),
         whole=True,
     )
@@ -646,7 +681,7 @@ def test_contextual_reference_identity_and_unknown(attribute):
     )
     resolve = Mock(side_effect=KeyError("unresolved"))
     callback = partial(codebuild_reference, resolve)
-    rule = registry.rules("CodeBuild.Project")
+    rule = REGISTRY.require_comparison("CodeBuild.Project")
     left = {"Type": "SECRETS_MANAGER", "Value": symbol}
     for value, expected in [(symbol, True), (other, False), ("app/secret", None)]:
         right = {"Type": "SECRETS_MANAGER", "Value": value}
@@ -719,7 +754,7 @@ def test_contextual_parameter_name():
             left,
             right,
             "Environment.EnvironmentVariables[]",
-            rules=registry.rules("CodeBuild.Project"),
+            rules=REGISTRY.require_comparison("CodeBuild.Project"),
             reference=callback,
             whole=True,
         ).equal
@@ -743,7 +778,7 @@ def test_codebuild_parameter_partial_selection_preserves_extra_fields():
             left,
             right,
             "Environment.EnvironmentVariables[]",
-            rules=registry.rules("CodeBuild.Project"),
+            rules=REGISTRY.require_comparison("CodeBuild.Project"),
             reference=callback,
         ).equal
         is True
@@ -765,7 +800,7 @@ def test_codebuild_full_selection_detects_extra_fields():
         left,
         right,
         "Environment.EnvironmentVariables[]",
-        rules=registry.rules("CodeBuild.Project"),
+        rules=REGISTRY.require_comparison("CodeBuild.Project"),
         reference=callback,
         whole=True,
     )
@@ -782,7 +817,7 @@ def test_codebuild_dynamic_literal_is_unresolved():
             left,
             right,
             "Environment.EnvironmentVariables[]",
-            rules=registry.rules("CodeBuild.Project"),
+            rules=REGISTRY.require_comparison("CodeBuild.Project"),
             reference=partial(codebuild_reference, Mock(return_value="app/secret")),
             whole=True,
         ).equal
@@ -989,7 +1024,7 @@ def test_unordered_length_mismatch_does_not_compare_pairs(size):
 
 @pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
 def test_policy_name_unselected_uses_selected_unordered_comparison(kind):
-    rules = registry.rules(kind)
+    rules = REGISTRY.require_comparison(kind)
     model = [{"PolicyDocument": {"Statement": []}}]
     actual = [{"PolicyName": "OnlyOne", "PolicyDocument": {"Statement": []}}]
     assert compare_values(model, actual, "Policies", rules=rules).equal is True
@@ -1042,7 +1077,7 @@ def test_policy_key_selection_uncertainty(
     model = [{"PolicyDocument": {"Statement": [{"Action": "a"}]}}]
     if named:
         model[0]["PolicyName"] = "only"
-    rules = registry.rules(kind)
+    rules = REGISTRY.require_comparison(kind)
     evaluate = Mock(side_effect=policy_selection_intrinsic)
     raw = [{"PolicyName": name, "PolicyDocument": {"Statement": [{"Action": action}]}}]
     if named == "mixed":
@@ -1152,7 +1187,7 @@ def test_keyless_comparison_and_separate_key_integrity(kind, named, names):
     ]
     if names == "duplicate":
         raw[1] = {"Fn::If": ["Active", raw[1], {"Ref": "Inactive"}]}
-    rules = registry.rules(kind)
+    rules = REGISTRY.require_comparison(kind)
     evaluate = Mock(side_effect=policy_selection_intrinsic)
     prepared = project_actual(
         raw,
@@ -1228,7 +1263,7 @@ def candidate_diagnostic(left, right, path):
 
 
 def test_keyless_match_ignores_rejected_candidate_diagnostics():
-    rules = registry.rules("IAM.User")
+    rules = REGISTRY.require_comparison("IAM.User")
     model = [
         {"PolicyDocument": {"Statement": [{"Action": value}]}} for value in ("a", "b")
     ]
@@ -1245,7 +1280,7 @@ def test_keyless_match_ignores_rejected_candidate_diagnostics():
 
 @pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
 def test_keyless_policy_matching_and_actual_differences(kind):
-    rules = registry.rules(kind)
+    rules = REGISTRY.require_comparison(kind)
     a = {
         "PolicyDocument": {
             "Statement": [
@@ -1331,7 +1366,11 @@ def test_policy_unique_attribute_evidence(kind, named, field, left, right, suffi
         model[0]["PolicyName"] = "only"
     reference = Mock(side_effect=uncertain)
     outcome = compare_values(
-        model, actual, "Policies", rules=registry.rules(kind), reference=reference
+        model,
+        actual,
+        "Policies",
+        rules=REGISTRY.require_comparison(kind),
+        reference=reference,
     )
     calls = reference.call_count
     assert outcome.equal is False
@@ -1360,7 +1399,7 @@ def test_keyless_unique_remainder_after_reordered_matches():
     c = {"PolicyDocument": {"Statement": [{"Action": "c"}]}}
     actual = [dict(b, PolicyName="second"), dict(c, PolicyName="first")]
     result = compare_values(
-        [a, b], actual, "Policies", rules=registry.rules("IAM.Role")
+        [a, b], actual, "Policies", rules=REGISTRY.require_comparison("IAM.Role")
     )
     assert result.equal is False
     assert [(d.model_pointer, d.iac_pointer) for d in result.differences] == [
@@ -1399,7 +1438,11 @@ def test_keyless_unproven_pairs_remain_missing(kind, case):
     elif case == "unknown":
         actual = [Expression("Unverified", []), Expression("Unverified", [])]
     result = compare_values(
-        model, actual, "Policies", rules=registry.rules(kind), reference=uncertain
+        model,
+        actual,
+        "Policies",
+        rules=REGISTRY.require_comparison(kind),
+        reference=uncertain,
     )
     assert result.equal is (None if case == "unknown" else False)
     if case == "unknown":
@@ -1450,7 +1493,7 @@ def test_keyless_conditional_projection_and_masking_use_cached_evidence():
         {"Fn::If": ["Active", changed, {"Ref": "AWS::NoValue"}]},
     ]
     evaluate = Mock(side_effect=policy_test_intrinsic)
-    rules = registry.rules("IAM.Role")
+    rules = REGISTRY.require_comparison("IAM.Role")
     actual = project_actual(
         raw,
         evaluate=evaluate,
@@ -1494,7 +1537,11 @@ def test_keyless_policy_unresolved_sibling_keeps_known_difference():
         }
     ]
     result = compare_values(
-        model, actual, "Policies", rules=registry.rules("IAM.Role"), reference=uncertain
+        model,
+        actual,
+        "Policies",
+        rules=REGISTRY.require_comparison("IAM.Role"),
+        reference=uncertain,
     )
     assert result.equal is False
     assert [(d.model_pointer, d.iac_pointer) for d in result.differences] == [
@@ -1514,7 +1561,7 @@ def test_keyless_policy_unresolved_sibling_keeps_known_difference():
 
 def test_unordered_length_difference_retains_proven_sid_and_pointers():
     path = "PolicyDocument"
-    rules = registry.rules("IAM.ManagedPolicy")
+    rules = REGISTRY.require_comparison("IAM.ManagedPolicy")
     left = {"Statement": [{"Sid": "a", "Effect": "Allow"}]}
     right = {"Statement": [{"Sid": "b"}, {"Sid": "a", "Effect": "Deny"}]}
     result = compare_values(left, right, path, rules=rules, whole=True)
@@ -1528,7 +1575,7 @@ def test_unordered_length_difference_retains_proven_sid_and_pointers():
 
 @pytest.mark.parametrize("named", [True, False])
 def test_nested_policy_reference_difference_keeps_keyed_path_and_values(named):
-    rules = registry.rules("IAM.Role")
+    rules = REGISTRY.require_comparison("IAM.Role")
     model = [
         {
             "PolicyName": "IfInboundGlueAccess",
@@ -1914,7 +1961,7 @@ def test_codebuild_expression_contract_before_evidence(selector, wrapped, expect
         left,
         right,
         "Environment.EnvironmentVariables[]",
-        rules=registry.rules("CodeBuild.Project"),
+        rules=REGISTRY.require_comparison("CodeBuild.Project"),
         reference=callback,
         whole=True,
     )
@@ -1930,7 +1977,7 @@ def test_codebuild_plaintext_model_link_cannot_use_evidence(wrapped):
         {"Type": "PLAINTEXT", "Value": model},
         {"Type": "PLAINTEXT", "Value": "bucket"},
         "Environment.EnvironmentVariables[]",
-        rules=registry.rules("CodeBuild.Project"),
+        rules=REGISTRY.require_comparison("CodeBuild.Project"),
         reference=partial(
             codebuild_reference, Mock(), resource_kind="S3.Bucket", evidence=evidence
         ),
@@ -1956,7 +2003,7 @@ def test_codebuild_valid_expression_keeps_evidence(selector, kind, attribute):
         {"Type": selector, "Value": "value"},
         {"Type": selector, "Value": Expression("Join", ["", [symbol]])},
         "Environment.EnvironmentVariables[]",
-        rules=registry.rules("CodeBuild.Project"),
+        rules=REGISTRY.require_comparison("CodeBuild.Project"),
         reference=partial(
             codebuild_reference, Mock(), resource_kind=kind, evidence=evidence
         ),

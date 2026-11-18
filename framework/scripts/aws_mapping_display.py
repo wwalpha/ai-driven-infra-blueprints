@@ -17,8 +17,12 @@ from contracts.model import (
     row_resource,
 )
 from design.catalog import DesignSchemaCatalog
-from design.services.definitions.lambda_permission import LAMBDA_PERMISSION
 from model.reference_nodes import parse
+from services.config.design import ROLE_ARN
+from services.ec2.design import MODEL_ONLY_PROPERTIES
+from services.lambda_.design import LAMBDA_PERMISSION
+from services.registry import REGISTRY
+from services.s3.design import REGION_PROPERTY
 from utils.aws_mappings import mappings_for, owners
 from utils.input_cache import input_scope, memoized
 from utils.property_path import definition_path
@@ -26,15 +30,7 @@ from utils.property_path import definition_path
 import model as _model_api
 
 ROOT = Path(__file__).resolve().parents[2]
-MODEL_ONLY = frozenset(
-    {
-        "EC2.VPC.Name",
-        "EC2.Subnet.Name",
-        "EC2.RouteTable.Name",
-        "EC2.FlowLog.Name",
-        "S3.Bucket.Region",
-    }
-)
+MODEL_ONLY = frozenset(MODEL_ONLY_PROPERTIES | {REGION_PROPERTY})
 
 
 _validation_projections = ContextVar("mapping_validation_projections", default=None)
@@ -150,8 +146,8 @@ def reverse_names(root, heading):
 
 
 def formal_name(display, heading, root=ROOT):
-    if heading == "Config.ConfigurationRecorder" and display == "RoleARN":
-        return heading + ".RoleARN"
+    if heading + "." + display == ROLE_ARN:
+        return ROLE_ARN
     return reverse_names(root, heading).get(display)
 
 
@@ -170,33 +166,8 @@ def structural(prop):
 def compact_group(prop):
     """Keep existing multi-row producers atomic when one constituent is hidden."""
     prop = definition_path(prop)
-    if prop in {"Glue.Job.DefaultArguments", "Glue.Job.NonOverridableArguments"}:
-        return prop
-    for prefix in (
-        "CodeBuild.Project.Environment.EnvironmentVariables[].",
-        "GuardDuty.Detector.Features[].",
-        "CloudTrail.Trail.EventSelectors[].DataResources[].",
-        "Glue.Job.DefaultArguments[].",
-        "Glue.Job.NonOverridableArguments[].",
-        "EC2.Instance.BlockDeviceMappings[].",
-        "EC2.SecurityGroup.Tags[].",
-        "EC2.Instance.Tags[].",
-        "EC2.VPCEndpoint.Tags[].",
-    ):
-        if prop.startswith(prefix):
-            return prefix
-    if prop.startswith(
-        (
-            "EC2.SecurityGroup.SecurityGroupIngress[].",
-            "EC2.SecurityGroup.SecurityGroupEgress[].",
-        )
-    ):
-        return prop.rsplit(".", 1)[0]
-    if prop.startswith(
-        ("EC2.SecurityGroupIngress.", "EC2.SecurityGroupEgress.")
-    ) and prop.rsplit(".", 1)[1] in {"FromPort", "ToPort"}:
-        return prop.rsplit(".", 1)[0] + ".Ports"
-    return None
+    hook = REGISTRY.presentation(".".join(prop.split(".")[:2])).compact_group
+    return hook(prop) if hook is not None else None
 
 
 @input_scope

@@ -38,9 +38,6 @@ from model.sources import (
     safe,
 )
 from model.sources import model_paths as registered_models
-from model.validations.policies import (
-    validate_kms_policy_accounts as validate_kms_policy_accounts,
-)
 from model.validations.schema import (
     validate_required_properties as validate_required_properties,
 )

@@ -20,6 +20,7 @@ from model.importing.contract_fixtures import InvalidFixture
 from model.importing.discovery import ADAPTER_INVENTORIES
 from model.literal_values import optional_projection_absence
 from model.reference_nodes import parse
+from services.registry import REGISTRY
 
 ACCOUNT = "123456789012"
 TARGET = {
@@ -452,6 +453,8 @@ def network_failures(ctx, fake, resource, getter):
 
 def run(root: Path, mapping: Any, kind: str, registry) -> dict[str, Any]:
     getters = contracts(mapping, kind)
+    adapter = REGISTRY.aws_adapters.get(mapping.service)
+    source = f"framework/scripts/{adapter.source.as_posix()}" if adapter else None
     results = {}
     for getter, properties in getters.items():
         items = {}
@@ -492,9 +495,7 @@ def run(root: Path, mapping: Any, kind: str, registry) -> dict[str, Any]:
             else "unverified"
             if statuses["unverified"]
             else "verified",
-            "adapter": "framework/scripts/aws-compare-services/"
-            + mapping.service
-            + ".py",
+            "adapter": source,
             "getterKind": mapping.getters.get(getter, {}).get("kind"),
             "operation": mapping.getters.get(getter, {}).get("operation"),
             "fixtureOperation": operation,

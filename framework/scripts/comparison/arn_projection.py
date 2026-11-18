@@ -1,8 +1,8 @@
 """Project a complete ARN expression onto its proven Producer's ARN attribute."""
 
+from services.reference_engine import REFERENCES
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import ResourceReference
-from utils.reference_contracts import ARN_SHAPES, reference_attribute
 
 from .expressions import parts, references
 
@@ -20,13 +20,13 @@ def project(value, *, resource_type, producer_scope, symbolic_arn=None):
             return None
         (source,) = sources
         kind = resource_type(source)
-        if kind not in ARN_SHAPES:
+        arn = REFERENCES.arn(kind)
+        if arn is None or arn.shape is None:
             return None
-        identifier, template, _ = ARN_SHAPES[kind]
-        attribute = reference_attribute(kind, "Arn")
+        identifier, template, _ = arn.shape
+        attribute = REFERENCES.formal_attribute(kind, "Arn")
         projected = ResourceReference(dict(source, **{"$attribute": attribute}))
-        if kind == "Glue.Connection" and source["$attribute"] == "Name":
-            # The named ARN validates the producer's CatalogId against its stack account.
+        if source["$attribute"] in arn.verified_symbolic_attributes:
             if symbolic_arn is not None and tokens == parts(symbolic_arn(projected)):
                 return projected
             return None
@@ -36,7 +36,7 @@ def project(value, *, resource_type, producer_scope, symbolic_arn=None):
         # A single identity field has one unambiguous symbolic substitution.
         if not isinstance(identifier, str) or source[
             "$attribute"
-        ] != reference_attribute(kind, identifier):
+        ] != REFERENCES.formal_attribute(kind, identifier):
             return None
         prefix, suffix = template.split("{id}")
         expected = [

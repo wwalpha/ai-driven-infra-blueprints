@@ -14,10 +14,10 @@ from contracts.target import IAC_ENGINE_KEY
 from design.catalog import DesignSchemaCatalog
 from design.layout import resource_mode
 from design.layout_schema import GROUPED
-from design.services.definitions.registry import HIDDEN_PROPERTIES
 from model.core import ReferenceResolutionError
 from model.literal_values import value_shape
 from model.sources import project_root
+from services.registry import REGISTRY
 from task_contract_core import task_reads
 from utils.aws_catalogs import catalog_outputs
 from utils.cloudformation.inputs import Blocked, condition_active
@@ -25,7 +25,7 @@ from utils.comparison_rows import Unresolved, project, put_row, select
 from utils.iac_values import Expression, ResourceReference
 from utils.type_contracts import JsonObject, JsonValue
 
-from . import evaluation, registry
+from . import evaluation
 from . import resource as resource_rules
 from . import rows as row_rules
 from .deferral import (
@@ -37,6 +37,8 @@ from .inputs import Inputs
 from .methods import compare_values
 from .result import RowResult, record, setting_result
 from .values import unverified
+
+HIDDEN_PROPERTIES = REGISTRY.design_tables.get("HIDDEN_PROPERTIES", frozenset())
 
 ComparisonValue: TypeAlias = (
     JsonValue
@@ -383,19 +385,21 @@ class Comparison(Inputs):
         result = RowResult()
         try:
             if properties is not None:
-                context_properties = registry.resource(rowkind).context_properties
+                context_properties = REGISTRY.comparison_contract(
+                    rowkind
+                ).context_properties
                 required = set(properties).union(
                     *(context_properties.get(prop, set()) for prop in properties)
                 )
                 rows = row_rules.selected_rows(rowkind, rows, required)
                 if not rows:
                     return result
-            prepare = registry.resource(rowkind).prepare_rows
+            prepare = REGISTRY.comparison_contract(rowkind).prepare_rows
             if prepare:
                 try:
                     rows = self.project_rows(rowkind, rows)
                 except Unresolved as error:
-                    deferred = registry.resource(rowkind).deferred_rows
+                    deferred = REGISTRY.comparison_contract(rowkind).deferred_rows
                     if not deferred:
                         raise
                     result.records.append(
@@ -433,7 +437,7 @@ class Comparison(Inputs):
                             source=self.source(service, f"desired.row.{rid}.property"),
                         )
                     )
-            contexts = registry.resource(rowkind).contexts
+            contexts = REGISTRY.comparison_contract(rowkind).contexts
             contexts = contexts(rows) if self.local_comparison and contexts else {}
             if properties is not None:
                 rows = row_rules.selected_rows(rowkind, rows, properties)
@@ -550,7 +554,7 @@ class Comparison(Inputs):
         if not self.local_comparison:
             return result
         actual = owner.get("Properties", {})
-        for key, rule in registry.rules(kind).items():
+        for key, rule in REGISTRY.require_comparison(kind).items():
             if not rule.keyless_unordered or key not in actual:
                 continue
             if properties is not None and not row_rules.selected_rows(
@@ -634,7 +638,10 @@ class Comparison(Inputs):
                     if "document" in row
                     else f"desired.row.{rid}.value",
                 )
-                if prop in outputs or short in registry.resource(kind).design_only:
+                if (
+                    prop in outputs
+                    or short in REGISTRY.comparison_contract(kind).design_only
+                ):
                     settings.result.records.append(
                         self.make_record(
                             "excluded",
@@ -650,7 +657,7 @@ class Comparison(Inputs):
                     kind,
                     short,
                     row["value"],
-                    {kind} if registry.resource(kind).name_tag else set(),
+                    {kind} if REGISTRY.comparison_contract(kind).name_tag else set(),
                 )
                 if tagged:
                     short, value = tagged
@@ -803,7 +810,7 @@ class Comparison(Inputs):
         if line := marks.get(key, self.template_locations.get(id(owner), {}).get(None)):
             iac_source["line"] = line
         actual = owner.get("Properties", {}).get(key)
-        rule = registry.require(kind, key)
+        rule = REGISTRY.require_comparison_property(kind, key)
         actual_provider = rule.actual if self.local_comparison else None
         missing = (
             "property missing"
@@ -828,7 +835,7 @@ class Comparison(Inputs):
                         model_path=template,
                         desired=value,
                         exact=key in settings.exact,
-                        rules=registry.rules(kind),
+                        rules=REGISTRY.require_comparison(kind),
                         rule_path=key,
                     )
                     warnings.extend(prepared.warnings)
@@ -890,7 +897,7 @@ class Comparison(Inputs):
             value,
             actual,
             key,
-            rules=registry.rules(kind),
+            rules=REGISTRY.require_comparison(kind),
             whole=key in settings.exact,
             reference=reference,
             local=self.local_comparison,
@@ -954,7 +961,11 @@ class Comparison(Inputs):
             sources,
             iac_source,
             cause=evaluation.duplicate_key_cause(
-                value, actual, key, rules=registry.rules(kind), integrity=integrity
+                value,
+                actual,
+                key,
+                rules=REGISTRY.require_comparison(kind),
+                integrity=integrity,
             )
             if decision.equal is False
             and not missing

@@ -34,11 +34,11 @@ from model.reference_values import reference_value
 from model.references import diagnose, incoming, kms_observation
 from model.render import generate_markdown
 from model.sources import Scope, load_model
+from services.reference_engine import REFERENCES
+from services.s3.references import S3_KMS_MASTER_KEY_ID as PROP
 from support.model_reference_fixtures import reference
 from support.model_sources import catalog_display, write_model
 from sync_runtime import _compare_generation
-from utils.reference_contracts import S3_KMS_MASTER_KEY_ID as PROP
-from utils.reference_contracts import contract
 from utils.source_reads import FileReads
 from validation.design_links import check_design_links as validate_links
 from validation.design_tables import check_design_tables as validate_tables
@@ -644,11 +644,16 @@ def check_bucket_policy_kms_condition_contract():
                 + ".Condition.StringNotEquals.s3:x-amz-server-side-encryption-aws-kms-key-id"
                 + values
             )
-            case.assertEqual(contract(field), {"KMS.Key": ("Arn",)})
+            case.assertEqual(
+                (REFERENCES.import_targets(field) or {}), {"KMS.Key": ("Arn",)}
+            )
     case.assertEqual(
-        contract(
-            base
-            + ".Condition.StringEquals.s3:x-amz-server-side-encryption-aws-kms-key-id"
+        (
+            REFERENCES.import_targets(
+                base
+                + ".Condition.StringEquals.s3:x-amz-server-side-encryption-aws-kms-key-id"
+            )
+            or {}
         ),
         {},
     )

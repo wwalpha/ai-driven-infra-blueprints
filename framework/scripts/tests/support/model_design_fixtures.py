@@ -23,7 +23,6 @@ import sync_runtime
 import sync_views
 from design.catalog import DesignSchemaCatalog
 from design.layout import (
-    SUBNET_LIST_PROPERTIES,
     catalog_order_errors,
     expanded_display_rows,
     resource_display_name,
@@ -32,8 +31,6 @@ from design.layout import (
     stack_design,
 )
 from design.layout_schema import ALIGNMENT, HEADER, resource_anchor
-from design.services.definitions.codebuild import CODEBUILD_VPC_PROPERTIES
-from design.services.ec2.security_groups import COMMENTS, GROUP_COMMENTS
 from generation_inputs import GenerationInputs
 from model.core import properties, stack_model
 from model.display import catalog_display_rows, display_rows, row_table
@@ -47,10 +44,21 @@ from model.validations.naming import (
     naming_target_matches,
     naming_targets,
 )
-from model.validations.policies import validate_kms_policy_accounts
+from model.validations.policies import validate_policy_accounts
+from services.codebuild.design import CODEBUILD_VPC_PROPERTIES
+from services.ec2.security_groups import COMMENTS, GROUP_COMMENTS
+from services.registry import REGISTRY
 from support.model_sources import snapshot_model, write_fixture_files, write_model
 from support.pytest_cli import Diagnostics, run
 from support.validator import load
+
+SUBNET_LIST_PROPERTIES = frozenset(
+    kind + "." + path
+    for kind in REGISTRY
+    if (receiver := REGISTRY.receiver(kind))
+    for path, target in receiver.linked_lists.items()
+    if target == "EC2.Subnet"
+)
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -274,7 +282,7 @@ __all__ = [
     "sync_views",
     "sys",
     "text",
-    "validate_kms_policy_accounts",
+    "validate_policy_accounts",
     "write_fixture_files",
     "write_model",
 ]

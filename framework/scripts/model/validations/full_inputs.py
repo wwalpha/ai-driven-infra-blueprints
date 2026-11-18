@@ -34,7 +34,7 @@ from model.references import codebuild_reference_errors
 from model.validations.identity import validate_resource_identities
 from model.validations.json_settings import validate_json_settings
 from model.validations.naming import _callback_check_model_inputs_names
-from model.validations.policies import _kms_policy_account_check, check_policy_settings
+from model.validations.policies import _policy_account_check, check_policy_settings
 from model.validations.presentation import _callback_check_model_inputs_presentation
 from model.validations.references import _callback_check_model_inputs_references
 from model.validations.schema import (
@@ -216,7 +216,7 @@ def _check_full_observed_identity_presentation(
         service,
         values,
     )
-    kms_policy_check = _kms_policy_account_check()
+    policy_check = _policy_account_check()
     for (
         state.identity,
         state.resource,
@@ -232,7 +232,7 @@ def _check_full_observed_identity_presentation(
                 root,
                 [(identity, resource)],
                 definitions_root=definitions,
-                _kms_policy_check=kms_policy_check,
+                _policy_check=policy_check,
             ),
         )
     findings.evaluate("model.presentation", None, presentation)

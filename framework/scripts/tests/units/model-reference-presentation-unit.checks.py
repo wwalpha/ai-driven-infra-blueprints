@@ -24,7 +24,6 @@ from design.policy_tables import (
     rendered_design,
     validate_policy_artifacts,
 )
-from design.services import route53
 from model.core import (
     ModelNeedsFixError,
     ReferenceResolutionError,
@@ -44,6 +43,7 @@ from model.reference_presentation import Position, Presentation
 from model.reference_values import ReferenceValue, reference_value
 from model.render import generate_files, generate_markdown
 from model.sources import Scope, load_model
+from services.route53 import display as route53
 from support.model_design_fixtures import collapsed_json
 from support.model_reference_fixtures import (
     FRAMEWORK,

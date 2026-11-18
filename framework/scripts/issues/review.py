@@ -12,12 +12,14 @@ from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_MODE_IMPORT
 from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY
 from model.core import literal
 from model.validations.naming import (
+    FIFO_PROPERTIES,
     NAMING_EXEMPT_PROPERTIES,
     NamingRuleIndex,
-    check_iam_role_suffix,
     provider_naming_errors,
     value_available,
 )
+from services.organizations.design import POLICY_TYPE_PROPERTY, SERVICE_CONTROL_POLICY
+from services.registry import REGISTRY
 from task_contract_core import safe_path
 from utils.yaml_format import yaml_read
 
@@ -297,7 +299,8 @@ def applicable_patterns(artifact, name, rule_index=None):
     }
     if (
         name["resourceType"] == "Organizations.Policy"
-        and name.get("conditions", {}).get("Type") != "SERVICE_CONTROL_POLICY"
+        and name.get("conditions", {}).get(POLICY_TYPE_PROPERTY)
+        != SERVICE_CONTROL_POLICY
     ):
         return set()
     if len(patterns) <= 1:
@@ -389,8 +392,13 @@ def mandatory_name_errors(artifact, name, actual, rule_index=None):
     rule = rules[0] if rules else ""
     target = artifact["naming_context"].get("target_context", {})
     errors = []
-    if (kind, prop) == ("IAM.Role", "RoleName") and "suffix" in target:
-        errors.extend(check_iam_role_suffix(actual, target.get("suffix")))
+    suffix_check = REGISTRY.design_tables.get("NAMING_SUFFIX_CHECKS", {}).get(kind)
+    if (
+        suffix_check
+        and prop == REGISTRY.design_tables["CONFIRMED_NAME_FIELDS"][kind]
+        and "suffix" in target
+    ):
+        errors.extend(suffix_check(actual, target.get("suffix")))
     if kind in {"Glue.Job", "Glue.SecurityConfiguration"} and prop == "Name":
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", actual):
             errors.append("Glue Name must use lower-kebab-case")
@@ -464,11 +472,11 @@ def naming_decision(artifact, name, rule_index=None):
         pending.append("Conflicting confirmed component values require review")
     if any(value is None for value in name.get("conditions", {}).values()) and (
         name.get("resourceMode", RESOURCE_MODE_CREATE) == RESOURCE_MODE_CREATE
-        or name["resourceType"] in {"SQS.Queue", "SNS.Topic"}
+        or name["resourceType"] in FIFO_PROPERTIES
     ):
         pending.append("A selected condition for mandatory Naming rules is unconfirmed")
-    if name["resourceType"] in {"SQS.Queue", "SNS.Topic"}:
-        key = "FifoQueue" if name["resourceType"] == "SQS.Queue" else "FifoTopic"
+    if name["resourceType"] in FIFO_PROPERTIES:
+        _, key = FIFO_PROPERTIES[name["resourceType"]]
         value = name.get("conditions", {}).get(key, False)
         if (
             value is not None
@@ -497,7 +505,9 @@ def naming_decision(artifact, name, rule_index=None):
             and "suffix" not in confirmed
         ):
             pending.append("Required target suffix is unconfirmed")
-        if name["resourceType"] == "Organizations.Policy" and "Type" not in name.get(
+        if name[
+            "resourceType"
+        ] == "Organizations.Policy" and POLICY_TYPE_PROPERTY not in name.get(
             "conditions", {}
         ):
             pending.append(

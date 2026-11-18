@@ -14,7 +14,6 @@ import pytest
 import validation.design_tables as design_tables
 from design.catalog import DesignSchemaCatalog
 from design.document import model_reference_tables
-from design.services.codebuild import codebuild_display_row, codebuild_formal_rows
 from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
 from issues.publication import save_scan
@@ -25,13 +24,14 @@ from model.display import display_rows
 from model.references import codebuild_reference_errors
 from model.render import generate_markdown, markdown_for
 from model.validations.full_inputs import check_model_inputs as _check_model_inputs
+from services.codebuild.display import codebuild_display_row, codebuild_formal_rows
+from services.reference_engine import REFERENCES
 from support.import_model_fixtures import resource_values, service_values
 from support.issues_scan_fixtures import fixture, task, write
 from support.model_reference_fixtures import reference
 from support.model_sources import write_model
 from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
-from utils.reference_contracts import reference_error
 from validation.runner import Validator
 
 from model import dependency_index
@@ -671,7 +671,7 @@ def test_non_plaintext_round_trip(kind):
     ]
     rows = codebuild_formal_rows(cells, set())
     assert codebuild_display_row(rows, 0, "合成") == cells
-    assert reference_error(PREFIX + "[].Value", {"Type": kind}) is None
+    assert REFERENCES.error_at(PREFIX + "[].Value", {"Type": kind}) is None
 
 
 @pytest.mark.usefixtures("catalog_display_fixture")

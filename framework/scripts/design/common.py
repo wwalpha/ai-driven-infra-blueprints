@@ -6,12 +6,11 @@ import re
 from pathlib import Path
 
 from model.core import LINK
+from services.registry import REGISTRY
 from utils.aws_catalogs import catalogs_for
 from utils.input_cache import memoized
 
 from design.layout_schema import ALIGNMENT, DETAILS_HEADING, HEADER
-from design.services import secrets_manager
-from design.services.definitions.secrets_manager import ROTATION_SUBNETS
 
 
 def cells(line: str) -> list[str]:
@@ -40,12 +39,19 @@ def catalog_property_order(root: Path, resource_type: str):
 def subnet_list_items(prop: str, value: str) -> list[str]:
     """Split a saved list for display without inferring resource references."""
     raw = value[1:-1] if value.startswith("`") and value.endswith("`") else value
-    if prop == ROTATION_SUBNETS:
-        items = secrets_manager.subnet_list_items(raw)
-    elif prop.endswith("[]") and not raw.lstrip().startswith(("[", "{")):
-        items = [raw]
-    else:
-        items = json.loads(raw)
+    kind = ".".join(prop.split(".")[:2])
+    extension = REGISTRY.display(kind) if kind in REGISTRY else None
+    items = (
+        extension.parse_linked_list(prop, raw)
+        if extension and extension.parse_linked_list
+        else None
+    )
+    if items is None:
+        items = (
+            [raw]
+            if prop.endswith("[]") and not raw.lstrip().startswith(("[", "{"))
+            else json.loads(raw)
+        )
     if not isinstance(items, list) or any(
         not isinstance(item, str)
         or not item.strip()

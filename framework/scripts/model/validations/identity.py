@@ -36,7 +36,7 @@ def validate_resource_identities(
     resources: list[tuple[str, dict[str, str]]],
     *,
     definitions_root: Path | None = None,
-    _kms_policy_check: Callable[[dict[str, str], dict], None] | None = None,
+    _policy_check: Callable[[dict[str, str], dict], None] | None = None,
 ) -> None:
     """Resource の配置と CloudFormation Identity を検証する。"""
     relative = (
@@ -45,7 +45,7 @@ def validate_resource_identities(
         else None
     )
     target = design_target(path, root)
-    (_kms_policy_check or policies.validate_kms_policy_accounts)(values, target)
+    (_policy_check or policies.validate_policy_accounts)(values, target)
     stack_source = (
         root / "model" / relative / "cloudformation-stacks.properties"
         if relative is not None

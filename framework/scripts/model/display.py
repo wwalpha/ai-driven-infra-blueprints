@@ -9,11 +9,6 @@ import aws_mapping_display as _display_aws_mapping_display
 import design.common as _display_common
 import design.compact_rows
 import design.layout_schema as _display_design_layout
-import design.services.codebuild
-import design.services.codepipeline
-import design.services.config as _imports_design_layout
-import design.services.definitions.registry as _display_definitions
-import design.services.glue
 from contracts.model import (
     RESOURCE_LOGICAL_ID_KEY,
     RESOURCE_MODE_CREATE,
@@ -21,17 +16,8 @@ from contracts.model import (
     RESOURCE_TYPE_KEY,
 )
 from design.common import row_table as row_table
-from design.services.cloudtrail import display_row as cloudtrail_display_row
-from design.services.definitions.cloudtrail import (
-    CLOUDTRAIL_FORMAL_DATA_RESOURCE,
-)
-from design.services.definitions.codebuild import (
-    CODEBUILD_FORMAL_VARIABLE,
-    CODEBUILD_VPC_PROPERTIES,
-)
-from design.services.definitions.guardduty import GUARDDUTY_FORMAL_FEATURE
-from design.services.ec2.display import ec2_display_rows
-from design.services.guardduty import display_row as guardduty_display_row
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from utils.input_cache import input_scope
 
 import model.files as _display_model_files
@@ -106,17 +92,15 @@ def catalog_display_rows(
     rows: list[list[str]], kind: str, root: Path
 ) -> list[list[str]]:
     """Sort property blocks without separating contiguous array elements."""
+    extension = REGISTRY.presentation(kind)
     if (
-        kind == "EC2.SecurityGroup"
+        extension.horizontal_tables
         or _display_design_layout.GROUPED.get(kind, {}).get("display") == "rule-table"
     ):
-        return rows  # Horizontal rule tables have their own generation and restoration.
+        return rows
     order = dict(_display_common.catalog_property_order(root, kind) or {})
-    design.services.codebuild.adjust_display_order(kind, order)
-    if kind in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}:
-        order[kind + ".Name"] = -1
-    if kind == "S3.Bucket":
-        order[kind + ".Region"] = order[kind + ".BucketName"] + 0.5
+    if extension.adjust_order is not None:
+        extension.adjust_order(kind, order)
     blocks = []
     previous_array = ""
     array_order = {}
@@ -177,6 +161,8 @@ def display_rows(
 def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
     """Apply the existing service displays without changing formal model values."""
     rows = _display_aws_mapping_display.selected_rows(rows, root)
+    extension = REGISTRY.presentation(kind)
+    source_ids = tuple(row[0] for row in rows)
     processed = []
     formal_properties = {row[1] for row in rows}
     result = []
@@ -205,19 +191,36 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
             processed.extend(row[0] for row in block)
             index += len(block)
             continue
-        if prop == CODEBUILD_FORMAL_VARIABLE + "Name":
-            _, prop, value, comment = design.services.codebuild.codebuild_display_row(
-                rows, index, comment, mode=mode, typed=rows[index + 2][0] in references
+        group = (
+            extension.render_group(
+                rows, index, mode=mode, counts=counts, references=references
             )
-            index += 2
-        elif prop in _display_design_layout.LINKED_LIST_PROPERTIES:
-            linked = LINK.fullmatch(value)
+            if extension.render_group is not None
+            else None
+        )
+        if group is not None:
+            size = len(group.consumed)
+            expected = source_ids[index : index + size]
             if (
-                prop in CODEBUILD_VPC_PROPERTIES
-                and not linked
-                and mode != RESOURCE_MODE_IMPORT
-                and identity not in references
+                not size
+                or expected != group.consumed
+                or len(set(expected)) != size
+                or len(group.row) != 4
+                or group.row[0] != identity
             ):
+                raise ValueError(
+                    "selected display rows were omitted or consumed more than once"
+                )
+            identity, prop, value, comment = group.row
+            index += size - 1
+        elif REFERENCES.linked_list_kind(prop) is not None:
+            linked = LINK.fullmatch(value)
+            error = (
+                extension.validate_linked_list(rows[index], mode, references)
+                if extension.validate_linked_list is not None
+                else None
+            )
+            if not linked and error:
                 raw = literal(value).lstrip()
                 items = (
                     _display_common.subnet_list_items(prop, value)
@@ -226,7 +229,7 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
                 )
                 if items is None or items:
                     raise ReferenceResolutionError(
-                        "CodeBuild VpcConfig value must be a resource link",
+                        error,
                         property=prop,
                         reference=value,
                     )
@@ -251,20 +254,6 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
             processed.extend(row[0] for row in rows[start : index + 1])
             index += 1
             continue
-        elif prop == GUARDDUTY_FORMAL_FEATURE + "Name":
-            prop, value = guardduty_display_row(rows, index)
-            index += 1
-        elif prop == CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Type":
-            prop, value = cloudtrail_display_row(rows, index, counts, mode)
-            index += 1
-        elif prop.startswith(
-            (
-                CODEBUILD_FORMAL_VARIABLE,
-                GUARDDUTY_FORMAL_FEATURE,
-                CLOUDTRAIL_FORMAL_DATA_RESOURCE,
-            )
-        ) and not prop.startswith(GUARDDUTY_FORMAL_FEATURE + "AdditionalConfiguration"):
-            raise ValueError(f"incomplete compact display group: {prop}")
         # Compact producers own their dynamic names; ordinary rows use Mapping names.
         item = (
             _display_aws_mapping_display.rule(prop, root)
@@ -272,27 +261,27 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
             and prop in formal_properties
             else None
         )
-        is_import_role_arn = _imports_design_layout.is_import_role_arn
-        prop = (
-            "RoleARN"
-            if is_import_role_arn(prop, value, mode)
-            else _display_aws_mapping_display.display_name(prop, kind, root)
+        alias = (
+            extension.literal_link_label(prop, value)
+            if mode == RESOURCE_MODE_IMPORT and extension.literal_link_label
+            else None
+        )
+        prop = alias or (
+            _display_aws_mapping_display.display_name(prop, kind, root)
             if item
             else prop.removeprefix(kind + ".")
         )
         result.append([identity, prop, value, comment])
         processed.extend(row[0] for row in rows[start : index + 1])
         index += 1
-    if Counter(processed) != Counter(row[0] for row in rows):
+    if tuple(row[0] for row in rows) != source_ids or Counter(processed) != Counter(
+        source_ids
+    ):
         raise ValueError(
             "selected display rows were omitted or consumed more than once"
         )
-    if kind == "CodePipeline.Pipeline":
-        result = design.services.codepipeline.pipeline_rows(result)
-    elif kind in _display_definitions.REQUIRED_NAME_TAG_TYPES:
-        result = ec2_display_rows(result)
-    elif kind == "Glue.Job":
-        result = design.services.glue.glue_argument_rows(result, kind)
+    if extension.display is not None:
+        result = extension.display(result, kind, mode=mode)
     if consumed is not None:
         consumed.extend(processed)
     return result

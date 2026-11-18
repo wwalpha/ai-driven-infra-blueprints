@@ -23,6 +23,10 @@ from model.core import literal
 from model.identity import Resolver
 from model.reference_nodes import is_reference, nodes, project, reference_document
 from model.sources import scope_for
+from services.iam.design import IAM_END as IAM_END
+from services.iam.design import IAM_START as IAM_START
+from services.iam.design import INLINE_POLICY_DOCUMENTS
+from services.registry import REGISTRY
 from utils.input_cache import input_scope
 from utils.json_format import (
     AwsDocumentError,
@@ -45,26 +49,15 @@ from design.common import code as code
 from design.common import resource_heading_lines
 from design.common import table as table
 from design.layout_schema import ANCHOR, HEADER, RESOURCE
-from design.services.definitions.iam import IAM_END as IAM_END
-from design.services.definitions.iam import IAM_START as IAM_START
-from design.services.definitions.iam import INLINE_POLICY_DOCUMENTS
-from design.services.definitions.registry import POLICY_FORMATS as POLICY_FORMATS
+
+POLICY_FORMATS = REGISTRY.design_tables.get("POLICY_FORMATS", {})
+
 
 START = "<!-- policy-tables:start -->"
 END = "<!-- policy-tables:end -->"
-IAM_POLICY_DOCUMENTS = {
-    "IAM.Role.AssumeRolePolicyDocument",
-    "IAM.Role.Policies[].PolicyDocument",
-    "IAM.User.Policies[].PolicyDocument",
-    "IAM.ManagedPolicy.PolicyDocument",
-}
-COLLAPSED_POLICY_DOCUMENTS = IAM_POLICY_DOCUMENTS | {
-    "S3.BucketPolicy.PolicyDocument",
-    "EC2.VPCEndpoint.PolicyDocument",
-    "KMS.Key.KeyPolicy",
-    "SQS.QueuePolicy.PolicyDocument",
-    "SSM.ResourcePolicy.Policy",
-}
+COLLAPSED_POLICY_DOCUMENTS = REGISTRY.design_tables.get(
+    "COLLAPSED_POLICY_DOCUMENTS", frozenset()
+)
 JSON_LINK = re.compile(r"\[([^\]]+)\]\(([^)#]+\.json)\)")
 # Exact catalog properties: policy names, ARNs and enum settings are not documents.
 POLICY_KEYS = {"Version", "Id", "Statement"}
@@ -265,7 +258,9 @@ def resources_in(
             if row[1] not in POLICY_FORMATS:
                 continue
             match = JSON_LINK.fullmatch(row[2])
-            if not match and row[1] in IAM_POLICY_DOCUMENTS:
+            if not match and row[1] in REGISTRY.design_tables.get(
+                "JSON_LINK_IN_COMMENT", ()
+            ):
                 hidden = re.fullmatch(r"\[[^\]]+\]\(#[^)]+\)<!-- (.+) -->", row[2])
                 match = JSON_LINK.fullmatch(hidden.group(1)) if hidden else None
             if not match:
@@ -614,7 +609,9 @@ def order_statement(statement):
 def order_policy_statements(document, property_name):
     """Order Statement keys for display while preserving document values."""
     style = POLICY_FORMATS.get(property_name)
-    if style not in {"statement", "wrapped-statement"} or not isinstance(document, dict):
+    if style not in {"statement", "wrapped-statement"} or not isinstance(
+        document, dict
+    ):
         return document
     wrapped = style == "wrapped-statement"
     body = document.get("PolicyDocument") if wrapped else document
@@ -842,7 +839,7 @@ def has_folded_json(text: str) -> bool:
         return True
     anchors = re.findall(
         r'^<a id="([^"\n]+)"></a>\n\n#### [^\n]+\n\n<details>\n'
-        r'<summary>[^\n]*</summary>\n\n```json$',
+        r"<summary>[^\n]*</summary>\n\n```json$",
         text,
         re.MULTILINE,
     )

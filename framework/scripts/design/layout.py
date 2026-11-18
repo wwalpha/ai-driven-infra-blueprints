@@ -23,19 +23,42 @@ from contracts.model import (
 from contracts.repository import DESIGNS_DIRECTORY
 from model.core import ReferenceResolutionError, literal, positive_integer
 from model.reference_nodes import nodes
+from services.cloudtrail.design import (
+    CLOUDTRAIL_DATA_RESOURCE as CLOUDTRAIL_DATA_RESOURCE,
+)
+from services.cloudtrail.design import (
+    CLOUDTRAIL_FORMAL_DATA_RESOURCE as CLOUDTRAIL_FORMAL_DATA_RESOURCE,
+)
+from services.cloudtrail.design import (
+    CLOUDTRAIL_RESOURCE_TYPES as CLOUDTRAIL_RESOURCE_TYPES,
+)
+from services.codebuild.design import (
+    CODEBUILD_VPC_PROPERTIES as CODEBUILD_VPC_PROPERTIES,
+)
+from services.contracts import DisplayReferenceError, DisplayRowError, RestoredRowGroup
+from services.ec2.design import SECURITY_GROUP_TYPES as SECURITY_GROUP_TYPES
+from services.guardduty.design import GUARDDUTY_FEATURE as GUARDDUTY_FEATURE
+from services.guardduty.design import (
+    GUARDDUTY_FORMAL_FEATURE as GUARDDUTY_FORMAL_FEATURE,
+)
+from services.lambda_.design import (
+    LAMBDA_PERMISSION as LAMBDA_PERMISSION,
+)
+from services.lambda_.design import (
+    PERMISSION_METADATA as PERMISSION_METADATA,
+)
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
+from services.secrets_manager.design import (
+    ROTATION_SCHEDULE as ROTATION_SCHEDULE,
+)
 from utils.aws_catalogs import catalogs_for
 from utils.input_cache import input_scope as input_scope
 from utils.input_cache import input_text
-from utils.reference_contracts import LINKED_LIST_PROPERTIES as LINKED_LIST_PROPERTIES
-from utils.reference_contracts import SUBNET_LIST_PROPERTIES as SUBNET_LIST_PROPERTIES
 from validation.diagnostics import InputValidationError
 
 import design.array_display as _imports_array_display
 import design.catalog as _imports_design_catalog
-import design.services.codebuild
-import design.services.codepipeline
-import design.services.ec2.security_groups as _dependency_security_group_tables
-import design.services.glue
 import model as _model_api
 from design.catalog import design_material_files
 from design.common import catalog_property_order as catalog_property_order
@@ -63,51 +86,17 @@ from design.layout_schema import (
 from design.layout_schema import STACK_DESIGN as STACK_DESIGN
 from design.layout_schema import STACK_HEADER as STACK_HEADER
 from design.layout_schema import resource_anchor as resource_anchor
-from design.services.cloudtrail import formal_rows as cloudtrail_formal_rows
-from design.services.config import config_role_arn as config_role_arn
-from design.services.config import is_import_role_arn as is_import_role_arn
-from design.services.definitions.cloudtrail import (
-    CLOUDTRAIL_DATA_RESOURCE as CLOUDTRAIL_DATA_RESOURCE,
+
+HIDDEN_PROPERTIES = REGISTRY.design_tables.get("HIDDEN_PROPERTIES", frozenset())
+IMPORT_PENDING_PROPERTIES = REGISTRY.design_tables.get(
+    "IMPORT_PENDING_PROPERTIES", frozenset()
 )
-from design.services.definitions.cloudtrail import (
-    CLOUDTRAIL_FORMAL_DATA_RESOURCE as CLOUDTRAIL_FORMAL_DATA_RESOURCE,
+REQUIRED_NAME_TAG_TYPES = REGISTRY.design_tables.get(
+    "REQUIRED_NAME_TAG_TYPES", frozenset()
 )
-from design.services.definitions.cloudtrail import (
-    CLOUDTRAIL_RESOURCE_TYPES as CLOUDTRAIL_RESOURCE_TYPES,
+RESOURCE_REFERENCE_PROPERTIES = REGISTRY.design_tables.get(
+    "RESOURCE_REFERENCE_PROPERTIES", {}
 )
-from design.services.definitions.codebuild import (
-    CODEBUILD_FORMAL_VARIABLE,
-    CODEBUILD_VARIABLE,
-)
-from design.services.definitions.codebuild import (
-    CODEBUILD_VPC_PROPERTIES as CODEBUILD_VPC_PROPERTIES,
-)
-from design.services.definitions.ec2 import SECURITY_GROUP_TYPES as SECURITY_GROUP_TYPES
-from design.services.definitions.guardduty import GUARDDUTY_FEATURE as GUARDDUTY_FEATURE
-from design.services.definitions.guardduty import (
-    GUARDDUTY_FORMAL_FEATURE as GUARDDUTY_FORMAL_FEATURE,
-)
-from design.services.definitions.lambda_permission import (
-    LAMBDA_PERMISSION as LAMBDA_PERMISSION,
-)
-from design.services.definitions.lambda_permission import (
-    PERMISSION_METADATA as PERMISSION_METADATA,
-)
-from design.services.definitions.registry import HIDDEN_PROPERTIES as HIDDEN_PROPERTIES
-from design.services.definitions.registry import IMPORT_PENDING_PROPERTIES
-from design.services.definitions.registry import (
-    REQUIRED_NAME_TAG_TYPES as REQUIRED_NAME_TAG_TYPES,
-)
-from design.services.definitions.registry import (
-    RESOURCE_REFERENCE_PROPERTIES as RESOURCE_REFERENCE_PROPERTIES,
-)
-from design.services.definitions.secrets_manager import (
-    ROTATION_SCHEDULE as ROTATION_SCHEDULE,
-)
-from design.services.ec2.display import ec2_formal_rows, name_tag_display_name
-from design.services.guardduty import formal_rows as guardduty_formal_rows
-from design.services.kms import alias_display_name
-from design.services.lambda_permission import permission_rows as permission_rows
 
 
 def is_service_role_reference(prop: str, value: str) -> bool:
@@ -155,10 +144,10 @@ def resource_logical_ids(lines: list[str]) -> dict[str, str]:
 
 def resource_name_fields(resource_type: str) -> list[str]:
     """Candidate resource names, excluding names of referenced resources."""
-    if resource_type == "Glue.Database":
-        return ["DatabaseInput.Name"]
-    if resource_type == "SSM.Association":
-        return ["AssociationName"]  # Name identifies the referenced SSM document.
+    design = (REGISTRY.design(resource_type) or {}) if resource_type in REGISTRY else {}
+    fields = design.get("RESOURCE_NAME_FIELDS", {})
+    if resource_type in fields:
+        return list(fields[resource_type])
     kind = resource_type.split(".")[1]
     names = [
         kind + "Input.Name",
@@ -171,11 +160,9 @@ def resource_name_fields(resource_type: str) -> list[str]:
     ]
     if kind.endswith("Name"):
         names.append(kind)
-    if resource_type == "EC2.SecurityGroup":
-        names.append("GroupName")
-    if resource_type == "IAM.ManagedPolicy":
-        names.append("PolicyName")
-    return names
+    return names + list(
+        design.get("ADDITIONAL_RESOURCE_NAME_FIELDS", {}).get(resource_type, ())
+    )
 
 
 def resource_mode(resource: dict[str, str]) -> str:
@@ -223,10 +210,10 @@ def resource_has_name_property(
     root: Path, resource_type: str, mode: str = RESOURCE_MODE_CREATE
 ) -> bool:
     """Check the catalog, rather than treating an omitted optional name as nameless."""
+    design = (REGISTRY.design(resource_type) or {}) if resource_type in REGISTRY else {}
     if (
-        resource_type
-        in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}
-        | REQUIRED_NAME_TAG_TYPES
+        resource_type in design.get("REQUIRED_CREATE_NAME_TYPES", ())
+        or resource_type in REQUIRED_NAME_TAG_TYPES
     ):
         return mode != RESOURCE_MODE_IMPORT  # Only CREATE requires a Name tag.
     return bool(
@@ -244,15 +231,16 @@ def resource_display_name(
     root: Path = LAYOUT_PATH.parents[2],
 ) -> str | None:
     """Find a selected root name; never invent an AWS name from an internal ID."""
-    if resource_type == "KMS.Key":
-        alias = alias_display_name(rows, selected_label)
+    extension = REGISTRY.presentation(resource_type)
+    if extension.selected_name is not None:
+        alias = extension.selected_name(rows, selected_label)
         if alias is not None:
             return alias
     fields = {
         row[1].removeprefix(resource_type + "."): row[2].strip('`"') for row in rows
     }
-    if resource_type in REQUIRED_NAME_TAG_TYPES:
-        return name_tag_display_name(resource_type, rows, fields, mode)
+    if extension.name_tag is not None:
+        return extension.name_tag(resource_type, rows, fields, mode)
     names = configured_name_fields(root, resource_type)
     for field in names:
         if field in fields and not fields[field].startswith("["):
@@ -364,10 +352,12 @@ def resource_display_selection(
     has_name = resource_has_name_property(root, resource_type, mode)
     if has_name and fallback is None:
         catalog = DesignSchemaCatalog(root)
-        if mode != RESOURCE_MODE_IMPORT or resource_type in {
-            "IAM.Role",
-            "CodeBuild.Project",
-        }:
+        design = (
+            (REGISTRY.design(resource_type) or {}) if resource_type in REGISTRY else {}
+        )
+        if mode != RESOURCE_MODE_IMPORT or resource_type in design.get(
+            "REQUIRED_IMPORT_NAME_TYPES", ()
+        ):
             raise InputValidationError(
                 f"required Name is not selected; display label substitution is not allowed: {resource_type}"
             )
@@ -524,19 +514,11 @@ def layout_errors(root: Path) -> list[str]:
         ):
             errors.append(f"invalid resource layout decision: {name}")
             continue
-        if "display" in rule and (
-            rule["display"] != "rule-table"
-            or name not in {"EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"}
-            or rule
-            != {
-                "parent": "EC2.SecurityGroup",
-                "parentProperty": "GroupId",
-                "maxCount": None,
-                "identityProperty": "Id",
-                "display": "rule-table",
-            }
-        ):
-            errors.append(f"invalid Security Group rule table layout: {name}")
+        if "display" in rule:
+            design = (REGISTRY.design(name) or {}) if name in REGISTRY else {}
+            expected = design.get("RULE_TABLE_LAYOUTS", {}).get(name)
+            if rule != expected:
+                errors.append(f"invalid Security Group rule table layout: {name}")
         parent = rule["parent"]
         if (
             not isinstance(parent, str)
@@ -573,22 +555,13 @@ def catalog_order_errors(
     if cached_order is None:
         return [f"display order catalog is missing: {resource_type}"]
     order = dict(cached_order)
-    design.services.codebuild.adjust_display_order(resource_type, order)
-    if not verified_display and resource_type == "CodePipeline.Pipeline":
-        formal = [
-            [
-                row[0],
-                row[1]
-                if row[1].startswith(resource_type + ".")
-                else resource_type + "." + row[1],
-                *row[2:],
-            ]
-            for row in rows
-        ]
-        if design.services.codepipeline.order_actions(formal, order) != formal:
-            return [
-                f"resource rows must follow catalog file order within each action: {resource_type}"
-            ]
+    extension = REGISTRY.presentation(resource_type)
+    if extension.validate_adjusted_order and extension.adjust_order is not None:
+        extension.adjust_order(resource_type, order)
+    if not verified_display and extension.validate_order is not None:
+        errors = extension.validate_order(resource_type, rows, order)
+        if errors:
+            return errors
     array_order = {}
     if verified_display:
         for prop, rank in order.items():
@@ -631,8 +604,8 @@ def linked_list_property(
     match = re.fullmatch(r"(.+)\[([^\]]*)\]", display)
     if match:
         base = formal_property(match.group(1), resource_type, root)
-        for prop in LINKED_LIST_PROPERTIES:
-            if base == prop.removesuffix("[]"):
+        for prop in (base, base + "[]"):
+            if REFERENCES.linked_list_kind(prop) is not None:
                 return prop, match.group(2)
     return None
 
@@ -669,6 +642,7 @@ def expanded_display_rows(
     index = 0
     resource_type = ""
     reference_errors = []
+    reference_error_class = DisplayReferenceError
     reference_positions = []
     while index < len(lines):
         if (
@@ -690,11 +664,11 @@ def expanded_display_rows(
         index += 2
         rows = []
         row_numbers = []
-        codebuild_names = set()
+        extension = REGISTRY.presentation(resource_type)
+        names = set()
         linked_list_counts: dict[str, int] = {}
-        guardduty_names = set()
-        cloudtrail_count = 0
-        packed_pipeline = False
+        counts = {"data": 0}
+        packed_table = False
         changed = False
         normalized = False
         kind = ""
@@ -736,8 +710,10 @@ def expanded_display_rows(
             result.extend(lines[start:stop])
             index = stop
             continue
-        restored = design.services.glue.restored_glue_argument_rows(
-            source_rows, resource_type
+        restored = (
+            extension.restore_raw(source_rows, resource_type, mode=mode)
+            if extension.restore_raw is not None
+            else source_rows
         )
         if restored != source_rows:
             if [row[0] for row in source_rows] != [
@@ -753,7 +729,7 @@ def expanded_display_rows(
                 *lines[stop:],
             ]
             changed = True
-            kind = "Glue arguments"
+            kind = extension.restore_label or resource_type
         while index < len(lines) and lines[index].startswith("|"):
             cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
             if len(cells) != 4:
@@ -763,8 +739,7 @@ def expanded_display_rows(
                     cells[3]
                     + (
                         " "
-                        if resource_type == "CodePipeline.Pipeline"
-                        and cells[3].endswith("-->")
+                        if extension.indexed_packed and cells[3].endswith("-->")
                         else ""
                     )
                 )
@@ -788,14 +763,14 @@ def expanded_display_rows(
                     )
                 ):
                     raise ValueError("invalid packed compact source")
-                original = [[cells[0], *row] for row in source[0]]
+                original = [
+                    [str(number), *row] for number, row in enumerate(source[0], 1)
+                ]
                 display_rows = _imports_model_display.display_rows
-                counts = {"data": cloudtrail_count}
                 expected = display_rows(
                     resource_type, original, root, mode=mode, _counts=counts
                 )
-                cloudtrail_count = counts["data"]
-                if resource_type == "CodePipeline.Pipeline":
+                if extension.indexed_packed:
                     if not _verified_reference:
                         expected = _imports_array_display.indexed_rows(
                             expected, resource_type, root
@@ -811,34 +786,24 @@ def expanded_display_rows(
                     raise ValueError("packed compact display differs from source")
                 row_numbers.extend(row[0] for row in actual)
                 rows.extend(original)
-                packed_pipeline |= resource_type == "CodePipeline.Pipeline"
+                packed_table |= extension.indexed_packed
                 index += source[1]
                 changed, kind = True, "packed compact"
                 continue
             row_numbers.append(cells[0])
             display_property = cells[1]
-            if resource_type == "Lambda.Function" and display_property.startswith(
-                "Lambda.Permission."
+            if extension.validate_display_property is not None:
+                extension.validate_display_property(display_property)
+            prop = formal_property(display_property, resource_type, root)
+            alias = (
+                extension.literal_link_label(prop, cells[2])
+                if extension.literal_link_label
+                else None
+            )
+            if prop in extension.import_link_required and display_property != (
+                alias or display_name(prop, resource_type, root)
             ):
-                raise ValueError(
-                    "Lambda Permission must use Permission.* display properties"
-                )
-            if resource_type == "Lambda.Function" and display_property in {
-                "Permission.Id",
-                "Permission.FunctionName",
-            }:
-                raise ValueError(
-                    "Lambda Permission Id and FunctionName must not be displayed"
-                )
-            prop = formal_property(cells[1], resource_type, root)
-            if prop == "Config.ConfigurationRecorder.RoleARN" and display_property != (
-                "RoleARN"
-                if config_role_arn(prop, cells[2])
-                else display_name(prop, resource_type, root)
-            ):
-                raise ValueError(
-                    "ConfigurationRecorder RoleARN must use Mapping display name"
-                )
+                raise ValueError(extension.literal_link_alias_error)
             if prop in RESOURCE_REFERENCE_PROPERTIES:
                 if (
                     mode != RESOURCE_MODE_IMPORT
@@ -859,14 +824,14 @@ def expanded_display_rows(
                 and (owner == resource_type or owner in GROUPED)
                 and owner not in SECURITY_GROUP_TYPES
                 and not compact_group(prop)
-                and prop not in LINKED_LIST_PROPERTIES
+                and REFERENCES.linked_list_kind(prop) is None
             ):
                 configured = display_name(prop, resource_type, root)
                 canonical = prop.removeprefix(resource_type + ".")
                 if (
                     configured != canonical
                     and display_property in {prop, canonical}
-                    and not config_role_arn(prop, cells[2])
+                    and alias is None
                 ):
                     raise ValueError(
                         f"formal property must use its Markdown display alias: {prop}"
@@ -882,54 +847,42 @@ def expanded_display_rows(
             if prop != cells[1]:
                 normalized = True
                 cells[1] = prop
-            if prop.startswith(CODEBUILD_FORMAL_VARIABLE):
-                raise ValueError(
-                    "CodeBuild environment variables must use Variables.<Name> display rows"
-                )
-            if prop in LINKED_LIST_PROPERTIES and not (
+            if REFERENCES.linked_list_kind(prop) is not None and not (
                 _verified_reference
                 and re.fullmatch(r"\[\s*\]", literal(cells[2]).strip())
             ):
                 raise ValueError(
                     f"{prop} must use indexed one-resource-per-row display"
                 )
-            if prop in {
-                GUARDDUTY_FORMAL_FEATURE + "Name",
-                GUARDDUTY_FORMAL_FEATURE + "Status",
-            }:
-                raise ValueError(
-                    "GuardDuty Features Name/Status must use Features.<Name> display rows"
-                )
-            if resource_type == "CloudTrail.Trail" and prop.startswith(
-                CLOUDTRAIL_FORMAL_DATA_RESOURCE
-            ):
-                raise ValueError(
-                    "CloudTrail DataResources Type/Values must use one target per display row"
-                )
-            if prop.startswith(CODEBUILD_VARIABLE) or prop.startswith(
-                CODEBUILD_VARIABLE.removesuffix(".") + "["
-            ):
-                changed = True
-                kind = "CodeBuild environment variable"
+            group = None
+            if extension.restore_group is not None:
                 try:
-                    rows.extend(
-                        design.services.codebuild.codebuild_formal_rows(
-                            cells, codebuild_names, mode=mode, typed=_verified_reference
-                        )
+                    group = extension.restore_group(
+                        cells,
+                        display_property,
+                        mode=mode,
+                        counts=counts,
+                        names=names,
+                        verified=_verified_reference,
                     )
                 except ReferenceResolutionError:
                     raise
-                except design.services.codebuild.PlaintextReferenceError as error:
+                except DisplayReferenceError as error:
                     message = f"Resource={resource_type}#{anchor}: {error}"
+                    reference_error_class = type(error)
                     reference_errors.append(message)
                     reference_positions.extend(
                         dict(position, anchor=anchor, message=message)
                         for position in error.positions
                     )
-                except ValueError as error:
+                    group = RestoredRowGroup([], "reference")
+                except DisplayRowError as error:
                     raise ValueError(
                         f"Resource={resource_type}#{anchor}: {error}"
                     ) from error
+            if group is not None:
+                rows.extend(group.rows)
+                changed, kind = True, group.label
             elif item := linked_list_property(display_property, resource_type, root):
                 list_prop, first_index = item
                 if not _verified_reference:
@@ -947,44 +900,19 @@ def expanded_display_rows(
                 kind = "Subnet/Security Group list"
                 cells[1] = list_prop
                 rows.append(cells)
-            elif prop.startswith(GUARDDUTY_FEATURE):
-                changed = True
-                kind = "GuardDuty Feature"
-                rows.extend(guardduty_formal_rows(cells, guardduty_names))
-            elif resource_type == "CloudTrail.Trail" and display_property.startswith(
-                "EventSelectors.DataResources["
-            ):
-                rows.extend(
-                    cloudtrail_formal_rows(
-                        cells,
-                        display_property,
-                        cloudtrail_count,
-                        mode,
-                        verified_reference=_verified_reference,
-                    )
-                )
-                cloudtrail_count += 1
-                changed = True
-                kind = "CloudTrail DataResources"
             else:
                 rows.append(cells)
             index += 1
-        if resource_type == "Lambda.Function" and any(
-            row[1].startswith(LAMBDA_PERMISSION + ".")
-            or "<!-- lambda-permission:" in row[3]
-            for row in rows
-        ):
-            rows = permission_rows(rows)
+        if extension.restore_children is not None:
+            restored = extension.restore_children(rows)
+            if restored is not None:
+                rows = restored
+                changed = True
+                kind = extension.restore_label or resource_type
+        if extension.restore_formal is not None and not packed_table:
+            rows = extension.restore_formal(rows, resource_type, mode=mode)
             changed = True
-            kind = "Lambda Permission"
-        if resource_type == "CodePipeline.Pipeline" and not packed_pipeline:
-            rows = design.services.codepipeline.pipeline_display_rows(rows)
-            changed = True
-            kind = "CodePipeline"
-        if resource_type in REQUIRED_NAME_TAG_TYPES:
-            rows = ec2_formal_rows(rows, resource_type)
-            changed = True
-            kind = resource_type
+            kind = extension.restore_label or resource_type
         for row in rows:
             if not _verified_reference and re.search(r"\[\d+\]", row[1]):
                 raise ValueError("indexed array display requires Model source rows")
@@ -1011,7 +939,7 @@ def expanded_display_rows(
         else:
             result.extend(lines[start:index])
     if reference_errors:
-        raise design.services.codebuild.PlaintextReferenceError(
+        raise reference_error_class(
             "\n".join(reference_errors),
             lines=result,
             positions=tuple(reference_positions),
@@ -1037,9 +965,13 @@ def expanded_design(
     identities = resource_logical_ids(lines) if logical_ids is None else logical_ids
     lines = [line for line in lines if not RESOURCE_ID.fullmatch(line)]
     if not normalized:
-        lines = _dependency_security_group_tables.security_group_table_lines(
-            lines, root
+        kinds = dict.fromkeys(
+            match[1] for line in lines if (match := RESOURCE.fullmatch(line))
         )
+        for kind in kinds:
+            restore = REGISTRY.presentation(kind).restore_document_tables
+            if restore is not None:
+                lines = restore(lines, root)
     lines = expanded_display_rows(
         lines, root, modes=modes, reference_tables=reference_tables
     )
@@ -1105,9 +1037,10 @@ def expanded_design(
                         f"grouped resource has wrong parent: {resource_type}: {parent_type}"
                     )
                 grouped_started = True
+                named_child = REGISTRY.presentation(resource_type).named_child
                 if (
                     prop == f"{resource_type}.{rule['parentProperty']}"
-                    and resource_type not in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}
+                    and named_child is None
                 ):
                     raise ValueError(
                         f"{prop} must be omitted from its enclosing {parent_type} table"
@@ -1126,7 +1059,7 @@ def expanded_design(
                             )
                         anchor, logical_id = marker.groups()
                         name = cells[2].strip("`")
-                        if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
+                        if named_child is not None:
                             label = CHILD_NAME.match(cells[3][marker.end() :])
                             if not label or label.group(1).strip() in {
                                 "",
@@ -1168,7 +1101,7 @@ def expanded_design(
                             "parentProperty": f"{resource_type}.{rule['parentProperty']}",
                             "rows": [],
                         }
-                        if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
+                        if named_child is not None:
                             active_child["displayName"] = name
                         children[anchor] = active_child
                         table_children.append(active_child)
@@ -1185,9 +1118,9 @@ def expanded_design(
                         )
                     if marker:
                         cells[3] = cells[3][marker.end() :]
-                        if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
+                        if named_child is not None:
                             cells[3] = cells[3][label.end() :]
-                    if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
+                    if named_child is not None:
                         if (
                             any(row[1] == prop for row in active_child["rows"])
                             and "[]" not in prop
@@ -1240,8 +1173,11 @@ def expanded_design(
         for number, cells in enumerate(parent_rows, 1):
             result.append("| " + " | ".join([str(number), *cells[1:]]) + " |")
         for child in table_children:
-            if child[RESOURCE_TYPE_KEY] == LAMBDA_PERMISSION and not any(
-                row[1] == child["parentProperty"] for row in child["rows"]
+            named_child = REGISTRY.presentation(child[RESOURCE_TYPE_KEY]).named_child
+            if (
+                named_child
+                and named_child.require_restored_parent
+                and not any(row[1] == child["parentProperty"] for row in child["rows"])
             ):
                 raise ValueError(
                     f"{child[RESOURCE_TYPE_KEY]}: {child[RESOURCE_LOGICAL_ID_KEY]}: required property missing: {child['parentProperty']}"
@@ -1268,13 +1204,11 @@ def formal_property(display: str, resource_type: str, root: Path | None = None) 
     formal_name = _imports_aws_mapping_display.formal_name
     if resource_type and (formal := formal_name(display, resource_type, root or ROOT)):
         return formal
-    if resource_type == "Lambda.Function" and display.startswith("Permission."):
-        return "Lambda." + display
-    if resource_type == "SecretsManager.Secret" and display.startswith(
-        "RotationSchedule."
-    ):
-        qualified = "SecretsManager." + display
-        return formal_name(qualified, resource_type, root or ROOT) or qualified
+    for child_type in REGISTRY.presentation(resource_type).child_property_prefixes:
+        namespace, child = child_type.split(".", 1)
+        if display.startswith(child + "."):
+            qualified = namespace + "." + display
+            return formal_name(qualified, resource_type, root or ROOT) or qualified
     if display.startswith(RESOURCE_PROPERTY_PREFIXES):
         return display
     return resource_type + "." + display if resource_type else display

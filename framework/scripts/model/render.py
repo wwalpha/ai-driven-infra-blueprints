@@ -14,9 +14,6 @@ import design.array_display as _dependency_array_display
 import design.layout as _dependency_design_layout
 import design.policy_tables as _dependency_policy_tables
 import design.policy_tables as _imports_policy_tables
-import design.services.cloudtrail as _cloudtrail_presentation
-import design.services.codepipeline as _codepipeline_presentation
-import design.services.ec2.security_groups as _ec2_security_groups
 from contracts.model import (
     MODEL_PENDING_DEPLOY,
     MODEL_UNSET,
@@ -28,12 +25,12 @@ from contracts.repository import DESIGNS_DIRECTORY
 from design.catalog import DesignSchemaCatalog as DesignSchemaCatalog
 from design.layout_schema import GROUPED
 from design.layout_schema import resource_anchor as resource_anchor
-from design.services.definitions.lambda_permission import LAMBDA_PERMISSION
-from design.services.definitions.quicksight import (
+from services.macie.design import MACIE_JOB
+from services.macie.display import bucket_definitions_markdown
+from services.quicksight.design import (
     RESOURCE_REFERENCE_PROPERTIES as QUICKSIGHT_LINK_PROPERTIES,
 )
-from design.services.definitions.registry import HIDDEN_PROPERTIES
-from design.services.definitions.secrets_manager import ROTATION_SCHEDULE
+from services.registry import REGISTRY
 from sync_files import changed_files
 from task_contract_core import task_read_scope
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
@@ -73,6 +70,8 @@ from model.core import (
 from model.format import JSON_LINK
 from model.reference_nodes import parse, resolve
 from model.references import _json as parse_reference_field
+
+HIDDEN_PROPERTIES = REGISTRY.design_tables.get("HIDDEN_PROPERTIES", frozenset())
 
 
 def stack_markdown(
@@ -350,7 +349,7 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
             raise ReferenceResolutionError(
                 f"{kind}: {resource[RESOURCE_LOGICAL_ID_KEY]}: invalid grouped parent: parentReference / parentProperty ({kind}.{rule['parentProperty']})"
             )
-        if kind in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
+        if REGISTRY.presentation(kind).named_child is not None:
             parent_rows = [
                 row
                 for row_id, row in entries(values, "desired.row.")
@@ -421,8 +420,9 @@ def resource_table_lines(
             for rid, child, child_name, child_rows in children
         ]
     selected = _dependency_aws_mapping_display.selected_rows(rows, root)
-    if resource[RESOURCE_TYPE_KEY] == "CodePipeline.Pipeline":
-        _codepipeline_presentation.validate_selection(rows, selected)
+    extension = REGISTRY.presentation(resource[RESOURCE_TYPE_KEY])
+    if extension.validate_selection is not None:
+        extension.validate_selection(rows, selected)
     expected = Counter(row[0] for row in selected)
     for _, _, _, child_rows in children:
         expected.update(
@@ -434,12 +434,12 @@ def resource_table_lines(
     consumed = []
     output = []
     kind = resource[RESOURCE_TYPE_KEY]
-    if kind == "EC2.SecurityGroup":
+    if extension.render_document_tables is not None:
         rules = [
             (child, _dependency_aws_mapping_display.selected_rows(child_rows, root))
             for _, child, _, child_rows in children
         ]
-        output += _ec2_security_groups.sg_tables(
+        output += extension.render_document_tables(
             _dependency_aws_mapping_display.selected_rows(rows, root),
             [(child, rows) for child, rows in rules if rows],
             root,
@@ -469,7 +469,10 @@ def resource_table_lines(
             child_rows = _dependency_aws_mapping_display.selected_rows(child_rows, root)
             if not child_rows:
                 continue
-            if child[RESOURCE_TYPE_KEY] == ROTATION_SCHEDULE:
+            child_type = child[RESOURCE_TYPE_KEY]
+            named_child = REGISTRY.presentation(child_type).named_child
+            render_in_parent = named_child is not None and named_child.render_in_parent
+            if render_in_parent:
                 child_rows = [
                     [
                         rid,
@@ -486,9 +489,7 @@ def resource_table_lines(
                 [list(row) for row in child_rows]
                 if formal
                 else display_rows(
-                    kind
-                    if child[RESOURCE_TYPE_KEY] == ROTATION_SCHEDULE
-                    else child[RESOURCE_TYPE_KEY],
+                    kind if render_in_parent else child_type,
                     child_rows,
                     root,
                     mode=_dependency_design_layout.resource_mode(child),
@@ -502,48 +503,16 @@ def resource_table_lines(
                 child_display = _dependency_array_display.compact_tag_rows(
                     child_display
                 )
-            if not formal and child[RESOURCE_TYPE_KEY] == ROTATION_SCHEDULE:
-                child_display = [
-                    row for row in child_display
-                    if row[1] != ROTATION_SCHEDULE + ".SecretId"
-                ]
-                if not child_display:
-                    raise ValueError("RotationSchedule requires a visible property")
-            if not formal and child[RESOURCE_TYPE_KEY] != ROTATION_SCHEDULE:
-                for row in child_display:
-                    row[1] = child[RESOURCE_TYPE_KEY] + "." + row[1]
-            if not formal and child[RESOURCE_TYPE_KEY] == LAMBDA_PERMISSION:
-                hidden = [
-                    row[1:]
-                    for row in child_rows
-                    if row[1]
-                    in {LAMBDA_PERMISSION + ".Id", LAMBDA_PERMISSION + ".FunctionName"}
-                ]
-                child_display = [
-                    row
-                    for row in child_display
-                    if row[1]
-                    not in {
-                        LAMBDA_PERMISSION + ".Id",
-                        LAMBDA_PERMISSION + ".FunctionName",
-                    }
-                ]
-                metadata = json.dumps(
-                    [child_name, hidden], ensure_ascii=False, separators=(",", ":")
-                )
-                for char in "<>|()":
-                    metadata = metadata.replace(char, "\\u%04x" % ord(char))
-                for row in child_display:
-                    row[1] = row[1].removeprefix("Lambda.")
-                child_display[0][3] = (
-                    f"<!-- lambda-permission: {metadata} --> " + child_display[0][3]
-                )
+            if not formal:
+                if not render_in_parent:
+                    for row in child_display:
+                        row[1] = child_type + "." + row[1]
+                if named_child:
+                    child_display = named_child.prepare(
+                        child_name, child_rows, child_display
+                    )
             prefix = f'<a id="{child["anchor"]}"></a><!-- logical-id: {child[RESOURCE_LOGICAL_ID_KEY]} --> '
-            if (
-                child[RESOURCE_TYPE_KEY] == ROTATION_SCHEDULE
-                or formal
-                and child[RESOURCE_TYPE_KEY] == LAMBDA_PERMISSION
-            ):
+            if named_child and (formal or named_child.label_in_display):
                 prefix += child_name + "："
             child_display[0][3] = prefix + child_display[0][3]
             display += child_display
@@ -552,10 +521,12 @@ def resource_table_lines(
             display = _dependency_array_display.order_array_fields(
                 display, rows, kind, root
             )
-        if not formal and kind == "SecretsManager.Secret":
-            for row in display:
-                if row[1].startswith(ROTATION_SCHEDULE + "."):
-                    row[1] = row[1].removeprefix("SecretsManager.")
+        if not formal:
+            for child_type in extension.child_property_prefixes:
+                namespace = child_type.split(".", 1)[0]
+                for row in display:
+                    if row[1].startswith(child_type + "."):
+                        row[1] = row[1].removeprefix(namespace + ".")
         if json_cells is not None:
             display = collapse_json_cells(
                 display, resource["anchor"], json_cells, documents, presentation
@@ -660,9 +631,6 @@ def _generate_markdown(
         path,
         path.parents[4],
         reference_values=reference_values,
-        service_presentation=_cloudtrail_presentation
-        if path.stem == "cloudtrail"
-        else None,
     )
     values = reference_display(
         values,
@@ -890,7 +858,7 @@ def render_markdown(
                     "</details>",
                 ]
             output += ["", end]
-        if kind == "Macie.ClassificationJob":
+        if kind == MACIE_JOB:
             definitions = [row for row in rows if row[1] == kind + ".s3JobDefinition"]
             if definitions:
                 row_id = definitions[0][0]
@@ -902,24 +870,9 @@ def render_markdown(
                     )
                 )
                 document = policy_json(raw)
-                if "bucketDefinitions" in document:
-                    mappings = [
-                        [
-                            f"[{name}](#{resource['anchor']})",
-                            f"`{group['accountId']}`",
-                            f"`{bucket}`",
-                        ]
-                        for group in document["bucketDefinitions"]
-                        for bucket in group["buckets"]
-                    ]
-                    output += [
-                        "",
-                        "#### 対象S3 bucket",
-                        "",
-                        *_dependency_policy_tables.table(
-                            ["Job", "AWS account ID", "Bucket"], mappings
-                        ),
-                    ]
+                output += bucket_definitions_markdown(
+                    document, name, resource["anchor"]
+                )
     return "\n".join(output) + service_note_markdown(values) + "\n"
 
 

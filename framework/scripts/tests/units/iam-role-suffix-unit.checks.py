@@ -18,12 +18,10 @@ from model.format import serialize
 from model.operations import prepare_edit, publish_edit
 from model.render import markdown_for
 from model.validations.naming import (
-    check_iam_role_suffix as suffix_errors,
-)
-from model.validations.naming import (
     resolve_target_suffix,
     validate_resource_naming_suffix,
 )
+from services.iam.design import check_iam_role_suffix as suffix_errors
 from support.import_model_fixtures import resource_values, service_values
 from support.issues_scan_fixtures import fixture, review_for, task
 from support.producer_identifier_reference_fixtures import setup, write_model

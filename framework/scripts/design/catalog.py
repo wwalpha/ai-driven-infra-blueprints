@@ -13,6 +13,14 @@ import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.aws_schemas as _imports_utils_aws_schemas
 import utils.cloudformation.schema as _dependency_cloudformation_schema
 from model.reference_nodes import is_reference, parse
+from services.macie.design import MACIE_JOB as MACIE_JOB
+from services.macie.display import job_errors, job_rule_inputs
+from services.quicksight.design import QUICKSIGHT_GROUP as QUICKSIGHT_GROUP
+from services.route53.display import (
+    ALIAS_ZONE_PROPERTY,
+    RECORD_PROPERTY,
+    endpoint_dns_operand,
+)
 from utils.cloudformation.schema import (
     CloudFormationSchemaCatalog,
     object_property_schemas,
@@ -20,15 +28,6 @@ from utils.cloudformation.schema import (
 from utils.input_cache import input_select, input_text, memoized
 from utils.json_format import strict_json
 from utils.property_path import definition_path
-
-from design.services.definitions.macie import MACIE_JOB as MACIE_JOB
-from design.services.definitions.quicksight import QUICKSIGHT_GROUP as QUICKSIGHT_GROUP
-from design.services.macie import job_errors, job_rule_inputs
-from design.services.route53 import (
-    ALIAS_ZONE_PROPERTY,
-    RECORD_PROPERTY,
-    endpoint_dns_operand,
-)
 
 
 @memoized

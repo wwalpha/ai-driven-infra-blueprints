@@ -13,8 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison.methods import compare_values
-from comparison.registry import rules
-from comparison.rules import route53
 from comparison.runner import Settings
 from design.catalog import DesignSchemaCatalog
 from json_intrinsics import project_document
@@ -22,6 +20,8 @@ from model.core import entries
 from model.projection import document_references, reference_resolver
 from model.references import symbolic
 from model.sources import Scope, load_model
+from services.registry import REGISTRY
+from services.route53 import comparison as route53
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
@@ -317,7 +317,7 @@ def test_selected_row_shapes_and_container_comparison(models, prop, ticked, entr
         desired,
         [actual],
         "ResourceRecords",
-        rules=rules("Route53.RecordSet"),
+        rules=REGISTRY.require_comparison("Route53.RecordSet"),
         reference=partial(route_decision, inputs),
     )
     assert result.equal is True
@@ -670,7 +670,8 @@ def test_alias_dns_selection(models, model_export, fault):
         output = {
             "Value": extraction(
                 logical="Resource002" if fault == "other_endpoint" else "Resource001",
-                entry=int(fault == "export_index"), field=int(fault == "export_field")
+                entry=int(fault == "export_index"),
+                field=int(fault == "export_field"),
             ),
             "Export": {"Name": {"Fn::Sub": "EndpointZone${Suffix}"}},
         }
@@ -705,7 +706,9 @@ def test_alias_dns_selection(models, model_export, fault):
         assert result.equal is (True if fault is None else None), result
         if model_export and fault is None:
             assert result.diagnostics[0]["evidence_type"] == "export_expression"
-            assert result.diagnostics[0]["exports"][0]["export_name"] == "EndpointZoneTest"
+            assert (
+                result.diagnostics[0]["exports"][0]["export_name"] == "EndpointZoneTest"
+            )
             assert result.diagnostics[0]["current_aws_verified"] is False
             assert result.diagnostics[0]["runtime_bounds_verified"] is False
 

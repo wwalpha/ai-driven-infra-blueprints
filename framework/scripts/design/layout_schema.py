@@ -4,11 +4,8 @@ import json
 import re
 from pathlib import Path
 
+from services.registry import REGISTRY
 from utils.input_cache import input_text
-from utils.reference_contracts import LINKED_LIST_PROPERTIES as LINKED_LIST_PROPERTIES
-from utils.reference_contracts import SUBNET_LIST_PROPERTIES as SUBNET_LIST_PROPERTIES
-
-from design.services.definitions.config import RESOURCE_ANCHOR_KINDS
 
 
 class SavedIdentityError(ValueError):
@@ -65,7 +62,7 @@ STACK_HEADER = "| No. | Deploy<br>Order | StackName | Template | Parameters | Co
 
 def resource_anchor(service_id: str, name: str, resource_type: str = "") -> str:
     """Use the displayed resource name as the navigation identity."""
-    kind = RESOURCE_ANCHOR_KINDS.get(resource_type)
+    kind = REGISTRY.design_tables.get("RESOURCE_ANCHOR_KINDS", {}).get(resource_type)
     prefix = f"{service_id}-{kind}" if kind else service_id
     return prefix + "-" + re.sub(r"[^a-z0-9_.-]+", "-", name.lower()).strip("-")
 

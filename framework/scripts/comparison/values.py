@@ -11,6 +11,7 @@ from design.policy_tables import literal
 from model.literal_values import literal_errors as row_literal_errors
 from model.literal_values import typed_value, value_shape
 from model.reference_nodes import is_reference
+from services.reference_engine import REFERENCES
 from utils.cloudformation.format import boolean_literal
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import (
@@ -18,7 +19,6 @@ from utils.iac_values import (
     ResourceReference,
 )
 from utils.json_format import policy_json as strict_json
-from utils.reference_contracts import reference_context
 
 from .deferral import DesiredPendingDeployExcluded, ImportReferenceDeferred
 
@@ -206,7 +206,7 @@ def _callback__desired_value_references_86(
                 ):
                     return Expression("Unverified", [])
                 return projected
-        context = reference_context(path, item, context)
+        context = REFERENCES.bind_context(path, item, context)
         return {
             key: _callback__desired_value_references_86(
                 desired_reference,

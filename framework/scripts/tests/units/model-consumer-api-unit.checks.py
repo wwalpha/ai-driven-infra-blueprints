@@ -9,8 +9,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from comparison.rules.route53 import model_property
 from contracts.model import key_kind, row_has_resource_prefix
+from services.route53.comparison import model_property
 from utils.cloudformation.inputs import Blocked
 
 if not __debug__:

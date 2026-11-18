@@ -20,45 +20,45 @@ Every AST Import/ImportFrom binding under framework/scripts was enumerated, with
 
 Runtime Model import bindings: **399**, shared contracts included below: **140**. Consumer source files with Model bindings: **102**. Internal Model Python files: **63**. Categories (including contracts): A=288, B=19, C=1, D=231.
 
-### aws-compare-services/cloudformation-stacks.py
+### model/adapters/stacks.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 3 | `model.adapters.aws.AcquisitionError` | D | 61,66,76,89 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 | 5 | `model` | B | 16,24,39 | 既存公開 API／ModelView／Model Key 契約を利用。内部構造の再解析・再構成を行わない。 使用操作: `ModelView`, `key_kind`. |
 
-### aws-compare-services/cloudwatch-logs.py
+### services/logs/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 3 | `model.adapters.aws.one` | A | 14 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/codebuild.py
+### services/codebuild/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 3 | `model.adapters.aws.one` | A | 15 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/codepipeline.py
+### services/codepipeline/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 5 | `model.adapters.aws.MISSING` | D | 20 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 
-### aws-compare-services/config.py
+### services/config/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 3 | `model.adapters.aws.one` | A | 18,26 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/data-firehose.py
+### services/kinesis_firehose/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 3 | `model.adapters.aws.Unresolved` | D | 23,26 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 | 3 | `model.adapters.aws.one` | A | 35 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/datazone.py
+### services/datazone/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
@@ -66,7 +66,7 @@ Runtime Model import bindings: **399**, shared contracts included below: **140**
 | 5 | `model.adapters.aws.execution_account` | A | 28 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 | 5 | `model.adapters.aws.one` | A | 29 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/ec2.py
+### services/ec2/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
@@ -74,33 +74,33 @@ Runtime Model import bindings: **399**, shared contracts included below: **140**
 | 3 | `model.adapters.aws.Unresolved` | D | 34 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 | 3 | `model.adapters.aws.one` | A | 45 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/glue.py
+### services/glue/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 4 | `model.adapters.aws.one` | A | 26 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/guardduty.py
+### services/guardduty/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 5 | `model.adapters.aws.one` | A | 37,86 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/iam.py
+### services/iam/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 3 | `model.adapters.aws.AcquisitionError` | D | 80,87,95 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 | 3 | `model.adapters.aws.one` | A | 33 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/kms.py
+### services/kms/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 3 | `model.adapters.aws.Unresolved` | D | 42,48 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 | 3 | `model.adapters.aws.one` | A | 19 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/lambda.py
+### services/lambda_/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
@@ -108,13 +108,13 @@ Runtime Model import bindings: **399**, shared contracts included below: **140**
 | 5 | `model.adapters.aws.Unresolved` | D | 29 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 | 5 | `model.adapters.aws.one` | A | 35,63,66 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/macie.py
+### services/macie/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 4 | `model.adapters.aws.one` | A | 36 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/quicksight.py
+### services/quicksight/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
@@ -123,7 +123,7 @@ Runtime Model import bindings: **399**, shared contracts included below: **140**
 | 7 | `model.adapters.aws.Unresolved` | D | 28,37,39,45,53,55,69,82,94,113,123,125,152 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 | 7 | `model.adapters.aws.execution_account` | A | 32,34,38,47,50 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/route53.py
+### services/route53/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
@@ -132,7 +132,7 @@ Runtime Model import bindings: **399**, shared contracts included below: **140**
 | 4 | `model.importing.sdk_inventory.route53_pages` | A | 55 | 取得・保存の許可範囲、証跡、既存 Import 操作を Model に委譲。呼び出し側は実行を制御。 |
 | 4 | `model.importing.sdk_inventory.route53_projection` | A | 67 | 取得・保存の許可範囲、証跡、既存 Import 操作を Model に委譲。呼び出し側は実行を制御。 |
 
-### aws-compare-services/s3.py
+### services/s3/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
@@ -141,13 +141,13 @@ Runtime Model import bindings: **399**, shared contracts included below: **140**
 | 7 | `model.adapters.aws.Field` | D | 25 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 | 7 | `model.adapters.aws.one` | A | 39 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/secrets-manager.py
+### services/secrets_manager/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 3 | `model.adapters.aws.Unresolved` | D | 20 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 
-### aws-compare-services/security-group.py
+### services/ec2/aws_security_group.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
@@ -157,7 +157,7 @@ Runtime Model import bindings: **399**, shared contracts included below: **140**
 | 3 | `model.adapters.aws.one` | A | 90,138,206 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 | 3 | `model.adapters.aws.select` | A | 72,199,203 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/sqs.py
+### services/sqs/aws.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
@@ -165,20 +165,20 @@ Runtime Model import bindings: **399**, shared contracts included below: **140**
 | 5 | `model.adapters.aws.MISSING` | D | 41,48,49 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 | 5 | `model.adapters.aws.Unresolved` | D | 45,51 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 
-### aws-compare-services/transit-gateway.py
+### services/ec2/aws_transit_gateway.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 3 | `model.adapters.aws.one` | A | 24 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/vpc-endpoint.py
+### services/ec2/aws_vpc_endpoint.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
 | 3 | `model.adapters.aws.Unresolved` | D | 24 | 型・例外・定数・純粋な値処理。Snapshot の構成／変更を行わない。 |
 | 3 | `model.adapters.aws.one` | A | 35 | 既存の取得／Observed 対応 API。応答の取得・識別・正規化を再実装しない。 |
 
-### aws-compare-services/vpc.py
+### services/ec2/aws_vpc.py
 
 | Import line | Dependency | Class | Use lines | Disposition |
 | ---: | --- | :---: | --- | --- |
@@ -912,13 +912,6 @@ Runtime Model import bindings: **399**, shared contracts included below: **140**
 | 10 | `model.importing.scope.restrict` | A | 129 | 取得・保存の許可範囲、証跡、既存 Import 操作を Model に委譲。呼び出し側は実行を制御。 |
 | 10 | `model.importing.scope.selected` | A | 117 | 取得・保存の許可範囲、証跡、既存 Import 操作を Model に委譲。呼び出し側は実行を制御。 |
 | 16 | `model.sources.source_scope` | A | 127 | Model の読み取り、入力追跡、変更計画、検証済み公開・整合性確認を既存 API に委譲。 |
-
-### utils/arn_components.py
-
-| Import line | Dependency | Class | Use lines | Disposition |
-| ---: | --- | :---: | --- | --- |
-| 5 | `contracts.model.MODEL_PENDING_DEPLOY` | D | 42 | 共有契約。Model の起動・I/O・認可を伴わない定数／Key 操作。 |
-| 5 | `contracts.model.MODEL_UNSET` | D | 42 | 共有契約。Model の起動・I/O・認可を伴わない定数／Key 操作。 |
 
 ### utils/arn_values.py
 

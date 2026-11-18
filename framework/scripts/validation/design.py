@@ -15,12 +15,12 @@ import design.document as _design_document
 import design.layout as _dependency_design_layout
 import design.layout as _imports_design_layout
 import design.policy_tables as _dependency_policy_tables
-import design.services.ec2.security_groups as _dependency_security_group_tables
 import model.files as _dependency_model_files
 import model.projection as _dependency_model_projection
 import model.render as _imports_model_render
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
+import services.ec2.security_groups as _dependency_security_group_tables
 import utils.aws_catalogs as _imports_utils_aws_catalogs
 import validation_scope as _dependency_validation_scope
 from contracts.model import (
@@ -42,14 +42,14 @@ from design.catalog import (
 )
 from design.layout_schema import CHILD, GROUPED, STACK_DESIGN
 from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
-from design.services.codebuild import PlaintextReferenceError
-from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
-from design.services.definitions.registry import HIDDEN_PROPERTIES, POLICY_FORMATS
 from model.core import (
     ReferenceDiagnosticError,
     ReferenceResolutionError,
     properties,
 )
+from services.codebuild.display import PlaintextReferenceError
+from services.ec2.design import SECURITY_GROUP_TYPES
+from services.registry import REGISTRY
 from utils.cloudformation.schema import material_files, snapshot_errors
 from utils.input_cache import input_scope, input_text, memoized
 from utils.project_targets import LOWER_KEBAB_PATTERN
@@ -64,6 +64,9 @@ from .diagnostics import (
     service_scope,
 )
 from .findings import FindingsError
+
+HIDDEN_PROPERTIES = REGISTRY.design_tables.get("HIDDEN_PROPERTIES", frozenset())
+POLICY_FORMATS = REGISTRY.design_tables.get("POLICY_FORMATS", {})
 
 TABLE_HEADER = "| No. | Property | Value | Description |"
 TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
@@ -98,10 +101,6 @@ REQUIRED_NAME_PROPERTIES = {
 }
 GROUPED_CHILD_RESOURCE_TYPES = set(GROUPED)
 DESIGN_ONLY_PROPERTIES = {"S3.Bucket.Region": "S3.Bucket"}
-S3_KMS_MASTER_KEY_ID = (
-    "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]"
-    ".ServerSideEncryptionByDefault.KMSMasterKeyID"
-)
 
 
 def check_model_files(findings, root, scope) -> None:
@@ -508,10 +507,14 @@ def _callback_check_resource_names_check_name(
             elif (
                 not direct_name
                 or "[]" in field
-                and resource_type in _dependency_design_layout.REQUIRED_NAME_TAG_TYPES
+                and resource_type
+                in REGISTRY.design_tables.get("REQUIRED_NAME_TAG_TYPES", frozenset())
             ) and re.match(r"(?:Tags|HostedZoneTags)(?:$|[.\[])", field):
                 if (
-                    resource_type in _dependency_design_layout.REQUIRED_NAME_TAG_TYPES
+                    resource_type
+                    in REGISTRY.design_tables.get(
+                        "REQUIRED_NAME_TAG_TYPES", frozenset()
+                    )
                     and field.startswith("Tags.")
                     and field != "Tags.Name"
                 ):
@@ -576,7 +579,7 @@ def _callback_check_resource_names_check_name(
         if (
             not saved_rows
             and resource_type
-            in _dependency_design_layout.REQUIRED_NAME_TAG_TYPES
+            in REGISTRY.design_tables.get("REQUIRED_NAME_TAG_TYPES", frozenset())
             | {"IAM.Role", "CodeBuild.Project"}
             and (
                 mode != RESOURCE_MODE_IMPORT

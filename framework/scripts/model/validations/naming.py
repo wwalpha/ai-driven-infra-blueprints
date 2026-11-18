@@ -18,6 +18,7 @@ from design.catalog import (
     DesignSchemaCatalog,
     selected_properties,
 )
+from services.registry import REGISTRY
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_context, memoized
@@ -27,19 +28,10 @@ from validation.findings import Findings
 from model.core import literal
 from model.projection import design_target, resource_rows
 
-NAMING_EXEMPT_PROPERTIES = {
-    "Config.ConfigurationRecorder.Name",
-    "Config.DeliveryChannel.Name",
-    "Glue.Connection.ConnectionInput.Name",
-    "Glue.Database.DatabaseInput.Name",
-    "Glue.Table.TableInput.Name",
-    "GuardDuty.Detector.Name",
-    "IAM.ManagedPolicy.ManagedPolicyName",
-    "IAM.User.UserName",
-    "IAM.InstanceProfile.InstanceProfileName",
-    "Route53.HostedZone.Name",
-    "Route53.RecordSet.Name",
-}
+FIFO_PROPERTIES = REGISTRY.design_tables.get("FIFO_PROPERTIES", {})
+NAMING_EXEMPT_PROPERTIES = REGISTRY.design_tables.get(
+    "NAMING_EXEMPT_PROPERTIES", frozenset()
+)
 
 
 def value_available(value: object, shown: object) -> bool:
@@ -67,23 +59,11 @@ def provider_naming_errors(
     kind: str, field: str, value: str, conditions: dict[str, str | None] | None = None
 ) -> list[str]:
     """Retain explicit AWS constraints not represented by every provider schema."""
-    if (kind, field) == ("S3.Bucket", "BucketName") and (
-        not 3 <= len(value) <= 63
-        or not re.fullmatch(r"[a-z0-9][a-z0-9.-]*[a-z0-9]", value)
-    ):
-        return ["S3 BucketName must be lowercase and 3–63 characters"]
-    if (kind, field) == ("SQS.Queue", "QueueName") and (
-        len(value) > 80 or not re.fullmatch(r"[A-Za-z0-9_-]+(?:\.fifo)?", value)
-    ):
-        return ["SQS QueueName has invalid characters or exceeds 80 characters"]
-    if (kind, field) == ("KMS.Alias", "AliasName") and (
-        not value.startswith("alias/") or value.startswith("alias/aws/")
-    ):
-        return ["KMS AliasName must use alias/ and exclude reserved alias/aws/"]
-    if (kind, field) in {("SQS.Queue", "QueueName"), ("SNS.Topic", "TopicName")}:
-        fifo = (conditions or {}).get(
-            "FifoQueue" if kind == "SQS.Queue" else "FifoTopic"
-        )
+    check = REGISTRY.design_tables.get("PROVIDER_NAME_CHECKS", {}).get(kind)
+    if check is not None and (errors := check(kind, field, value)):
+        return errors
+    if (fifo_fields := FIFO_PROPERTIES.get(kind)) and field == fifo_fields[0]:
+        fifo = (conditions or {}).get(fifo_fields[1])
         if (
             fifo is True or isinstance(fifo, str) and fifo.lower() == "true"
         ) and not value.endswith(".fifo"):
@@ -239,9 +219,9 @@ def design_naming_errors(
         {"Tags", "Tags[].Key", "HostedZoneTags", "HostedZoneTags[].Key"}
     ):
         raise InputValidationError(f"Name tag is not selectable: {kind}")
-    if kind in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}:
+    if kind + ".Name" in REGISTRY.design_tables.get("CATALOG_EXEMPT_NAMES", ()):
         selected.add("Name")
-    if kind in {"EC2.VPCEndpoint", "EC2.Instance"}:
+    if kind in REGISTRY.design_tables.get("REQUIRED_NAME_TAG_TYPES", ()):
         name_tag = True
     return naming_coverage_errors(root, kind, selected, name_tag, mode)
 
@@ -254,30 +234,18 @@ def resolve_target_suffix(view: Path, root: Path) -> str | None:
     return target.get("suffix")
 
 
-def check_iam_role_suffix(role_name: str, expected_suffix: str | None) -> list[str]:
-    """RoleName の末尾が対象ターゲットの suffix と一致するか検証する。"""
-    ending = "Role" + ("-" + expected_suffix if expected_suffix is not None else "")
-    # purpose と suffix の境界は PascalCase と固定の Role で判別する。
-    if re.fullmatch(r".+-[A-Z][A-Za-z0-9]*" + re.escape(ending), role_name):
-        return []
-    return [
-        f"IAM.Role.RoleName suffix mismatch: actual={role_name!r}, "
-        f"expected suffix={expected_suffix!r}; expected ending={ending!r}"
-    ]
-
-
 def validate_resource_naming_suffix(
     kind: str, mode: str, rows: list[list[str]], view: Path, root: Path
 ) -> list[str]:
     """CREATE の IAM Role にだけ対象ターゲットの suffix 検証を適用する。"""
-    if kind != "IAM.Role" or mode != RESOURCE_MODE_CREATE:
+    check = REGISTRY.design_tables.get("NAMING_SUFFIX_CHECKS", {}).get(kind)
+    if check is None or mode != RESOURCE_MODE_CREATE:
         return []
+    field = REGISTRY.design_tables["CONFIRMED_NAME_FIELDS"][kind]
     role_name = next(
-        row[2].strip('`"')
-        for row in rows
-        if row[1].removeprefix(kind + ".") == "RoleName"
+        row[2].strip('`"') for row in rows if row[1].removeprefix(kind + ".") == field
     )
-    return check_iam_role_suffix(role_name, resolve_target_suffix(view, root))
+    return check(role_name, resolve_target_suffix(view, root))
 
 
 def naming_errors(
@@ -289,8 +257,7 @@ def naming_errors(
     project_root: Path | None = None,
 ) -> list[str]:
     """既存の名前確認とスキーマ制約、命名ルールの適用結果を返す。"""
-    if kind in {"CodeBuild.Project", "IAM.Role"}:
-        field = "RoleName" if kind == "IAM.Role" else "Name"
+    if field := REGISTRY.design_tables.get("CONFIRMED_NAME_FIELDS", {}).get(kind):
         names = [
             row[2].strip('`"')
             for row in rows

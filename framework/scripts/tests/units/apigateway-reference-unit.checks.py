@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from utils.arn_components import public_domain as arn_components
+from services.api_gateway.arn import public_domain as arn_components
 from utils.cloudformation.inputs import Blocked
 
 if not __debug__:

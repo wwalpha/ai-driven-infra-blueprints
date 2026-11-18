@@ -22,10 +22,14 @@ import model.projection as _imports_model_projection
 import model.references as _model_references
 import model.render as _model_render
 import model.sources as _imports_model_sources
+import services.ec2.security_groups as _dependency_security_group_tables
 import validation_scope as _dependency_validation_scope
 from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
 from contracts.repository import DESIGNS_DIRECTORY
 from model.core import SnapshotValues
+from services.codebuild.design import CODEBUILD_FORMAL_VARIABLE
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from task_contract_core import task_read_scope
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text, memoized
@@ -35,7 +39,6 @@ from validation.findings import Findings, FindingsError
 import design.array_display as _array_display
 import design.layout as _dependency_design_layout
 import design.policy_tables as _dependency_policy_tables
-import design.services.ec2.security_groups as _dependency_security_group_tables
 import model as _model_api
 from design.layout_schema import (
     ANCHOR,
@@ -45,7 +48,6 @@ from design.layout_schema import (
     RESOURCE,
     SavedIdentityError,
 )
-from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
 
 
 class DisplayMismatchError(ValueError):
@@ -177,13 +179,13 @@ def model_reference_tables(path, text, values, root, *, check_document=True):
     if not _dependency_policy_tables.has_folded_json(text) and not any(
         (check_document and item.references)
         or any(
-            row[1] in _dependency_policy_tables.IAM_POLICY_DOCUMENTS
+            row[1] in REGISTRY.design_tables.get("JSON_LINK_IN_COMMENT", ())
             for row in item.rows
         )
         or item.kind != "EC2.SecurityGroup"
         and any(
             (
-                row[1] in _dependency_design_layout.LINKED_LIST_PROPERTIES
+                REFERENCES.linked_list_kind(row[1]) is not None
                 or re.search(
                     r"\[(?:[1-9]\d*)?\]",
                     _array_display.array_template(row[1], item.kind, root),

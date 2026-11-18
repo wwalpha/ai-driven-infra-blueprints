@@ -13,9 +13,9 @@ from model.core import ReferenceResolutionError
 from model.references import codebuild_reference_errors
 from model.sources import load_model
 from model.validations.naming import NamingRuleIndex
+from services.reference_engine import REFERENCES
 from task_contract_core import task_read_scope
 from utils.input_cache import input_scope, input_text
-from utils.reference_contracts import reference_error
 from validation import runner as validator_module
 from validation.diagnostics import Diagnostic
 from validation.findings import Findings, check_metadata, finish_result
@@ -100,7 +100,9 @@ def mechanical(
     return validator.errors, validator.checks, output.getvalue()
 
 
-def saved_policy_json(root, entry, findings, view_errors, view_reader, policy_json_views):
+def saved_policy_json(
+    root, entry, findings, view_errors, view_reader, policy_json_views
+):
     environment, directory, service = entry
     doc = root / DESIGNS_DIRECTORY / environment / directory / (service + ".md")
     if not doc.is_file() or doc in (view_errors or {}):
@@ -169,7 +171,7 @@ def review_materials(comparison, service, policy_json_views=None):
 
 def codebuild_plaintext_diagnostics(message, comparison):
     """Identify only this policy across its Model and saved-View error wrappers."""
-    reason = reference_error(
+    reason = REFERENCES.error_at(
         "CodeBuild.Project.Environment.EnvironmentVariables[].Value",
         {"Type": "PLAINTEXT"},
     )

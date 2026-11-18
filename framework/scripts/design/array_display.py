@@ -10,32 +10,19 @@ from pathlib import Path
 
 import aws_mapping_display as _imports_aws_mapping_display
 from model.core import LINK, literal
+from services.registry import REGISTRY
 from utils.input_cache import input_scope, memoized
 
 from design.catalog import DesignSchemaCatalog
 from design.common import catalog_property_order, code
-from design.services import cloudtrail, codebuild, codepipeline, guardduty
 
 ROOT = Path(__file__).resolve().parents[3]
 ARRAY = re.compile(r"\[\]")
 TAG_PROPERTY = re.compile(
     r"(?:^|\.)(?:[A-Za-z0-9]*Tags|tags)(?:\[\])?(?:\.(Key|Value))?$"
 )
-METADATA_PROPERTY = re.compile(
-    r"(?:^|\.)RotationSchedule\.Metadata\[\]\.(Key|Value)$"
-)
+METADATA_PROPERTY = re.compile(r"(?:^|\.)RotationSchedule\.Metadata\[\]\.(Key|Value)$")
 TAG_CELL = re.compile(r"(`[^`]*`|<code>.*?</code>|\[[^\]]+\]\([^)]*\)) = (.+)")
-ARRAY_TEMPLATES = {
-    "CodePipeline.Pipeline": codepipeline.array_template,
-    "CloudTrail.Trail": cloudtrail.array_template,
-    "GuardDuty.Detector": guardduty.array_template,
-    "CodeBuild.Project": codebuild.array_template,
-}
-COMPACT_ARRAYS = (
-    cloudtrail.compact_array,
-    guardduty.compact_array,
-    codebuild.compact_array,
-)
 
 
 @memoized
@@ -75,8 +62,9 @@ def array_template(prop, kind, root):
                             count=1,
                         )
                         break
-    if owner in ARRAY_TEMPLATES:
-        template = ARRAY_TEMPLATES[owner](template)
+    transform = REGISTRY.presentation(owner).array_template
+    if transform is not None:
+        template = transform(template)
     if "[]" in template:
         parent, remainder = template.split("[]", 1)
         template = parent + "[]" + re.sub(r"\[[1-9]\d*\]", "[]", remainder)
@@ -160,8 +148,10 @@ def compact_tag_rows(rows):
             key = value
             keys, values = _tag_collection(key), _tag_collection(val)
             if isinstance(keys, list) and isinstance(values, list):
-                if not keys or len(keys) != len(values) or not all(
-                    isinstance(item, str) for item in keys + values
+                if (
+                    not keys
+                    or len(keys) != len(values)
+                    or not all(isinstance(item, str) for item in keys + values)
                 ):
                     result.append(row)
                     continue
@@ -244,7 +234,8 @@ def indexed_rows(rows, kind, root=ROOT):
             numbered_property("Tags[].Key", states)
             numbered_property("Tags[].Value", states)
         template = array_template(prop, kind, root)
-        compact = any(matches(template) for matches in COMPACT_ARRAYS)
+        matcher = REGISTRY.presentation(kind).compact_array
+        compact = matcher(template) if matcher is not None else False
         if "[]" not in template:
             result.append([identity, prop, value, comment])
             continue

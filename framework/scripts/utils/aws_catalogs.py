@@ -5,11 +5,13 @@ from pathlib import Path
 from threading import Lock
 from types import MappingProxyType
 
-from design.services.definitions.registry import HIDDEN_PROPERTIES
+from services.registry import REGISTRY
 
 import utils.aws_mappings as _imports_utils_aws_mappings
 from utils.input_cache import input_select, input_text, memoized
 from utils.lazy_definitions import load_once
+
+HIDDEN_PROPERTIES = REGISTRY.design_tables.get("HIDDEN_PROPERTIES", frozenset())
 
 _lock = Lock()
 _instances = {}
@@ -20,9 +22,7 @@ def _callback_Catalogs_lines_load(resource_type, self, /):
         (p for p in self.paths if p.stem.replace("_", ".", 1) == resource_type), None
     )
     return (
-        None
-        if path is None
-        else tuple(input_text(path, encoding="utf-8").splitlines())
+        None if path is None else tuple(input_text(path, encoding="utf-8").splitlines())
     )
 
 

@@ -9,9 +9,9 @@ from functools import partial
 import json_intrinsics
 from contracts.model import RESOURCE_LOGICAL_ID_KEY, RESOURCE_TYPE_KEY
 from contracts.repository import DESIGNS_DIRECTORY
-from design.services import reference_labels
-from design.services.definitions.registry import POLICY_FORMATS
-from utils.reference_contracts import ARN_SHAPES
+from design import reference_labels
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 
 import model.files as files
 import model.identity as identity
@@ -28,6 +28,8 @@ from model.reference_nodes import (
     reference_document,
     resolve,
 )
+
+POLICY_FORMATS = REGISTRY.design_tables.get("POLICY_FORMATS", {})
 
 
 @dataclass(frozen=True)
@@ -67,11 +69,8 @@ def input_strings(value):
 class Presentation:
     """Carry typed positions through existing, lossless service display transforms."""
 
-    def __init__(
-        self, values, path, root, *, reference_values=None, service_presentation=None
-    ):
+    def __init__(self, values, path, root, *, reference_values=None):
         self.values, self.root = values, root
-        self.service_presentation = service_presentation
         self.scope = sources.scope_for(
             (root / "model" / path.relative_to(root / DESIGNS_DIRECTORY)).with_suffix(
                 ".properties"
@@ -84,6 +83,9 @@ class Presentation:
         for rows in files.resource_row_index(values).values():
             for rid, row in rows:
                 prop = row["property"]
+                rules = REGISTRY.presentation(
+                    ".".join(prop.split(".")[:2])
+                ).document_reference_rules
                 for field in ("value", "document"):
                     if field not in row:
                         continue
@@ -103,10 +105,8 @@ class Presentation:
                         ),
                     )
                     row_nodes = list(nodes(raw, errors=[]))
-                    if self.service_presentation:
-                        self.service_presentation.validate_references(
-                            prop, field, raw, row_nodes, diagnostics
-                        )
+                    if rules is not None:
+                        rules.validate(prop, field, raw, row_nodes, diagnostics)
                     for node in row_nodes:
                         result = resolutions.get(node)
                         position = Position(rid, field, node.pointer)
@@ -131,8 +131,8 @@ class Presentation:
                                 result=result,
                             ),
                         )
-                    if self.service_presentation:
-                        self.service_presentation.require_reference_links(
+                    if rules is not None:
+                        rules.require_links(
                             prop,
                             field,
                             row_nodes,
@@ -205,17 +205,15 @@ class Presentation:
                 {node: result}, self.resolver, self.scope, self.root, node
             )
             kind = resource[RESOURCE_TYPE_KEY]
-            attribute = projection.reference_attribute(kind, node.attribute)
-            field = projection.RETURN_ATTRIBUTE_PROPERTIES.get(
-                (kind, attribute), attribute
-            )
+            attribute = REFERENCES.formal_attribute(kind, node.attribute)
+            field = REFERENCES.return_property(kind, attribute, attribute)
             identifiers = projection.identifier_outputs(self.root).get(kind, ())
-            shape = ARN_SHAPES.get(kind)
+            shape = REFERENCES.arn_shape(kind)
             components = shape[0] if shape else ()
             components = (components,) if isinstance(components, str) else components
             identifier_arn = (
                 shape is not None
-                and attribute == projection.reference_attribute(kind, "Arn")
+                and attribute == REFERENCES.formal_attribute(kind, "Arn")
                 and any(kind + "." + part in identifiers for part in components)
                 and not (
                     policy_document
@@ -239,8 +237,16 @@ class Presentation:
                 name,
                 displayed,
             )
-            if self.service_presentation:
-                name = self.service_presentation.reference_label(
+            prop = contract.get("property_name")
+            rules = (
+                REGISTRY.presentation(
+                    ".".join(prop.split(".")[:2])
+                ).document_reference_rules
+                if prop
+                else None
+            )
+            if rules is not None:
+                name = rules.label(
                     contract.get("property_name"),
                     position.source_field,
                     name,

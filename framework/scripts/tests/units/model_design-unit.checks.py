@@ -31,7 +31,6 @@ from design.layout import (
     catalog_order_errors,
     expanded_design,
     formal_property,
-    is_import_role_arn,
     resource_display_name,
     resource_display_selection,
     stack_deployment_policy,
@@ -46,8 +45,9 @@ from model.projection import resource_rows
 from model.render import markdown_for
 from model.sources import scope_for
 from model.validations.identity import validate_resource_identities
-from model.validations.policies import validate_kms_policy_accounts
+from model.validations.policies import validate_policy_accounts
 from model.validations.schema import validate_required_properties
+from services.config.display import is_import_role_arn
 from support.fixture_cases import materialize_files
 from support.model_design_fixtures import (
     ALIGNMENT,
@@ -1273,7 +1273,7 @@ def check_kms_policy_accounts():
     )
     values[document_key] = json.dumps(policy, separators=(",", ":"))
     original = dict(values)
-    validate_kms_policy_accounts(values, target)
+    validate_policy_accounts(values, target)
     assert values == original and all(s["Resource"] == "*" for s in policy["Statement"])
 
     for number in (0, 1):
@@ -1293,26 +1293,26 @@ def check_kms_policy_accounts():
                 f"cross-account:{arn}extra",
             ):
                 with pytest.raises(ValueError) as error:
-                    validate_kms_policy_accounts(
+                    validate_policy_accounts(
                         {**candidate, comment_key: comment}, target
                     )
                 assert f"Statement[{number + 1}]" in str(
                     error.value
                 ) and execution in str(error.value)
-            validate_kms_policy_accounts(
+            validate_policy_accounts(
                 {
                     **candidate,
                     comment_key: f"外部アカウントへ復号を許可 cross-account:{arn}",
                 },
                 target,
             )
-            validate_kms_policy_accounts(
+            validate_policy_accounts(
                 {**candidate, "desired.resource.001.resourceMode": "IMPORT"}, target
             )
     fallback = {
         key: value for key, value in target.items() if key != "awsExecutionAccountId"
     }
-    validate_kms_policy_accounts(
+    validate_policy_accounts(
         {**values, document_key: values[document_key].replace(execution, identity)},
         fallback,
     )
@@ -1323,13 +1323,13 @@ def check_kms_policy_accounts():
         "Action": "kms:Decrypt",
         "Resource": "*",
     }
-    validate_kms_policy_accounts({**values, document_key: json.dumps(other)}, target)
+    validate_policy_accounts({**values, document_key: json.dumps(other)}, target)
     other["Statement"]["Principal"] = {
         "AWS": macie_arn.replace(
             "macie.amazonaws.com", "macie.me-south-1.amazonaws.com"
         )
     }
-    validate_kms_policy_accounts({**values, document_key: json.dumps(other)}, target)
+    validate_policy_accounts({**values, document_key: json.dumps(other)}, target)
 
 
 @pytest.mark.parametrize(
@@ -2766,7 +2766,6 @@ def test_pipeline_action_catalog_order_and_event_target_display():
     assert [cells(line)[1] for line in table[2:]] == [
         fields[index].replace("[]", "[1]") for index in (0, 1, 3, 4, 2)
     ]
-
 
 
 if __name__ == "__main__":

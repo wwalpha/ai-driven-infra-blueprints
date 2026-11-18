@@ -4,32 +4,12 @@ import re
 from dataclasses import dataclass
 from functools import partial as _bind_framework_callback
 
-from model.projection import reference_attribute
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same
-from utils.reference_contracts import (
-    ATTRIBUTE_SUFFIXES,
-    REFERENCE_EQUIVALENT_FORMS,
-    REFERENCE_FORMS,
-    REFERENCE_PROPERTIES,
-    TYPE_FORMS,
-    VALUE_IDENTITIES,
-    contract,
-    policy_condition,
-    reference_error,
-    requires_context,
-    unproven_document_reference,
-)
 
-from . import expressions, registry
-
-_LOCAL_REFERENCE_CONTRACTS = {
-    "Events.Rule.Targets[].Arn": {"Lambda.Function": ("Arn",)},
-    "Events.Rule.Targets[].DeadLetterConfig.Arn": {"SQS.Queue": ("Arn",)},
-    "Scheduler.Schedule.Target.Arn": {"Lambda.Function": ("Arn",)},
-    "Lambda.Permission.SourceArn": {"S3.Bucket": ("Arn",), "Events.Rule": ("Arn",)},
-    "QuickSight.VPCConnection.RoleArn": {"IAM.Role": ("Arn",)},
-}
+from . import expressions
 
 
 @dataclass(frozen=True)
@@ -42,19 +22,19 @@ class ReferenceDecision:
 
 def reference_forms(kind, path, *, local_comparison, property_schema):
     key = kind + "." + path
-    override = registry.property_rule(kind, path).forms
+    override = REGISTRY.comparison_property_rule(kind, path).forms
     if local_comparison and override is not None:
         return override
     try:
         node = property_schema(kind, path)
     except KeyError:
         node = {}
-    registered = REFERENCE_PROPERTIES.get(key)
-    forms = REFERENCE_FORMS.get(key)
+    registered = REFERENCES.direct_reference(key)
+    forms = REFERENCES.declared_consumer_forms(key)
     if forms is not None:
         return forms
-    if local_comparison and policy_condition(key):
-        declared = contract(key)
+    if local_comparison and REFERENCES.policy_condition(key):
+        declared = REFERENCES.import_targets(key) or {}
         if declared:
             forms = {form for attributes in declared.values() for form in attributes}
     if forms is None and registered and registered[1]:
@@ -71,7 +51,10 @@ def reference_forms(kind, path, *, local_comparison, property_schema):
 def _callback_reference_diagnostic_format_status(
     forms, kind, kms_format, local_comparison, path, resource_type, /, value
 ):
-    if local_comparison and registry.property_rule(kind, path).forms is not None:
+    if (
+        local_comparison
+        and REGISTRY.comparison_property_rule(kind, path).forms is not None
+    ):
         form = kms_format(value)
         return (
             "unproven"
@@ -86,7 +69,8 @@ def _callback_reference_diagnostic_format_status(
     refkind = resource_type(value)
     return (
         "allowed"
-        if value["$attribute"] in {reference_attribute(refkind, form) for form in forms}
+        if value["$attribute"]
+        in {REFERENCES.formal_attribute(refkind, form) for form in forms}
         else "outside allowed forms"
     )
 
@@ -170,29 +154,25 @@ def reference_same(
     context=None,
     proven_export=False,
 ):
+    receiver = REGISTRY.comparison_contract(kind)
     if (
         local_comparison
         and context is not None
         and expressions.references(left)
-        and reference_error(kind + "." + path, context)
+        and REFERENCES.error_at(kind + "." + path, context)
     ):
         # External declarations describe saved strings without adding Model Resource links.
         if (
             evidence is not None
-            and context.get("Type") == "PLAINTEXT"
-            and isinstance(left, ResourceReference)
-            and getattr(left, "declared_format", None) == "identifier"
-            and left.saved_property == "KMS.Key.KeyId"
-            and isinstance(right, ResourceReference)
-            and right["$resource"][0] == "kms"
-            and right["$attribute"] == "KeyId"
+            and receiver.identifier_evidence is not None
+            and receiver.identifier_evidence(left, right, context)
         ):
             return evidence(left, right, kind, path)
         return ReferenceDecision(None)
     prop = kind + "." + path
     if (
         local_comparison
-        and prop == "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
+        and path in receiver.defer_reference_arrays
         and isinstance(left, list)
         and isinstance(right, list)
     ):
@@ -203,20 +183,18 @@ def reference_same(
         and type(left) is dict
         and type(right) is dict
         and prop.rpartition(".")[0].endswith(".Condition")
-        and policy_condition(prop)
+        and REFERENCES.policy_condition(prop)
     ):
         # The receiving contract belongs to the condition key inside the operator.
         return ReferenceDecision(NotImplemented)
     nested_symbols = expressions.references([left, right])
-    if (
-        local_comparison
-        and prop == "Route53.HostedZone.QueryLoggingConfig.CloudWatchLogsLogGroupArn"
-    ):
-        # LogGroup GetAtt Arn ends in :*, while Route53 requires the bare log-group ARN.
+    blocked = (
+        receiver.blocked_reference_attributes.get(path) if local_comparison else None
+    )
+    if blocked is not None:
         try:
             if any(
-                resource_type(symbol) == "Logs.LogGroup"
-                and symbol["$attribute"] == "Arn"
+                (resource_type(symbol), symbol["$attribute"]) == blocked
                 for symbol in nested_symbols
             ):
                 return ReferenceDecision(None)
@@ -232,11 +210,9 @@ def reference_same(
         ]
         if proven and all(item == proven[0] for item in proven):
             context = proven[0]
-    rule = registry.property_rule(kind, path)
+    rule = REGISTRY.comparison_property_rule(kind, path)
     declared = (
-        _LOCAL_REFERENCE_CONTRACTS.get(normalized) or contract(prop, context)
-        if local_comparison
-        else {}
+        (REFERENCES.comparison_targets(prop, context) or {}) if local_comparison else {}
     )
     if (
         local_comparison
@@ -244,22 +220,22 @@ def reference_same(
         and rule.whole == "SCALAR"
         and rule.forms is None
         and rule.direct_attribute is None
-        and not requires_context(prop, context)
+        and not REFERENCES.context_required_at(prop, context)
         and not declared
     ):
+        export_attribute = receiver.export_attributes.get(path)
         try:
-            route53_export = (
+            exported = (
                 proven_export
-                and prop == "Route53.RecordSet.AliasTarget.DNSName"
+                and export_attribute is not None
                 and all(
-                    resource_type(symbol) == "EC2.VPCEndpoint"
-                    and symbol["$attribute"] == "DnsEntries"
+                    (resource_type(symbol), symbol["$attribute"]) == export_attribute
                     for symbol in nested_symbols
                 )
             )
         except (Blocked, KeyError, ValueError, TypeError):
-            route53_export = False
-        if not route53_export:
+            exported = False
+        if not exported:
             if evidence is not None and any(
                 isinstance(value, str) for value in (left, right)
             ):
@@ -277,10 +253,13 @@ def reference_same(
         local_comparison
         and nested_symbols
         and (
-            not (policy_condition(prop) or unproven_document_reference(prop))
+            not (
+                REFERENCES.policy_condition(prop)
+                or REFERENCES.unproven_document_reference(prop)
+            )
             or expressions.references(left)
         )
-        and requires_context(prop, context)
+        and REFERENCES.context_required_at(prop, context)
     ):
         for symbol in nested_symbols:
             try:
@@ -288,10 +267,11 @@ def reference_same(
             except (KeyError, ValueError, TypeError):
                 return ReferenceDecision(None)
             allowed = {
-                reference_attribute(refkind, form) for form in declared.get(refkind, ())
+                REFERENCES.formal_attribute(refkind, form)
+                for form in declared.get(refkind, ())
             }
             for form in declared.get(refkind, ()):
-                suffix = ATTRIBUTE_SUFFIXES.get((refkind, form))
+                suffix = REFERENCES.attribute_suffix(refkind, form)
                 if suffix and isinstance(left, Expression):
                     try:
                         parts = expressions.parts(left, resource_type)
@@ -312,7 +292,9 @@ def reference_same(
                 try:
                     refkind = resource_type(symbol)
                     if refkind not in declared:
-                        if rule.forms is not None and refkind in TYPE_FORMS:
+                        if rule.forms is not None and REFERENCES.identifier_forms(
+                            refkind
+                        ):
                             return ReferenceDecision(
                                 False,
                                 (
@@ -326,15 +308,15 @@ def reference_same(
                                 ),
                             )
                         return ReferenceDecision(None)
-                    if rule.forms is not None and refkind in TYPE_FORMS:
+                    if rule.forms is not None and REFERENCES.identifier_forms(refkind):
                         if symbol["$attribute"] not in {
-                            reference_attribute(refkind, form)
-                            for form in TYPE_FORMS[refkind]
+                            REFERENCES.formal_attribute(refkind, form)
+                            for form in REFERENCES.identifier_forms(refkind)
                         }:
                             return ReferenceDecision(None)
                         continue
                     allowed = {
-                        reference_attribute(refkind, form)
+                        REFERENCES.formal_attribute(refkind, form)
                         for form in declared.get(refkind, ())
                     }
                     if symbol["$attribute"] not in allowed and not hasattr(
@@ -371,7 +353,7 @@ def reference_same(
     ):
         return ReferenceDecision(None)
     decision = _decision
-    rule = registry.property_rule(kind, path)
+    rule = REGISTRY.comparison_property_rule(kind, path)
     if (
         local_comparison
         and rule.reference_context
@@ -411,14 +393,14 @@ def reference_same(
         local_comparison
         and context is not None
         and symbols
-        and requires_context(prop, context)
+        and REFERENCES.context_required_at(prop, context)
     ):
         if not declared:
             return decision(None)
         for symbol in symbols:
             refkind = resource_type(symbol)
             if refkind not in declared or symbol["$attribute"] not in {
-                reference_attribute(refkind, form) for form in declared[refkind]
+                REFERENCES.formal_attribute(refkind, form) for form in declared[refkind]
             }:
                 return decision(None)
         if len(symbols) == 2:
@@ -428,21 +410,21 @@ def reference_same(
             return decision(None)
         symbol = symbols[0]
         refkind = resource_type(symbol)
-        alternatives = REFERENCE_EQUIVALENT_FORMS.get(
-            (prop, refkind, symbol["$attribute"]), ()
-        )
+        alternatives = REFERENCES.equivalent_forms(prop, refkind, symbol["$attribute"])
         unknown = False
         for form in declared[refkind]:
             if (
-                reference_attribute(refkind, form) != symbol["$attribute"]
+                REFERENCES.formal_attribute(refkind, form) != symbol["$attribute"]
                 and form not in alternatives
             ):
                 continue
-            pattern = VALUE_IDENTITIES.get((refkind, form))
+            pattern = REFERENCES.identity_pattern(refkind, form)
             if pattern and not re.fullmatch(pattern, other):
                 continue
             candidate = ResourceReference(
-                dict(symbol, **{"$attribute": reference_attribute(refkind, form)})
+                dict(
+                    symbol, **{"$attribute": REFERENCES.formal_attribute(refkind, form)}
+                )
             )
             try:
                 concrete = resolve_literal(candidate)
@@ -458,9 +440,13 @@ def reference_same(
             elif same(concrete, other) is True:
                 return decision(True, equivalent=True)
         return decision(None if unknown else False)
-    allowed = registry.property_rule(kind, path).forms if local_comparison else None
+    allowed = (
+        REGISTRY.comparison_property_rule(kind, path).forms
+        if local_comparison
+        else None
+    )
     if allowed:
-        outcome = registry.property_rule(kind, path).form_compare(
+        outcome = REGISTRY.comparison_property_rule(kind, path).form_compare(
             left,
             right,
             allowed,
@@ -551,7 +537,7 @@ def reference_same(
     if not symbols:
         return decision(NotImplemented)
     if not any(
-        registry.resource(resource_type(value)).identity_same is not None
+        REGISTRY.comparison_contract(resource_type(value)).identity_same is not None
         for value in symbols
     ):
         if len(symbols) == 2:
@@ -572,7 +558,7 @@ def reference_same(
             forms
             and "Arn" in forms
             and other.startswith("arn:")
-            and symbols[0]["$attribute"] != reference_attribute(refkind, "Arn")
+            and symbols[0]["$attribute"] != REFERENCES.formal_attribute(refkind, "Arn")
         ):
             return unproven(
                 "literal uses an alternative allowed format; local reference value is unproven"
@@ -589,12 +575,12 @@ def reference_same(
             "literal versus symbolic reference; no observed value proves identity or format"
         )
     provider = (
-        registry.resource(resource_type(left)).identity_same
-        or registry.resource(resource_type(right)).identity_same
+        REGISTRY.comparison_contract(resource_type(left)).identity_same
+        or REGISTRY.comparison_contract(resource_type(right)).identity_same
     )
     forms = forms_for(kind, path)
     forms = (
-        {reference_attribute(resource_type(left), form) for form in forms}
+        {REFERENCES.formal_attribute(resource_type(left), form) for form in forms}
         if forms
         else forms
     )

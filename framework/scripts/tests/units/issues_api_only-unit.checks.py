@@ -19,13 +19,13 @@ from issues.cfn_lint import plan
 from issues.reports import iac_report
 from model.adapters.observed import mappings
 from model.format import serialize
+from services.reference_engine import REFERENCES
 from support.issues_api_only_fixtures import (
     ROOT,
     DesignSchemaCatalog,
     Path,
     sys,
 )
-from utils.reference_contracts import getatt_attribute
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -243,7 +243,9 @@ def check_group_cloudformation_comparison(project_workspace, account, capsys):
     ]
     schema = comparison.catalog.schema("QuickSight.Group")
     assert all(
-        getatt_attribute("QuickSight.Group", field, schema)
+        REFERENCES.has_getatt(
+            "QuickSight.Group", field, schema.get("readOnlyProperties", ())
+        )
         for field in ("Arn", "PrincipalId")
     )
     with patch.object(

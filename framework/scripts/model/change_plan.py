@@ -14,16 +14,9 @@ from contracts.target import (
     AWS_EXECUTION_ACCOUNT_ID_KEY,
     AWS_REGION_KEY,
 )
-from utils.arn_components import ARN_COMPONENTS
+from services.reference_engine import REFERENCES
+from services.registry import REGISTRY
 from utils.input_cache import memo_table
-from utils.reference_contracts import (
-    ARN_SHAPES,
-    CONFIGURATION_PROPERTIES,
-    RETURN_ATTRIBUTE_PROPERTIES,
-    reference_attribute,
-    requires_context,
-    row_contexts,
-)
 
 import model.impact_changes as impact_changes
 import model.projection as _model_validation_projection
@@ -89,24 +82,15 @@ def property_rows(values, number):
 
 def context_changes(old, new, old_number, number, kind, root):
     previous, current = property_rows(old, old_number), property_rows(new, number)
-    pipeline_changed = kind == "CodePipeline.Pipeline" and [
-        (
-            row.get("property"),
-            row.get("value") if ".ActionTypeId." in row.get("property", "") else None,
-        )
-        for _, row in previous.values()
-        if row.get("property", "").startswith(kind + ".Stages[].")
-    ] != [
-        (
-            row.get("property"),
-            row.get("value") if ".ActionTypeId." in row.get("property", "") else None,
-        )
-        for _, row in current.values()
-        if row.get("property", "").startswith(kind + ".Stages[].")
-    ]
+    receiver = REGISTRY.receiver(kind) if kind in REGISTRY else None
+    configuration = receiver.configuration if receiver is not None else None
+    configuration_changed = configuration is not None and (
+        configuration.signature(previous.values())
+        != configuration.signature(current.values())
+    )
     mapping = environment_values.mapping_for(root, kind)
     old_context = {
-        **row_contexts(
+        **REFERENCES.collect_row_contexts(
             kind,
             [
                 (rid, row)
@@ -125,7 +109,7 @@ def context_changes(old, new, old_number, number, kind, root):
         ),
     }
     new_context = {
-        **row_contexts(
+        **REFERENCES.collect_row_contexts(
             kind,
             [
                 (rid, row)
@@ -147,25 +131,23 @@ def context_changes(old, new, old_number, number, kind, root):
         (old, previous, old_context),
         (new, current, new_context),
     ):
-        pipeline_contexts = (
+        configuration_by_row = (
             _model_validation_projection.configuration_contexts(
-                values, old_number if values is old else number, root
+                values, old_number if values is old else number, root, configuration
             )
-            if pipeline_changed
+            if configuration_changed
             else None
         )
         for rid, row in indexed.values():
             if (
-                kind == "CodePipeline.Pipeline"
-                and not pipeline_changed
-                and row.get("property", "").startswith(
-                    "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
-                )
+                configuration is not None
+                and not configuration_changed
+                and row.get("property", "").startswith(configuration.property_prefix)
             ):
                 continue
             if "value" in row and (
-                requires_context(row["property"])
-                or row["property"] in CONFIGURATION_PROPERTIES
+                REFERENCES.context_required_at(row["property"])
+                or REFERENCES.configuration_at(row["property"]) is not None
             ):
                 contexts[rid] = _model_validation_projection.reference_context_for(
                     values,
@@ -174,7 +156,7 @@ def context_changes(old, new, old_number, number, kind, root):
                     row["value"],
                     "",
                     root,
-                    configuration_contexts_by_row=pipeline_contexts,
+                    configuration_contexts_by_row=configuration_by_row,
                 )
     return {
         rid
@@ -285,16 +267,17 @@ def signature(values, logical, attribute=None):
     if number is None:
         return None
     kind = resource[RESOURCE_TYPE_KEY]
-    attribute = reference_attribute(kind, attribute) if attribute is not None else None
-    fields = (
-        {RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute)}
-        if attribute
-        else set()
+    attribute = (
+        REFERENCES.formal_attribute(kind, attribute) if attribute is not None else None
     )
-    if kind in ARN_SHAPES and attribute == reference_attribute(kind, "Arn"):
-        identifiers = ARN_SHAPES[kind][0]
+    fields = (
+        {REFERENCES.return_property(kind, attribute, attribute)} if attribute else set()
+    )
+    arn = REFERENCES.arn(kind)
+    if arn and arn.shape and attribute == REFERENCES.formal_attribute(kind, "Arn"):
+        identifiers = arn.shape[0]
         fields.update(identifiers if isinstance(identifiers, dict) else [identifiers])
-        fields.update(ARN_COMPONENTS.get(kind, (None, ()))[1])
+        fields.update(arn.depends_on)
     if attribute is None:
         fields.update(
             layout.configured_name_fields(Path(__file__).resolve().parents[3], kind)

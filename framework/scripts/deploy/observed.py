@@ -33,12 +33,12 @@ from model.adapters.observed import (
 )
 from model.importing.inventory import pointer_value, properties_json
 from model.reference_nodes import parse as parse_reference
+from services.reference_engine import REFERENCES
 from task_contract_core import task_snapshot
 from utils.aws.client import AwsError
 from utils.cloudformation.export_resolution import resolve_exports
 from utils.cloudformation.inputs import Blocked as Blocked
 from utils.json_format import fingerprint
-from utils.reference_contracts import REF_ATTRIBUTES
 from validation_scope import active_scope
 
 import deploy.observed_resume as _dependency_deploy_observed_resume
@@ -778,7 +778,7 @@ def permission_expression(
         logical = value["Ref"]
         resource = mapped[logical][2]
         kind = resource[RESOURCE_TYPE_KEY]
-        attr = REF_ATTRIBUTES.get(kind)
+        attr = REFERENCES.ref_attribute(kind)
         catalog = DesignSchemaCatalog(backend.root)
         primary, _ = identifier_source(
             catalog, resource, set(), logical, kind + "." + str(attr), {}

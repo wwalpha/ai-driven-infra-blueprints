@@ -14,11 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison import Comparison
+from comparison.contracts import FormOutcome
 from comparison.reference_evidence import compare_expression
-from comparison.registry import rules
 from comparison.resource import inactive_evidence
 from comparison.result import identifier
-from comparison.rules.kms import FormOutcome
 from issues.materials import naming_materials
 from issues.publication import save_scan
 from issues.review import review_snapshot
@@ -40,6 +39,7 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+from services.registry import REGISTRY
 from support.reference_evidence_shared import (
     ATHENA_KMS,
     KEY_ARN,
@@ -589,7 +589,7 @@ def _execute_saved_evidence(case):
     format_result = None
     if data["check_format"]:
         rule = replace(
-            rules("Athena.WorkGroup")[ATHENA_KMS],
+            REGISTRY.require_comparison("Athena.WorkGroup")[ATHENA_KMS],
             form_compare=Mock(
                 return_value=FormOutcome(
                     False, "kms.format_mismatch", "形式が一致しません"
@@ -597,7 +597,8 @@ def _execute_saved_evidence(case):
             ),
         )
         with patch(
-            "comparison.reference_evidence.registry.property_rule", return_value=rule
+            "comparison.reference_evidence.REGISTRY.comparison_property_rule",
+            return_value=rule,
         ):
             decision = compare_expression(
                 comparison, compound, evaluated, "Athena.WorkGroup", ATHENA_KMS

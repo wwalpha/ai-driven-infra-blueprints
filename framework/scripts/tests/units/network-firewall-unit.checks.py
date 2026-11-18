@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from utils.arn_components import rule_group as arn_components
+from services.network_firewall.arn import rule_group as arn_components
 from utils.cloudformation.inputs import Blocked
 
 if not __debug__:

@@ -13,13 +13,12 @@ from contextlib import closing, contextmanager
 from unittest import TestCase
 from unittest.mock import patch
 
-import design.services.codebuild as _imports_codebuild
 import model.sources
 import pytest
+import services.codebuild.display as _imports_codebuild
 from design.document import DesignIndex
 from design.layout import expanded_display_rows
 from design.layout_schema import ALIGNMENT, HEADER
-from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
 from generation_inputs import GenerationInputs
 from import_guard import require_import_changes
 from model.configuration import resource_configuration
@@ -43,6 +42,8 @@ from model.references import declarations, incoming
 from model.render import generate_markdown
 from model.sources import Scope, candidate_sources, json_text
 from model.sources import load_model as load_for_edit
+from services.codebuild.design import CODEBUILD_FORMAL_VARIABLE
+from services.reference_engine import REFERENCES
 from support.model_reference_fixtures import reference as model_ref
 from support.model_sources import write_model
 from support.model_v2_fixtures import value_snapshot as Expansion
@@ -51,11 +52,6 @@ from task_contract_core import start
 from utils.aws_mappings import mapping_alias, owners
 from utils.input_cache import input_context
 from utils.json_format import document_sha256
-from utils.reference_contracts import (
-    RETURN_ATTRIBUTE_PROPERTIES,
-    contract,
-    reference_attribute,
-)
 from utils.source_reads import FileReads
 from validation.design_links import check_design_links as _check_design_links
 from validation.findings import Findings
@@ -146,8 +142,8 @@ def producer(
     path = root / "model" / env / "cde" / (service + ".properties")
     fields = {**(previous or {}), **values(kind, attributes, rid, mode, anchor)}
     for n, (prop, raw) in enumerate(attributes.items(), 1):
-        attribute = reference_attribute(kind, prop)
-        field = RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute)
+        attribute = REFERENCES.formal_attribute(kind, prop)
+        field = REFERENCES.return_property(kind, attribute, attribute)
         row = f"desired.row.{rid}-{n:03d}."
         fields[row + "property"] = kind + "." + field
         if kind + "." + field in identifier_outputs(ROOT).get(
@@ -249,7 +245,9 @@ def check_exact_reference(tmp_path, prop, kind, attrs, raw, mode, present):
                     "Arn"
                     if raw.startswith("arn:")
                     else next(
-                        form for form in contract(prop)[kind] if attrs.get(form) == raw
+                        form
+                        for form in (REFERENCES.import_targets(prop) or {})[kind]
+                        if attrs.get(form) == raw
                     ),
                 ),
                 raw,
@@ -272,8 +270,13 @@ def check_exact_reference(tmp_path, prop, kind, attrs, raw, mode, present):
 
 def check_guardduty_bucket_reference_contract(tmp_path):
     prop = "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.BucketName"
-    assert contract(prop) == {"S3.Bucket": ("BucketName",)}
-    assert contract("Unknown.Resource.ProtectedResource.S3Bucket.BucketName") == {}
+    assert (REFERENCES.import_targets(prop) or {}) == {"S3.Bucket": ("BucketName",)}
+    assert (
+        REFERENCES.import_targets(
+            "Unknown.Resource.ProtectedResource.S3Bucket.BucketName"
+        )
+        or {}
+    ) == {}
     first = values("S3.Bucket", {"BucketName": "audit-bucket"})
     producer(
         tmp_path,
@@ -783,8 +786,8 @@ def check_role_arn_requires_account_and_explicit_path(tmp_path, prop):
 
 def check_guardduty_role_acquired_value_consistency(tmp_path):
     prop = "GuardDuty.MalwareProtectionPlan.Role"
-    assert contract(prop) == {"IAM.Role": ("Arn",)}
-    assert contract("Unknown.Resource.Role") == {}
+    assert (REFERENCES.import_targets(prop) or {}) == {"IAM.Role": ("Arn",)}
+    assert (REFERENCES.import_targets("Unknown.Resource.Role") or {}) == {}
     service, _ = producer(
         tmp_path, "IAM.Role", {"RoleName": "scanner", "Path": "/service-role/"}
     )

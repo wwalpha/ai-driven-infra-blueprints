@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison.resource import inline_owner
-from comparison.rules.iam import managed_policy_roles
 from comparison.values import PreparedValue
 from model.sources import Scope
+from services.iam.comparison import managed_policy_roles
 from support.comparison_cases import projected
 from support.fixture_cases import load_case
 from support.model_reference_fixtures import reference as model_ref

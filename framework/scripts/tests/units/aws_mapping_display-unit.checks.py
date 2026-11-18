@@ -10,12 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import aws_mapping_display as display
 import sync_views
-from design.services.codepipeline import (
+from model.display import display_rows
+from services.codepipeline.display import (
     pipeline_display_rows,
     pipeline_rows,
     validate_selection,
 )
-from model.display import display_rows
 from support.aws_mapping_display_fixtures import (
     Path,
     patch,
@@ -112,7 +112,6 @@ def check_validation_projection_scope(tmp_path):
             assert display._validation_projections.get() is None
 
 
-
 def test_codebuild_project_id_is_hidden_only_from_display():
     rows = [
         ["001-001", "CodeBuild.Project.Name", "`build`", ""],
@@ -120,6 +119,7 @@ def test_codebuild_project_id_is_hidden_only_from_display():
     ]
     assert display.selected_rows(rows) == rows[:1]
     assert rows[1][2] == "`project-id`"
+
 
 def check_indexed_mapping():
     for kind, field in (

@@ -9,8 +9,8 @@ from contracts.model import (
     MODEL_REF_KEY,
     REFERENCE_LOGICAL_ID_KEY,
 )
+from services.reference_engine import REFERENCES
 from utils.json_format import strict_json
-from utils.reference_contracts import reference_context
 
 from model.core import ModelNeedsFixError, literal
 from model.reference_values import reference_value
@@ -121,7 +121,7 @@ def context_at(value, property_name, pointer, context=None):
         if isinstance(value, str):
             value = strict_json(value)
         if isinstance(value, dict):
-            context = reference_context(path, value, context)
+            context = REFERENCES.bind_context(path, value, context)
             value = value[token]
             path += "." + token
         else:

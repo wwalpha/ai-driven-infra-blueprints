@@ -15,7 +15,6 @@ import pytest
 from comparison.deferral import ImportReferenceDeferred
 from comparison.evaluation import project_actual
 from comparison.methods import ORDERED, compare_values
-from comparison.registry import rules
 from comparison.result import identifier, setting_result, value_differences
 from comparison.runner import Settings
 from issues.aggregate import aggregate, iac_dataset, iac_summary
@@ -32,6 +31,7 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+from services.registry import REGISTRY
 from support.reference_evidence_shared import (
     KEY_ID,
     ROOT,
@@ -214,7 +214,10 @@ def _execute_display_pipeline(case):
     actual["EnvironmentVariables"][2]["Value"] = {"Fn::GetAtt": ["Key", "KeyId"]}
     actual = comparison.evaluate("producer", actual)
     decision = compare_values(
-        desired, actual, "Environment", rules=rules("CodeBuild.Project")
+        desired,
+        actual,
+        "Environment",
+        rules=REGISTRY.require_comparison("CodeBuild.Project"),
     )
     args = (
         "codebuild",
