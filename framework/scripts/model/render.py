@@ -521,6 +521,10 @@ def resource_table_lines(
             display = _dependency_array_display.order_array_fields(
                 display, rows, kind, root
             )
+            if presentation is not None and extension.reference_row is not None:
+                display = [
+                    extension.reference_row(row, presentation) for row in display
+                ]
         if not formal:
             for child_type in extension.child_property_prefixes:
                 namespace = child_type.split(".", 1)[0]

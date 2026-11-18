@@ -45,6 +45,11 @@ from services.codepipeline.design import CODEPIPELINE_STAGE
 from services.ec2.security_groups import security_group_table_lines
 from services.reference_engine import REFERENCES
 from services.registry import REGISTRY
+from services.route53.display import (
+    ENDPOINT_DESCRIPTION,
+    UNCONFIRMED_DNS,
+    record_property,
+)
 from services.s3.references import S3_KMS_MASTER_KEY_ID
 from utils.input_cache import input_is_file, input_scope, input_select, input_text
 from utils.markdown_format import markdown_prose
@@ -251,9 +256,7 @@ def endpoint_dns_reference(
 ):
     if (
         source.stem != "route53"
-        or not re.fullmatch(
-            r"(?:Route53\.RecordSet\.)?ResourceRecords(?:\[[1-9]\d*\])?", property_name
-        )
+        or not record_property(property_name)
         or record_type != "CNAME"
         or target.parent != source.parent.resolve()
         or not resource
@@ -788,7 +791,7 @@ def check_design_links(
                     or cells[1] == "SecretsManager.Secret.Name"
                 ):
                     resources[current][1][cells[1]] = unquoted(cells[2])
-        values = source_values.get(path) or {}
+        values = document.model_values or {}
         for identity, resource in _model_api.ModelView(values).resources():
             current = (path.resolve(), resource.get("anchor"))
             if current not in resources:
@@ -842,7 +845,13 @@ def check_design_links(
                     )
                 if tagged := tagged_names.get((target, fragment)):
                     kind, name = tagged
-                    observed = resources.get((target, fragment), ("", {}))[1].values()
+                    target_key = (target, fragment)
+                    producer = resources.get(target_key)
+                    producer_configuration = configured_names.get(target_key, {})
+                    observed = producer[1].values() if producer else ()
+                    record_type = configured_names.get(
+                        (source.resolve(), source_anchor), {}
+                    ).get("Route53.RecordSet.Type")
                     identifier_reference = (
                         len(cells) == 4
                         and RESOURCE_LINK_PATTERN.fullmatch(cells[2])
@@ -853,11 +862,9 @@ def check_design_links(
                                 cells[1],
                                 label,
                                 target,
-                                resources.get((target, fragment)),
-                                configured_names.get((target, fragment), {}),
-                                configured_names.get(
-                                    (source.resolve(), source_anchor), {}
-                                ).get("Route53.RecordSet.Type"),
+                                producer,
+                                producer_configuration,
+                                record_type,
                             )
                         )
                     )
@@ -866,6 +873,28 @@ def check_design_links(
                         label == name or identifier_reference,
                         f"{resource} link must display Name tag value or observed identifier: {findings.relative(source)}: {label}",
                     )
+                    if (
+                        kind == "EC2.VPCEndpoint"
+                        and source.stem == "route53"
+                        and record_type == "CNAME"
+                        and len(cells) == 4
+                        and record_property(cells[1])
+                        and ENDPOINT_DESCRIPTION + link.group(0) in cells[3]
+                    ):
+                        dns = unquoted(cells[2])
+                        findings.warn(
+                            dns == UNCONFIRMED_DNS
+                            or endpoint_dns_reference(
+                                source,
+                                cells[1],
+                                dns,
+                                target,
+                                producer,
+                                producer_configuration,
+                                record_type,
+                            ),
+                            f"Route53 DNS reference must match the recorded Interface Endpoint Id and service: {findings.relative(source)}: {dns}",
+                        )
                 if name := type_names.get((target, fragment)):
                     observed = resources.get((target, fragment), ("", {}))[1].values()
                     identifier_reference = (

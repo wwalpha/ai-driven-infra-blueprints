@@ -56,7 +56,7 @@ def _callback_check_route53_endpoint_dns_roundtrip_errors(
 ):
     path.write_text(content, encoding="utf-8")
     validator = validator_module.Validator(root)
-    validator.check_design_links(outputs)
+    validator.check_design_links(outputs, [path])
     return diagnostics(validator)
 
 
@@ -115,6 +115,11 @@ def check_route53_endpoint_dns_roundtrip(root, project):
         route[f"observed.row.001-002.{field}"] = value
     path = directory / "route53.md"
     valid = roundtrip(path, route, root)
+    row = next(
+        line.split("|") for line in valid.splitlines() if "ResourceRecords[" in line
+    )
+    assert row[3].strip() == f"`{dns}`"
+    assert "[vpce-app-dev-snowflake](vpc-endpoint.md#" in row[4]
     validator_module = validation_runner
     outputs = validator_module.Validator(ROOT).catalog_design_properties()[2]
     errors = _bind_framework_callback(
@@ -126,6 +131,16 @@ def check_route53_endpoint_dns_roundtrip(root, project):
     )
     initial_errors = errors(valid)
     assert not initial_errors, initial_errors
+    route["observed.row.001-002.value"] = dns.replace(
+        "014d2843ef114f19d", "014d2843ef114f190"
+    )
+    invalid = roundtrip(path, route, root)
+    assert any(
+        "Route53 DNS reference must match" in error
+        for error in errors(invalid)
+    )
+    route["observed.row.001-002.value"] = dns
+    roundtrip(path, route, root)
     endpoint_path = directory / "vpc-endpoint.md"
     dns_reference = _bind_framework_callback(
         endpoint_dns_reference,
@@ -184,12 +199,19 @@ def check_route53_typed_expression_roundtrip(root, project):
         "EC2.VPCEndpoint",
         "vpce-example",
         [
+            (
+                "Id",
+                "`" + json.dumps(reference("EC2_VPCEndpoint_001", "Id")) + "`",
+                "ID",
+            ),
             ("VpcEndpointType", "`Interface`", "接続方式"),
             ("Tags[].Key", "`Name`", "タグ"),
             ("Tags[].Value", "`vpce-example`", "名前"),
         ],
         logical_id="Endpoint",
     )
+    endpoint_id = "vpce-014d2843ef114f19d"
+    endpoint["observed.row.001-001.value"] = f"`{endpoint_id}`"
     roundtrip(directory / "vpc-endpoint.md", endpoint, root)
     expression = {
         "Fn::Select": [
@@ -222,9 +244,19 @@ def check_route53_typed_expression_roundtrip(root, project):
         load_model(source).authoritative["desired.row.001-002.value"], encoded
     )
     case.assertIn("vpc-endpoint.md#", rendered)
+    case.assertIn("`未確認` | 接続先<br>接続先 Endpoint: [vpce-example]", rendered)
     case.assertNotIn(
         "vpce-", load_model(source).authoritative["desired.row.001-002.value"]
     )
+    route["desired.row.001-002.property"] = "Route53.RecordSet.AliasTarget.DNSName"
+    route["desired.row.001-002.value"] = "`" + json.dumps(expression) + "`"
+    route["desired.row.001-003.value"] = "`A`"
+    alias = roundtrip(path, route, root)
+    assert f"[{endpoint_id}](vpc-endpoint.md#" in alias
+    validator = validation_runner.Validator(root, {("dev", "123456789012", "route53")})
+    outputs = validator.catalog_design_properties()[2]
+    validator.check_design_links(outputs, [path])
+    assert not diagnostics(validator), diagnostics(validator)
 
 
 def check_s3_policy_kms_reference_roundtrip(root, project):

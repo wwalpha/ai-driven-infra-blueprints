@@ -1223,25 +1223,33 @@ def test_route53_endpoint_alias_expression_display(models, observed, index):
         assert values == before
 
 
-@pytest.mark.parametrize("observed", ["vpce-02771914003dc1188", "PENDING_DEPLOY", None])
-def test_route53_endpoint_record_expression_display(models, observed):
+@pytest.mark.parametrize(
+    ("observed_id", "dns"),
+    [
+        ("vpce-02771914003dc1188", "confirmed.example.com"),
+        ("PENDING_DEPLOY", None),
+        (None, None),
+    ],
+)
+def test_route53_endpoint_record_expression_display(models, observed_id, dns):
     target, endpoint = resource_values(
         models, "vpc-endpoint", "EC2.VPCEndpoint", attribute="Id"
     )
-    if observed:
-        endpoint["observed.row.001-001.value"] = "`" + observed + "`"
+    if observed_id:
+        endpoint["observed.row.001-001.value"] = "`" + observed_id + "`"
     add(endpoint, "EC2.VPCEndpoint", "Tags[].Key", "Name", number=2)
     add(endpoint, "EC2.VPCEndpoint", "Tags[].Value", "endpoint-name", number=3)
     write(target, endpoint)
     scope, values, path = consumer(models, "route53", "Route53.RecordSet")
     values["desired.row.001-001.property"] = "Route53.RecordSet.Name"
+    add(values, "Route53.RecordSet", "Type", "CNAME", number=3)
     expression = {
         "Fn::Select": [
             1,
             {
                 "Fn::Split": [
                     ":",
-                    {"Fn::Select": [0, reference("EC2_VPCEndpoint_001", "DnsEntries")]},
+                    {"Fn::Select": [1, reference("EC2_VPCEndpoint_001", "DnsEntries")]},
                 ]
             },
         ]
@@ -1249,27 +1257,19 @@ def test_route53_endpoint_record_expression_display(models, observed):
     other_expression = copy.deepcopy(expression)
     other_expression["Fn::Select"][0] = 0
     records = [expression, "example.com", other_expression]
-    rid = add(
-        values,
-        "Route53.RecordSet",
-        "ResourceRecords",
-        records,
-        comment="接続先Endpoint: [endpoint-name](vpc-endpoint.md#saved-001)",
-    )
+    rid = add(values, "Route53.RecordSet", "ResourceRecords", records)
+    if dns:
+        values[f"observed.row.{rid}.value"] = json.dumps([dns, "example.com", "Z1"])
     before = copy.deepcopy(values)
     write(scope, values)
     with input_context(read_only=True):
         markdown = generate_markdown(path, values, FRAMEWORK)
         lines = [line for line in markdown.splitlines() if "ResourceRecords[" in line]
         assert len(lines) == 3, markdown
-        if observed:
-            assert f"[{observed}](vpc-endpoint.md#saved-001)" in lines[0]
-            assert "Fn::Select" not in lines[0]
-        else:
-            assert "Fn::Select" in lines[0]
+        assert lines[0].split("|")[3].strip() == f"`{dns or '未確認'}`"
+        assert "[endpoint-name](vpc-endpoint.md#saved-001)" in lines[0].split("|")[4]
         assert "example.com" in lines[1]
         assert "Fn::Select" in lines[2]
-        assert "接続先Endpoint: [endpoint-name](vpc-endpoint.md#saved-001)" in markdown
         assert json.loads(literal(values[f"desired.row.{rid}.value"])) == records
         assert (
             generated_document(

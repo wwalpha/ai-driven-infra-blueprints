@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from comparison.methods import RuleSet
     from model.identity import Resolver
     from model.reference_nodes import ReferenceNode
-    from model.reference_presentation import Position, Reference
+    from model.reference_presentation import Position, Presentation, Reference
     from model.sources import ModelSnapshot
     from model.sources import Scope as ModelScope
     from utils.iac_values import Expression
@@ -370,6 +370,7 @@ class DisplayExtension:
     render_document_tables: RenderDocumentTablesHook | None = None
     validate_rows: ValidateRowsHook | None = None
     reference_document: ReferenceDocumentHook | None = None
+    reference_row: Callable[[list[str], Presentation], list[str]] | None = None
     document_reference_rules: DocumentReferenceRules | None = None
     contextual_reference_label: ContextualLabelHook | None = None
     restore_document_tables: Callable[[list[str], Path], list[str]] | None = None

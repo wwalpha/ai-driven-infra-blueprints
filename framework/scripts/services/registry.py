@@ -446,6 +446,7 @@ class ServiceRegistry:
                 extension.render_document_tables,
                 extension.validate_rows,
                 extension.reference_document,
+                extension.reference_row,
                 extension.contextual_reference_label,
                 extension.selected_name,
                 extension.literal_link_label,
