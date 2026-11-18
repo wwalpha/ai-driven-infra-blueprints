@@ -15,9 +15,9 @@ Follow [Credentials and account](../../rules/project-configuration.md#credential
 - Target environment: `{{project.jsonのenvironment}}`
 - Target alias: `{{project.jsonのalias。aliasなしの場合は省略}}`
 - Target AWS account: `{{project.jsonの12桁AWS account ID}}`
-- Implementation scope: `{{対象の詳細設計fileまたはresource group。複数可。「対象accountの承認済み設計すべて」も可。IaC削除・追従では、対象のサービス、Stack、templateまたはTerraform Moduleで指定可}}`
+- Implementation scope: `{{対象の詳細設計fileまたはresource group。複数可。「対象accountの承認済み設計すべて」も可}}`
 
-An IaC removal request or a request to align a scope with the current Model may include [removing IaC resource definitions](#remove-iac-resource-definitions). Use the Human's description of the target and scope to locate the definitions. An explicitly limited property or addition request keeps its narrower scope.
+An IaC removal request or a request to align IaC with the current Model may include [removing IaC resource definitions](#remove-iac-resource-definitions). For either request, the scope can be a service, Stack, template, or Terraform Module. Use the Human's description of the target and scope to locate the definitions. An explicitly limited property or addition request keeps its narrower scope.
 
 ## Resolve missing input
 
