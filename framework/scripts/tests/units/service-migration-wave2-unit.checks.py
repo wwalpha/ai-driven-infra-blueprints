@@ -13,6 +13,9 @@ from services.reference_engine import ReferenceEngine
 from services.registry import REGISTRY
 from support.pytest_cli import run
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 @pytest.mark.parametrize(
     ("kind", "path", "producer", "design_form"),

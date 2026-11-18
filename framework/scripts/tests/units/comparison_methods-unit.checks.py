@@ -50,6 +50,10 @@ from utils.iac_values import (
     unordered_same,
 )
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
+
 KMS_FORMS = {
     kind + "." + path: forms
     for kind in REGISTRY
@@ -63,8 +67,6 @@ COMPARISON_RULES = {
 }
 
 
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
 
 ROOT = Path(__file__).resolve().parents[4]
 

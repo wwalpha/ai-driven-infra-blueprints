@@ -32,6 +32,10 @@ from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
+
 ARN_SHAPES = {
     kind: shape
     for kind in REGISTRY
@@ -44,8 +48,6 @@ REF_ATTRIBUTES = {
 }
 
 
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
 
 CONTEXT = "arn:aws:{service}:ap-northeast-1:123456789012:{tail}"
 CASES = [

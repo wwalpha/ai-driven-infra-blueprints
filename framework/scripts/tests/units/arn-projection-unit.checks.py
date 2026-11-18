@@ -25,6 +25,10 @@ from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
+
 KMS_FORMS = {
     kind + "." + path: forms
     for kind in REGISTRY
@@ -33,8 +37,6 @@ KMS_FORMS = {
 }
 
 
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
 
 PREFIX = "arn:aws:kms:ap-northeast-1:123456789012:"
 KEY_ID = "12345678-1234-1234-1234-123456789012"

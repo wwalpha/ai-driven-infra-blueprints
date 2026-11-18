@@ -14,6 +14,10 @@ from services.reference_engine import ReferenceEngine
 from services.registry import REGISTRY
 from support.pytest_cli import run
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
+
 IMPORT = ReferenceMode.IMPORT
 VARIABLE = "Environment.EnvironmentVariables[3].Value"
 

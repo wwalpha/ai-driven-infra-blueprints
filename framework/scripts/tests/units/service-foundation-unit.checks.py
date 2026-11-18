@@ -23,6 +23,10 @@ from services.reference_engine import ReferenceEngine
 from services.registry import ServiceRegistry
 from support.pytest_cli import run
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
+
 TARGET = {"SyntheticKeys.Key": ("Arn", "KeyName")}
 IMPORT = ReferenceMode.IMPORT
 COMPARISON = ReferenceMode.COMPARISON

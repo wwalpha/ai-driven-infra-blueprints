@@ -38,6 +38,10 @@ from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
+
 POLICY_FORMATS = REGISTRY.design_tables.get("POLICY_FORMATS", {})
 ARN_SHAPES = {
     kind: shape
@@ -67,9 +71,6 @@ REF_ATTRIBUTES = {
     if (attribute := REFERENCES.ref_attribute(kind)) is not None
 }
 
-
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 @pytest.fixture
