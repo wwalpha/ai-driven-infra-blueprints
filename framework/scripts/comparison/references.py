@@ -34,7 +34,7 @@ def reference_forms(kind, path, *, local_comparison, property_schema):
     if forms is not None:
         return forms
     if local_comparison and REFERENCES.policy_condition(key):
-        declared = REFERENCES.import_targets(key) or {}
+        declared = REFERENCES.comparison_targets(key) or {}
         if declared:
             forms = {form for attributes in declared.values() for form in attributes}
     if forms is None and registered and registered[1]:
@@ -503,6 +503,15 @@ def reference_same(
         expression, other = (
             (left, right) if isinstance(left, Expression) else (right, left)
         )
+        if (
+            local_comparison
+            and project_arn is not None
+            and isinstance(other, ResourceReference)
+            and other["$attribute"] == "Arn"
+            and (projected := project_arn(expression)) == other
+            and resource_type(projected) == "KMS.Key"
+        ):
+            return decision(True)
         if isinstance(other, (Expression, ResourceReference)):
             left_refs, right_refs = (
                 expressions.references(left),

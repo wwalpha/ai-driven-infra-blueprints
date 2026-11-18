@@ -12,13 +12,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison.arn_projection import project as project_arn
+from comparison.methods import compare_values
 from model.identity import COUNTERS
 from services.registry import REGISTRY
+from services.s3.references import SSE_KMS_KEY_CONDITIONS
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
     project,
     resource,
+    resource_values,
     save,
 )
 from utils.aws_mappings import mapping_alias
@@ -35,7 +38,6 @@ KMS_FORMS = {
     if (receiver := REGISTRY.receiver(kind))
     for path, forms in receiver.format_limits.items()
 }
-
 
 
 PREFIX = "arn:aws:kms:ap-northeast-1:123456789012:"
@@ -70,12 +72,15 @@ def inputs(tmp_path):
             )
             alias[f"desired.row.{identity}-001.value"] = "`alias/fixture`"
             values.update(alias)
-        values[COUNTERS] = json.dumps({"KMS.Key": 1, "KMS.Alias": 3})
+        scope, key = resource_values(tmp_path, "kms", "KMS.Key", number="004")
+        values.update(key)
+        values[COUNTERS] = json.dumps({"KMS.Key": 4, "KMS.Alias": 3})
         save(scope, values)
         result = comparison(tmp_path)
         result.stack = partial(cached_stack, result)
         result.stack_inputs["producer"][0]["Resources"].update(
             {
+                "Resource004": {"Type": "AWS::KMS::Key"},
                 "Resource002": {
                     "Type": "AWS::KMS::Alias",
                     "Properties": {"AliasName": "alias/fixture"},
@@ -382,3 +387,134 @@ def test_normalizer_reuses_a_non_kms_shape_without_enabling_a_service():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+@pytest.mark.parametrize(
+    "kind,path",
+    [
+        ("CodeBuild.Project", "EncryptionKey"),
+        ("IAM.Role", "Policies[].PolicyDocument.Statement[].Resource"),
+        (
+            "S3.Bucket",
+            "BucketEncryption.ServerSideEncryptionConfiguration[]."
+            "ServerSideEncryptionByDefault.KMSMasterKeyID",
+        ),
+    ],
+)
+def test_constructed_key_arn_in_normal_comparison(inputs, kind, path):
+    expected = reference("001", "Arn")
+    key_id = reference("001", "KeyId")
+    prefix = PREFIX + "key/"
+    assert (
+        inputs.reference_same(expected, construction(key_id, prefix=prefix), kind, path)
+        is True
+    )
+    other = construction(reference("004", "KeyId"), prefix=prefix)
+    assert inputs.reference_same(expected, other, kind, path) is not True
+    for wrong_prefix in (
+        prefix.replace("aws:", "aws-cn:"),
+        prefix.replace("ap-northeast-1", "us-east-1"),
+        prefix.replace("123456789012", "999999999999"),
+    ):
+        assert (
+            inputs.reference_same(
+                expected, construction(key_id, prefix=wrong_prefix), kind, path
+            )
+            is not True
+        )
+
+
+@pytest.mark.parametrize("property_name", SSE_KMS_KEY_CONDITIONS)
+def test_s3_key_condition_preserves_exact_forms(inputs, property_name):
+    kind = "S3.BucketPolicy"
+    path = property_name.removeprefix(kind + ".")
+    arn = reference("001", "Arn")
+    key_id = reference("001", "KeyId")
+    selection = Expression("Select", [1, Expression("Split", ["/", arn])])
+    constructed = construction(key_id, prefix=PREFIX + "key/")
+    assert inputs.reference_forms(kind, path) == {"Arn", "KeyId"}
+    assert inputs.reference_same(selection, key_id, kind, path) is True
+    assert inputs.reference_same(arn, constructed, kind, path) is True
+    assert inputs.reference_same(arn, key_id, kind, path) is False
+    assert inputs.reference_same(selection, constructed, kind, path) is False
+    assert (
+        inputs.reference_same(selection, reference("004", "KeyId"), kind, path) is False
+    )
+    for index, delimiter, source in (
+        (0, "/", arn),
+        (1, ":", arn),
+        (1, "/", reference()),
+    ):
+        invalid = Expression(
+            "Select", [index, Expression("Split", [delimiter, source])]
+        )
+        assert inputs.reference_same(invalid, key_id, kind, path) is not True
+    outside = path.replace("StringNotEquals", "StringEquals")
+    assert inputs.reference_same(selection, key_id, kind, outside) is not True
+
+
+@pytest.mark.parametrize(
+    "target", ["QuarantinePipelineTarget", "ReleasePipelineTarget"]
+)
+def test_eventbridge_compares_codepipeline_targets(inputs, target):
+    kind = "Events.Rule"
+    scope, pipeline = resource_values(
+        inputs.root, "codepipeline", "CodePipeline.Pipeline", number="005"
+    )
+    pipeline["desired.row.005-001.property"] = "CodePipeline.Pipeline.Name"
+    pipeline["desired.row.005-001.value"] = "`fixture-pipeline`"
+    save(scope, pipeline)
+    inputs.model("codepipeline")
+    inputs.resources["iam"]["006"] = {"resourceType": "IAM.Role"}
+    inputs.stack_inputs["producer"][0]["Resources"].update(
+        {
+            "Resource005": {
+                "Type": "AWS::CodePipeline::Pipeline",
+                "Properties": {"Name": "fixture-pipeline"},
+            },
+        }
+    )
+    pipeline_name = ResourceReference(
+        {"$resource": ["codepipeline", "005"], "$attribute": "Name"}
+    )
+    role_arn = ResourceReference({"$resource": ["iam", "006"], "$attribute": "Arn"})
+    prefix = PREFIX.replace(":kms:", ":codepipeline:")
+    model_arn = construction(pipeline_name, prefix=prefix)
+    iac_arn = Expression(
+        "Sub",
+        [
+            "arn:${Partition}:codepipeline:${Region}:${Account}:${Pipeline}",
+            {
+                "Partition": "aws",
+                "Region": "ap-northeast-1",
+                "Account": "123456789012",
+                "Pipeline": pipeline_name,
+            },
+        ],
+    )
+    settings = {
+        "Id": target,
+        "RoleArn": role_arn,
+        "InputTransformer": {
+            "InputPathsMap": {"key": "$.detail.object.key"},
+            "InputTemplate": '{"key":"<key>"}',
+        },
+    }
+    desired = {"Arn": model_arn, **settings}
+    actual = {"Arn": iac_arn, **settings}
+
+    def compare():
+        return compare_values(
+            [desired],
+            [actual],
+            "Targets",
+            rules=REGISTRY.require_comparison(kind),
+            whole=True,
+            reference=lambda left, right, path: inputs.reference_decision(
+                left, right, kind, path
+            ),
+        ).equal
+
+    assert compare() is True
+    actual["InputTransformer"] = dict(settings["InputTransformer"], InputTemplate="{}")
+    assert compare() is False

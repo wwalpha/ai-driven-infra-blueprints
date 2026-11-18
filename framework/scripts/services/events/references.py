@@ -26,7 +26,11 @@ REFERENCES = ReferenceTables(
         ),
     },
     local_comparison={
-        "Events.Rule.Targets[].Arn": {"Lambda.Function": ("Arn",)},
+        "Events.Rule.Targets[].Arn": {
+            "CodePipeline.Pipeline": ("Arn",),
+            "Lambda.Function": ("Arn",),
+        },
+        "Events.Rule.Targets[].RoleArn": {"IAM.Role": ("Arn",)},
         "Events.Rule.Targets[].DeadLetterConfig.Arn": {"SQS.Queue": ("Arn",)},
     },
     arn_components={"Events.Rule": ("EventBusName",)},

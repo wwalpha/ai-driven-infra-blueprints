@@ -6,6 +6,14 @@ S3_KMS_MASTER_KEY_ID = (
     "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]"
     ".ServerSideEncryptionByDefault.KMSMasterKeyID"
 )
+SSE_KMS_KEY_CONDITIONS = tuple(
+    "S3.BucketPolicy.PolicyDocument.Statement"
+    + statement
+    + ".Condition.StringNotEquals.s3:x-amz-server-side-encryption-aws-kms-key-id"
+    + values
+    for statement in ("", "[]")
+    for values in ("", "[]")
+)
 BUCKET_ARN = (
     "BucketName",
     "arn:{partition}:s3:::{id}",
@@ -67,14 +75,10 @@ REFERENCES = ReferenceTables(
     attribute_suffixes={
         ("S3.Bucket", "ObjectArn"): ("Arn", "/"),
     },
-    special_properties={
-        "S3.BucketPolicy.PolicyDocument.Statement"
-        + statement
-        + ".Condition.StringNotEquals.s3:x-amz-server-side-encryption-aws-kms-key-id"
-        + values: ("KMS.Key", "Arn")
-        for statement in ("", "[]")
-        for values in ("", "[]")
-    },
+    special_properties=dict.fromkeys(SSE_KMS_KEY_CONDITIONS, ("KMS.Key", "Arn")),
+    local_comparison=dict.fromkeys(
+        SSE_KMS_KEY_CONDITIONS, {"KMS.Key": ("Arn", "KeyId")}
+    ),
     arn_forms={
         ("S3.Bucket", "ObjectArn"): (
             "BucketName",

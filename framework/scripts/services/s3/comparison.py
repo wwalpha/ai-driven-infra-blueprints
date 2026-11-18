@@ -1,7 +1,67 @@
 """Static S3 comparison methods; container rules include their recursive contents."""
 
-from comparison.contracts import ResourceContract
-from comparison.methods import properties
+from dataclasses import replace
+
+from comparison.contracts import ResourceContract, compare_producer_forms
+from comparison.methods import OBJECT, properties
+from utils.cloudformation.inputs import Blocked
+from utils.iac_values import Expression, ResourceReference
+
+from .references import SSE_KMS_KEY_CONDITIONS
+
+
+def key_id_from_arn_selection(inputs, value):
+    if (
+        isinstance(value, Expression)
+        and value.operation == "Select"
+        and len(value.operands) == 2
+        and str(value.operands[0]) == "1"
+        and isinstance(split := value.operands[1], Expression)
+        and split.operation == "Split"
+        and len(split.operands) == 2
+        and split.operands[0] == "/"
+        and isinstance(source := split.operands[1], ResourceReference)
+        and source["$attribute"] == "Arn"
+        and not hasattr(source, "saved_literal")
+    ):
+        try:
+            if inputs.resource_type(source) != "KMS.Key":
+                return value
+            inputs.producer_scope(source)
+        except (Blocked, KeyError, ValueError, TypeError):
+            return value
+        # A KMS key ARN has a single slash followed by the formal KeyId.
+        return ResourceReference(dict(source, **{"$attribute": "KeyId"}))
+    return value
+
+
+def compare_key_condition(inputs, left, right, path, *, export_origins):
+    left, right = (key_id_from_arn_selection(inputs, value) for value in (left, right))
+    if not any(
+        isinstance(value, ResourceReference)
+        and value["$attribute"] == "KeyId"
+        and not hasattr(value, "saved_literal")
+        for value in (left, right)
+    ) or any(
+        hasattr(value, "saved_literal")
+        or isinstance(value, (dict, list))
+        and not isinstance(value, ResourceReference)
+        for value in (left, right)
+    ):
+        return NotImplemented
+    outcome = compare_producer_forms(
+        "KMS.Key",
+        left,
+        right,
+        {"KeyArn", "KeyId"},
+        resolve_literal=inputs.reference_literal,
+        format_of=inputs.kms_format,
+        project_arn=inputs.project_arn,
+    )
+    if outcome.equal is NotImplemented:
+        return NotImplemented
+    return outcome.equal, outcome.message or "KMS condition compares exact key forms"
+
 
 RULES = {
     "S3.Bucket": properties(
@@ -167,3 +227,8 @@ RULES = {
         """,
     ),
 }
+
+for _condition in SSE_KMS_KEY_CONDITIONS:
+    RULES["S3.BucketPolicy"][_condition.removeprefix("S3.BucketPolicy.")] = replace(
+        OBJECT, selected_decision=compare_key_condition
+    )
