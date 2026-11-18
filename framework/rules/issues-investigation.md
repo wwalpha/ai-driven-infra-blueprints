@@ -409,9 +409,9 @@ Ordinary Markdown retains all Issues, formal Issue IDs, Service H3 headings and 
 there is no count limit or display-synchronization-specific diagnostic expansion.
 IaC Markdown retains Scan time/scope/status, every nonzero Issue classification count,
 record category counts and the dedicated PENDING_DEPLOY exclusion count. Omit zero
-categories and empty sections/tables. Show at most 20 compact Issues in existing
+categories and empty sections/tables. Show at most 50 compact Issues in existing
 report_order, with ID/classification/target/problem only, and omission counts only when
-needed (表示20件／全1194件／省略1174件). Do not present repair direction, actions,
+needed (表示50件／全1194件／省略1144件). Do not present repair direction, actions,
 field/Condition/value details, deferred examples or CLI instructions in normal Markdown.
 Omitted Issues remain unresolved; display limits never change counts or repair scope.
 Retrieve all Issues with `detail --section iac_issues --offset 0 --limit 50`, then fetch

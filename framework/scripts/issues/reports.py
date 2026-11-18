@@ -308,7 +308,7 @@ def iac_report(
     if categories:
         lines.append("分類: " + " / ".join(categories))
     if summary["index"]:
-        visible = summary["index"][:20]
+        visible = summary["index"][:50]
         lines.extend(["", "## Issue一覧", ""])
         if summary["issue_count"] > len(visible):
             lines.extend(

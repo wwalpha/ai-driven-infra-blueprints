@@ -436,14 +436,14 @@ def summary_scale_cases():
     assert stats["omitted_record_categories"] == dict(
         difference=1086, uncompared=0, error=92
     )
-    assert "表示20件／全1194件／省略1174件" in report and "error 93件" in report
-    assert len(re.findall(r"^\| ISSUE-", report, re.M)) == 20
+    assert "表示50件／全1194件／省略1144件" in report and "error 93件" in report
+    assert len(re.findall(r"^\| ISSUE-", report, re.M)) == 50
     assert "### ISSUE-" not in report and "必要な操作" not in report
     ordered = sorted(
         artifact["iac_issues"], key=lambda item: item["compact"]["report_order"]
     )
     assert re.findall(r"^\| (ISSUE-[^ ]+)", report, re.M) == [
-        item["id"] for item in ordered[:20]
+        item["id"] for item in ordered[:50]
     ]
     assert "index" not in json.loads(stdout)["iac_summary"]
     assert report == iac_report(
@@ -455,7 +455,7 @@ def summary_scale_cases():
         for item in detail_payload(artifact, "iac_issues", offset, 50)["items"]
     ]
     assert {item["id"] for item in all_issues} == {item["id"] for item in actions}
-    omitted = ordered[20]
+    omitted = ordered[50]
     assert omitted["id"] not in report
     assert detail_payload(artifact, "iac", issue_id=omitted["id"])["total"] == len(
         omitted["members"]
