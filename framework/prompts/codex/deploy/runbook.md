@@ -68,7 +68,7 @@ outputs.update(observed_outputs(source_path, values))
 publish_observed_candidates(repository_root, outputs, original_inputs)
 ```
 
-Use the returned `python_setup.interpreter` with `framework/scripts` on its process-local import path for these existing APIs. Do not add a new writer CLI or fall back to direct properties writes/SDK sync. If the consumed input set, safe call context or exact Row mapping cannot be established, retain the evidence/candidate and stop; a dedicated public writer command is a separate follow-up, not part of this Issue.
+Use the Worktree CLI `run` with `framework/scripts` on its process-local import path for these existing APIs. Do not add a new writer CLI or fall back to direct properties writes/SDK sync. If the consumed input set, safe call context or exact Row mapping cannot be established, retain the evidence/candidate and stop; a dedicated public writer command is a separate follow-up, not part of this Issue.
 
 After the guarded Model save, generate only authorized affected services and run the scoped task loop:
 

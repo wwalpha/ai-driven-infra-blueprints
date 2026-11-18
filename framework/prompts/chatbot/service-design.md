@@ -1,6 +1,6 @@
 # Service Design Ask Prompt
 
-In a managed Worktree, run Python commands from the selected Worktree root. Clear `PYTHONHOME` and `PYTHONPATH` and replace `<python_setup.interpreter>` with the absolute executable path from the successful Worktree Create/Setup JSON (`python_setup.status: ready`). Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+In a managed Worktree, follow [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree) and replace the entire quoted `"<python_setup.interpreter>"` in examples with `python3 framework/scripts/worktree-cli.py run`. Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
 
 [Service Model sources](../../rules/model-templates.md) define environment-specific
 properties as authority. Read with `model.sources.load_model`; use

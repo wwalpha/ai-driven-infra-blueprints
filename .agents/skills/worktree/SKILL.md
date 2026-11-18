@@ -24,7 +24,7 @@ At start read [Task transition](../../../framework/rules/task-contract.md#task-t
 
 When performing validation/integration, read [Validation scope](../../../framework/rules/loop-engineering.md#validation-scope), [Conflict resolution and reproducible validation](../../../framework/rules/loop-engineering.md#conflict-resolution-and-reproducible-validation), and [Retry and stop](../../../framework/rules/loop-engineering.md#retry-and-stop). Read [Local loop](../../../framework/rules/loop-engineering.md#local-loop) when a loop is required, [Framework regression](../../../framework/rules/loop-engineering.md#framework-regression) only when the validation classification requires it, [Validation cache](../../../framework/rules/loop-engineering.md#validation-cache) when reusing results, and [Timing and long-running execution](../../../framework/rules/loop-engineering.md#timing-and-long-running-execution) for long runs. Do not unconditionally reread unchanged material already confirmed in the same Task; revisit necessary sections when inputs, classification or dependencies change or evidence is insufficient.
 
-The lifecycle examples use `python3` on macOS and Linux. On Windows, use the intended Python 3 executable or select it with `py -3`. For Task commands in a managed Worktree, use the returned `python_setup.interpreter` directly as described below.
+The lifecycle examples use `python3` on macOS and Linux. On Windows, use the intended Python 3 executable or select it with `py -3`. For Task commands in a managed Worktree, use the `run` subcommand as described below.
 
 ## Sandbox permission approval and continuation
 
@@ -78,15 +78,12 @@ On Windows, run setup from the surviving checkout containing the updated helper.
 
 ### Run Python in the Worktree
 
-Use the `python_setup.interpreter` absolute path from the successful Create/Setup JSON to run Python directly from the returned `worktree`. Clear `PYTHONHOME` and `PYTHONPATH` first. Substitute the returned path for `<python_setup.interpreter>`. If a Python CLI needs to
-be found on PATH, prepend the returned `python_setup.bin` to PATH for that command.
-In PowerShell, use `& "<python_setup.interpreter>"` and set `$env:BLUEPRINT_TASK_FILE`
-before the invocation if the example sets that selector inline.
-
-After requirements change, rerun setup for the Task before running Python. Direct Python execution does not check registration or setup status or synchronize dependencies. If setup failed or is stale, stop until setup succeeds. Lifecycle commands use the ordinary Python launcher from a surviving checkout.
+From the returned Worktree root, use the public CLI to run Python arguments or an environment CLI. It verifies the registration and synchronizes changed requirements using the existing setup rules. Set `BLUEPRINT_TASK_FILE` per process when needed. Replace the entire quoted `"<python_setup.interpreter>"` in other examples with `python3 framework/scripts/worktree-cli.py run`; on Windows use the intended Python 3 launcher, such as `py -3`.
 
 ```console
-"<python_setup.interpreter>" -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --source <external-contract>
+python3 framework/scripts/worktree-cli.py run -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --source <external-contract>
+python3 framework/scripts/worktree-cli.py run -m pytest
+python3 framework/scripts/worktree-cli.py run --command ruff check .
 ```
 
 ### Contract and validation
@@ -125,7 +122,7 @@ Finalize applies its usual Git and exact-path checks to the report changes.
 Finish all requested work and all required inputs/approvals under the child's existing workflow. Proceed only after successful final validation selected by [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy) and all other mandatory completion conditions:
 
 ```console
-"<python_setup.interpreter>" -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete
+python3 framework/scripts/worktree-cli.py run -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --complete
 python3 -B framework/scripts/worktree-cli.py finalize --task-id <task-id>
 ```
 

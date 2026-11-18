@@ -1501,7 +1501,9 @@ def _worktree_runtime():
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, epilog="run [Python arguments] or run --command CLI [arguments]: execute in the registered Python environment"
+    )
     parser.add_argument(
         "command",
         choices=(

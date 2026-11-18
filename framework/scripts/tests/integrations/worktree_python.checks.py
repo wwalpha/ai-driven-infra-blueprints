@@ -80,11 +80,11 @@ def check_venv_fallback():
             assert sum("install" in c.args[0] for c in commands.call_args_list) == 1
             assert verification.call_count == 1
             target = Path(states[0]["worktree"])
-            interpreter, environment = py.runtime(target)
+            cli = Path(py.__file__).resolve().parents[1] / "worktree-cli.py"
             code = "import sys,os,json; print(json.dumps([sys.executable,sys.prefix,os.environ['VIRTUAL_ENV'],os.environ['PATH'].split(os.pathsep)[0]]))"
-            for command in ([str(interpreter), "-c", code], ["python", "-c", code]):
+            for args in (["-c", code], ["--command", "python", "-c", code]):
                 result = subprocess.run(
-                    command, cwd=target, env=environment, capture_output=True, text=True
+                    [sys.executable, "-B", str(cli), "run", *args], cwd=target, capture_output=True, text=True
                 )
                 assert result.returncode == 0, result.stderr + result.stdout
                 executable, prefix, virtual, first_bin = json.loads(result.stdout)
@@ -107,6 +107,14 @@ def check_venv_fallback():
                     check=False,
                 )
                 check.assertEqual(result.returncode, 0, result.stderr)
+            for args in (["-m", "json.tool", "--help"], ["-c", "import sys; assert sys.argv[1:] == ['--task-id', 'a b']", "--task-id", "a b"]):
+                result = subprocess.run([sys.executable, "-B", str(cli), "run", *args], cwd=target, capture_output=True, text=True)
+                assert result.returncode == 0, result.stderr
+            result = subprocess.run([sys.executable, "-B", str(cli), "run", "-c", "raise SystemExit(7)"], cwd=target)
+            assert result.returncode == 7
+            help_result = subprocess.run([sys.executable, "-B", str(cli), "--help"], cwd=root, capture_output=True, text=True, check=True)
+            for operation in ("create", "setup", "finalize", "cleanup", "branch-delete", "sync-base", "sync-latest-base", "pr-select", "pr-update", "pr-sync-base", "pr-merge", "pr-status", "pr-close", "pr-draft", "pr-ready", "run"):
+                assert operation in help_result.stdout
             wt.tasks.start(
                 target,
                 states[0]["task_file"],
@@ -119,7 +127,7 @@ def check_venv_fallback():
                 directory
             )
     print(
-        "Real fixed-path venv, one install, direct Python/CLI, shared survival after cleanup: PASS"
+        "Real fixed-path venv, one install, unified Python/CLI, shared survival after cleanup: PASS"
     )
 
 

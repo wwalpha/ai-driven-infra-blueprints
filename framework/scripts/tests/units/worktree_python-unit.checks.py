@@ -2,6 +2,7 @@
 """Focused checks; test sources define the current verification responsibilities."""
 
 import io
+import runpy
 import shlex
 import subprocess
 import sys
@@ -32,9 +33,50 @@ from support.worktree_python_fixtures import (
     tempfile,
     wt,
 )
+from worktree import worktree_runner as runner
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+@pytest.mark.parametrize("code", [0, 2, 7, 130])
+def check_runner_windows_exit_propagation(code):
+    with (
+        patch.object(runner.worktree_python, "runtime", return_value=None),
+        patch.object(runner.sys, "platform", "win32"),
+        patch.object(runner.os, "execvpe", side_effect=AssertionError("Windows must wait")),
+    ):
+        assert runner.main(["-c", f"raise SystemExit({code})"]) == code
+
+
+def check_runner_argument_transparency_and_errors(capsys):
+    args = ["-m", "module", "--task-id", "a b", "--", "-B"]
+    env = {"PATH": "/example"}
+    with (
+        patch.object(runner.worktree_python, "runtime", return_value=(Path("/python"), env)) as runtime,
+        patch.object(runner.sys, "platform", "linux"),
+        patch.object(runner.os, "execvpe") as execute,
+    ):
+        runner.main(args)
+        runtime.assert_called_once_with(Path.cwd().resolve())
+        assert execute.call_args.args == ("/python", ["/python", *args], env)
+        runner.main(["--command", "ruff", "check", "--task-id", "a b"])
+        assert execute.call_args.args == ("ruff", ["ruff", "check", "--task-id", "a b"], env)
+        assert runner.main(["--command"]) == 1
+        assert "requires a CLI" in capsys.readouterr().err
+    with patch.object(runner.worktree_python, "runtime", side_effect=ValueError("bad setup")):
+        assert runner.main([]) == 1
+        assert "bad setup" in capsys.readouterr().err
+
+
+def check_runner_fallback():
+    with (
+        patch.object(runner.worktree_python, "runtime", return_value=None),
+        patch.object(runner.sys, "platform", "linux"),
+        patch.object(runner.os, "execvpe") as execute,
+    ):
+        runner.main(["-c", "pass"])
+        assert execute.call_args.args[1] == [sys.executable, "-c", "pass"]
 
 
 def check_environment():
@@ -123,13 +165,31 @@ def check_output_decoding(tmp_path, encoding, stderr, returncode):
 
 def check_module_identity():
     scripts = str(Path(py.__file__).resolve().parents[1])
-    for order in (("worktree.worktree_task", "worktree.worktree_pr"), ("worktree.worktree_pr", "worktree.worktree_task")):
+    for order in (("worktree.worktree_task", "worktree.worktree_pr"), ("worktree.worktree_pr", "worktree.worktree_task"), ("worktree.worktree_runner", "worktree.worktree_task"), ("worktree.worktree_task", "worktree.worktree_runner")):
         code = ("import importlib, sys; sys.path.insert(0, sys.argv[1]); "
                 "a = importlib.import_module(sys.argv[2]); b = importlib.import_module(sys.argv[3]); "
                 "from utils.script_loader import module; "
                 "assert a is module(sys.argv[2].replace('.', '/') + '.py', sys.argv[2]); "
                 "assert b is module(sys.argv[3].replace('.', '/') + '.py', sys.argv[3])")
         subprocess.run([sys.executable, "-I", "-B", "-c", code, scripts, *order], check=True)
+
+    code = (
+        "import runpy, sys; from unittest.mock import patch; "
+        "sys.path.insert(0, sys.argv[1]); cli = sys.argv[1] + '/worktree-cli.py'; "
+        "sys.argv = [cli, 'run', '-c', 'pass']; "
+        "from worktree import worktree_python; "
+        "worktree_python.runtime = lambda root: None; "
+        "with_patch = patch('os.execvpe'); with_patch.start(); "
+        "exec(\"try:\\n runpy.run_path(cli, run_name='__main__')\\nexcept SystemExit:\\n pass\"); "
+        "assert 'worktree.worktree_task' not in sys.modules; "
+        "assert 'worktree.worktree_pr' not in sys.modules"
+    )
+    subprocess.run([sys.executable, "-I", "-B", "-c", code, scripts], check=True)
+    main = runpy.run_path(str(Path(scripts) / "worktree-cli.py"))["main"]
+    for operation in ("create", "setup", "finalize", "cleanup", "branch-delete", "sync-base", "sync-latest-base", "pr-select", "pr-update", "pr-sync-base", "pr-merge", "pr-status", "pr-close", "pr-draft", "pr-ready"):
+        with patch.object(sys, "argv", ["worktree-cli.py", operation]), patch.object(wt, "main", return_value=19) as lifecycle:
+            assert main() == 19
+            lifecycle.assert_called_once_with()
 
 
 @pytest.mark.parametrize(

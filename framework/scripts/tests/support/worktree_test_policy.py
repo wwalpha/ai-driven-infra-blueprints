@@ -127,6 +127,9 @@ WORKTREE_CASES = {
         "check_pr_prepare_refuses_unvalidated_candidate",
     ),
     "units/worktree_python-unit.checks.py": (
+        "check_runner_windows_exit_propagation",
+        "check_runner_argument_transparency_and_errors",
+        "check_runner_fallback",
         "check_worktree_commands_use_current_interpreter",
         "check_worktree_command_unknown_environment",
         "check_environment",

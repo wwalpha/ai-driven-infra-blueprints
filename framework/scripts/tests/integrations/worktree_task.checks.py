@@ -1643,7 +1643,9 @@ def _interrupt_merge(remote, /, where, *args, **kwargs):
 
 @it_case
 def check_pr_remote_base_only_sync():
-    assert runpy.run_path(str(SCRIPT))["main"] is wt.main
+    with patch.object(sys, "argv", [str(SCRIPT), "pr-sync-base"]), patch.object(wt, "main", return_value=19) as lifecycle:
+        assert runpy.run_path(str(SCRIPT))["main"]() == 19
+        lifecycle.assert_called_once_with()
     with fixture() as root:
         target, state = start(root, files=("framework/scripts/candidate.txt",))
         source = target / "framework/scripts/candidate.txt"
