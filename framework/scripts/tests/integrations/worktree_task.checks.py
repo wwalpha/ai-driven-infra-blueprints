@@ -617,6 +617,8 @@ def check_unpublished_pr_intent_base_sync_preserves_candidate():
 
 @it_case
 def check_success_and_empty():
+    for case in ("pass", "settings", "nonpython", "ruff", "head", "config", "environment"):
+        _check_python_quality_publication("local", case)
     for empty in (False, True):
         with fixture() as root:
             before = git(root, "rev-parse", "HEAD")
@@ -1138,9 +1140,124 @@ class PRGitHub:
         return self.pr["url"] + "\n"
 
 
+def _quality_subprocess(remote, target, case, calls, command, **kwargs):
+    result = remote.child(command, **kwargs)
+    if command[-1] != "framework/scripts/python_quality.py":
+        return result
+    calls.append(result)
+    if case == "head":
+        git(target, "commit", "--allow-empty", "-qm", "change HEAD after quality")
+    if case == "config":
+        with (target / "pyproject.toml").open("a", encoding="utf-8") as config:
+            config.write("\n# changed after quality\n")
+    return result
+
+
+def _check_python_quality_publication(route, case):
+    contents = {
+        "ruff": "import unused_module\n",
+        "structure": "def outer():\n    def inner():\n        pass\n    inner()\n",
+    }
+    with fixture() as root:
+        scripts = root / "framework/scripts"
+        scripts.mkdir(parents=True)
+        for name in ("python_quality.py", "python_structure.py", "requirements.txt"):
+            shutil.copyfile(SCRIPT.parent / name, scripts / name)
+        shutil.copyfile(SCRIPT.parents[2] / "pyproject.toml", root / "pyproject.toml")
+        git(root, "add", ".")
+        git(root, "commit", "-qm", "quality fixture")
+        relative = "framework/scripts/candidate.py"
+        if case == "nonpython":
+            files = ("file.txt",)
+        elif case == "settings":
+            files = ("pyproject.toml", "file.txt")
+        elif route == "initial":
+            files = (relative,)
+        else:
+            files = (relative, "file.txt")
+        target, state = start_direct(root, files=files)
+        candidate = target / files[0]
+        base = state["start"]
+        content = "VALUE = 1\n" if route == "update" else contents.get(case, "VALUE = 2\n")
+        if case == "settings":
+            content = candidate.read_text(encoding="utf-8") + "\n# quality config change\n"
+        candidate.write_text(content, encoding="utf-8")
+        finish_contract(target, state)
+        remote = PRGitHub(root, state)
+        env = wt.python_env.environment(Path(sys.prefix))
+        selected = (Path(sys.executable), env)
+        calls = []
+        with (
+            patch.object(wt, "git", side_effect=remote.git),
+            patch.object(pr, "gh", side_effect=remote.gh),
+            patch.object(wt.python_env, "runtime", return_value=selected),
+            patch.object(
+                wt.python_env, "quality_environment", return_value=(*selected, ()),
+                side_effect=ValueError("registered Python unavailable") if case == "environment" else None,
+            ),
+            patch.object(
+                subprocess, "run",
+                side_effect=_bind_framework_callback(_quality_subprocess, remote, target, case, calls),
+            ),
+            patch.object(pr, "validate_snapshot", side_effect=remote.validate_update_snapshot),
+            patch.object(loop, "run_loop", side_effect=remote.validate),
+            patch.object(pr, "push_candidate", wraps=pr.push_candidate) as push,
+        ):
+            if route == "update":
+                initial = wt.finalize(root, EXAMPLE_TASK_ID, create_pr=True)["tip"]
+                assert len(calls) == 1 and calls[0].returncode == 0
+                candidate.write_text(contents[case], encoding="utf-8")
+                calls.clear()
+                push.reset_mock()
+                publish = _bind_framework_callback(pr.update, root, EXAMPLE_TASK_ID)
+            else:
+                publish = _bind_framework_callback(
+                    wt.finalize, root, EXAMPLE_TASK_ID, create_pr=route == "initial"
+                )
+            if case in {"pass", "settings", "nonpython"}:
+                assert publish()["cleaned"]
+                assert len(calls) == int(case != "nonpython")
+                assert (root / files[0]).read_text(encoding="utf-8") == content
+                return
+
+            expected = {
+                "ruff": "Python Quality failed",
+                "structure": "Python Quality failed",
+                "head": "candidate or Task changed",
+                "config": "candidate or Task changed",
+                "environment": "registered Python unavailable",
+            }
+            with pytest.raises(ValueError, match=expected[case]) as stopped:
+                publish()
+            retained(root, target, state, base)
+            push.assert_not_called()
+            saved = wt.load(root, EXAMPLE_TASK_ID)[3]
+            assert not saved["merged"]
+            pending = "prUpdate" if route == "update" else "prPublication"
+            assert "pushIntent" not in saved.get(pending, {})
+            if route == "update":
+                assert git(remote.remote, "rev-parse", state["branch"]) == initial
+                assert saved["prUpdate"]["status"] == "PREPARED"
+            if route != "local":
+                candidate.write_text("VALUE = 2\n", encoding="utf-8")
+                assert publish()["prPublication"]["status"] == "OPEN"
+                push.assert_called_once()
+            if case in contents:
+                output = stopped.value.diagnostics["stdout"]
+                assert "candidate.py:" in output
+                assert ("F401" if case == "ruff" else "nested-function") in output
+            assert len(calls) == (2 if route != "local" else int(case != "environment"))
+            if case in {"head", "config"}:
+                assert calls[0].returncode == 0
+
+
+
 def _push_with_base_advance(advance, scenario, original_push, target, publication):
     if advance == "during":
-        scenario.advance("base.txt", "during publication\n")
+        root = scenario.root
+        base = git(root, "rev-parse", "HEAD")
+        newer = git(root, "commit-tree", base + "^{tree}", "-p", base, "-m", "advance during publication")
+        git(root, "push", str(scenario.remote.remote), f"{newer}:refs/heads/{scenario.state['base']}")
     original_push(target, publication)
 
 
@@ -1239,6 +1356,7 @@ def _check_pr_creation_with_advancing_base():
 
 @it_case
 def check_pr_publication():
+    _check_python_quality_publication("initial", "structure")
     _check_pr_creation_with_advancing_base()
     for framework in (False, True):
         with fixture(branch="release") as root:
@@ -1393,6 +1511,7 @@ def _check_automatic_cleanup_ruff_cache():
 
 @it_case
 def check_pr_update_and_operations():
+    _check_python_quality_publication("update", "ruff")
     _check_automatic_cleanup_ruff_cache()
     for ending in (
         "close",

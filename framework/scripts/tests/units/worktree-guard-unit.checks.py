@@ -1662,6 +1662,7 @@ def check_pr_intent_reconciles_without_duplicate_publication(tmp_path, failure):
         patch.object(
             wt, "load", side_effect=_bind_framework_callback(_pr_resume_load, trace)
         ),
+        patch.object(wt, "paths", return_value={"file.txt"}),
         patch.object(pr, "check_candidate", return_value=(tmp_path, "Task")),
         patch.object(pr, "remote_identity", return_value=identity),
         patch.object(
@@ -1949,7 +1950,6 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
             wt.tasks, "read_task_snapshot", return_value=SimpleNamespace(text=text)
         ),
         patch.object(wt, "save") as save,
-        patch.object(pr, "save_update") as save_update,
         patch.object(wt.python_env, "runtime", return_value=(Path(sys.executable), {})),
         patch.object(
             pr.subprocess,
@@ -1994,7 +1994,6 @@ def check_pr_update_failure_retains_candidate(tmp_path, failure):
                 assert state["prUpdate"]["validation"] == "STALE"
                 assert state["prUpdate"]["status"] == "VALIDATED"
                 save.assert_not_called()
-                save_update.assert_not_called()
 
 
 def check_pr_update_retries_prepared_candidate():

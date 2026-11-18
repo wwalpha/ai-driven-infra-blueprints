@@ -316,7 +316,7 @@ def setup(root, previous):
         lock.rmdir()
 
 
-def runtime(root):
+def runtime(root, *, synchronize=True):
     """Resolve ready lifecycle metadata afresh; no shell activation or saved PATH needed."""
     _, _, primary = wt.repository(root)
     path = wt.metadata_directory(primary) / "tasks" / f"{root.name}.json"
@@ -357,5 +357,19 @@ def runtime(root):
         or lock.is_symlink()
         or not applied(directory, requirements_snapshot(root, primary)[1])
     ):
+        if not synchronize:
+            raise ValueError("shared Python dependencies are not ready; run worktree setup")
         setup(root, setup_state)
     return interpreter, environment(directory)
+
+
+def quality_environment(root):
+    selected = runtime(root, synchronize=False)
+    if selected is None:
+        raise ValueError("Python Quality requires the registered worktree Python environment")
+    interpreter, env = selected
+    directory = interpreter.parent.parent
+    inputs = [interpreter, directory / "pyvenv.cfg", directory / APPLIED]
+    stats = [path.stat() for path in inputs]
+    identity = tuple((s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns) for s in stats)
+    return interpreter, env, identity

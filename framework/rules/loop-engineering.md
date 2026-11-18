@@ -85,6 +85,28 @@ text-only phases use lightweight checks. Do not start an unrequested phase or cr
 another task merely because validation succeeds. Report executed checks, omitted checks
 and classification reasons in the completion response; add no permanent reports/logs.
 
+### Python Quality before Worktree publication
+
+Worktree checks the committed candidate before a local fast-forward merge, the
+first PR push, or a PR update push when Python sources under `framework/scripts`,
+quality configuration, the Python requirements, or the quality workflow change.
+The registered Worktree Python runs `framework/scripts/python_quality.py` against
+the candidate's isolated checkout. GitHub Actions runs the same entrypoint using
+its configured Python and the same Ruff pin. The check covers all of
+`framework/scripts` and does not select UTs or ITs. Each attempted push checks
+again when applicable. Remote reconciliation of a push that already happened
+does not rerun the check.
+
+A quality failure retains the Worktree for correction and prevents publication.
+Review the command's diagnostics. After a correction, validate the new candidate
+through the same Worktree operation. Requirements that conflict with the primary
+shared environment stop publication until the installed environment matches the
+candidate. Python interpreter versions can differ between the registered
+environment and GitHub Actions, which can affect Python parsing. Direct Git
+commands bypass this Worktree gate. Server-side merge enforcement requires
+repository rules with a required quality status that is available for every PR.
+
+
 ## Change Validation and Full Model Validation
 
 For Model updates use **Change Validation only**. Use Full Validation for Issue Scan or independent explicit full validation, not the update stop decision. Validate changed Resources, Properties and Links and their affected reference contracts; unrelated existing errors do not block the update. Distinguish read dependencies, validation targets, generation targets and Task write authority.

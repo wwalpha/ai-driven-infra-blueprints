@@ -293,6 +293,23 @@ def indexed_rows(rows, kind, root=ROOT):
     return result
 
 
+def _array_field_rank(row, formal, order, array_ranks):
+    prop = formal.get(row[0])
+    if prop not in order:
+        return ()
+    ancestors = [
+        array_ranks[prop[: match.end() - 1]]
+        for match in re.finditer(r"\[\]\.", prop)
+    ]
+    indexes = re.findall(r"\[([1-9]\d*)\]", row[1])
+    if not ancestors or len(indexes) < len(ancestors):
+        return ()
+    return (
+        *zip(ancestors, map(int, indexes), strict=False),
+        (order[prop], 0),
+    )
+
+
 def order_array_fields(rows, source, kind, root):
     """Order fields after numbering has fixed each row's array membership."""
     order = catalog_property_order(root, kind) or {}
@@ -302,23 +319,7 @@ def order_array_fields(rows, source, kind, root):
             array_ranks.setdefault(prop[: match.end() - 1], rank)
     formal = {row[0]: row[1] for row in source}
 
-    def key(row):
-        prop = formal.get(row[0])
-        if prop not in order:
-            return ()
-        ancestors = [
-            array_ranks[prop[: match.end() - 1]]
-            for match in re.finditer(r"\[\]\.", prop)
-        ]
-        indexes = re.findall(r"\[([1-9]\d*)\]", row[1])
-        if not ancestors or len(indexes) < len(ancestors):
-            return ()
-        return (
-            *zip(ancestors, map(int, indexes), strict=False),
-            (order[prop], 0),
-        )
-
-    ranked = [(key(row), row) for row in rows]
+    ranked = [(_array_field_rank(row, formal, order, array_ranks), row) for row in rows]
     return [
         row
         for _, group in groupby(

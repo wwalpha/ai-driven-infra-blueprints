@@ -576,13 +576,14 @@ def _commit_preconditions(
         and changed
         and not (state["commit"] == head == state.get("validation_base"))
     ):
-        synchronized_framework = (
-            state.get("validation_base")
+        validation_base = state.get("validation_base", state.get("start"))
+        framework_candidate = (
+            validation_base
             and state["commit"] == head
             and tasks.final_framework_task(text, scope_paths)
-            and ancestor(target, state["validation_base"], state["branch"])
+            and ancestor(target, validation_base, state["branch"])
         )
-        if not synchronized_framework and (
+        if not framework_candidate and (
             parsed_operation is None or parsed_operation.action != "model-delete"
         ):
             raise Blocked(
@@ -782,6 +783,55 @@ def _prepare_commit(
     return latest
 
 
+class _PythonQualityFailure(Blocked):
+    pass
+
+
+def _require_python_quality(target, candidate, changed):
+    """Check the committed tree in the registered environment before publication."""
+    configs = {
+        "pyproject.toml", "ruff.toml", ".ruff.toml", ".gitignore", ".ignore", ".gitattributes",
+    }
+    triggers = {python_env.REQUIREMENTS, ".github/workflows/python-quality.yml"}
+    if not any(
+        path in triggers
+        or (
+            Path(path).name in configs
+            and (
+                path.startswith("framework/scripts/")
+                or Path(path).parent in {Path("."), Path("framework")}
+            )
+        )
+        or (path.startswith("framework/scripts/") and path.endswith(".py"))
+        for path in changed
+    ):
+        return
+
+    interpreter, environment, identity = python_env.quality_environment(target)
+    # Ruff can discover config or sources outside the index in a live worktree.
+    with tempfile.TemporaryDirectory(prefix="blueprint-python-quality-") as directory:
+        snapshot = Path(directory) / "candidate"
+        git(
+            target, "clone", "--quiet", "--shared", "--no-checkout", "--", target, snapshot
+        )
+        git(snapshot, "checkout", "--quiet", "--detach", candidate)
+        result = subprocess.run(
+            [str(interpreter), "-B", "framework/scripts/python_quality.py"],
+            cwd=snapshot,
+            env=environment,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode:
+            error = _PythonQualityFailure("Python Quality failed; publication refused")
+            error.diagnostics = dict(
+                returncode=result.returncode, stdout=result.stdout, stderr=result.stderr
+            )
+            raise error
+    if python_env.quality_environment(target) != (interpreter, environment, identity):
+        raise Blocked("Python Quality environment changed during validation")
+
 def finalize(
     where,
     task_id,
@@ -857,11 +907,14 @@ def _finalize(where, task_id):
                 encoding="utf-8",
             )
             if result.returncode:
-                raise Blocked(
+                error = Blocked(
                     "final candidate integration failed; worktree retained: "
-                    + result.stderr.strip()
-                    + result.stdout.strip()
+                    + (result.stderr or result.stdout).strip()
                 )
+                error.diagnostics = dict(
+                    returncode=result.returncode, stdout=result.stdout, stderr=result.stderr
+                )
+                raise error
             if result.stdout.startswith("NEEDS_SYNC="):
                 return needs_sync(result.stdout.removeprefix("NEEDS_SYNC=").strip())
             if state.get("integrationMode") == "pr":
@@ -920,16 +973,16 @@ def _finalize(where, task_id):
                 sources=model_paths,
                 **({"validation_base": latest} if direct_cli else {}),
             )
-            if (
-                output(target, "rev-parse", "HEAD") != expected
-                or _without_ruff_cache(target, changed_paths(target))
-                or tasks.read_task_snapshot(target, state["task_file"], live=True).raw
-                != contract
-            ):
-                raise Blocked(
-                    "validated candidate, Task or base changed before merge; retain worktree"
-                )
-        if state.get("integrationMode") == "pr":
+        pr = state.get("integrationMode") == "pr"
+        if not pr:
+            _require_python_quality(target, expected, model_paths)
+        if (
+            output(target, "rev-parse", "HEAD") != expected
+            or _without_ruff_cache(target, changed_paths(target))
+            or tasks.read_task_snapshot(target, state["task_file"], live=True).raw != contract
+        ):
+            raise Blocked("validated candidate or Task changed before publication")
+        if pr:
             return module("worktree/worktree_pr.py", "worktree.worktree_pr").prepare(
                 root, path, state, latest, expected
             )
@@ -937,7 +990,7 @@ def _finalize(where, task_id):
         current_base = output(base, "rev-parse", "HEAD")
         if current_base != latest:
             raise NeedsSync(current_base)
-        git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
+        git(base, "merge", "--ff-only", "--no-autostash", expected)
         if output(base, "rev-parse", "HEAD") != expected or not ancestor(
             root, expected, state["base"]
         ):
@@ -1014,6 +1067,11 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
             if tasks.status(text) == "running"
             else text
         )
+        if base is not None:
+            _require_python_quality(
+                target, candidate.candidate_head, candidate.changed_paths
+            )
+            base = base_worktree(root, state)
         if (
             tasks.read_task_snapshot(target, candidate.task_file, live=True).text
             != text
@@ -1032,7 +1090,7 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
             return module("worktree/worktree_pr.py", "worktree.worktree_pr").prepare(
                 root, path, state, candidate.base_commit, candidate.candidate_head
             )
-        git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
+        git(base, "merge", "--ff-only", "--no-autostash", candidate.candidate_head)
         if output(
             base, "rev-parse", "HEAD"
         ) != candidate.candidate_head or not ancestor(
@@ -1064,6 +1122,9 @@ def _integrate_model(where, task_id):
             print("NEEDS_SYNC=" + notice.base)
             return
         except (OSError, ValueError, KeyError, TypeError) as error:
+            if details := getattr(error, "diagnostics", None):
+                print(details["stdout"], file=sys.stdout, end="")
+                print(details["stderr"], file=sys.stderr, end="")
             raise Blocked(str(error) + "; integration log: " + log.name) from error
 
 

@@ -1,6 +1,5 @@
 """Explicit PR publication of an already validated worktree candidate."""
 
-import copy
 import errno
 import hashlib
 import json
@@ -464,10 +463,23 @@ def publish(root, path, state):
     if pr and head is None:
         raise wt.Blocked("PR branch disappeared; review required")
     if head is None or previous and head == previous:
-        record(root, path, state, pushIntent=True)
-        # Recheck remote/local boundaries immediately before the single non-force ref push.
+        # Recheck remote/local boundaries before the single non-force ref push.
         if remote_base(target, publication) != previous:
             raise wt.Blocked("remote branch changed before push; review required")
+        candidate = publication["candidate"]
+        changed = wt.paths(
+            target, "diff", "--name-only", "--no-renames", "-z", publication["baseCommit"], candidate
+        )
+        try:
+            wt._require_python_quality(target, candidate, changed)
+        except wt._PythonQualityFailure:
+            if not publication.get("pushIntent"):
+                with wt.lifecycle_lock(root):
+                    check_candidate(root, path, state)
+                    del state["prPublication"]
+                    wt.save(path, state)
+            raise
+        record(root, path, state, pushIntent=True)
         with wt.lifecycle_lock(root):
             check_candidate(root, path, state)
         push_candidate(target, publication)
@@ -582,13 +594,6 @@ def update_snapshot(root, state, *, clean=True):
     ):
         raise wt.Blocked("PR update candidate changed; validation cannot be reused")
     return target, text
-
-
-def save_update(root, path, state, expected):
-    with wt.lifecycle_lock(root):
-        if wt.load(root, state["task_id"])[3] != expected:
-            raise wt.Blocked("PR update lifecycle changed; retain intent")
-        wt.save(path, state)
 
 
 def validate_snapshot(interpreter, environment, snapshot, task_file, base, head):
@@ -1058,11 +1063,27 @@ def update(where, task_id):
         ):
             raise wt.Blocked("PR update validation is missing or stale")
         if not intent.get("pushConfirmed"):
-            prior = copy.deepcopy(state)
-            intent["pushIntent"] = True
-            save_update(root, path, state, prior)
             head = remote_base(target, publication)
             existing_pr(target, publication, heads={intent["previousCandidate"]})
+            if head != intent["previousCandidate"]:
+                raise wt.Blocked("PR head changed before push")
+            candidate = intent["candidate"]
+            changed = wt.paths(
+                target, "diff", "--name-only", "--no-renames", "-z", intent["baseCommit"], candidate
+            ) | wt.paths(
+                target, "diff", "--name-only", "--no-renames", "-z", head, candidate
+            )
+            try:
+                wt._require_python_quality(target, candidate, changed)
+            except wt._PythonQualityFailure:
+                if not intent.get("pushIntent"):
+                    with wt.lifecycle_lock(root):
+                        if wt.load(root, task_id)[3] == state:
+                            _, current = update_snapshot(root, state)
+                            if current == text:
+                                intent.update(status="PREPARED", validation="PENDING")
+                                wt.save(path, state)
+                raise
             with wt.lifecycle_lock(root):
                 if wt.load(root, task_id)[3] != state:
                     raise wt.Blocked("PR lifecycle changed before push")
@@ -1072,8 +1093,8 @@ def update(where, task_id):
                     != intent["taskHash"]
                 ):
                     raise wt.Blocked("PR Task changed before push")
-            if head != intent["previousCandidate"]:
-                raise wt.Blocked("PR head changed before push")
+                intent["pushIntent"] = True
+                wt.save(path, state)
             push_candidate(
                 target,
                 dict(

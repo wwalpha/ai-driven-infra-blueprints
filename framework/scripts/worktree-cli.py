@@ -2,16 +2,13 @@
 """Worktree command entry point."""
 
 import sys
+from importlib import import_module
 
 
 def main():
     if sys.argv[1:2] == ["run"]:
-        from worktree.worktree_runner import main as run  # noqa: PLC0415
-
-        return run(sys.argv[2:])
-    from worktree.worktree_task import main as lifecycle  # noqa: PLC0415
-
-    return lifecycle()
+        return import_module("worktree.worktree_runner").main(sys.argv[2:])
+    return import_module("worktree.worktree_task").main()
 
 
 if __name__ == "__main__":
