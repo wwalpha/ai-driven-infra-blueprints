@@ -1,6 +1,6 @@
 # Repository Initialization Prompt
 
-For standalone execution, substitute the repository’s configured Python 3 executable for `<python_setup.interpreter>`. In PowerShell, put `&` before the quoted path. For managed execution, follow [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree).
+The standalone examples use `python3`. Use the Python 3 launcher configured for the repository. In a managed Worktree, pass the script or module and its arguments to `python3 framework/scripts/worktree-cli.py run`. See [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree).
 
 Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
@@ -178,8 +178,8 @@ Check all targets' `iacEngine` and delete roots of IaC engines selected by no ta
 
 ## Verify and finish
 
-1. `"<python_setup.interpreter>" framework/scripts/blueprint-loop.py --mode task`
-2. `"<python_setup.interpreter>" -m py_compile framework/scripts/blueprint-loop.py framework/scripts/validate-blueprint.py`
+1. `python3 framework/scripts/blueprint-loop.py --mode task`
+2. `python3 -m py_compile framework/scripts/blueprint-loop.py framework/scripts/validate-blueprint.py`
 3. `git diff --check`
 
 Record validation results, created topology, created paths, existing paths left unchanged, and blockers only in Codex completion reports. Do not save verification results in the repository. After initialization, do not create or execute design, infrastructure, or scenario-test tasks.

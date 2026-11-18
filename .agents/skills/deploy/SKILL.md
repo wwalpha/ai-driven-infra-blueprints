@@ -27,7 +27,7 @@ AWS operations, Observed / View synchronization, Validation and completion.
 Follow [Run Python in the Worktree](../worktree/SKILL.md#run-python-in-the-worktree) for all Deploy Python commands.
 
 ```console
-"<python_setup.interpreter>" -B framework/scripts/deploy_preparation.py --help
+python3 framework/scripts/worktree-cli.py run -B framework/scripts/deploy_preparation.py --help
 ```
 
 Invoke AWS CLI directly. For Git integration and cleanup, follow [Complete and integrate](../worktree/SKILL.md#complete-and-integrate).
@@ -41,8 +41,8 @@ Model, Template, Parameters and Stack definitions are execution authority; gener
 Before running preparation, fix the entire Stack scope as described in Common entry. Pass only confirmed formal StackNames to `--stack`; never pass an unchecked Human string or treat a service name, abbreviation or internal identifier as a formal StackName. Do not run preparation while the scope is unresolved. Offline preparation produces an external contract and summary; inspect the original contract, exact StackNames, Resource owners, Validation scope and Model/View paths before registering:
 
 ```console
-"<python_setup.interpreter>" -B framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> --task-file tasks/<task-id>.md
-"<python_setup.interpreter>" -B framework/scripts/deploy_preparation.py --register <absolute-preparation.json>
+python3 framework/scripts/worktree-cli.py run -B framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> --task-file tasks/<task-id>.md
+python3 framework/scripts/worktree-cli.py run -B framework/scripts/deploy_preparation.py --register <absolute-preparation.json>
 ```
 
 Repeat `--stack`, or use inclusive `--order-from`/`--order-to` instead; never combine the selectors. Optional `--service` checks the discovered owners and grants no additional services. Use `--aws-account-id` instead of `--alias` when no alias exists and the configured `--profile` when set. Missing/invalid scope, changed inputs or ambiguous ownership stop registration. Preserve this invocation’s registered Snapshot and fixed StackNames for its operations. External consumers are deferred without Model/View authority.
@@ -52,7 +52,7 @@ Repeat `--stack`, or use inclusive `--order-from`/`--order-to` instead; never co
 Keep the same Task/Target and repeat `--stack` for **every fixed StackName** on all actions, including when saving only one Stack. Use `--aws-account-id` instead of `--alias` where applicable, configured `--profile` when set; `--sequential` can only lower concurrency.
 
 ```console
-env BLUEPRINT_TASK_FILE=tasks/<task-id>.md "<python_setup.interpreter>" -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action advance
+env BLUEPRINT_TASK_FILE=tasks/<task-id>.md python3 framework/scripts/worktree-cli.py run -B framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> --action advance
 ```
 
 Use `advance` for the first or continuing ordinary turn; no unconditional status-before-advance call. Retain full scope and configured concurrency: independent same-Order peers may continue after one failure; later Orders require earlier success. Only the LLM chooses save timing, never fixed-period sync.

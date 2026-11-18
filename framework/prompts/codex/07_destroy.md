@@ -1,6 +1,6 @@
 # CloudFormation Stack Destroy Prompt
 
-For standalone execution, substitute the repository’s configured Python 3 executable for `<python_setup.interpreter>`. In PowerShell, put `&` before the quoted path. For managed execution, follow [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree).
+The standalone examples use `python3`. Use the Python 3 launcher configured for the repository. In a managed Worktree, pass the script or module and its arguments to `python3 framework/scripts/worktree-cli.py run`. See [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree).
 
 Execute only explicit CloudFormation Stack destroy as an `infrastructure` task with phase `destroy`. Input following `/destroy` supplies one or more exact StackNames, for example `/destroy venusinf-dev-vpc`. This invocation approves those StackNames once target/account/dependency checks pass; do not add a second deletion confirmation. Never broaden scope to parents, retained resources, force delete, resource removal updates, Terraform, or scenarios.
 
@@ -26,7 +26,7 @@ Read specified sections including child sections through the next equal/higher h
 Before AWS APIs or repository writes, run local-plan once:
 
 ```text
-"<python_setup.interpreter>" framework/scripts/cloudformation-destroy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName>] --local-plan
+python3 framework/scripts/cloudformation-destroy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName>] --local-plan
 ```
 
 Use `--aws-account-id <12 digits>` instead of `--alias` for an unaliased target. No AWS calls occur in local-plan. Read its small machine JSON: target, units, MaxConcurrentStacks, owners, services, updates, exact paths and unmappedResources. CREATE designs without cfn-logicalId whose non-ARN output identifiers are absent or PENDING_DEPLOY are reported as unmapped and excluded from observed synchronization; do not infer ownership from Resource logicalId alone or claim their live absence. Stop for undeclared names, ambiguous ownership, observed identifiers without explicit cfn-logicalId, model repartition, or out-of-target incoming references. Do not repair models or widen scope in this task.
@@ -52,7 +52,7 @@ Omit Target alias only for an unaliased target. Record exact stacks/account/regi
 ## Execute and resume
 
 ```text
-"<python_setup.interpreter>" framework/scripts/cloudformation-destroy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName>] --state <external-session.json> [--profile <profile>] [--sequential] [--timing-log <external.jsonl>]
+python3 framework/scripts/cloudformation-destroy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName>] --state <external-session.json> [--profile <profile>] [--sequential] [--timing-log <external.jsonl>]
 ```
 
 Use one new unused state path; add `--resume` to continue that same session. Resume retains exact target/profile/scope/ownership/order/limit and StackIds. For a suspended task, explicitly resume its contract with task_contract.py first. Do not launch remaining stacks in an outer loop after failure. No per-stack STS, issue scans or confirmation.
@@ -70,7 +70,7 @@ Confirm session DELETE_COMPLETE for proven deletions and observedSynced for them
 Run exactly one final scoped loop:
 
 ```text
-"<python_setup.interpreter>" framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md
+python3 framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md
 ```
 
 Do not run cfn-lint, validate-template, change sets, deploy_preparation.py, template/parameter/artifact validation/upload, clean IaC revision checks or full repository/validation digest guards. No additional full regression from this workflow. After PASS and successful terminal/sync evidence, complete only this contract. On failure apply task-contract stop rules and report proven deleted, failed, already absent, retained and unexecuted stacks. Finish without scenario tests or next tasks.

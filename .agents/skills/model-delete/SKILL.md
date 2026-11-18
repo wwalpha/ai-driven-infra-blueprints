@@ -37,7 +37,7 @@ Before editing, call `model.references.incoming(snapshot, fixed_id, read_context
 Follow [Run Python in the Worktree](../worktree/SKILL.md#run-python-in-the-worktree) for the parent Task's Worktree.
 
 ```console
-"<python_setup.interpreter>" -B framework/scripts/model/cli.py incoming <service.properties> <fixed-ID>
+python3 framework/scripts/worktree-cli.py run -B framework/scripts/model/cli.py incoming <service.properties> <fixed-ID>
 ```
 
 Inspect each usage's fixed scope/ID,

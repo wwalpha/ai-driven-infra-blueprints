@@ -1,6 +1,6 @@
 # AWS pull
 
-For standalone execution, substitute the repository’s configured Python 3 executable for `<python_setup.interpreter>`. In PowerShell, put `&` before the quoted path. For managed execution, follow [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree).
+The standalone examples use `python3`. Use the Python 3 launcher configured for the repository. In a managed Worktree, pass the script or module and its arguments to `python3 framework/scripts/worktree-cli.py run`. See [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree).
 
 ## Read first
 
@@ -27,7 +27,7 @@ Do not register a design Task until the final approved AWS values have been rech
 Execute the existing comparator:
 
 ```console
-"<python_setup.interpreter>" -B framework/scripts/model/cli.py aws-compare --root . --environment stg --target cde --service s3 --create-only
+python3 -B framework/scripts/model/cli.py aws-compare --root . --environment stg --target cde --service s3 --create-only
 ```
 
 Replace example arguments with the confirmed target. Explicit/implicit CREATE follows the
@@ -85,7 +85,7 @@ relevant non-secret result. For the example above, `/tmp/pull-evidence.json` con
 Build the offline Review, using the planned Task selector before registering it:
 
 ```console
-"<python_setup.interpreter>" -B framework/scripts/model/cli.py pull-review model/stg/cde/iam.properties --candidate /tmp/pull-candidate --task-file tasks/pull-stg-cde-iam.md --evidence /tmp/pull-evidence.json
+python3 -B framework/scripts/model/cli.py pull-review model/stg/cde/iam.properties --candidate /tmp/pull-candidate --task-file tasks/pull-stg-cde-iam.md --evidence /tmp/pull-evidence.json
 ```
 
 This emits exact serialized Before/After values, identity, source/candidate hashes, scope,

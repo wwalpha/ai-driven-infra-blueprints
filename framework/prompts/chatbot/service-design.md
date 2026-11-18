@@ -1,6 +1,6 @@
 # Service Design Ask Prompt
 
-In a managed Worktree, follow [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree) and replace the entire quoted `"<python_setup.interpreter>"` in examples with `python3 framework/scripts/worktree-cli.py run`. Outside a managed Worktree, substitute the path to the Python 3 executable configured for this repository. In PowerShell, invoke a quoted executable path with `&`.
+The standalone examples use `python3`. Use the Python 3 launcher configured for the repository. In a managed Worktree, pass the script and its arguments to `python3 framework/scripts/worktree-cli.py run`. See [Run Python in the Worktree](../../../.agents/skills/worktree/SKILL.md#run-python-in-the-worktree).
 
 [Service Model sources](../../rules/model-templates.md) define environment-specific
 properties as authority. Read with `model.sources.load_model`; use
@@ -112,7 +112,7 @@ Do not reask decisions already recorded in existing detailed designs. If system 
 Immediately after confirming target catalog resource types and CREATE/IMPORT, and before design questions about names, parameters, policies, etc., execute the following read-only check for every target resource. Name values or models are unnecessary.
 
 ```text
-"<python_setup.interpreter>" framework/scripts/check-design-naming.py --resource-type <Catalog.ResourceType> --mode <CREATE|IMPORT>
+python3 framework/scripts/check-design-naming.py --resource-type <Catalog.ResourceType> --mode <CREATE|IMPORT>
 ```
 
 For CREATE, check catalog name properties and mandatory Names. Add `--name-tag` only for resources with human-selected optional Name tags. Retain existing applicability for IMPORT, properties explicitly excluded by common rules, and nameless types; do not ask for/add Name tags merely because resources are taggable.
@@ -335,8 +335,8 @@ For limited existing-resource/property changes, always include these partial-rea
 2. Retrieve only target resources, existing-group parents/children/siblings, and service metadata/notes with `--resource`. For required references in the same/other services, execute the same `--resource` on producer entries; use `--find` first if locations are unknown. Stop without inferring missing/ambiguous references.
 
 ```console
-"<python_setup.interpreter>" -B framework/scripts/model/cli.py find model/<environment>/<target-directory>/<service-id>.properties "<property-key-or-identifier>"
-"<python_setup.interpreter>" -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties <resource-selector>
+python3 -B framework/scripts/model/cli.py find model/<environment>/<target-directory>/<service-id>.properties "<property-key-or-identifier>"
+python3 -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties <resource-selector>
 ```
 
 1. Edit only required sections of actual parts (or single files) from output absolute paths/line numbers. Do not load unrelated resources/parts, entire services, or sequential reads of all parts into LLM context, or read generated Markdown/JSON as fallback for properties exploration. Do not overwrite entire models with extraction results.
@@ -347,7 +347,7 @@ If adding new resources requires entire-service structure checks, additional che
 If existing AWS configuration branches exist, explicitly provide the following in requests to Codex instead of initial model-saving step 4.
 
 1. Enumerate chatbot-confirmed target services, catalog resource types, materials properties, and output paths. Include corresponding design-only `.Name` for `EC2.VPC`, `EC2.Subnet`, `EC2.RouteTable`, and `EC2.FlowLog`, and mandatory Name tag formal `Tags[].Key` and `Tags[].Value` for `EC2.VPCEndpoint`/`EC2.Instance`; do not extend scope to other services, unselected resource types, or unselected properties.
-2. For targets with aliases, execute `"<python_setup.interpreter>" framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>] --read-only`; without aliases, execute `"<python_setup.interpreter>" framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <aws-account-id> [--profile <profile>] --read-only`. Continue only if caller accounts/regions match. On failure, stop without inferring or switching credentials, profiles, accounts, or regions. Preflight automatically uses target `awsProfile` if configured. Pass the same `--profile` and target region to all AWS CLIs below, and explicitly specify profiles/regions for SDKs. Reject explicit profiles differing from configuration; retain existing authentication only when unset.
+2. For targets with aliases, execute `python3 framework/scripts/check-deploy-context.py --environment <environment> --alias <alias> [--profile <profile>] --read-only`; without aliases, execute `python3 framework/scripts/check-deploy-context.py --environment <environment> --aws-account-id <aws-account-id> [--profile <profile>] --read-only`. Continue only if caller accounts/regions match. On failure, stop without inferring or switching credentials, profiles, accounts, or regions. Preflight automatically uses target `awsProfile` if configured. Pass the same `--profile` and target region to all AWS CLIs below, and explicitly specify profiles/regions for SDKs. Reject explicit profiles differing from configuration; retain existing authentication only when unset.
 3. For API catalog `Macie.ClassificationJob`, retrieve candidates with `aws macie2 list-classification-jobs`. For API catalog `QuickSight.Group`, retrieve candidates for the selected account and confirmed namespace with `aws quicksight list-groups --aws-account-id <account-id> --namespace <namespace>`. Convert only CFn-derived catalog resource types to corresponding `AWS::<Service>::<Resource>`, retrieving candidates with `aws cloudcontrol list-resources --type-name <type-name>`. Fall back to target-service-specific read-only APIs only when Cloud Control API does not support List/Read.
 4. Present candidates with minimal secret-free information such as primary identifiers, and stop until humans select, even for a single candidate. Primary identifiers that are ARNs are used temporarily for selection/retrieval; do not copy selection-only identifiers into Model authority or identifier displays. This does not prohibit resolved ARNs in generated JSON under step 7.
 5. After human selection, Macie Jobs retrieve only selected root properties/jobId with `aws macie2 describe-classification-job --job-id <選択したjobId>`. QuickSight Groups retrieve only selected properties and outputs with `aws quicksight describe-group --aws-account-id <account-id> --namespace <namespace> --group-name <group-name>`. Use the selected Group identity tuple; keep its `Arn` excluded from Model rows and identifier displays. Generated Principal JSON may contain its resolved ARN under step 7. After selection, CFn-derived resources retrieve current values with `aws cloudcontrol get-resource --type-name <type-name> --identifier <identifier>` or fallback service APIs. Stop if AWS-property-to-materials/provider-schema-property mappings are not unique.

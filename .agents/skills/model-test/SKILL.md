@@ -27,8 +27,8 @@ governance scope under the existing rules. Use the allocated `<task-file>` and t
 requested service selectors:
 
 ```console
-"<python_setup.interpreter>" -B framework/scripts/task_contract.py --task-file <task-file> --source <external-contract>
-"<python_setup.interpreter>" -B framework/scripts/model/cli.py audit --environment dev --target cde --service vpc --task-file <task-file>
+python3 framework/scripts/worktree-cli.py run -B framework/scripts/task_contract.py --task-file <task-file> --source <external-contract>
+python3 framework/scripts/worktree-cli.py run -B framework/scripts/model/cli.py audit --environment dev --target cde --service vpc --task-file <task-file>
 ```
 
 The generator loads the canonical properties snapshot through `model.sources`,
