@@ -503,18 +503,15 @@ def test_eventbridge_compares_codepipeline_targets(inputs, target):
     desired = {"Arn": model_arn, **settings}
     actual = {"Arn": iac_arn, **settings}
 
-    def compare():
-        return compare_values(
-            [desired],
-            [actual],
-            "Targets",
-            rules=REGISTRY.require_comparison(kind),
-            whole=True,
-            reference=lambda left, right, path: inputs.reference_decision(
-                left, right, kind, path
-            ),
-        ).equal
-
-    assert compare() is True
+    compare = partial(
+        compare_values,
+        key="Targets",
+        rules=REGISTRY.require_comparison(kind),
+        whole=True,
+        reference=lambda left, right, path: inputs.reference_decision(
+            left, right, kind, path
+        ),
+    )
+    assert compare([desired], [actual]).equal is True
     actual["InputTransformer"] = dict(settings["InputTransformer"], InputTemplate="{}")
-    assert compare() is False
+    assert compare([desired], [actual]).equal is False
