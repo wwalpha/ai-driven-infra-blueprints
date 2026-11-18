@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from design.common import table
+import design.common as _imports_design_common
 from model.core import ReferenceResolutionError
 from utils.input_cache import input_text
 from utils.type_contracts import JsonObject
@@ -211,7 +211,12 @@ def bucket_definitions_markdown(
         for group in document["bucketDefinitions"]
         for bucket in group["buckets"]
     ]
-    return ["", HEADING, "", *table(["Job", "AWS account ID", "Bucket"], mappings)]
+    return [
+        "",
+        HEADING,
+        "",
+        *_imports_design_common.table(["Job", "AWS account ID", "Bucket"], mappings),
+    ]
 
 
 EXTENSION = DisplayExtension(

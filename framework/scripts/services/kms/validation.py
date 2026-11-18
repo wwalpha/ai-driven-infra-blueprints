@@ -2,12 +2,17 @@
 
 import re
 
-from contracts.model import RESOURCE_MODE_CREATE, RESOURCE_TYPE_KEY
+from contracts.model import (
+    RESOURCE_MODE_CREATE,
+    RESOURCE_TYPE_KEY,
+    row_has_resource_prefix,
+)
 from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
 from design import layout
-from model.core import entries
 from utils.json_format import policy_json
 from validation.diagnostics import InputValidationError
+
+from model import ModelView
 
 
 def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
@@ -15,15 +20,16 @@ def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
     if not target:
         return
     execution = target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, target[AWS_ACCOUNT_ID_KEY])
+    view = ModelView(values)
     keys = {
         identity
-        for identity, resource in entries(values, "desired.resource.")
+        for identity, resource in view.resources()
         if resource[RESOURCE_TYPE_KEY] == "KMS.Key"
         and layout.resource_mode(resource) == RESOURCE_MODE_CREATE
     }
-    for identity, row in entries(values, "desired.row."):
+    for identity, row in view.all_rows():
         if (
-            not any(identity.startswith(key + "-") for key in keys)
+            not any(row_has_resource_prefix(identity, key) for key in keys)
             or row.get("property") != "KMS.Key.KeyPolicy"
             or "document" not in row
         ):

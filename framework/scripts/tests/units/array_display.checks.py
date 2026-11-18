@@ -302,7 +302,7 @@ def main():
             ],
             ["Environment.Variables[1].ONE", "Environment.Variables[2].TWO"],
         ),
-        # Compact numbering historically matches the template independently of its owner.
+        # Service-specific compact numbering does not apply to an unregistered type.
         (
             "Example.Resource",
             [
@@ -315,11 +315,11 @@ def main():
             ],
             [
                 "Features[1].ONE",
-                "Features[2].TWO",
+                "Features[1].TWO",
                 "Environment.Variables[1].ONE",
-                "Environment.Variables[2].TWO",
+                "Environment.Variables[1].TWO",
                 "DataResources[1].S3",
-                "DataResources[2].Lambda",
+                "DataResources[1].Lambda",
             ],
         ),
         (

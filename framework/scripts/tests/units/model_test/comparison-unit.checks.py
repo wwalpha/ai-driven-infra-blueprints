@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
@@ -414,7 +415,12 @@ class CloudTrailArrayTests(unittest.TestCase):
         prepared[4][1]["property"] = (
             "CloudTrail.Trail.EventSelectors[1].DataResources[1].Values[1]"
         )
-        with patch("model.audit.cloudtrail_rows", return_value=prepared):
+        comparison = generator.REGISTRY.comparison_contract("CloudTrail.Trail")
+        with patch.object(
+            generator.REGISTRY,
+            "comparison_contract",
+            return_value=replace(comparison, prepare_rows=Mock(return_value=prepared)),
+        ):
             rejected = build_snapshot(self.root, "dev", "cde", "cloudtrail")[0]
         self.assertEqual(
             rejected["cloudtrailIndexedRows"]["001"]["001-005"],

@@ -364,7 +364,7 @@ def check_cli_finalize_checks_even_zero_delta(tmp_path, failure):
         else:
             wt._finalize(tmp_path, "cli-example")
             git.assert_called_once_with(
-                base, "merge", "--ff-only", "--no-autostash", "task"
+                base, "merge", "--ff-only", "--no-autostash", "candidate-head"
             )
         assert guard.call_args.kwargs["validation_base"] == "latest-base"
 

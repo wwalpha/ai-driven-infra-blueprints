@@ -682,6 +682,10 @@ def expanded_display_rows(
             stop += 1
         if any(len(row) != 4 for row in source_rows):
             raise ValueError("resource table row must have four cells")
+        if resource_type != "Glue.Job" and any(
+            "<!-- glue-arguments-source:" in row[3] for row in source_rows
+        ):
+            raise ValueError("Glue argument source requires a Glue.Job resource")
         table = next(
             (table for table in reference_tables if table.anchor == anchor), None
         )

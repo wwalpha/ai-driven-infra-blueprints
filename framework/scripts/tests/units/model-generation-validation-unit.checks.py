@@ -43,7 +43,19 @@ def test_render_has_no_direct_or_indirect_validation_dependency():
             continue
         module = ".".join(path.relative_to(SCRIPTS).with_suffix("").parts)
         dependencies = set()
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        type_only = {
+            node
+            for statement in tree.body
+            if isinstance(statement, ast.If)
+            and isinstance(statement.test, ast.Name)
+            and statement.test.id == "TYPE_CHECKING"
+            for branch in statement.body
+            for node in ast.walk(branch)
+        }
+        for node in ast.walk(tree):
+            if node in type_only:
+                continue
             if isinstance(node, ast.Import):
                 dependencies.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and not node.level and node.module:

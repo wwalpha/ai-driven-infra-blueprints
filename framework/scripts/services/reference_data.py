@@ -542,8 +542,8 @@ class ServiceDeclaration:
                 declared.add(".".join(path.split(".")[:2]))
         if self.design is not None:
             for name in DesignDefinition.__optional_keys__:
-                for key in getattr(self.design, name, ()):
-                    declared.add(".".join(key.split(".")[:2]))
+                for property_path in getattr(self.design, name, ()):
+                    declared.add(".".join(property_path.split(".")[:2]))
         if missing := declared - kinds:
             raise ValueError(
                 f"{self.name} has unregistered ResourceTypes: {', '.join(sorted(missing))}"
