@@ -104,6 +104,42 @@ def check_import_order(modules):
     )
 
 
+@pytest.mark.parametrize(
+    "first", ["services.manifest", "services.registry", "services.reference_engine"]
+)
+def check_service_reference_imports_are_isolated(first, tmp_path):
+    code = """
+import_modules(sys.argv[2:])
+from services.contracts import ReferenceMode, ResourceDefinition, ReceiverReference, ServiceDefinition
+from services.reference_engine import ReferenceEngine
+from services.registry import ServiceRegistry
+
+def unused_feature():
+    raise AssertionError('a Reference lookup loaded an optional feature')
+
+resource = ResourceDefinition(
+    'Synthetic.Resource',
+    receiver=ReceiverReference(import_properties={'Forbidden': {}}),
+    comparison=unused_feature,
+    display=unused_feature,
+)
+registry = ServiceRegistry((ServiceDefinition('synthetic', (resource,)),))
+assert ReferenceEngine(registry).receiver_forms(
+    'Synthetic.Resource', 'Forbidden', mode=ReferenceMode.IMPORT
+) == {}
+unexpected = sorted(
+    name for name in sys.modules
+    if name.split('.')[0] in {'comparison', 'design', 'model', 'boto3', 'botocore'}
+)
+assert not unexpected, f'Reference startup imported unrelated modules: {unexpected}'
+"""
+    assert_startup(
+        run_python(
+            "-I", "-S", "-c", IMPORTS + code + FINISH, str(SCRIPTS), first, cwd=tmp_path
+        )
+    )
+
+
 def check_local_imports_without_sdk():
     code = """
 import importlib.abc
