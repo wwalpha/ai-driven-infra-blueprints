@@ -1,21 +1,14 @@
 """Parent-scoped SDK paths used by the existing Import inventory."""
 
 import json
-import re
 from typing import Any
-from urllib.parse import urlparse
 
 from contracts.model import MODEL_PENDING_DEPLOY, MODEL_UNSET
 from contracts.target import (
     AWS_ACCOUNT_ID_KEY,
     AWS_EXECUTION_ACCOUNT_ID_KEY,
-    AWS_REGION_KEY,
 )
-from utils.aws.identity import execution_account
-from utils.aws_sdk import aws_runtime, sdk_for
-from utils.json_format import policy_json
-
-from model.importing.discovery import SCOPED_INVENTORIES
+from services.registry import REGISTRY
 
 
 def account_for(ctx: Any) -> str:
@@ -61,9 +54,12 @@ def record(
     *,
     selectors: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    specification = REGISTRY.import_profile(kind).scoped
+    if specification is None:
+        raise KeyError(kind)
     components = [
         {"property": kind + "." + prop, "value": values[prop]}
-        for prop in SCOPED_INVENTORIES[kind].components
+        for prop in specification.components
     ]
     return {
         "kind": kind,
@@ -82,432 +78,39 @@ def record(
             kind + "." + prop: value for prop, value in (selectors or {}).items()
         },
         "provenance": {
-            "api": SCOPED_INVENTORIES[kind].api,
-            "operations": list(SCOPED_INVENTORIES[kind].operations),
+            "api": specification.api,
+            "operations": list(specification.operations),
             "selectors": selectors or {},
         },
     }
 
 
-def quicksight_groups(ctx: Any) -> list[dict[str, Any]]:
-    account = execution_account(ctx.target)
-    records = []
-    namespaces = collection(
-        ctx, "quicksight", "list_namespaces", "Namespaces", AwsAccountId=account
-    )
-    seen = set()
-    for namespace in namespaces:
-        name = identifier(namespace.get("Name"))
-        if name in seen:
-            raise ValueError("Duplicate QuickSight namespace")
-        seen.add(name)
-        for group in collection(
-            ctx,
-            "quicksight",
-            "list_groups",
-            "GroupList",
-            AwsAccountId=account,
-            Namespace=name,
-        ):
-            group_name = identifier(group.get("GroupName"))
-            selectors = {"AwsAccountId": account, "Namespace": name}
-            records.append(
-                record(
-                    "QuickSight.Group",
-                    {**selectors, "GroupName": group_name},
-                    {},  # Leave the detail getter to DescribeGroup.
-                    selectors=selectors,
-                )
-            )
-    return records
-
-
 def verified_detail(
     ctx: Any, resource: Any, listed: dict[str, Any], getter: Any, response: Any
 ) -> bool:
-    """Prove listed/requested/returned Identity; unimplemented SDK paths stay closed."""
-    if (
-        listed.get("kind") != "QuickSight.Group"
-        or getter.get("kind") != "sdk"
-        or getter.get("service") != "quicksight"
-        or getter.get("operation") != "describe_group"
-        or getter.get("resourceType") != "QuickSight.Group"
-        or getter.get("result") != "Group"
-        or not ctx.verified
-        or not isinstance(response, dict)
-    ):
+    """Preserve a closed default for SDK detail responses without a proof contract."""
+    kind = listed.get("kind")
+    if not isinstance(kind, str):
         return False
-    inputs = {
-        name: resource.value(name)
-        for name in ("AwsAccountId", "Namespace", "GroupName")
-    }
-    expected = record(
-        "QuickSight.Group",
-        inputs,
-        {},
-        selectors={name: inputs[name] for name in ("AwsAccountId", "Namespace")},
-    )
-    if any(
-        listed.get(key) != expected[key]
-        for key in (
-            "identity",
-            "identityStatus",
-            "identityProperties",
-            "identityProperty",
-            "identityComponents",
-            "seedProperties",
-            "selectorProperties",
-            "provenance",
-        )
-    ) or inputs["AwsAccountId"] != execution_account(ctx.target):
-        return False
-    trace = ctx.fetch_trace.get(
-        (resource.model.path, resource.number, "sdk-quicksight-group"), ()
-    )
-    if {"api": "quicksight.describe_group", "inputs": inputs} not in trace:
-        return False
-    group = response.get("Group")
-    if not isinstance(group, dict) or group.get("GroupName") != inputs["GroupName"]:
-        return False
-    arn = group.get("Arn")
-    parts = arn.split(":", 5) if isinstance(arn, str) else []
-    region = ctx.target[AWS_REGION_KEY]
-    partition = sdk_for(ctx.root).session().get_partition_for_region(region)
-    return parts == [
-        "arn",
-        partition,
-        "quicksight",
-        region,
-        inputs["AwsAccountId"],
-        "group/" + inputs["Namespace"] + "/" + inputs["GroupName"],
-    ]
-
-
-def glue_tables(ctx: Any) -> list[dict[str, Any]]:
-    account = account_for(ctx)
-    records, seen = [], set()
-    catalogs = collection(
-        ctx,
-        "glue",
-        "get_catalogs",
-        "CatalogList",
-        ParentCatalogId=account,
-        Recursive=True,
-        IncludeRoot=True,
-    )
-    for catalog in catalogs:
-        catalog_id = identifier(catalog.get("CatalogId"))
-        arn = identifier(catalog.get("ResourceArn"))
-        if (
-            catalog_id.split(":")[0] != account
-            or arn.split(":")[3:5] != [ctx.target[AWS_REGION_KEY], account]
-            or catalog_id in seen
-        ):
-            raise ValueError("Glue catalog ownership/scope is unknown or duplicate")
-        seen.add(catalog_id)
-        databases = collection(
-            ctx, "glue", "get_databases", "DatabaseList", CatalogId=catalog_id
-        )
-        database_names = set()
-        for database in databases:
-            name = identifier(database.get("Name"))
-            if database.get("CatalogId") != catalog_id or name in database_names:
-                raise ValueError("Glue database scope mismatch or duplicate")
-            database_names.add(name)
-            for table in collection(
-                ctx,
-                "glue",
-                "get_tables",
-                "TableList",
-                CatalogId=catalog_id,
-                DatabaseName=name,
-            ):
-                table_name = identifier(table.get("Name"))
-                if (
-                    table.get("CatalogId") != catalog_id
-                    or table.get("DatabaseName") != name
-                ):
-                    raise ValueError("Glue table scope mismatch")
-                selectors = {"CatalogId": catalog_id, "DatabaseName": name}
-                records.append(
-                    record(
-                        "Glue.Table",
-                        {**selectors, "TableInput.Name": table_name},
-                        {"base": table, "sdk-glue-table": {"Table": table}},
-                        selectors=selectors,
-                    )
-                )
-    return records
-
-
-def lakeformation_resources(ctx: Any) -> list[dict[str, Any]]:
-    records = []
-    for item in collection(ctx, "lakeformation", "list_resources", "ResourceInfoList"):
-        arn = identifier(item.get("ResourceArn"))
-        detail = ctx.call("lakeformation", "describe_resource", ResourceArn=arn).get(
-            "ResourceInfo"
-        )
-        if not isinstance(detail, dict) or detail.get("ResourceArn") != arn:
-            raise ValueError("Lake Formation detail identity mismatch")
-        records.append(
-            record(
-                "LakeFormation.Resource",
-                {"ResourceArn": arn},
-                {"sdk-lakeformation-resource": {"ResourceInfo": detail}},
-            )
-        )
-    return records
-
-
-def datazone_projects(ctx: Any) -> list[dict[str, Any]]:
-    account = account_for(ctx)
-    records, domains_seen = [], set()
-    for domain in collection(ctx, "datazone", "list_domains", "items"):
-        domain_id = identifier(domain.get("id"))
-        arn = identifier(domain.get("arn"))
-        if (
-            arn.split(":")[3:5] != [ctx.target[AWS_REGION_KEY], account]
-            or domain_id in domains_seen
-        ):
-            raise ValueError("DataZone domain scope mismatch or duplicate")
-        domains_seen.add(domain_id)
-        for item in collection(
-            ctx, "datazone", "list_projects", "items", domainIdentifier=domain_id
-        ):
-            project_id = identifier(item.get("id"))
-            if item.get("domainId") != domain_id:
-                raise ValueError("DataZone listed project has another domain")
-            detail = ctx.call(
-                "datazone",
-                "get_project",
-                domainIdentifier=domain_id,
-                identifier=project_id,
-            )
-            if detail.get("domainId") != domain_id or detail.get("id") != project_id:
-                raise ValueError("DataZone detail identity mismatch")
-            provider = {
-                "DomainId": detail["domainId"],
-                "Id": detail["id"],
-                "Name": detail["name"],
-            }
-            records.append(
-                record(
-                    "DataZone.Project",
-                    {"DomainId": domain_id, "Id": project_id},
-                    {
-                        "sdk-datazone-project": detail,
-                        "provider-datazone-project": provider,
-                    },
-                )
-            )
-    return records
-
-
-def queue_policies(ctx: Any, parents: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    account = account_for(ctx)
-    records = []
-    region = ctx.target[AWS_REGION_KEY]
-    resolver = aws_runtime().sdk_session().get_component("endpoint_resolver")
-    endpoint = resolver.construct_endpoint("sqs", region)
-    if (
-        not endpoint
-        or endpoint.get("endpointName") != region
-        or region not in resolver.get_available_endpoints("sqs", endpoint["partition"])
-    ):
-        raise ValueError("SQS endpoint is unknown for target region")
-    partition = endpoint["partition"]
-    hosts = {endpoint["hostname"]}
-    dual = resolver.construct_endpoint(
-        "sqs", region, partition_name=partition, use_dualstack_endpoint=True
-    )
-    if dual:
-        hosts.add(dual["hostname"])
-    # Only concrete regional FIPS variants establish SQS support; defaults are templates.
-    if partition == "aws" and any(
-        variant.get("tags") == ["fips"] and "{" not in variant.get("hostname", "")
-        for variant in endpoint.get("variants", [])
-    ):
-        for dualstack in (False, True):
-            resolved = resolver.construct_endpoint(
-                "sqs",
-                region,
-                partition_name=partition,
-                use_fips_endpoint=True,
-                use_dualstack_endpoint=dualstack,
-            )
-            if resolved:
-                hosts.add(resolved["hostname"])
-    # AWS documents HTTPS legacy endpoints only for these Regions.
-    legacy_regions = {
-        "us-east-1",
-        "us-east-2",
-        "us-west-1",
-        "us-west-2",
-        "ap-south-1",
-        "ap-northeast-1",
-        "ap-northeast-2",
-        "ap-northeast-3",
-        "ap-southeast-1",
-        "ap-southeast-2",
-        "ca-central-1",
-        "eu-central-1",
-        "eu-west-1",
-        "eu-west-2",
-        "eu-west-3",
-        "eu-north-1",
-        "sa-east-1",
-    }
-    if partition == "aws" and region in legacy_regions:
-        hosts.add(endpoint.get("sslCommonName"))
-    if partition == "aws-cn" and region in {"cn-north-1", "cn-northwest-1"}:
-        hosts.add(f"{region}.queue.amazonaws.com")
-    hosts = {
-        host
-        for host in hosts
-        if isinstance(host, str) and "{" not in host and "}" not in host
-    }
-    for parent in parents:
-        if parent.get("kind") != "SQS.Queue":
-            raise ValueError("QueuePolicy requires acquired Queue parents")
-        url = parent.get("cloudProperties", {}).get("QueueUrl")
-        url = identifier(url)
-        parsed = urlparse(url)
-        if (
-            parsed.geturl() != url
-            or parsed.scheme != "https"
-            or parsed.netloc not in hosts
-            or parsed.query
-            or parsed.fragment
-            or not re.fullmatch(
-                r"/" + account + r"/[A-Za-z0-9_-]{1,80}(?:\.fifo)?", parsed.path
-            )
-            or len(parsed.path.rsplit("/", 1)[-1]) > 80
-        ):
-            raise ValueError("SQS queue is outside target scope")
-        response = ctx.call(
-            "sqs", "get_queue_attributes", QueueUrl=url, AttributeNames=["Policy"]
-        )
-        # A successful Policy-only read may omit the optional Attributes map.
-        attributes = response.get("Attributes", {})
-        if not isinstance(attributes, dict):
-            raise ValueError("Invalid SQS attributes")
-        if "Policy" not in attributes:
-            continue
-        policy = policy_json(attributes["Policy"])
-        if not isinstance(policy, dict):
-            raise ValueError("Invalid SQS queue policy")
-        value = record(
-            "SQS.QueuePolicy",
-            {"Queues[]": [url]},
-            {"policy": {"Queues": [url], "Policy": policy}},
-            selectors={"Queues[]": [url]},
-        )
-        value["structureStatus"] = "unresolved"
-        value["structureReason"] = (
-            "AWS does not retain the original QueuePolicy queue grouping; explicitly confirm a single-queue structure or exclude this candidate"
-        )
-        records.append(value)
-    return records
-
-
-def route53_projection(item: dict[str, Any], zone: str) -> dict[str, Any]:
-    result = dict(item, HostedZoneId=zone)
-    if "TTL" in result:
-        if type(result["TTL"]) is not int or result["TTL"] < 0:
-            raise ValueError("Invalid Route53 TTL")
-        result["TTL"] = str(result["TTL"])
-    return result
-
-
-def route53_pages(ctx: Any, zone: str) -> list[dict[str, Any]]:
-    inputs, seen, records = {"HostedZoneId": zone}, set(), []
-    while True:
-        page = ctx.call("route53", "list_resource_record_sets", **inputs)
-        items = page.get("ResourceRecordSets")
-        if not isinstance(items, list) or not isinstance(page.get("IsTruncated"), bool):
-            raise ValueError("Invalid Route53 record page")
-        if any(not isinstance(item, dict) for item in items):
-            raise ValueError("Invalid Route53 record")
-        records.extend(items)
-        if not page["IsTruncated"]:
-            return records
-        name = identifier(page.get("NextRecordName"))
-        kind = identifier(page.get("NextRecordType"))
-        continuation = (name, kind, page.get("NextRecordIdentifier"))
-        if continuation in seen:
-            raise ValueError("Repeated Route53 continuation")
-        seen.add(continuation)
-        inputs = {
-            "HostedZoneId": zone,
-            "StartRecordName": name,
-            "StartRecordType": kind,
-        }
-        if continuation[2] is not None:
-            inputs["StartRecordIdentifier"] = identifier(continuation[2])
-
-
-def route53_records(ctx: Any, parents: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    records, zones = [], set()
-    for parent in parents:
-        if parent.get("kind") != "Route53.HostedZone":
-            raise ValueError("RecordSet requires acquired HostedZone parents")
-        zone = identifier(parent.get("cloudProperties", {}).get("Id")).removeprefix(
-            "/hostedzone/"
-        )
-        parent_id = identifier(parent.get("identity")).removeprefix("/hostedzone/")
-        if parent_id != zone:
-            raise ValueError("HostedZone identity mismatch")
-        if not re.fullmatch(r"[A-Za-z0-9]+", zone) or zone in zones:
-            raise ValueError("Invalid or duplicate HostedZone identity")
-        zones.add(zone)
-        for item in route53_pages(ctx, zone):
-            name = identifier(item.get("Name")).rstrip(".").lower()
-            kind = identifier(item.get("Type"))
-            set_id = item.get("SetIdentifier")
-            if set_id is not None:
-                identifier(set_id)
-            values = {
-                "HostedZoneId": zone,
-                "Name": name,
-                "Type": kind,
-                "SetIdentifier": set_id,
-            }
-            records.append(
-                record(
-                    "Route53.RecordSet",
-                    values,
-                    {"record": route53_projection(item, zone)},
-                    selectors={"HostedZoneId": zone},
-                )
-            )
-    return records
-
-
-HANDLERS = {
-    "QuickSight.Group": quicksight_groups,
-    "Glue.Table": glue_tables,
-    "LakeFormation.Resource": lakeformation_resources,
-    "DataZone.Project": datazone_projects,
-}
+    verify = REGISTRY.import_profile(kind).verify_detail
+    return verify(ctx, resource, listed, getter, response) if verify else False
 
 
 def collect(
     ctx: Any, kind: str, *, parents: list[dict[str, Any]] | None = None
 ) -> list[dict[str, Any]]:
-    specification = SCOPED_INVENTORIES[kind]
+    specification = REGISTRY.import_profile(kind).scoped
+    if specification is None:
+        raise KeyError(kind)
     ctx.allowed.update(
         (specification.api, operation) for operation in specification.operations
     )
-    if kind in {"SQS.QueuePolicy", "Route53.RecordSet"}:
+    if specification.parents:
         if parents is None:
             raise ValueError(kind + " requires its parent inventory")
-        records = (
-            queue_policies(ctx, parents)
-            if kind == "SQS.QueuePolicy"
-            else route53_records(ctx, parents)
-        )
+        records = specification.collect(ctx, parents)
     else:
-        records = HANDLERS[kind](ctx)
+        records = specification.collect(ctx)
     if len({item["identity"] for item in records}) != len(records):
         raise ValueError("Duplicate scoped SDK identity")
     return records

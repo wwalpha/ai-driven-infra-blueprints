@@ -383,18 +383,24 @@ class EmbeddedImportTests(unittest.TestCase):
         for source in (
             "import model.unknown as x",
             "from model.adapters.aws import absent",
-            "from model.importing.sdk_inventory import absent",
+            "from services.route53.inventory import absent",
         ):
             with (
                 self.subTest(source=source),
-                self.assertRaisesRegex(ValueError, "sqs: model.*unresolved dependency"),
+                self.assertRaisesRegex(
+                    ValueError, "sqs: (?:model|services).*unresolved dependency"
+                ),
             ):
                 embed_adapter(source, "sqs", "MISSING = 1")
 
     def test_route53_definitions_copied(self):
-        path = Path(__file__).resolve().parents[3] / "model/importing/sdk_inventory.py"
+        scripts = Path(__file__).resolve().parents[3]
         source = definitions(
-            path, ["identifier", "route53_pages", "route53_projection"]
+            scripts / "model/importing/sdk_inventory.py", ["identifier"]
+        )
+        source += definitions(
+            scripts / "services/route53/inventory.py",
+            ["route53_pages", "route53_projection"],
         )
         self.assertEqual(
             {node.name for node in ast.parse(source).body},
@@ -403,7 +409,7 @@ class EmbeddedImportTests(unittest.TestCase):
         self.assertIn(
             "from audit_comparison import route53_pages as pages",
             embed_adapter(
-                "from model.importing.sdk_inventory import route53_pages as pages\n",
+                "from services.route53.inventory import route53_pages as pages\n",
                 "route53",
                 source,
             ),

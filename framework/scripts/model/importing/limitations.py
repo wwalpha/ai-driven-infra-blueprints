@@ -2,12 +2,14 @@
 
 import re
 from collections.abc import Mapping
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from aws_mapping import response_shape, runtime_registry
 from design.catalog import DesignSchemaCatalog
+from services.registry import REGISTRY
 from utils.aws_mappings import owners
 from utils.aws_sdk import aws_runtime, sdk_for
 from utils.property_path import definition_path
@@ -15,32 +17,12 @@ from utils.script_loader import module
 
 from model.core import entries, resource_row_index
 
-# Only explicit Mapping contracts with independently checked read-API absence qualify.
-UNOBSERVABLE = {
-    "LakeFormation.Resource.UseServiceLinkedRole": (
-        "lakeformation",
-        "describe_resource",
-        "ResourceInfo.UseServiceLinkedRole",
-        "REQUEST_INPUT_NOT_OBSERVABLE",
-    ),
-    "SQS.QueuePolicy.Id": (
-        "sqs",
-        "get_queue_attributes",
-        "Id",
-        "PROVIDER_OUTPUT_NOT_OBSERVABLE",
-    ),
-    "Glue.Table.Id": (
-        "glue",
-        "get_table",
-        "Table.Id",
-        "PROVIDER_OUTPUT_NOT_OBSERVABLE",
-    ),
-}
 
-CONDITIONAL_CODE = {
-    "Lambda.Function.Code.S3Bucket": "Code.ResolvedS3Object.S3Bucket",
-    "Lambda.Function.Code.S3Key": "Code.ResolvedS3Object.S3Key",
-}
+# Only explicit Mapping contracts with independently checked read-API absence qualify.
+def conditional_capture(prop: str):
+    kind = ".".join(prop.split(".")[:2])
+    capture = REGISTRY.import_profile(kind).conditional_capture
+    return capture if capture and prop in capture.paths else None
 
 
 def missing_leaf(response: Any, path: str) -> bool:
@@ -211,33 +193,14 @@ def contract(root: Path, prop: str, status: str) -> dict[str, Any] | None:
                 "path": mapped.field.path,
             },
         }
-    if status == "unobservable" and prop in CONDITIONAL_CODE:
-        path = CONDITIONAL_CODE[prop]
-        getter = mapping.getters.get(mapped.field.getter, {})
-        if (
-            mapped.source != "aws"
-            or mapped.field.classification != "supported"
-            or mapped.field.getter != "base"
-            or mapped.field.path != path
-            or getter.get("kind") != "adapter"
-        ):
-            return None
-        model = sdk_for(root).service_model("lambda")
-        shape = model.operation_model("GetFunction").output_shape
-        try:
-            response_shape(shape, path)
-        except ValueError:
-            return None
-        return {
-            "status": "unobservable",
-            "reasonCode": "OPTIONAL_CODE_SOURCE_NOT_RETURNED",
-            "reason": "GetFunction did not return this Zip code source; Code.Location does not establish the original upload location and existing values are not AWS verified",
-            "evidence": {
-                "mapping": reference,
-                "api": "lambda.get_function",
-                "missingPath": path,
-            },
-        }
+    if status == "unobservable" and (conditional := conditional_capture(prop)):
+        return conditional.contract(
+            root,
+            conditional.paths[prop],
+            mapped,
+            mapping.getters.get(mapped.field.getter, {}),
+            reference,
+        )
     if status == "withheld":
         adapter = module("model/adapters/aws.py", "model.adapters.aws")
         if service not in adapter.SERVICES or not sensitive(
@@ -275,15 +238,16 @@ def contract(root: Path, prop: str, status: str) -> dict[str, Any] | None:
             "reason": "Value is withheld by the Import sensitive-property contract",
             "evidence": {"mapping": reference, "policy": "import-sensitive-property"},
         }
+    unobservable = REGISTRY.import_profile(kind).unobservable.get(prop)
     if (
         status != "unobservable"
-        or prop not in UNOBSERVABLE
+        or unobservable is None
         or mapped.source == "aws"
         or mapped.field.classification != "sdk_unavailable"
         or not mapped.constraint
     ):
         return None
-    api, operation, path, reason_code = UNOBSERVABLE[prop]
+    api, operation, path, reason_code = unobservable
     model = sdk_for(root).service_model(api)
     operation_name = aws_runtime().operation_name(model, operation)
     if operation_name is None:
@@ -309,39 +273,15 @@ def conditional_code_capture(
     root: Path, prop: str, response: Any, identity: Any
 ) -> dict[str, Any] | None:
     """Classify only a successful, identified Zip response with a missing source field."""
-    restriction = contract(root, prop, "unobservable")
-    if restriction is None or not isinstance(response, dict):
+    conditional = conditional_capture(prop)
+    if conditional is None:
         raise ValueError("Lambda code-source contract or response is invalid")
-    config, code = response.get("Configuration"), response.get("Code", {})
-    if (
-        not isinstance(config, dict)
-        or not isinstance(code, dict)
-        or not isinstance(identity, str)
-        or not identity
-        or config.get("FunctionName") != identity
-        or config.get("PackageType") not in {"Zip", "Image"}
-        or code.get("Error")
-    ):
-        raise ValueError(
-            "Lambda code-source identity, package type or response is unresolved"
-        )
-    resolved = code.get("ResolvedS3Object", {})
-    if not isinstance(resolved, dict):
-        raise ValueError("Lambda resolved code source is invalid")
-    field = CONDITIONAL_CODE[prop].rsplit(".", 1)[1]
-    if field in resolved:
-        raise ValueError("Lambda code-source property was not absent")
-    if config["PackageType"] == "Image":
-        return None
-    restriction["evidence"]["packageType"] = "Zip"
-    restriction["evidence"]["codeSource"] = {
-        name: bool(resolved.get(name)) for name in ("S3Bucket", "S3Key")
-    }
-    restriction["evidence"]["locationReturned"] = bool(code.get("Location"))
-    restriction["evidence"]["imageUriReturned"] = bool(
-        code.get("ImageUri") or code.get("ResolvedImageUri")
+    return conditional.capture(
+        conditional.paths[prop].rsplit(".", 1)[1],
+        response,
+        identity,
+        contract(root, prop, "unobservable"),
     )
-    return restriction
 
 
 def valid_capture(
@@ -353,48 +293,12 @@ def valid_capture(
             return False
         expected["evidence"]["identity"] = record.get("identity")
         return capture == expected and bool(record.get("identity"))
-    if prop not in CONDITIONAL_CODE:
+    conditional = conditional_capture(prop)
+    if conditional is None:
         return contract(root, prop, capture.get("status", "")) == capture
-    evidence = capture.get("evidence", {})
-    if not isinstance(evidence, dict):
-        return False
-    source = evidence.get("codeSource")
-    expected = contract(root, prop, "unobservable")
-    if (
-        expected is None
-        or not isinstance(source, dict)
-        or set(source) != {"S3Bucket", "S3Key"}
-    ):
-        return False
-    if any(type(value) is not bool for value in source.values()):
-        return False
-    for name in ("locationReturned", "imageUriReturned"):
-        if type(evidence.get(name)) is not bool:
-            return False
-    expected["evidence"].update(
-        packageType="Zip",
-        codeSource=source,
-        locationReturned=evidence["locationReturned"],
-        imageUriReturned=evidence["imageUriReturned"],
+    return conditional.valid(
+        prop, capture, record, partial(contract, root, prop, "unobservable")
     )
-    props = record.get("properties", {})
-    if (
-        capture != expected
-        or record.get("identityStatus", "known") != "known"
-        or not record.get("identity")
-        or props.get("Lambda.Function.PackageType", {}).get("status") != "captured"
-        or props.get("Lambda.Function.PackageType", {}).get("value") != "Zip"
-        or props.get("Lambda.Function.FunctionName", {}).get("status") != "captured"
-        or props.get("Lambda.Function.FunctionName", {}).get("value")
-        != record["identity"]
-        or source[prop.rsplit(".", 1)[1]]
-    ):
-        return False
-    for name, present in source.items():
-        other = props.get("Lambda.Function.Code." + name, {})
-        if present != (other.get("status") == "captured"):
-            return False
-    return True
 
 
 def required(root: Path, kind: str, prop: str) -> bool:
@@ -482,7 +386,7 @@ def validate(
             if (
                 record.get("_action") not in {"refresh", "bind", "replace"}
                 or prior != proposed
-                or item["property"] in CONDITIONAL_CODE
+                or conditional_capture(item["property"]) is not None
                 and not prior
                 or not prior
                 and required(root, record["kind"], item["property"])

@@ -19,6 +19,8 @@ from aws_mapping import Registry
 from design.catalog import DesignSchemaCatalog
 from model.cli import main
 from model.importing import coverage, discovery, inventory
+from services.import_contracts import ImportProfile
+from services.registry import REGISTRY
 from support.fixture_cases import load_case
 from support.pytest_cli import run
 from utils.mapping_runtime import runtime_properties
@@ -117,8 +119,12 @@ def case(tmp_path, monkeypatch):
     inspector.adapter = SimpleNamespace(
         SERVICES=("fixture",), service_module=Mock(return_value=adapter)
     )
-    monkeypatch.setattr(discovery, "ADAPTER_INVENTORIES", {})
-    monkeypatch.setattr(coverage, "ADAPTER_INVENTORIES", discovery.ADAPTER_INVENTORIES)
+    inspector.import_profiles = {}
+    monkeypatch.setattr(
+        REGISTRY,
+        "import_profile",
+        lambda kind: inspector.import_profiles.get(kind, ImportProfile()),
+    )
     return data["document"], inspector, adapter
 
 
@@ -178,10 +184,12 @@ def check_parent_filters(case, scenario, status, code):
     elif scenario == "no-read":
         del parent["handlers"]["read"]
     elif scenario == "sdk-parent":
-        discovery.ADAPTER_INVENTORIES["Test.Parent"] = (
-            "fixture",
-            "list_items",
-            "Items",
+        inspector.import_profiles["Test.Parent"] = ImportProfile(
+            adapter=(
+                "fixture",
+                "list_items",
+                "Items",
+            )
         )
         document["resourceTypes"]["Test.Parent"]["identity"] = deepcopy(
             document["resourceTypes"]["Test.Item"]["identity"]
@@ -203,7 +211,9 @@ def check_parent_filters(case, scenario, status, code):
 )
 def check_sdk_identity(case, scenario):
     document, inspector, adapter = case
-    discovery.ADAPTER_INVENTORIES["Test.Item"] = ("fixture", "list_items", "Items")
+    inspector.import_profiles["Test.Item"] = ImportProfile(
+        adapter=("fixture", "list_items", "Items")
+    )
     resource = document["resourceTypes"]["Test.Item"]
     if scenario == "no-identity":
         del resource["identity"]
@@ -215,10 +225,12 @@ def check_sdk_identity(case, scenario):
     elif scenario == "no-property":
         resource["identity"]["idPath"] = "Other"
     elif scenario == "input-selector":
-        discovery.ADAPTER_INVENTORIES["Test.Item"] = (
-            "fixture",
-            "describe_item",
-            "Item",
+        inspector.import_profiles["Test.Item"] = ImportProfile(
+            adapter=(
+                "fixture",
+                "describe_item",
+                "Item",
+            )
         )
     result = inspector.resource(mapping(inspector.root, document), "Test.Item")
     assert (result["identity"]["status"] == "ready") == (scenario == "complete")
@@ -395,11 +407,6 @@ def check_dynamic_owners_and_cli(case, monkeypatch, capsys):
 
 
 def check_derived_and_real_mapping_gaps(monkeypatch):
-    assert (
-        inventory.ADAPTER_INVENTORIES
-        is coverage.ADAPTER_INVENTORIES
-        is discovery.ADAPTER_INVENTORIES
-    )
     root = Path(__file__).resolve().parents[4]
     forbidden = Mock(
         side_effect=AssertionError("Coverage must remain offline and read-only")

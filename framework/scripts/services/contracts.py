@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from utils.iac_values import Expression
     from validation.findings import Findings
 
+    from .import_contracts import ImportProfile
+
 
 class ReferenceMode(Enum):
     IMPORT = "import"
@@ -406,6 +408,8 @@ class DesignDefinition(TypedDict, total=False):
     CONFIRMED_NAME_FIELDS: Mapping[str, str]
     CATALOG_EXEMPT_NAMES: Set[str]
     NAMING_SUFFIX_CHECKS: Mapping[str, Callable[[str, str | None], list[str]]]
+    REVIEW_NAME_CHECKS: Mapping[str, Callable[[str, str, int], list[str]]]
+    REVIEW_PATTERN_CONDITIONS: Mapping[str, tuple[str, str, str]]
     JSON_LINK_IN_COMMENT: Set[str]
     REVIEW_POLICY_JSON: Set[str]
 
@@ -423,6 +427,7 @@ class ResourceDefinition:
     display: Callable[[], DisplayExtension] | None = None
     arn: ArnExtension | None = None
     account_policy: Callable[[], AccountPolicyCheck] | None = None
+    importing: ImportProfile | None = None
 
 
 @dataclass(frozen=True)

@@ -4,120 +4,10 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from services.registry import REGISTRY
 from utils.mapping_types import Property, Registry
 
 SchemaLookup = Callable[[str], Mapping[str, Any]]
-
-
-# Existing adapter discovery optimizations; every other Mapping type uses provider discovery.
-ADAPTER_INVENTORIES = {
-    "EC2.VPC": ("ec2", "describe_vpcs", "Vpcs"),
-    "EC2.Subnet": ("ec2", "describe_subnets", "Subnets"),
-    "EC2.RouteTable": ("ec2", "describe_route_tables", "RouteTables"),
-    "EC2.FlowLog": ("ec2", "describe_flow_logs", "FlowLogs"),
-    "EC2.TransitGatewayVpcAttachment": (
-        "ec2",
-        "describe_transit_gateway_vpc_attachments",
-        "TransitGatewayVpcAttachments",
-    ),
-    "Config.ConfigurationRecorder": (
-        "config",
-        "describe_configuration_recorders",
-        "ConfigurationRecorders",
-    ),
-    "Config.DeliveryChannel": (
-        "config",
-        "describe_delivery_channels",
-        "DeliveryChannels",
-    ),
-    "CodeBuild.Project": ("codebuild", "list_projects", "projects"),
-    "Macie.ClassificationJob": ("macie2", "list_classification_jobs", "items"),
-    "Logs.LogGroup": ("logs", "describe_log_groups", "logGroups"),
-    "QuickSight.DataSource": ("quicksight", "list_data_sources", "DataSources"),
-    "QuickSight.VPCConnection": (
-        "quicksight",
-        "list_vpc_connections",
-        "VPCConnectionSummaries",
-    ),
-    "KinesisFirehose.DeliveryStream": (
-        "firehose",
-        "list_delivery_streams",
-        "DeliveryStreamNames",
-    ),
-    "SecurityHub.Hub": ("securityhub", "describe_hub", None),
-}
-
-
-@dataclass(frozen=True)
-class ScopedInventory:
-    api: str
-    operations: tuple[str, ...]
-    payload: tuple[str, str]
-    components: tuple[str, ...]
-    selectors: tuple[str, ...] = ()
-
-
-SCOPED_INVENTORIES = {
-    "Route53.RecordSet": ScopedInventory(
-        "route53",
-        ("list_resource_record_sets",),
-        ("list_resource_record_sets", "ResourceRecordSets[]"),
-        ("HostedZoneId", "Name", "Type", "SetIdentifier"),
-        ("HostedZoneId",),
-    ),
-    "QuickSight.Group": ScopedInventory(
-        "quicksight",
-        ("list_namespaces", "list_groups"),
-        ("list_groups", "GroupList[]"),
-        ("AwsAccountId", "Namespace", "GroupName"),
-        ("AwsAccountId", "Namespace"),
-    ),
-    "Glue.Table": ScopedInventory(
-        "glue",
-        ("get_catalogs", "get_databases", "get_tables"),
-        ("get_tables", "TableList[]"),
-        ("CatalogId", "DatabaseName", "TableInput.Name"),
-        ("CatalogId", "DatabaseName"),
-    ),
-    "LakeFormation.Resource": ScopedInventory(
-        "lakeformation",
-        ("list_resources", "describe_resource"),
-        ("describe_resource", "ResourceInfo"),
-        ("ResourceArn",),
-    ),
-    "DataZone.Project": ScopedInventory(
-        "datazone",
-        ("list_domains", "list_projects", "get_project"),
-        ("get_project", "$"),
-        ("DomainId", "Id"),
-    ),
-    "SQS.QueuePolicy": ScopedInventory(
-        "sqs",
-        ("get_queue_attributes",),
-        ("get_queue_attributes", "Attributes"),
-        ("Queues[]",),
-        ("Queues[]",),
-    ),
-}
-
-
-def adapter_detail(kind: str) -> tuple[str, str, str] | None:
-    """Existing inventory detail envelopes, shared with offline shape inspection."""
-    if kind == "KinesisFirehose.DeliveryStream":
-        return (
-            "describe_delivery_stream",
-            "DeliveryStreamName",
-            "DeliveryStreamDescription",
-        )
-    if kind == "CodeBuild.Project":
-        return "batch_get_projects", "names", "projects[]"
-    if kind == "Macie.ClassificationJob":
-        return "describe_classification_job", "jobId", "$"
-    if kind == "QuickSight.DataSource":
-        return "describe_data_source", "DataSourceId", "DataSource"
-    if kind == "QuickSight.VPCConnection":
-        return "describe_vpc_connection", "VPCConnectionId", "VPCConnection"
-    return None
 
 
 @dataclass(frozen=True)
@@ -184,34 +74,29 @@ def resolve(
             "NO_MODEL_PROPERTIES",
             "No model.include properties",
         )
-    if kind in SCOPED_INVENTORIES:
+    profile = REGISTRY.import_profile(kind)
+    if profile.scoped is not None:
         return DiscoveryPlan(
             "scoped_sdk",
             "uncertain",
             "SCOPED_SDK_INVENTORY",
             "SDK inventory preserves parent selectors and composite identity",
-            parents={
-                "SQS.QueuePolicy": ("SQS.Queue",),
-                "Route53.RecordSet": ("Route53.HostedZone",),
-            }.get(kind, ()),
+            parents=profile.scoped.parents,
         )
-    if kind in ADAPTER_INVENTORIES and kind in mapping.identities:
+    if profile.adapter is not None and kind in mapping.identities:
         return DiscoveryPlan(
             "adapter",
             "uncertain",
             "ADAPTER_REGISTERED",
             "SDK inventory selected; payload and identity require inspection",
         )
-    if (
-        kind == "EC2.SubnetRouteTableAssociation"
-        and "EC2.RouteTable" in mapping.resource_types
-    ):
+    if profile.derived and profile.derived.parents[0] in mapping.resource_types:
         return DiscoveryPlan(
             "parent_derived",
             "uncertain",
-            "SUBNET_ASSOCIATION_EXPANSION",
-            "Route table associations attach to selected subnets; no independent candidates",
-            parents=("EC2.RouteTable", "EC2.Subnet"),
+            profile.derived.reason_code,
+            profile.derived.reason,
+            parents=profile.derived.parents,
         )
     if schema is None:
         return DiscoveryPlan(
@@ -263,12 +148,12 @@ def resolve(
             "PROVIDER_LIST",
             "Cloud Control List has no required filters",
         )
-    if kind == "Glue.Connection" and required == ("CatalogId",):
+    if profile.account_filter and required == (profile.account_filter.selector,):
         return DiscoveryPlan(
             "cloudcontrol",
             "ready",
             "TARGET_ACCOUNT_FILTER",
-            "CatalogId comes from the verified target account when execution and target accounts match",
+            profile.account_filter.discovery_reason,
             required,
         )
     try:

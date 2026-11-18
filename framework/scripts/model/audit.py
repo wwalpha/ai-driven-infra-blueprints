@@ -391,7 +391,7 @@ def embed_adapter(source, service, engine_source):
                     ast.ImportFrom(module="audit_comparison", names=node.names, level=0)
                 )
             elif (
-                imported_module == "model.importing.sdk_inventory"
+                imported_module == "services.route53.inventory"
                 and isinstance(node, ast.ImportFrom)
                 and not node.level
             ):
@@ -1285,7 +1285,11 @@ def _build(root, environment, selector, service, standalone):
     )
     engine += definitions(
         scripts / "model/importing/sdk_inventory.py",
-        ["identifier", "route53_pages", "route53_projection"],
+        ["identifier"],
+    )
+    engine += definitions(
+        scripts / "services/route53/inventory.py",
+        ["route53_pages", "route53_projection"],
     )
     projection = definitions(scripts / "aws_mapping_catalog.py", ["project"])
     mapped = definitions(scripts / "aws_mapping_compare.py", ["value"])

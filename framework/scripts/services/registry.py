@@ -22,6 +22,7 @@ from .contracts import (
     ResourceDefinition,
     ServiceDefinition,
 )
+from .import_contracts import ImportProfile
 from .manifest import SERVICES
 
 if TYPE_CHECKING:
@@ -110,6 +111,8 @@ def _design(kind: str, definitions: DesignDefinition) -> None:
             "PROVIDER_NAME_CHECKS": Mapping,
             "CONFIRMED_NAME_FIELDS": Mapping,
             "NAMING_SUFFIX_CHECKS": Mapping,
+            "REVIEW_NAME_CHECKS": Mapping,
+            "REVIEW_PATTERN_CONDITIONS": Mapping,
             "PACKED_ARRAY_PREFIXES": tuple,
         }.get(name, Set)
         if not isinstance(values, collection_type):
@@ -127,6 +130,7 @@ def _design(kind: str, definitions: DesignDefinition) -> None:
                 "PROVIDER_NAME_CHECKS",
                 "CONFIRMED_NAME_FIELDS",
                 "NAMING_SUFFIX_CHECKS",
+                "REVIEW_PATTERN_CONDITIONS",
             }:
                 owned = path == kind
             else:
@@ -215,6 +219,10 @@ class ServiceRegistry:
             raise ValueError(
                 f"duplicate ResourceType: {kind} ({self._owners[kind]}, {owner})"
             )
+        if definition.importing is not None and not isinstance(
+            definition.importing, ImportProfile
+        ):
+            raise ValueError(f"invalid IMPORT profile for {kind}")
         producer, receiver, arn = (
             definition.producer,
             definition.receiver,
@@ -361,6 +369,11 @@ class ServiceRegistry:
     def receiver(self, resource_type: str) -> ReceiverReference | None:
         return self.resource(resource_type).receiver
 
+    def import_profile(self, resource_type: str) -> ImportProfile:
+        if resource_type in self:
+            return self.resource(resource_type).importing or _DEFAULT_IMPORT
+        return _DEFAULT_IMPORT
+
     def arn(self, resource_type: str) -> ArnExtension | None:
         return self.resource(resource_type).arn
 
@@ -497,4 +510,5 @@ class ServiceRegistry:
 
 
 _DEFAULT_DISPLAY = DisplayExtension()
+_DEFAULT_IMPORT = ImportProfile()
 REGISTRY = ServiceRegistry(SERVICES)

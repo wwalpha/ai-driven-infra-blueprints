@@ -18,7 +18,6 @@ from model.validations.naming import (
     provider_naming_errors,
     value_available,
 )
-from services.organizations.design import POLICY_TYPE_PROPERTY, SERVICE_CONTROL_POLICY
 from services.registry import REGISTRY
 from task_contract_core import safe_path
 from utils.yaml_format import yaml_read
@@ -297,11 +296,8 @@ def applicable_patterns(artifact, name, rule_index=None):
         if scope == "mandatory"
         or (scope == "prefix" and pattern_prefix_applies(pattern, value))
     }
-    if (
-        name["resourceType"] == "Organizations.Policy"
-        and name.get("conditions", {}).get(POLICY_TYPE_PROPERTY)
-        != SERVICE_CONTROL_POLICY
-    ):
+    condition = REGISTRY.design_tables.get("REVIEW_PATTERN_CONDITIONS", {}).get(kind)
+    if condition and name.get("conditions", {}).get(condition[0]) != condition[1]:
         return set()
     if len(patterns) <= 1:
         return patterns
@@ -393,38 +389,17 @@ def mandatory_name_errors(artifact, name, actual, rule_index=None):
     target = artifact["naming_context"].get("target_context", {})
     errors = []
     suffix_check = REGISTRY.design_tables.get("NAMING_SUFFIX_CHECKS", {}).get(kind)
-    if (
-        suffix_check
+    checked_suffix = (
+        suffix_check is not None
         and prop == REGISTRY.design_tables["CONFIRMED_NAME_FIELDS"][kind]
-        and "suffix" in target
-    ):
+    )
+    if checked_suffix and "suffix" in target:
         errors.extend(suffix_check(actual, target.get("suffix")))
-    if kind in {"Glue.Job", "Glue.SecurityConfiguration"} and prop == "Name":
-        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", actual):
-            errors.append("Glue Name must use lower-kebab-case")
-        if (
-            kind == "Glue.SecurityConfiguration"
-            and name.get("same_type_count", 1) > 1
-            and not re.match(r"glsc-(?:0[1-9]|[1-9][0-9])(?:-|$)", actual)
-        ):
-            errors.append(
-                "Multiple Glue SecurityConfigurations require a positive two-digit sequence"
-            )
-    if (kind, prop) == ("SecretsManager.Secret", "Name") and (
-        actual.endswith("-")
-        or actual.startswith("/")
-        or actual.endswith("/")
-        or "//" in actual
-    ):
-        errors.append(
-            "Secret Name must have non-empty path components and no trailing hyphen"
-        )
-    if (kind, prop) == ("SecretsManager.Secret", "Name") and not re.fullmatch(
-        r"[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*){2,}", actual
-    ):
-        errors.append(
-            "Secret Name requires application/environment/purpose_path with lower-kebab-case components"
-        )
+    name_check = REGISTRY.design_tables.get("REVIEW_NAME_CHECKS", {}).get(
+        kind + "." + prop
+    )
+    if name_check is not None:
+        errors.extend(name_check(kind, actual, name.get("same_type_count", 1)))
     suffix = target.get("suffix")
     applicable = applicable_patterns(artifact, name, rule_index)
     terminal_suffix_patterns = {
@@ -441,7 +416,7 @@ def mandatory_name_errors(artifact, name, actual, rule_index=None):
                 pattern_matches(pattern, actual, {"suffix": suffix})
                 and (
                     pattern not in terminal_suffix_patterns
-                    or (kind, prop) == ("IAM.Role", "RoleName")
+                    or checked_suffix
                     or actual.endswith("-" + suffix)
                 )
             )
@@ -485,9 +460,9 @@ def naming_decision(artifact, name, rule_index=None):
         ):
             pending.append("FIFO condition is unconfirmed")
     if name.get("resourceMode", RESOURCE_MODE_CREATE) == RESOURCE_MODE_CREATE:
-        if name["resourceType"] == "IAM.Role" and "suffix" not in artifact[
-            "naming_context"
-        ].get("target_context", {}):
+        if name["resourceType"] in REGISTRY.design_tables.get(
+            "NAMING_SUFFIX_CHECKS", {}
+        ) and "suffix" not in artifact["naming_context"].get("target_context", {}):
             pending.append("Selected target suffix configuration is unavailable")
         kind, prop = name["resourceType"], name["property"]
         mandatory = {
@@ -505,14 +480,11 @@ def naming_decision(artifact, name, rule_index=None):
             and "suffix" not in confirmed
         ):
             pending.append("Required target suffix is unconfirmed")
-        if name[
-            "resourceType"
-        ] == "Organizations.Policy" and POLICY_TYPE_PROPERTY not in name.get(
-            "conditions", {}
-        ):
-            pending.append(
-                "Policy Type is required to determine mandatory pattern applicability"
-            )
+        condition = REGISTRY.design_tables.get("REVIEW_PATTERN_CONDITIONS", {}).get(
+            kind
+        )
+        if condition and condition[0] not in name.get("conditions", {}):
+            pending.append(condition[2])
     return dict(
         status="VIOLATION_CANDIDATE"
         if violations
@@ -578,7 +550,8 @@ def validate_naming_issue(artifact, item, name, rule_index=None):
         violation in {"format", "rule_missing"}
         or (
             violation == "required_missing"
-            and name["resourceType"] not in {"IAM.Role", "CodeBuild.Project"}
+            and name["resourceType"]
+            not in REGISTRY.design_tables.get("CONFIRMED_NAME_FIELDS", {})
         )
     ):
         raise ValueError("IMPORT is exempt from framework naming conventions")

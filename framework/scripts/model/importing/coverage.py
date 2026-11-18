@@ -26,10 +26,7 @@ from utils.script_loader import module
 
 from model.importing import adapter_contracts
 from model.importing.discovery import (
-    ADAPTER_INVENTORIES,
-    SCOPED_INVENTORIES,
     DiscoveryPlan,
-    adapter_detail,
     resolve,
     type_name,
 )
@@ -102,9 +99,14 @@ class Coverage:
         )
 
     def inventory_shape(self, kind: str, adapter: Any) -> Any:
-        api, operation, collection = ADAPTER_INVENTORIES[kind]
+        profile = REGISTRY.import_profile(kind)
+        api, operation, collection = profile.adapter
         operation_model = self.operation(api, operation)
-        supplied = {"AwsAccountId"} if api == "quicksight" else set()
+        supplied = (
+            {profile.execution_account_input}
+            if profile.execution_account_input
+            else set()
+        )
         if (
             operation_model.input_shape
             and set(operation_model.input_shape.required_members) - supplied
@@ -116,12 +118,15 @@ class Coverage:
             if shape.type_name != "list":
                 raise ValueError("Inventory collection is not an SDK list")
             shape = shape.member
-        detail = adapter_detail(kind)
-        if detail:
-            operation, selector, result = detail
+        if detail := profile.detail:
+            operation, selector, result = (
+                detail.operation,
+                detail.selector,
+                detail.result,
+            )
             selected = (
                 shape
-                if kind in {"KinesisFirehose.DeliveryStream", "CodeBuild.Project"}
+                if detail.list_returns_selector
                 else response_shape(shape, selector)
             )
             if selected.type_name != "string":
@@ -143,7 +148,7 @@ class Coverage:
         return shape
 
     def scoped_shape(self, kind: str) -> Any:
-        spec = SCOPED_INVENTORIES[kind]
+        spec = REGISTRY.import_profile(kind).scoped
         for operation in spec.operations:
             self.operation(spec.api, operation)
         operation, path = spec.payload
@@ -153,7 +158,9 @@ class Coverage:
     def identifier(
         self, mapping: Registry, kind: str, plan: DiscoveryPlan, adapter: Any
     ) -> Diagnostic:
+        profile = REGISTRY.import_profile(kind)
         if plan.mode == "scoped_sdk":
+            scoped = profile.scoped
             try:
                 self.scoped_shape(kind)
                 for parent in plan.parents:
@@ -167,20 +174,19 @@ class Coverage:
                         raise ValueError(
                             "Required parent inventory is unavailable: " + parent
                         )
-                for prop in SCOPED_INVENTORIES[kind].components:
+                for prop in scoped.components:
                     if kind + "." + prop not in mapping.properties:
                         raise ValueError("Identity component has no Mapping: " + prop)
             except ValueError as error:
                 return diagnostic("broken", "SCOPED_IDENTITY_INVALID", str(error))
             return diagnostic(
-                "uncertain" if kind == "SQS.QueuePolicy" else "ready",
+                "uncertain" if scoped.group_review else "ready",
                 "STRUCTURE_REVIEW_REQUIRED"
-                if kind == "SQS.QueuePolicy"
+                if scoped.group_review
                 else "SCOPED_SDK_IDENTITY",
-                "Original queue grouping requires explicit Human structure selection"
-                if kind == "SQS.QueuePolicy"
-                else "Parent selectors and composite identity are preserved by the SDK inventory; live scope and uniqueness require runtime checks",
-                components=list(SCOPED_INVENTORIES[kind].components),
+                scoped.group_review
+                or "Parent selectors and composite identity are preserved by the SDK inventory; live scope and uniqueness require runtime checks",
+                components=list(scoped.components),
                 inputValidation="Not statically verified; operation existence does not validate runtime inputs",
                 scope=["executionAccount", "region", "resourceType"],
             )
@@ -189,18 +195,18 @@ class Coverage:
                 "not_modelled", "NO_MODEL_PROPERTIES", "No Import candidate"
             )
         if plan.mode == "parent_derived":
-            parent = resolve(mapping, mapping.properties, "EC2.RouteTable", self.schema)
-            subnet = resolve(mapping, mapping.properties, "EC2.Subnet", self.schema)
-            if parent.mode != "adapter" or subnet.mode != "adapter":
-                return diagnostic(
-                    "broken",
-                    "DERIVED_PARENT_UNAVAILABLE",
-                    "Existing expansion requires SDK route-table and subnet inventories",
+            derived = profile.derived
+            parents = {
+                parent_kind: resolve(
+                    mapping, mapping.properties, parent_kind, self.schema
                 )
-            for parent_kind, parent_plan in (
-                ("EC2.RouteTable", parent),
-                ("EC2.Subnet", subnet),
-            ):
+                for parent_kind in derived.parents
+            }
+            if any(parent.mode != "adapter" for parent in parents.values()):
+                return diagnostic(
+                    "broken", "DERIVED_PARENT_UNAVAILABLE", derived.unavailable_reason
+                )
+            for parent_kind, parent_plan in parents.items():
                 parent_identity = self.identifier(
                     mapping, parent_kind, parent_plan, adapter
                 )
@@ -211,19 +217,19 @@ class Coverage:
                         parent_kind + ": " + parent_identity["reason"],
                     )
             try:
-                shape = self.inventory_shape("EC2.RouteTable", adapter)
-                response_shape(shape, "Associations[].RouteTableAssociationId")
-                response_shape(shape, "Associations[].SubnetId")
+                shape = self.inventory_shape(derived.parents[0], adapter)
+                for path in derived.identity_paths:
+                    response_shape(shape, path)
             except ValueError as error:
                 return diagnostic("broken", "DERIVED_IDENTITY_UNRESOLVED", str(error))
             return diagnostic(
                 "ready",
-                "DERIVED_ASSOCIATION_ID",
-                "RouteTableAssociationId is retained; association is attached by SubnetId, never independently published",
-                components=["RouteTableAssociationId", "SubnetId"],
+                derived.identity_code,
+                derived.identity_reason,
+                components=list(derived.components),
                 scope=["executionAccount", "region", "resourceType"],
             )
-        if kind in ADAPTER_INVENTORIES:
+        if profile.adapter:
             descriptor = mapping.identities.get(kind)
             if descriptor is None:
                 # Runtime deliberately falls back to Cloud Control in this case.
@@ -342,10 +348,10 @@ class Coverage:
         result["requiredFilters"] = list(result.pop("required_filters"))
         result["parents"] = list(result["parents"])
         if plan.mode == "scoped_sdk":
-            result["operations"] = list(SCOPED_INVENTORIES[kind].operations)
+            result["operations"] = list(REGISTRY.import_profile(kind).scoped.operations)
             result.update(identity)
         elif plan.mode == "adapter":
-            result["inventory"] = list(ADAPTER_INVENTORIES[kind])
+            result["inventory"] = list(REGISTRY.import_profile(kind).adapter)
             result.update(
                 diagnostic(
                     "ready" if identity["status"] == "ready" else "broken",
@@ -547,18 +553,20 @@ class Coverage:
                 "SENSITIVE_VALUE_WITHHELD",
                 "API output is withheld by the Import sensitive-property contract",
             )
+        account_filter = REGISTRY.import_profile(kind).account_filter
         if (
-            key == "Glue.Connection.CatalogId"
+            account_filter
+            and key == kind + "." + account_filter.selector
             and plan.reason_code == "TARGET_ACCOUNT_FILTER"
         ):
             return diagnostic(
                 "capturable",
                 "VALIDATED_SELECTOR",
-                "CatalogId is checked against both the verified target account and returned resource identity",
+                account_filter.evidence_reason,
                 source="verified_selector",
             )
         if plan.mode == "scoped_sdk":
-            spec = SCOPED_INVENTORIES[kind]
+            spec = REGISTRY.import_profile(kind).scoped
             if key.removeprefix(kind + ".") in spec.selectors:
                 return diagnostic(
                     "capturable",
@@ -571,13 +579,11 @@ class Coverage:
                     shape = self.scoped_shape(kind)
                     path = prop.field.path
                     if (
-                        kind == "DataZone.Project"
+                        spec.cloudcontrol_fields
                         and getter.get("kind") == "cloudcontrol"
                     ):
-                        path = {"DomainId": "domainId", "Id": "id", "Name": "name"}[
-                            path
-                        ]
-                    if kind != "SQS.QueuePolicy":
+                        path = spec.cloudcontrol_fields[path]
+                    if spec.grouped_identity is None:
                         response_shape(shape, path)
                     if getter.get("kind") == "sdk" and (
                         getter["service"],

@@ -25,7 +25,6 @@ from model.importing import (
 )
 from model.importing.adapter_contract_cases import core, fake_sdk
 from model.importing.adapter_contract_cases.core import fixture_context
-from model.importing.discovery import ADAPTER_INVENTORIES
 from model.literal_values import literal_errors
 from model.render import markdown_for
 from services.codepipeline import aws_contracts as codepipeline
@@ -64,7 +63,9 @@ def no_network(monkeypatch):
     external_cli.assert_not_called()
 
 
-@pytest.mark.parametrize("kind", sorted(ADAPTER_INVENTORIES))
+@pytest.mark.parametrize(
+    "kind", sorted(kind for kind in REGISTRY if REGISTRY.import_profile(kind).adapter)
+)
 def test_existing_sdk_fixture_through_import_inventory_and_selectors(kind):
     service = owners(ROOT)[kind]
     ctx = SchemaOffline(ROOT)

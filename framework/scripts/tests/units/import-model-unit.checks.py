@@ -69,6 +69,7 @@ from model.operations import (
 from model.projection import resource_rows
 from model.references import Reference, incoming, symbolic, usages
 from model.sources import Scope, candidate_sources, load_model
+from services.codebuild.inventory import codebuild_details
 from support.fixture_cases import load_case, materialize_files
 from support.import_model_fixtures import (
     ACCOUNT,
@@ -3841,7 +3842,7 @@ def test_codebuild_inventory_batches_and_rejects_incomplete():
             ]
         )
     )
-    assert len(import_inventory.codebuild_details(ctx, names)) == 101
+    assert len(codebuild_details(ctx, names)) == 101
     assert [len(call.kwargs["names"]) for call in ctx.call.call_args_list] == [100, 1]
     ctx.call = Mock(
         side_effect=[
@@ -3852,7 +3853,7 @@ def test_codebuild_inventory_batches_and_rejects_incomplete():
         ]
     )
     with pytest.raises(m.comparator().AcquisitionError):
-        import_inventory.codebuild_details(ctx, names)
+        codebuild_details(ctx, names)
     for response in (
         {"projects": []},
         {"projects": [{"name": "a"}, {"name": "a"}]},
@@ -3860,9 +3861,9 @@ def test_codebuild_inventory_batches_and_rejects_incomplete():
     ):
         ctx.call = Mock(return_value=response)
         with pytest.raises(ValueError):
-            import_inventory.codebuild_details(ctx, ["a"])
+            codebuild_details(ctx, ["a"])
     with pytest.raises(ValueError, match="duplicate"):
-        import_inventory.codebuild_details(ctx, ["a", "a"])
+        codebuild_details(ctx, ["a", "a"])
 
 
 def test_glue_connection_uses_only_verified_target_account():

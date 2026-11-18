@@ -14,3 +14,24 @@ NAMING_EXEMPT_PROPERTIES = {
     "Glue.Database.DatabaseInput.Name",
     "Glue.Table.TableInput.Name",
 }
+
+
+def review_glue_name(kind: str, actual: str, same_type_count: int) -> list[str]:
+    errors = []
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", actual):
+        errors.append("Glue Name must use lower-kebab-case")
+    if (
+        kind == "Glue.SecurityConfiguration"
+        and same_type_count > 1
+        and not re.match(r"glsc-(?:0[1-9]|[1-9][0-9])(?:-|$)", actual)
+    ):
+        errors.append(
+            "Multiple Glue SecurityConfigurations require a positive two-digit sequence"
+        )
+    return errors
+
+
+REVIEW_NAME_CHECKS = {
+    "Glue.Job.Name": review_glue_name,
+    "Glue.SecurityConfiguration.Name": review_glue_name,
+}

@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from botocore.validate import ParamValidator
 from model.importing import cli, coverage, inventory, limitations, sdk_inventory
+from services.registry import REGISTRY
+from services.route53.inventory import route53_projection
 from support.pytest_cli import run
 from utils.aws_sdk import aws_runtime
 
@@ -569,7 +571,9 @@ def test_queue_url_unknown_region_is_rejected_before_call():
     ctx.call.assert_not_called()
 
 
-@pytest.mark.parametrize("kind", list(sdk_inventory.SCOPED_INVENTORIES))
+@pytest.mark.parametrize(
+    "kind", tuple(kind for kind in REGISTRY if REGISTRY.import_profile(kind).scoped)
+)
 def test_scoped_inventory_failure_is_not_empty(kind):
     ctx = SimpleNamespace(
         target=dict(TARGET),
@@ -1177,11 +1181,11 @@ def test_route53_parent_failure_is_not_empty():
 @pytest.mark.parametrize("ttl", [-1, "60", True])
 def test_route53_ttl_rejects_invalid_sdk_values(ttl):
     with pytest.raises(ValueError, match="TTL"):
-        sdk_inventory.route53_projection({"TTL": ttl}, "Z1")
+        route53_projection({"TTL": ttl}, "Z1")
 
 
 def test_route53_ttl_projection_and_simple_alias():
-    assert sdk_inventory.route53_projection({"TTL": 60}, "Z1")["TTL"] == "60"
+    assert route53_projection({"TTL": 60}, "Z1")["TTL"] == "60"
     adapter = cli.comparator().service_module("route53")
     item = {
         "Name": "EXAMPLE.COM.",

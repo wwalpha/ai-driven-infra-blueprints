@@ -4,7 +4,6 @@ import json
 from copy import deepcopy
 from functools import partial as _bind_framework_callback
 from threading import RLock
-from typing import Any
 
 import aws_mapping_compare as mapping_compare
 from aws_mapping import readonly
@@ -12,6 +11,7 @@ from aws_mapping_catalog import project
 from contracts.mapping import MAPPING_RESOURCE_TYPE_KEY
 from contracts.model import RESOURCE_LOGICAL_ID_KEY
 from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_EXECUTION_ACCOUNT_ID_KEY
+from services.registry import REGISTRY
 from utils.aws_mappings import owners
 from utils.aws_schemas import schemas_for
 from utils.json_format import policy_json
@@ -23,8 +23,6 @@ import model.importing.sdk_inventory as sdk_inventory
 import model.projection as _imports_model_projection
 from model.importing import limitations
 from model.importing.discovery import (
-    ADAPTER_INVENTORIES,
-    adapter_detail,
     filter_parents,
     resolve,
     type_name,
@@ -217,24 +215,11 @@ def _callback_ImportInventory_identity_resolve(kind, record, self, /):
 def _callback_ImportInventory_normalize_run(normalize, record, self, service, /):
     result = normalize(self.ctx, service, [record])[0]
     required = self.ctx.catalog.required_properties(record["kind"])
+    allows_missing = REGISTRY.import_profile(record["kind"]).allows_missing
     missing_required = any(
         value["status"] == "missing"
         and prop.removeprefix(record["kind"] + ".").split(".")[0] in required
-        and not (
-            record["kind"] == "Lambda.Function"
-            and (
-                value.get("reason") == "Lambda Image uses an image source"
-                and result["properties"]
-                .get("Lambda.Function.PackageType", {})
-                .get("value")
-                == "Image"
-                or prop == "Lambda.Function.Code.ImageUri"
-                and result["properties"]
-                .get("Lambda.Function.PackageType", {})
-                .get("value")
-                == "Zip"
-            )
-        )
+        and not (allows_missing and allows_missing(prop, value, result["properties"]))
         for prop, value in result["properties"].items()
     )
     if (
@@ -278,8 +263,9 @@ def _callback_ImportInventory_inventory_collect(filters, kind, self, service, /)
         return []
     try:
         if plan.mode == "scoped_sdk":
-            if kind == "Route53.RecordSet" and filters is not None:
-                raise ValueError("RecordSet filters are not supported")
+            scoped = REGISTRY.import_profile(kind).scoped
+            if scoped.filter_error and filters is not None:
+                raise ValueError(scoped.filter_error)
             parents = None
             if plan.parents:
                 parent = plan.parents[0]
@@ -350,10 +336,7 @@ class ImportInventory:
     def property_schema(self, prop):
         kind = ".".join(prop.split(".")[:2])
         path = prop.removeprefix(kind + ".")
-        if (
-            kind in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}
-            and path == "Name"
-        ):
+        if REGISTRY.import_profile(kind).name_tag and path == "Name":
             path = "Tags[].Value"
         return deepcopy(
             self.once(
@@ -391,40 +374,23 @@ class ImportInventory:
                 "IMPORT Resource Types must have the selected Mapping owner"
             )
         records = []
-        dependencies = (
-            ("EC2.RouteTable",)
-            if "EC2.Subnet" in selected
-            and "EC2.RouteTable" not in selected
-            and "EC2.RouteTable" in available
-            else ()
+        dependencies = dict.fromkeys(
+            dependency
+            for kind in selected
+            for dependency in REGISTRY.import_profile(kind).dependencies
+            if dependency not in selected and dependency in available
         )
         for kind in (*selected, *dependencies):
             records.extend(self.inventory(service, kind))
-        associations = [
-            record
-            for record in records
-            if record["kind"] == "EC2.SubnetRouteTableAssociation"
-        ]
-        for association in associations:
-            payload = association["getters"]["association"]
-            subnet = next(
-                (
-                    r
-                    for r in records
-                    if r["kind"] == "EC2.Subnet"
-                    and r["identity"] == payload["SubnetId"]
-                ),
-                None,
-            )
-            if subnet is not None:
-                if "association" in subnet["getters"]:
-                    raise ValueError("IMPORT subnet association is ambiguous")
-                subnet["getters"]["association"] = payload
+        for record in records:
+            derived = REGISTRY.import_profile(record["kind"]).derived
+            if derived:
+                derived.attach(record, records)
         return [
             record
             for record in records
             if record["kind"] in selected
-            and record["kind"] != "EC2.SubnetRouteTableAssociation"
+            and not REGISTRY.import_profile(record["kind"]).derived
         ]
 
     def status(self, kind, status, reason=None, *, limitations=None, diagnostic=None):
@@ -503,7 +469,8 @@ class ImportInventory:
                 "cloudcontrol.list_resources", "ListUnsupported", "unsupported"
             )
         required = handlers["list"].get("handlerSchema", {}).get("required", ())
-        if kind == "Glue.Connection" and tuple(required) == ("CatalogId",):
+        account_filter = REGISTRY.import_profile(kind).account_filter
+        if account_filter and tuple(required) == (account_filter.selector,):
             account = self.ctx.target.get(AWS_ACCOUNT_ID_KEY)
             execution = self.ctx.target.get(AWS_EXECUTION_ACCOUNT_ID_KEY, account)
             if not isinstance(account, str) or not account or account != execution:
@@ -513,8 +480,11 @@ class ImportInventory:
                     "requires_filter",
                 )
             if filters is None:
-                filters = {"CatalogId": account}
-            elif not isinstance(filters, dict) or filters.get("CatalogId") != account:
+                filters = {account_filter.selector: account}
+            elif (
+                not isinstance(filters, dict)
+                or filters.get(account_filter.selector) != account
+            ):
                 raise m.AcquisitionError(
                     "cloudcontrol.list_resources",
                     "TargetAccountMismatch",
@@ -567,16 +537,17 @@ class ImportInventory:
                 record = self.cloud_record(
                     service, kind, description, schema, mapping, mapped
                 )
-                if kind == "Glue.Connection":
-                    catalog = filters["CatalogId"]
-                    if record["cloudProperties"].get("CatalogId") != catalog:
+                if account_filter:
+                    selector = account_filter.selector
+                    account = filters[selector]
+                    if record["cloudProperties"].get(selector) != account:
                         raise m.AcquisitionError(
-                            "cloudcontrol.list_resources", "CatalogScopeMismatch"
+                            "cloudcontrol.list_resources", account_filter.scope_mismatch
                         )
-                    record["selectorProperties"] = {kind + ".CatalogId": catalog}
+                    record["selectorProperties"] = {kind + "." + selector: account}
                     record["provenance"] = {
                         "api": "cloudcontrol.list_resources",
-                        "selectors": {"CatalogId": catalog},
+                        "selectors": {selector: account},
                     }
                 records.append(record)
             except (
@@ -610,10 +581,9 @@ class ImportInventory:
             and prop.include
             and mapping.getters.get(prop.field.getter, {}).get("kind") == "cloudcontrol"
         ]
-        if kind == "Scheduler.Schedule" and (
-            not props.get("Name") or not props.get("GroupName")
-        ):
-            raise m.Unresolved("Schedule inventory does not confirm Name and GroupName")
+        profile = REGISTRY.import_profile(kind)
+        if any(not props.get(field) for field in profile.verify_list_fields):
+            raise m.Unresolved(profile.verify_list_error)
         if any(project(prop, props) == m.MISSING for prop in needed) or any(
             pointer_value(props, pointer) is None
             for pointer in schema.get("primaryIdentifier", ())
@@ -669,48 +639,26 @@ def inventory_for(ctx):
     return ImportInventory(ctx)
 
 
-def codebuild_details(ctx: Any, names: list[str]) -> list[dict[str, Any]]:
-    if any(not isinstance(name, str) or not name for name in names) or len(
-        set(names)
-    ) != len(names):
-        raise ValueError("IMPORT CodeBuild project names are invalid or duplicate")
-    projects = []
-    for offset in range(0, len(names), 100):
-        requested = names[offset : offset + 100]
-        response = ctx.call("codebuild", "batch_get_projects", names=requested)
-        found = response.get("projects")
-        missing = response.get("projectsNotFound", [])
-        if not isinstance(found, list) or not isinstance(missing, list) or missing:
-            raise ValueError("IMPORT CodeBuild batch has missing projects")
-        returned = [
-            item.get("name") if isinstance(item, dict) else None for item in found
-        ]
-        if len(returned) != len(set(returned)) or set(returned) != set(requested):
-            raise ValueError("IMPORT CodeBuild batch response does not match request")
-        projects.extend(found)
-    return projects
-
-
 def adapter_inventory(ctx, service, resource_types):
     mapping, _ = inventory_for(ctx).mapping(service)
+    profiles = [(kind, REGISTRY.import_profile(kind)) for kind in resource_types]
     ctx.allowed.update(
-        (api, operation)
-        for kind in resource_types
-        if kind in ADAPTER_INVENTORIES
-        for api, operation, _ in [ADAPTER_INVENTORIES[kind]]
+        profile.adapter[:2] for _, profile in profiles if profile.adapter
     )
     records = []
-    for kind in resource_types:
-        if kind == "EC2.SubnetRouteTableAssociation":
-            continue  # Expand the confirmed route table associations below.
-        api, operation, collection = ADAPTER_INVENTORIES[kind]
+    for kind, profile in profiles:
+        if profile.derived:
+            continue  # Parent inventory emits the related records.
+        if profile.adapter is None:
+            raise KeyError(kind)
+        api, operation, collection = profile.adapter
         inputs = (
             {
-                "AwsAccountId": ctx.target.get(
+                profile.execution_account_input: ctx.target.get(
                     AWS_EXECUTION_ACCOUNT_ID_KEY, ctx.target[AWS_ACCOUNT_ID_KEY]
                 )
             }
-            if api == "quicksight"
+            if profile.execution_account_input
             else {}
         )
         response = ctx.pages(api, operation, **inputs)
@@ -721,33 +669,22 @@ def adapter_inventory(ctx, service, resource_types):
                 api + "." + operation, "InvalidInventoryResponse"
             )
         items = response[collection] if collection else [response]
-        if kind == "CodeBuild.Project":
-            items = codebuild_details(ctx, items)
+        if profile.batch:
+            items = profile.batch(ctx, items)
         for item in items:
-            detail = None if kind == "CodeBuild.Project" else adapter_detail(kind)
-            if detail is not None:
-                operation, key, result_key = detail
-                selector = (
-                    item if kind == "KinesisFirehose.DeliveryStream" else item[key]
-                )
-                response = ctx.call(api, operation, **inputs, **{key: selector})
-                item = response if result_key == "$" else response[result_key]
-                if kind == "Macie.ClassificationJob" and item.get(key) != selector:
-                    raise ValueError("IMPORT job detail identifier mismatch")
-                if api == "quicksight":
-                    if kind == "QuickSight.VPCConnection" and item.get(key) != selector:
-                        raise ValueError("IMPORT QuickSight detail identifier mismatch")
+            detail = profile.detail if profile.batch is None else None
+            if detail:
+                key = detail.selector
+                selector = item if detail.list_returns_selector else item[key]
+                response = ctx.call(api, detail.operation, **inputs, **{key: selector})
+                item = response if detail.result == "$" else response[detail.result]
+                if detail.mismatch and item.get(key) != selector:
+                    raise ValueError(detail.mismatch)
+                if inputs:
                     item = dict(item, **inputs)
             record = dict(item)
-            if api == "ec2":
-                names = [
-                    tag["Value"]
-                    for tag in record.get("Tags", [])
-                    if tag.get("Key") == "Name"
-                ]
-                if len(names) > 1:
-                    raise ValueError("IMPORT inventory has ambiguous Name tags")
-                record["NameTag"] = names[0] if names else comparator().MISSING
+            if profile.decorate:
+                profile.decorate(record)
             descriptor = mapping.identities[kind]
             getter, id_path = descriptor.getter, descriptor.id_path
             identity = comparator().select(record, id_path)
@@ -760,36 +697,11 @@ def adapter_inventory(ctx, service, resource_types):
                     "IMPORT inventory has no confirmed resource identifier"
                 )
             getters = {getter: record}
-            if kind == "QuickSight.DataSource":
-                getters["permissions"] = ctx.call(
-                    "quicksight",
-                    "describe_data_source_permissions",
-                    **inputs,
-                    DataSourceId=record["DataSourceId"],
-                )
+            if profile.additional_getters:
+                getters.update(profile.additional_getters(ctx, record, inputs))
             records.append({"kind": kind, "identity": identity, "getters": getters})
-            if kind == "EC2.RouteTable":
-                for association in record.get("Associations", []):
-                    if (
-                        association.get("SubnetId")
-                        and association.get("AssociationState", {}).get(
-                            "State", "associated"
-                        )
-                        == "associated"
-                    ):
-                        records.append(
-                            {
-                                "kind": "EC2.SubnetRouteTableAssociation",
-                                "identity": association["RouteTableAssociationId"],
-                                "getters": {
-                                    "association": {
-                                        "RouteTableId": record["RouteTableId"],
-                                        "SubnetId": association["SubnetId"],
-                                        "Id": association["RouteTableAssociationId"],
-                                    }
-                                },
-                            }
-                        )
+            if profile.related_records:
+                records.extend(profile.related_records(record))
     if len({(r["kind"], r["identity"]) for r in records}) != len(records):
         raise ValueError("IMPORT inventory contains duplicate identifiers")
     return records

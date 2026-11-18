@@ -10,6 +10,7 @@ from contracts.model import (
     RESOURCE_MODE_IMPORT,
     RESOURCE_TYPE_KEY,
 )
+from services.registry import REGISTRY
 from utils.json_format import document_sha256
 from utils.json_format import strict_json as json_read
 
@@ -35,10 +36,10 @@ def typed_equal(left, right):
 
 def identity_value(prop, value):
     if isinstance(value, str):
-        if prop == "Route53.RecordSet.Name":
-            return value.rstrip(".").lower()
-        if prop == "Route53.RecordSet.HostedZoneId":
-            return value.removeprefix("/hostedzone/")
+        kind = ".".join(prop.split(".")[:2])
+        normalize = REGISTRY.import_profile(kind).normalize_identity
+        if normalize:
+            return normalize(prop, value)
     return value
 
 
@@ -236,8 +237,9 @@ def selection_records(
             raise ValueError(
                 "IMPORT refresh/replace/bind requires an existing IMPORT Resource of the acquired type; CREATE is protected"
             )
-        if record["kind"] == "SQS.QueuePolicy":
-            queue_property = "SQS.QueuePolicy.Queues[]"
+        scoped = REGISTRY.import_profile(record["kind"]).scoped
+        queue_property = scoped.grouped_identity if scoped else None
+        if queue_property:
             queue_values = record["properties"].get(queue_property, {}).get("value")
             if (
                 not isinstance(queue_values, list)
@@ -362,16 +364,14 @@ def selection_records(
         if "structure" in item:
             structure = item["structure"]
             if (
-                record["kind"] != "SQS.QueuePolicy"
+                not queue_property
                 or not isinstance(structure, dict)
                 or set(structure) != {"queues", "reason"}
                 or not isinstance(structure["reason"], str)
                 or not structure["reason"].strip()
                 or not typed_equal(
                     structure["queues"],
-                    record["properties"]
-                    .get("SQS.QueuePolicy.Queues[]", {})
-                    .get("value"),
+                    record["properties"].get(queue_property, {}).get("value"),
                 )
             ):
                 raise ValueError(
@@ -419,41 +419,19 @@ def pending_items(selection, selected, values, property_schema):
     known = {(item["record"], item.get("property")) for item in pending}
     rows = resource_row_index(values)
     for rid, record in selected.items():
-        if (
-            record["kind"] == "Lambda.Function"
-            and record.get("_action", "add") == "add"
-        ):
-            code = {}
-            for name in ("S3Bucket", "S3Key", "ImageUri", "ZipFile"):
-                prop = "Lambda.Function.Code." + name
-                value = property_values(
+        addition_issue = REGISTRY.import_profile(record["kind"]).addition_issue
+        if addition_issue and record.get("_action", "add") == "add":
+            reason = addition_issue(
+                record,
+                lambda prop, rid=rid: property_values(
                     values, rid, prop, property_schema(prop), rows=rows
-                )
-                capture = record["properties"].get(prop, {})
-                code[name] = (
-                    isinstance(value, str)
-                    and bool(value.strip())
-                    and value not in {MODEL_UNSET, MODEL_PENDING_DEPLOY}
-                    and capture.get("status") == "captured"
-                    and typed_equal(value, capture.get("value"))
-                )
-            package = record["properties"].get("Lambda.Function.PackageType", {})
-            if package.get("status") != "captured" or not (
-                package.get("value") == "Zip"
-                and code["S3Bucket"]
-                and code["S3Key"]
-                and not code["ImageUri"]
-                and not code["ZipFile"]
-                or package.get("value") == "Image"
-                and code["ImageUri"]
-                and not code["S3Bucket"]
-                and not code["S3Key"]
-                and not code["ZipFile"]
-            ):
+                ),
+            )
+            if reason:
                 pending.append(
                     {
                         "record": record["record"],
-                        "reason": "Lambda deployment code source is not established",
+                        "reason": reason,
                         "category": "structure",
                     }
                 )

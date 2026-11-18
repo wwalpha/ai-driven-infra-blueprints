@@ -1,7 +1,8 @@
 """route53: selected properties -> read-only SDK responses; inputs in fetch()."""
 
 from model.adapters.aws import Unresolved, one
-from model.importing.sdk_inventory import route53_pages, route53_projection
+
+from services.route53.inventory import route53_pages, route53_projection
 
 APIS = {
     ("route53", "list_resource_record_sets"),

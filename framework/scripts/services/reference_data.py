@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     from comparison.methods import RuleSet
     from utils.iac_values import Expression
 
+    from .import_contracts import ImportProfile
+
 Attr = TypeVar("Attr")
 
 TypeForms = Mapping[str, set[str]]
@@ -522,6 +524,8 @@ class ServiceDeclaration:
         default_factory=dict
     )
 
+    import_profiles: Mapping[str, ImportProfile] = field(default_factory=dict)
+
     def build(
         self, type_forms: TypeForms, format_names: FormatNames
     ) -> ServiceDefinition:
@@ -530,6 +534,7 @@ class ServiceDeclaration:
             set(self.displays)
             | set(self.without_comparison)
             | set(self.account_policies)
+            | set(self.import_profiles)
         )
         for section in fields(self.tables):
             for key in getattr(self.tables, section.name):
@@ -560,6 +565,7 @@ class ServiceDeclaration:
                     display=self.displays.get(kind),
                     arn=_arn(kind, self.tables, self.package or self.name),
                     account_policy=self.account_policies.get(kind),
+                    importing=self.import_profiles.get(kind),
                 )
             )
         adapters = {

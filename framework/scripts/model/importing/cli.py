@@ -30,6 +30,7 @@ from import_guard import (
     require_import_changes,
     workflow,
 )
+from services.registry import REGISTRY
 from task_contract_core import (
     section,
     selected_task,
@@ -273,10 +274,7 @@ def model_literal(value):
 
 
 def schema_property(kind, prop):
-    if (
-        kind in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}
-        and prop == kind + ".Name"
-    ):
+    if REGISTRY.import_profile(kind).name_tag and prop == kind + ".Name":
         return "Tags[].Value"
     return prop.removeprefix(kind + ".")
 
@@ -417,42 +415,21 @@ def _normalize_records(ctx, service, records):
                 if p in MODEL_ONLY and p.startswith(kind + ".")
             }
         )
-        if kind == "EC2.Subnet" and "association" in record["getters"]:
-            fields.update(
-                {
-                    p: item.field
-                    for p, item in mapped.items()
-                    if p == "EC2.SubnetRouteTableAssociation.RouteTableId"
-                    and item.include
-                }
-            )
-        if kind == "EC2.FlowLog":
-            resource_type = next(
-                (
-                    name
-                    for prefix, name in [
-                        ("vpc-", "VPC"),
-                        ("subnet-", "Subnet"),
-                        ("eni-", "NetworkInterface"),
-                    ]
-                    if seed.get("ResourceId", "").startswith(prefix)
-                ),
-                None,
-            )
-            if resource_type:
-                ctx.fetch_cache[model.path, record_id, "resource_type"] = {
-                    "ResourceType": resource_type
-                }
-                ctx.fetch_trace[model.path, record_id, "resource_type"] = []
+        profile = REGISTRY.import_profile(kind)
+        for getter, prop in profile.related_fields:
+            if getter in record["getters"] and prop in mapped and mapped[prop].include:
+                fields[prop] = mapped[prop].field
+        if profile.derived_getters:
+            for getter, payload in profile.derived_getters(seed).items():
+                ctx.fetch_cache[model.path, record_id, getter] = payload
+                ctx.fetch_trace[model.path, record_id, getter] = []
         if {kind + ".Tags[].Key", kind + ".Tags[].Value"} <= fields.keys() and seed.get(
             "Tags"
         ):
             tags = [
                 tag
                 for tag in seed["Tags"]
-                if tag.get("Key") != "Name"
-                or kind
-                not in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}
+                if tag.get("Key") != "Name" or not profile.name_tag
             ]
             ctx.fetch_cache[model.path, record_id, "tags"] = {
                 "Tags": sorted(tags, key=lambda tag: tag["Key"])
@@ -489,11 +466,9 @@ def _normalize_records(ctx, service, records):
                         }
                         continue
                     safe_empty = absence == "empty"
-                conditional = prop in limitations.CONDITIONAL_CODE
+                conditional = limitations.conditional_capture(prop)
                 if conditional and restriction is None:
-                    raise ValueError(
-                        "Lambda code-source limitation contract is invalid"
-                    )
+                    raise ValueError(conditional.invalid_contract)
                 if restriction is not None and not safe_empty and not conditional:
                     captured[prop] = restriction
                     continue
@@ -509,7 +484,7 @@ def _normalize_records(ctx, service, records):
                     )
                     getter = mapping.getters.get(field.getter, {})
                     if (
-                        kind == "QuickSight.Group"
+                        profile.verify_detail
                         and getter.get("kind") == "sdk"
                         and (
                             not sdk_inventory.verified_detail(
@@ -550,10 +525,10 @@ def _normalize_records(ctx, service, records):
                         else None
                     )
                     if conditional and record.get("identityStatus", "known") != "known":
-                        raise ValueError("Lambda identity is unknown")
+                        raise ValueError(conditional.unknown_identity)
                     captured[prop] = conditional_restriction or {
                         "status": "missing",
-                        "reason": "Lambda Image uses an image source"
+                        "reason": conditional.missing_reason
                         if conditional
                         else "AWS optional value not retrieved",
                     }
@@ -846,7 +821,9 @@ def acquire(
                     ctx.verify()
                 except Exception as error:
                     raise ImportStageError(
-                        "sts", *classify_aws_failure(error), api="sts.get_caller_identity"
+                        "sts",
+                        *classify_aws_failure(error),
+                        api="sts.get_caller_identity",
                     ) from error
                 verified = True
                 phase = "acquisition"

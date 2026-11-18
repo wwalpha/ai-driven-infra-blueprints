@@ -17,7 +17,6 @@ from contracts.model import (
 from model.importing import cli, inventory, limitations
 from model.importing.adapter_contract_cases.fake_sdk import DirectCalls, EC2NetworkCalls
 from model.importing.contract_fixtures import InvalidFixture
-from model.importing.discovery import ADAPTER_INVENTORIES
 from model.literal_values import optional_projection_absence
 from model.reference_nodes import parse
 from services.registry import REGISTRY
@@ -396,7 +395,7 @@ def grouped_failures(ctx, fake, resource, mapping, sample, kind, getter, child_p
 def network_resource(root, mapping, kind, operation, collection, payload, identifier):
     ctx, fake = fixture_context(root, mapping.service, EC2NetworkCalls, payload)
     fake.api, fake.operation, fake.collection = "ec2", operation, collection
-    if kind in ADAPTER_INVENTORIES:
+    if REGISTRY.import_profile(kind).adapter:
         record = inventory.adapter_inventory(ctx, mapping.service, (kind,))[0]
     else:
         source = inventory.inventory_for(ctx)
