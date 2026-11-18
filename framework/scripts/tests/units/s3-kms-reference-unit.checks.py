@@ -747,9 +747,11 @@ def check_logs_label_uses_referenced_kms_alias(project_workspace, observed, warn
 
 
 @pytest.mark.parametrize("observed", [None, "12345678-1234-1234-1234-123456789abc"])
-def check_athena_label_uses_pending_kms_key(project_workspace, observed):
+@pytest.mark.parametrize("pending", [True, False])
+def check_athena_label_uses_kms_key_id(project_workspace, observed, pending):
     scope, _, kms_values = fixture(project_workspace)
-    kms_values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
+    if pending:
+        kms_values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
     write_model(Scope(scope.root, "fixture", "team", "kms").path, kms_values)
     athena_scope = Scope(scope.root, "fixture", "team", "athena")
     values = {
@@ -777,13 +779,20 @@ def check_athena_label_uses_pending_kms_key(project_workspace, observed):
     dependency_index.rebuild(scope.root)
     path = scope.root / "docs/designs/fixture/team/athena.md"
     presentation = Presentation(values, path, scope.root)
-    assert presentation.references[Position("001-002", "value", "")].link == (
-        "[PENDING_DEPLOY](kms.md#key-one)"
-    )
+    label = "PENDING_DEPLOY" if pending else "12345678-1234-1234-1234-123456789abc"
+    link = f"[{label}](kms.md#key-one)"
+    assert presentation.references[Position("001-002", "value", "")].link == link
     with catalog_display():
         markdown = generate_markdown(path, values, FRAMEWORK)
-    assert "[PENDING_DEPLOY](kms.md#key-one)" in markdown
+    assert link in markdown
     assert load_model(athena_scope).authoritative == values
+    if not pending:
+        resolver = reference_resolver(values, athena_scope, scope.root)
+        execution = generated_document(
+            reference("KMS_Key_001", "Arn"), scope.root, resolver=resolver,
+            scope=athena_scope, property_name=values["desired.row.001-002.property"],
+        )
+        assert execution == f"arn:aws:kms:ap-northeast-1:123456789012:key/{label}"
 
 
 def check_logs_kms_key_identity_unproven(project_workspace):
