@@ -22,11 +22,23 @@ Operate this repository in Codex with the repository root as the working directo
 - In normal execution, use the published Skills, CLIs and APIs.
 - When an error occurs, report the issue to the Human; do not automatically start an internal investigation. Follow the existing recovery procedures within their authorized scope.
 
+## Worktree
+
+For every Worktree operation, **read and follow this repository's [Worktree Skill](.agents/skills/worktree/SKILL.md)**.
+This includes Codex's **New worktree** option. Use any checkout supplied by Codex as the starting location.
+
+When the selected workflow requires a repository-managed Worktree, follow these steps before registering the Task contract or editing:
+
+1. Reuse a checkout only if its Task ID, task branch, and repository lifecycle record all match the current Task.
+   Apply this check to Codex-created checkouts too.
+2. If the Task has no registered Worktree, run the Skill's [Create step](.agents/skills/worktree/SKILL.md#create-and-execute)
+   from the current repository root, even if Codex already created a worktree for this chat.
+3. Confirm that the Skill's Create or Setup result reports `status: ok` and `python_setup.status: ready`.
+   Run subsequent Task commands in the reported `worktree` and select the contract using the reported `task_id`.
+
 ## Task transition
 
 Select the Skill using [Workflow selection](framework/rules/task-contract.md#workflow-selection) before reading its prompt.
-
-Read and follow the repository's [Worktree Skill](.agents/skills/worktree/SKILL.md) for Worktree operations, including when Codex requests **New worktree**. Treat any checkout supplied by Codex as the starting location. When the selected workflow requires a repository-managed Worktree, reuse one registered to the same Task or use the Skill to create and set one up before registering the Task contract or editing.
 
 Follow [Selection and publication](framework/rules/task-contract.md#selection-and-publication) for same-worktree editing and generation/validation.
 
