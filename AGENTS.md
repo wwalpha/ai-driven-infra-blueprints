@@ -26,6 +26,8 @@ Operate this repository in Codex with the repository root as the working directo
 
 Select the Skill using [Workflow selection](framework/rules/task-contract.md#workflow-selection) before reading its prompt.
 
+Read and follow the repository's [Worktree Skill](.agents/skills/worktree/SKILL.md) for Worktree operations, including when Codex requests **New worktree**. Treat any checkout supplied by Codex as the starting location. When the selected workflow requires a repository-managed Worktree, reuse one registered to the same Task or use the Skill to create and set one up before registering the Task contract or editing.
+
 Follow [Selection and publication](framework/rules/task-contract.md#selection-and-publication) for same-worktree editing and generation/validation.
 
 For changes, read [Task transition](framework/rules/task-contract.md#task-transition), including its required common and conditional reads, and register `tasks/<task-name>.md` under [Task registration](framework/rules/task-contract.md#task-registration). Read-only investigation and chat-only consultation require no contract.

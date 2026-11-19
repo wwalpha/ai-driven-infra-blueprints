@@ -5,6 +5,9 @@ description: Run a repository change task in an isolated linked Git worktree, th
 
 # Isolated task execution
 
+When a workflow uses a Worktree, read this Skill before operating it. Child Skills
+link here for shared Worktree procedures and state their workflow-specific requirements.
+
 Use `/worktree <task-name> <child skill/task and its inputs>` to isolate a selected task.
 Apply this lifecycle when the Human explicitly selects `/worktree` for a change
 or the selected workflow requires a managed Worktree. The child workflow owns its
@@ -40,9 +43,12 @@ If the helper reports an error, investigate only the affected state. Confirm a w
 
 Standard lifecycle: Create and setup → Execute → Validate → Local FF Merge or PR → Cleanup after confirmed merge.
 
-For a new managed Task without an allocated Worktree, run Create from the current
-repository root. Reuse a Worktree already allocated for that Task. A leaf uses its
-selected parent Task and Worktree, with lifecycle operations owned by the parent.
+A Codex app attachment identifies the checkout associated with the chat. A
+repository-managed Worktree has a matching Task ID, task branch and lifecycle record.
+For a new managed Task without that allocation, run Create from the current
+repository root even if a Codex-created Worktree is already attached. Reuse a
+repository-managed Worktree allocated to the same Task. A leaf uses its selected
+parent Task and Worktree, with lifecycle operations owned by the parent.
 
 ```console
 python3 -B framework/scripts/worktree-cli.py create --task-name <task-name>
@@ -74,11 +80,14 @@ Setup is idempotent and serializes the same task's setup. It reuses the complete
 
 On Windows, run setup from the surviving checkout containing the updated helper. PDF DLLs are optional for ordinary setup. Setup uses that caller's helper and the primary checkout’s canonical requirements, checking the retained worktree’s compatibility; it does not update code in existing linked worktrees. Update their code through the normal Git workflow before using their older helper again.
 
+Before starting the child workflow, confirm `status: ok` and `python_setup.status: ready`
+and use the returned `task_id` and `worktree`.
+
 **Set the working directory of every subsequent change/child command to the returned `worktree` root.** Execute the original child skill/task there, including its preflight, contract registration, exact Modified files, authorization, validation and completion. Register `tasks/<task-id>.md` there as its first repository change; pass that selector to child commands or set `BLUEPRINT_TASK_FILE` per process. Do not copy running contracts from other checkouts.
 
 ### Run Python in the Worktree
 
-From the returned Worktree root, use the public CLI to run Python arguments or an environment CLI. It verifies the registration and synchronizes changed requirements using the existing setup rules. Set `BLUEPRINT_TASK_FILE` per process when needed. On Windows, use the intended Python 3 launcher, such as `py -3`.
+From the returned Worktree root, use the public CLI to run Python arguments or an environment CLI. In a managed Worktree it verifies registration and synchronizes changed requirements using the existing setup rules. In an ordinary checkout, `run` can succeed with the launching interpreter. Confirm managed readiness from the successful Create or Setup result. Set `BLUEPRINT_TASK_FILE` per process when needed. On Windows, use the intended Python 3 launcher, such as `py -3`.
 
 ```console
 python3 framework/scripts/worktree-cli.py run -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --source <external-contract>
