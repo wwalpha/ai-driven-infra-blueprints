@@ -22,7 +22,6 @@ from model.core import ReferenceResolutionError
 from support.fixture_cases import load_case
 from support.regression_cases import case_ids
 from utils.aws.identity import IdentityError
-from utils.cloudformation.environment import EnvironmentValuePending
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -103,15 +102,6 @@ def check_missing_template_operation_and_errno(tmp_path):
         assert str(path) not in json.dumps(G.stopped("STEP", error))
     else:
         pytest.fail("missing template unexpectedly existed")
-
-
-def check_pending_failure_uses_type_not_prose():
-    state = {"status": "BLOCKED"}
-    failures.exception(state, EnvironmentValuePending("secret"), "PREPARATION")
-    assert state["failure"]["classification"] == "NEEDS_HUMAN"
-    assert state["failure"]["dependencyWait"] is True
-    failures.exception(state, ValueError("PENDING_DEPLOY"), "PREPARATION")
-    assert state["failure"]["classification"] == "NEEDS_HUMAN"
 
 
 @pytest.mark.parametrize("registered", [False, True])
@@ -239,6 +229,9 @@ def check_structured_reference_cause():
     failures.exception(state, error, "PREPARATION")
     assert state["failure"]["classification"] == "NEEDS_HUMAN"
     assert state["failure"]["dependencyWait"] is True
+    failures.exception(state, ValueError("PENDING_DEPLOY"), "PREPARATION")
+    assert state["failure"]["classification"] == "NEEDS_HUMAN"
+    assert "dependencyWait" not in state["failure"]
 @pytest.mark.parametrize(
     ("error", "code", "details"),
     [

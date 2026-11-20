@@ -14,7 +14,6 @@ from contracts.model import REFERENCE_PENDING_DEPLOY
 from model.core import ReferenceDiagnosticError
 from utils.aws.client import AwsError
 from utils.aws.diagnostics import aws_failure_fields
-from utils.cloudformation.environment import EnvironmentValuePending
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 from utils.local_evidence import evidence_store, write_sealed
@@ -118,7 +117,7 @@ def exception_message(error: Exception) -> str:
 
 
 def dependency_wait(error: Exception) -> bool:
-    return isinstance(error, EnvironmentValuePending) or (
+    return (
         isinstance(error, ReferenceDiagnosticError)
         and bool(error.diagnostics)
         and all(

@@ -40,7 +40,6 @@ from model.validations.full_inputs import check_model_inputs as model_inputs
 from model.validations.json_settings import validate_json_settings
 from services.codepipeline.display import pipeline_display_rows, pipeline_rows
 from services.registry import REGISTRY
-from support.cloudformation_deploy_fixtures import advance_group
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
@@ -52,17 +51,11 @@ from support.model_reference_fixtures import (
 )
 from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
-from utils.cloudformation.environment import (
-    EnvironmentValuePending,
-    validate_environment_inputs,
-)
-from utils.cloudformation.inputs import Blocked
+from utils.cloudformation.inputs import load_template_inputs
 from utils.mapping_types import definition, validate_definition
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
-
-TARGET = {"awsRegion": "ap-northeast-1", "awsAccountId": "123456789012"}
 
 CASES = (
     (
@@ -444,175 +437,6 @@ def template(kind, properties):
     }
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        "PENDING_DEPLOY",
-        {"Ref": "Key"},
-        {"Fn::Sub": "${Key}"},
-        {"Fn::Sub": "prefix-${Key}-suffix"},
-        {"Fn::Sub": ["prefix-${Value}", {"Value": {"Ref": "Key"}}]},
-        {"Fn::Join": ["", ["prefix-", {"Ref": "Key"}]]},
-        {"Fn::Select": [0, {"Fn::Split": ["-", {"Ref": "Key"}]}]},
-        {"Fn::Sub": ["${Resource.Arn}:${Key}", {}]},
-        {"Fn::Base64": {"Ref": "Key"}},
-        {"Fn::Base64": {"Fn::Join": ["_", ["PENDING", "DEPLOY"]]}},
-        {"Fn::Join": ["", [{"Fn::Base64": {"Ref": "Key"}}]]},
-        {"Fn::Sub": ["prefix-${Value}", {"Value": {"Fn::Base64": {"Ref": "Key"}}}]},
-        {"Fn::Select": [0, {"Fn::GetAZs": {"Ref": "Key"}}]},
-        {"Fn::ImportValue": {"Fn::Sub": "${Key}-export"}},
-        {"Fn::Select": [1, {"Fn::Split": [",", {"Fn::ImportValue": {"Ref": "Key"}}]}]},
-    ],
-)
-def check_deploy_blocks_literals_and_parameters(value):
-    doc = template("Lambda.Function", {"Environment": {"Variables": {"KEY": value}}})
-    with pytest.raises(Blocked, match="PENDING_DEPLOY"):
-        validate_environment_inputs(
-            FRAMEWORK,
-            doc,
-            {"Key": "PENDING_DEPLOY"},
-            {"awsRegion": "ap-northeast-1", "awsAccountId": "123456789012"},
-            "stack",
-        )
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        {"Ref": "Resource"},
-        {"Fn::GetAtt": ["Resource", "Arn"]},
-        {"Fn::Sub": "${Resource.Arn}"},
-        {"Ref": "Key"},
-        "PREFIX_PENDING_DEPLOY_SUFFIX",
-        {"Fn::Sub": "prefix-${Key}-suffix"},
-        {"Fn::Sub": "PREFIX_PENDING_DEPLOY_SUFFIX"},
-        {"Fn::Join": ["-", ["PREFIX_PENDING_DEPLOY_SUFFIX", {"Ref": "Key"}]]},
-        {"Fn::ImportValue": {"Fn::Sub": "${Key}-export"}},
-        {"Fn::Sub": "arn:${AWS::Partition}:service:${AWS::Region}:${AWS::AccountId}"},
-        {"Ref": "AWS::StackId"},
-        {"Ref": "AWS::URLSuffix"},
-        {"Ref": "AWS::NoValue"},
-        {"Fn::Base64": "fixed"},
-        {"Fn::Join": ["-", ["prefix", {"Fn::Base64": "fixed"}]]},
-        {"Fn::Select": [1, {"Fn::GetAZs": ""}]},
-        {"Fn::Sub": ["prefix-${Value}", {"Value": {"Fn::Base64": "fixed"}}]},
-        {"Fn::Select": [1, {"Fn::Split": [",", {"Fn::ImportValue": "export"}]}]},
-    ],
-)
-def check_deploy_accepts_cfn_references(value):
-    doc = template("Lambda.Function", {"Environment": {"Variables": {"KEY": value}}})
-    before = copy.deepcopy(doc)
-    validate_environment_inputs(
-        FRAMEWORK,
-        doc,
-        {"Key": "PREFIX_PENDING_DEPLOY_SUFFIX"},
-        {"awsRegion": "ap-northeast-1", "awsAccountId": "123456789012"},
-        "stack",
-    )
-    assert doc == before
-
-
-@pytest.mark.parametrize(
-    "value,exception,reason",
-    [
-        ({"Fn::Select": [1, ["fixed"]]}, ValueError, "invalid Select operands"),
-        ({"Fn::Select": [-1, {"Fn::GetAZs": ""}]}, ValueError, "invalid"),
-        ({"Fn::Select": [0, {"Fn::Base64": "fixed"}]}, ValueError, "not an array"),
-        ({"Fn::Base64": ["fixed"]}, ValueError, "invalid Fn::Base64"),
-        (
-            {"Fn::GetAZs": {"Ref": "Missing"}},
-            Blocked,
-            "undefined CloudFormation resource",
-        ),
-        ({"Fn::Base64": {"Fn::Unknown": "fixed"}}, Blocked, "unsupported"),
-    ],
-)
-def check_deploy_runtime_expressions_keep_static_errors(value, exception, reason):
-    doc = template("Lambda.Function", {"Environment": {"Variables": {"KEY": value}}})
-    with pytest.raises(exception, match=reason):
-        validate_environment_inputs(FRAMEWORK, doc, {}, TARGET, "stack")
-
-
-def check_deploy_selects_active_branch_and_only_environment():
-    doc = template(
-        "Lambda.Function",
-        {
-            "Environment": {
-                "Variables": {
-                    "KEY": {"Fn::If": ["Enabled", "confirmed", "PENDING_DEPLOY"]}
-                }
-            },
-            "Description": "PENDING_DEPLOY",
-        },
-    )
-    doc["Conditions"] = {"Enabled": {"Fn::Equals": [{"Ref": "Flag"}, "yes"]}}
-    validate_environment_inputs(
-        FRAMEWORK,
-        doc,
-        {"Flag": "yes"},
-        {"awsRegion": "ap-northeast-1", "awsAccountId": "123456789012"},
-        "stack",
-    )
-    doc["Resources"]["Resource"]["Condition"] = "Disabled"
-    doc["Conditions"]["Disabled"] = {"Fn::Equals": ["yes", "no"]}
-    validate_environment_inputs(FRAMEWORK, doc, {"Flag": "no"}, TARGET, "stack")
-
-    pipeline = template(
-        "CodePipeline.Pipeline",
-        {
-            "Stages": [
-                {
-                    "Actions": [
-                        {
-                            "Configuration": {
-                                "ProjectName": {"Fn::GetAtt": ["Build", "Name"]},
-                                "EnvironmentVariables": json.dumps(
-                                    [{"name": "KEY", "value": "fixed"}]
-                                ),
-                            }
-                        }
-                    ]
-                }
-            ]
-        },
-    )
-    pipeline["Resources"]["Build"] = {
-        "Type": "AWS::CodeBuild::Project",
-        "Properties": {"Name": "PREFIX_PENDING_DEPLOY_SUFFIX"},
-    }
-    validate_environment_inputs(FRAMEWORK, pipeline, {}, TARGET, "stack")
-
-
-@pytest.mark.parametrize("value", ["PENDING_DEPLOY", {"Fn::Base64": {"Ref": "Key"}}])
-def check_deploy_snapshot_guard_precedes_aws_and_is_per_stack(models, value):
-    pending = template(
-        "Lambda.Function", {"Environment": {"Variables": {"KEY": value}}}
-    )
-    target = {"awsRegion": "ap-northeast-1", "awsAccountId": "123456789012"}
-    runtime = SimpleNamespace(
-        root=models,
-        target=target,
-        templates={},
-        paths=Mock(return_value=(Path("template"), Path("parameters"))),
-        file_digest=Mock(return_value="digest"),
-        aws=Mock(side_effect=AssertionError("AWS forbidden")),
-    )
-    with patch(
-        "deploy.controller.load_template_inputs",
-        return_value=(pending, {"Key": "PENDING_DEPLOY"}),
-    ):
-        with pytest.raises(Blocked, match="Stack=bad"):
-            load_inputs(runtime, {"name": "bad"})
-    assert not runtime.aws.called and "bad" not in getattr(runtime, "loaded_inputs", {})
-    validate_environment_inputs(
-        models,
-        template("Lambda.Function", {"Environment": {"Variables": {"KEY": "fixed"}}}),
-        {},
-        target,
-        "good",
-    )
-
-
 def check_display_and_artifact_retain_pending(models):
     scope, values = authored(
         models,
@@ -666,117 +490,6 @@ def check_pipeline_direct_display_roundtrip():
     ]
 
 
-@pytest.mark.parametrize("kind,prop,value,pointer", CASES)
-def check_deploy_five_services(kind, prop, value, pointer):
-    properties = {}
-    if kind == "CodeBuild.Project":
-        properties = {
-            "Environment": {
-                "EnvironmentVariables": [
-                    {"Name": "KEY", "Type": "PLAINTEXT", "Value": value}
-                ]
-            }
-        }
-    elif kind == "CodePipeline.Pipeline":
-        action = (
-            {"EnvironmentVariables": [{"Name": "KEY", "Value": value}]}
-            if isinstance(value, str)
-            else {"Configuration": value}
-        )
-        properties = {"Stages": [{"Actions": [action]}]}
-    elif kind == "Lambda.Function":
-        properties = {"Environment": {"Variables": value}}
-    else:
-        properties[prop] = value
-    with pytest.raises(EnvironmentValuePending):
-        validate_environment_inputs(
-            FRAMEWORK, template(kind, properties), {}, TARGET, "stack"
-        )
-    confirmed = json.loads(
-        json.dumps(properties).replace("PENDING_DEPLOY", "PREFIX_PENDING_DEPLOY_SUFFIX")
-    )
-    validate_environment_inputs(
-        FRAMEWORK, template(kind, confirmed), {}, TARGET, "stack"
-    )
-
-
-def check_deploy_only_evaluates_selected_settings():
-    doc = template(
-        "Lambda.Function",
-        {
-            "Environment": {"Variables": {"KEY": "fixed"}},
-            "Description": {"Fn::If": ["Undefined", "PENDING_DEPLOY", "fixed"]},
-        },
-    )
-    validate_environment_inputs(FRAMEWORK, doc, {}, TARGET, "stack")
-    for type_ in ("SECRETS_MANAGER", "PARAMETER_STORE"):
-        doc = template(
-            "CodeBuild.Project",
-            {
-                "Environment": {
-                    "EnvironmentVariables": [
-                        {"Name": "KEY", "Type": type_, "Value": "PENDING_DEPLOY"}
-                    ]
-                }
-            },
-        )
-        with pytest.raises(EnvironmentValuePending):
-            validate_environment_inputs(FRAMEWORK, doc, {}, TARGET, "stack")
-
-
-class EnvironmentBackend:
-    def __init__(self):
-        self.executed = []
-        self.run_context = {"metrics": {}}
-
-    def load_inputs(self, unit):
-        validate_environment_inputs(
-            FRAMEWORK,
-            template(
-                "Lambda.Function",
-                {
-                    "Environment": {
-                        "Variables": {
-                            "KEY": "PENDING_DEPLOY"
-                            if unit["name"] == "bad"
-                            else "fixed"
-                        }
-                    }
-                },
-            ),
-            {},
-            TARGET,
-            unit["name"],
-        )
-
-    def prepare(self, unit, state):
-        return "READY"
-
-    def execute(self, unit, state):
-        self.load_inputs(unit)
-        self.executed.append(unit["name"])
-
-    def poll(self, unit, state):
-        return "CREATE_COMPLETE"
-
-
-@pytest.mark.parametrize("limit", [1, 2])
-@pytest.mark.parametrize("ready", [False, True])
-def check_pending_stack_keeps_independent_peer_running(limit, ready):
-    backend = EnvironmentBackend()
-    units = [{"name": name, "deployOrder": 1} for name in ("bad", "good")]
-    states = {
-        unit["name"]: {"status": "READY" if ready else "NOT_STARTED"} for unit in units
-    }
-    assert advance_group(units, limit, states, backend) == "STOPPED"
-    assert backend.executed == ["good"]
-    if not ready:
-        assert backend.run_context["metrics"]["inputLoadSeconds"] > 0
-    assert (
-        states["bad"]["status"] == "BLOCKED" and states["good"]["status"] == "SUCCESS"
-    )
-
-
 def check_encoded_configuration_roundtrip():
     value = CASES[4][2]
     rows = [
@@ -808,28 +521,46 @@ def check_all_confirmed_values_are_preserved():
         )
 
 
-def check_snapshot_validated_once(models, tmp_path):
-    doc = template("Lambda.Function", {"Environment": {"Variables": {"KEY": "fixed"}}})
-    path = tmp_path / "template.json"
-    path.write_text(json.dumps(doc))
+def check_snapshot_decoded_once_preserves_environment_values(tmp_path):
+    stack_output = {
+        "Fn::GetStackOutput": {
+            "StackName": {"Fn::Sub": "bootstrap-${Environment}"},
+            "OutputName": "BootstrapBucketName",
+        }
+    }
+    doc = template(
+        "CodeBuild.Project",
+        {
+            "Environment": {
+                "EnvironmentVariables": [
+                    {"Name": "TEMPLATE_BUCKET", "Value": stack_output},
+                    {"Name": "PENDING_VALUE", "Value": "PENDING_DEPLOY"},
+                ]
+            }
+        },
+    )
+    doc["Parameters"] = {"Environment": {"Type": "String"}}
+    template_file = tmp_path / "template.json"
+    parameter_file = tmp_path / "parameters.json"
+    template_file.write_text(json.dumps(doc), encoding="utf-8")
+    parameter_file.write_text(
+        json.dumps([{"ParameterKey": "Environment", "ParameterValue": "qa"}]),
+        encoding="utf-8",
+    )
     runtime = SimpleNamespace(
-        root=models,
-        target=TARGET,
+        root=tmp_path,
         environment="qa",
         directory="team",
         templates={},
-        paths=Mock(return_value=(path, path)),
+        paths=Mock(return_value=(template_file, parameter_file)),
         file_digest=Mock(return_value="digest"),
     )
-    with (
-        patch(
-            "deploy.controller.load_template_inputs", return_value=(doc, {})
-        ) as decode,
-        patch("deploy.controller.validate_environment_inputs") as validate,
-    ):
-        load_inputs(runtime, {"name": "good"})
-        load_inputs(runtime, {"name": "good"})
-    assert decode.call_count == validate.call_count == 1
+    unit = {"name": "platform"}
+    with patch("deploy.controller.load_template_inputs", wraps=load_template_inputs) as decode:
+        load_inputs(runtime, unit)
+        load_inputs(runtime, unit)
+    assert decode.call_count == 1
+    assert runtime.templates["platform"] == (doc, {"Environment": "qa"})
 
 
 @pytest.mark.parametrize("different", [False, True])
@@ -885,50 +616,6 @@ def check_comparison_pipeline_records_only_pending_leaf(models, different):
     assert any(item["category"] == "difference" for item in records) == different
 
 
-@pytest.mark.parametrize("index", [0, 1])
-def check_deploy_uses_existing_select_and_mapping_evaluation(index):
-    doc = template(
-        "Lambda.Function",
-        {
-            "Environment": {
-                "Variables": {
-                    "KEY": {
-                        "Fn::Select": [
-                            index,
-                            {"Fn::FindInMap": ["Env", "qa", "Values"]},
-                        ]
-                    }
-                }
-            }
-        },
-    )
-    doc["Mappings"] = {"Env": {"qa": {"Values": ["fixed", "PENDING_DEPLOY"]}}}
-    if index:
-        with pytest.raises(EnvironmentValuePending):
-            validate_environment_inputs(FRAMEWORK, doc, {}, TARGET, "stack")
-    else:
-        validate_environment_inputs(FRAMEWORK, doc, {}, TARGET, "stack")
-    doc = template(
-        "Lambda.Function",
-        {
-            "Environment": {
-                "Variables": {
-                    "KEY": {
-                        "Fn::Sub": [
-                            "${Resource.Arn}",
-                            {
-                                "Unused": "PENDING_DEPLOY",
-                                "Undefined": {"Ref": "Missing"},
-                            },
-                        ]
-                    }
-                }
-            }
-        },
-    )
-    validate_environment_inputs(FRAMEWORK, doc, {}, TARGET, "stack")
-
-
 @pytest.mark.parametrize(
     "physical", ["PENDING_DEPLOY", "12345678-1234-1234-1234-123456789012"]
 )
@@ -966,24 +653,6 @@ def check_encoded_environment_typed_reference_retains_state(models, physical):
     config = json.loads(literal(displayed["desired.row.001-001.value"]))
     assert json.loads(config["EnvironmentVariables"])[0]["value"] == physical
     assert values["desired.row.001-001.value"] == "`" + json.dumps(value) + "`"
-
-
-@pytest.mark.parametrize("value", [{"Ref": "Vars"}, {"Fn::Sub": "CUSTOMER_A=${Value}"}])
-def check_glue_execution_expressions(value):
-    doc = template(
-        "Glue.Job", {"DefaultArguments": {"--customer-driver-env-vars": value}}
-    )
-    with pytest.raises(EnvironmentValuePending):
-        validate_environment_inputs(
-            FRAMEWORK,
-            doc,
-            {"Vars": "CUSTOMER_A=PENDING_DEPLOY", "Value": "PENDING_DEPLOY"},
-            TARGET,
-            "stack",
-        )
-    validate_environment_inputs(
-        FRAMEWORK, doc, {"Vars": "CUSTOMER_A=fixed", "Value": "fixed"}, TARGET, "stack"
-    )
 
 
 @pytest.mark.parametrize(

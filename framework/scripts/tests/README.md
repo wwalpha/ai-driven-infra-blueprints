@@ -466,9 +466,11 @@ ITは7条件。実CLI→Validator、子プロセス・heartbeat・並列同期�
 
 `units/environment_values-unit.checks.py` owns Mapping metadata and parser combinations,
 CREATE/IMPORT permission, pending restrictions, requested-attribute resolution, typed
-encoded JSON, granular desired comparison, display preservation and the Stack input guard.
+encoded JSON, granular desired comparison, display preservation and deployment input decoding.
 Synthetic snapshots connect the existing candidate guard, reference resolver, comparison
-runner, decoded-input cache and scheduler; they use no real Project Models, Git setup or AWS.
+runner and decoded-input cache. The deployment input test verifies that environment
+expressions and placeholder strings pass through unchanged. These tests use no real
+Project Models, Git setup or AWS.
 CodeBuild's existing suite retains its PLAINTEXT/link policy and validation isolation tests;
 its unrelated synthetic Id is a confirmed fixture value rather than a forbidden desired
 PENDING_DEPLOY. Existing component IT remains in the normal CI runner; local execution is

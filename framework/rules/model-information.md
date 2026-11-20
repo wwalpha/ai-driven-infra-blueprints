@@ -364,12 +364,9 @@ while independent successful services continue. Structural Model/artifact compar
 service ownership, duplicate-definition conflicts and atomic rollback remain required. Desired Model/IaC comparison defers each pending Value
 and compares
 confirmed siblings, including encoded JSON and quoted Glue assignments. Observations are
-not a new comparison source. The decoded Stack Template/Parameters snapshot is checked
-once before delivery/AWS submission. Existing CFn evaluation selects active conditions and
-known parameter/mapping expressions; valid AWS-resolved references remain expressions.
-A remaining environment PENDING_DEPLOY blocks that Stack, while independent peers at the
-same DeployOrder may finish. The existing DeployOrder barrier, approval and execution
-guards remain. No Model-wide load, persistent Deploy Session or repair history is added.
+not a new comparison source. CloudFormation resolves intrinsic functions in environment
+variables during deployment. Literal PENDING_DEPLOY environment values are passed
+through as strings.
 Unstructured scripts, UserData, Event/Scheduler inputs and SSM parameter payloads have no
 blanket environment exception; unproven indirect paths retain their ordinary rules.
 

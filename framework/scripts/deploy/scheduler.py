@@ -11,7 +11,6 @@ from functools import partial as _bind_framework_callback
 from typing import TypeVar
 
 from contracts.deploy import DEPLOY_RUNNING, DEPLOY_SUCCESS
-from utils.cloudformation.environment import EnvironmentValuePending
 from utils.type_contracts import JsonValue as JsonValue
 
 from deploy import current_state, failures
@@ -231,10 +230,7 @@ def run_group(
             except Exception as error:
                 failures.exception(state, error, "EXECUTE")
                 state["reason"] = failures.exception_message(error)
-                if isinstance(error, EnvironmentValuePending):
-                    state["status"] = "BLOCKED"
-                    input_blocked.add(unit["name"])
-                elif state["status"] == "BLOCKED":
+                if state["status"] == "BLOCKED":
                     input_blocked.add(unit["name"])
             save()
             if stopped:

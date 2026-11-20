@@ -24,7 +24,6 @@ from model.core import ARTIFACT_PROPERTIES
 from model.projection import deployment_bucket
 from model.references import has_reference
 from utils.aws.identity import execution_account, select_profile
-from utils.cloudformation.environment import validate_environment_inputs
 from utils.cloudformation.export_resolution import (
     describe_exports,
     merge_hints,
@@ -228,9 +227,6 @@ def load_inputs(runtime: SimpleNamespace, unit: StackUnit) -> None:
         error.deploy_input_kind = "DECODE"
         error.code = "InputDecodeError"
         raise error from None
-    validate_environment_inputs(
-        runtime.root, *runtime.templates[name], runtime.target, name
-    )
     runtime.loaded_inputs = loaded
     loaded[name] = digest
     document, _ = runtime.templates[unit["name"]]
