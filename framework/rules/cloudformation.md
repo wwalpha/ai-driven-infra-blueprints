@@ -23,15 +23,32 @@ Before selecting additional rules, inspect relevant Model Resources, Stack place
 - KMS Key or Alias resources, or consumers referencing an Alias (including S3): [KMS Key and Alias](#kms-key-and-alias).
 - Environment-based naming or selection: [Environment composition and selection](#environment-composition-and-selection).
 
-- In YAML CloudFormation templates, use `!` form for every intrinsic function with AWS shorthand. Use long form only for the exceptions below. Array arguments also use shorthand flow form such as `JobId: !Select [0, !Split ['|', !Ref GlueJobDefinition075]]`.
-  - Permit `Fn::ImportValue: !Sub 'VpcId${Suffix}'`, with `!Sub` on the same line or an indented following line, and `!ImportValue {Fn::Sub: 'VpcId${Suffix}'}` (including flow-form variable maps). Export bases and parameter names are not fixed. Import names must not depend on resource values, and final Export names must satisfy the existing naming rules. Also permit `!ImportValue {Fn::Join: ['', ['ExportBase', !Ref ParameterName]]}` joining a fixed PascalCase Export name base with a parameter value using an empty delimiter. Select the parameter whose value preserves the confirmed Export name.
-  - Use outer `Fn::GetStackOutput` when any argument value uses a supported short-form function (`!Base64`, `!FindInMap`, `!If`, `!Join`, `!Select`, `!Sub`, or `!Ref`). The argument map requires `StackName` and `OutputName` and may also contain `Region` and `RoleArn`. This exception applies to the outer function key. For example, `Fn::GetStackOutput: {StackName: !Sub 'stack-${Environment}${Suffix}', OutputName: SecretArn}`.
-- For `!If` array arguments, place true and false values after the condition name on separate lines at the same indentation for comparison. Retain flow form; for example:
+- Use block style by default for sequences and mappings in YAML CloudFormation templates, including intrinsic function arguments.
 
   ```yaml
-  Value: !If [ConditionName,
-    TrueValue,
-    FalseValue]
+  KmsKeyId: !Sub
+    - 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${KmsAliasName}'
+    - KmsAliasName: !Ref LogKeyAliasName
+  ```
+
+- Use `!` form for every intrinsic function with AWS shorthand. Apply the following exceptions for long form.
+  - Permit `Fn::ImportValue: !Sub 'VpcId${Suffix}'`, with `!Sub` on the same line or an indented following line. Also permit `!ImportValue` with a single-key mapping containing `Fn::Sub`, including a substitution variable map, or `Fn::Join` with an empty delimiter to join a fixed PascalCase Export name base with a parameter value. Export bases and parameter names are not fixed. Import names must not depend on resource values, and final Export names must satisfy the existing naming rules. Select the parameter whose value preserves the confirmed Export name.
+  - Use outer `Fn::GetStackOutput` when any argument value uses a supported short-form function (`!Base64`, `!FindInMap`, `!If`, `!Join`, `!Select`, `!Sub`, or `!Ref`). The argument map requires `StackName` and `OutputName` and may also contain `Region` and `RoleArn`. This exception applies to the outer function key.
+
+    ```yaml
+    SourceArn:
+      Fn::GetStackOutput:
+        StackName: !Sub 'stack-${Environment}${Suffix}'
+        OutputName: BucketArn
+    ```
+
+- For `!If`, place the condition name, true value, and false value on separate lines at the same indentation.
+
+  ```yaml
+  Value: !If
+    - ConditionName
+    - TrueValue
+    - FalseValue
   ```
 - Do not use YAML anchors/aliases or hash merge (`<<:`) in CloudFormation YAML. Explicitly state original values for identical trust policies, IAM/KMS permission Policies, and other setting blocks in each resource. Do not require sharing merely because content is identical; retain per-Role design JSON artifacts and references.
 - Under `Resources` in CloudFormation YAML, insert at least 1 blank line between consecutive resources.
