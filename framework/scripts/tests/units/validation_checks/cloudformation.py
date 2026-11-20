@@ -112,6 +112,24 @@ def check_cloudformation_yaml_rules() -> None:
             "must use YAML short form" in error
             for error in errors(suffix_import.replace("['',", "['-',"))
         )
+        block_join_import = valid.replace(
+            "Imported: !ImportValue fixed-export",
+            "Imported: !ImportValue\n"
+            "        Fn::Join:\n"
+            "          - ''\n"
+            "          - - KmsAppKeyArn\n"
+            "            - !Ref Suffix",
+        )
+        assert not errors(block_join_import), errors(block_join_import)
+        for invalid_join in (
+            block_join_import.replace("- ''", "- '-'"),
+            block_join_import.replace("!Ref Suffix", "Ref: Suffix"),
+            block_join_import.replace("!Ref Suffix", "!Ref Invalid_Name"),
+            block_join_import.replace("- KmsAppKeyArn", "- kmsAppKeyArn"),
+        ):
+            assert any(
+                "must use YAML short form" in error for error in errors(invalid_join)
+            )
         for imported in (
             "Imported:\n        Fn::ImportValue: !Sub 'VpcId${Suffix}'",
             'Imported:\n        Fn::ImportValue: !Sub "SubnetId${OtherSuffix}"',
@@ -123,6 +141,15 @@ def check_cloudformation_yaml_rules() -> None:
             "Imported: !ImportValue {'Fn::Sub': 'VpcId${NamePart}'}",
             'Imported: !ImportValue {"Fn::Sub": "VpcId${Suffix}"}',
             "Imported: !ImportValue {Fn::Sub: ['VpcId${Part}', {Part: !Ref Suffix}]}",
+            "Imported: !ImportValue\n        'Fn::Sub': 'VpcId${Suffix}'",
+            "Imported: !ImportValue\n"
+            "        Fn::Sub:\n"
+            "          - 'VpcId${Part}'\n"
+            "          - Part: !Ref Suffix",
+            "Imported:\n"
+            "        Fn::ImportValue: !Sub\n"
+            "          - 'VpcId${Part}'\n"
+            "          - Part: !Ref Suffix",
         ):
             sub_import = valid.replace("Imported: !ImportValue fixed-export", imported)
             assert not errors(sub_import), errors(sub_import)
@@ -181,6 +208,19 @@ def check_cloudformation_yaml_rules() -> None:
             ),
             valid.replace(
                 "Imported: !ImportValue fixed-export",
+                "Imported: !ImportValue\n"
+                "        Fn::Sub:\n"
+                "          - 'VpcId${Part}'\n"
+                "          - Part: {'Ref': Suffix}",
+            ),
+            valid.replace(
+                "Imported: !ImportValue fixed-export",
+                "Imported: !ImportValue\n"
+                "        Fn::Sub: 'VpcId${Suffix}'\n"
+                "      ExtraImport: {'Fn::Sub': text}",
+            ),
+            valid.replace(
+                "Imported: !ImportValue fixed-export",
                 "Imported: !ImportValue {Fn::Sub: 'VpcId${Suffix}'}\n      ExtraImport: {Fn::Sub: text}",
             ),
             valid.replace(
@@ -196,20 +236,16 @@ def check_cloudformation_yaml_rules() -> None:
                 errors(bad)
             )
 
-        block_array = valid.replace(
-            "JobId: !Select [0, !Split ['|', !Ref GlueJob]]",
+        for block_array in (
             "JobId: !Select\n        - 0\n        - !Split ['|', !Ref GlueJob]",
-        )
-        assert any(
-            "must use YAML flow form" in error for error in errors(block_array)
-        ), errors(block_array)
-        join_block_array = valid.replace(
-            "JobId: !Select [0, !Split ['|', !Ref GlueJob]]",
-            "JobId: !Join\n        - '-'\n        - [a, b]",
-        )
-        assert any(
-            "must use YAML flow form" in error for error in errors(join_block_array)
-        ), errors(join_block_array)
+            "JobId: !Join\n        - '-'\n        - - a\n          - b",
+            "JobId: !Sub\n        - '${First}-job'\n        - First: !Ref GlueJob",
+            "JobId: !If\n        - IsProd\n        - ProdJob\n        - DevJob",
+        ):
+            candidate = valid.replace(
+                "JobId: !Select [0, !Split ['|', !Ref GlueJob]]", block_array
+            )
+            assert not errors(candidate), errors(candidate)
 
         for forbidden in (
             valid.replace(

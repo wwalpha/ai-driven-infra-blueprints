@@ -57,9 +57,53 @@ STACK_OUTPUT_SHORT_TAGS = {
 }
 
 
-def stack_output_exceptions(text):
+def valid_import_join(argument):
+    if (
+        not isinstance(argument, yaml.SequenceNode)
+        or argument.tag != "tag:yaml.org,2002:seq"
+        or len(argument.value) != 2
+    ):
+        return False
+    delimiter, parts = argument.value
+    if (
+        not isinstance(delimiter, yaml.ScalarNode)
+        or delimiter.tag != "tag:yaml.org,2002:str"
+        or delimiter.value != ""
+        or not isinstance(parts, yaml.SequenceNode)
+        or parts.tag != "tag:yaml.org,2002:seq"
+        or len(parts.value) != 2
+    ):
+        return False
+    export_base, parameter = parts.value
+    return (
+        isinstance(export_base, yaml.ScalarNode)
+        and export_base.tag == "tag:yaml.org,2002:str"
+        and re.fullmatch(r"[A-Z][A-Za-z0-9]*", export_base.value) is not None
+        and isinstance(parameter, yaml.ScalarNode)
+        and parameter.tag == "!Ref"
+        and re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", parameter.value) is not None
+    )
+
+
+def valid_stack_output_exception(argument):
+    if (
+        not isinstance(argument, yaml.MappingNode)
+        or argument.tag != "tag:yaml.org,2002:map"
+    ):
+        return False
+    keys = {
+        field.value for field, _ in argument.value if isinstance(field, yaml.ScalarNode)
+    }
+    return (
+        len(keys) == len(argument.value)
+        and valid_stack_output_keys(keys)
+        and any(value.tag in STACK_OUTPUT_SHORT_TAGS for _, value in argument.value)
+    )
+
+
+def intrinsic_exception_keys(text):
     """Locate exempt keys without masking neighboring long-form functions."""
-    if "Fn::GetStackOutput" not in text:
+    if not any(name in text for name in ("Fn::GetStackOutput", "ImportValue")):
         return {}
     try:
         pending = [yaml.compose(text, Loader=yaml.SafeLoader)]
@@ -79,23 +123,19 @@ def stack_output_exceptions(text):
         if len(node.value) != 1:
             continue
         ((key, argument),) = node.value
-        if (
-            not isinstance(key, yaml.ScalarNode)
-            or key.value != "Fn::GetStackOutput"
-            or not isinstance(argument, yaml.MappingNode)
-            or argument.tag != "tag:yaml.org,2002:map"
-        ):
+        if not isinstance(key, yaml.ScalarNode):
             continue
-        keys = {
-            field.value
-            for field, _ in argument.value
-            if isinstance(field, yaml.ScalarNode)
-        }
-        if (
-            len(keys) == len(argument.value)
-            and valid_stack_output_keys(keys)
-            and any(value.tag in STACK_OUTPUT_SHORT_TAGS for _, value in argument.value)
-        ):
+        if node.tag == "!ImportValue":
+            exempt = key.value == "Fn::Sub" or (
+                key.value == "Fn::Join" and valid_import_join(argument)
+            )
+        elif key.value == "Fn::ImportValue":
+            exempt = argument.tag == "!Sub"
+        else:
+            exempt = key.value == "Fn::GetStackOutput" and valid_stack_output_exception(
+                argument
+            )
+        if exempt:
             start, end = key.start_mark, key.end_mark
             if start.line == end.line:
                 positions.setdefault(start.line, []).append((start.column, end.column))
@@ -149,7 +189,7 @@ def check_cloudformation_yaml_rules(root, iac_paths, findings) -> None:
             continue
         text = input_text(path, encoding="utf-8")
         lines = text.splitlines()
-        stack_output_keys = stack_output_exceptions(text)
+        exception_keys = intrinsic_exception_keys(text)
         scalar_indent: int | None = None
         for index, line in enumerate(lines):
             indent = len(line) - len(line.lstrip(" "))
@@ -157,7 +197,7 @@ def check_cloudformation_yaml_rules(root, iac_paths, findings) -> None:
                 if not line.strip() or indent > scalar_indent:
                     continue
                 scalar_indent = None
-            for start, end in stack_output_keys.get(index, ()):
+            for start, end in exception_keys.get(index, ()):
                 line = line[:start] + " " * (end - start) + line[end:]
             code = unquoted_yaml(line)
             if YAML_REUSE.search(code):
@@ -166,76 +206,17 @@ def check_cloudformation_yaml_rules(root, iac_paths, findings) -> None:
                     path,
                     f"CloudFormation YAML anchor/alias/merge is forbidden: {findings.relative(path)}:{index + 1}",
                 )
-            # ImportValue must use its full name when its value is a short Sub tag.
-            sub_import = re.search(
-                r"(?P<prefix>^|[{,]|-\s)\s*(?P<key>Fn::ImportValue|'Fn::ImportValue'|\"Fn::ImportValue\")\s*:\s*(?P<value>.*)$",
-                line,
-            )
-            if (
-                sub_import
-                and sub_import.group("prefix")
-                == code[sub_import.start("prefix") : sub_import.end("prefix")]
-            ):
-                value = unquoted_yaml(sub_import.group("value")).strip()
-                if not value:
-                    for later in lines[index + 1 :]:
-                        value = unquoted_yaml(later).strip()
-                        if value:
-                            if len(later) - len(later.lstrip(" ")) <= indent:
-                                value = ""
-                            break
-                if re.match(r"!Sub(?:\s|$)", value):
-                    start, end = sub_import.span("key")
-                    line = line[:start] + " " * (end - start) + line[end:]
-                    code = unquoted_yaml(line)
-            for match in re.finditer(
-                r"!ImportValue\s*\{\s*(?P<key>Fn::Sub|'Fn::Sub'|\"Fn::Sub\")\s*:", line
-            ):
-                if code[match.start() :].startswith("!ImportValue"):
-                    start, end = match.span("key")
-                    line = line[:start] + " " * (end - start) + line[end:]
-                    code = unquoted_yaml(line)
             quoted_long = any(
                 match.group("prefix")
                 == code[match.start("prefix") : match.end("prefix")]
                 for match in QUOTED_LONG_CF_KEY.finditer(line)
             )
-            # YAML cannot stack short tags; also allow the parameterized export suffix join.
-            for match in re.finditer(
-                r"!ImportValue\s*\{Fn::Join:\s*\[(?:''|\"\"),\s*\['[A-Z][A-Za-z0-9]*',\s*!Ref [A-Za-z][A-Za-z0-9]*\]\]\}",
-                line,
-            ):
-                if code[match.start() :].startswith("!ImportValue"):
-                    code = (
-                        code[: match.start()]
-                        + code[match.start() : match.end()].replace(
-                            "Fn::Join:", " " * 9
-                        )
-                        + code[match.end() :]
-                    )
             if LONG_CF_KEY.search(code) or quoted_long:
                 findings.check_file(
                     False,
                     path,
                     f"CloudFormation intrinsic must use YAML short form: {findings.relative(path)}:{index + 1}",
                 )
-
-            tag = re.search(r"![A-Za-z][A-Za-z0-9]*\s*$", code)
-            if tag and re.fullmatch(
-                r"![A-Za-z][A-Za-z0-9]*\s*(?:#.*)?", line[tag.start() :]
-            ):
-                for later in lines[index + 1 :]:
-                    if not later.strip() or later.lstrip().startswith("#"):
-                        continue
-                    if len(later) - len(
-                        later.lstrip(" ")
-                    ) > indent and later.lstrip().startswith("- "):
-                        findings.check_file(
-                            False,
-                            path,
-                            f"CloudFormation intrinsic array must use YAML flow form: {findings.relative(path)}:{index + 1}",
-                        )
-                    break
 
             if re.search(r":\s*(?:![A-Za-z][A-Za-z0-9]*\s*)?[>|][+-]?\s*$", code):
                 scalar_indent = indent
