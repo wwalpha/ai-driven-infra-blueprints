@@ -95,6 +95,24 @@ python3 framework/scripts/worktree-cli.py run -m pytest
 python3 framework/scripts/worktree-cli.py run --command ruff check .
 ```
 
+If Windows Codex fails with `PermissionError: [WinError 5]` while deleting a
+temporary directory, set all three temporary-directory variables in the PowerShell
+process that invokes `run`. Use the existing `.worktrees` directory under the primary
+checkout, after confirming that the process can create, write and delete files there.
+Replace `<primary-checkout-absolute-path>` with the actual absolute path:
+
+```powershell
+$deployTemp = Join-Path '<primary-checkout-absolute-path>' '.worktrees'
+$env:TMPDIR = $deployTemp
+$env:TEMP = $deployTemp
+$env:TMP = $deployTemp
+
+py -3 -B framework/scripts/worktree-cli.py run -B framework/scripts/model/cli.py observed --help
+```
+
+If Codex starts a separate PowerShell process for each command, repeat the variable
+settings in each affected invocation.
+
 ### Contract and validation
 
 If contract registration is rejected, report the error and retain the Task Worktree. Register exact necessary paths before editing. Select validation under [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy), including dependency-selected checks for Framework changes. Run lifecycle commands with the ordinary launcher from a surviving checkout. Worktrees start from committed base inputs. Place the Human’s intended input in the selected Worktree before starting a child workflow that needs an uncommitted Model diff.
