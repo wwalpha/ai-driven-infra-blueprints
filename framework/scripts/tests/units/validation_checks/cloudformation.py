@@ -55,6 +55,33 @@ def check_cloudformation_yaml_rules() -> None:
             "    Type: AWS::EC2::Instance\n"
         )
         assert not errors(valid), errors(valid)
+        for stack_output in (
+            "Output:\n        Fn::GetStackOutput:\n"
+            "          StackName: !Sub 'stack-${Environment}${Suffix}'\n"
+            "          OutputName: SecretArn",
+            "Output: {'Fn::GetStackOutput': {StackName: !Ref Producer, OutputName: SecretArn}}",
+        ):
+            candidate = valid.replace("Imported: !ImportValue fixed-export", stack_output)
+            assert not errors(candidate), errors(candidate)
+
+        valid_get = "{Fn::GetStackOutput: {StackName: !Ref Producer, OutputName: SecretArn}}"
+        for stack_output in (
+            valid_get.replace("!Ref Producer", "fixed-stack"),
+            valid_get.replace("!Ref Producer", "'!Ref Producer'"),
+            valid_get.replace("!Ref Producer", "fixed-stack # !Ref Producer\n        "),
+            valid_get.replace("!Ref Producer", "{Ref: Producer}"),
+            valid_get.replace("OutputName", "OtherKey"),
+            valid_get.replace("SecretArn", "{Ref: Output}"),
+            f"[{valid_get}, {{Fn::Sub: 'unrelated'}}]",
+            f"[{valid_get}, {{'Ref': 'Unrelated'}}]",
+        ):
+            candidate = valid.replace(
+                "Imported: !ImportValue fixed-export", "Output: " + stack_output
+            )
+            assert any("must use YAML short form" in error for error in errors(candidate)), (
+                errors(candidate)
+            )
+
         suffix_import = valid.replace(
             "Imported: !ImportValue fixed-export",
             "Imported: !ImportValue {Fn::Join: ['', ['KmsAppKeyArn', !Ref Suffix]]}",

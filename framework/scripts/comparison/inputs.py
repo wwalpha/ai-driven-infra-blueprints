@@ -685,6 +685,33 @@ class Inputs:
                 }
             raise
 
+    def get_stack_output(self, stack, argument, seen):
+        values = self.evaluate(stack, argument, seen | {("export-name",)})
+        if any(not isinstance(value, str) or not value for value in values.values()):
+            raise Blocked("GetStackOutput arguments must resolve to nonempty strings")
+        region = self.stack_inputs[stack][2]["AWS::Region"]
+        if "RoleArn" in values or values.get("Region", region) != region:
+            raise Blocked("GetStackOutput account and region are not proven locally")
+        producer, key = values["StackName"], values["OutputName"]
+        units = [unit for _, unit in self.templates() if unit["name"] == producer]
+        if len(units) != 1 or producer == stack:
+            raise Blocked("GetStackOutput requires one distinct declared producer stack")
+        token = ("stack-output", producer, key)
+        if token in seen:
+            raise Blocked("cyclic GetStackOutput")
+        _, (document, parameters, pseudo) = self.stack(units[0])
+        if document.get("Transform"):
+            raise Blocked("GetStackOutput producer Transform requires external evaluation")
+        outputs = document.get("Outputs")
+        output = outputs.get(key) if isinstance(outputs, dict) else None
+        if (
+            not isinstance(output, dict)
+            or "Value" not in output
+            or not condition_active(document, parameters, pseudo, output)
+        ):
+            raise Blocked("GetStackOutput producer Output is missing or inactive")
+        return self.evaluate(producer, output["Value"], seen | {token})
+
     def reference_literal(
         self, value, *, recorded=None, seen=frozenset(), symbolic_arn=False
     ):
@@ -929,6 +956,7 @@ class Inputs:
             self.local_comparison,
             self.catalog.schema,
             self.defer_select,
+            get_stack_output=self.get_stack_output if self.local_comparison else None,
         )
 
     def defer_select(self, stack, value, reason, *, direct=False):

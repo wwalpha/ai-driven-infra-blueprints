@@ -151,6 +151,15 @@ def _lambda_intrinsic_shape_error_symbolic_108(Expression, ResourceReference, /,
     )
 
 
+def valid_stack_output_keys(keys):
+    return {"StackName", "OutputName"} <= keys <= {
+        "StackName",
+        "OutputName",
+        "Region",
+        "RoleArn",
+    }
+
+
 def intrinsic_shape_error(name, argument):
     """The Model JSON structural contract, without template semantic validation."""
     Expression = _imports_iac_values.Expression
@@ -216,6 +225,12 @@ def intrinsic_shape_error(name, argument):
         valid = isinstance(argument, list) and len(argument) in {3, 4}
     elif name in {"Fn::ImportValue", "Fn::GetAZs", "Fn::Base64"}:
         valid = string(argument)
+    elif name == "Fn::GetStackOutput":
+        valid = (
+            isinstance(argument, dict)
+            and valid_stack_output_keys(argument.keys())
+            and all(string(value) for value in argument.values())
+        )
     elif name in {"Fn::Cidr", "Fn::Length", "Fn::ToJsonString", "Fn::Transform"}:
         valid = (
             sequence(3)

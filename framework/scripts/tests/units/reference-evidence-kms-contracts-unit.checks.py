@@ -15,6 +15,7 @@ from services.kms.comparison import compare_forms, kms_format
 from support.comparison_cases import projected
 from support.model_reference_fixtures import reference as model_ref
 from support.regression_cases import case_ids
+from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
 from utils.iac_values import (
@@ -469,6 +470,65 @@ def _execute_glue_secret(case):
         case["data"]["actual"],
     )
     return {"records": projected(records)}
+
+
+@pytest.mark.parametrize(
+    ("stack_name", "output", "category"),
+    [
+        ("!Sub 'bootstrap-${Environment}${Suffix}'", "SecretArn", "matched"),
+        ("!Ref SourceStack", "SecretArn", "matched"),
+        ("!Ref SourceStack", "OtherArn", "difference"),
+        ("!Ref SourceStack", "MissingArn", "uncompared"),
+        ("!Ref SourceStack", "InactiveArn", "uncompared"),
+        ("unexpected-stack", "SecretArn", "uncompared"),
+        ("!Sub '${Receiver}'", "SecretArn", "uncompared"),
+    ],
+)
+def test_get_stack_output_compares_glue_secret_identity(stack_name, output, category):
+    comparison = fixture()
+    _, parameters, pseudo = comparison.stack_inputs["producer"]
+    source = "bootstrap-dev-test"
+    parameters.update(Environment="dev", Suffix="-test", SourceStack=source)
+    producer, errors = decode("""+Conditions:
+  Disabled: !Equals [enabled, disabled]
+Outputs:
+  SecretArn:
+    Value: !Ref Secret
+  OtherArn:
+    Value: !Ref OtherSecret
+  InactiveArn:
+    Condition: Disabled
+    Value: !Ref Secret
+""")
+    assert not errors
+    producer["Resources"] = {}
+    comparison.stack_inputs[source] = (producer, {}, pseudo)
+    for identity, logical in [("001", "Secret"), ("002", "OtherSecret")]:
+        resource(
+            comparison,
+            "secrets-manager",
+            identity,
+            "SecretsManager.Secret",
+            logical,
+            [],
+            properties={"Name": "same-name"},
+            stack=source,
+        )
+    actual, errors = decode(
+        f"Fn::GetStackOutput:\n  StackName: {stack_name}\n  OutputName: {output}"
+    )
+    assert not errors
+    records = setting(
+        comparison,
+        "Glue.Connection",
+        "ConnectionInput.AuthenticationConfiguration.SecretArn",
+        model_ref("SecretsManager_Secret_001", "Id"),
+        actual,
+    )
+    assert [record["category"] for record in records] == [category], projected(records)
+    if category == "difference":
+        arn = records[0]["actual"]["AuthenticationConfiguration"]["SecretArn"]
+        assert arn["$resource"] == ["secrets-manager", "002"]
 
 
 @pytest.mark.parametrize(

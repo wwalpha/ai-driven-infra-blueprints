@@ -1,6 +1,6 @@
-"""Local expression evaluation over supplied inputs and three bounded lookups.
+"""Local expression evaluation over supplied inputs and bounded lookups.
 
-Symbol/export lookups may load tracked local inputs; the evaluator itself does no I/O.
+Symbol and stack output lookups may load tracked local inputs.
 AWS/deploy mode deliberately retains its existing narrower evaluation contract.
 """
 
@@ -48,6 +48,8 @@ class Evaluation:
         local_comparison,
         resource_schema,
         defer_select=None,
+        *,
+        get_stack_output=None,
     ):
         self.stack_inputs, self.resources = stack_inputs, resources
         self.property_schema, self.symbol, self.import_value = (
@@ -58,6 +60,7 @@ class Evaluation:
         self.local_comparison = local_comparison
         self.resource_schema = resource_schema
         self.defer_select = defer_select
+        self.get_stack_output = get_stack_output
 
     def symbolic_schema(self, value, *, element=False):
         if isinstance(value, ResourceReference):
@@ -218,7 +221,7 @@ class Evaluation:
             if error:
                 raise ValueError(f"invalid {key}: {error}")
             if ("export-name",) in seen and (
-                key in {"Fn::GetAtt", "Fn::ImportValue"}
+                key in {"Fn::GetAtt", "Fn::ImportValue", "Fn::GetStackOutput"}
                 or key == "Ref"
                 and arg not in parameters | pseudo
             ):
@@ -327,6 +330,8 @@ class Evaluation:
                 if self.local_comparison:
                     return self.import_value(stack, arg, seen)
                 raise Blocked("ImportValue handoff cannot be established locally")
+            if key == "Fn::GetStackOutput" and self.get_stack_output is not None:
+                return self.get_stack_output(stack, arg, seen)
             if key == "Fn::Sub" and self.local_comparison:
                 text, variables = (
                     (arg, {})

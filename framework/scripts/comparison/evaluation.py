@@ -29,6 +29,8 @@ def evaluator(
     local_comparison,
     resource_schema,
     defer_select=None,
+    *,
+    get_stack_output=None,
 ):
     return Evaluation(
         stack_inputs,
@@ -39,6 +41,7 @@ def evaluator(
         local_comparison,
         resource_schema,
         defer_select,
+        get_stack_output=get_stack_output,
     )
 
 

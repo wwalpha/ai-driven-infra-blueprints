@@ -9,10 +9,12 @@ import model.adapters.observed as _imports_model_adapters_observed
 import model.core as _imports_model_core
 import model.projection as _imports_model_projection
 import utils.cloudformation.format as _imports_cfn_format
+import yaml
 from design.layout import stack_deployment_policy, stack_design
 from model.core import properties
 from model.files import read_model
 from model.sources import model_exists
+from utils.cloudformation.format import valid_stack_output_keys
 from utils.input_cache import input_is_file, input_select, input_text
 
 from .design import JAPANESE_TEXT_PATTERN, stack_design_files
@@ -44,6 +46,60 @@ QUOTED_LONG_CF_KEY = re.compile(
     rf"(?P<prefix>^|[{{,]|-\s)\s*(?P<quote>['\"])(?:{_SHORT_CF_NAMES})(?P=quote)\s*:"
 )
 YAML_REUSE = re.compile(r"(?<![A-Za-z0-9_-])(?:[&*][A-Za-z0-9_-]+|<<\s*:)")
+STACK_OUTPUT_SHORT_TAGS = {
+    "!Base64",
+    "!FindInMap",
+    "!If",
+    "!Join",
+    "!Select",
+    "!Sub",
+    "!Ref",
+}
+
+
+def stack_output_exceptions(text):
+    """Locate exempt keys without masking neighboring long-form functions."""
+    if "Fn::GetStackOutput" not in text:
+        return {}
+    try:
+        pending = [yaml.compose(text, Loader=yaml.SafeLoader)]
+    except (yaml.YAMLError, RecursionError):
+        return {}
+    seen, positions = set(), {}
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, yaml.SequenceNode):
+            pending.extend(node.value)
+        if not isinstance(node, yaml.MappingNode):
+            continue
+        pending.extend(value for _, value in node.value)
+        if len(node.value) != 1:
+            continue
+        ((key, argument),) = node.value
+        if (
+            not isinstance(key, yaml.ScalarNode)
+            or key.value != "Fn::GetStackOutput"
+            or not isinstance(argument, yaml.MappingNode)
+            or argument.tag != "tag:yaml.org,2002:map"
+        ):
+            continue
+        keys = {
+            field.value
+            for field, _ in argument.value
+            if isinstance(field, yaml.ScalarNode)
+        }
+        if (
+            len(keys) == len(argument.value)
+            and valid_stack_output_keys(keys)
+            and any(value.tag in STACK_OUTPUT_SHORT_TAGS for _, value in argument.value)
+        ):
+            start, end = key.start_mark, key.end_mark
+            if start.line == end.line:
+                positions.setdefault(start.line, []).append((start.column, end.column))
+    return positions
 
 
 def unquoted_yaml(line: str) -> str:
@@ -91,7 +147,9 @@ def check_cloudformation_yaml_rules(root, iac_paths, findings) -> None:
             continue
         if not input_is_file(path) or path.suffix.lower() not in {".yaml", ".yml"}:
             continue
-        lines = input_text(path, encoding="utf-8").splitlines()
+        text = input_text(path, encoding="utf-8")
+        lines = text.splitlines()
+        stack_output_keys = stack_output_exceptions(text)
         scalar_indent: int | None = None
         for index, line in enumerate(lines):
             indent = len(line) - len(line.lstrip(" "))
@@ -99,6 +157,8 @@ def check_cloudformation_yaml_rules(root, iac_paths, findings) -> None:
                 if not line.strip() or indent > scalar_indent:
                     continue
                 scalar_indent = None
+            for start, end in stack_output_keys.get(index, ()):
+                line = line[:start] + " " * (end - start) + line[end:]
             code = unquoted_yaml(line)
             if YAML_REUSE.search(code):
                 findings.check_file(
