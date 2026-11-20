@@ -284,7 +284,7 @@ Resources:
 
 def check_worker_config_isolation(tmp_path, monkeypatch):
     home, cwd = isolated(tmp_path, monkeypatch)
-    (home / ".cfnlintrc.yml").write_text("include_checks: [I]\n")
+    user_config = home / ".cfnlintrc.yml"
     template = cwd / "app.yaml"
     secret = "fixture-super-private"
     template.write_text(
@@ -326,36 +326,40 @@ class Stateful(CloudFormationLintRule):
     override.write_text(json.dumps({"IncludeResourceTypes": ["AWS::S3::Bucket"]}))
     config, output = cwd / ".cfnlintrc", cwd / "forbidden.json"
     with lint_session(cwd) as session:
-        for settings in (
-            {"append_rules": [str(rules)]},
-            {"registry_schemas": [str(registry)]},
-            {"override_spec": str(override)},
-            {"append_rules": [str(rules)]},
+        for user, project in (
+            ({"append_rules": [str(rules)]}, {}),
+            ({}, {"registry_schemas": [str(registry)]}),
+            ({}, {"override_spec": str(override)}),
+            ({"append_rules": [str(rules)]}, {}),
         ):
-            config.write_text(
+            user_config.write_text(
                 json.dumps(
-                    dict(
-                        settings,
-                        output_file=str(output),
-                        parameters=[{"Input": secret}],
-                    )
+                    dict(user, include_checks=["I"], output_file=str(output))
                 )
             )
+            config.write_text(json.dumps(dict(project, parameters=[{"Input": secret}])))
             result = validate_template(session, template, "ap-northeast-1")
             assert result["completed"] and not result["processing_errors"], result
             assert set(result["configuration_sources"]) == {
                 str(config),
-                str(home / ".cfnlintrc.yml"),
+                str(user_config),
             }
             messages = [m["Message"] for m in result["matches"]]
-            assert ("invocation 1" in messages) == bool(settings.get("append_rules"))
+            assert ("invocation 1" in messages) == bool(user.get("append_rules"))
             assert not any("invocation 2" in message for message in messages)
             assert any("RequiredFixture" in message for message in messages) == bool(
-                settings.get("registry_schemas")
+                project.get("registry_schemas")
             )
             assert not output.exists()
             result.pop("sensitive_values", None)
             assert secret not in json.dumps(result)
+        config.write_text(
+            json.dumps(dict(append_rules=[str(rules)], output_file=str(output)))
+        )
+        rejected = validate_template(session, template, "ap-northeast-1")
+        assert not rejected["completed"]
+        assert [match["Rule"]["Id"] for match in rejected["matches"]] == ["E0003"]
+        assert not output.exists()
         process = session.worker.process
     assert process.poll() is not None and process.stdin.closed and process.stdout.closed
 

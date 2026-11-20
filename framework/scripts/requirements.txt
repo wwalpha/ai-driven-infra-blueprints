@@ -1,7 +1,7 @@
 # Local framework development, validation and PDF tooling (Python >= 3.10).
 PyYAML==6.0.3
 boto3==1.43.108
-cfn-lint==1.58.0
+cfn-lint==1.60.1
 pytest==9.1.1
 pytest-datadir==1.8.0
 pytest-regressions==2.11.0
