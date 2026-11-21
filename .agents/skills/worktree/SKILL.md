@@ -144,7 +144,9 @@ For an explicit `/worktree` and `/issues` combination, follow the
 [Issues save and validation rules](../../../framework/rules/issues-investigation.md#scope-and-responsibilities)
 in the managed Worktree. Complete the report-only Task before ordinary integration.
 The Issues scan, save, validation and Task completion stay independent of Git diffs.
-Finalize applies its usual Git and exact-path checks to the report changes.
+After base synchronization, rerun the report-only local loop on the completed Task;
+this read-only validation does not grant publication authority. Finalize applies its
+usual Git and exact-path checks to the report changes.
 
 Finish all requested work and all required inputs/approvals under the child's existing workflow. Proceed only after successful final validation selected by [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy) and all other mandatory completion conditions:
 

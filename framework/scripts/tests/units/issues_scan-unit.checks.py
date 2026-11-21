@@ -2014,6 +2014,23 @@ def check_save_authority_rejections(tmp_path, state, scope, allowed, saveonly):
     assert not list(tmp_path.iterdir())
 
 
+def check_completed_task_validation_does_not_authorize_save(tmp_path):
+    with _exports_support_issues_scan_fixtures.task(tmp_path, ["s3"]):
+        task = tmp_path / "tasks/save.md"
+        task.write_text(
+            task.read_text(encoding="utf-8").replace("`running`", "`completed`"),
+            encoding="utf-8",
+        )
+        paths, _ = publication.save_authority(
+            tmp_path, "dev", "123456789012", ["s3"], ["issues.md"], validation=True
+        )
+        assert paths == [tmp_path / "issues/dev/123456789012/issues.md"]
+        with pytest.raises(ValueError):
+            publication.save_authority(
+                tmp_path, "dev", "123456789012", ["s3"], ["issues.md"]
+            )
+
+
 @pytest.mark.parametrize(
     "filename",
     ["other.md", "../issues.md", "../../other/issues.md", "human-confirmations.yaml"],

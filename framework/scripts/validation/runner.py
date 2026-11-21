@@ -426,6 +426,7 @@ class Validator:
                     target,
                     services,
                     ["issues.md", "iac-issues.md"],
+                    validation=True,
                 )
                 for path in paths:
                     relative = path.relative_to(self.root).as_posix()

@@ -192,10 +192,10 @@ Validate contract Requirement IDs/Acceptance checks on every run according to [A
 For a selected report-only issues Task, `--mode local` without `--write`, `--all`
 or `--staged` uses the existing `issues_save_only()` predicate and explicitly selects
 contract-only validation through `run_validation()` and `Validator`. Validate the
-Task requirements/Allowed paths/Modified files, running status, explicit service scope,
+Task requirements/Allowed paths/Modified files, running or completed status, explicit service scope,
 actual report destinations and file access with the existing Task and save authority
 checks. Both `issues.md` and `iac-issues.md` must exist and have exact `exists:`
-Acceptance checks. This post-save path does not run generic `check_validation_scope`,
+Acceptance checks. Publication still requires running status; completed status permits only read-only revalidation. Suspended tasks are rejected. This post-save path does not run generic `check_validation_scope`,
 Model/design/display/IaC/AWS checks, Scan, cfn-lint or Git change/diff checks. Missing
 Model/design inputs may themselves be the recorded issues. It does not replace or
 rerun Snapshot, Review, publication authority or atomic save/rollback checks.

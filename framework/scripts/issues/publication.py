@@ -21,13 +21,14 @@ from .reports import iac_report, ordinary_report
 from .review import review_snapshot
 
 
-def save_authority(root, environment, directory, services, filenames):
+def save_authority(root, environment, directory, services, filenames, *, validation=False):
     with task_reads(root, live=True):
         snapshot = task_snapshot(root)
         text = snapshot.text
         scope = active_scope(root)
         selected = {(environment, directory, service) for service in services}
-        if status(text) != "running" or not scope or not selected <= scope:
+        allowed_statuses = {"running", "completed"} if validation else {"running"}
+        if status(text) not in allowed_statuses or not scope or not selected <= scope:
             raise ValueError(
                 "report save requires a running report-only migration with explicit service scope"
             )

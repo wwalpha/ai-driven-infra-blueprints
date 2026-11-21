@@ -218,8 +218,8 @@ Use validation_status ERROR/FAIL/INCOMPLETE/CHECKED separately from iac_status, 
 Retrieve bounded summary channels through detail for full coverage; do not ask for all raw diagnostics on stdout. Save the reviewed artifact without comparing current inputs or lint dependencies. Machine notices are scope-marked, non-numbered and generated only from the current Scan. Human confirmations come exclusively from the separate file. After saving, run `blueprint-loop.py --mode local --task-file tasks/<task-name>.md`
 without `--write`, `--all` or `--staged`. For an `issues_save_only()` Task this checks
 only the report save contract using existing Task/save authority checks: explicit
-services, running status, Required changes/Allowed paths/Modified files, both readable
-report files and exact `exists:` Acceptance checks for both. Do not rerun generic
+services, running or completed status, Required changes/Allowed paths/Modified files, both readable
+report files and exact `exists:` Acceptance checks for both. Publication still requires running status; completed status permits read-only revalidation after completion, and suspended tasks are rejected. Do not rerun generic
 scope/input presence, Model/design/display/IaC validation, Scan, cfn-lint, AWS or Git
 diff checks. Snapshot/Review/publication guards remain at save time. Treat
 publication_status, Scan validation_status and post_save_validation_execution as separate

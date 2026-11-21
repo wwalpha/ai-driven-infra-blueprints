@@ -39,9 +39,10 @@ boundary with Git integration.
 Acceptance and Task status checks. After saving, run `blueprint-loop.py --mode local`
 with the selected Task and without `--write`, `--all` or `--staged`. This uses the
 existing Task and save-authority checks only: require both report files, exact
-`exists:` Acceptance checks for both, explicit services, running status, allowed
+`exists:` Acceptance checks for both, explicit services, running or completed status, allowed
 report destinations and readable files. Do not run generic scope/input-presence,
 Model/design/display/IaC checks, AWS, Scan, cfn-lint or Git diff collection/comparison.
+Publication itself still requires running status; completed status is accepted only for read-only revalidation after completion. Suspended tasks are rejected.
 Recorded violations and missing Model/design inputs do not fail a valid save contract.
 Snapshot/Review and atomic publication guards remain mandatory at save time.
 It does not inspect Git changes or watch inputs.

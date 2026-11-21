@@ -1861,6 +1861,7 @@ def issue_validation_options(name):
     "invalid",
     [
         None,
+        "completed",
         "missing-report",
         "acceptance",
         "required",
@@ -1900,10 +1901,12 @@ def check_issue_save_validator_contract_only(tmp_path, invalid):
         report.symlink_to(tmp_path / "issues/dev/cde/issues.md")
     elif invalid == "access":
         (tmp_path / "issues/dev/cde/iac-issues.md").write_bytes(b"invalid UTF-8: \xff")
-    elif invalid == "status":
-        contract.write_text(
-            contract.read_text().replace("`running`", "`completed`"), encoding="utf-8"
-        )
+    elif invalid in {"status", "completed"}:
+        state = "completed" if invalid == "completed" else "suspend"
+        text = contract.read_text().replace("`running`", f"`{state}`")
+        if state == "suspend":
+            text += "\n## Suspension reason\n- Fixture failure.\n"
+        contract.write_text(text, encoding="utf-8")
     with ExitStack() as stack:
         for method in (
             "check_structure",
@@ -1941,11 +1944,10 @@ def check_issue_save_validator_contract_only(tmp_path, invalid):
                 issues_save=True,
             )
         except ValueError:
-            assert invalid in {"allowed", "modified", "symlink"}
+            assert invalid in {"allowed", "modified", "symlink", "status"}
         else:
-            assert result.findings.status == ("PASS" if invalid is None else "FAIL"), (
-                result.errors
-            )
+            expected = "PASS" if invalid in {None, "completed"} else "FAIL"
+            assert result.findings.status == expected, result.errors
 
 
 @pytest.mark.parametrize(
