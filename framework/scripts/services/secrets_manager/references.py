@@ -21,6 +21,11 @@ REFERENCES = ReferenceTables(
         "SecretsManager.RotationSchedule.SecretId": {"Id", "Name"},
         "SecretsManager.ResourcePolicy.SecretId": {"Id", "Name"},
     },
+    equivalent_forms={
+        ("SecretsManager.RotationSchedule.SecretId", "SecretsManager.Secret", "Id"): {
+            "Name"
+        },
+    },
     reference_properties={
         "SecretsManager.Secret.KmsKeyId": (("KMS.Key", "KMS.Alias"), None),
         "SecretsManager.RotationSchedule.SecretId": ("SecretsManager.Secret", "Id"),

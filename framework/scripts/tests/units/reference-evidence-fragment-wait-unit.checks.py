@@ -277,6 +277,112 @@ def _execute_fragment_undeclared(case):
 
 
 @pytest.mark.parametrize(
+    ("secret", "secret_id", "mode", "category"),
+    [
+        pytest.param("lambda", "lambda", "CREATE", "matched", id="lambda"),
+        pytest.param("cicd", "cicd", "CREATE", "matched", id="cicd"),
+        pytest.param("pii", "pii", "CREATE", "matched", id="pii"),
+        pytest.param("standard", "standard", "CREATE", "matched", id="standard"),
+        pytest.param("lambda", "typo", "CREATE", "difference", id="different-name"),
+        pytest.param(
+            "lambda",
+            {"Ref": "OtherSecret"},
+            "CREATE",
+            "difference",
+            id="different-secret",
+        ),
+        pytest.param(None, "lambda", "CREATE", "uncompared", id="unresolved-name"),
+        pytest.param("lambda", "lambda", "IMPORT", "deferred", id="awaiting-handoff"),
+    ],
+)
+def test_rotation_schedule_secret_id_comparison(secret, secret_id, mode, category):
+    comparison = fixture()
+    service = "secrets-manager"
+    resource(
+        comparison,
+        service,
+        "001",
+        "SecretsManager.Secret",
+        "Secret",
+        [
+            ("Name", "fixture/" + (secret or "lambda"), None),
+            (
+                "Id",
+                "PENDING_DEPLOY",
+                "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture/lambda-AbCd12"
+                if mode == "IMPORT"
+                else None,
+            ),
+        ],
+        properties={"Name": "fixture/" + secret} if secret is not None else {},
+    )
+    if mode == "IMPORT":
+        comparison.resources[service]["001"]["resourceMode"] = mode
+        snapshot = comparison.models[service]
+        snapshot.authoritative["desired.resource.001.resourceMode"] = mode
+        snapshot.values["desired.resource.001.resourceMode"] = mode
+    if isinstance(secret_id, dict):
+        resource(
+            comparison,
+            service,
+            "002",
+            "SecretsManager.Secret",
+            "OtherSecret",
+            [("Name", "fixture/other", None)],
+            properties={"Name": "fixture/other"},
+            stack="consumer",
+        )
+    else:
+        comparison.stack_inputs["consumer"][1]["Prefix"] = "fixture"
+        secret_id = {"Fn::Sub": "${Prefix}/" + secret_id}
+    resource(
+        comparison,
+        service,
+        "003",
+        "SecretsManager.RotationSchedule",
+        "Rotation",
+        [
+            (
+                "SecretId",
+                {
+                    "$modelRef": {
+                        "logicalId": "SecretsManager_Secret_001",
+                        "attribute": "Id",
+                    }
+                },
+                None,
+            )
+        ],
+        properties={"SecretId": secret_id},
+        stack="consumer",
+    )
+    document = comparison.stack_inputs["consumer"][0]
+    batch = comparison.compare_rows(
+        service,
+        "003",
+        comparison.resources[service]["003"],
+        "consumer",
+        "Rotation",
+        ROOT / "synthetic.yaml",
+        document["Resources"]["Rotation"],
+        document,
+    )
+    assert batch.failure is None
+    (item,) = batch.records
+    assert item["property"] == "SecretsManager.RotationSchedule.SecretId"
+    assert item["category"] == category
+    if category == "matched":
+        (detail,) = item["reference_diagnostics"]
+        assert detail["evidence_type"] == "local_evaluation"
+        assert detail["current_aws_verified"] is False
+        assert detail["producers"] == [
+            {"producer": "secrets-manager/001", "attribute": "Name"}
+        ]
+    if mode == "IMPORT":
+        assert item["cause"]["phase"] == "awaiting_handoff"
+
+
+@pytest.mark.parametrize(
     "case_id", case_ids("reference_evidence", prefix="import-wait-")
 )
 def test_import_wait_propagates_without_parent_issue(case_runner, case_id):

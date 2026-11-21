@@ -1,6 +1,7 @@
 """Local reference proof. Recorded observations never claim current AWS state."""
 
 import re
+from functools import partial
 
 from contracts.model import (
     CFN_LOGICAL_ID_KEY,
@@ -72,10 +73,13 @@ class Evidence:
             )
         return value
 
-    def resolve(self, value):
+    def resolve(self, value, *, allow_recorded=True):
         inputs = self.inputs
         if isinstance(value, Expression):
-            return literal_expression(value, resolve_literal=self.resolve)
+            return literal_expression(
+                value,
+                resolve_literal=partial(self.resolve, allow_recorded=allow_recorded),
+            )
         service, identity = value["$resource"]
         producer = {
             "producer": service + "/" + identity,
@@ -87,7 +91,9 @@ class Evidence:
             for item in self.producers
         ):
             self.producers.append(producer)
-        result = inputs.reference_literal(value, recorded=self.recorded)
+        result = inputs.reference_literal(
+            value, recorded=self.recorded if allow_recorded else None
+        )
         kind = inputs.resource_type(value)
         if REFERENCES.arn_shape(kind) is not None and value[
             "$attribute"
@@ -310,6 +316,19 @@ def aligned_difference(left, right):
     return False if different else None
 
 
+def _literal_secret_name(value):
+    return (
+        value
+        not in {
+            MODEL_PENDING_DEPLOY,
+            MODEL_UNSET,
+            "TODO",
+            "TBD",
+        }
+        and re.fullmatch(r"[A-Za-z0-9/_+=.@-]+", value) is not None
+    )
+
+
 def compare(inputs, left, right, kind, path):
     expression = compare_expression(inputs, left, right, kind, path)
     if expression.equal is not NotImplemented:
@@ -387,6 +406,7 @@ def compare(inputs, left, right, kind, path):
     proof = Evidence(inputs)
     reason, equal = "", None
     try:
+        name_reference = None
         if declared is not None:
             validate_source(inputs, proof, left)
             if hasattr(right, "saved_literal"):
@@ -409,7 +429,8 @@ def compare(inputs, left, right, kind, path):
                 )
         if isinstance(right, ResourceReference):
             refkind = inputs.resource_type(right)
-            contract = REFERENCES.direct_reference(kind + "." + path)
+            prop = kind + "." + path
+            contract = REFERENCES.direct_reference(prop)
             if contract and refkind not in (
                 contract[0] if isinstance(contract[0], tuple) else (contract[0],)
             ):
@@ -454,7 +475,24 @@ def compare(inputs, left, right, kind, path):
                 raise Blocked(
                     "attribute_format_unproven: alternative allowed literal format"
                 )
-        concrete = proof.resolve(right)
+            if (
+                inputs.local_comparison
+                and contract
+                and declared is None
+                and "Name"
+                in REFERENCES.equivalent_forms(prop, refkind, right["$attribute"])
+                and _literal_secret_name(raw)
+            ):
+                name_reference = ResourceReference(
+                    dict(right, **{"$attribute": "Name"})
+                )
+        if name_reference is None:
+            concrete = proof.resolve(right)
+        else:
+            # The local resolver checks CREATE correspondence with the same Producer.
+            concrete = proof.resolve(name_reference, allow_recorded=False)
+            if not _literal_secret_name(concrete):
+                raise Blocked("reference name is unresolved")
         allowed = (
             REGISTRY.comparison_property_rule(kind, path).forms
             if inputs.local_comparison
