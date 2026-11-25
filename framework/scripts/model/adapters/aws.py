@@ -42,6 +42,8 @@ from contracts.repository import PROJECT_FILENAME
 from contracts.target import AWS_ACCOUNT_ID_KEY, AWS_REGION_KEY
 from design.catalog import DesignSchemaCatalog, selected_properties
 from design.policy_tables import literal
+from services.kms.references import REFERENCES as KMS_REFERENCES
+from services.reference_data import arn_pattern
 from services.registry import REGISTRY
 from task_contract_core import task_read_scope
 from utils.aws.client import API_BUDGET_SECONDS, READ_RATES, read_api
@@ -75,6 +77,9 @@ from model.sources import model_paths, scope_for
 
 SERVICES = tuple(sorted({"cloudformation-stacks", *REGISTRY.aws_adapters}))
 ROOT = Path(__file__).resolve().parents[4]
+KMS_ARN_PATTERNS = tuple(
+    arn_pattern(KMS_REFERENCES.arn_shapes[kind]) for kind in ("KMS.Key", "KMS.Alias")
+)
 
 
 def service_module(service):
@@ -1043,6 +1048,12 @@ def normalize(ctx, value, norm):
         if not isinstance(value, str) or not value:
             raise Unresolved("KMS reference is unresolved")
         return ctx.call("kms", "describe_key", KeyId=value)["KeyMetadata"]["KeyId"]
+    if norm == "kms_arn":
+        if not isinstance(value, str) or not any(
+            re.fullmatch(pattern, value) for pattern in KMS_ARN_PATTERNS
+        ):
+            raise Unresolved("expected a full KMS key or alias ARN")
+        return value
     if norm == "iam_role":
         if not isinstance(value, str) or not value:
             raise Unresolved("IAM role reference is unresolved")
@@ -1126,6 +1137,8 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                 {**item, "status": field.classification, "reason": field.reason}
             )
             continue
+        if field.norm == "kms_arn":
+            item["designValue"] = None
         start = len(ctx.trace)
         try:
             response, value = mapped_value(ctx, resource, mapping, definition, prop)
@@ -1276,6 +1289,21 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                     }
                 )
                 continue
+            if field.norm == "kms_arn":
+                try:
+                    value = normalize(ctx, value, field.norm)
+                except Unresolved as error:
+                    results.append(
+                        {
+                            **item,
+                            "status": "sdk_unavailable",
+                            "reason": "AWS response: " + str(error),
+                            "apis": ctx.trace[start:],
+                        }
+                    )
+                    continue
+                if value != MISSING and not resource.module.sensitive(prop):
+                    item["awsValue"] = redacted(value)
             values = [
                 normalize(ctx, resource.parse(row, field.norm), field.norm)
                 for _, row in rows
@@ -1286,7 +1314,11 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                 (rid, prop, val, row.get("comment", ""), value_shape(row))
                 for (rid, row), val in zip(rows, values, strict=False)
             )
-            project(actual, prop, normalize(ctx, value, field.norm))
+            project(
+                actual,
+                prop,
+                value if field.norm == "kms_arn" else normalize(ctx, value, field.norm),
+            )
             pending[prop] = {
                 **item,
                 "apis": ctx.trace[start:],

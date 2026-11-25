@@ -1254,6 +1254,7 @@ def _build(root, environment, selector, service, standalone):
         ],
     ).replace("normalize(", "normalize_literals(")
     engine += 'MISSING = {"absent": True}\n'
+    engine += f"KMS_ARN_PATTERNS = {m.KMS_ARN_PATTERNS!r}\n"
     # Preserve the exact collection semantics maintained by the existing comparator.
     original = input_text(scripts / "model/adapters/aws.py", encoding="utf-8")
     tree = ast.parse(original)

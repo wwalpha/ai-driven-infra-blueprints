@@ -597,7 +597,7 @@ resourceTypes:
         model: {include: true}
         display: {show: true, name: EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn}
         access: [read-write]
-        aws: {getter: base, path: EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn, normalize: kms}
+        aws: {getter: base, path: EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn, normalize: kms_arn}
       EncryptionConfiguration.JobBookmarksEncryption.JobBookmarksEncryptionMode:
         model: {include: false}
         display: {show: false, name: EncryptionConfiguration.JobBookmarksEncryption.JobBookmarksEncryptionMode}
@@ -612,7 +612,7 @@ resourceTypes:
         model: {include: true}
         display: {show: true, name: 'EncryptionConfiguration.S3Encryptions[].KmsKeyArn'}
         access: [read-write]
-        aws: {getter: base, path: 'EncryptionConfiguration.S3Encryption[].KmsKeyArn', normalize: kms}
+        aws: {getter: base, path: 'EncryptionConfiguration.S3Encryption[].KmsKeyArn', normalize: kms_arn}
       EncryptionConfiguration.S3Encryptions[].S3EncryptionMode:
         model: {include: true}
         display: {show: true, name: 'EncryptionConfiguration.S3Encryptions[].S3EncryptionMode'}

@@ -17,6 +17,7 @@ NORMALIZATIONS = frozenset(
         "arn",
         "policy",
         "kms",
+        "kms_arn",
         "iam_role",
         "dns",
         "log_group_arn",

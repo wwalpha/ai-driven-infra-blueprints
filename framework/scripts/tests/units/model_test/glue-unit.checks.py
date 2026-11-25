@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from aws_mapping_compare import comparison
 from support.model_sources import write_model
 from support.model_test_references import ReferenceFixture
-from support.model_test_runner import CLI, generated, load_fixture, snapshot
+from support.model_test_runner import CLI, generated, load_fixture, prepare, snapshot
 from support.pytest_cli import run
 
 from model import audit as generator
@@ -260,6 +260,161 @@ def test_glue_standalone_redacts_console_and_log(
     assert "[REDACTED]" in text
     for private in (SECRET_ARN, secret, "secret-value-never-print"):
         assert private not in text
+
+
+KMS_KEY_ID = "mrk-0123456789abcdef0123456789abcdef"
+KMS_KEY_ARN = "arn:aws:kms:ap-northeast-1:123456789012:key/" + KMS_KEY_ID
+KMS_ALIAS_ARN = "arn:aws:kms:ap-northeast-1:123456789012:alias/fixture"
+S3_KEY_ARNS = [KMS_KEY_ARN, KMS_ALIAS_ARN, KMS_KEY_ARN]
+
+
+def glue_encryption_audit(root, design_cloudwatch):
+    glue = ReferenceFixture.model(
+        "Glue.SecurityConfiguration",
+        "Glue_SecurityConfiguration_001",
+        {
+            "Name": "fixture-encryption",
+            "EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn": design_cloudwatch,
+            "EncryptionConfiguration.S3Encryptions[].KmsKeyArn": [
+                KMS_KEY_ARN,
+                ReferenceFixture.ref("KMS_Alias_002", "Arn"),
+                KMS_KEY_ARN,
+            ],
+        },
+    )
+    glue["desired.row.001-003.valueShape"] = "projection"
+    kms = ReferenceFixture.model(
+        "KMS.Key",
+        "KMS_Key_001",
+        {"KeyId": ReferenceFixture.ref("KMS_Key_001", "KeyId")},
+    )
+    kms.update(
+        {
+            "observed.row.001-001.value": KMS_KEY_ID,
+            "desired.service.identity.lastAllocated": '{"KMS.Key":1,"KMS.Alias":2}',
+            "desired.resource.002.resourceType": "KMS.Alias",
+            "desired.resource.002.logicalId": "KMS_Alias_002",
+            "desired.resource.002.anchor": "fixture-alias",
+            "desired.resource.002.cfn-logicalId": "fixture-Alias",
+            "desired.resource.002.parentProperty": "KMS.Alias.TargetKeyId",
+            "desired.resource.002.parentReference": json.dumps(
+                ReferenceFixture.ref("KMS_Key_001", "KeyId")
+            ),
+            "desired.row.002-001.property": "KMS.Alias.AliasName",
+            "desired.row.002-001.value": "`alias/fixture`",
+            "desired.row.002-001.comment": "fixture",
+        }
+    )
+    with patch("subprocess.run", side_effect=AssertionError("offline generation")):
+        return generated(
+            prepare(
+                root,
+                {
+                    "project": load_fixture("audit/base")[0]["project"],
+                    "service": "glue",
+                    "model": glue,
+                    "models": {"dev/cde/kms": kms},
+                },
+            ),
+            root,
+        )
+
+
+def glue_encryption_cli(cloudwatch, s3):
+    return CLI(
+        {
+            ("glue", "get-security-configuration"): {
+                "SecurityConfiguration": {
+                    "Name": "fixture-encryption",
+                    "EncryptionConfiguration": {
+                        "CloudWatchEncryption": {"KmsKeyArn": cloudwatch},
+                        "S3Encryption": [{"KmsKeyArn": arn} for arn in s3],
+                    },
+                },
+            },
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "cloudwatch, s3, status, code",
+    [
+        pytest.param(KMS_KEY_ARN, S3_KEY_ARNS, "OK", 0, id="same-arns"),
+        pytest.param(
+            KMS_KEY_ARN.replace("ap-northeast-1", "ap-southeast-1"),
+            [*S3_KEY_ARNS[:2], KMS_KEY_ARN.replace("123456789012", "999999999999")],
+            "NG",
+            1,
+            id="different-region-or-account",
+        ),
+        pytest.param(
+            KMS_ALIAS_ARN,
+            [KMS_ALIAS_ARN, KMS_KEY_ARN, KMS_KEY_ARN],
+            "NG",
+            1,
+            id="different-form-and-array-order",
+        ),
+        pytest.param(KMS_KEY_ID, ["alias/fixture"], "ERROR", 2, id="non-arns"),
+        pytest.param(
+            "arn:aws:kms:ap-northeast-1:123456789012:key/invalid",
+            ["arn:aws:iam::123456789012:role/fixture"],
+            "ERROR",
+            2,
+            id="malformed-arns",
+        ),
+    ],
+)
+def test_glue_kms_arn_comparison_and_log(
+    tmp_path, capsys, cloudwatch, s3, status, code
+):
+    namespace = glue_encryption_audit(tmp_path, KMS_KEY_ARN)
+    cli = glue_encryption_cli(cloudwatch, s3)
+    script = tmp_path / "tests/dev/cde/glue.py"
+    assert namespace["main"]([], cli_runner=cli, script_path=script) == code
+    text = capsys.readouterr().out
+    assert (tmp_path / "tests/results/dev/cde/glue.log").read_text(
+        encoding="utf-8"
+    ) == text
+    for prop, design, aws in (
+        ("CloudWatchEncryption.KmsKeyArn", KMS_KEY_ARN, cloudwatch),
+        ("S3Encryptions[].KmsKeyArn", S3_KEY_ARNS, s3),
+    ):
+        assert (
+            f"[{status}] Glue.SecurityConfiguration | fixture-encryption | "
+            f"EncryptionConfiguration.{prop}\n"
+            f"  Design: {json.dumps(design)}\n"
+            f"  AWS:    {json.dumps(aws if code != 2 else None)}\n"
+        ) in text
+    if code == 2:
+        assert (
+            text.count("Reason: AWS response: expected a full KMS key or alias ARN")
+            == 2
+        )
+    assert [api for api, _, _ in cli.calls] == [
+        ("sts", "get-caller-identity"),
+        ("glue", "get-security-configuration"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "design",
+    [KMS_KEY_ID, ReferenceFixture.ref("KMS_Alias_999", "Arn")],
+    ids=["key-id", "unresolved-reference"],
+)
+def test_glue_kms_unconfirmed_design_displays_only_aws_arn(tmp_path, capsys, design):
+    namespace = glue_encryption_audit(tmp_path, design)
+    script = tmp_path / "tests/dev/cde/glue.py"
+    cli = glue_encryption_cli(KMS_KEY_ARN, S3_KEY_ARNS)
+    assert namespace["main"]([], cli_runner=cli, script_path=script) == 2
+    assert (
+        "[ERROR] Glue.SecurityConfiguration | fixture-encryption | "
+        "EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn\n"
+        f"  Design: null\n  AWS:    {json.dumps(KMS_KEY_ARN)}\n"
+    ) in capsys.readouterr().out
+    assert [api for api, _, _ in cli.calls] == [
+        ("sts", "get-caller-identity"),
+        ("glue", "get-security-configuration"),
+    ]
 
 
 if __name__ == "__main__":

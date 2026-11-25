@@ -232,6 +232,19 @@ def check_v3_registry():
     }
     assert sum(map(len, tgw_properties.values())) == 18
     baseline_properties = deepcopy(properties)
+    for prop, sdk_path in (
+        (
+            "EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn",
+            "EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn",
+        ),
+        (
+            "EncryptionConfiguration.S3Encryptions[].KmsKeyArn",
+            "EncryptionConfiguration.S3Encryption[].KmsKeyArn",
+        ),
+    ):
+        field = baseline_properties["glue"]["Glue.SecurityConfiguration"][prop]["aws"]
+        assert field == {"getter": "base", "path": sdk_path, "normalize": "kms_arn"}
+        field["normalize"] = "kms"
     for leaf in (
         "InputTransformer.InputPathsMap",
         "InputTransformer.InputTemplate",

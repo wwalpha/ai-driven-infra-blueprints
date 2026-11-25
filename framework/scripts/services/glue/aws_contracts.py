@@ -124,13 +124,14 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
                 "CloudWatchEncryption"
             ].items():
                 path = "EncryptionConfiguration.CloudWatchEncryption." + name
-                cases[path] = (path, "kms" if name == "KmsKeyArn" else "typed", value)
+                norm = "kms_arn" if name == "KmsKeyArn" else "typed"
+                cases[path] = (path, norm, value)
             for name, value in payload["EncryptionConfiguration"]["S3Encryption"][
                 0
             ].items():
                 cases["EncryptionConfiguration.S3Encryptions[]." + name] = (
                     "EncryptionConfiguration.S3Encryption[]." + name,
-                    "kms" if name == "KmsKeyArn" else "typed",
+                    "kms_arn" if name == "KmsKeyArn" else "typed",
                     [value],
                 )
     elif kind == "Glue.Catalog":

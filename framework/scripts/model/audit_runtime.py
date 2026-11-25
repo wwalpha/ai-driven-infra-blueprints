@@ -253,12 +253,13 @@ def engine(snapshot):
 
 
 def reference_result(m, snapshot, resource, item):
+    prop = item["propertiesKey"]
     if (
-        item["propertiesKey"] in {"SQS.QueuePolicy.Id", "LakeFormation.Resource.Id"}
+        prop in {"SQS.QueuePolicy.Id", "LakeFormation.Resource.Id"}
         and item["status"] == "sdk_unavailable"
     ):
         return item
-    rows = resource.rows_for(item["propertiesKey"])
+    rows = resource.rows_for(prop)
     if (
         resource.kind == "CodePipeline.Pipeline"
         and ".Stages[]." in item["propertiesKey"]
@@ -277,8 +278,19 @@ def reference_result(m, snapshot, resource, item):
                 + ": Stage Name, Action Name and ActionTypeId.Category must identify membership",
             }
     resolutions = [row_resolution(snapshot, resource, row) for _, row in rows]
-    if not any(resolutions) and not any(
-        contains_reference(row.get("document", row["value"])) for _, row in rows
+    kms_arn = (
+        snapshot["mappings"][resource.model.service]["properties"]
+        .get(prop, {})
+        .get("field", {})
+        .get("norm")
+        == "kms_arn"
+    )
+    if (
+        not kms_arn
+        and not any(resolutions)
+        and not any(
+            contains_reference(row.get("document", row["value"])) for _, row in rows
+        )
     ):
         return item
     reasons = list(
@@ -336,11 +348,14 @@ def reference_result(m, snapshot, resource, item):
                 "status": "acquisition_failed",
                 "reason": "Secret identity unavailable",
             }
-    if item["status"] in {"match", "difference"}:
+    if item["status"] in {"match", "difference"} or (
+        kms_arn
+        and item["status"] == "design_unresolved"
+        and item["designValue"] is None
+    ):
         return item
-    # Acquisition failed before parsing: display fixed values without another AWS call.
+    # Display available design evidence without another AWS call.
     expected = {}
-    prop = item["propertiesKey"]
     try:
         for (rid, row), resolved in zip(rows, resolutions, strict=True):
             value = (
@@ -349,6 +364,8 @@ def reference_result(m, snapshot, resource, item):
                 else m.typed_value(row, row["value"], snapshot["schemas"].get(prop, {}))
             )
             validate_design_value(m, snapshot, row, value)
+            if kms_arn:
+                value = m.normalize(None, value, "kms_arn")
             (m.project if m.value_shape(row) == "projection" else m.put_row)(
                 expected,
                 snapshot.get("pipelineIndexedRows", {})
