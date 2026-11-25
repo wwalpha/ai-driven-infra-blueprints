@@ -205,10 +205,10 @@ resourceTypes:
         access: [read-write]
         aws: {getter: notifications, path: EventBridgeEnabled, normalize: typed}
       NotificationConfiguration.LambdaConfigurations[].Event:
-        model: {include: false}
-        display: {show: false, name: 'NotificationConfiguration.LambdaConfigurations[].Event'}
+        model: {include: true}
+        display: {show: true, name: 'NotificationConfiguration.LambdaConfigurations[].Event'}
         access: [read-write]
-        aws: {getter: provider-s3-bucket, path: 'NotificationConfiguration.LambdaConfigurations[].Event', normalize: typed}
+        aws: {getter: notifications, path: 'LambdaConfigurations[].Event', normalize: typed}
       NotificationConfiguration.LambdaConfigurations[].Filter.S3Key.Rules[].Name:
         model: {include: false}
         display: {show: false, name: 'NotificationConfiguration.LambdaConfigurations[].Filter.S3Key.Rules[].Name'}
@@ -220,10 +220,10 @@ resourceTypes:
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'NotificationConfiguration.LambdaConfigurations[].Filter.S3Key.Rules[].Value', normalize: typed}
       NotificationConfiguration.LambdaConfigurations[].Function:
-        model: {include: false}
-        display: {show: false, name: 'NotificationConfiguration.LambdaConfigurations[].Function'}
+        model: {include: true}
+        display: {show: true, name: 'NotificationConfiguration.LambdaConfigurations[].Function'}
         access: [read-write]
-        aws: {getter: provider-s3-bucket, path: 'NotificationConfiguration.LambdaConfigurations[].Function', normalize: typed}
+        aws: {getter: notifications, path: 'LambdaConfigurations[].Function', normalize: typed}
       NotificationConfiguration.QueueConfigurations[].Event:
         model: {include: false}
         display: {show: false, name: 'NotificationConfiguration.QueueConfigurations[].Event'}

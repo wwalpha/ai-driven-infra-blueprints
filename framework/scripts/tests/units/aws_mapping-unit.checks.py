@@ -410,6 +410,23 @@ def check_v3_registry():
         "normalize": "typed",
     }
     notifications.update(getter="provider-s3-bucket", path=notifications_path)
+    for leaf in ("Event", "Function"):
+        path = f"LambdaConfigurations[].{leaf}"
+        key = "NotificationConfiguration." + path
+        prop = baseline_properties["s3"]["S3.Bucket"][key]
+        assert prop["model"]["include"] and prop["display"]["show"]
+        assert prop["aws"] == {
+            "getter": "notifications",
+            "path": path,
+            "normalize": "typed",
+        }
+        prop["aws"].update(getter="provider-s3-bucket", path=key)
+        prop["model"]["include"] = prop["display"]["show"] = False
+    scheduler_input = baseline_properties["eventbridge"]["Scheduler.Schedule"][
+        "Target.Input"
+    ]
+    assert scheduler_input["model"]["include"] and scheduler_input["display"]["show"]
+    scheduler_input["model"]["include"] = scheduler_input["display"]["show"] = False
     assert definitions["s3"].pop("notifications") == {
         "kind": "adapter",
         "resources": ["S3.Bucket"],
@@ -1196,6 +1213,25 @@ class ReplicationContext:
         if isinstance(self.response, Exception):
             raise self.response
         return self.response
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"LambdaFunctionConfigurations": [{"Events": ["s3:ObjectCreated:*"]}]},
+        {
+            "LambdaFunctionConfigurations": [
+                {"LambdaFunctionArn": "function", "Events": []}
+            ]
+        },
+        {"LambdaFunctionConfigurations": "invalid"},
+        {"ResponseMetadata": {"HTTPStatusCode": 403}},
+    ],
+)
+def test_s3_notifications_invalid_response(response):
+    adapter = m.service_module("s3")
+    with pytest.raises(m.AcquisitionError, match="InvalidResponse"):
+        adapter.normalize_notifications(ROOT, response)
 
 
 def test_s3_replication_mapping_and_normalization():

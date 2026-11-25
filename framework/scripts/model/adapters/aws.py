@@ -210,6 +210,8 @@ def canonical(value, path=""):
         return result
     if isinstance(value, list):
         items = [canonical(item, path + "[]") for item in value]
+        if path == ".S3.Bucket.NotificationConfiguration.LambdaConfigurations":
+            return sorted(items, key=stable)
         name = path.rsplit(".", 1)[-1]
         if (
             name in MAP_ARRAYS

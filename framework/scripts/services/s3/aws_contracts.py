@@ -183,7 +183,27 @@ def s3_base_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str
 def s3_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str, Any]:
     kind = ".".join(properties[0].split(".")[:2])
     getter = mapping.properties[properties[0]].field.getter
+    function_arn = "arn:aws:lambda:ap-northeast-1:123456789012:function:fixture"
+    event = "s3:ObjectCreated:*"
+    notification_path = "NotificationConfiguration.LambdaConfigurations[]"
     configs = {
+        "notifications": (
+            "get_bucket_notification_configuration",
+            {
+                "LambdaFunctionConfigurations": [
+                    {"LambdaFunctionArn": function_arn, "Events": [event]},
+                ]
+            },
+            {
+                notification_path + ".Event": (
+                    "LambdaConfigurations[].Event", "typed", [event]
+                ),
+                notification_path + ".Function": (
+                    "LambdaConfigurations[].Function", "typed", [function_arn]
+                ),
+            },
+            None,
+        ),
         "replication": (
             "get_bucket_replication",
             {
@@ -484,6 +504,16 @@ def s3_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str, Any
         for item in items.values():
             if item["status"] == "verified":
                 item["branches"].append("optional-configuration-absent")
+    elif getter == "notifications":
+        fake.payload = {}
+        clear_fetch(ctx)
+        for key in properties:
+            _, raw = mapping_value(ctx, resource, mapping, mapping.properties[key], key)
+            if raw != []:
+                raise ValueError("Absent Lambda notifications were not preserved")
+            if items[key]["status"] == "verified":
+                items[key]["branches"].append("optional-configuration-absent")
+        fake.payload = payload
     else:
         missing_values(ctx, fake, resource, mapping, items, payload)
     failure_branches(
@@ -522,6 +552,12 @@ CONTRACTS = (
         ("S3.Bucket", "replication"),
         s3_fixture,
         "s3.get_bucket_replication",
+        ("BucketName",),
+    ),
+    (
+        ("S3.Bucket", "notifications"),
+        s3_fixture,
+        "s3.get_bucket_notification_configuration",
         ("BucketName",),
     ),
     (

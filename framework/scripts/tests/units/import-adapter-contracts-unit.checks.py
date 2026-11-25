@@ -648,7 +648,12 @@ def test_eventbridge_rule_and_scheduler_contracts_cover_bus_scope():
         in rule["base"]["properties"]["Events.Rule.Name"]["branches"]
     )
     schedule = adapter_contracts.run(ROOT, mapping, "Scheduler.Schedule")["schedule"]
-    assert schedule["status"] == "verified"
+    assert schedule["status"] == "unverified"
+    assert schedule["properties"]["Scheduler.Schedule.Target.Input"] == {
+        "status": "unverified",
+        "reason": "Sensitive or explicitly unobservable Property",
+    }
+    assert schedule["properties"]["Scheduler.Schedule.Name"]["status"] == "verified"
     assert schedule["fixtureOperation"] == "scheduler.get_schedule"
 
 

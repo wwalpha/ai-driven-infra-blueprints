@@ -35,6 +35,7 @@ from support.aws_mapping_fixtures import (
     write_model,
 )
 from support.it_case_receipt import it_case
+from support.model_reference_fixtures import resource_values
 from support.model_test_runner import CLI, generated
 
 if not __debug__:
@@ -297,6 +298,7 @@ class SchedulerClient:
 @it_case
 def check_scheduler_compare():
     kind = "Scheduler.Schedule"
+    target_input = '{"message": "sensitive-demo-value"}'
     target = {
         "awsAccountId": "123456789012",
         "awsRegion": "ap-northeast-1",
@@ -309,7 +311,7 @@ def check_scheduler_compare():
         "Target.RetryPolicy.MaximumEventAgeInSeconds": 3600,
         "Target.RetryPolicy.MaximumRetryAttempts": 3,
         "StartDate": "2026-01-01T09:00:00+09:00",
-        "Target.Input": "sensitive-demo-value",
+        "Target.Input": target_input,
     }
     with TemporaryDirectory() as directory:
         root = Path(directory)
@@ -385,6 +387,48 @@ def check_scheduler_compare():
         ) and "different-sensitive-value" not in str(results)
         assert client.calls == [{"Name": "job", "GroupName": "custom"}]
         assert "sensitive-demo-value" not in str(ctx.trace)
+        model = ctx.model(path)
+        assert load_model(path).values["desired.row.001-006.value"] == (
+            "`" + target_input + "`"
+        )
+        (resource,) = model.resources
+        table = resource_table_lines(
+            resource.spec,
+            "job",
+            resource_rows(model.values, "001", kind, ROOT),
+            [],
+            ROOT,
+        )
+        assert any(f"| Target.Input | `{target_input}` |" in row for row in table)
+        audit_source, _, _ = generate(root, "dev", "fixture", "eventbridge")
+        standalone = generated(audit_source, root)
+        for supplied, expected in (
+            ({"Input": target_input}, "match"),
+            ({"Input": target_input.replace(": ", ":")}, "difference"),
+            ({}, "difference"),
+        ):
+            runner = CLI(
+                {("scheduler", "get-schedule"): {**payload, "Target": supplied}}
+            )
+            _, _, audited = standalone["audit"](
+                standalone["SNAPSHOT"], cli_runner=runner
+            )
+            selected = next(
+                row for row in audited if row["propertiesKey"] == kind + ".Target.Input"
+            )
+            assert selected["status"] == expected, selected
+            assert selected["designValue"] == selected["awsValue"] == "[REDACTED]"
+            assert "sensitive-demo-value" not in str(audited) + str(runner.calls)
+        schedule_api = ("scheduler", "get-schedule")
+        runner = CLI({schedule_api: {"$error": "AccessDenied: sensitive-demo-value"}})
+        _, _, audited = standalone["audit"](standalone["SNAPSHOT"], cli_runner=runner)
+        failure = next(
+            row
+            for row in audited
+            if kind + ".Target.Input" in row.get("affectedKeys", [])
+        )
+        assert failure["status"] == "acquisition_failed"
+        assert "sensitive-demo-value" not in str(audited) + str(runner.calls)
         for retry, expected in [
             (
                 {"MaximumEventAgeInSeconds": 7200, "MaximumRetryAttempts": 5},
@@ -467,6 +511,16 @@ def check_scheduler_compare():
                 kind + ".Target.RetryPolicy.MaximumRetryAttempts"
             ]["value"]
             == 3
+        )
+        input_capture = normalized[0]["properties"].get(kind + ".Target.Input", {})
+        assert "value" not in input_capture
+        for key in tuple(values):
+            if key.startswith("desired.row.001-006."):
+                del values[key]
+        write_model(path, values)
+        assert not any(
+            row[1] == kind + ".Target.Input"
+            for row in resource_rows(load_model(path).values, "001", kind, ROOT)
         )
 
 
@@ -674,6 +728,7 @@ class ReplicationImportCalls:
                         }
                     },
                     "get_bucket_lifecycle_configuration": {"Rules": []},
+                    "get_bucket_notification_configuration": {},
                     "get_bucket_ownership_controls": {
                         "OwnershipControls": {
                             "Rules": [{"ObjectOwnership": "BucketOwnerEnforced"}]
@@ -946,6 +1001,139 @@ def check_s3_replication():
         ] == [["1", "2"], ["3", "4"]]
 
 
+@it_case
+def check_s3_lambda_notifications():
+    kind = "S3.Bucket"
+    prefix = kind + ".NotificationConfiguration.LambdaConfigurations[]"
+    first, second = [
+        "arn:aws:lambda:ap-northeast-1:123456789012:function:" + name
+        for name in ("first", "second")
+    ]
+    put, copy_event, remove = (
+        "s3:ObjectCreated:Put",
+        "s3:ObjectCreated:Copy",
+        "s3:ObjectRemoved:*",
+    )
+    function_ref = {
+        "$modelRef": {"logicalId": "Lambda_Function_001", "attribute": "Arn"}
+    }
+    expected_rows = [
+        (kind + ".BucketName", "fixture-bucket"),
+        (prefix + ".Event", put),
+        (prefix + ".Function", function_ref),
+        (prefix + ".Event", copy_event),
+        (prefix + ".Function", first),
+        (prefix + ".Event", remove),
+        (prefix + ".Function", second),
+    ]
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        target = {
+            "environment": "dev",
+            "alias": "fixture",
+            "awsAccountId": "123456789012",
+            "awsRegion": "ap-northeast-1",
+            "iacEngine": "cloudformation",
+        }
+        (root / "project.json").write_text(
+            json.dumps({"targets": [target]}), encoding="utf-8"
+        )
+        producer, producer_values = resource_values(
+            root,
+            "lambda",
+            "Lambda.Function",
+            target="fixture",
+            environment="dev",
+            observed=first,
+        )
+        producer_values.update(
+            {
+                "desired.row.001-002.property": "Lambda.Function.FunctionName",
+                "desired.row.001-002.value": "`first`",
+                "desired.row.001-002.comment": "fixture",
+            }
+        )
+        write_model(producer.path, producer_values)
+        path = producer.path.with_name("s3.properties")
+        values = {
+            "desired.service.s3.serviceId": "s3",
+            "desired.service.s3.ownedCatalogResourceTypes": kind,
+            "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
+            "desired.resource.001.resourceType": kind,
+            "desired.resource.001.resourceMode": "IMPORT",
+            "desired.resource.001.logicalId": "S3_Bucket_001",
+        }
+        for index, (name, value) in enumerate(expected_rows, 1):
+            key = f"desired.row.001-{index:03}"
+            values[key + ".property"] = name
+            values[key + ".value"] = cli.model_literal(value)
+            values[key + ".comment"] = "fixture"
+        write_model(path, values)
+        loaded = load_model(path).values
+        assert loaded["desired.row.001-003.value"] == cli.model_literal(function_ref)
+        table = "\n".join(
+            resource_table_lines(
+                {"resourceType": kind, "logicalId": "S3_Bucket_001"},
+                "fixture-bucket",
+                resource_rows(loaded, "001", kind, ROOT),
+                [],
+                ROOT,
+            )
+        )
+        base = "NotificationConfiguration.LambdaConfigurations"
+        for index, (event, function) in enumerate(
+            zip((put, copy_event, remove), (function_ref, first, second), strict=True),
+            1,
+        ):
+            assert f"| {base}[{index}].Event | `{event}` |" in table
+            assert (
+                f"| {base}[{index}].Function | {cli.model_literal(function)} |" in table
+            )
+
+        audit_source, _, _ = generate(root, "dev", "fixture", "s3")
+        standalone = generated(audit_source, root)
+        notification_api = ("s3api", "get-bucket-notification-configuration")
+        for configurations, match in (
+            ([(second, [remove]), (first, [copy_event, put])], True),
+            ([(first, [copy_event, remove]), (second, [put])], False),
+            ([(first, [copy_event]), (second, [remove])], False),
+            ([], False),
+        ):
+            runner = CLI(
+                {
+                    ("s3api", "list-buckets"): {
+                        "Buckets": [
+                            {
+                                "Name": "fixture-bucket",
+                                "BucketArn": "arn:aws:s3:::fixture-bucket",
+                            }
+                        ]
+                    },
+                    ("s3api", "get-bucket-location"): {
+                        "LocationConstraint": "ap-northeast-1"
+                    },
+                    notification_api: {
+                        "LambdaFunctionConfigurations": [
+                            {"LambdaFunctionArn": arn, "Events": events}
+                            for arn, events in configurations
+                        ]
+                    },
+                }
+            )
+            _, _, audited = standalone["audit"](
+                standalone["SNAPSHOT"], cli_runner=runner
+            )
+            selected = {row["propertiesKey"]: row["status"] for row in audited}
+            assert (
+                selected[prefix + ".Event"] == selected[prefix + ".Function"] == "match"
+            ) == match, audited
+            if not match:
+                assert selected[prefix + ".Function"] == "difference", audited
+            assert [
+                inputs for api, inputs, _ in runner.calls if api == notification_api
+            ] == [{"Bucket": "fixture-bucket", "ExpectedBucketOwner": "123456789012"}]
+
+
 def main():
     with patch.object(
         socket.socket, "connect", side_effect=AssertionError("network forbidden")
@@ -954,9 +1142,8 @@ def main():
         check_scheduler_compare()
         check_glue_catalog_compare()
         check_s3_replication()
-    print(
-        "AWS Mapping checks: PASS (Config explicit values, Compare, IMPORT and display 18/18; no AWS connection)"
-    )
+        check_s3_lambda_notifications()
+    print("AWS Mapping checks: PASS (5 offline integration cases)")
 
 
 if __name__ == "__main__":

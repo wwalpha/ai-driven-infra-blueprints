@@ -287,8 +287,8 @@ resourceTypes:
         access: [read-write]
         aws: {getter: schedule, path: Target.RetryPolicy.MaximumRetryAttempts, normalize: typed}
       Target.Input:
-        model: {include: false}
-        display: {show: false, name: Target.Input}
+        model: {include: true}
+        display: {show: true, name: Target.Input}
         access: [read-write]
         aws: {getter: schedule, path: Target.Input, normalize: typed}
       Target.EcsParameters.TaskDefinitionArn:

@@ -105,12 +105,7 @@ def fetch(ctx, r, getter):
     if getter == "replication":
         return normalize_replication(ctx.root, result)
     if getter == "notifications":
-        operation = operations[getter]
-        if not sdk_response(
-            ctx.root, {"service": "s3", "operation": operation}, result
-        ):
-            raise AcquisitionError("s3." + operation, "InvalidResponse")
-        return {"EventBridgeEnabled": "EventBridgeConfiguration" in result}
+        return normalize_notifications(ctx.root, result)
     if getter == "encryption":
         return {
             "ServerSideEncryptionConfiguration": result[
@@ -127,6 +122,29 @@ def fetch(ctx, r, getter):
             result["ObjectLockConfiguration"].get("ObjectLockEnabled") == "Enabled"
         )
     return result
+
+
+def normalize_notifications(root, result):
+    operation = "get_bucket_notification_configuration"
+    api = "s3." + operation
+    if not sdk_response(root, {"service": "s3", "operation": operation}, result):
+        raise AcquisitionError(api, "InvalidResponse")
+    configurations = result.get("LambdaFunctionConfigurations", [])
+    if any(
+        not config["LambdaFunctionArn"]
+        or not config["Events"]
+        or not all(config["Events"])
+        for config in configurations
+    ):
+        raise AcquisitionError(api, "InvalidResponse")
+    return {
+        "EventBridgeEnabled": "EventBridgeConfiguration" in result,
+        "LambdaConfigurations": [
+            {"Event": event, "Function": config["LambdaFunctionArn"]}
+            for config in configurations
+            for event in config["Events"]
+        ],
+    }
 
 
 def normalize_replication(root, result):
