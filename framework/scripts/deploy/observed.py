@@ -745,7 +745,15 @@ class PermissionResource:
 
 
 def permission_expression(
-    value, backend, actuals, mapped, document, parameters, pseudo, stack
+    value,
+    backend,
+    actuals,
+    mapped,
+    document,
+    parameters,
+    pseudo,
+    stack,
+    output_stacks=None,
 ):
     """Resolve GetAtt only from a uniquely mapped, identity-checked provider read."""
 
@@ -763,7 +771,15 @@ def permission_expression(
     if isinstance(value, list):
         return [
             permission_expression(
-                item, backend, actuals, mapped, document, parameters, pseudo, stack
+                item,
+                backend,
+                actuals,
+                mapped,
+                document,
+                parameters,
+                pseudo,
+                stack,
+                output_stacks,
             )
             for item in value
         ]
@@ -772,7 +788,15 @@ def permission_expression(
     if set(value) == {"Fn::If"}:
         selected = _imports_cfn_inputs.output_value(document, parameters, pseudo, value)
         return permission_expression(
-            selected, backend, actuals, mapped, document, parameters, pseudo, stack
+            selected,
+            backend,
+            actuals,
+            mapped,
+            document,
+            parameters,
+            pseudo,
+            stack,
+            output_stacks,
         )
     if set(value) == {"Ref"} and value["Ref"] in mapped:
         logical = value["Ref"]
@@ -795,6 +819,54 @@ def permission_expression(
         ):
             raise Blocked("Ref resource identity unsupported")
         return matches[0]["PhysicalResourceId"]
+    if set(value) == {"Fn::GetStackOutput"}:
+        args = value["Fn::GetStackOutput"]
+        if (
+            output_stacks is None
+            or not isinstance(args, dict)
+            or not {"StackName", "OutputName"} <= args.keys()
+            or set(args) - {"StackName", "OutputName", "Region"}
+        ):
+            raise Blocked("GetStackOutput arguments unsupported")
+        args = {
+            key: _imports_cfn_inputs.resolve_value(
+                item, parameters, pseudo, conditions=document.get("Conditions")
+            )
+            for key, item in args.items()
+        }
+        name, output = args["StackName"], args["OutputName"]
+        if (
+            not all(isinstance(item, str) and item for item in args.values())
+            or args.get("Region", backend.target[AWS_REGION_KEY])
+            != backend.target[AWS_REGION_KEY]
+            or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*", name)
+        ):
+            raise Blocked("GetStackOutput identity unsupported")
+        producer = current_state.read(backend.aws, name)
+        account = backend.target.get(
+            AWS_EXECUTION_ACCOUNT_ID_KEY, backend.target[AWS_ACCOUNT_ID_KEY]
+        )
+        prefix = f"arn:{stack['StackId'].split(':', 2)[1]}:cloudformation:{backend.target[AWS_REGION_KEY]}:{account}:stack/{name}/"
+        if current_state.category(producer) != "SUCCESS" or not re.fullmatch(
+            re.escape(prefix) + r"[^/]+", producer.get("StackId", "")
+        ):
+            raise Blocked("GetStackOutput producer identity or status unconfirmed")
+        outputs = producer.get("Outputs")
+        if not isinstance(outputs, list) or any(
+            not isinstance(item, dict) for item in outputs
+        ):
+            raise Blocked("GetStackOutput producer outputs unavailable")
+        matches = [item for item in outputs if item.get("OutputKey") == output]
+        if len(matches) != 1 or not isinstance(matches[0].get("OutputValue"), str):
+            raise Blocked("GetStackOutput output missing or ambiguous")
+        if name in output_stacks and (
+            current_state.identity(output_stacks[name])
+            != current_state.identity(producer)
+            or output_stacks[name].get("Outputs") != outputs
+        ):
+            raise Blocked("GetStackOutput producer changed during acquisition")
+        output_stacks[name] = producer
+        return matches[0]["OutputValue"]
     if set(value) == {"Fn::GetAtt"}:
         ref = value["Fn::GetAtt"]
         ref = ref.split(".", 1) if isinstance(ref, str) else ref
@@ -810,7 +882,15 @@ def permission_expression(
         text, overrides = (sub, {}) if isinstance(sub, str) else sub
         overrides = {
             key: permission_expression(
-                item, backend, actuals, mapped, document, parameters, pseudo, stack
+                item,
+                backend,
+                actuals,
+                mapped,
+                document,
+                parameters,
+                pseudo,
+                stack,
+                output_stacks,
             )
             for key, item in overrides.items()
         }
@@ -825,6 +905,7 @@ def permission_expression(
                     parameters,
                     pseudo,
                     stack,
+                    output_stacks,
                 )
         for logical, name in re.findall(r"\$\{([A-Za-z0-9]+)\.([A-Za-z0-9]+)\}", text):
             key = logical + "." + name
@@ -833,7 +914,15 @@ def permission_expression(
         return {"Fn::Sub": [text, overrides]}
     return {
         key: permission_expression(
-            item, backend, actuals, mapped, document, parameters, pseudo, stack
+            item,
+            backend,
+            actuals,
+            mapped,
+            document,
+            parameters,
+            pseudo,
+            stack,
+            output_stacks,
         )
         for key, item in value.items()
     }
@@ -935,6 +1024,7 @@ def permission_observation(
             or parent_name.startswith("arn:")
         ):
             return None, "function name unavailable"
+        output_stacks = {}
         function = _imports_cfn_inputs.resolve_value(
             permission_expression(
                 props["FunctionName"],
@@ -945,6 +1035,7 @@ def permission_observation(
                 parameters,
                 pseudo,
                 stack,
+                output_stacks,
             ),
             parameters,
             pseudo | {parent_logical: parent_name},
@@ -1021,6 +1112,7 @@ def permission_observation(
                     parameters,
                     pseudo,
                     stack,
+                    output_stacks,
                 ),
                 parameters,
                 pseudo,
@@ -1070,6 +1162,12 @@ def permission_observation(
             or (function_arn and arn != function)
         ):
             return None, "permission function or qualifier mismatch"
+        for producer in output_stacks.values():
+            after_producer = current_state.read(backend.aws, producer["StackId"])
+            if current_state.identity(producer) != current_state.identity(
+                after_producer
+            ) or producer.get("Outputs") != after_producer.get("Outputs"):
+                return None, "GetStackOutput producer changed during acquisition"
         after = current_state.read(backend.aws, stack_id)
         if current_state.identity(stack) != current_state.identity(after) or stack.get(
             "Outputs", []

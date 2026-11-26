@@ -170,6 +170,36 @@ def _permission_evidence_aws(
                 }
             ]
         }
+    if (
+        operation == "describe_stacks"
+        and isinstance(fault, str)
+        and fault.startswith("output-")
+        and "stack/basis/" in kwargs.get("StackName", "")
+        or operation == "describe_stacks"
+        and isinstance(fault, str)
+        and fault.startswith("output-")
+        and kwargs.get("StackName") == "basis"
+    ):
+        producer = {
+            "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/basis/unique",
+            "StackStatus": "UPDATE_COMPLETE",
+            "Outputs": [
+                {"OutputKey": "BucketArn", "OutputValue": "arn:aws:s3:::my-bucket"}
+            ],
+        }
+        if fault == "output-account":
+            producer["StackId"] = producer["StackId"].replace(
+                "123456789012", "999999999999"
+            )
+        if fault == "output-in-progress":
+            producer["StackStatus"] = "UPDATE_IN_PROGRESS"
+        if fault == "output-missing":
+            producer["Outputs"] = []
+        if fault == "output-duplicate":
+            producer["Outputs"] *= 2
+        if fault == "output-changed" and kwargs["StackName"] != "basis":
+            producer["Outputs"][0]["OutputValue"] = "arn:aws:s3:::changed"
+        return {"Stacks": [producer]}
     if operation == "get_policy":
         assert kwargs == {"service": "lambda", "FunctionName": function_name}
         if fault == "denied":
@@ -1041,6 +1071,15 @@ def test_config_rule_collects_checked_api_value(
         "principal",
         "arn",
         "other-function-sid",
+        "output-ok",
+        "output-account",
+        "output-in-progress",
+        "output-missing",
+        "output-duplicate",
+        "output-changed",
+        "output-role",
+        "output-region",
+        "output-mismatch",
     ],
 )
 def test_lambda_permission_policy_identity(project_workspace, fault):
@@ -1076,6 +1115,17 @@ def test_lambda_permission_policy_identity(project_workspace, fault):
                 "arn:${AWS::Partition}:s3:::${BucketName}",
                 {"BucketName": {"Fn::ImportValue": "BucketName"}},
             ]
+        }
+    if isinstance(fault, str) and fault.startswith("output-"):
+        document["Parameters"] = {"Prefix": {"Type": "String"}}
+        stack["Parameters"] = [{"ParameterKey": "Prefix", "ParameterValue": "basis"}]
+        args = {"StackName": {"Fn::Sub": "${Prefix}"}, "OutputName": "BucketArn"}
+        if fault == "output-role":
+            args["RoleArn"] = "arn:aws:iam::999999999999:role/other"
+        if fault == "output-region":
+            args["Region"] = "us-east-1"
+        document["Resources"]["Permission"]["Properties"]["SourceArn"] = {
+            "Fn::GetStackOutput": args
         }
     if fault in {"getatt", "getatt-sub", "source-mismatch"}:
         document["Resources"]["Bucket"] = {"Type": "AWS::S3::Bucket"}
@@ -1161,11 +1211,15 @@ def test_lambda_permission_policy_identity(project_workspace, fault):
         ),
     }
 
-    if fault in {"getatt", "getatt-sub", "import", "source-mismatch"}:
+    if (
+        fault in {"getatt", "getatt-sub", "import", "source-mismatch"}
+        or isinstance(fault, str)
+        and fault.startswith("output-")
+    ):
         statement["Condition"] = {
             "ArnLike": {
                 "AWS:SourceArn": "arn:aws:s3:::other"
-                if fault == "source-mismatch"
+                if fault in {"source-mismatch", "output-mismatch"}
                 else "arn:aws:s3:::my-bucket"
             }
         }
@@ -1179,7 +1233,9 @@ def test_lambda_permission_policy_identity(project_workspace, fault):
         backend,
         stack,
         document,
-        {},
+        {"Prefix": "basis"}
+        if isinstance(fault, str) and fault.startswith("output-")
+        else {},
         {},
         [parent, actual]
         + (
@@ -1223,6 +1279,7 @@ def test_lambda_permission_policy_identity(project_workspace, fault):
         "import",
         "arn",
         "other-function-sid",
+        "output-ok",
     }:
         assert (value, reason) == ("sid-1", None), reason
     else:
@@ -1488,7 +1545,9 @@ def test_stack_physical_identifier_observation(
         "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/producer/unique",
         "StackStatus": "CREATE_COMPLETE",
         "Outputs": (
-            [] if output is None else [{"OutputKey": "ResourceName", "OutputValue": output}]
+            []
+            if output is None
+            else [{"OutputKey": "ResourceName", "OutputValue": output}]
         ),
     }
     backend = SimpleNamespace(
@@ -1543,7 +1602,11 @@ def test_stack_physical_identifier_observation(
     [
         ("Route53Resolver.ResolverEndpoint", "ResolverEndpointId", "rslvr-in-0123"),
         ("CloudFront.OriginAccessControl", "Id", "E123456789"),
-        ("GuardDuty.MalwareProtectionPlan", "MalwareProtectionPlanId", "0123456789abcdef0123"),
+        (
+            "GuardDuty.MalwareProtectionPlan",
+            "MalwareProtectionPlanId",
+            "0123456789abcdef0123",
+        ),
     ],
 )
 def test_provider_confirms_single_identifier_without_output(
