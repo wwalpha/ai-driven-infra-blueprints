@@ -701,8 +701,8 @@ def fixture_coverage(root):
             for service, types in report["comparisonResourceTypes"].items()
             if service != "cloudformation-stacks"
         )
-        == 91,
-        "91 mapped comparison types, independent of include",
+        == 94,
+        "94 mapped comparison types, independent of include",
     )
     check(
         report["comparisonResourceTypes"]["cloudformation-stacks"]

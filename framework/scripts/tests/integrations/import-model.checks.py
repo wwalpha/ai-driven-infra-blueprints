@@ -294,7 +294,10 @@ def check_vpc_eight_instances(tmp_path):
     root = tmp_path / "case"
     path = fixture(root, "vpc")
     before = source_files(root)
-    acquired = m.acquire(root, "dev", "vpc", TARGET, cli_runner=aws("vpc", noise=True))
+    acquired = m.acquire(
+        root, "dev", "vpc", TARGET, cli_runner=aws("vpc", noise=True),
+        resource_types=["EC2.VPC", "EC2.Subnet"],
+    )
     stage(root, acquired, {}, excluded=exclusions(acquired, []))
     result = publish_fixture(root, acquired, "vpc")
     assert result["model"] == "unchanged" and source_files(root) == before
@@ -325,7 +328,10 @@ def check_managed_resource_addition(tmp_path):
             "Tags": [{"Key": "Name", "Value": name}],
         }
     )
-    acquired = m.acquire(root, "dev", "vpc", TARGET, cli_runner=cli)
+    acquired = m.acquire(
+        root, "dev", "vpc", TARGET, cli_runner=cli,
+        resource_types=["EC2.VPC", "EC2.Subnet"],
+    )
     values = dict(original.authoritative)
     for key, value in original.authoritative.items():
         if key.startswith(
@@ -1125,7 +1131,8 @@ def check_replace_warns_incoming_references(tmp_path):
     path = fixture(root, "vpc")
     before = load_model(path)
     acquired = m.acquire(
-        root, "dev", "vpc", TARGET, cli_runner=aws("vpc", changed=True, noise=True)
+        root, "dev", "vpc", TARGET, cli_runner=aws("vpc", changed=True, noise=True),
+        resource_types=["EC2.VPC", "EC2.Subnet"],
     )
     values = dict(before.authoritative)
     values.update(
