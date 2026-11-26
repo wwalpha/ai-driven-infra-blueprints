@@ -8,8 +8,8 @@ from contracts.model import (
     MODEL_REF_KEY,
     REFERENCE_LOGICAL_ID_KEY,
     RESOURCE_TYPE_KEY,
+    row_resource,
 )
-from design.common import code
 from model.core import ModelNeedsFixError, ReferenceDiagnosticError, literal
 from model.reference_nodes import is_reference, parse
 from model.reference_values import confirmed, reference_value
@@ -36,7 +36,7 @@ def cname_record(values, row_id):
     prop = values.get(f"desired.row.{row_id}.property")
     if prop not in {RECORD_PROPERTY, RECORD_PROPERTY + "[]"}:
         return False
-    rows = _model_api.ModelView(values).row_index().get(row_id.rpartition("-")[0], ())
+    rows = _model_api.ModelView(values).row_index().get(row_resource(row_id), ())
     return any(
         row["property"] == "Route53.RecordSet.Type" and literal(row["value"]) == "CNAME"
         for _, row in rows
@@ -186,6 +186,8 @@ def recorded_dns(values, row_id, index, count):
 
 
 def reference_row(row, presentation):
+    from design.common import code
+
     row_id, prop, value, description = row
     if value not in presentation.marker_links or not cname_record(
         presentation.values, row_id
