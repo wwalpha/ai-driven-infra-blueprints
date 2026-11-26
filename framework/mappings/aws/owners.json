@@ -81,6 +81,7 @@
   "EC2.VPC": "vpc",
   "EC2.VPCBlockPublicAccessExclusion": "ec2",
   "EC2.VPCBlockPublicAccessOptions": "ec2",
+  "EC2.VPCCidrBlock": "vpc",
   "EC2.VPCEndpoint": "vpc-endpoint",
   "EC2.VPCGatewayAttachment": "ec2",
   "EC2.VPNGateway": "ec2",

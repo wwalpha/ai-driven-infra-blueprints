@@ -189,7 +189,7 @@ def check_v3_registry():
         getters,
         len(apis),
         len(set(apis)),
-    ) == (189, 53, 51, 66, 88, 87)
+    ) == (190, 53, 51, 66, 88, 87)
     stack = m.service_module("cloudformation-stacks")
     assert stack.STACK_TYPE == "CloudFormation.Stack"
     assert all(
@@ -534,6 +534,28 @@ def check_v3_registry():
     )
     assert definitions["ec2"].pop("provider-ec2-vpngateway")["identifier"] == [
         "/properties/VPNGatewayId"
+    ]
+    cidr = baseline_properties["vpc"].pop("EC2.VPCCidrBlock")
+    assert set(cidr) == {
+        "Id",
+        "Ipv6NetmaskLength",
+        "Ipv6CidrBlockNetworkBorderGroup",
+        "Ipv4NetmaskLength",
+        "Ipv6Pool",
+        "Ipv6IpamPoolId",
+        "Ipv6CidrBlock",
+        "AmazonProvidedIpv6CidrBlock",
+        "VpcId",
+        "CidrBlock",
+        "Ipv4IpamPoolId",
+    }
+    assert all(
+        value["model"]["include"] and value["display"]["show"]
+        for value in cidr.values()
+    )
+    assert definitions["vpc"].pop("provider-ec2-vpccidrblock")["identifier"] == [
+        "/properties/Id",
+        "/properties/VpcId",
     ]
     association = baseline_properties["vpc"].pop("EC2.GatewayRouteTableAssociation")
     assert set(association) == {"AssociationId", "GatewayId", "RouteTableId"}

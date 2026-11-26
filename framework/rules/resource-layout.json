@@ -98,6 +98,7 @@
   "EC2.VPC": "independent",
   "EC2.VPCBlockPublicAccessExclusion": "independent",
   "EC2.VPCBlockPublicAccessOptions": "independent",
+  "EC2.VPCCidrBlock": "independent",
   "EC2.VPCEndpoint": "independent",
   "EC2.VPNGateway": "independent",
   "EC2.VPCGatewayAttachment": "independent",

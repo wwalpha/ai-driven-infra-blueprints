@@ -58,6 +58,13 @@ getters:
     result: ResourceDescription.Properties
     resourceType: EC2.VPC
     identifier: [/properties/VpcId]
+  provider-ec2-vpccidrblock:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.VPCCidrBlock
+    identifier: [/properties/Id, /properties/VpcId]
 resourceTypes:
   EC2.GatewayRouteTableAssociation:
     identity:
@@ -81,6 +88,79 @@ resourceTypes:
         display: {show: true, name: RouteTableId}
         access: [read-write]
         aws: {getter: provider-ec2-gatewayroutetableassociation, path: RouteTableId, normalize: id}
+  EC2.VPCCidrBlock:
+    properties:
+      Id:
+        model: {include: true}
+        display: {show: true, name: Id}
+        access: [read-only]
+        aws: {getter: provider-ec2-vpccidrblock, path: Id, normalize: typed}
+      AmazonProvidedIpv6CidrBlock:
+        model: {include: true}
+        display: {show: true, name: AmazonProvidedIpv6CidrBlock}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpccidrblock, path: AmazonProvidedIpv6CidrBlock, normalize: typed}
+      CidrBlock:
+        model: {include: true}
+        display: {show: true, name: CidrBlock}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpccidrblock, path: CidrBlock, normalize: typed}
+      Ipv4IpamPoolId:
+        model: {include: true}
+        display: {show: true, name: Ipv4IpamPoolId}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row EC2.VPCCidrBlock.Ipv4IpamPoolId
+          constraint: The provider schema marks this property write-only; a provider read cannot confirm the input.
+          classification: local_metadata
+      Ipv4NetmaskLength:
+        model: {include: true}
+        display: {show: true, name: Ipv4NetmaskLength}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row EC2.VPCCidrBlock.Ipv4NetmaskLength
+          constraint: The provider schema marks this property write-only; a provider read cannot confirm the input.
+          classification: local_metadata
+      Ipv6CidrBlock:
+        model: {include: true}
+        display: {show: true, name: Ipv6CidrBlock}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpccidrblock, path: Ipv6CidrBlock, normalize: typed}
+      Ipv6CidrBlockNetworkBorderGroup:
+        model: {include: true}
+        display: {show: true, name: Ipv6CidrBlockNetworkBorderGroup}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpccidrblock, path: Ipv6CidrBlockNetworkBorderGroup, normalize: typed}
+      Ipv6IpamPoolId:
+        model: {include: true}
+        display: {show: true, name: Ipv6IpamPoolId}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row EC2.VPCCidrBlock.Ipv6IpamPoolId
+          constraint: The provider schema marks this property write-only; a provider read cannot confirm the input.
+          classification: local_metadata
+      Ipv6NetmaskLength:
+        model: {include: true}
+        display: {show: true, name: Ipv6NetmaskLength}
+        access: [write-only, create-only]
+        source:
+          kind: model
+          location: desired row EC2.VPCCidrBlock.Ipv6NetmaskLength
+          constraint: The provider schema marks this property write-only; a provider read cannot confirm the input.
+          classification: local_metadata
+      Ipv6Pool:
+        model: {include: true}
+        display: {show: true, name: Ipv6Pool}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpccidrblock, path: Ipv6Pool, normalize: typed}
+      VpcId:
+        model: {include: true}
+        display: {show: true, name: VpcId}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpccidrblock, path: VpcId, normalize: id}
   EC2.FlowLog:
     identity:
       getter: base

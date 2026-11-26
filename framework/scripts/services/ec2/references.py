@@ -19,6 +19,7 @@ REFERENCES = ReferenceTables(
     ref_attributes={
         "EC2.Subnet": "SubnetId",
         "EC2.VPC": "VpcId",
+        "EC2.VPCCidrBlock": "Id",
         "EC2.RouteTable": "RouteTableId",
         "EC2.Instance": "InstanceId",
         "EC2.FlowLog": "Id",
@@ -119,6 +120,7 @@ REFERENCES = ReferenceTables(
             "EC2.RouteTable",
             "RouteTableId",
         ),
+        "EC2.VPCCidrBlock.VpcId": ("EC2.VPC", "VpcId"),
         "EC2.RouteTable.VpcId": ("EC2.VPC", "VpcId"),
         "EC2.FlowLog.LogGroupName": ("Logs.LogGroup", "LogGroupName"),
         "EC2.VPCEndpoint.RouteTableIds[]": ("EC2.RouteTable", "RouteTableId"),

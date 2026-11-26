@@ -38,6 +38,7 @@ DECLARATION = ServiceDeclaration(
         "EC2.TransitGatewayRouteTablePropagation",
         "EC2.TransitGatewayVpcAttachment",
         "EC2.VPC",
+        "EC2.VPCCidrBlock",
         "EC2.VPCBlockPublicAccessExclusion",
         "EC2.VPCBlockPublicAccessOptions",
         "EC2.VPCEndpoint",

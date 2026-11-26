@@ -83,6 +83,7 @@
     "AWS::EC2::VPC": "aws-ec2-vpc.json",
     "AWS::EC2::VPCBlockPublicAccessExclusion": "aws-ec2-vpcblockpublicaccessexclusion.json",
     "AWS::EC2::VPCBlockPublicAccessOptions": "aws-ec2-vpcblockpublicaccessoptions.json",
+    "AWS::EC2::VPCCidrBlock": "aws-ec2-vpccidrblock.json",
     "AWS::EC2::VPCEndpoint": "aws-ec2-vpcendpoint.json",
     "AWS::EC2::VPCGatewayAttachment": "aws-ec2-vpcgatewayattachment.json",
     "AWS::EC2::VPNGateway": "aws-ec2-vpngateway.json",

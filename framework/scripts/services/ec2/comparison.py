@@ -636,6 +636,10 @@ RULES = {
             Tags
         """,
     ),
+    "EC2.VPCCidrBlock": properties(
+        references="VpcId",
+        scalars="AmazonProvidedIpv6CidrBlock CidrBlock Ipv4IpamPoolId Ipv4NetmaskLength Ipv6CidrBlock Ipv6CidrBlockNetworkBorderGroup Ipv6IpamPoolId Ipv6NetmaskLength Ipv6Pool IpSource Ipv6AddressAttribute",
+    ),
     "EC2.GatewayRouteTableAssociation": properties(
         references="""
             GatewayId
