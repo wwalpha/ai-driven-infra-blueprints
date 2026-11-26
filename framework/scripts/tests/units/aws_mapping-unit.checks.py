@@ -189,7 +189,7 @@ def check_v3_registry():
         getters,
         len(apis),
         len(set(apis)),
-    ) == (187, 53, 50, 66, 88, 87)
+    ) == (189, 53, 51, 66, 88, 87)
     stack = m.service_module("cloudformation-stacks")
     assert stack.STACK_TYPE == "CloudFormation.Stack"
     assert all(
@@ -299,15 +299,20 @@ def check_v3_registry():
     }
     set_identifier["model"]["include"] = False
     set_identifier["aws"]["getter"] = "provider-route53-recordset"
-    settings = baseline_properties["lake-formation"].pop("LakeFormation.DataLakeSettings")
+    settings = baseline_properties["lake-formation"].pop(
+        "LakeFormation.DataLakeSettings"
+    )
     admins = settings["Admins[].DataLakePrincipalIdentifier"]
     assert admins["model"]["include"] is True
     assert admins["display"]["show"] is True
     assert admins["aws"]["path"] == "DataLakeAdmins[].DataLakePrincipalIdentifier"
     assert settings["MutationType"]["source"]["classification"] == "local_metadata"
-    assert definitions["lake-formation"].pop("sdk-lakeformation-datalakesettings")[
-        "operation"
-    ] == "get_data_lake_settings"
+    assert (
+        definitions["lake-formation"].pop("sdk-lakeformation-datalakesettings")[
+            "operation"
+        ]
+        == "get_data_lake_settings"
+    )
     del baseline_properties["lake-formation"]["LakeFormation.Resource"]
     del definitions["lake-formation"]["sdk-lakeformation-resource"]
     assert metadata["lake-formation"]["APIS"] == [
@@ -452,7 +457,9 @@ def check_v3_registry():
     }
     assert metadata["s3"]["GETTERS"].pop("replication") == ("S3.Bucket",)
     metadata["s3"]["APIS"].remove(("s3", "get_bucket_replication"))
-    plan_id = baseline_properties["guardduty"]["GuardDuty.MalwareProtectionPlan"]["MalwareProtectionPlanId"]["aws"]
+    plan_id = baseline_properties["guardduty"]["GuardDuty.MalwareProtectionPlan"][
+        "MalwareProtectionPlanId"
+    ]["aws"]
     assert plan_id["getter"] == "provider-guardduty-plan"
     plan_id["getter"] = "plan"
     assert definitions["guardduty"].pop("provider-guardduty-plan") == {
@@ -482,9 +489,21 @@ def check_v3_registry():
     assert project_id["display"]["show"] is False
     project_id["display"]["show"] = True
     assert "AvailabilityZone" not in properties["ec2"]["EC2.Instance"]
-    assert set(baseline_properties["ssm"].pop("SSM.ServiceSetting")) == {"SettingId", "SettingValue"}
-    assert definitions["ssm"].pop("provider-ssm-servicesetting")["identifier"] == ["/properties/Arn"]
-    for name in ("CloudConnector", "Document", "OpsItem", "Parameter", "ResourceDataSync", "ResourcePolicy"):
+    assert set(baseline_properties["ssm"].pop("SSM.ServiceSetting")) == {
+        "SettingId",
+        "SettingValue",
+    }
+    assert definitions["ssm"].pop("provider-ssm-servicesetting")["identifier"] == [
+        "/properties/Arn"
+    ]
+    for name in (
+        "CloudConnector",
+        "Document",
+        "OpsItem",
+        "Parameter",
+        "ResourceDataSync",
+        "ResourcePolicy",
+    ):
         assert baseline_properties["ssm"].pop("SSM." + name)
         assert definitions["ssm"].pop("provider-ssm-" + name.lower())["identifier"]
     rotation = baseline_properties["secrets-manager"]["SecretsManager.RotationSchedule"]
@@ -502,6 +521,36 @@ def check_v3_registry():
     secret = rotation["SecretId"]["display"]
     assert secret["show"] is False
     secret["show"] = True
+    vpn = baseline_properties["ec2"].pop("EC2.VPNGateway")
+    assert set(vpn) == {
+        "VPNGatewayId",
+        "AmazonSideAsn",
+        "Type",
+        "Tags[].Key",
+        "Tags[].Value",
+    }
+    assert all(
+        value["model"]["include"] and value["display"]["show"] for value in vpn.values()
+    )
+    assert definitions["ec2"].pop("provider-ec2-vpngateway")["identifier"] == [
+        "/properties/VPNGatewayId"
+    ]
+    association = baseline_properties["vpc"].pop("EC2.GatewayRouteTableAssociation")
+    assert set(association) == {"AssociationId", "GatewayId", "RouteTableId"}
+    assert all(
+        value["model"]["include"] and value["display"]["show"]
+        for value in association.values()
+    )
+    assert association["GatewayId"]["access"] == ["create-only"]
+    assert association["RouteTableId"]["access"] == ["read-write"]
+    assert association["AssociationId"]["access"] == ["read-only"]
+    assert definitions["vpc"].pop("provider-ec2-gatewayroutetableassociation")[
+        "identifier"
+    ] == ["/properties/GatewayId"]
+    assert (
+        metadata["vpc"]["IDENTITIES"].pop("EC2.GatewayRouteTableAssociation")[0]
+        == "provider-ec2-gatewayroutetableassociation"
+    )
     # Environment mappings add CodePipeline SDK fields and expose ECS/Lambda values.
     for values, expected in [
         (

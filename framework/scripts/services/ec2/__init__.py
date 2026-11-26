@@ -19,6 +19,7 @@ DECLARATION = ServiceDeclaration(
     (
         "EC2.EIP",
         "EC2.FlowLog",
+        "EC2.GatewayRouteTableAssociation",
         "EC2.Instance",
         "EC2.InternetGateway",
         "EC2.LaunchTemplate",
@@ -40,6 +41,7 @@ DECLARATION = ServiceDeclaration(
         "EC2.VPCBlockPublicAccessExclusion",
         "EC2.VPCBlockPublicAccessOptions",
         "EC2.VPCEndpoint",
+        "EC2.VPNGateway",
         "EC2.VPCGatewayAttachment",
     ),
     REFERENCES,

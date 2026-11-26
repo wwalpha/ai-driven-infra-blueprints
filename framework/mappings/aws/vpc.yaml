@@ -11,6 +11,13 @@ getters:
     result: ResourceDescription.Properties
     resourceType: EC2.FlowLog
     identifier: [/properties/Id]
+  provider-ec2-gatewayroutetableassociation:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.GatewayRouteTableAssociation
+    identifier: [/properties/GatewayId]
   resource_type:
     kind: adapter
     resources: [EC2.FlowLog]
@@ -52,6 +59,28 @@ getters:
     resourceType: EC2.VPC
     identifier: [/properties/VpcId]
 resourceTypes:
+  EC2.GatewayRouteTableAssociation:
+    identity:
+      getter: provider-ec2-gatewayroutetableassociation
+      idPath: GatewayId
+      arnPath: null
+      nameProperty: null
+    properties:
+      AssociationId:
+        model: {include: true}
+        display: {show: true, name: AssociationId}
+        access: [read-only]
+        aws: {getter: provider-ec2-gatewayroutetableassociation, path: AssociationId, normalize: typed}
+      GatewayId:
+        model: {include: true}
+        display: {show: true, name: GatewayId}
+        access: [create-only]
+        aws: {getter: provider-ec2-gatewayroutetableassociation, path: GatewayId, normalize: id}
+      RouteTableId:
+        model: {include: true}
+        display: {show: true, name: RouteTableId}
+        access: [read-write]
+        aws: {getter: provider-ec2-gatewayroutetableassociation, path: RouteTableId, normalize: id}
   EC2.FlowLog:
     identity:
       getter: base

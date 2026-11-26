@@ -22,7 +22,9 @@ REFERENCES = ReferenceTables(
         "EC2.RouteTable": "RouteTableId",
         "EC2.Instance": "InstanceId",
         "EC2.FlowLog": "Id",
+        "EC2.GatewayRouteTableAssociation": "AssociationId",
         "EC2.InternetGateway": "InternetGatewayId",
+        "EC2.VPNGateway": "VPNGatewayId",
         "EC2.LaunchTemplate": "LaunchTemplateId",
         "EC2.NatGateway": "NatGatewayId",
         "EC2.VPCEndpoint": "Id",
@@ -58,7 +60,15 @@ REFERENCES = ReferenceTables(
         "EC2.TransitGatewayVpcAttachment.SubnetIds",
         "EC2.VPCEndpoint.SubnetIds",
     },
+    type_forms={
+        "EC2.InternetGateway": {"InternetGatewayId", "Arn"},
+        "EC2.VPNGateway": {"VPNGatewayId"},
+    },
     reference_forms={
+        "EC2.GatewayRouteTableAssociation.GatewayId": {
+            "InternetGatewayId",
+            "VPNGatewayId",
+        },
         "EC2.Instance.BlockDeviceMappings[].Ebs.KmsKeyId": {
             "KeyId",
             "Arn",
@@ -98,6 +108,14 @@ REFERENCES = ReferenceTables(
         "EC2.Subnet.VpcId": ("EC2.VPC", "VpcId"),
         "EC2.TransitGatewayVpcAttachment.VpcId": ("EC2.VPC", "VpcId"),
         "EC2.SubnetRouteTableAssociation.RouteTableId": (
+            "EC2.RouteTable",
+            "RouteTableId",
+        ),
+        "EC2.GatewayRouteTableAssociation.GatewayId": (
+            ("EC2.InternetGateway", "EC2.VPNGateway"),
+            ("InternetGatewayId", "VPNGatewayId"),
+        ),
+        "EC2.GatewayRouteTableAssociation.RouteTableId": (
             "EC2.RouteTable",
             "RouteTableId",
         ),

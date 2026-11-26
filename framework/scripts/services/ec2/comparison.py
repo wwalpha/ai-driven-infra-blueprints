@@ -265,6 +265,11 @@ RULES = {
             Tags
         """,
     ),
+    "EC2.VPNGateway": properties(
+        objects="Tags[]",
+        scalars="AmazonSideAsn Type Tags[].Key Tags[].Value",
+        tags="Tags",
+    ),
     "EC2.InternetGateway": properties(
         objects="""
             Tags[]
@@ -629,6 +634,12 @@ RULES = {
         """,
         tags="""
             Tags
+        """,
+    ),
+    "EC2.GatewayRouteTableAssociation": properties(
+        references="""
+            GatewayId
+            RouteTableId
         """,
     ),
     "EC2.SubnetRouteTableAssociation": properties(

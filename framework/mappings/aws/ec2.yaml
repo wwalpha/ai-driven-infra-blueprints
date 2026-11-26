@@ -111,6 +111,13 @@ getters:
     result: ResourceDescription.Properties
     resourceType: EC2.VPCGatewayAttachment
     identifier: [/properties/AttachmentType, /properties/VpcId]
+  provider-ec2-vpngateway:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: EC2.VPNGateway
+    identifier: [/properties/VPNGatewayId]
 resourceTypes:
   EC2.EIP:
     properties:
@@ -1412,6 +1419,33 @@ resourceTypes:
         display: {show: false, name: InternetGatewayBlockMode}
         access: [read-write]
         aws: {getter: provider-ec2-vpcblockpublicaccessoptions, path: InternetGatewayBlockMode, normalize: typed}
+  EC2.VPNGateway:
+    properties:
+      VPNGatewayId:
+        model: {include: true}
+        display: {show: true, name: VPNGatewayId}
+        access: [read-only]
+        aws: {getter: provider-ec2-vpngateway, path: VPNGatewayId, normalize: typed}
+      AmazonSideAsn:
+        model: {include: true}
+        display: {show: true, name: AmazonSideAsn}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpngateway, path: AmazonSideAsn, normalize: typed}
+      Type:
+        model: {include: true}
+        display: {show: true, name: Type}
+        access: [create-only]
+        aws: {getter: provider-ec2-vpngateway, path: Type, normalize: typed}
+      Tags[].Key:
+        model: {include: true}
+        display: {show: true, name: 'Tags[].Key'}
+        access: [read-write]
+        aws: {getter: provider-ec2-vpngateway, path: 'Tags[].Key', normalize: typed}
+      Tags[].Value:
+        model: {include: true}
+        display: {show: true, name: 'Tags[].Value'}
+        access: [read-write]
+        aws: {getter: provider-ec2-vpngateway, path: 'Tags[].Value', normalize: typed}
   EC2.VPCGatewayAttachment:
     properties:
       AttachmentType:
