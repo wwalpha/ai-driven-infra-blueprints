@@ -2,6 +2,7 @@
 
 import json
 import re
+from importlib import import_module
 
 from contracts.model import (
     MODEL_PENDING_DEPLOY,
@@ -186,8 +187,6 @@ def recorded_dns(values, row_id, index, count):
 
 
 def reference_row(row, presentation):
-    from design.common import code
-
     row_id, prop, value, description = row
     if value not in presentation.marker_links or not cname_record(
         presentation.values, row_id
@@ -232,7 +231,7 @@ def reference_row(row, presentation):
         description = (
             (description + "<br>" if description else "") + ENDPOINT_DESCRIPTION + value
         )
-    return [row_id, prop, code(dns or UNCONFIRMED_DNS), description]
+    return [row_id, prop, import_module("design.common").code(dns or UNCONFIRMED_DNS), description]
 
 
 EXTENSIONS = {
