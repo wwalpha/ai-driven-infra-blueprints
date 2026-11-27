@@ -1142,6 +1142,7 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
         start = len(ctx.trace)
         try:
             response, value = mapped_value(ctx, resource, mapping, definition, prop)
+            returned_identifier = isinstance(value, str) and bool(value)
             if prop == "DataZone.Domain.DomainVersion" and (
                 value is None or value == MISSING
             ):
@@ -1284,6 +1285,15 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                         **item,
                         "status": "identifier",
                         "awsValue": redacted(value),
+                        **(
+                            {"observationKey": f"observed.row.{rows[0][0]}.value"}
+                            if returned_identifier
+                            and definition.source == "aws"
+                            and resource.spec.get("resourceMode", "CREATE") == "CREATE"
+                            and len(rows) == 1
+                            and not resource.module.sensitive(prop)
+                            else {}
+                        ),
                         "apis": ctx.trace[start:],
                         "reason": "resource identifier; not a desired configuration value",
                     }

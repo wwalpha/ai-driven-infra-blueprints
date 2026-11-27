@@ -685,7 +685,7 @@ project.json or Models. Fixed-old migration tests execute the pinned old Framewo
 in a separate process/runtime. Unit and integration results are separate from
 actual AWS behavior and the LLM's live consent conversation.
 
-[/aws-pull](.agents/skills/aws-pull/SKILL.md) compares existing CREATE Resources with AWS,
-shows every proposed Model Before/After and requires explicit Human consent per service.
-Its approved Model-only save uses the existing editor and an opt-in Review guard; AWS,
-IaC and Deploy are outside its write authority. See [workflow](framework/prompts/codex/09_aws_pull.md).
+[/aws-pull](.agents/skills/aws-pull/SKILL.md) acquires existing CREATE Resources with
+read-only AWS APIs and directly saves confirmed identifier observations. Proposed
+settings changes still show every Before/After and require explicit Human consent per
+service. Both saves are Model-only. See [workflow](framework/prompts/codex/09_aws_pull.md).

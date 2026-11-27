@@ -118,6 +118,9 @@ def execute(args):
                 _, candidate = candidate_sources(snapshot.scope.root, args.candidate, snapshot)
                 result = build(snapshot, candidate, args.task_file,
                                json.loads(args.evidence.read_text(encoding="utf-8")))
+            elif args.command == "pull-observed":
+                pull_observed = module("model/pull_observed.py", "model.pull_observed")
+                result = pull_observed.execute(args)
             elif args.command == "allocate":
                 result = allocate_candidate(args)
             elif args.command == "edit":

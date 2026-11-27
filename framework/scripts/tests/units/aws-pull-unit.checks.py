@@ -13,8 +13,10 @@ import import_guard
 import model.adapters.aws as aws
 import pytest
 from generation_inputs import GenerationInputs
+from model.cli import main as model_cli
 from model.format import parse, patch, serialize, split
 from model.operations import prepare_edit, publish_edit
+from model.pull_observed import proposed_values
 from model.pull_review import MARKER, build, verify
 from model.sources import SourceWriteContext, raw_model
 from support.import_model_fixtures import resource_values
@@ -363,6 +365,164 @@ def check_no_create_resources_never_acquires(tmp_path, monkeypatch):
         aws.run(root, [(target, path)], profile="conflicting", create_only=True)
     with pytest.raises(ValueError):
         aws.run(root, [({**target, "awsAccountId": "invalid"}, path)], create_only=True)
+
+
+def observation(service, kind, attribute, key, value):
+    return {
+        "environment": "preview",
+        "target": "team",
+        "service": service,
+        "status": "identifier",
+        "resource": kind.replace(".", "_") + "_001",
+        "resourceType": kind,
+        "propertiesKey": kind + "." + attribute,
+        "observationKey": key,
+        "awsValue": value,
+    }
+
+
+@pytest.mark.parametrize(
+    "service,kind,attribute,previous,identifier",
+    [
+        ("vpc", "EC2.VPC", "VpcId", None, "vpc-0123456789abcdef0"),
+        ("route53", "Route53.HostedZone", "Id", "`PENDING_DEPLOY`", "Z0123456789"),
+        ("route53", "Route53.HostedZone", "Id", "`ZOLD`", "Z0123456789"),
+    ],
+)
+def check_direct_observation_cli(tmp_path, capsys, service, kind, attribute, previous, identifier):
+    root = tmp_path / "repo"
+    setup(root, [service], [kind])
+    path = root / f"model/preview/team/{service}.properties"
+    reference = json.dumps(
+        {"$modelRef": {"logicalId": kind.replace(".", "_") + "_001", "attribute": attribute}}
+    )
+    values = resource_values("001", kind, "fixture", "CREATE", [(attribute, reference)])
+    observed = "observed.row.001-001.value"
+    if previous is not None:
+        values[observed] = previous
+    path.parent.mkdir(parents=True)
+    for file, content in split(path, values, limit=5).items():
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_bytes(content.replace("\n", "\r\n").encode("utf-8"))
+    before = raw_model(path)
+    part = before.locations[KEY][0]
+    base = ["pull-observed", str(path)]
+    assert model_cli(base) == 0
+    snapshot = tmp_path / "inputs.json"
+    snapshot.write_text(capsys.readouterr().out, encoding="utf-8")
+    identifiers = tmp_path / "identifiers.json"
+    identifiers.write_text(
+        json.dumps([observation(service, kind, attribute, observed, identifier)]),
+        encoding="utf-8",
+    )
+    arguments = [*base, "--snapshot", str(snapshot), "--observations", str(identifiers)]
+    assert model_cli(arguments) == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "planned", "paths": [str(part)]}
+    assert part.read_bytes() == before.files[part].encode("utf-8")
+
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "user.name", "Fixture")
+    git(root, "config", "user.email", "fixture@example.invalid")
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "baseline")
+    declared = "\n".join(f"- `{name}`" for name in (TASK, part.relative_to(root)))
+    start(
+        root,
+        TASK,
+        "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
+        "- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n"
+        "## Required changes\n- [R1] observe\n## Acceptance checks\n- [R1] `exists:project.json`\n"
+        f"## Validation scope\n- `preview/team/{service}`\n## Modified files\n"
+        f"{declared}\n## Allowed paths\n{declared}\n",
+    )
+    command = [*arguments, "--task-file", TASK]
+    project = root / "project.json"
+    original_project = project.read_bytes()
+    project.write_bytes(original_project + b"\n")
+    assert model_cli(command) == 1
+    assert "inputs changed since acquisition" in capsys.readouterr().err
+    assert part.read_bytes() == before.files[part].encode("utf-8")
+    project.write_bytes(original_project)
+    assert model_cli(command) == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "saved", "paths": [str(part)]}
+    expected = patch(before.documents[part], {observed: f"`{identifier}`"})
+    assert part.read_bytes() == expected.encode("utf-8")
+    assert path.read_bytes() == before.files[path].encode("utf-8")
+    assert model_cli(base) == 0
+    snapshot.write_text(capsys.readouterr().out, encoding="utf-8")
+    assert model_cli(arguments) == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "planned", "paths": []}
+
+
+@pytest.mark.parametrize(
+    "source_mode,attribute,key,value",
+    [
+        ("IMPORT", "VpcId", "observed.row.001-001.value", "vpc-valid"),
+        ("CREATE", "CidrBlock", "observed.row.001-001.value", "vpc-valid"),
+        ("CREATE", "VpcId", "desired.row.001-001.value", "vpc-valid"),
+        ("CREATE", "VpcId", "observed.row.001-001.value", "PENDING_DEPLOY"),
+        ("CREATE", "VpcId", "observed.row.001-001.value", "arn:aws:ec2:::vpc/vpc-valid"),
+    ],
+)
+def check_pull_observation_rejects_unwritable_values(tmp_path, source_mode, attribute, key, value):
+    values = resource_values(
+        "001", "EC2.VPC", "fixture", source_mode,
+        [(attribute, '{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}')],
+    )
+    snapshot = SimpleNamespace(
+        scope=SimpleNamespace(root=tmp_path, environment="preview", target="team", service="vpc"),
+        authoritative=values, values=values,
+    )
+    with pytest.raises(ValueError):
+        proposed_values(snapshot, [observation("vpc", "EC2.VPC", attribute, key, value)])
+
+
+@pytest.mark.parametrize(
+    "source,raw,available",
+    [
+        ("aws", "vpc-actual", True),
+        ("model", "vpc-request", False),
+        ("aws", aws.MISSING, False),
+        ("aws", None, False),
+    ],
+)
+def check_identifier_hint_requires_an_aws_result(monkeypatch, source, raw, available):
+    prop = "EC2.VPC.VpcId"
+    field = aws.Field("base")
+    definition = SimpleNamespace(field=field, source=source)
+    ctx = SimpleNamespace(comparison=lambda service: (None, {prop: definition}), trace=[])
+    resource = SimpleNamespace(
+        kind="EC2.VPC", number="001", spec={},
+        model=SimpleNamespace(path=Path("vpc.properties"), locations={}),
+        module=SimpleNamespace(sensitive=lambda name: False),
+        rows=[("001-001", {"property": prop, "value": "model"})],
+    )
+    monkeypatch.setattr(
+        aws._imports_aws_mapping_compare, "value", lambda *args: ({}, raw)
+    )
+    result = aws.compare_resource(ctx, resource)
+    assert ("observationKey" in result[0]) is available
+    if available:
+        assert result[0]["status"] == "identifier"
+        assert result[0]["awsValue"] == raw
+
+
+@pytest.mark.parametrize("field", ["environment", "target", "service", "resource", "resourceType", "propertiesKey"])
+def check_pull_observation_rejects_a_different_resource_or_scope(tmp_path, field):
+    prop = "VpcId"
+    key = "observed.row.001-001.value"
+    values = resource_values(
+        "001", "EC2.VPC", "fixture", "CREATE",
+        [(prop, '{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"VpcId"}}')],
+    )
+    snapshot = SimpleNamespace(
+        scope=SimpleNamespace(root=tmp_path, environment="preview", target="team", service="vpc"),
+        authoritative=values, values=values,
+    )
+    item = observation("vpc", "EC2.VPC", prop, key, "vpc-valid")
+    item[field] = "other"
+    with pytest.raises(ValueError):
+        proposed_values(snapshot, [item])
 
 
 if __name__ == "__main__":

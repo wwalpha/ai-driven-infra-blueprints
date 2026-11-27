@@ -62,6 +62,13 @@ def main(argv=None):
         help="external directory containing the repository-relative model hierarchy; not a single properties file",
     )
     edit.add_argument("--task-file", required=True)
+    observed_pull = commands.add_parser(
+        "pull-observed", help="capture inputs or save confirmed AWS pull identifiers offline"
+    )
+    observed_pull.add_argument("model", type=Path)
+    observed_pull.add_argument("--snapshot", type=Path)
+    observed_pull.add_argument("--observations", type=Path)
+    observed_pull.add_argument("--task-file")
     review = commands.add_parser(
         "pull-review",
         help="build an offline AWS pull Review; never save Model",

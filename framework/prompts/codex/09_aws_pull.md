@@ -8,11 +8,13 @@ Read AGENTS.md, [Task transition](../../rules/task-contract.md#task-transition) 
 [Model sources](../../rules/model-templates.md), [project configuration](../../rules/project-configuration.md),
 [Model authority](../../rules/model-information.md#model-authority),
 [Properties format](../../rules/model-information.md#properties-format), and
-[Validation policy](../../rules/loop-engineering.md#validation-policy).
+[Validation policy](../../rules/loop-engineering.md#validation-policy). For direct
+observation saves, read [Collection and propagation](../../rules/observed-values.md#collection-and-propagation)
+and [Observation publication](../../rules/observed-values.md#observation-publication).
 Use the existing [AWS check](../../../.agents/skills/aws-check/SKILL.md) comparison and
 account/profile/region checks for retrieval only; its prohibition on saving Model applies
-to aws-check itself. This workflow adds only read-only CREATE comparison before an approved
-Model-only update. Import acquisition/registration remains /import-only. Ordinary /update
+to aws-check itself. This workflow uses read-only CREATE acquisition for direct observation
+saves and separately approved Model settings updates. Import acquisition/registration remains /import-only. Ordinary /update
 has no AWS acquisition authority. AWS mutation, IaC changes and deploy/apply are forbidden.
 
 Accept `--environment`, `--target` and comma-separated `--service` names, for example
@@ -23,11 +25,13 @@ Use the Human-selected worktree. For a managed Task, follow
 
 ## Read-only phase, before the design Task
 
-Do not register a design Task until the final approved AWS values have been rechecked.
-Execute the existing comparator:
+Capture the selected Model inputs before the first AWS read, then execute the existing
+comparator. Keep both results in a new external directory for the selected service.
+The commands use example paths:
 
 ```console
-python3 -B framework/scripts/model/cli.py aws-compare --root . --environment stg --target cde --service s3 --create-only
+python3 -B framework/scripts/model/cli.py pull-observed model/stg/cde/s3.properties > /tmp/pull-observed-inputs.json
+python3 -B framework/scripts/model/cli.py aws-compare --root . --environment stg --target cde --service s3 --create-only --output /tmp/pull-result.json
 ```
 
 Replace example arguments with the confirmed target. Explicit/implicit CREATE follows the
@@ -42,6 +46,48 @@ AWS-only settings. Additional list/get/describe calls may investigate only expli
 existing Resources. Authentication/account/profile failures stop; never fall back.
 Acquisition failure is not absence. LLM determines API omission, defaults and unset semantics;
 never turn errors, masking, normalization or unresolved values into Model settings.
+
+## Direct observation save
+
+Use the acquisition result's `identifier` items with an `observationKey`, including
+when the comparison exits 0. A key identifies a potential destination. Confirm from
+the existing Mapping, resource identity and API evidence that `awsValue` is the
+actual identifier of that exact CREATE resource. A request selector or saved ID alone
+does not establish resource ownership. Exclude unconfirmed rows, hidden identifiers,
+ARNs, secrets and placeholders. Do not perform another AWS read for this save.
+
+Copy the confirmed items unchanged from the comparison's `results` array to an
+external JSON array. Each item binds its AWS value to its original service, resource,
+property and observation key.
+Run the command below without `--task-file` to obtain the exact Model write paths
+without saving. When it returns at least one path, register an observation-only
+`design/update` Task with AWS API execution and deploy/apply forbidden, one producer
+service, the exact Model source files, and the affected generated files and Validation scope. Use
+[dependency analysis](05_update.md#dependency-analysis-and-value-preserving-refactoring)
+to plan affected reference displays. In a managed Worktree allocate a separate
+Task for each save phase. Keep the acquisition input snapshot for its original
+Worktree. Skip the observation Task when there are no confirmed observations or
+the write-path plan is empty.
+
+```console
+python3 -B framework/scripts/model/cli.py pull-observed model/stg/cde/s3.properties --snapshot /tmp/pull-observed-inputs.json --observations /tmp/pull-observed-results.json --task-file tasks/pull-observed-stg-cde-s3.md
+```
+
+The invocation authorizes this observation-only save for the requested service.
+Save directly without a value comparison, Review, or additional Human consent.
+An absent observation value may be inserted on the existing identifier Row; an
+existing value may be replaced. The writer patches only confirmed observation fields,
+preserves independent consumer observations and stops on a changed input snapshot.
+After a write, generate the necessary Markdown/JSON and run related Change Validation
+using [Ordinary Model correction](05_update.md#ordinary-model-correction)'s local
+completion procedure. For generation failure, retain the saved Model and retry
+local generation. Report the saved observation keys and any unconfirmed observations.
+
+## Settings candidate
+
+Continue with the acquired setting differences. Use the current Model, including
+observations saved in the previous step, as the baseline for the settings Review.
+There is no settings Task when there are no eligible setting changes.
 
 Prepare a complete external properties candidate with existing `model.sources` and
 `model.format.patch`. Only existing desired.row value/document keys may change; identities,
@@ -99,11 +145,11 @@ Identity / Before (Model) / After (exact proposed Model representation) / AWS ev
 Expand full JSON and arrays in associated blocks when a table is insufficient. Report
 excluded/unconfirmed differences separately. Ask for all changes, partial revision or cancel.
 Invocation, a digest or a file flag never proves conversational approval. LLM must obtain
-explicit final consent in chat. Cancel/no consent means zero Model changes.
+explicit final consent in chat. Cancel/no consent means zero settings changes.
 For partial revision regenerate the candidate and entire Review, display all changes again
 and obtain new explicit consent; never silently retain the old approval.
 
-After approval and before Task creation re-read the exact relevant AWS values and identity
+After settings approval and before its Task creation re-read the exact relevant AWS settings and identity
 with the same verified connection. Compare the confirmed semantics and proposed saved values
 with the approved Review. Failure, ambiguity or changed AWS values stops saving: rebuild
 Review and obtain fresh consent. Rebuild the offline Review against current Model/candidate

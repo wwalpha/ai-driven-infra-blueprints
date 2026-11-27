@@ -155,7 +155,7 @@ Deploy rejects Worktree PR mode. See [Worktree PR publication](../../.agents/ski
 
 - `design`: Edit explicit environment/service properties candidates and generate
   docs/designs through the shared guarded APIs, then finish after classified validation.
-  IMPORT acquisition and acquired add/refresh/bind/replace remain exclusive to /import; /aws-pull may perform read-only CREATE comparison before its approved Model-only Task; explicit ordinary IMPORT corrections use the guarded Model edit API.
+  IMPORT acquisition and acquired add/refresh/bind/replace remain exclusive to /import. /aws-pull may use read-only CREATE acquisition before Model-only saves, with direct confirmed identifier writes and separately approved settings writes. Explicit ordinary IMPORT corrections use the guarded Model edit API.
   Do not proceed to IaC, AWS mutation or scenarios.
 - `infrastructure`: Read the approved design, perform only explicitly authorized IaC,
   checks and deploy/apply. CloudFormation Deploy synchronizes current permitted observations/generated views regardless of attempt success; other phases retain their success rules. Independent destroy changes only explicit designed Stacks, post-success
