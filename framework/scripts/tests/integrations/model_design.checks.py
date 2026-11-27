@@ -8,6 +8,7 @@ from unittest import TestCase
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import support.model_design_fixtures as fixtures
+from comparison.methods import compare_values
 from design.document import DesignIndex
 from model.format import FORMAT
 from model.format import INDEX as INDEX_HEADER
@@ -16,6 +17,7 @@ from model.identity import Resolver
 from model.projection import validate_json_documents
 from model.render import generate_files
 from model.sources import scope_for, source_inputs
+from services.registry import REGISTRY
 from support.model_design_fixtures import (
     ROOT,
     SYNC,
@@ -933,6 +935,61 @@ def check_dynamic_reference_candidates(root, project):
     assert reference.replace(":username}}", ":password}}") in saved.decode("utf-8")
     assert inputs == {path: path.read_bytes() for path in inputs}
     assert SYNC.sync(root, False, "dev", "123456789012", {"quicksight"}) == 0
+
+
+def test_glue_trigger_design_and_iac_comparison(root, project):
+    kind = "Glue.Trigger"
+    actions = [{"JobName": "downstream", "Arguments": {"--mode": "incremental"}}]
+    predicate = {
+        "Conditions": [
+            {"JobName": "upstream", "LogicalOperator": "EQUALS", "State": "SUCCEEDED"}
+        ]
+    }
+    values = model(
+        "glue",
+        kind,
+        "fixture-trigger",
+        [
+            ("Name", "`fixture-trigger`", "トリガー名"),
+            ("Type", "`CONDITIONAL`", "起動方式"),
+            ("Actions", "`" + json.dumps(actions) + "`", "実行するジョブ"),
+            ("Predicate", "`" + json.dumps(predicate) + "`", "起動条件"),
+            ("StartOnCreation", "`true`", "作成時に有効化"),
+        ],
+    )
+    design = root / "docs/designs/dev/123456789012/glue.md"
+    output = roundtrip(design, values, root)
+    assert all(
+        value in output
+        for value in (
+            "Glue.Trigger",
+            "Actions[1]",
+            "downstream",
+            "upstream",
+            "StartOnCreation",
+        )
+    )
+    rules = REGISTRY.require_comparison(kind)
+    template_properties = {
+        "Actions": [{"Arguments": {"--mode": "incremental"}, "JobName": "downstream"}],
+        "Predicate": predicate,
+        "StartOnCreation": True,
+    }
+    assert compare_values(
+        actions, template_properties["Actions"], "Actions", rules=rules
+    ).equal
+    assert compare_values(
+        True, template_properties["StartOnCreation"], "StartOnCreation", rules=rules
+    ).equal
+    assert (
+        compare_values(
+            predicate,
+            {"Conditions": [{**predicate["Conditions"][0], "State": "FAILED"}]},
+            "Predicate",
+            rules=rules,
+        ).equal
+        is False
+    )
 
 
 if __name__ == "__main__":

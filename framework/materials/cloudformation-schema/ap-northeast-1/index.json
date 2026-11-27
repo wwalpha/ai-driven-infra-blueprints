@@ -108,6 +108,7 @@
     "AWS::Glue::Job": "aws-glue-job.json",
     "AWS::Glue::SecurityConfiguration": "aws-glue-securityconfiguration.json",
     "AWS::Glue::Table": "aws-glue-table.json",
+    "AWS::Glue::Trigger": "aws-glue-trigger.json",
     "AWS::GuardDuty::Detector": "aws-guardduty-detector.json",
     "AWS::GuardDuty::MalwareProtectionPlan": "aws-guardduty-malwareprotectionplan.json",
     "AWS::IAM::InstanceProfile": "aws-iam-instanceprofile.json",

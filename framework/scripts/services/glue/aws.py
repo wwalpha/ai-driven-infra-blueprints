@@ -12,6 +12,7 @@ APIS = {
     ("glue", "get_database"),
     ("glue", "get_job"),
 }
+CLOUDCONTROL_RESOURCE_TYPES = frozenset({"Glue.Trigger"})
 
 
 def sensitive(prop):

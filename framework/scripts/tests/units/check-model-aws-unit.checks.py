@@ -2210,5 +2210,53 @@ def test_glue_catalog_base_mapping_and_selectors(tmp_path):
     )
 
 
+@pytest.mark.parametrize("timeout", [30, 60])
+def test_glue_trigger_provider_comparison(tmp_path, timeout):
+    kind = "Glue.Trigger"
+    properties = {
+        "Name": "fixture-trigger",
+        "Type": "CONDITIONAL",
+        "Actions": [{"JobName": "target-job", "Timeout": 30}],
+        "Predicate": {
+            "Conditions": [{"CrawlerName": "upstream", "CrawlState": "SUCCEEDED"}]
+        },
+        "Tags": {"team": "data"},
+    }
+    rows = [
+        (f"{kind}.{key}", "`" + (value if isinstance(value, str) else json.dumps(value)) + "`")
+        for key, value in {**properties, "StartOnCreation": True}.items()
+    ]
+    path = tmp_path / "model/dev" / ACCOUNT / "glue.properties"
+    (tmp_path / "project.json").write_text(
+        json.dumps({"targets": [TARGET]}), encoding="utf-8"
+    )
+    write_model(path, model_text(kind, rows))
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    resource = ctx.model(path).resources[0]
+    actual = {**properties, "Actions": [{"JobName": "target-job", "Timeout": timeout}]}
+    with patch.object(
+        ctx,
+        "_call",
+        return_value={"ResourceDescription": {"Properties": json.dumps(actual)}},
+    ) as call:
+        results = {
+            item["propertiesKey"].removeprefix(f"{kind}."): item["status"]
+            for item in m.compare_resource(ctx, resource)
+        }
+        assert resource.identity() == "fixture-trigger"
+    call.assert_called_once_with(
+        "cloudcontrol",
+        "get_resource",
+        TypeName="AWS::Glue::Trigger",
+        Identifier="fixture-trigger",
+    )
+    assert results == {
+        **dict.fromkeys(properties, "match"),
+        "Actions": "match" if timeout == 30 else "difference",
+        "StartOnCreation": "local_metadata",
+    }
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

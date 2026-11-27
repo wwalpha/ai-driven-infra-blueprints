@@ -58,6 +58,13 @@ getters:
     operation: get_table
     result: Table
     resourceType: Glue.Table
+  provider-glue-trigger:
+    kind: cloudcontrol
+    service: cloudcontrol
+    operation: get_resource
+    result: ResourceDescription.Properties
+    resourceType: Glue.Trigger
+    identifier: [/properties/Name]
 resourceTypes:
   Glue.Catalog:
     identity:
@@ -779,3 +786,59 @@ resourceTypes:
         display: {show: true, name: TableInput.TableType}
         access: [read-write]
         aws: {getter: base, path: TableType, normalize: typed}
+  Glue.Trigger:
+    properties:
+      Name:
+        model: {include: true}
+        display: {show: true, name: Name}
+        access: [create-only]
+        aws: {getter: provider-glue-trigger, path: Name, normalize: typed}
+      Type:
+        model: {include: true}
+        display: {show: true, name: Type}
+        access: [create-only]
+        aws: {getter: provider-glue-trigger, path: Type, normalize: typed}
+      Description:
+        model: {include: true}
+        display: {show: true, name: Description}
+        access: [read-write]
+        aws: {getter: provider-glue-trigger, path: Description, normalize: typed}
+      Actions:
+        model: {include: true}
+        display: {show: true, name: Actions}
+        access: [read-write]
+        aws: {getter: provider-glue-trigger, path: Actions, normalize: typed}
+      Predicate:
+        model: {include: true}
+        display: {show: true, name: Predicate}
+        access: [read-write]
+        aws: {getter: provider-glue-trigger, path: Predicate, normalize: typed}
+      Schedule:
+        model: {include: true}
+        display: {show: true, name: Schedule}
+        access: [read-write]
+        aws: {getter: provider-glue-trigger, path: Schedule, normalize: typed}
+      StartOnCreation:
+        model: {include: true}
+        display: {show: true, name: StartOnCreation}
+        access: [write-only]
+        source:
+          kind: model
+          location: desired row Glue.Trigger.StartOnCreation
+          constraint: The provider schema declares this creation setting write-only. Current trigger state cannot confirm the original setting.
+          classification: local_metadata
+      EventBatchingCondition:
+        model: {include: true}
+        display: {show: true, name: EventBatchingCondition}
+        access: [read-write]
+        aws: {getter: provider-glue-trigger, path: EventBatchingCondition, normalize: typed}
+      WorkflowName:
+        model: {include: true}
+        display: {show: true, name: WorkflowName}
+        access: [create-only]
+        aws: {getter: provider-glue-trigger, path: WorkflowName, normalize: typed}
+      Tags:
+        model: {include: true}
+        display: {show: true, name: Tags}
+        access: [read-write]
+        aws: {getter: provider-glue-trigger, path: Tags, normalize: typed}

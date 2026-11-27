@@ -123,6 +123,7 @@
   "Glue.Job": "independent",
   "Glue.SecurityConfiguration": "independent",
   "Glue.Table": "independent",
+  "Glue.Trigger": "independent",
   "GuardDuty.Detector": "independent",
   "GuardDuty.MalwareProtectionPlan": "independent",
   "IAM.InstanceProfile": "independent",

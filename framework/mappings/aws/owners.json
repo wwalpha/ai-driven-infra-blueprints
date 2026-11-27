@@ -106,6 +106,7 @@
   "Glue.Job": "glue",
   "Glue.SecurityConfiguration": "glue",
   "Glue.Table": "glue",
+  "Glue.Trigger": "glue",
   "GuardDuty.Detector": "guardduty",
   "GuardDuty.MalwareProtectionPlan": "guardduty",
   "IAM.InstanceProfile": "iam",

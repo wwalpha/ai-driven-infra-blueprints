@@ -189,7 +189,7 @@ def check_v3_registry():
         getters,
         len(apis),
         len(set(apis)),
-    ) == (190, 53, 51, 66, 88, 87)
+    ) == (191, 53, 51, 66, 88, 87)
     stack = m.service_module("cloudformation-stacks")
     assert stack.STACK_TYPE == "CloudFormation.Stack"
     assert all(
@@ -232,6 +232,19 @@ def check_v3_registry():
     }
     assert sum(map(len, tgw_properties.values())) == 18
     baseline_properties = deepcopy(properties)
+    trigger = baseline_properties["glue"].pop("Glue.Trigger")
+    trigger_getter = definitions["glue"].pop("provider-glue-trigger")
+    assert trigger_getter["identifier"] == ["/properties/Name"]
+    assert trigger["StartOnCreation"]["source"]["classification"] == "local_metadata"
+    assert all(
+        definition["aws"] == {
+            "getter": "provider-glue-trigger",
+            "path": prop,
+            "normalize": "typed",
+        }
+        for prop, definition in trigger.items()
+        if prop != "StartOnCreation"
+    )
     for prop, sdk_path in (
         (
             "EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn",

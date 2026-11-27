@@ -15,6 +15,7 @@ REFERENCES = ReferenceTables(
         "Glue.Crawler": "Name",
         "Glue.Database": "Name",
         "Glue.Table": "Name",
+        "Glue.Trigger": "Name",
         "Glue.Catalog": "ResourceArn",
     },
     arn_attributes={
@@ -37,6 +38,14 @@ REFERENCES = ReferenceTables(
         "Glue.Job.Connections.Connections[]": ("Glue.Connection", "Name"),
         "Glue.Job.Role": ("IAM.Role", "RoleName"),
         "Glue.Job.SecurityConfiguration": ("Glue.SecurityConfiguration", "Name"),
+        "Glue.Trigger.Actions[].CrawlerName": ("Glue.Crawler", "Name"),
+        "Glue.Trigger.Actions[].JobName": ("Glue.Job", "Name"),
+        "Glue.Trigger.Actions[].SecurityConfiguration": (
+            "Glue.SecurityConfiguration",
+            "Name",
+        ),
+        "Glue.Trigger.Predicate.Conditions[].CrawlerName": ("Glue.Crawler", "Name"),
+        "Glue.Trigger.Predicate.Conditions[].JobName": ("Glue.Job", "Name"),
     },
     import_properties={
         "Glue.Crawler.Targets.JdbcTargets[].ConnectionName": (
@@ -77,6 +86,11 @@ REFERENCES = ReferenceTables(
         "Glue.Crawler": (
             "Name",
             "arn:{partition}:glue:{region}:{account}:crawler/{id}",
+            {"id": r"[\w+=,.@/-]{1,255}"},
+        ),
+        "Glue.Trigger": (
+            "Name",
+            "arn:{partition}:glue:{region}:{account}:trigger/{id}",
             {"id": r"[\w+=,.@/-]{1,255}"},
         ),
         "Glue.Connection": (

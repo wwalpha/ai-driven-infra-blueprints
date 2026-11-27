@@ -29,6 +29,7 @@ DECLARATION = ServiceDeclaration(
         "Glue.Job",
         "Glue.SecurityConfiguration",
         "Glue.Table",
+        "Glue.Trigger",
     ),
     REFERENCES,
     design=design,

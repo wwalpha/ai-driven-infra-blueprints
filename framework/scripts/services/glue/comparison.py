@@ -198,6 +198,44 @@ RULES = {
             Name
         """,
     ),
+    "Glue.Trigger": properties(
+        objects="""
+            Actions[]
+            Actions[].Arguments
+            Actions[].NotificationProperty
+            EventBatchingCondition
+            Predicate
+            Predicate.Conditions[]
+            Tags
+        """,
+        ordered="""
+            Actions
+            Predicate.Conditions
+        """,
+        references="""
+            Actions[].CrawlerName
+            Actions[].JobName
+            Actions[].SecurityConfiguration
+            Predicate.Conditions[].CrawlerName
+            Predicate.Conditions[].JobName
+        """,
+        scalars="""
+            Actions[].NotificationProperty.NotifyDelayAfter
+            Actions[].Timeout
+            Description
+            EventBatchingCondition.BatchSize
+            EventBatchingCondition.BatchWindow
+            Name
+            Predicate.Conditions[].CrawlState
+            Predicate.Conditions[].LogicalOperator
+            Predicate.Conditions[].State
+            Predicate.Logical
+            Schedule
+            StartOnCreation
+            Type
+            WorkflowName
+        """,
+    ),
     "Glue.Table": properties(
         objects="""
             TableInput
