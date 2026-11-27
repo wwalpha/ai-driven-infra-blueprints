@@ -9,6 +9,7 @@ Follow the [common rules](../aws-resource-naming.md) for the common scope, exclu
 | AWS Glue | Job | `Glue.Job` | `Name` | `glue-{{application}}-{{environment}}-{{purpose}}` |
 | AWS Glue | Security configuration | `Glue.SecurityConfiguration` | `Name` | `glsc[-{{number}}][-{{suffix}}]` |
 | AWS Glue | Catalog | `Glue.Catalog` | `Name` | `glct-{{application}}-{{environment}}-{{purpose}}` |
+| AWS Glue | Trigger | `Glue.Trigger` | `Name` | `gltr-{{application}}-{{environment}}-{{purpose}}` |
 
 ## Service-specific constraints
 
